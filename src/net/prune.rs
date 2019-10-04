@@ -306,7 +306,7 @@ impl PeerNetwork {
         }
 
         // sort in order by first-contact time (oldest first)
-        for (mut addrbytes, mut stats_list) in ip_neighbor.iter_mut() {
+        for (addrbytes, stats_list) in ip_neighbor.iter_mut() {
             stats_list.sort_by(|&(ref e1, ref nk1, ref stats1), &(ref e2, ref nk2, ref stats2)| {
                 if stats1.first_contact_time < stats2.first_contact_time {
                     Ordering::Less
@@ -321,7 +321,7 @@ impl PeerNetwork {
         }
 
         let mut to_remove = vec![];
-        for (mut addrbytes, mut neighbor_info) in ip_neighbor.iter_mut() {
+        for (addrbytes, neighbor_info) in ip_neighbor.iter_mut() {
             if (neighbor_info.len() as u64) > self.connection_opts.soft_max_clients_per_host {
                 debug!("{:?}: Starting to have too many inbound connections from {:?}; will close the last {:?}", &local_peer, &addrbytes, (neighbor_info.len() as u64) - self.connection_opts.soft_max_clients_per_host);
                 for i in (self.connection_opts.soft_max_clients_per_host as usize)..neighbor_info.len() {

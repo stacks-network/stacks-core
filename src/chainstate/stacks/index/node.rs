@@ -81,7 +81,7 @@ impl fmt::Display for CursorError {
 }
 
 impl error::Error for CursorError {
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         None
     }
 

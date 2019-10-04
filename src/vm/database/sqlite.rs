@@ -17,13 +17,13 @@ pub struct SqliteConnection {
 }
 
 fn sqlite_put(conn: &Connection, key: &str, value: &str) {
-    let params: [&ToSql; 2] = [&key, &value.to_string()];
+    let params: [&dyn ToSql; 2] = [&key, &value.to_string()];
     conn.execute("REPLACE INTO data_table (key, value) VALUES (?, ?)",
                       &params)
         .expect(SQL_FAIL_MESSAGE);
 }
 fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
-    let params: [&ToSql; 1] = [&key];
+    let params: [&dyn ToSql; 1] = [&key];
     conn.query_row(
         "SELECT value FROM data_table WHERE key = ?",
         &params,

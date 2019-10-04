@@ -200,6 +200,10 @@ impl Value {
             data: Box::new(data) })
     }
 
+    pub fn size(&self) -> u32 {
+        TypeSignature::type_of(self).size()
+    }
+
     /// Invariant: the supplied Values have already been "checked", i.e., it's a valid Value object
     ///  this invariant is enforced through the Value constructors, each of which checks to ensure
     ///  that any typing data is correct.

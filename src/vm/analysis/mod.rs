@@ -5,6 +5,7 @@ pub mod type_checker;
 pub mod read_only_checker;
 pub mod analysis_db;
 pub mod contract_interface_builder;
+//pub mod cost_counter;
 
 use self::types::{ContractAnalysis, AnalysisPass};
 use vm::representations::{SymbolicExpression};

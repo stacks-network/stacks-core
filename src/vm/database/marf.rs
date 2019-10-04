@@ -19,7 +19,7 @@ pub struct MarfedKV {
     marf: MARF,
     // Since the MARF only stores 32 bytes of value,
     //   we need another storage
-    side_store: Box<KeyValueStorage>
+    side_store: Box<dyn KeyValueStorage>
 }
 
 #[cfg(test)]

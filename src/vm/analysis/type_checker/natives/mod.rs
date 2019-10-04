@@ -16,7 +16,7 @@ pub enum TypedNativeFunction {
     Simple(SimpleNativeFunction)
 }
 
-pub struct SpecialNativeFunction(&'static Fn(&mut TypeChecker, &[SymbolicExpression], &TypingContext) -> TypeResult);
+pub struct SpecialNativeFunction(&'static dyn Fn(&mut TypeChecker, &[SymbolicExpression], &TypingContext) -> TypeResult);
 pub struct SimpleNativeFunction(pub FunctionType);
 
 fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
