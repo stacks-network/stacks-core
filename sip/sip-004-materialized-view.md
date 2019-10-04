@@ -144,9 +144,8 @@ Forest_ (MARF).  The MARF gives Stacks peers the ability to prove that a
 particular key in the materialized view maps to a particular value in a
 particular fork.
 
-A MARF has three principal data structures:  a _merklized adaptive radix trie_
-for each block, a _fork table_ that keeps track of the chain tips and
-parent/child relationships between blocks, and a _merklized skip-list_ that
+A MARF has two principal data structures:  a _merklized adaptive radix trie_
+for each block and a _merklized skip-list_ that
 cryptographically links merklized adaptive radix tries in prior blocks to the
 current block.
 
@@ -380,7 +379,7 @@ node256                                 (00)leaf[path=112233]=123456
                                         |
 At block N-10 - - - - - - - - - - - - - | - - - - - - - - - - - - - - - - - - -
                                         |
-node256                                 | /* back-pointer to N - 10 */
+node256                                 | /* back-pointer to block N-10 */
        \                                |
         \                               |
          \                              |
@@ -393,8 +392,10 @@ node256                                 | /* back-pointer to N - 10 */
 
 By maintaining trie child pointers this way, the act of looking up a path to a value in
 a previous block is a matter of following back-pointers to previous tries.
-Another data structure described in the next section, called a _fork table_,
-makes resolving back-pointers to nodes inexpensive.
+This back-pointer uses the _block-hash_ of the previous block to uniquely identify
+the block. In order to keep the in-memory and on-disk representations of trie nodes succint,
+the MARF structure uses a locally defined unsigned 32-bit integer to identify the previous 
+block, along with a local mapping of such integers to the respective block header hash.
 
 Back-pointers are calculated in a copy-on-write fashion when calculating the ART
 for the next block.  When the root node for the ART at block N+1 is created, all
@@ -462,118 +463,15 @@ hash of the `leaf` node whose path is `aabbccddeeff00112233` would be the hash
 of the value hash `123456`.
 
 The main reason for doing this is to keep block validation time down by a
-significant constant factor.  The block header hash is always kept in RAM via
-the fork table (described below), but at least one disk seek is requried to read
-the hash of a child in a separate ART (and it often takes more than one seek).
-This does not sacrifice the security of a Merkle proof of 
-`aabbccddeeff99887766=98765`, but it does alter the mechanics of calculating and
-verifying it.
-
-## Fork Tables
-
-The second principal data structure in a MARF is its _fork table_.  The fork
-table encodes the parent-child relationships between blocks, and thus their
-ARTs.  The fork table's job is to make it possible to resolve back-pointers to
-their nodes.
-
-A fork table records _distinct_ forks as rows of block header hashes in a table.
-For each block, it also records an "ancestor table" which determines
-which row in the fork table the block the lives in, its offset in the row, as well as
-the row and offset for its parent (these four values constitute a "fork
-pointer").  This gives the Stacks peer an efficient way
-to identify an ancestor block that is `i` blocks in the past:
-
-1. Find the fork pointer for the current block
-2. Look at the pointer's parent row.  If the parent is within `i` blocks back,
-   then return the parent block header hash.
-3. Otherwise, subtract the length of the fork row from `i`, get the first
-   block in this row, load its fork-pointer, and repeat.
-
-The fork table provides a way to encode a child back-pointer in an ART:  a
-back-pointer is the pair `(back-count, node-pointer)`, where `back-count` is the number
-of blocks back from this ART's block to look, and `node-pointer` is the (disk) pointer
-to the node's data in that block's ART (i.e. an offset in the file that encodes the ART where
-the node's data can be found).
-
-To see an example fork table, consider the following blockchain state:
-
-```
-      d-e-f-g
-     /
-a-b-c
-   \ \
-    \ h-i-j
-     \
-      k-l-m
-```
-
-This blockchain has three distinct forks:  `a-b-c-d-e-f-g`, `a-b-c-h-i-j`, and
-`a-b-c-k-l-m`.  Encoded as a fork table, the fork rows would be:
-
-```
-fork ID | block list
---------|-----------------------
-0       | [a, b, c, d, e, f, g]
-1       | [h, i, j]
-2       | [k, l, m]
-```
-
-The ancestor table would be:
-
-```
-block | fork ID | index | parent  | parent
-      |         |       | fork ID | index
-------|---------|-------|---------|--------
-a     | 0       | 0     | 0       | 0
-b     | 0       | 1     | 0       | 0
-c     | 0       | 2     | 0       | 1
-d     | 0       | 3     | 0       | 2
-e     | 0       | 4     | 0       | 3
-f     | 0       | 5     | 0       | 4
-g     | 0       | 6     | 0       | 5
-h     | 1       | 0     | 0       | 2
-i     | 1       | 1     | 1       | 0
-j     | 1       | 2     | 1       | 1
-k     | 2       | 0     | 0       | 1
-l     | 2       | 1     | 2       | 0
-m     | 2       | 2     | 2       | 1
-```
-
-The chain tips are straightforward to calculate:  for each fork ID whose parent
-fork ID is the same as the fork ID, they are the blocks who have the highest
-index (if there is only one block in a fork row, then it is obviously the chain tip).
-Clearly, these are `g`, `j`, and `m`.
-
-To see how this works, consider finding the block that is four blocks prior to
-`m`.  To do so, the Stacks peer consults the ancestor table and sees that `m` 
-has fork ID 2 whose block list is `[k, l, m]`.  The block list has only three
-items, so the problem becomes instead finding the block that is one block back
-from `k`'s parent.  From the ancestor table, `k`'s parent is from the fork row
-whose fork ID is 0 and whose index is 1.  This would be `b`, and the fork row
-would be `[a, b, c, d, e, f, g]`.  One block back from `b` is `a`.
-
-### Time and Space Complexity
-
-The ancestor table grows linearly with the number of blocks, as does the total
-size of the fork table.  However, the number of _rows_ in the fork table only
-grows with the number of distinct forks.  While the number of distinct forks is
-_O(B)_ in the worst case (where _B_ is the number of blocks), the number of rows
-a peer will visit when resolving a back-pointer can be be at most _O(log B)_ -- i.e.
-this would only happen if the blockchain's forks were organized into a
-perfectly-balanced binary tree. 
-
-In practice, there will be one _long_ fork row that encodes the canonical
-history, as well as number of short fork rows that encode short-lived forks
-(which can arise naturally from burn chain reorganizations).  This means
-resolving back-pointers while working on the longest fork -- the fork where a
-miner's block rewards are most likely to be realized -- will be _O(1)_ in
-expectation.  To help achieve this, the ancestor table would be implemented as
-a hash table in order to ensure that finding the ancestor block also runs in
-_O(1)_ time.
+significant constant factor.  The block header hash is always kept in RAM,
+but at least one disk seek is required to read the hash of a child in a separate
+ART (and it often takes more than one seek). This does not sacrifice the security
+of a Merkle proof of `aabbccddeeff99887766=98765`, but it does alter the mechanics
+of calculating and verifying it.
 
 ### Merklized Skip-list
 
-The third principal data structure in a MARF is a Merklized skip-list encoded
+The second principal data structure in a MARF is a Merklized skip-list encoded
 from the block header hashes and ART root hashes in each block.  The hash of the
 root node in the ART for block _N_ is derived not only from the hash of the
 root's children, but also from the hashes of the block headers from blocks
@@ -589,6 +487,33 @@ a known-good root hash, or (2) the sequence of block headers for the Stacks
 chain and its underlying burn chain.  Having (2) allows the client to determine
 (1), but calculating (2) is expensive for a client doing a small number of
 queries.  For this reason, both options are supported.
+
+#### Resolving Block Height Queries
+
+For a variety of reasons, the MARF structure must be able to resolve
+queries mapping from block heights (or relative block heights) to
+block header hashes and vice-versa --- for example, the Clarity VM
+allows contracts to inspect this information. Most applicable to the
+MARF, though, is that in order to find the ancestor hashes to include
+in the Merklized Skip-list, the data structure must be able to find
+the block headers which are 1, 2, 4, 8, 16, ... blocks prior in the
+same fork. This could be discovered by walking backwards from the
+current block, using the previous block header to step back through
+the fork's history. However, such a process would require _O(N)_ steps
+(where _N_ is the current block height). But, if a mapping exists for
+discovering the block at a given block height, this process would instead
+be _O(1)_ (because a node will have at most 32 such ancestors).
+
+But correctly implementing such a mapping is not trivial: a given
+height could resolve to different blocks in different forks. However,
+the MARF itself is designed to handle exactly these kinds of
+queries. As such, at the beginning of each new block, the MARF inserts
+into the block's trie two entries:
+
+1. This block's block header hash -> this block's height.
+2. This block's height -> this block's block header hash.
+
+This mapping allows the ancestor hash calculation to proceed.
 
 ### MARF Merkle Proofs
 
@@ -750,16 +675,17 @@ it is unlikely to be reversed by a chain reorg.
 
 The time and space complexity of a MARF is as follows:
 
-* **Reads are _O(F)_, where _F_ is the number of distinct forks_**  _F_ is
-  expected to be _O(1)_ when working on the longest fork, so reads on the longest
-  fork are effectively _O(1)_.
-* **Inserts and updates are _O(F)._**  This is because keys are fixed-length, and
-  the worst that can happen on an insert or update is that a a copy-on-write can
-  follow _F_ forks.  Because _F_ is _O(1)_ in expectation, inserts and updates
-  are also _O(1)_ in expectation.
-* **Creating a new fork is _O(1)_.**  This is simply the cost of adding one
-  row to the fork table, and one entry to the ancestor table.
-* **Generating a proof is _O(F log B)_ for B blocks**.  This is the cost of
+* **Reads are _O(1)_** While reads may traverse multiple tries, they are always
+  descending the radix trie, and resolving back pointers is constant time.
+* **Inserts and updates are _O(1)._** Inserts have the same complexity
+  as reads, though they require more work by constant factors (in
+  particular, hash recalculations).
+* **Creating a new block is _O(log B)_.** Inserting a block requires
+  including the Merkle skip-list hash in the root node of the new
+  ART. This is _log B_ work, where _B_ is chain length.
+* **Creating a new fork is _O(log B)_.** Forks do not incur any overhead relative
+  to appending a block to a prior chain-tip.
+* **Generating a proof is _O(log B)_ for B blocks**.  This is the cost of
   reading a fixed number of nodes, combined with walking the Merkle skip-list.
 * **Verifying a proof is _O(log B)_**.  This is the cost of verifying a fixed
   number of fixed-length segments, and verifying a fixed number of _O(log B)_
@@ -785,12 +711,10 @@ The hash of an intermediate node is the hash over the following data:
 A single child pointer contains:
 * a 1-byte node ID,
 * a 1-byte path character,
-* a 4-byte back-pointer (big-endian)
+* the 32-byte block header hash of the pointed-to block
 
-A `node4`, `node16`, and `node256` each have an array of 4, 16, and 256 child
-pointers each.  A `node48` has an an array of 48 child pointers, followed by a
-256-byte array of indexes that map each possible byte value to an index in the
-child pointers array (or to `0xff` if the index slot is unoccupied).
+A `node4`, `node16`, `node48`, and `node256` each have an array of 4,
+16, 48, and 256 child pointers each.
 
 Children are listed in a `node4`, `node16`, and `node48`'s child pointer arrays in the
 order in which they are inserted.  While searching for a child in a `node4` or
@@ -808,10 +732,9 @@ permitted.
 
 ## Implementation
 
-The implementation is in Rust, and is about 5,200 lines of code.  It stores each
+The implementation is in Rust, and is about 4,400 lines of code.  It stores each
 ART in a separate file, where each ART file contains the hash of the previous
-block's ART's root hash.  This in turn allows the client to build up the fork
-table by scanning all ARTs on disk.
+block's ART's root hash and the locally-defined block identifiers.
 
 The implementation is crash-consistent.  It builds up the ART for block _N_ in
 RAM, dumps it to disk, and then `rename(2)`s it into place.
