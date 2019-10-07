@@ -17,6 +17,8 @@ pub trait KeyValueStorage {
     /// The block header hash is used for identifying savepoints.
     ///     this _cannot_ be used to rollback to arbitrary prior block hash, because that
     ///     blockhash would already have committed and no longer exist in the save point stack.
+    /// this is a "lower-level" rollback than the roll backs performed in
+    ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
     fn begin(&mut self, key: &BlockHeaderHash) {}
     fn commit(&mut self, key: &BlockHeaderHash) {}
     fn rollback(&mut self, key: &BlockHeaderHash) {}

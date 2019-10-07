@@ -11,10 +11,26 @@ use vm::analysis;
 
 use chainstate::burn::BlockHeaderHash;
 
+///
+/// A high-level interface for interacting with the Clarity VM.
+///
+/// ClarityInstance takes ownership of a MARF + Sqlite store used for
+///   it's data operations.
+/// The ClarityInstance defines a `begin_block(bhh, bhh) -> ClarityBlockConnection`
+///    function.
+/// ClarityBlockConnections are used for executing transactions within the context of 
+///    a single block.
+/// Only one ClarityBlockConnection may be open at a time (enforced by the borrow checker)
+///   and ClarityBlockConnections must be `commit_block`ed or `rollback_block`ed before discarding
+///   begining the next connection (enforced by runtime panics).
+///
 pub struct ClarityInstance {
     datastore: Option<MarfedKV<SqliteConnection>>,
 }
 
+///
+/// A high-level interface for Clarity VM interactions within a single block.
+///
 pub struct ClarityBlockConnection<'a> {
     datastore: MarfedKV<SqliteConnection>,
     parent: &'a mut ClarityInstance
@@ -73,18 +89,27 @@ impl ClarityInstance {
 }
 
 impl <'a> ClarityBlockConnection <'a> {
+    /// Rolls back all changes in the current block by
+    /// (1) dropping all writes from the current MARF tip,
+    /// (2) rolling back side-storage
     pub fn rollback_block(mut self) {
+        // this is a "lower-level" rollback than the roll backs performed in
+        //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
         self.datastore.rollback();
 
         self.parent.datastore.replace(self.datastore);
     }
 
+    /// Commits all changes in the current block by
+    /// (1) committing the current MARF tip to storage,
+    /// (2) committing side-storage
     pub fn commit_block(mut self) {
         self.datastore.commit();
 
         self.parent.datastore.replace(self.datastore);
     }
 
+    /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
     pub fn analyze_smart_contract(&mut self, identifier: &QualifiedContractIdentifier, contract_content: &str)
                                   -> Result<(ContractAST, ContractAnalysis), Error> {
         let mut db = AnalysisDatabase::new(Box::new(&mut self.datastore));
@@ -124,6 +149,7 @@ impl <'a> ClarityBlockConnection <'a> {
     }
     
 
+    /// Save a contract analysis output to the AnalysisDatabase
     /// An error here would indicate that something has gone terribly wrong in the processing of a contract insert.
     ///   the caller should likely abort the whole block or panic
     pub fn save_analysis(&mut self, identifier: &QualifiedContractIdentifier, contract_analysis: &ContractAnalysis) -> Result<(), CheckError> {
@@ -138,6 +164,11 @@ impl <'a> ClarityBlockConnection <'a> {
         result
     }
 
+    /// Execute a contract call in the current block.
+    ///  If an error occurs while processing the transaction, it's modifications will be rolled back.
+    /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
+    ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
+    ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     pub fn run_contract_call <F> (&mut self, sender: &PrincipalData, contract: &QualifiedContractIdentifier, public_function: &str,
                                   args: &[Value], abort_call_back: F) -> Result<Value, Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
@@ -149,6 +180,11 @@ impl <'a> ClarityBlockConnection <'a> {
             abort_call_back)
     }
 
+    /// Initialize a contract in the current block.
+    ///  If an error occurs while processing the initialization, it's modifications will be rolled back.
+    /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
+    ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
+    ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     pub fn initialize_smart_contract <F> (&mut self, identifier: &QualifiedContractIdentifier, contract_ast: &ContractAST, abort_call_back: F) -> Result<(), Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
         self.with_abort_callback(
