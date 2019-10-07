@@ -33,7 +33,7 @@ use serde_json::Error as serde_error;
 use burnchains::{Txid, BurnchainHeaderHash, Address};
 
 use util::vrf::*;
-use util::hash::{hex_bytes, Hash160, Sha512_256};
+use util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
 
 use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, SortitionHash};
 
@@ -54,7 +54,7 @@ impl_byte_array_from_row!(VRFSeed);
 impl_byte_array_from_row!(OpsHash);
 impl_byte_array_from_row!(BurnchainHeaderHash);
 impl_byte_array_from_row!(SortitionHash);
-impl_byte_array_from_row!(Sha512_256);
+impl_byte_array_from_row!(Sha512Trunc256Sum);
 impl_byte_array_from_row!(VRFProof);
 impl_byte_array_from_row!(TrieHash);
 impl_byte_array_from_row!(MessageSignature);
