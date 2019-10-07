@@ -19,12 +19,27 @@
 
 use std::fmt;
 use std::error;
+use std::fs;
+use std::io;
 use std::io::Error as IOError;
+use std::path::PathBuf;
+use std::ops::Deref;
+use std::ops::DerefMut;
 
+use util::hash::to_hex;
+
+use chainstate::burn::BlockHeaderHash;
+
+use rusqlite::NO_PARAMS;
 use rusqlite::Error as sqlite_error;
 use rusqlite::Connection;
 use rusqlite::Row;
 use rusqlite::types::ToSql;
+
+use chainstate::stacks::index::marf::MARF;
+use chainstate::stacks::index::TrieHash;
+use chainstate::stacks::index::MARFValue;
+use chainstate::stacks::index::Error as MARFError;
 
 use serde_json::Error as serde_error;
 
@@ -57,7 +72,9 @@ pub enum Error {
     /// Sqlite3 error
     SqliteError(sqlite_error),
     /// I/O error
-    IOError(IOError)
+    IOError(IOError),
+    /// MARF index error
+    IndexError(MARFError)
 }
 
 impl fmt::Display for Error {
@@ -74,7 +91,8 @@ impl fmt::Display for Error {
             Error::NotFoundError => f.write_str(error::Error::description(self)),
             Error::ExistsError => f.write_str(error::Error::description(self)),
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
-            Error::SqliteError(ref e) => fmt::Display::fmt(e, f)
+            Error::SqliteError(ref e) => fmt::Display::fmt(e, f),
+            Error::IndexError(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
@@ -94,6 +112,7 @@ impl error::Error for Error {
             Error::ExistsError => None,
             Error::SqliteError(ref e) => Some(e),
             Error::IOError(ref e) => Some(e),
+            Error::IndexError(ref e) => Some(e),
         }
     }
 
@@ -110,7 +129,8 @@ impl error::Error for Error {
             Error::NotFoundError => "Not found",
             Error::ExistsError => "Already exists",
             Error::SqliteError(ref e) => e.description(),
-            Error::IOError(ref e) => e.description()
+            Error::IOError(ref e) => e.description(),
+            Error::IndexError(ref e) => e.description()
         }
     }
 }
@@ -168,8 +188,8 @@ where
     Ok(row_data)
 }
 
-/// Boilerplate for querying a count (the first item of the query must be a COUNT(...))
-pub fn query_count<P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<i64, Error>
+/// Boilerplate for querying a single integer (first item of the query must be an int)
+pub fn query_int<P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<i64, Error>
 where
     P: IntoIterator,
     P::Item: ToSql
@@ -187,14 +207,22 @@ where
     Ok(count)
 }
 
-/// Set up an on-disk database with a MARF index
-/// Returns (db path, MARF path)
+pub fn query_count<P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<i64, Error>
+where
+    P: IntoIterator,
+    P::Item: ToSql
+{
+    query_int(conn, sql_query, sql_args)
+}
+
+/// Set up an on-disk database with a MARF index if they don't exist yet.
+/// Either way, returns (db path, MARF path)
 pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
     let mut path = PathBuf::from(path_str);
-    match fs::metadata(path) {
+    match fs::metadata(path_str) {
         Ok(md) => {
             if !md.is_dir() {
-                error!("Not a directory: {}", db_path);
+                error!("Not a directory: {:?}", path);
                 return Err(Error::ExistsError);
             }
         },
@@ -202,20 +230,199 @@ pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
             if e.kind() != io::ErrorKind::NotFound {
                 return Err(Error::IOError(e));
             }
-            fs::create_dir_all(path).map_err(Error::IOError)?;
+            fs::create_dir_all(path_str).map_err(Error::IOError)?;
         }
     }
 
     path.push("marf");
     let marf_path = path.to_str()
-        .ok_or_else(|| Error::ParseError)
+        .ok_or_else(|| Error::ParseError)?
         .to_string();
 
     path.pop();
-    path.push("data.sqlite");
+    path.push("data.db");
     let data_path = path.to_str()
-        .ok_or_else(|| Error::ParseError)
+        .ok_or_else(|| Error::ParseError)?
         .to_string();
    
-    Ok((db_path, marf_path))
+    Ok((data_path, marf_path))
+}
+
+pub struct IndexDBTx<'a> {
+    pub tx: DBTx<'a>,
+    pub index: &'a mut MARF,
+    block_linkage: Option<(BlockHeaderHash, BlockHeaderHash)>
+}
+
+impl<'a> Deref for IndexDBTx<'a> {
+    type Target = DBTx<'a>;
+    fn deref(&self) -> &DBTx<'a> {
+        &self.tx
+    }
+}
+
+impl<'a> DerefMut for IndexDBTx<'a> {
+    fn deref_mut(&mut self) -> &mut DBTx<'a> {
+        &mut self.tx
+    }
+}
+
+impl<'a> IndexDBTx<'a> {
+    pub fn new(tx: DBTx<'a>, index: &'a mut MARF) -> IndexDBTx<'a> {
+        IndexDBTx {
+            tx: tx,
+            index: index,
+            block_linkage: None,
+        }
+    }
+
+    pub fn instantiate_index(&mut self) -> Result<(), Error> {
+        self.tx.execute(r#"
+        -- fork-specific key/value storage, indexed via a MARF.
+        -- each row is guaranteed to be unique
+        CREATE TABLE IF NOT EXISTS __fork_storage(
+            value_hash TEXT NOT NULL,
+            value TEXT NOT NULL,
+
+            PRIMARY KEY(value_hash)
+        );
+        "#, NO_PARAMS).map_err(Error::SqliteError)?;
+        Ok(())
+    }
+
+    /// Store some data to the index storage.
+    /// key must be globally-unique
+    fn store_indexed(&mut self, key: &String, value: &String) -> Result<MARFValue, Error> {
+        let marf_value = MARFValue::from_value(value);
+        self.tx.execute("INSERT OR REPLACE INTO __fork_storage (value_hash, value) VALUES (?1, ?2)", &[&to_hex(&marf_value.to_vec()), value]).map_err(Error::SqliteError)?;
+        Ok(marf_value)
+    }
+
+    /// Load some index data
+    fn load_indexed(&self, key: &String, marf_value: &MARFValue) -> Result<Option<String>, Error> {
+        let mut stmt = self.tx.prepare("SELECT value FROM __fork_storage WHERE value_hash = ?1 LIMIT 2").map_err(Error::SqliteError)?;
+        let mut rows = stmt.query(&[&to_hex(&marf_value.to_vec())]).map_err(Error::SqliteError)?;
+        let mut all_values = vec![];
+        while let Some(row_res) = rows.next() {
+            match row_res {
+                Ok(row) => {
+                    let value_str : String = row.get(0);
+                    all_values.push(value_str);
+                },
+                Err(e) => {
+                    panic!("FATAL: Failed to read row from Sqlite");
+                }
+            };
+        }
+
+        match all_values.len() {
+            0 => {
+                return Ok(None);
+            }
+            1 => {
+                return Ok(Some(all_values[0].clone()));
+            }
+            _ => {
+                // should be impossible
+                panic!("FATAL: two or more values for {}", &to_hex(&marf_value.to_vec()));
+            }
+        }
+    }
+
+    /// Get a value from the fork index
+    pub fn get_indexed(&mut self, header_hash: &BlockHeaderHash, key: &String) -> Result<Option<String>, Error> {
+        let parent_index_root = match self.index.get_root_hash_at(header_hash) {
+            Ok(root) => {
+                root
+            },
+            Err(e) => {
+                match e {
+                    MARFError::NotFoundError => {
+                        test_debug!("Not found: Get '{}' off of {} (parent index root not found)", key, header_hash.to_hex());
+                        return Ok(None);
+                    },
+                    _ => {
+                        error!("Failed to get root hash of {}: {:?}", &header_hash.to_hex(), &e);
+                        return Err(Error::Corruption);
+                    }
+                }
+            }
+        };
+
+        match self.index.get(header_hash, key) {
+            Ok(marf_value_opt) => { 
+                match marf_value_opt {
+                    Some(marf_value) => {
+                        let value = self.load_indexed(key, &marf_value)?
+                            .expect(&format!("FATAL: corrupt index: key '{}' from {} (root index {}) is present in the index but missing a value in the DB", &key, &header_hash.to_hex(), &parent_index_root.to_hex()));
+
+                        return Ok(Some(value));
+                    },
+                    None => {
+                        return Ok(None);
+                    }
+                }
+            },
+            Err(e) => {
+                match e {
+                    MARFError::NotFoundError => {
+                        return Ok(None);
+                    },
+                    _ => {
+                        error!("Failed to fetch '{}' off of {}: {:?}", key, &header_hash.to_hex(), &e);
+                        return Err(Error::Corruption);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn put_indexed_begin(&mut self, parent_header_hash: &BlockHeaderHash, header_hash: &BlockHeaderHash) -> Result<(), Error> {
+        match self.block_linkage {
+            None => {
+                self.index.begin(parent_header_hash, header_hash).map_err(Error::IndexError)?;
+                self.block_linkage = Some((parent_header_hash.clone(), header_hash.clone()));
+                Ok(())
+            },
+            Some(_) => {
+                panic!("Tried to put_indexed_begin twice!")
+            }
+        }
+    }
+
+    /// Put all keys and values in a single MARF transaction.
+    /// No other MARF transactions will be permitted in the lifetime of this transaction.
+    pub fn put_indexed_all(&mut self, keys: &Vec<String>, values: &Vec<String>) -> Result<TrieHash, Error> {
+        assert_eq!(keys.len(), values.len());
+        assert!(self.block_linkage.is_some());
+
+        let mut marf_values = Vec::with_capacity(values.len());
+        for i in 0..values.len() {
+            let marf_value = self.store_indexed(&keys[i], &values[i])?;
+            marf_values.push(marf_value);
+        }
+
+        self.index.insert_batch(&keys, marf_values).map_err(Error::IndexError)?;
+        let root_hash = self.index.get_root_hash().map_err(Error::IndexError)?;
+        Ok(root_hash)
+    }
+
+    /// Commit the indexed data
+    pub fn indexed_commit(&mut self) -> Result<(), Error> {
+        if self.block_linkage.is_some() {
+            self.index.commit().map_err(Error::IndexError)?;
+            self.block_linkage = None;
+        }
+        Ok(())
+    }
+
+    /// Commit the tx
+    pub fn commit(self) -> Result<(), Error> {
+        self.tx.commit().map_err(Error::SqliteError)?;
+
+        if self.block_linkage.is_some() {
+            self.index.commit().map_err(Error::IndexError)?;
+        }
+        Ok(())
+    }
 }
