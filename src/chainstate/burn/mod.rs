@@ -24,7 +24,7 @@ pub mod distribution;
 pub mod operations;
 pub mod sortition;
 
-pub const CHAINSTATE_VERSION: &'static str = "21.0.0.0";
+pub const CHAINSTATE_VERSION: &'static str = "22.0.0.0";
 pub const CONSENSUS_HASH_LIFETIME : u32 = 24;
 
 use burnchains::Txid;
@@ -50,7 +50,7 @@ use core::SYSTEM_FORK_SET_VERSION;
 
 use util::log;
 use util::uint::Uint256;
-use util::hash::Sha512_256;
+use util::hash::Sha512Trunc256Sum;
 
 use chainstate::stacks::index::TrieHash;
 
@@ -79,7 +79,7 @@ impl VRFSeed {
     }
 
     pub fn from_proof(proof: &VRFProof) -> VRFSeed {
-        let h = Sha512_256::from_data(&proof.to_bytes());
+        let h = Sha512Trunc256Sum::from_data(&proof.to_bytes());
         let mut b = [0u8; 32];
         b.copy_from_slice(h.as_bytes());
         VRFSeed(b)
@@ -124,6 +124,7 @@ pub struct BlockSnapshot {
     pub winning_block_txid: Txid,       // txid of the leader block commit that won sortition.  Will all 0's if sortition is false. 
     pub winning_stacks_block_hash: BlockHeaderHash,     // hash of Stacks block that won sortition (will be all 0's if sortition is false)
     pub index_root: TrieHash,           // root hash of the index over the materialized view of all inserted data
+    pub stacks_block_height: u64,       // length of the stacks chain
 }
 
 impl BlockHeaderHash {
@@ -132,7 +133,7 @@ impl BlockHeaderHash {
     }
 
     pub fn from_serialized_header(buf: &[u8]) -> BlockHeaderHash {
-        let h = Sha512_256::from_data(buf);
+        let h = Sha512Trunc256Sum::from_data(buf);
         let mut b = [0u8; 32];
         b.copy_from_slice(h.as_bytes());
         BlockHeaderHash(b)
@@ -261,24 +262,16 @@ impl ConsensusHash {
         let mut prev_chs = vec![];
         while i < 64 && block_height - (((1 as u64) << i) - 1) >= first_block_height {
             let prev_block : u64 = block_height - (((1 as u64) << i) - 1);
-            let prev_ch_opt = BurnDB::get_consensus_at(tx, prev_block, index_root)
+            let prev_ch = BurnDB::get_consensus_at(tx, prev_block, index_root)
                 .expect(&format!("FATAL: failed to get consensus hash at {} in fork {}", prev_block, index_root.to_hex()));
 
-            match prev_ch_opt {
-                Some(prev_ch) => {
-                    debug!("Consensus at {}: {}", prev_block, &prev_ch.to_hex());
-                    prev_chs.push(prev_ch.clone());
-                    i += 1;
+            debug!("Consensus at {}: {}", prev_block, &prev_ch.to_hex());
+            prev_chs.push(prev_ch.clone());
+            i += 1;
 
-                    if block_height < (((1 as u64) << i) - 1) {
-                        break;
-                    }
-                }
-                None => {
-                    error!("Failed to read consensus hash for block height {} fork index {}", prev_block, index_root.to_hex());
-                    return Err(db_error::Corruption);
-                }
-            };
+            if block_height < (((1 as u64) << i) - 1) {
+                break;
+            }
         }
         if i == 64 {
             // won't happen for a long, long time 
@@ -354,7 +347,8 @@ mod tests {
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    index_root: TrieHash::from_empty_data()     // will be overwritten
+                    index_root: TrieHash::from_empty_data(),     // will be overwritten
+                    stacks_block_height: i,
                 };
                 let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
                 index_roots.push(next_index_root);
