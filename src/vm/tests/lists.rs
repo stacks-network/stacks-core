@@ -65,7 +65,11 @@ fn test_simple_map_buffer() {
         "(define-private (incr (x (buff 1))) \"1\")
          (map incr \"0000\")";
 
-    let expected = Value::buff_from(vec![49, 49, 49, 49]).unwrap();
+    let expected = Value::list_from(vec![
+        Value::buff_from(vec![49]).unwrap(), 
+        Value::buff_from(vec![49]).unwrap(), 
+        Value::buff_from(vec![49]).unwrap(), 
+        Value::buff_from(vec![49]).unwrap()]).unwrap();
     assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 

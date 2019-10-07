@@ -103,16 +103,11 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
             let mapped_vec = buff.data.drain(..).map(|x| {
                 let element = Value::buff_from(vec![x]).unwrap();
                 let argument = vec![SymbolicExpression::atom_value(element)];
-                let result = apply(&function, &argument, env, context);
-                if let Ok(Value::Buffer(output)) = result {
-                    output.data[0]
-                } else {
-                    panic!();
-                }
+                apply(&function, &argument, env, context).unwrap()
             }).collect();
-            Value::buff_from(mapped_vec)
+            Value::list_from(mapped_vec)
         },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&map_target)).into())
+        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
     }
 }
 
