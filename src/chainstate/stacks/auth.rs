@@ -48,7 +48,7 @@ use burnchains::Txid;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
 
-use util::hash::Sha512_256;
+use util::hash::Sha512Trunc256Sum;
 use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
