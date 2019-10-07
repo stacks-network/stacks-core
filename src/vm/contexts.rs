@@ -205,6 +205,52 @@ impl AssetMap {
 
         return map
     }
+
+    pub fn get_fungible_tokens(&self, principal: &PrincipalData, asset_identifier: &AssetIdentifier) -> Option<i128> {
+        match self.token_map.get(principal) {
+            Some(ref assets) => match assets.get(asset_identifier) {
+                Some(value) => Some(*value),
+                None => None,
+            },
+            None => None
+        }
+    }
+    
+    pub fn get_nonfungible_tokens(&self, principal: &PrincipalData, asset_identifier: &AssetIdentifier) -> Option<&Vec<Value>> {
+        match self.asset_map.get(principal) {
+            Some(ref assets) => match assets.get(asset_identifier) {
+                Some(values) => Some(values),
+                None => None,
+            },
+            None => None
+        }
+    }
+
+    pub fn get_fungible_token_ids(&self, principal: &PrincipalData) -> Vec<AssetIdentifier> {
+        let mut asset_ids = vec![];
+        match self.token_map.get(principal) {
+            Some(ref assets) => {
+                for asset_id in assets.keys() {
+                    asset_ids.push((*asset_id).clone());
+                }
+            },
+            None => {}
+        }
+        asset_ids
+    }
+    
+    pub fn get_nonfungible_token_ids(&self, principal: &PrincipalData) -> Vec<AssetIdentifier> {
+        let mut asset_ids = vec![];
+        match self.asset_map.get(principal) {
+            Some(ref assets) => {
+                for asset_id in assets.keys() {
+                    asset_ids.push((*asset_id).clone());
+                }
+            },
+            None => {}
+        }
+        asset_ids
+    }
 }
 
 impl fmt::Display for AssetMap {
