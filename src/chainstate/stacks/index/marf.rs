@@ -499,7 +499,11 @@ impl MARF {
 
         let path = TriePath::from_key(key);
 
-        let result = MARF::get_path(storage, block_hash, &path);
+        let result = MARF::get_path(storage, block_hash, &path)
+            .or_else(|e| match e {
+                Error::NotFoundError => Ok(None),
+                _ => Err(e)
+            });
 
         // restore
         storage.open_block(&cur_block_hash)?;
@@ -664,6 +668,13 @@ impl MARF {
             })
     }
 
+    /// Drop the current trie from the MARF. This rolls back all
+    ///   changes in the block, and closes the current chain tip.
+    pub fn drop_current(&mut self) {
+        self.storage.drop_extending_trie();
+        self.open_chain_tip = None;
+    }
+
     /// Finish writing the next trie in the MARF.  This persists all changes.
     pub fn commit(&mut self) -> Result<(), Error> {
         match self.open_chain_tip.take() {
@@ -690,7 +701,7 @@ impl MARF {
     ///   it's a known block, the storage system isn't issueing IOErrors, _and_ it's in the same fork
     ///   as the current block
     /// The MARF _must_ be open to a valid block for this check to be evaluated.
-    pub fn is_ancestor_block_hash(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn check_ancestor_block_hash(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
         let cur_block_hash = self.storage.get_cur_block();
 
         let bhh_height = MARF::get_block_height(&mut self.storage, bhh, &cur_block_hash)?

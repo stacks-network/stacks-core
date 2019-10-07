@@ -7,7 +7,7 @@ pub mod analysis_db;
 pub mod contract_interface_builder;
 pub mod cost_counter;
 
-use self::types::{ContractAnalysis, AnalysisPass};
+pub use self::types::{ContractAnalysis, AnalysisPass};
 use vm::representations::{SymbolicExpression};
 use vm::types::{TypeSignature, QualifiedContractIdentifier};
 
