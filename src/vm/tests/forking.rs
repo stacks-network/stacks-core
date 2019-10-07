@@ -42,9 +42,7 @@ fn test_at_block_good() {
                  (ok (var-get datum))))";
 
         eprintln!("Initializing contract...");
-        owned_env.begin();
         owned_env.initialize_contract(c.clone(), &contract).unwrap();
-        owned_env.commit().unwrap();
     }
 
 
@@ -100,9 +98,7 @@ fn test_at_block_missing_defines() {
                  (ok current)))";
 
         eprintln!("Initializing contract...");
-        owned_env.begin();
         owned_env.initialize_contract(c_a.clone(), &contract).unwrap();
-        owned_env.commit().unwrap();
     }
 
     fn initialize_2(owned_env: &mut OwnedEnvironment) -> Error {
@@ -117,9 +113,7 @@ fn test_at_block_missing_defines() {
             ";
 
         eprintln!("Initializing contract...");
-        owned_env.begin();
         let e = owned_env.initialize_contract(c_b.clone(), &contract).unwrap_err();
-        owned_env.commit().unwrap();
         e
     }
 
@@ -135,9 +129,7 @@ fn test_at_block_missing_defines() {
             ";
 
         eprintln!("Initializing contract...");
-        owned_env.begin();
         let e = owned_env.initialize_contract(c_b.clone(), &contract).unwrap_err();
-        owned_env.commit().unwrap();
         e
     }
 
@@ -254,11 +246,9 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
          (ft-mint! stackaroos 10 {})", p1_str);
 
     eprintln!("Initializing contract...");
-    owned_env.begin();
 
     let contract_identifier = QualifiedContractIdentifier::new(p1_address, "tokens".into());
     owned_env.initialize_contract(contract_identifier, &contract).unwrap();
-    owned_env.commit().unwrap();
 }
 
 fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
