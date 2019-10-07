@@ -14,9 +14,9 @@ pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: 
         .ok_or(CheckErrors::ExpectedName)?;
 
     let function = lookup_function(&function_name, env)?;
-    let filter_target = eval(&args[1], env, context)?;
+    let iterable = eval(&args[1], env, context)?;
 
-    match filter_target {
+    match iterable {
         Value::List(mut list) => {
             let mut filtered_vec = Vec::new();
             for x in list.data.drain(..) {
@@ -48,7 +48,7 @@ pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: 
             }
             Value::buff_from(filtered_vec)
         },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&filter_target)).into())
+        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
     }
 }
 
@@ -59,10 +59,10 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &L
         .ok_or(CheckErrors::ExpectedName)?;
 
     let function = lookup_function(&function_name, env)?;
-    let fold_target = eval(&args[1], env, context)?;
+    let iterable = eval(&args[1], env, context)?;
     let initial = eval(&args[2], env, context)?;
 
-    match fold_target {
+    match iterable {
         Value::List(mut list) => {
             list.data.drain(..).try_fold(initial, |acc, x| {
                 let arguments = vec![
@@ -79,7 +79,7 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &L
                 apply(&function, &arguments, env, context)
             })
         },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&fold_target)).into())
+        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
     }
 }
 
@@ -90,8 +90,8 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
         .ok_or(CheckErrors::ExpectedName)?;
     let function = lookup_function(&function_name, env)?;
 
-    let map_target = eval(&args[1], env, context)?;
-    match map_target {
+    let iterable = eval(&args[1], env, context)?;
+    match iterable {
         Value::List(mut list) => {
             let mapped_vec = list.data.drain(..).map(|x| {
                 let argument = vec![SymbolicExpression::atom_value(x)];
@@ -119,10 +119,10 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
 pub fn list_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(1, args)?;
     
-    let len_target = eval(&args[0], env, context)?;
-    match len_target {
+    let iterable = eval(&args[0], env, context)?;
+    match iterable {
         Value::List(list) => Ok(Value::UInt(list.data.len() as u128)),
         Value::Buffer(buff) => Ok(Value::UInt(buff.data.len() as u128)),
-        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&len_target)).into())
+        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
     }
 }
