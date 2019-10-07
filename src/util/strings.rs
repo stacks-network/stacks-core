@@ -21,10 +21,22 @@ use std::fmt;
 
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::convert::TryFrom;
 
 use net::StacksMessageCodec;
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
+
+use vm::representations::{ClarityName, ContractName, SymbolicExpression, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH};
+use vm::ast::errors::ParseResult;
+use vm::ast::parser::{lex, LexItem};
+
+use vm::types::{
+    Value,
+    PrincipalData,
+    StandardPrincipalData,
+    QualifiedContractIdentifier
+};
 
 /// printable-ASCII-only string, but encodable.
 /// Note that it cannot be longer than ARRAY_MAX_LEN (4.1 billion bytes)
@@ -63,8 +75,9 @@ impl StacksMessageCodec for StacksString {
         res
     }
 
-    fn deserialize(buf: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<StacksString, net_error> {
-        let bytes : Vec<u8> = read_next(buf, index, max_size)?;
+    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksString, net_error> {
+        let mut index = *index_ptr;
+        let bytes : Vec<u8> = read_next(buf, &mut index, max_size)?;
 
         // must encode a valid string
         let s = String::from_utf8(bytes.clone())
@@ -75,7 +88,97 @@ impl StacksMessageCodec for StacksString {
             return Err(net_error::DeserializeError);
         }
 
+        *index_ptr = index;
+
         Ok(StacksString(bytes))
+    }
+}
+
+fn read_clarity_string_bytes(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<Vec<u8>, net_error> {
+    let mut index = *index_ptr;
+    let len_byte : u8 = read_next(buf, &mut index, max_size)?;
+    if len_byte as usize > CLARITY_MAX_STRING_LENGTH as usize {
+        return Err(net_error::DeserializeError);
+    }
+
+    if index.checked_add(len_byte as u32).is_none() {
+        return Err(net_error::OverflowError);
+    }
+    if index + (len_byte as u32) > max_size {
+        return Err(net_error::OverflowError);
+    }
+    if (buf.len() as u32) < index + (len_byte as u32) {
+        return Err(net_error::UnderflowError);
+    }
+
+    let bytes : Vec<u8> = buf[(index as usize)..((index as usize) + (len_byte as usize))].to_vec();
+    *index_ptr = index;
+    Ok(bytes)
+}
+
+impl StacksMessageCodec for ClarityName {
+    fn serialize(&self) -> Vec<u8> {
+        let mut res = vec![];
+        // ClarityName can't be longer than vm::representations::MAX_STRING_LEN, which itself is
+        // a u8, so we should be good here.
+        assert!(self.as_bytes().len() <= CLARITY_MAX_STRING_LENGTH as usize);
+        res.push(self.as_bytes().len() as u8);
+        res.extend_from_slice(self.as_bytes());
+        res
+    }
+
+    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<ClarityName, net_error> {
+        let mut index = *index_ptr;
+        let bytes = read_clarity_string_bytes(buf, &mut index, max_size)?;
+
+        // must encode a valid string
+        let s = String::from_utf8(bytes.clone())
+            .map_err(|_e| net_error::DeserializeError)?;
+
+        // must decode to a clarity name
+        let name = ClarityName::try_from(s).map_err(|_e| net_error::DeserializeError)?;
+
+        index = *index_ptr;
+        Ok(name)
+    }
+}
+
+impl StacksMessageCodec for ContractName {
+    fn serialize(&self) -> Vec<u8> {
+        let mut res = vec![];
+        // ContractName can't be longer than vm::representations::MAX_STRING_LEN, which itself is
+        // a u8, so we should be good here.
+        assert!(self.as_bytes().len() <= CLARITY_MAX_STRING_LENGTH as usize);
+        res.push(self.as_bytes().len() as u8);
+        res.extend_from_slice(self.as_bytes());
+        res
+    }
+
+    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<ContractName, net_error> {
+        let mut index = *index_ptr;
+        let bytes = read_clarity_string_bytes(buf, &mut index, max_size)?;
+        
+        // must encode a valid string
+        let s = String::from_utf8(bytes.clone())
+            .map_err(|_e| net_error::DeserializeError)?;
+
+        let name = ContractName::try_from(s).map_err(|_e| net_error::DeserializeError)?;
+        *index_ptr = index;
+        Ok(name)
+    }
+}
+
+impl From<ClarityName> for StacksString {
+    fn from(clarity_name: ClarityName) -> StacksString {
+        // .unwrap() is safe since StacksString is less strict
+        StacksString::from_str(&clarity_name).unwrap()
+    }
+}
+
+impl From<ContractName> for StacksString {
+    fn from(contract_name: ContractName) -> StacksString {
+        // .unwrap() is safe since StacksString is less strict
+        StacksString::from_str(&contract_name).unwrap()
     }
 }
 
@@ -85,60 +188,49 @@ impl StacksString {
         s.is_ascii() && StacksString::is_printable(s)
     }
 
-    /// Is the given string a well-formed name for a Clarity smart contract?
-    pub fn is_valid_contract_name(s: &String) -> bool {
-        StacksString::is_valid_string(s) && s.find('.').is_none()
-    }
-    
-    /// Is the given string a well-formed name for a Clarity asset?
-    pub fn is_valid_asset_name(s: &String) -> bool {
-        // TODO: verify that we don't want periods in asset names
-        StacksString::is_valid_string(s) && s.find('.').is_none()
-    }
-
-    /// Is the given string a well-formed name for a non-fungible token?
-    pub fn is_valid_nft_name(s: &String) -> bool {
-        // TODO: verify that this is sufficient
-        StacksString::is_valid_string(s)
-    }
-
     pub fn is_printable(s: &String) -> bool {
         if !s.is_ascii() {
             return false;
         }
         // all characters must be ASCII "printable" characters, excluding "delete".
-        // This is 0x20 through 0x7e, inclusive
+        // This is 0x20 through 0x7e, inclusive, as well as '\t' and '\n'
+        // TODO: DRY up with vm::representations
         for c in s.as_bytes().iter() {
-            if (*c as u8) < 0x20 || (*c as u8) > 0x7e {
+            if (*c < 0x20 && *c != ('\t' as u8) && *c != ('\n' as u8)) || (*c > 0x7e) {
                 return false;
             }
         }
         true
     }
 
+    pub fn try_as_clarity_literal(&self) -> Option<Value> {
+        // must parse to a single Clarity literal
+        match lex(&self.to_string()) {
+            Ok(lexed) => {
+                if lexed.len() != 1 {
+                    return None;
+                }
+                match lexed[0].0 {
+                    LexItem::LiteralValue(_, ref value) => {
+                        return Some((*value).clone());
+                    }
+                    _ => {
+                        return None;
+                    }
+                }
+            },
+            Err(_) => {
+                return None;
+            }
+        }
+    }
+
+    pub fn is_clarity_literal(&self) -> bool {
+        self.try_as_clarity_literal().is_some()
+    }
+    
     pub fn from_string(s: &String) -> Option<StacksString> {
         if !StacksString::is_valid_string(s) {
-            return None;
-        }
-        Some(StacksString(s.as_bytes().to_vec()))
-    }
-
-    pub fn from_contract_name(s: &String) -> Option<StacksString> {
-        if !StacksString::is_valid_contract_name(s) {
-            return None;
-        }
-        Some(StacksString(s.as_bytes().to_vec()))
-    }
-
-    pub fn from_asset_name(s: &String) -> Option<StacksString> {
-        if !StacksString::is_valid_asset_name(s) {
-            return None;
-        }
-        Some(StacksString(s.as_bytes().to_vec()))
-    }
-
-    pub fn from_nft_name(s: &String) -> Option<StacksString> {
-        if !StacksString::is_valid_nft_name(s) {
             return None;
         }
         Some(StacksString(s.as_bytes().to_vec()))
@@ -180,5 +272,7 @@ mod test {
 
         check_codec_and_corruption::<StacksString>(&stacks_str, &bytes);
     }
+
+    // TODO: ClarityName and ContractName
 }
 
