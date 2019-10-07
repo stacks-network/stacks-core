@@ -14,9 +14,12 @@ pub trait KeyValueStorage {
     ///    not all backends will implement this! this is used to clean up
     ///     any data from aborted blocks (not aborted transactions! that is handled
     ///      by the clarity vm directly).
-    fn begin(&mut self, key: &str) {}
-    fn commit(&mut self, key: &str) {}
-    fn rollback(&mut self, key: &str) {}
+    /// The block header hash is used for identifying savepoints.
+    ///     this _cannot_ be used to rollback to arbitrary prior block hash, because that
+    ///     blockhash would already have committed and no longer exist in the save point stack.
+    fn begin(&mut self, key: &BlockHeaderHash) {}
+    fn commit(&mut self, key: &BlockHeaderHash) {}
+    fn rollback(&mut self, key: &BlockHeaderHash) {}
 
     /// returns the previous block header hash on success
     fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {

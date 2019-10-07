@@ -155,42 +155,49 @@ mod tests {
     use vm::types::{Value, StandardPrincipalData};
     use vm::database::marf;
     use chainstate::stacks::index::storage::{TrieFileStorage};
+    use vm::database::KeyValueStorage;
+    use rusqlite::NO_PARAMS;
 
     #[test]
     pub fn simple_test() {
         let marf = marf::in_memory_marf();
         let mut clarity_instance = ClarityInstance::new(marf);
 
-        let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                    &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
-
-        let contract = "(define-public (foo (x int)) (ok (+ x x)))";
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
-        let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-        conn.initialize_smart_contract(
-            &contract_identifier, &ct_ast, |_,_| false).unwrap();
-        conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
-
-        assert_eq!(
-            conn.run_contract_call(&StandardPrincipalData::transient().into(), &contract_identifier, "foo", &[Value::Int(1)],
-                                   |_, _| false).unwrap(),
-            Value::okay(Value::Int(2)));
-
-        conn.commit_block();
+        {
+            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
+            
+            let contract = "(define-public (foo (x int)) (ok (+ x x)))";
+            
+            let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+            conn.initialize_smart_contract(
+                &contract_identifier, &ct_ast, |_,_| false).unwrap();
+            conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            
+            assert_eq!(
+                conn.run_contract_call(&StandardPrincipalData::transient().into(), &contract_identifier, "foo", &[Value::Int(1)],
+                                       |_, _| false).unwrap(),
+                Value::okay(Value::Int(2)));
+            
+            conn.commit_block();
+        }
+        let mut marf = clarity_instance.destroy();
+        assert!((&mut marf).has_entry(&ClarityDatabase::make_contract_key(&contract_identifier)));
     }
 
     #[test]
     pub fn test_block_roll_back() {
         let marf = marf::in_memory_marf();
         let mut clarity_instance = ClarityInstance::new(marf);
+        let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
             let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
                                                         &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
-            let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
             conn.initialize_smart_contract(
@@ -200,5 +207,13 @@ mod tests {
             conn.rollback_block();
         }
 
+        let mut marf = clarity_instance.destroy();
+        // should not be in the marf.
+        assert!(! (&mut marf).has_entry(&ClarityDatabase::make_contract_key(&contract_identifier)));
+        let mut sql = marf.get_side_store();
+        // sqlite should not have any entries
+        assert_eq!(0,
+                   sql.mut_conn()
+                   .query_row::<u32,_,_>("SELECT COUNT(value) FROM data_table", NO_PARAMS, |row| row.get(0)).unwrap());
     }
 }

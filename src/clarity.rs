@@ -13,7 +13,7 @@ use chainstate::stacks::index::storage::{TrieFileStorage};
 
 use vm::ast::parse;
 use vm::contexts::OwnedEnvironment;
-use vm::database::{ClarityDatabase, SqliteStore, SqliteConnection, KeyValueStorage,
+use vm::database::{ClarityDatabase, SqliteConnection, KeyValueStorage,
                    MarfedKV, memory_db, sqlite_marf};
 use vm::errors::{InterpreterResult};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};

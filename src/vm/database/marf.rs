@@ -100,15 +100,15 @@ impl <S> MarfedKV <S> where S: KeyValueStorage {
         self.chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Failed to get open MARF")
             .clone();
-        self.side_store.begin(&self.chain_tip.to_hex());
+        self.side_store.begin(&self.chain_tip);
     }
     pub fn rollback(&mut self) {
         self.marf.drop_current();
-        self.side_store.rollback(&self.chain_tip.to_hex());
+        self.side_store.rollback(&self.chain_tip);
         self.chain_tip = TrieFileStorage::block_sentinel();
     }
     pub fn commit(&mut self) {
-        self.side_store.commit(&self.chain_tip.to_hex());
+        self.side_store.commit(&self.chain_tip);
         self.marf.commit()
             .expect("ERROR: Failed to commit MARF block");
     }

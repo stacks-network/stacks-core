@@ -1,16 +1,13 @@
 use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row, Savepoint};
 use rusqlite::types::{ToSql, FromSql};
 
+use chainstate::burn::BlockHeaderHash;
 use vm::database::{KeyValueStorage};
 
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, InterpreterResult as Result, IncomparableError};
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
-
-pub struct SqliteStore <'a> {
-    conn: &'a Connection
-}
 
 pub struct SqliteConnection {
     conn: Connection
@@ -35,35 +32,6 @@ fn sqlite_has_entry(conn: &Connection, key: &str) -> bool {
     sqlite_get(conn, key).is_some()
 }
 
-impl <'a> KeyValueStorage for SqliteStore<'a> {
-    fn put(&mut self, key: &str, value: &str) {
-        sqlite_put(&self.conn, key, value)
-    }
-
-    fn get(&mut self, key: &str) -> Option<String> {
-        sqlite_get(&self.conn, key)
-    }
-
-    fn has_entry(&mut self, key: &str) -> bool {
-        sqlite_has_entry(&self.conn, key)
-    }
-
-    fn begin(&mut self, key: &str) {
-        self.conn.execute("SAVEPOINT ?", &[key])
-            .expect(SQL_FAIL_MESSAGE);
-    }
-
-    fn rollback(&mut self, key: &str) {
-        self.conn.execute("ROLLBACK TO SAVEPOINT ?", &[key])
-            .expect(SQL_FAIL_MESSAGE);
-    }
-
-    fn commit(&mut self, key: &str) {
-        self.conn.execute("RELEASE SAVEPOINT ?", &[key])
-            .expect(SQL_FAIL_MESSAGE);
-    }
-}
-
 impl KeyValueStorage for SqliteConnection {
     fn put(&mut self, key: &str, value: &str) {
         sqlite_put(&self.conn, key, value)
@@ -76,13 +44,23 @@ impl KeyValueStorage for SqliteConnection {
     fn has_entry(&mut self, key: &str) -> bool {
         sqlite_has_entry(&self.conn, key)
     }
-}
 
-impl <'a> SqliteStore <'a> {
-    pub fn new(conn: &'a Connection) -> SqliteStore<'a> {
-        SqliteStore { conn }
+    fn begin(&mut self, key: &BlockHeaderHash) {
+        self.conn.execute(&format!("SAVEPOINT SP{};", key.to_hex()), NO_PARAMS)
+            .expect(SQL_FAIL_MESSAGE);
+    }
+
+    fn rollback(&mut self, key: &BlockHeaderHash) {
+        self.conn.execute(&format!("ROLLBACK TO SAVEPOINT SP{};", key.to_hex()), NO_PARAMS)
+            .expect(SQL_FAIL_MESSAGE);
+    }
+
+    fn commit(&mut self, key: &BlockHeaderHash) {
+        self.conn.execute(&format!("RELEASE SAVEPOINT SP{};", key.to_hex()), NO_PARAMS)
+            .expect(SQL_FAIL_MESSAGE);
     }
 }
+
 
 impl SqliteConnection {
     pub fn initialize(filename: &str) -> Result<Self> {
@@ -117,4 +95,8 @@ impl SqliteConnection {
         Ok(SqliteConnection { conn })
     }
 
+    #[cfg(test)]
+    pub fn mut_conn(&mut self) -> &mut Connection {
+        &mut self.conn
+    }
 }
