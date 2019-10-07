@@ -23,13 +23,13 @@ use burnchains::Error as burnchain_error;
 use util::log;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
-pub const SYSTEM_FORK_SET_VERSION : [u8; 4] = [21u8, 0u8, 0u8, 0u8];
+pub const SYSTEM_FORK_SET_VERSION : [u8; 4] = [22u8, 0u8, 0u8, 0u8];
 
 // p2p network version 
-pub const PEER_VERSION : u32 = 0x15000000;      // 21.0.0.0
+pub const PEER_VERSION : u32 = 0x16000000;      // 22.0.0.0
 
 // network identifiers
-pub const NETWORK_ID_MAINNET : u32 = 0x15000000;
+pub const NETWORK_ID_MAINNET : u32 = 0x16000000;
 pub const NETWORK_ID_TESTNET : u32 = 0xff000000;
 
 // default port 
