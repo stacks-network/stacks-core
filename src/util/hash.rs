@@ -76,13 +76,6 @@ impl_array_hexstring_fmt!(DoubleSha256);
 impl_byte_array_newtype!(DoubleSha256, u8, 32);
 pub const DOUBLE_SHA256_ENCODED_SIZE : u32 = 32;
 
-#[derive(Serialize, Deserialize)]
-pub struct Sha512_256(pub [u8; 32]);
-impl_array_newtype!(Sha512_256, u8, 32);
-impl_array_hexstring_fmt!(Sha512_256);
-impl_byte_array_newtype!(Sha512_256, u8, 32);
-pub const SHA512_256_ENCODED_SIZE : u32 = 32;
-
 #[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
 enum MerklePathOrder {
@@ -112,14 +105,14 @@ impl Hash160 {
 }
 
 impl Sha512Sum {
-    pub fn from_data(data: &[u8]) -> Self {
-        Self::from(Sha512::digest(data).as_slice())
+    pub fn from_data(data: &[u8]) -> Sha512Sum {
+        Sha512Sum::from(Sha512::digest(data).as_slice())
     }
 }
 
 impl Sha512Trunc256Sum {
-    pub fn from_data(data: &[u8]) -> Self {
-        Self::from(Sha512Trunc256::digest(data).as_slice())
+    pub fn from_data(data: &[u8]) -> Sha512Trunc256Sum {
+        Sha512Trunc256Sum::from(Sha512Trunc256::digest(data).as_slice())
     }
 }
 
@@ -189,12 +182,12 @@ impl MerkleHashFunc for DoubleSha256 {
     }
 }
 
-impl MerkleHashFunc for Sha512_256 {
-    fn empty() -> Sha512_256 {
-        Sha512_256([0u8; 32])
+impl MerkleHashFunc for Sha512Trunc256Sum {
+    fn empty() -> Sha512Trunc256Sum {
+        Sha512Trunc256Sum([0u8; 32])
     }
 
-    fn from_tagged_data(tag: u8, data: &[u8]) -> Sha512_256 {
+    fn from_tagged_data(tag: u8, data: &[u8]) -> Sha512Trunc256Sum {
         use sha2::Digest;
         let mut tmp = [0u8; 32];
 
@@ -203,7 +196,7 @@ impl MerkleHashFunc for Sha512_256 {
         sha2.input(data);
         tmp.copy_from_slice(sha2.result().as_slice());
 
-        Sha512_256(tmp)
+        Sha512Trunc256Sum(tmp)
     }
 
     fn bits(&self) -> &[u8] {
@@ -287,20 +280,6 @@ impl DoubleSha256 {
         ret
     }
 }
-
-impl Sha512_256 {
-    pub fn from_data(data: &[u8]) -> Sha512_256 {
-        use sha2::Digest;
-        let mut tmp = [0u8; 32];
-       
-        let mut hasher = Sha512Trunc256::new();
-        hasher.input(data);
-        tmp.copy_from_slice(hasher.result().as_slice());
-
-        Sha512_256(tmp)
-    }
-}
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MerkleTree<H: MerkleHashFunc> {
