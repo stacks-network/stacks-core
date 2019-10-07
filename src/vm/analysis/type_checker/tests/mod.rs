@@ -7,7 +7,8 @@ use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
 use vm::analysis::types::ContractAnalysis;
 use vm::contexts::{OwnedEnvironment};
-use vm::types::{Value, PrincipalData, TypeSignature, FunctionType, FixedFunction, QualifiedContractIdentifier};
+use vm::types::{Value, PrincipalData, TypeSignature, FunctionType, FixedFunction, BUFF_32, BUFF_64,
+                QualifiedContractIdentifier};
 
 use vm::types::TypeSignature::{IntType, BoolType, BufferType, UIntType};
 use std::convert::TryInto;
@@ -52,6 +53,22 @@ fn test_get_block_info(){
     }
     
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_at_block(){
+    let good = [("(at-block (sha256 0) 1)", "int")];
+
+    let bad = [("(at-block (sha512 0) 1)", CheckErrors::TypeError(BUFF_32.clone(), BUFF_64.clone())),
+               ("(at-block (sha256 0) 1 2)", CheckErrors::IncorrectArgumentCount(2, 3))];
+
+    for (good_test, expected) in good.iter() {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+    
+    for (bad_test, expected) in bad.iter() {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
     }
 }

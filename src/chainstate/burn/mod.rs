@@ -27,13 +27,15 @@ pub mod sortition;
 pub const CHAINSTATE_VERSION: &'static str = "22.0.0.0";
 pub const CONSENSUS_HASH_LIFETIME : u32 = 24;
 
+use std::fmt;
+
 use burnchains::Txid;
 use burnchains::Address;
 use burnchains::PublicKey;
 use burnchains::BurnchainHeaderHash;
 
-use util::hash::Hash160;
 use util::vrf::VRFProof;
+use util::hash::{Hash160, to_hex};
 
 use sha2::Sha256;
 use ripemd160::Ripemd160;
@@ -64,7 +66,7 @@ pub struct BlockHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
 impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
-pub const BLOCK_HEADER_HASH_ENCODED_SIZE : u32 = 32;
+pub const BLOCK_HEADER_HASH_ENCODED_SIZE : usize = 32;
 
 pub struct VRFSeed(pub [u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
@@ -137,6 +139,12 @@ impl BlockHeaderHash {
         let mut b = [0u8; 32];
         b.copy_from_slice(h.as_bytes());
         BlockHeaderHash(b)
+    }
+}
+
+impl fmt::Display for BlockHeaderHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", to_hex(&self.0))
     }
 }
 

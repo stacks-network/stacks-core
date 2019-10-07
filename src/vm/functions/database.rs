@@ -3,10 +3,12 @@ use std::convert::{TryFrom, TryInto};
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
-use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, TypeSignature};
+use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, TypeSignature, BUFF_32};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::errors::{CheckErrors, InterpreterError, RuntimeErrorType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
+use vm::errors::{CheckErrors, InterpreterError, RuntimeErrorType, InterpreterResult as Result,
+                 check_argument_count, check_arguments_at_least};
 use vm::{eval, LocalContext, Environment};
+use chainstate::burn::{BlockHeaderHash};
 
 pub fn special_contract_call(args: &[SymbolicExpression],
                              env: &mut Environment,
@@ -80,6 +82,24 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
     env.global_context.database.fetch_entry(&env.contract_context.contract_identifier, map_name, &key)
 }
 
+pub fn special_at_block(args: &[SymbolicExpression],
+                        env: &mut Environment,
+                        context: &LocalContext) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    let bhh = match eval(&args[0], env, &context)? {
+        Value::Buffer(BuffData { data }) => {
+            if data.len() != 32 {
+                return Err(RuntimeErrorType::BadBlockHash(data).into())
+            } else {
+                BlockHeaderHash::from(data.as_slice())
+            }
+        },
+        x => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), x).into())
+    };
+
+    env.evaluate_at_block(bhh, &args[1], context)
+}
 
 pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
                                     env: &mut Environment,
