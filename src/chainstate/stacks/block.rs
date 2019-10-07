@@ -27,7 +27,7 @@ use net::Error as net_error;
 use net::codec::{read_next, write_next};
 
 use util::hash::MerkleTree;
-use util::hash::Sha512_256;
+use util::hash::Sha512Trunc256Sum;
 use util::secp256k1::MessageSignature;
 
 use net::StacksPublicKeyBuffer;
@@ -124,7 +124,7 @@ impl StacksMessageCodec for StacksBlockHeader {
         let parent_block: BlockHeaderHash       = read_next(buf, index, max_size)?;
         let parent_microblock: BlockHeaderHash  = read_next(buf, index, max_size)?;
         let parent_microblock_sequence: u8      = read_next(buf, index, max_size)?;
-        let tx_merkle_root: Sha512_256          = read_next(buf, index, max_size)?;
+        let tx_merkle_root: Sha512Trunc256Sum          = read_next(buf, index, max_size)?;
         let state_index_root: TrieHash          = read_next(buf, index, max_size)?;
         let pubkey_hash_buf: Hash160            = read_next(buf, index, max_size)?;
 
@@ -149,7 +149,7 @@ impl StacksBlockHeader {
         Hash160::from_data(&bytes[..])
     }
 
-    pub fn initial(tx_merkle_root: &Sha512_256, state_index_root: &TrieHash, microblock_pubkey_hash: &Hash160) -> StacksBlockHeader {
+    pub fn initial(tx_merkle_root: &Sha512Trunc256Sum, state_index_root: &TrieHash, microblock_pubkey_hash: &Hash160) -> StacksBlockHeader {
         StacksBlockHeader {
             version: STACKS_BLOCK_VERSION,
             total_work: StacksWorkScore::initial(),
@@ -168,7 +168,7 @@ impl StacksBlockHeader {
         BlockHeaderHash::from_serialized_header(&buf[..])
     }
 
-    pub fn from_parent(parent_header: &StacksBlockHeader, parent_microblock_header: &StacksMicroblockHeader,  work_delta: &StacksWorkScore, proof: &VRFProof, tx_merkle_root: &Sha512_256, state_index_root: &TrieHash, microblock_pubkey_hash: &Hash160) -> StacksBlockHeader {
+    pub fn from_parent(parent_header: &StacksBlockHeader, parent_microblock_header: &StacksMicroblockHeader,  work_delta: &StacksWorkScore, proof: &VRFProof, tx_merkle_root: &Sha512Trunc256Sum, state_index_root: &TrieHash, microblock_pubkey_hash: &Hash160) -> StacksBlockHeader {
         StacksBlockHeader {
             version: STACKS_BLOCK_VERSION,
             total_work: parent_header.total_work.add(work_delta),
@@ -184,7 +184,6 @@ impl StacksBlockHeader {
 
     /// Validate this block header against the burnchain.
     /// Used to determine whether or not we'll keep a block around (even if we don't yet have its parent).
-    // TODO: consider putting the winning VRF key, winning seed, and parent seed into the snapshot
     pub fn validate_burnchain(&self, snapshot: &BlockSnapshot, leader_key: &LeaderKeyRegisterOp, block_commit: &LeaderBlockCommitOp, parent_snapshot: &BlockSnapshot, parent_block_commit: &LeaderBlockCommitOp) -> bool {
         if self.block_hash() != snapshot.winning_stacks_block_hash {
             test_debug!("Invalid Stacks block header {}: invalid commit: {} != {}", self.block_hash().to_hex(), self.block_hash().to_hex(), snapshot.winning_stacks_block_hash.to_hex());
@@ -307,7 +306,7 @@ impl StacksMessageCodec for StacksBlock {
             .map(|tx| tx.txid().as_bytes().to_vec())
             .collect();
 
-        let merkle_tree = MerkleTree::<Sha512_256>::new(&txid_vecs);
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
         
         if tx_merkle_root != header.tx_merkle_root {
@@ -324,7 +323,7 @@ impl StacksMessageCodec for StacksBlock {
 impl StacksBlock {
     pub fn initial(txs: Vec<StacksTransaction>, state_index_root: &TrieHash, microblock_pubkey_hash: &Hash160) -> StacksBlock {
         let txids = txs.iter().map(|ref tx| tx.txid().as_bytes().to_vec()).collect();
-        let merkle_tree = MerkleTree::<Sha512_256>::new(&txids);
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksBlockHeader::initial(&tx_merkle_root, state_index_root, microblock_pubkey_hash);
         StacksBlock {
@@ -335,7 +334,7 @@ impl StacksBlock {
 
     pub fn from_parent(parent_header: &StacksBlockHeader, parent_microblock_header: &StacksMicroblockHeader, txs: Vec<StacksTransaction>, work_delta: &StacksWorkScore, proof: &VRFProof, state_index_root: &TrieHash, microblock_pubkey_hash: &Hash160) -> StacksBlock {
         let txids = txs.iter().map(|ref tx| tx.txid().as_bytes().to_vec()).collect();
-        let merkle_tree = MerkleTree::<Sha512_256>::new(&txids);
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksBlockHeader::from_parent(parent_header, parent_microblock_header, work_delta, proof, &tx_merkle_root, state_index_root, microblock_pubkey_hash);
         StacksBlock {
@@ -348,6 +347,8 @@ impl StacksBlock {
         self.header.block_hash()
     }
 
+    /// Validate the block, except for the transactions and state root.
+    /// I.e. confirm that it is okay to begin processing this block's transactions.
     /// NOTE: the caller must call header.validate_burnchain() separately
     pub fn validate(&self, parent_header: &StacksBlockHeader, parent_microblock_stream: &Vec<StacksMicroblock>) -> bool {
         if parent_microblock_stream.len() == 0 {
@@ -377,10 +378,8 @@ impl StacksBlock {
                 return false;
             }
         }
-
-        // apply all of this parent stream's transactions and this block's transactions.
-        // TODO
-        panic!("Not implemented");
+        
+        return true;
     }
 }
 
@@ -400,7 +399,7 @@ impl StacksMessageCodec for StacksMicroblockHeader {
         let version : u8                    = read_next(buf, index_ptr, max_size)?;
         let sequence : u8                   = read_next(buf, index_ptr, max_size)?;
         let prev_block : BlockHeaderHash    = read_next(buf, index_ptr, max_size)?;
-        let tx_merkle_root : Sha512_256     = read_next(buf, index_ptr, max_size)?;
+        let tx_merkle_root : Sha512Trunc256Sum     = read_next(buf, index_ptr, max_size)?;
         let signature : MessageSignature    = read_next(buf, index_ptr, max_size)?;
 
         let _ = signature.to_secp256k1_recoverable()
@@ -463,7 +462,7 @@ impl StacksMicroblockHeader {
 
     /// Create the first microblock header in a microblock stream.
     /// The header will not be signed
-    pub fn initial_unsigned(parent_block_hash: &BlockHeaderHash, tx_merkle_root: &Sha512_256) -> StacksMicroblockHeader {
+    pub fn initial_unsigned(parent_block_hash: &BlockHeaderHash, tx_merkle_root: &Sha512Trunc256Sum) -> StacksMicroblockHeader {
         StacksMicroblockHeader {
             version: 0,
             sequence: 0,
@@ -475,7 +474,7 @@ impl StacksMicroblockHeader {
 
     /// Create an unsigned microblock header from its parent
     /// Return an error on overflow
-    pub fn from_parent_unsigned(parent_header: &StacksMicroblockHeader, tx_merkle_root: &Sha512_256) -> Option<StacksMicroblockHeader> {
+    pub fn from_parent_unsigned(parent_header: &StacksMicroblockHeader, tx_merkle_root: &Sha512Trunc256Sum) -> Option<StacksMicroblockHeader> {
         let next_sequence = match parent_header.sequence.checked_add(1) {
             Some(next) => {
                 next
@@ -575,7 +574,7 @@ impl StacksMessageCodec for StacksMicroblock {
             .map(|tx| tx.txid().as_bytes().to_vec())
             .collect();
 
-        let merkle_tree = MerkleTree::<Sha512_256>::new(&txid_vecs);
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
         
         if tx_merkle_root != header.tx_merkle_root {
@@ -593,7 +592,7 @@ impl StacksMessageCodec for StacksMicroblock {
 impl StacksMicroblock {
     pub fn initial_unsigned(parent_block_hash: &BlockHeaderHash, txs: Vec<StacksTransaction>) -> StacksMicroblock {
         let txids = txs.iter().map(|ref tx| tx.txid().as_bytes().to_vec()).collect();
-        let merkle_tree = MerkleTree::<Sha512_256>::new(&txids);
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksMicroblockHeader::initial_unsigned(parent_block_hash, &tx_merkle_root);
         StacksMicroblock {
@@ -604,7 +603,7 @@ impl StacksMicroblock {
 
     pub fn from_parent_unsigned(parent_header: &StacksMicroblockHeader, txs: Vec<StacksTransaction>) -> Option<StacksMicroblock> {
         let txids = txs.iter().map(|ref tx| tx.txid().as_bytes().to_vec()).collect();
-        let merkle_tree = MerkleTree::<Sha512_256>::new(&txids);
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = match StacksMicroblockHeader::from_parent_unsigned(parent_header, &tx_merkle_root) {
             Some(h) => {
