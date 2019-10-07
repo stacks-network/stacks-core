@@ -20,6 +20,7 @@
 pub mod address;
 pub mod auth;
 pub mod block;
+pub mod db;
 pub mod index;
 pub mod transaction;
 
@@ -28,12 +29,14 @@ use std::error;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::convert::From;
+use std::convert::TryFrom;
 
 use util::secp256k1;
 use util::db::Error as db_error;
+use util::db::DBConn;
 use util::hash::Hash160;
 use util::vrf::VRFProof;
-use util::hash::Sha512_256;
+use util::hash::Sha512Trunc256Sum;
 use util::hash::HASH160_ENCODED_SIZE;
 use util::strings::StacksString;
 use util::secp256k1::MessageSignature;
@@ -44,19 +47,27 @@ use burnchains::Txid;
 use chainstate::burn::BlockHeaderHash;
 
 use chainstate::stacks::index::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use chainstate::stacks::index::Error as marf_error;
 
 use net::StacksMessageCodec;
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
 
+use vm::types::{
+    Value,
+    PrincipalData,
+    StandardPrincipalData,
+    QualifiedContractIdentifier
+};
+
+use vm::representations::{ContractName, ClarityName};
 use vm::errors::Error as clarity_error;
-use vm::database::marf::MarfedKV;
 
 pub type StacksPublicKey = secp256k1::Secp256k1PublicKey;
 pub type StacksPrivateKey = secp256k1::Secp256k1PrivateKey;
 
 impl_byte_array_message_codec!(TrieHash, TRIEHASH_ENCODED_SIZE as u32);
-impl_byte_array_message_codec!(Sha512_256, 32);
+impl_byte_array_message_codec!(Sha512Trunc256Sum, 32);
 
 pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22;       // P
 pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20;        // M
@@ -65,6 +76,12 @@ pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21;        // N
 
 pub const STACKS_BLOCK_VERSION: u8 = 0;
 pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
+
+impl StandardPrincipalData {
+    pub fn from_address(addr: &StacksAddress) -> StandardPrincipalData {
+        StandardPrincipalData(addr.version, addr.bytes.as_bytes().clone())
+    }
+}
 
 impl AddressHashMode {
     pub fn to_version_mainnet(&self) -> u8 {
@@ -82,21 +99,33 @@ impl AddressHashMode {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug)]
 pub enum Error {
     InvalidFee,
+    InvalidStacksBlock,
+    InvalidStacksTransaction,
+    PostConditionArithmeticError,
+    NoSuchBlockError,
+    InvalidChainstateDB,
     ClarityError(clarity_error),
     DBError(db_error),
-    NetError(net_error)
+    NetError(net_error),
+    MARFError(marf_error),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::InvalidFee => f.write_str(error::Error::description(self)),
+            Error::InvalidStacksBlock => f.write_str(error::Error::description(self)),
+            Error::InvalidStacksTransaction => f.write_str(error::Error::description(self)),
+            Error::PostConditionArithmeticError => f.write_str(error::Error::description(self)),
+            Error::NoSuchBlockError => f.write_str(error::Error::description(self)),
+            Error::InvalidChainstateDB => f.write_str(error::Error::description(self)),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
             Error::DBError(ref e) => fmt::Display::fmt(e, f),
-            Error::NetError(ref e) => fmt::Display::fmt(e, f)
+            Error::NetError(ref e) => fmt::Display::fmt(e, f),
+            Error::MARFError(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
@@ -105,18 +134,30 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&error::Error> {
         match *self {
             Error::InvalidFee => None,
+            Error::InvalidStacksBlock => None,
+            Error::InvalidStacksTransaction => None,
+            Error::PostConditionArithmeticError => None,
+            Error::NoSuchBlockError => None,
+            Error::InvalidChainstateDB => None,
             Error::ClarityError(ref e) => Some(e),
             Error::DBError(ref e) => Some(e),
-            Error::NetError(ref e) => Some(e)
+            Error::NetError(ref e) => Some(e),
+            Error::MARFError(ref e) => Some(e),
         }
     }
 
     fn description(&self) -> &str {
         match *self {
             Error::InvalidFee => "Invalid fee",
+            Error::InvalidStacksBlock => "Invalid Stacks block",
+            Error::InvalidStacksTransaction => "Invalid Stacks transaction",
+            Error::PostConditionArithmeticError => "Postcondition violated",
+            Error::NoSuchBlockError => "No such Stacks block",
+            Error::InvalidChainstateDB => "Invalid chainstate database",
             Error::ClarityError(ref e) => e.description(),
             Error::DBError(ref e) => e.description(),
-            Error::NetError(ref e) => e.description()
+            Error::NetError(ref e) => e.description(),
+            Error::MARFError(ref e) => e.description()
         }
     }
 }
@@ -124,7 +165,7 @@ impl error::Error for Error {
 impl Txid {
     /// A Stacks transaction ID is a sha512/256 hash (not a double-sha256 hash)
     pub fn from_stacks_tx(txdata: &[u8]) -> Txid {
-        let h = Sha512_256::from_data(txdata);
+        let h = Sha512Trunc256Sum::from_data(txdata);
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(h.as_bytes());
         Txid(bytes)
@@ -346,13 +387,16 @@ pub enum TransactionAuth {
 /// A transaction that calls into a smart contract
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransactionContractCall {
-    pub contract_call: StacksString
+    pub address: StacksAddress,
+    pub contract_name: ContractName,
+    pub function_name: ClarityName,
+    pub function_args: Vec<ClarityName>
 }
 
 /// A transaction that instantiates a smart contract
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransactionSmartContract {
-    pub name: StacksString,
+    pub name: ContractName,
     pub code_body: StacksString
 }
 
@@ -375,87 +419,59 @@ pub enum TransactionPayloadID {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssetInfo {
     pub contract_address: StacksAddress,
-    pub asset_name: StacksString,
+    pub contract_name: ContractName,
+    pub asset_name: ClarityName
 }
 
-/// type of asset
-#[derive(Debug, Clone, PartialEq)]
-pub enum AssetType {
-    STX,
-    FungibleAsset(AssetInfo),
-    NonfungibleAsset(AssetInfo, StacksString)
-}
-
-/// numeric wire-format ID of an asset type
+/// numeric wire-format ID of an asset info type variant
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Copy)]
-pub enum AssetTypeID {
+pub enum AssetInfoID {
     STX = 0,
     FungibleAsset = 1,
     NonfungibleAsset = 2
 }
 
-impl AssetTypeID {
-    pub fn from_u8(b: u8) -> Option<AssetTypeID> {
+impl AssetInfoID {
+    pub fn from_u8(b: u8) -> Option<AssetInfoID> {
         match b {
-            0 => Some(AssetTypeID::STX),
-            1 => Some(AssetTypeID::FungibleAsset),
-            2 => Some(AssetTypeID::NonfungibleAsset),
+            0 => Some(AssetInfoID::STX),
+            1 => Some(AssetInfoID::FungibleAsset),
+            2 => Some(AssetInfoID::NonfungibleAsset),
             _ => None
         }
-    }
-}
-
-/// Encoding of a transaction fee. Could be in something besides STX.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TransactionFee {
-    pub asset: AssetType,
-    pub amount: u64,
-    pub exchange_rate: u64      // how many microSTX is this asset worth
-}
-
-impl TransactionFee {
-    pub fn to_microstx(amount: u64, exchange_rate: u64) -> Result<u64, Error> {
-        amount.checked_mul(exchange_rate)
-            .ok_or(Error::InvalidFee)
-    }
-
-    pub fn as_microstx(&self) -> Result<u64, Error> {
-        TransactionFee::to_microstx(self.amount, self.exchange_rate)
     }
 }
 
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum FungibleConditionCode {
-    NoChange = 0x00,
-    IncEq = 0x01,
-    IncGt = 0x02,
-    IncGe = 0x03,
-    IncLt = 0x04,
-    IncLe = 0x05,
-    DecEq = 0x81,
-    DecGt = 0x82,
-    DecGe = 0x83,
-    DecLt = 0x84,
-    DecLe = 0x85,
+    SentEq = 0x01,
+    SentGt = 0x02,
+    SentGe = 0x03,
+    SentLt = 0x04,
+    SentLe = 0x05
 }
 
 impl FungibleConditionCode {
     pub fn from_u8(b: u8) -> Option<FungibleConditionCode> {
         match b {
-            0x00 => Some(FungibleConditionCode::NoChange),
-            0x01 => Some(FungibleConditionCode::IncEq),
-            0x02 => Some(FungibleConditionCode::IncGt),
-            0x03 => Some(FungibleConditionCode::IncGe),
-            0x04 => Some(FungibleConditionCode::IncLt),
-            0x05 => Some(FungibleConditionCode::IncLe),
-            0x81 => Some(FungibleConditionCode::DecEq),
-            0x82 => Some(FungibleConditionCode::DecGt),
-            0x83 => Some(FungibleConditionCode::DecGe),
-            0x84 => Some(FungibleConditionCode::DecLt),
-            0x85 => Some(FungibleConditionCode::DecLe),
+            0x01 => Some(FungibleConditionCode::SentEq),
+            0x02 => Some(FungibleConditionCode::SentGt),
+            0x03 => Some(FungibleConditionCode::SentGe),
+            0x04 => Some(FungibleConditionCode::SentLt),
+            0x05 => Some(FungibleConditionCode::SentLe),
             _ => None
+        }
+    }
+
+    pub fn check(&self, amount_sent_condition: u64, amount_sent: u64) -> bool {
+        match *self {
+            FungibleConditionCode::SentEq => amount_sent == amount_sent_condition,
+            FungibleConditionCode::SentGt => amount_sent > amount_sent_condition,
+            FungibleConditionCode::SentGe => amount_sent >= amount_sent_condition,
+            FungibleConditionCode::SentLt => amount_sent < amount_sent_condition,
+            FungibleConditionCode::SentLe => amount_sent <= amount_sent_condition,
         }
     }
 }
@@ -463,7 +479,6 @@ impl FungibleConditionCode {
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum NonfungibleConditionCode {
-    NoChange = 0x00,
     Absent = 0x10,
     Present = 0x11
 }
@@ -471,10 +486,26 @@ pub enum NonfungibleConditionCode {
 impl NonfungibleConditionCode {
     pub fn from_u8(b: u8) -> Option<NonfungibleConditionCode> {
         match b {
-            0x00 => Some(NonfungibleConditionCode::NoChange),
             0x10 => Some(NonfungibleConditionCode::Absent),
             0x11 => Some(NonfungibleConditionCode::Present),
             _ => None
+        }
+    }
+
+    pub fn was_sent(nft_sent_condition: &Value, nfts_sent: &Vec<Value>) -> bool {
+        for asset_sent in nfts_sent.iter() {
+            if *asset_sent == *nft_sent_condition {
+                // asset was sent, and is no longer owned by this principal
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn check(&self, nft_sent_condition: &Value, nfts_sent: &Vec<Value>) -> bool {
+        match *self {
+            NonfungibleConditionCode::Absent => NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent),
+            NonfungibleConditionCode::Present => !NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent)
         }
     }
 }
@@ -483,8 +514,8 @@ impl NonfungibleConditionCode {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionPostCondition {
     STX(FungibleConditionCode, u64),
-    Fungible(AssetType, FungibleConditionCode, u64),
-    Nonfungible(AssetType, NonfungibleConditionCode),
+    Fungible(AssetInfo, FungibleConditionCode, u64),
+    Nonfungible(AssetInfo, StacksString, NonfungibleConditionCode),
 }
 
 /// Post-condition modes for unspecified assets
@@ -508,7 +539,7 @@ pub struct StacksTransaction {
     pub version: TransactionVersion,
     pub chain_id: u32,
     pub auth: TransactionAuth,
-    pub fee: TransactionFee,
+    pub fee: u64,
     pub anchor_mode: TransactionAnchorMode,
     pub post_condition_mode: TransactionPostConditionMode,
     pub post_conditions: Vec<TransactionPostCondition>,
@@ -535,10 +566,10 @@ pub struct StacksBlockHeader {
     pub version: u8,
     pub total_work: StacksWorkScore,            // NOTE: this is the work done on the chain tip this block builds on (i.e. take this from the parent)
     pub proof: VRFProof,
-    pub parent_block: BlockHeaderHash,
+    pub parent_block: BlockHeaderHash,          // NOTE: even though this is also present in the burn chain, we need this here for super-light clients that don't even have burn chain headers
     pub parent_microblock: BlockHeaderHash,
     pub parent_microblock_sequence: u8,         // highest sequence number of the microblock stream that is the parent of this block (0 if no stream)
-    pub tx_merkle_root: Sha512_256,
+    pub tx_merkle_root: Sha512Trunc256Sum,
     pub state_index_root: TrieHash,
     pub microblock_pubkey_hash: Hash160,        // we'll get the public key back from the first signature
 }
@@ -557,7 +588,7 @@ pub struct StacksMicroblockHeader {
     pub version: u8,
     pub sequence: u8,       // you can send 1 microblock on average once every 2.34 seconds, if there's a 600-second block time
     pub prev_block: BlockHeaderHash,
-    pub tx_merkle_root: Sha512_256,
+    pub tx_merkle_root: Sha512Trunc256Sum,
     pub signature: MessageSignature
 }
 
@@ -579,9 +610,4 @@ pub const MAX_BLOCK_SIZE : u32 = 1048576;
 // $MAX_EPOCH_SIZE bytes (so the average microblock size needs to be 4kb if there are 256 of them)
 pub const MAX_MICROBLOCK_SIZE : u32 = 65536;
 
-/// Top-level chain state itself
-#[derive(Debug, Clone, PartialEq)]
-pub struct StacksChainState {
-    pub chain_storage: MarfedKV,
-    pub blocks_path: String
-}
+
