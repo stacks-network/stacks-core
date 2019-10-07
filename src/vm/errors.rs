@@ -1,5 +1,6 @@
 use std::fmt;
 use std::error;
+use vm::ast::errors::ParseError;
 pub use vm::analysis::errors::{CheckErrors};
 pub use vm::analysis::errors::{check_argument_count, check_arguments_at_least};
 use vm::types::{Value, TypeSignature};
@@ -55,7 +56,10 @@ pub enum RuntimeErrorType {
     ArithmeticUnderflow,
     SupplyOverflow(i128, i128),
     DivisionByZero,
+    // error in parsing types
     ParseError(String),
+    // error in parsing the AST
+    ASTError(ParseError),
     MaxStackDepthReached,
     MaxContextDepthReached,
     ListDimensionTooHigh,

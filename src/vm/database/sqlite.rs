@@ -47,6 +47,21 @@ impl <'a> KeyValueStorage for SqliteStore<'a> {
     fn has_entry(&mut self, key: &str) -> bool {
         sqlite_has_entry(&self.conn, key)
     }
+
+    fn begin(&mut self, key: &str) {
+        self.conn.execute("SAVEPOINT ?", &[key])
+            .expect(SQL_FAIL_MESSAGE);
+    }
+
+    fn rollback(&mut self, key: &str) {
+        self.conn.execute("ROLLBACK TO SAVEPOINT ?", &[key])
+            .expect(SQL_FAIL_MESSAGE);
+    }
+
+    fn commit(&mut self, key: &str) {
+        self.conn.execute("RELEASE SAVEPOINT ?", &[key])
+            .expect(SQL_FAIL_MESSAGE);
+    }
 }
 
 impl KeyValueStorage for SqliteConnection {
@@ -102,7 +117,4 @@ impl SqliteConnection {
         Ok(SqliteConnection { conn })
     }
 
-    pub fn begin_save_point_raw<'a>(&'a mut self) -> Savepoint<'a> {
-        self.conn.savepoint().unwrap()
-    }
 }

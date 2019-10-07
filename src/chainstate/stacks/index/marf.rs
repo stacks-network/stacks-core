@@ -668,6 +668,13 @@ impl MARF {
             })
     }
 
+    /// Drop the current trie from the MARF. This rolls back all
+    ///   changes in the block, and closes the current chain tip.
+    pub fn drop_current(&mut self) {
+        self.storage.drop_extending_trie();
+        self.open_chain_tip = None;
+    }
+
     /// Finish writing the next trie in the MARF.  This persists all changes.
     pub fn commit(&mut self) -> Result<(), Error> {
         match self.open_chain_tip.take() {

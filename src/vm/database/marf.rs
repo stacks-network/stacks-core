@@ -24,6 +24,11 @@ pub struct MarfedKV {
 
 #[cfg(test)]
 pub fn temporary_marf() -> MarfedKV {
+    in_memory_marf(false)
+}
+
+#[cfg(test)]
+pub fn in_memory_marf(use_sql: bool) -> MarfedKV {
     use std::env;
     use rand::Rng;
     use util::hash::to_hex;
@@ -35,7 +40,11 @@ pub fn temporary_marf() -> MarfedKV {
 
     let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"))
         .unwrap();
-    let side_store = Box::new(HashMap::new());
+    let side_store: Box<KeyValueStorage> = if use_sql {
+        Box::new(SqliteConnection::memory().unwrap())
+    } else {
+        Box::new(HashMap::new())
+    };
 
     let chain_tip = TrieFileStorage::block_sentinel();
 
@@ -80,8 +89,15 @@ impl MarfedKV {
         self.chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Failed to get open MARF")
             .clone();
+        self.side_store.begin(&self.chain_tip.to_hex());
+    }
+    pub fn rollback(&mut self) {
+        self.marf.drop_current();
+        self.side_store.rollback(&self.chain_tip.to_hex());
+        self.chain_tip = TrieFileStorage::block_sentinel();
     }
     pub fn commit(&mut self) {
+        self.side_store.commit(&self.chain_tip.to_hex());
         self.marf.commit()
             .expect("ERROR: Failed to commit MARF block");
     }

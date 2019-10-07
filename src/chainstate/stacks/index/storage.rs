@@ -1273,6 +1273,10 @@ impl TrieFileStorage {
         Ok(())
     }
 
+    pub fn drop_extending_trie(&mut self) {
+        self.last_extended = None;
+    }
+
     pub fn last_ptr(&mut self) -> Result<u32, Error> {
         if let Some((_, ref mut trie_ram)) = self.last_extended {
             trie_ram.last_ptr()

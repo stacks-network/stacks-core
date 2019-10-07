@@ -10,6 +10,14 @@ pub trait KeyValueStorage {
     fn get(&mut self, key: &str) -> Option<String>;
     fn has_entry(&mut self, key: &str) -> bool;
 
+    /// begin, commit, rollback a save point identified by key
+    ///    not all backends will implement this! this is used to clean up
+    ///     any data from aborted blocks (not aborted transactions! that is handled
+    ///      by the clarity vm directly).
+    fn begin(&mut self, key: &str) {}
+    fn commit(&mut self, key: &str) {}
+    fn rollback(&mut self, key: &str) {}
+
     /// returns the previous block header hash on success
     fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
         panic!("Attempted to evaluate changed block height with a generic backend");
