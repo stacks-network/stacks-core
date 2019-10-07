@@ -6,7 +6,7 @@ pub mod types;
 
 pub mod contracts;
 
-mod representations;
+pub mod representations;
 pub mod ast;
 pub mod contexts;
 pub mod database;
