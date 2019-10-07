@@ -1020,7 +1020,8 @@ pub mod tests {
             block_height: 124,
             burn_header_hash: block_124_hash_initial.clone(),
         };
-        
+       
+        // should be rejected
         let user_burn_noblock = UserBurnSupportOp {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
@@ -1036,6 +1037,7 @@ pub mod tests {
             burn_header_hash: block_123_hash.clone(),
         };
         
+        // should be rejected
         let user_burn_nokey = UserBurnSupportOp {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("3f3338db51f2b1f6ac0cf6177179a24ee130c04ef2f9849a64a216969ab60e70").unwrap()).unwrap(),
@@ -1133,7 +1135,7 @@ pub mod tests {
         let block_prev_chs_121 = vec![
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
-        let block_121_snapshot = BlockSnapshot {
+        let mut block_121_snapshot = BlockSnapshot {
             block_height: 121,
             burn_header_hash: block_121_hash.clone(),
             parent_burn_header_hash: first_burn_hash.clone(),
@@ -1145,7 +1147,8 @@ pub mod tests {
                 .mix_burn_header(&block_121_hash),
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            index_root: TrieHash::from_empty_data(),
+            index_root: TrieHash::from_empty_data(),        // TBD
+            stacks_block_height: 0,
         };
 
         let block_ops_122 = vec![
@@ -1156,7 +1159,7 @@ pub mod tests {
             block_121_snapshot.consensus_hash.clone(),
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
-        let block_122_snapshot = BlockSnapshot {
+        let mut block_122_snapshot = BlockSnapshot {
             block_height: 122,
             burn_header_hash: block_122_hash.clone(),
             parent_burn_header_hash: block_121_hash.clone(),
@@ -1169,7 +1172,8 @@ pub mod tests {
                 .mix_burn_header(&block_122_hash),
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            index_root: TrieHash::from_empty_data(),
+            index_root: TrieHash::from_empty_data(),        // TBD
+            stacks_block_height: 0,
         };
 
         let block_ops_123 = vec![
@@ -1185,7 +1189,7 @@ pub mod tests {
             block_122_snapshot.consensus_hash.clone(),
             block_121_snapshot.consensus_hash.clone(),
         ];
-        let block_123_snapshot = BlockSnapshot {
+        let mut block_123_snapshot = BlockSnapshot {
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
             parent_burn_header_hash: block_122_hash.clone(),
@@ -1199,7 +1203,8 @@ pub mod tests {
                 .mix_burn_header(&block_123_hash),
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            index_root: TrieHash::from_empty_data(),
+            index_root: TrieHash::from_empty_data(),        // TBD
+            stacks_block_height: 0,
         };
 
         // multiple possibilities for block 124 -- we'll reorg the chain each time back to 123 and
@@ -1245,7 +1250,8 @@ pub mod tests {
             let mut tx = db.tx_begin().unwrap();
             let sn121 = Burnchain::process_block_ops(&mut tx, &burnchain, &initial_snapshot, &header, &block_ops_121).unwrap();
             tx.commit().unwrap();
-            
+           
+            block_121_snapshot.index_root = sn121.index_root.clone();
             assert_eq!(sn121, block_121_snapshot);
         }
         {
@@ -1254,6 +1260,7 @@ pub mod tests {
             let sn122 = Burnchain::process_block_ops(&mut tx, &burnchain, &block_121_snapshot, &header, &block_ops_122).unwrap();
             tx.commit().unwrap();
             
+            block_122_snapshot.index_root = sn122.index_root.clone();
             assert_eq!(sn122, block_122_snapshot);
         }
         {
@@ -1262,6 +1269,7 @@ pub mod tests {
             let sn123 = Burnchain::process_block_ops(&mut tx, &burnchain, &block_122_snapshot, &header, &block_ops_123).unwrap();
             tx.commit().unwrap();
             
+            block_123_snapshot.index_root = sn123.index_root.clone();
             assert_eq!(sn123, block_123_snapshot);
         }
 
@@ -1333,7 +1341,8 @@ pub mod tests {
                     .mix_burn_header(&block_124_hash),
                 winning_block_txid: block_124_winners[scenario_idx].txid.clone(),
                 winning_stacks_block_hash: block_124_winners[scenario_idx].block_header_hash.clone(),
-                index_root: TrieHash::from_empty_data(),
+                index_root: TrieHash::from_empty_data(),        // TDB
+                stacks_block_height: if next_sortition { 1 } else { 0 }
             };
 
             let block124 = BurnchainBlock::Bitcoin(BitcoinBlock::new(124, &block_124_hash, &block_123_hash, &vec![]));
@@ -1344,6 +1353,8 @@ pub mod tests {
                 let mut tx = db.tx_begin().unwrap();
                 let sn124 = Burnchain::process_block_ops(&mut tx, &burnchain, &block_123_snapshot, &header, &block_ops_124).unwrap();
                 tx.commit().unwrap();
+
+                block_124_snapshot.index_root = sn124.index_root.clone();
                 sn124
             };
            
@@ -1358,6 +1369,7 @@ pub mod tests {
                 block_124_winners[scenario_idx].block_header_hash.clone()
             ];
 
+            // TODO: pair up with stacks chain state?
             /*
             let winning_header_hashes = {
                 let mut tx = db.tx_begin().unwrap();
@@ -1466,7 +1478,7 @@ pub mod tests {
 
             let ch = {
                 let mut tx = db.tx_begin().unwrap();
-                BurnDB::get_consensus_at(&mut tx, (i as u64) + first_block_height, &parent_index_root).unwrap().unwrap()
+                BurnDB::get_consensus_at(&mut tx, (i as u64) + first_block_height, &parent_index_root).unwrap()
             };
 
             let next_leader_key = LeaderKeyRegisterOp {
@@ -1512,8 +1524,6 @@ pub mod tests {
 
             prev_snapshot = snapshot;
         }
-
-        
     }
 
     // TODO: test VRF key duplication check
