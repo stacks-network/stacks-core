@@ -252,7 +252,7 @@ fn test_lists() {
     let bad_expected = [
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
+        CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(BoolType, buff_type(20)),
@@ -303,7 +303,7 @@ fn test_buff() {
     let bad_expected = [
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
+        CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(BoolType, buff_type(20)),
@@ -354,7 +354,7 @@ fn test_buff_filter() {
     let good = [
         "(define-private (f (e (buff 1))) (eq? e \"1\"))
         (filter f \"101010\")"];
-    let expected = ["(buff 6)"]; // todo(ludo): Should be (buff 6) 
+    let expected = ["(buff 6)"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
