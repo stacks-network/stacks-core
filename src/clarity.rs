@@ -137,7 +137,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     let mut marf = friendly_expect(sqlite_marf(&args[2], None), "Failed to open VM database.");
                     let result = { let mut db = AnalysisDatabase::new(Box::new(&mut marf));
                                    run_analysis(&contract_id, &mut ast, &mut db, false) };
-                    marf.commit();
                     result
                 } else {
                     let memory = friendly_expect(SqliteConnection::memory(), "Could not open in-memory analysis DB");
