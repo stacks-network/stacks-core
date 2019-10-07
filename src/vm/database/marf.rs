@@ -33,12 +33,11 @@ pub fn temporary_marf() -> MarfedKV {
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
     path.push(to_hex(&random_bytes));
 
-    let mut marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"))
+    let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"))
         .unwrap();
     let side_store = Box::new(HashMap::new());
 
-    let chain_tip = marf.chain_tips().get(0).cloned()
-        .unwrap_or_else(|| TrieFileStorage::block_sentinel());
+    let chain_tip = TrieFileStorage::block_sentinel();
 
     MarfedKV { chain_tip, marf, side_store }
 }
@@ -97,7 +96,7 @@ impl MarfedKV {
 impl KeyValueStorage for &mut MarfedKV {
     /// returns the previous block header hash
     fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
-        self.marf.check_block_hash(&bhh).map_err(|e| {
+        self.marf.check_ancestor_block_hash(&bhh).map_err(|e| {
             match e {
                 MarfError::NotFoundError => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
                 MarfError::NonMatchingForks(_,_) => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
