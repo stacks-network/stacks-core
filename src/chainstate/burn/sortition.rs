@@ -79,7 +79,8 @@ impl BlockSnapshot {
             sortition_hash: SortitionHash::initial(),
             winning_block_txid: Txid([0u8; 32]),
             winning_stacks_block_hash: BlockHeaderHash([0u8; 32]),
-            index_root: TrieHash::from_empty_data()
+            index_root: TrieHash::from_empty_data(),
+            stacks_block_height: 0
         }
     }
 
@@ -164,7 +165,7 @@ impl BlockSnapshot {
     }
 
     /// Make the snapshot struct for the case where _no sortition_ takes place
-    fn make_snapshot_no_sortition<'a>(tx: &mut BurnDBTx<'a>, block_header: &BurnchainBlockHeader, first_block_height: u64, burn_total: u64, sortition_hash: &SortitionHash, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
+    fn make_snapshot_no_sortition<'a>(tx: &mut BurnDBTx<'a>, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, first_block_height: u64, burn_total: u64, sortition_hash: &SortitionHash, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
         let block_height = block_header.block_height;
         let block_hash = block_header.block_hash.clone();
         let parent_block_hash = block_header.parent_block_hash.clone();
@@ -188,7 +189,8 @@ impl BlockSnapshot {
             sortition_hash: sortition_hash.clone(),
             winning_block_txid: non_winning_block_txid,
             winning_stacks_block_hash: non_winning_block_hash,
-            index_root: TrieHash::from_empty_data()     // will be overwritten
+            index_root: TrieHash::from_empty_data(),     // will be overwritten
+            stacks_block_height: parent_snapshot.stacks_block_height
         })
     }
     
@@ -222,7 +224,7 @@ impl BlockSnapshot {
         if burn_dist.len() == 0 {
             // no burns happened
             info!("No burns happened in block {} {:?}", block_height, &block_hash);
-            return BlockSnapshot::make_snapshot_no_sortition(tx, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
+            return BlockSnapshot::make_snapshot_no_sortition(tx, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
         }
 
         // NOTE: this only counts burns from leader block commits and user burns that match them.
@@ -232,7 +234,7 @@ impl BlockSnapshot {
                 if total == 0 {
                     // no one burned, so no sortition
                     info!("No transactions submitted burns in block {} {:?}", block_height, &block_hash);
-                    return BlockSnapshot::make_snapshot_no_sortition(tx, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
+                    return BlockSnapshot::make_snapshot_no_sortition(tx, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
                 }
                 else {
                     total
@@ -241,7 +243,7 @@ impl BlockSnapshot {
             None => {
                 // overflow -- treat as 0 (no sortition)
                 warn!("Burn count exceeds maximum threshold");
-                return BlockSnapshot::make_snapshot_no_sortition(tx, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
+                return BlockSnapshot::make_snapshot_no_sortition(tx, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
             }
         };
 
@@ -255,7 +257,7 @@ impl BlockSnapshot {
             None => {
                 // overflow.  Deny future sortitions
                 warn!("Cumulative sortition burn has overflown.  Subsequent sortitions will be denied.");
-                return BlockSnapshot::make_snapshot_no_sortition(tx, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
+                return BlockSnapshot::make_snapshot_no_sortition(tx, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
             }
         };
 
@@ -264,7 +266,7 @@ impl BlockSnapshot {
             None => {
                 // should be unreachable, but would happen if there were no burns
                 warn!("No winner for block {} {:?}", block_height, &block_hash);
-                return BlockSnapshot::make_snapshot_no_sortition(tx, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids)
+                return BlockSnapshot::make_snapshot_no_sortition(tx, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids)
             },
             Some(winning_block) => {
                 (winning_block.txid, winning_block.block_header_hash)
@@ -287,7 +289,8 @@ impl BlockSnapshot {
             sortition_hash: next_sortition_hash,
             winning_block_txid: winning_txid,
             winning_stacks_block_hash: winning_block_hash,
-            index_root: TrieHash::from_empty_data()     // will be overwritten
+            index_root: TrieHash::from_empty_data(),     // will be overwritten,
+            stacks_block_height: parent_snapshot.stacks_block_height + 1
         })
     }
 }
