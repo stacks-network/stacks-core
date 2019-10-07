@@ -1,7 +1,7 @@
 use vm::representations::SymbolicExpression;
 use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use vm::contexts::{OwnedEnvironment, AssetMap};
-use vm::database::{MarfedKV, ClarityDatabase};
+use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection};
 use vm::analysis::{AnalysisDatabase};
 use vm::errors::{Error as InterpreterError};
 use vm::ast::{ContractAST, errors::ParseError};
@@ -12,11 +12,11 @@ use vm::analysis;
 use chainstate::burn::BlockHeaderHash;
 
 pub struct ClarityInstance {
-    datastore: Option<MarfedKV>,
+    datastore: Option<MarfedKV<SqliteConnection>>,
 }
 
 pub struct ClarityBlockConnection<'a> {
-    datastore: MarfedKV,
+    datastore: MarfedKV<SqliteConnection>,
     parent: &'a mut ClarityInstance
 }
 
@@ -46,7 +46,7 @@ impl From<ParseError> for Error {
 }
 
 impl ClarityInstance {
-    pub fn new(datastore: MarfedKV) -> ClarityInstance {
+    pub fn new(datastore: MarfedKV<SqliteConnection>) -> ClarityInstance {
         ClarityInstance { datastore: Some(datastore) }
     }
 
@@ -64,7 +64,7 @@ impl ClarityInstance {
         }
     }
 
-    pub fn destroy(mut self) -> MarfedKV {
+    pub fn destroy(mut self) -> MarfedKV<SqliteConnection> {
         let mut datastore = self.datastore.take()
             .expect("FAIL: attempt to recover database connection from clarity instance which is still open");
 
@@ -158,11 +158,11 @@ mod tests {
 
     #[test]
     pub fn simple_test() {
-        let marf = marf::in_memory_marf(true);
+        let marf = marf::in_memory_marf();
         let mut clarity_instance = ClarityInstance::new(marf);
 
         let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
+                                                    &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
 
         let contract = "(define-public (foo (x int)) (ok (+ x x)))";
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
@@ -178,5 +178,27 @@ mod tests {
             Value::okay(Value::Int(2)));
 
         conn.commit_block();
+    }
+
+    #[test]
+    pub fn test_block_roll_back() {
+        let marf = marf::in_memory_marf();
+        let mut clarity_instance = ClarityInstance::new(marf);
+
+        {
+            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
+
+            let contract = "(define-public (foo (x int)) (ok (+ x x)))";
+            let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+
+            let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+            conn.initialize_smart_contract(
+                &contract_identifier, &ct_ast, |_,_| false).unwrap();
+            conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            
+            conn.rollback_block();
+        }
+
     }
 }

@@ -71,15 +71,16 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     })
 }
 
-fn clarity_db(marf_kv: &mut MarfedKV) -> ClarityDatabase {
+fn clarity_db<S: KeyValueStorage>(marf_kv: &mut MarfedKV<S>) -> ClarityDatabase {
     ClarityDatabase::new(Box::new(marf_kv))
 }
 
 
 // This function is pretty weird! But it helps cut down on
 //   repeating a lot of block initialization for the simulation commands.
-fn in_block<F,R>(mut marf_kv: MarfedKV, f: F) -> R
-where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
+fn in_block<F,R,S>(mut marf_kv: MarfedKV<S>, f: F) -> R
+where F: FnOnce(MarfedKV<S>) -> (MarfedKV<S>, R),
+      S: KeyValueStorage {
     let from = marf_kv.get_chain_tip().clone();
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
     let to = friendly_expect_opt(BlockHeaderHash::from_bytes(&random_bytes),
