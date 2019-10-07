@@ -33,7 +33,8 @@ use burnchains::PublicKey;
 use burnchains::BurnchainHeaderHash;
 use burnchains::BurnchainBlock;
 
-use util::hash::Hash160;
+use std::fmt;
+use util::hash::{Hash160, to_hex};
 
 use sha2::Sha256;
 use ripemd160::Ripemd160;
@@ -60,7 +61,7 @@ pub struct BlockHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
 impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
-pub const BLOCK_HEADER_HASH_ENCODED_SIZE : u32 = 32;
+pub const BLOCK_HEADER_HASH_ENCODED_SIZE : usize = 32;
 
 pub struct VRFSeed([u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
@@ -109,6 +110,12 @@ pub struct BlockSnapshot {
 impl BlockHeaderHash {
     pub fn to_hash160(&self) -> Hash160 {
         Hash160::from_sha256(&self.0)
+    }
+}
+
+impl fmt::Display for BlockHeaderHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", to_hex(&self.0))
     }
 }
 

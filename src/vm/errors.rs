@@ -1,9 +1,11 @@
 use std::fmt;
 use std::error;
+use vm::ast::errors::ParseError;
 pub use vm::analysis::errors::{CheckErrors};
 pub use vm::analysis::errors::{check_argument_count, check_arguments_at_least};
 use vm::types::{Value, TypeSignature};
 use vm::contexts::StackTrace;
+use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::{Error as MarfError};
 
 use serde_json::Error as SerdeJSONErr;
@@ -54,7 +56,10 @@ pub enum RuntimeErrorType {
     ArithmeticUnderflow,
     SupplyOverflow(i128, i128),
     DivisionByZero,
+    // error in parsing types
     ParseError(String),
+    // error in parsing the AST
+    ASTError(ParseError),
     MaxStackDepthReached,
     MaxContextDepthReached,
     ListDimensionTooHigh,
@@ -68,7 +73,9 @@ pub enum RuntimeErrorType {
     NonPositiveTokenSupply,
     JSONParseError(IncomparableError<SerdeJSONErr>),
     AttemptToFetchInTransientContext,
-    BadNameValue(&'static str, String)
+    BadNameValue(&'static str, String),
+    UnknownBlockHeaderHash(BlockHeaderHash),
+    BadBlockHash(Vec<u8>)
 }
 
 #[derive(Debug, PartialEq)]

@@ -18,7 +18,6 @@
 */
 
 pub mod bits;
-pub mod fork_table;
 pub mod marf;
 pub mod node;
 pub mod proofs;
@@ -37,32 +36,11 @@ use std::io::{
 use sha2::Sha512Trunc256 as TrieHasher;
 use sha2::Digest;
 
+use std::hash::Hash;
 use chainstate::burn::BlockHeaderHash;
 
 use util::log;
-
-/// Fast extend-from-slice for bytes.  Basically, this is memcpy(3).
-/// This is similar to the private append_elements() method in the Vec struct,
-/// but noticeably faster in that it requires that target already have sufficient capacity.
-/// Based on https://doc.rust-lang.org/std/ptr/fn.copy_nonoverlapping.html
-///
-/// This method requires that target has enough space to store src, and will panic if not.
-#[inline]
-pub fn fast_extend_from_slice(target: &mut Vec<u8>, src: &[u8]) -> () {
-    if target.capacity() < target.len() + src.len() {
-        error!("target.capacity() ({}) < target.len() ({}) + src.len() ({})", target.capacity(), target.len(), src.len());
-        assert!(target.capacity() >= target.len() + src.len());
-    }
-    let target_len = target.len();
-    let src_len = src.len();
-    let new_len = target_len + src_len;
-    unsafe {
-        let target_ptr = target.as_mut_ptr().offset(target_len as isize);
-        let src_ptr = src.as_ptr();
-        ptr::copy_nonoverlapping(src_ptr, target_ptr, src_len);
-        target.set_len(new_len);
-    }
-}
+use util::hash::to_hex;
 
 /// Hash of a Trie node.  This is a SHA2-512/256.
 pub struct TrieHash(pub [u8; 32]);
@@ -82,7 +60,6 @@ pub const MARF_VALUE_ENCODED_SIZE : u32 = 40;
 
 impl TrieHash {
     /// TrieHash of zero bytes
-    #[inline]
     fn from_empty_data() -> TrieHash {
         // sha2-512/256 hash of empty string.
         // this is used so frequently it helps performance if we just have a constant for it.
@@ -104,6 +81,22 @@ impl TrieHash {
         TrieHash(tmp)
     }
 
+    pub fn from_data_array<B: AsRef<[u8]>>(data: &[B]) -> TrieHash {
+        if data.len() == 0 {
+            return TrieHash::from_empty_data();
+        }
+        
+        let mut tmp = [0u8; 32];
+       
+        let mut hasher = TrieHasher::new();
+
+        for item in data.iter() {
+            hasher.input(item);
+        }
+        tmp.copy_from_slice(hasher.result().as_slice());
+        TrieHash(tmp)
+    }
+
     /// Convert to a String that can be used in e.g. sqlite
     pub fn to_string(&self) -> String {
         let s = format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
@@ -116,6 +109,79 @@ impl TrieHash {
                           self.0[24],    self.0[25],      self.0[26],      self.0[27],
                           self.0[28],    self.0[29],      self.0[30],      self.0[31]);
         s
+    }
+}
+
+
+impl fmt::Display for TrieHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", to_hex(&self.0))
+    }
+}
+
+impl AsRef<[u8]> for TrieHash {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl From<BlockHeaderHash> for MARFValue {
+    fn from(bhh: BlockHeaderHash) -> MARFValue {
+        let h = bhh.0;
+        let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
+        if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
+            panic!("Cannot convert a BHH into a MARF Value.");
+        }
+        for i in 0..h.len() {
+            d[i] = h[i];
+        }
+        MARFValue(d)
+    }
+}
+
+impl From<u32> for MARFValue {
+    fn from(value: u32) -> MARFValue {
+        let h = value.to_le_bytes();
+        let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
+        if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
+            panic!("Cannot convert a u32 into a MARF Value.");
+        }
+        for i in 0..h.len() {
+            d[i] = h[i];
+        }
+        MARFValue(d)
+    }
+}
+
+impl From<MARFValue> for BlockHeaderHash {
+    fn from(m: MARFValue) -> BlockHeaderHash {
+        let h = m.0;
+        let mut d = [0u8; 32];
+        for i in 0..32 {
+            d[i] = h[i];
+        }
+        for i in 32..h.len() {
+            if h[i] != 0 {
+                panic!("Failed to convert MARF value into BHH: data stored after 32nd byte");
+            }
+        }
+        BlockHeaderHash(d)
+    }
+}
+
+impl From<MARFValue> for u32 {
+    fn from(m: MARFValue) -> u32 {
+        let h = m.0;
+        let mut d = [0u8; 4];
+        for i in 0..4 {
+            d[i] = h[i];
+        }
+        for i in 4..h.len() {
+            if h[i] != 0 {
+                panic!("Failed to convert MARF value into u32: data stored after 4th byte");
+            }
+        }
+        u32::from_le_bytes(d)
     }
 }
 
@@ -160,35 +226,44 @@ impl MARFValue {
 
 #[derive(Debug)]
 pub enum Error {
+    NotOpenedError,
     IOError(io::Error),
     NotFoundError,
     BackptrNotFoundError,
     ExistsError,
     BadSeekValue,
     CorruptionError(String),
+    BlockHashMapCorruptionError(Option<Box<Error>>),
     ReadOnlyError,
     NotDirectoryError,
     PartialWriteError,
     InProgressError,
     WriteNotBegunError,
-    CursorError(node::CursorError)
+    CursorError(node::CursorError),
+    RestoreMarfBlockError(Box<Error>),
+    NonMatchingForks(BlockHeaderHash, BlockHeaderHash)
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Error::IOError(err)
+    }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
-            Error::NotFoundError => f.write_str(error::Error::description(self)),
-            Error::BackptrNotFoundError => f.write_str(error::Error::description(self)),
-            Error::ExistsError => f.write_str(error::Error::description(self)),
-            Error::BadSeekValue => f.write_str(error::Error::description(self)),
             Error::CorruptionError(ref s) => fmt::Display::fmt(s, f),
-            Error::ReadOnlyError => f.write_str(error::Error::description(self)),
-            Error::NotDirectoryError => f.write_str(error::Error::description(self)),
-            Error::PartialWriteError => f.write_str(error::Error::description(self)),
-            Error::InProgressError => f.write_str(error::Error::description(self)),
-            Error::WriteNotBegunError => f.write_str(error::Error::description(self)),
-            Error::CursorError(ref e) => fmt::Display::fmt(e, f)
+            Error::CursorError(ref e) => fmt::Display::fmt(e, f),
+            Error::BlockHashMapCorruptionError(ref opt_e) => {
+                f.write_str(error::Error::description(self))?;
+                match opt_e {
+                    Some(e) => write!(f, ": {}", e),
+                    None => Ok(())
+                }
+            },
+            _ => f.write_str(error::Error::description(self)),
         }
     }
 }
@@ -197,34 +272,33 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&error::Error> {
         match *self {
             Error::IOError(ref e) => Some(e),
-            Error::NotFoundError => None,
-            Error::BackptrNotFoundError => None,
-            Error::ExistsError => None,
-            Error::BadSeekValue => None,
-            Error::CorruptionError(ref _s) => None,
-            Error::ReadOnlyError => None,
-            Error::NotDirectoryError => None,
-            Error::PartialWriteError => None,
-            Error::InProgressError => None,
-            Error::WriteNotBegunError => None,
-            Error::CursorError(ref e) => None,
+            Error::RestoreMarfBlockError(ref e) => Some(e),
+            Error::BlockHashMapCorruptionError(ref opt_e) => match opt_e {
+                Some(ref e) => Some(e),
+                None => None
+            },
+            _ => None
         }
     }
 
     fn description(&self) -> &str {
         match *self {
             Error::IOError(ref e) => e.description(),
+            Error::NotOpenedError => "Tried to read data from unopened storage",
             Error::NotFoundError => "Object not found",
             Error::BackptrNotFoundError => "Object not found from backptrs",
             Error::ExistsError => "Object exists",
             Error::BadSeekValue => "Bad seek value",
             Error::CorruptionError(ref s) => s.as_str(),
+            Error::BlockHashMapCorruptionError(ref opt_e) => "Corrupted MARF BlockHashMap",
             Error::ReadOnlyError => "Storage is in read-only mode",
             Error::NotDirectoryError => "Not a directory",
             Error::PartialWriteError => "Data is partially written and not yet recovered",
             Error::InProgressError => "Write was in progress",
             Error::WriteNotBegunError => "Write has not begun",
-            Error::CursorError(ref e) => e.description()
+            Error::CursorError(ref e) => e.description(),
+            Error::RestoreMarfBlockError(ref _e) => "Failed to restore previous open block during block header check",
+            Error::NonMatchingForks(ref a, ref b) => "The supplied blocks are not in the same fork",
         }
     }
 }
@@ -247,7 +321,6 @@ pub fn slice_partialeq<T: PartialEq>(s1: &[T], s2: &[T]) -> bool {
 mod test {
     use super::*;
     use chainstate::stacks::index::bits::*;
-    use chainstate::stacks::index::fork_table::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
     use chainstate::stacks::index::proofs::*;
@@ -321,22 +394,23 @@ mod test {
         let triepath = TriePath::from_bytes(&path[..]).unwrap();
 
         let block_header = BlockHeaderHash([0u8; 32]);
-        s.open_block(&block_header, false).unwrap();
+        s.open_block(&block_header).unwrap();
 
         let mut marf_value = [0u8; 40];
         marf_value.copy_from_slice(&value[0..40]);
 
         let proof = TrieMerkleProof::from_path(s, &triepath, &MARFValue(marf_value.clone()), &block_header).unwrap();
         let empty_root_to_block = HashMap::new();
+
         assert!(proof.verify(&triepath, &MARFValue(marf_value.clone()), &root_hash, &empty_root_to_block));
     }
     
-    pub fn merkle_test_marf(s: &mut TrieFileStorage, header: &BlockHeaderHash, path: &Vec<u8>, value: &Vec<u8>) -> () {
+    pub fn merkle_test_marf(s: &mut TrieFileStorage, header: &BlockHeaderHash, path: &Vec<u8>, value: &Vec<u8>, root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>) -> HashMap<TrieHash, BlockHeaderHash> {
         test_debug!("---------");
         test_debug!("MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?", header, path, value);
         test_debug!("---------");
 
-        s.open_block(header, false).unwrap();
+        s.open_block(header).unwrap();
         let (_, root_hash) = Trie::read_root(s).unwrap();
         let triepath = TriePath::from_bytes(&path[..]).unwrap();
 
@@ -351,16 +425,21 @@ mod test {
         test_debug!("MARF merkle verify source block: {:?}", header);
         test_debug!("---------");
 
-        let root_to_block = s.read_root_to_block_table().unwrap();
+        let root_to_block = root_to_block.unwrap_or_else(|| {
+            s.read_root_to_block_table().unwrap()
+        });
+
         assert!(proof.verify(&triepath, &MARFValue(marf_value), &root_hash, &root_to_block));
+
+        root_to_block
     }
     
-    pub fn merkle_test_marf_key_value(s: &mut TrieFileStorage, header: &BlockHeaderHash, key: &String, value: &String) -> () {
+    pub fn merkle_test_marf_key_value(s: &mut TrieFileStorage, header: &BlockHeaderHash, key: &String, value: &String, root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>) -> HashMap<TrieHash, BlockHeaderHash> {
         test_debug!("---------");
         test_debug!("MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?", header, key, value);
         test_debug!("---------");
 
-        s.open_block(header, false).unwrap();
+        s.open_block(header).unwrap();
         let (_, root_hash) = Trie::read_root(s).unwrap();
         let proof = TrieMerkleProof::from_entry(s, key, value, &header).unwrap();
 
@@ -370,10 +449,15 @@ mod test {
         test_debug!("MARF merkle verify source block: {:?}", header);
         test_debug!("---------");
 
-        let root_to_block = s.read_root_to_block_table().unwrap();
+        let root_to_block = root_to_block.unwrap_or_else(|| {
+            s.read_root_to_block_table().unwrap()
+        });
         let triepath = TriePath::from_key(key);
         let marf_value = MARFValue::from_value(value);
+
         assert!(proof.verify(&triepath, &marf_value, &root_hash, &root_to_block));
+
+        root_to_block
     }
     
     pub fn make_node_path(s: &mut TrieFileStorage, node_id: u8, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
@@ -452,7 +536,7 @@ mod test {
 
         (nodes, node_ptrs, hashes)
     }
-    
+
     pub fn make_node4_path(s: &mut TrieFileStorage, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
         make_node_path(s, TrieNodeID::Node4, path_segments, leaf_data)
     }    

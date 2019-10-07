@@ -3,6 +3,35 @@ use vm::analysis::{type_check, mem_type_check, CheckError, CheckErrors, Analysis
 use vm::types::QualifiedContractIdentifier;
 
 #[test]
+fn test_at_block_violations() {
+    let examples = [
+        "(define-data-var foo int 1)
+         (define-private (foo-bar)
+           (at-block (sha256 0)
+             (var-set! foo 0)))",
+        // make sure that short-circuit evaluation isn't happening.
+        // i.e., once (foo-bar) is known to be writing, `(at-block ..)` 
+        //  should trigger an error.
+        "(define-data-var foo int 1)
+         (define-private (foo-bar)
+           (+ (begin (var-set! foo 2) (var-get foo))
+              (begin (at-block (sha256 0) (var-set! foo 0)) (var-get foo))))",
+        "(define-data-var foo int 1)
+         (+ (begin (var-set! foo 2) (var-get foo))
+            (begin (at-block (sha256 0) (var-set! foo 0)) (var-get foo)))",
+        "(define-data-var foo int 1)
+         (define-fungible-token bar (begin (at-block (sha256 0) (var-set! foo 0)) 1))",
+    ];
+
+    for contract in examples.iter() {
+        let err = mem_type_check(contract).unwrap_err();
+        eprintln!("{}", err);
+        assert_eq!(err.err, CheckErrors::AtBlockClosureMustBeReadOnly)
+    }
+
+}
+
+#[test]
 fn test_simple_read_only_violations() {
     // note -- these examples have _type errors_ in addition to read-only errors,
     //    but the read only error should end up taking precedence

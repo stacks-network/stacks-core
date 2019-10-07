@@ -1,5 +1,6 @@
 use vm::execute as vm_execute;
-use vm::errors::{Error, CheckErrors};
+use chainstate::burn::BlockHeaderHash;
+use vm::errors::{Error, CheckErrors, RuntimeErrorType};
 use vm::types::{Value, StandardPrincipalData, ResponseData, PrincipalData, QualifiedContractIdentifier};
 use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
@@ -90,8 +91,6 @@ fn test_get_block_info_eval(){
 
     for i in 0..contracts.len() {
         let mut owned_env = OwnedEnvironment::memory();
-        // start an initial transaction.
-        owned_env.begin();
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
         owned_env.initialize_contract(contract_identifier, contracts[i]).unwrap();
 
@@ -612,6 +611,24 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
         }
     }
 
+}
+
+#[test]
+fn test_at_unknown_block() {
+    fn test(owned_env: &mut OwnedEnvironment) {
+        let contract = "(define-data-var foo int 3)
+                        (at-block 0x0202020202020202020202020202020202020202020202020202020202020202
+                          (+ 1 2))";
+        let err = owned_env.initialize_contract(QualifiedContractIdentifier::local("contract").unwrap(), &contract).unwrap_err();
+        eprintln!("{}", err);
+        match err {
+            Error::Runtime(x, _) =>
+                assert_eq!(x, RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(vec![2 as u8; 32].as_slice()))),
+            _ => panic!("Unexpected error")
+        }
+    }
+
+    with_marfed_environment(test, true);
 }
 
 #[test]
