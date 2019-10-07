@@ -38,7 +38,7 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::db::burndb::BurnDBTx;
 use util::hash::Hash160;
-use util::hash::Sha512_256;
+use util::hash::Sha512Trunc256Sum;
 use burnchains::{
     BurnchainSigner,
     BurnchainRecipient,
@@ -65,6 +65,7 @@ pub enum Error {
     // all the things that can go wrong with block commits
     BlockCommitPredatesGenesis,
     BlockCommitBadEpoch,
+    BlockCommitAlreadyExists,
     BlockCommitNoLeaderKey,
     BlockCommitLeaderKeyAlreadyUsed,
     BlockCommitNoParent,
@@ -88,6 +89,7 @@ impl fmt::Display for Error {
             Error::BlockCommitPredatesGenesis => f.write_str(error::Error::description(self)),
             Error::BlockCommitBadEpoch => f.write_str(error::Error::description(self)),
             Error::BlockCommitNoLeaderKey => f.write_str(error::Error::description(self)),
+            Error::BlockCommitAlreadyExists => f.write_str(error::Error::description(self)),
             Error::BlockCommitLeaderKeyAlreadyUsed => f.write_str(error::Error::description(self)),
             Error::BlockCommitNoParent => f.write_str(error::Error::description(self)),
             Error::BlockCommitBadInput => f.write_str(error::Error::description(self)),
@@ -109,6 +111,7 @@ impl error::Error for Error {
 
             Error::BlockCommitPredatesGenesis => None,
             Error::BlockCommitBadEpoch => None,
+            Error::BlockCommitAlreadyExists => None,
             Error::BlockCommitNoLeaderKey => None,
             Error::BlockCommitLeaderKeyAlreadyUsed => None,
             Error::BlockCommitNoParent => None,
@@ -129,6 +132,7 @@ impl error::Error for Error {
 
             Error::BlockCommitPredatesGenesis => "Block commit predates genesis block",
             Error::BlockCommitBadEpoch => "Block commit has a bad epoch value",
+            Error::BlockCommitAlreadyExists => "Block commit commits to an already-seen block",
             Error::BlockCommitNoLeaderKey => "Block commit has no matching register key",
             Error::BlockCommitLeaderKeyAlreadyUsed => "Block commit register key already used",
             Error::BlockCommitNoParent => "Block commit parent does not exist",

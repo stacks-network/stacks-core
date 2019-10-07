@@ -277,6 +277,11 @@ impl BlockstackOperation for LeaderBlockCommitOp {
     fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), op_error> {
         let leader_key_block_height = self.block_height - (self.key_block_backptr as u64);
         let parent_block_height = self.block_height - (self.parent_block_backptr as u64);
+        
+        // this will be the chain tip we're building on
+        let chain_tip = BurnDB::get_block_snapshot(tx, &block_header.parent_block_hash)
+            .expect("FATAL: failed to query parent block snapshot")
+            .expect("FATAL: no parent snapshot in the DB");
 
         /////////////////////////////////////////////////////////////////////////////////////
         // There must be a burn
@@ -303,6 +308,18 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             warn!("Invalid block commit: current epoch is {}; got {}", target_epoch, self.epoch_num);
             return Err(op_error::BlockCommitBadEpoch);
         }
+
+        /////////////////////////////////////////////////////////////////////////////////////
+        // Block must be unique
+        /////////////////////////////////////////////////////////////////////////////////////
+        
+        let is_already_committed = BurnDB::expects_stacks_block_in_fork(tx, &self.block_header_hash, &chain_tip.index_root)
+            .expect("FATAL: failed to query DB for prior instances of this block");
+
+        if is_already_committed {
+            warn!("Invalid block commit: already committed to {}", self.block_header_hash.to_hex());
+            return Err(op_error::BlockCommitAlreadyExists);
+        }
         
         /////////////////////////////////////////////////////////////////////////////////////
         // There must exist a previously-accepted *unused* key from a LeaderKeyRegister
@@ -312,11 +329,6 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             warn!("Invalid block commit: references leader key in the same block");
             return Err(op_error::BlockCommitNoLeaderKey);
         }
-
-        // this will be the chain tip we're building on
-        let chain_tip = BurnDB::get_block_snapshot(tx, &block_header.parent_block_hash)
-            .expect("FATAL: failed to query parent block snapshot")
-            .expect("FATAL: no parent snapshot in the DB");
 
         let register_key = match BurnDB::get_leader_key_at(tx, leader_key_block_height, self.key_vtxindex.into(), &chain_tip.index_root)
             .expect("Sqlite failure while getting a prior leader VRF key") {
@@ -668,7 +680,8 @@ mod tests {
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    index_root: TrieHash::from_empty_data()
+                    index_root: TrieHash::from_empty_data(),
+                    stacks_block_height: (i + 1 + first_block_height as usize) as u64,
                 };
                 let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &block_ops[i], &consumed_leader_keys[i]).unwrap();
                 

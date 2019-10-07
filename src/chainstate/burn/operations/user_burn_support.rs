@@ -480,7 +480,8 @@ mod tests {
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    index_root: TrieHash::from_empty_data()
+                    index_root: TrieHash::from_empty_data(),
+                    stacks_block_height: i + 1 + first_block_height,
                 };
                 let tip_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &block_ops[i as usize], &vec![]).unwrap();
                 snapshot_row.index_root = tip_index_root;
