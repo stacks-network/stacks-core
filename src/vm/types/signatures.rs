@@ -56,8 +56,8 @@ pub const BUFF_20: TypeSignature = BufferType(BufferLength(20));
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
-    max_len: u32,
-    entry_type: Box<TypeSignature>
+    pub max_len: u32,
+    pub entry_type: Box<TypeSignature>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -360,6 +360,10 @@ impl TypeSignature {
     pub fn max_buffer() -> TypeSignature {
         BufferType(BufferLength(u32::try_from(MAX_VALUE_SIZE)
                                 .expect("FAIL: Max Clarity Value Size is no longer realizable in Buffer Type")))
+    }
+
+    pub fn buffer_of_size(len: u32) -> TypeSignature {
+        BufferType(len.try_into().unwrap())
     }
 
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)

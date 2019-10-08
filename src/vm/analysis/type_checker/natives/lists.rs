@@ -28,6 +28,7 @@ pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression],
     //   you _cannot_ map a special function.
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
     
+    // todo(ludo): investigate this statement
     checker.type_map.set_type(&args[0], no_type())?;
     
     let argument_type = checker.type_check(&args[1], context)?;
@@ -110,6 +111,68 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     let return_type = function_type.check_args(&[input_type, return_type])?;
     
     Ok(return_type)
+}
+
+// todo(ludo): rename file to iterables.rs
+
+pub fn check_special_concat(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(2, args)?;
+    
+    let lhs_type = checker.type_check(&args[0], context)?;
+    match lhs_type {
+        TypeSignature::ListType(lhs_list) => {
+            let rhs_type = checker.type_check(&args[1], context)?;
+            if let TypeSignature::ListType(rhs_list) = rhs_type {
+                if lhs_list.entry_type.admits_type(&*rhs_list.entry_type) {
+                    let return_type = TypeSignature::list_of(*lhs_list.entry_type, lhs_list.max_len + rhs_list.max_len)?;
+                    return Ok(return_type);
+                } else {
+                    return Err(CheckErrors::TypeError(*lhs_list.entry_type, *rhs_list.entry_type).into());
+                }
+            } else {
+                return Err(CheckErrors::TypeError(rhs_type.clone(), TypeSignature::ListType(lhs_list)).into());
+            }
+        },
+        TypeSignature::BufferType(lhs_buff_len) => {
+            let rhs_type = checker.type_check(&args[1], context)?;
+            if let TypeSignature::BufferType(rhs_buff_len) = rhs_type {
+                let size: u32 = u32::from(lhs_buff_len) + u32::from(rhs_buff_len);
+                let return_type = TypeSignature::buffer_of_size(size);
+                return Ok(return_type);
+            } else {
+                return Err(CheckErrors::TypeError(rhs_type.clone(), TypeSignature::max_buffer()).into());
+            }
+        },
+        _ => Err(CheckErrors::ExpectedListOrBuffer(lhs_type.clone()).into())
+    }
+}
+
+pub fn check_special_append(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(2, args)?;
+
+    let lhs_type = checker.type_check(&args[0], context)?;
+    match lhs_type {
+        TypeSignature::ListType(lhs_list) => {
+            let rhs_type = checker.type_check(&args[1], context)?;
+            if lhs_list.entry_type.admits_type(&rhs_type) {
+                let return_type = TypeSignature::list_of(*lhs_list.entry_type, lhs_list.max_len + 1)?;
+                return Ok(return_type);
+            } else {
+                return Err(CheckErrors::TypeError(*lhs_list.entry_type, rhs_type).into());
+            }
+        },
+        TypeSignature::BufferType(lhs_buff_len) => {
+            let rhs_type = checker.type_check(&args[1], context)?;
+            if let TypeSignature::BufferType(rhs_buff_len) = rhs_type {
+                let size: u32 = u32::from(lhs_buff_len) + u32::from(rhs_buff_len);
+                let return_type = TypeSignature::buffer_of_size(size);
+                return Ok(return_type);
+            } else {
+                return Err(CheckErrors::TypeError(rhs_type.clone(), TypeSignature::max_buffer()).into());
+            }
+        },
+        _ => Err(CheckErrors::ExpectedListOrBuffer(lhs_type.clone()).into())
+    }
 }
 
 pub fn check_special_len(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {

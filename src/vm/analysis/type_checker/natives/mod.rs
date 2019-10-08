@@ -336,6 +336,8 @@ impl TypedNativeFunction {
             Map => Special(SpecialNativeFunction(&lists::check_special_map)),
             Filter => Special(SpecialNativeFunction(&lists::check_special_filter)),
             Fold => Special(SpecialNativeFunction(&lists::check_special_fold)),
+            Append => Special(SpecialNativeFunction(&lists::check_special_append)),
+            Concat => Special(SpecialNativeFunction(&lists::check_special_concat)),
             Len => Special(SpecialNativeFunction(&lists::check_special_len)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
             FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),

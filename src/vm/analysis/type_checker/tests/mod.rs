@@ -349,6 +349,52 @@ fn test_buff_map() {
     }
 }
 
+// todo(ludo): add more test cases (success + failing).
+
+#[test]
+fn test_list_append() {
+    let good = [
+        "(append (list 2 3) 4)"];
+    let expected = ["(list 3 int)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+}
+
+#[test]
+fn test_list_concat() {
+    let good = [
+        "(concat (list 2 3) (list 4 5))"];
+    let expected = ["(list 4 int)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+}
+
+#[test]
+fn test_buff_append() {
+    let good = [
+        "(append \"123\" \"5\")"];
+    let expected = ["(buff 4)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+}
+
+#[test]
+fn test_buff_concat() {
+    let good = [
+        "(concat \"123\" \"58\")"];
+    let expected = ["(buff 5)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+}
+
 #[test]
 fn test_buff_filter() {
     let good = [
