@@ -111,6 +111,61 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
     }
 }
 
+pub fn list_append(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    let iterable = eval(&args[0], env, context)?;
+    match iterable {
+        Value::List(list) => {
+            let element = eval(&args[1], env, context)?;
+            let mut data_appended = list.data.clone();
+            data_appended.push(element);
+            Value::list_from(data_appended)
+        },
+        Value::Buffer(buff) => {
+            let mut element = eval(&args[1], env, context)?;
+            let mut data_appended = buff.data.clone();
+            if let Value::Buffer(ref mut element) = element {
+                data_appended.append(&mut element.data);
+                Value::buff_from(data_appended)
+            } else {
+                Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&element)).into())
+            }
+        },
+        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
+    }
+}
+
+pub fn list_concat(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    let iterable = eval(&args[0], env, context)?;
+    match iterable {
+        Value::List(mut lhs) => {
+            let mut res = Vec::new();
+            res.append(&mut lhs.data);
+            let mut rhs = eval(&args[1], env, context)?;
+            if let Value::List(ref mut rhs) = rhs {
+                res.append(&mut rhs.data);
+                Value::list_from(res)
+            } else {
+                Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&rhs)).into())
+            }
+        },
+        Value::Buffer(mut lhs) => {
+            let mut res = Vec::new();
+            res.append(&mut lhs.data);
+            let mut rhs = eval(&args[1], env, context)?;
+            if let Value::Buffer(ref mut rhs) = rhs {
+                res.append(&mut rhs.data);
+                Value::buff_from(res)
+            } else {
+                Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&rhs)).into())
+            }
+        },
+        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
+    }
+}
 pub fn list_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(1, args)?;
     

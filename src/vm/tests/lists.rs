@@ -56,7 +56,51 @@ fn test_simple_map_list() {
     let test2 = "(define-private (double (x int)) (* x 2))
                  (map double (list))";
     assert_eq!(Value::list_from(vec![]).unwrap(), execute(test2).unwrap().unwrap());
+}
 
+// todo(ludo): test failing cases (append "123" "23"), etc.
+
+#[test]
+fn test_simple_map_append() {
+    let test1 =
+        "(append (list 1 2) 6)";
+
+    let expected = Value::list_from(vec![
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(6)]).unwrap();
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
+}
+
+#[test]
+fn test_simple_buff_append() {
+    let test1 =
+        "(append \"012\" \"4\")";
+
+    let expected = Value::buff_from(vec![48, 49, 50, 52]).unwrap();
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
+}
+
+#[test]
+fn test_simple_map_concat() {
+    let test1 =
+        "(concat (list 1 2) (list 4 8))";
+
+    let expected = Value::list_from(vec![
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(4),
+        Value::Int(8)]).unwrap();
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
+}
+
+#[test]
+fn test_simple_buff_concat() {
+    let test1 =
+        "(concat \"012\" \"34\")";
+
+    let expected = Value::buff_from(vec![48, 49, 50, 51, 52]).unwrap();
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 
 #[test]
@@ -72,6 +116,7 @@ fn test_simple_map_buffer() {
         Value::buff_from(vec![49]).unwrap()]).unwrap();
     assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
+
 
 #[test]
 fn test_simple_filter_list() {
