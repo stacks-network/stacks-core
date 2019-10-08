@@ -221,9 +221,10 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Loca
     }
 }
 
-fn parse_eval_bindings(bindings: &[SymbolicExpression],
-                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(ClarityName, Value)>> {
-    let mut result = Vec::new();
+pub fn handle_binding_list <F, E> (bindings: &[SymbolicExpression], mut handler: F) -> std::result::Result<(), E>
+where F: FnMut(&ClarityName, &SymbolicExpression) -> std::result::Result<(), E>,
+      E: From<CheckErrors>
+{
     for binding in bindings.iter() {
         let binding_expression = binding.match_list()
             .ok_or(CheckErrors::BadSyntaxBinding)?;
@@ -232,9 +233,22 @@ fn parse_eval_bindings(bindings: &[SymbolicExpression],
         }
         let var_name = binding_expression[0].match_atom()
             .ok_or(CheckErrors::BadSyntaxBinding)?;
-        let value = eval(&binding_expression[1], env, context)?;
-        result.push((var_name.clone(), value));
+        let var_sexp = &binding_expression[1];
+
+        handler(var_name, var_sexp)?;
     }
+    Ok(())
+}
+
+pub fn parse_eval_bindings(bindings: &[SymbolicExpression],
+                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(ClarityName, Value)>> {
+    let mut result = Vec::new();
+    handle_binding_list(bindings, |var_name, var_sexp| {
+        eval(var_sexp, env, context)
+            .and_then(|value| {
+                result.push((var_name.clone(), value));
+                Ok(()) })
+    })?;
 
     Ok(result)
 }

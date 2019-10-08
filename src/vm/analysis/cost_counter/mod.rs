@@ -2,9 +2,10 @@ use vm::representations::{SymbolicExpression, ClarityName};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
 use vm::types::{Value, PrincipalData, TypeSignature, TupleTypeSignature, FunctionArg,
                 FunctionType, FixedFunction, parse_name_type_pairs};
-use vm::functions::NativeFunctions;
+use vm::functions::{NativeFunctions, handle_binding_list};
 use vm::functions::define::DefineFunctionsParsed;
 use vm::variables::NativeVariables;
+use vm::MAX_CONTEXT_DEPTH;
 
 use super::type_checker::contexts::{TypeMap};
 
@@ -12,7 +13,6 @@ use super::AnalysisDatabase;
 pub use super::types::{ContractAnalysis, AnalysisPass};
 
 pub use super::errors::{CheckResult, CheckError, CheckErrors};
-
 
 pub enum CostSpecification {
     Simple(SimpleCostSpecification),
@@ -32,8 +32,44 @@ pub struct SimpleCostSpecification {
     runtime: CostFunctions,
 }
 
+
+pub struct ExecutionCost {
+    write_length: u64,
+    read_count: u64,
+    runtime: u64
+}
+
+pub struct ContractContext {}
+
+pub struct CostContext {
+    context_depth: u64,
+}
+
+pub struct CostCounter <'a, 'b> {
+    contract_context: ContractContext,
+    type_map: TypeMap,
+    cost_context: CostContext,
+    db: &'a mut AnalysisDatabase <'b>
+}
+
 #[derive(PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub struct ContractCostAnalysis {}
+
+trait CostOverflowingMath <T> {
+    fn cost_overflow_mul(self, other: T) -> CheckResult<T>;
+    fn cost_overflow_add(self, other: T) -> CheckResult<T>;
+}
+
+impl CostOverflowingMath <u64> for u64 {
+    fn cost_overflow_mul(self, other: u64) -> CheckResult<u64> {
+        self.checked_mul(other)
+            .ok_or_else(|| CheckErrors::CostOverflow.into())
+    }
+    fn cost_overflow_add(self, other: u64) -> CheckResult<u64> {
+        self.checked_add(other)
+            .ok_or_else(|| CheckErrors::CostOverflow.into())
+    }
+}
 
 impl ContractCostAnalysis {
     pub fn get_function_cost(&self, function_name: &str) -> Option<SimpleCostSpecification> {
@@ -45,10 +81,8 @@ impl CostFunctions {
     pub fn compute_cost(&self, input: u64) -> CheckResult<u64> {
         match self {
             CostFunctions::Constant(val) => Ok(*val),
-            CostFunctions::Linear(a, b) => a.checked_mul(input)
-                .ok_or(CheckErrors::CostOverflow)?
-                .checked_add(*b)
-                .ok_or(CheckErrors::CostOverflow.into())
+            CostFunctions::Linear(a, b) => { a.cost_overflow_mul(input)?
+                                             .cost_overflow_add(*b) }
         }
     }
 }
@@ -71,14 +105,26 @@ impl SimpleCostSpecification {
     }
 }
 
-pub struct ExecutionCost {
-    write_length: u64,
-    read_count: u64,
-    runtime: u64
-}
+impl CostContext {
+    fn new() -> CostContext {
+        CostContext {
+            context_depth: 0
+        }
+    }
 
-pub struct ContractContext {
-    
+    fn increment_context_depth(&mut self) -> CheckResult<()> {
+        if self.context_depth >= (MAX_CONTEXT_DEPTH as u64) {
+            return Err(CheckErrors::MaxContextDepthReached.into());
+        }
+        self.context_depth = self.context_depth.checked_add(1)
+            .expect("Unexpected context depth overflow.");
+        Ok(())
+    }
+
+    fn decrement_context_depth(&mut self) {
+        assert!(self.context_depth >= 1);
+        self.context_depth -= 1;
+    }
 }
 
 impl ContractContext {
@@ -88,12 +134,6 @@ impl ContractContext {
     pub fn get_defined_function_cost_spec(&self, function_name: &str) -> Option<SimpleCostSpecification> {
         panic!("Not implemented")
     }
-}
-
-pub struct CostCounter <'a, 'b> {
-    contract_context: ContractContext,
-    type_map: TypeMap,
-    db: &'a mut AnalysisDatabase <'b>
 }
 
 impl ExecutionCost {
@@ -106,18 +146,21 @@ impl ExecutionCost {
     }
 
     fn add_runtime(&mut self, runtime: u64) -> CheckResult<()> {
-        self.runtime = self.runtime.checked_add(runtime)
-            .ok_or(CheckErrors::CostOverflow)?;
+        self.runtime = self.runtime.cost_overflow_add(runtime)?;
         Ok(())
     }
 
     fn add(&mut self, other: &ExecutionCost) -> CheckResult<()> {
-        self.runtime = self.runtime.checked_add(other.runtime)
-            .ok_or(CheckErrors::CostOverflow)?;
-        self.read_count = self.runtime.checked_add(other.read_count)
-            .ok_or(CheckErrors::CostOverflow)?;
-        self.write_length = self.runtime.checked_add(other.write_length)
-            .ok_or(CheckErrors::CostOverflow)?;
+        self.runtime = self.runtime.cost_overflow_add(other.runtime)?;
+        self.read_count = self.runtime.cost_overflow_add(other.read_count)?;
+        self.write_length = self.runtime.cost_overflow_add(other.write_length)?;
+        Ok(())
+    }
+
+    fn multiply(&mut self, times: u64) -> CheckResult<()> {
+        self.runtime = self.runtime.cost_overflow_mul(times)?;
+        self.read_count = self.runtime.cost_overflow_mul(times)?;
+        self.write_length = self.runtime.cost_overflow_mul(times)?;
         Ok(())
     }
 
@@ -134,7 +177,8 @@ impl <'a, 'b> CostCounter <'a, 'b> {
     fn new(db: &'a mut AnalysisDatabase<'b>, type_map: TypeMap) -> CostCounter<'a, 'b> {
         Self {
             db, type_map,
-            contract_context: ContractContext::new()
+            contract_context: ContractContext::new(),
+            cost_context: CostContext::new()
         }
     }
 
@@ -185,16 +229,91 @@ impl <'a, 'b> CostCounter <'a, 'b> {
 
                 Ok(conditional_cost)
             },
-            _ => { panic!("Unimplemented.") },
-/*
-            Map => {
+            Map | Filter => {
                 assert_eq!(args.len(), 2);
-                let function_name = args[0].match_atom()
-                    .ok_or(CheckErrors::ContractCallExpectName)?;
-                let argument_type = 
 
-                let function_cost =
-            }, */
+                let function_name = args[0].match_atom()
+                    .expect("Analysis Failure: Function argument should have been atom.");
+                let list_arg_type = match self.type_map.get_type(&args[1]) {
+                    Some(TypeSignature::ListType(l)) => l,
+                    x => panic!("Analysis Failure: Expected list type, but annotated type was: {:#?}", x)
+                };
+                let list_item_type = list_arg_type.get_list_item_type();
+                let list_max_len = list_arg_type.get_max_len();
+
+                let function_spec = self.contract_context.get_defined_function_cost_spec(function_name)
+                    .ok_or_else(|| CheckErrors::UnknownFunction(function_name.to_string()))?;
+                let mut single_execution_cost = function_spec.compute_cost(list_item_type.size().into())?;
+
+                single_execution_cost.multiply(list_max_len.into())?;
+
+                // base cost: looking up function name in context.
+                //   O(1) + O(function_name)
+                single_execution_cost.add(&get_function_lookup_cost(function_name)?)?;
+
+                Ok(single_execution_cost)
+            },
+            Fold => {
+                assert_eq!(args.len(), 3);
+
+                let function_name = args[0].match_atom()
+                    .expect("Analysis Failure: Function argument should have been atom.");
+                let list_arg_type = match self.type_map.get_type(&args[1]) {
+                    Some(TypeSignature::ListType(l)) => l,
+                    x => panic!("Analysis Failure: Expected list type, but annotated type was: {:#?}", x)
+                };
+                let initial_value_type = self.type_map.get_type(&args[2])
+                    .expect("Analysis Failure: Expected a type annotation");
+
+                let list_item_type = list_arg_type.get_list_item_type();
+                let list_max_len = list_arg_type.get_max_len();
+
+                let function_spec = self.contract_context.get_defined_function_cost_spec(function_name)
+                    .ok_or_else(|| CheckErrors::UnknownFunction(function_name.to_string()))?;
+
+                let function_arg_len = u64::from(list_item_type.size())
+                    .cost_overflow_add(u64::from(initial_value_type.size()))?;
+
+                let mut single_execution_cost = function_spec.compute_cost(function_arg_len)?;
+
+                single_execution_cost.multiply(list_max_len.into())?;
+
+                // base cost: looking up function name in context.
+                //   O(1) + O(function_name)
+                single_execution_cost.add(&get_function_lookup_cost(function_name)?)?;
+
+                Ok(single_execution_cost)
+
+            },
+            Let => {
+                assert!(args.len() >= 2);
+
+                let bindings = args[0].match_list()
+                    .expect("Analysis Failure: Let expression must be supplied a binding list.");
+
+                let mut binding_cost = ExecutionCost::runtime(1);
+
+                handle_binding_list(bindings, |var_name, var_sexp| {
+                    // the cost of binding the name.
+                    binding_cost.add_runtime(var_name.len() as u64)?;
+
+                    // the cost of calculating the bound value
+                    binding_cost.add(
+                        &self.handle_expression(var_sexp)?)
+                })?;
+
+                // evaluation of let bodies occur at context depth + 1.
+                self.cost_context.increment_context_depth()?;
+
+                binding_cost.add(
+                    &self.handle_all_expressions(&args[1..])?)?;
+
+                self.cost_context.decrement_context_depth();
+
+                Ok(binding_cost)
+            },
+            TupleCons => panic!("Unimplemented"),
+            TupleGet => panic!("Unimplemented"),
         }
     }
 
@@ -204,11 +323,10 @@ impl <'a, 'b> CostCounter <'a, 'b> {
         for arg in args {
             let arg_type = self.type_map.get_type(arg)
                 .ok_or(CheckErrors::TypeAnnotationExpectedFailure)?;
-            argument_len = arg_type.size().checked_add(argument_len)
-                .ok_or(CheckErrors::CostOverflow)?;
+            argument_len = u64::from(arg_type.size()).cost_overflow_add(argument_len)?;
         }
 
-        function_spec.compute_cost(argument_len.into())
+        function_spec.compute_cost(argument_len)
     }
 
     fn handle_function_application(&mut self, function_name: &str, args: &[SymbolicExpression]) -> CheckResult<ExecutionCost> {
@@ -247,6 +365,13 @@ impl <'a, 'b> CostCounter <'a, 'b> {
             }
         }
     }
+}
+
+fn get_function_lookup_cost(name: &str) -> CheckResult<ExecutionCost> {
+    // hashing function name => linear.
+    //   
+    let lookup_spec = SimpleCostSpecification::new_diskless(CostFunctions::Linear(1, 1));
+    lookup_spec.compute_cost(name.len() as u64)
 }
 
 pub fn get_reserved_name_cost(name: &str) -> Option<ExecutionCost> {
