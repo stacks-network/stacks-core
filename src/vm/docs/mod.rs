@@ -358,6 +358,23 @@ value return by the successive applications.",
 (fold * (list 2 2 2) 0) ;; Returns 0"
 };
 
+const CONCAT_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff, buff)|(list, list)",
+    output_type: "buff|list",
+    signature: "(concat buff-a buff-b)",
+    description: "The `concat` function takes two lists or two buffers, outputs a list or buffer 
+of the same type, with max_len = max_len_a + max_len_b.", // todo(ludo): expand
+    example: "(concat \"hello \" \"world\") ;; Returns \"hello world\""
+};
+
+const APPEND_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff, buff)|(list, list)",
+    output_type: "buff|list",
+    signature: "(concat buff-a buff-b)",
+    description: "The `append` function takes a list or buffer and a matching item or max-len 1 
+buffer and outputs a list or buffer of the same type with max_len += 1.", // todo(ludo): expand
+    example: "(append \"hello \" \"world\") ;; Returns \"hello world\""
+};
 const LEN_API: SpecialAPI = SpecialAPI {
     input_type: "buff|list",
     output_type: "uint",
@@ -973,6 +990,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Map => make_for_special(&MAP_API, name),
         Filter => make_for_special(&FILTER_API, name),
         Fold => make_for_special(&FOLD_API, name),
+        Append => make_for_special(&APPEND_API, name),
+        Concat => make_for_special(&CONCAT_API, name),
         Len => make_for_special(&LEN_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
