@@ -1,5 +1,5 @@
 pub mod serialization;
-mod signatures;
+pub mod signatures;
 
 use std::{fmt, cmp};
 use std::convert::{TryInto, TryFrom};
