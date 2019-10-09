@@ -104,6 +104,27 @@ fn test_simple_buff_concat() {
 }
 
 #[test]
+fn test_simple_buff_assert_max_len() {
+    let test1 =
+        "(asserts-max-len! \"123\" u3)";
+
+    let expected = Value::buff_from(vec![49, 50, 51]).unwrap();
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
+}
+
+#[test]
+fn test_simple_list_assert_max_len() {
+    let test1 =
+        "(asserts-max-len! (list 1 2 3) u3)";
+
+    let expected = Value::list_from(vec![
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(3)]).unwrap();
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
+}
+
+#[test]
 fn test_simple_map_buffer() {
     let test1 =
         "(define-private (incr (x (buff 1))) \"1\")
