@@ -219,7 +219,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
 
                 self.check_all_read_only(&args[1..args.len()])
             },
-            Map | Filter | Append | Concat => {
+            Map | Filter | Append | Concat | AssertsMaxLen => {
                 check_argument_count(2, args)?;
     
                 // note -- we do _not_ check here to make sure we're not mapping on
