@@ -91,6 +91,7 @@ pub enum CheckErrors {
     NonFunctionApplication,
     ExpectedListApplication,
     ExpectedListOrBuffer(TypeSignature),
+    MaxLengthExceeded(Value, Value),
 
     // let syntax
     BadLetSyntax,
@@ -256,6 +257,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
             CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),
             CheckErrors::ExpectedListOrBuffer(found_type) => format!("expecting expression of type 'list' or 'buff', found '{}'", found_type),
+            CheckErrors::MaxLengthExceeded(expected, found) => format!("expecting a 'list' or 'buff' of size {}, found {}", expected, found),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
             CheckErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),
             CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"),

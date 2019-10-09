@@ -166,6 +166,32 @@ pub fn list_concat(args: &[SymbolicExpression], env: &mut Environment, context: 
         _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
     }
 }
+
+pub fn list_assert_max_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    let iterable = eval(&args[0], env, context)?;
+    let iterable_len = match iterable {
+        Value::List(list) => list.data.len() as u128,
+        Value::Buffer(buff) => buff.data.len() as u128,
+        _ => return Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
+    };
+    let expected_len = eval(&args[1], env, context)?;
+
+    // todo(ludo): handle uint
+    // match expected_len {
+    // }
+    if let Value::UInt(expected_len) = expected_len {
+        if iterable_len > expected_len { 
+            Err(CheckErrors::MaxLengthExceeded(Value::UInt(expected_len), Value::UInt(iterable_len as u128)).into())
+        } else {
+            Ok(Value::Bool(true))
+        }
+    } else {
+        Err(CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::type_of(&expected_len)).into())
+    }
+}
+
 pub fn list_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(1, args)?;
     

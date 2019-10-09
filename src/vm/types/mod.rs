@@ -235,6 +235,11 @@ impl Value {
         Ok(Value::List(ListData { data: list_data, type_signature: type_sig }))
     }
 
+    // pub fn list_from(list_data: Vec<Value>, max_len: u32) -> Result<Value> {
+    //     let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
+    //     Ok(Value::List(ListData { data: list_data, type_signature: type_sig }))
+    // }
+
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
         // check the buffer size
         BufferLength::try_from(buff_data.len())?;

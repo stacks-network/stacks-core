@@ -375,6 +375,18 @@ const APPEND_API: SpecialAPI = SpecialAPI {
 buffer and outputs a list or buffer of the same type with max_len += 1.", // todo(ludo): expand
     example: "(append \"hello \" \"world\") ;; Returns \"hello world\""
 };
+
+const ASSERT_MAX_LEN_API: SpecialAPI = SpecialAPI {
+    input_type: "Function(A, B) -> B, (list A)",
+    output_type: "B",
+    signature: "(asserts-max-len! buffer 10)",
+    description: "This function takes a buffer or list argument, which must be typed as a list 
+or buffer of length N and outputs that same list or buffer, but typed with max length number-literal. 
+At runtime, a check is performed, which if it fails, causes a runtime error.",
+    example: "(fold * (list 2 2 2) 1) ;; Returns 8
+(fold * (list 2 2 2) 0) ;; Returns 0"
+};
+
 const LEN_API: SpecialAPI = SpecialAPI {
     input_type: "buff|list",
     output_type: "uint",
