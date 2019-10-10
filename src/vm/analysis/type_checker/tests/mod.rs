@@ -223,9 +223,10 @@ fn test_lists() {
                 "(map - (list (+ 1 2) 3 (+ 4 5) (* (+ 1 2) 3)))",
                 "(if 'true (list 1 2 3 4) (list))",
                 "(if 'true (list) (list 1 2 3 4))",
+                "(len (list 1 2 3 4))"
                 ];
     let expected = [ "(list 5 (buff 20))", "(list 3 (list 3 int))", "(list 3 bool)", "bool", "(list 4 int)",
-                     "(list 4 int)", "(list 4 int)" ];
+                     "(list 4 int)", "(list 4 int)", "uint"];
 
     let bad = [
         "(fold and (list 'true 'false) 2)",
@@ -240,7 +241,8 @@ fn test_lists() {
         "(map if (list 1 2 3 4 5))",
         "(map mod (list 1 2 3 4 5))",
         "(map - (list 'true 'false 'true 'false))",
-        "(map hash160 (+ 1 2))",];
+        "(map hash160 (+ u1 u2))",
+        "(len 1)"];
     let bad_expected = [
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(1, 2),
@@ -254,7 +256,8 @@ fn test_lists() {
         CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-        CheckErrors::ExpectedListApplication ];
+        CheckErrors::ExpectedListApplication,
+        CheckErrors::ExpectedListOrBuffer(IntType)];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
