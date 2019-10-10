@@ -396,17 +396,6 @@ fn test_list_concat() {
 }
 
 #[test]
-fn test_buff_append() {
-    let good = [
-        "(append \"123\" \"5\")"];
-    let expected = ["(buff 4)"];
-
-    for (good_test, expected) in good.iter().zip(expected.iter()) {
-        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
-    }
-}
-
-#[test]
 fn test_buff_concat() {
     let good = [
         "(concat \"123\" \"58\")"];

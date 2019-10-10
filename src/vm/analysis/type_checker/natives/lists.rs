@@ -164,17 +164,7 @@ pub fn check_special_append(checker: &mut TypeChecker, args: &[SymbolicExpressio
                 return Err(CheckErrors::TypeError(*lhs_list.entry_type, rhs_type).into());
             }
         },
-        TypeSignature::BufferType(lhs_buff_len) => {
-            let rhs_type = checker.type_check(&args[1], context)?;
-            if let TypeSignature::BufferType(rhs_buff_len) = rhs_type {
-                let size: u32 = u32::from(lhs_buff_len) + u32::from(rhs_buff_len);
-                let return_type = TypeSignature::buffer_of_size(size);
-                return Ok(return_type);
-            } else {
-                return Err(CheckErrors::TypeError(rhs_type.clone(), TypeSignature::max_buffer()).into());
-            }
-        },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(lhs_type.clone()).into())
+        _ => Err(CheckErrors::ExpectedListApplication.into())
     }
 }
 

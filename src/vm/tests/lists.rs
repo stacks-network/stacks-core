@@ -73,15 +73,6 @@ fn test_simple_map_append() {
 }
 
 #[test]
-fn test_simple_buff_append() {
-    let test1 =
-        "(append \"012\" \"4\")";
-
-    let expected = Value::buff_from(vec![48, 49, 50, 52]).unwrap();
-    assert_eq!(expected, execute(test1).unwrap().unwrap());
-}
-
-#[test]
 fn test_simple_map_concat() {
     let test1 =
         "(concat (list 1 2) (list 4 8))";
@@ -108,7 +99,7 @@ fn test_simple_buff_assert_max_len() {
     let test1 =
         "(asserts-max-len \"123\" u3)";
 
-    let expected = Value::buff_from(vec![49, 50, 51]).unwrap();
+    let expected = Value::some(Value::buff_from(vec![49, 50, 51]).unwrap());
     assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 
@@ -117,10 +108,10 @@ fn test_simple_list_assert_max_len() {
     let test1 =
         "(asserts-max-len (list 1 2 3) u3)";
 
-    let expected = Value::list_from(vec![
+    let expected = Value::some(Value::list_from(vec![
         Value::Int(1),
         Value::Int(2),
-        Value::Int(3)]).unwrap();
+        Value::Int(3)]).unwrap());
     assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 

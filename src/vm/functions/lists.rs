@@ -122,17 +122,7 @@ pub fn list_append(args: &[SymbolicExpression], env: &mut Environment, context: 
             data_appended.push(element);
             Value::list_from(data_appended)
         },
-        Value::Buffer(buff) => {
-            let mut element = eval(&args[1], env, context)?;
-            let mut data_appended = buff.data.clone();
-            if let Value::Buffer(ref mut element) = element {
-                data_appended.append(&mut element.data);
-                Value::buff_from(data_appended)
-            } else {
-                Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&element)).into())
-            }
-        },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
+        _ => Err(CheckErrors::ExpectedListApplication.into())
     }
 }
 
