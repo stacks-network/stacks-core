@@ -172,24 +172,23 @@ pub fn list_asserts_max_len(args: &[SymbolicExpression], env: &mut Environment, 
 
     let iterable = eval(&args[0], env, context)?;
 
-    // todo(ludo): handle overflow?
     let expected_len = eval(&args[1], env, context)?;
     if let Value::UInt(expected_len) = expected_len {
         match iterable {
             Value::List(list) => {
                 let iterable_len = list.data.len() as u128;
-                if iterable_len > expected_len { 
-                    Err(CheckErrors::MaxLengthExceeded(Value::UInt(expected_len), Value::UInt(iterable_len)).into())
+                if iterable_len > expected_len {
+                    Ok(Value::none())
                 } else {
-                    Ok(Value::List(list))
+                    Ok(Value::some(Value::List(list)))
                 }
             },
             Value::Buffer(buff) => {
                 let iterable_len = buff.data.len() as u128;
                 if iterable_len > expected_len { 
-                    Err(CheckErrors::MaxLengthExceeded(Value::UInt(expected_len), Value::UInt(iterable_len)).into())
+                    Ok(Value::none())
                 } else {
-                    Ok(Value::Buffer(buff))
+                    Ok(Value::some(Value::Buffer(buff)))
                 }
             },
             _ => return Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())

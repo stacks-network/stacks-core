@@ -106,7 +106,7 @@ fn test_simple_buff_concat() {
 #[test]
 fn test_simple_buff_assert_max_len() {
     let test1 =
-        "(asserts-max-len! \"123\" u3)";
+        "(asserts-max-len \"123\" u3)";
 
     let expected = Value::buff_from(vec![49, 50, 51]).unwrap();
     assert_eq!(expected, execute(test1).unwrap().unwrap());
@@ -115,7 +115,7 @@ fn test_simple_buff_assert_max_len() {
 #[test]
 fn test_simple_list_assert_max_len() {
     let test1 =
-        "(asserts-max-len! (list 1 2 3) u3)";
+        "(asserts-max-len (list 1 2 3) u3)";
 
     let expected = Value::list_from(vec![
         Value::Int(1),

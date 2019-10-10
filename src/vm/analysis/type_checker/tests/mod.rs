@@ -352,8 +352,8 @@ fn test_buff_map() {
 #[test]
 fn test_list_asserts_max_len() {
     let good = [
-        "(asserts-max-len! (list 1 2 3 4) u5)"];
-    let expected = ["(list 5 int)"];
+        "(asserts-max-len (list 1 2 3 4) u5)"];
+    let expected = ["(optional (list 5 int))"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
@@ -363,8 +363,8 @@ fn test_list_asserts_max_len() {
 #[test]
 fn test_buff_asserts_max_len() {
     let good = [
-        "(asserts-max-len! \"12345\" u5)"];
-    let expected = ["(buff 5)"];
+        "(asserts-max-len \"12345\" u5)"];
+    let expected = ["(optional (buff 5))"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));

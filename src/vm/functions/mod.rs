@@ -40,7 +40,7 @@ define_named_enum!(NativeFunctions {
     Fold("fold"),
     Append("append"),
     Concat("concat"),
-    AssertsMaxLen("asserts-max-len!"),
+    AssertsMaxLen("asserts-max-len"),
     Len("len"),
     ListCons("list"),
     FetchVar("var-get"),
