@@ -181,13 +181,12 @@ pub fn check_special_append(checker: &mut TypeChecker, args: &[SymbolicExpressio
 pub fn check_special_asserts_max_len(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
 
-    // let expected_len: TypeSignature = TypeSignature::UIntType;
-    // checker.type_check_expects(&args[1], context, &expected_amount)?;
-    println!("-> {:?}", args);
-
     let expected_len = match args[1].expr {
         SymbolicExpressionType::LiteralValue(Value::UInt(expected_len)) => expected_len,
-        _ => return Err(CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::BoolType).into()) // todo(ludo): fix
+        _ => {
+            let expexted_len_type = checker.type_check(&args[0], context)?;
+            return Err(CheckErrors::TypeError(TypeSignature::UIntType, expexted_len_type).into())
+        }
     };
     if expected_len > u128::from(MAX_VALUE_SIZE)  {
         return Err(CheckErrors::MaxLengthOverflow.into())
@@ -197,9 +196,10 @@ pub fn check_special_asserts_max_len(checker: &mut TypeChecker, args: &[Symbolic
     let iterable = checker.type_check(&args[0], context)?;
     match iterable {
         TypeSignature::ListType(list) => {
-            let iterable_len = u128::from(list.max_len);
             if list.max_len > expected_len { 
-                Err(CheckErrors::MaxLengthExceeded(Value::UInt(expected_len.into()), Value::UInt(iterable_len)).into())
+                Err(CheckErrors::MaxLengthExceeded(
+                    Value::UInt(expected_len.into()), 
+                    Value::UInt(u128::from(list.max_len))).into())
             } else {
                 Ok(TypeSignature::ListType(ListTypeData::new_list(*list.entry_type, expected_len).unwrap()))
             }
@@ -207,7 +207,9 @@ pub fn check_special_asserts_max_len(checker: &mut TypeChecker, args: &[Symbolic
         TypeSignature::BufferType(buffer_len) => {
             let iterable_len = u32::from(buffer_len);
             if iterable_len > expected_len { 
-                Err(CheckErrors::MaxLengthExceeded(Value::UInt(expected_len.into()), Value::UInt(u128::from(iterable_len))).into())
+                Err(CheckErrors::MaxLengthExceeded(
+                    Value::UInt(expected_len.into()), 
+                    Value::UInt(u128::from(iterable_len))).into())
             } else {
                 Ok(TypeSignature::BufferType(BufferLength::try_from(expected_len).unwrap()))
             }
