@@ -362,28 +362,28 @@ const CONCAT_API: SpecialAPI = SpecialAPI {
     input_type: "(buff, buff)|(list, list)",
     output_type: "buff|list",
     signature: "(concat buff-a buff-b)",
-    description: "The `concat` function takes two lists or two buffers, outputs a list or buffer 
-of the same type, with max_len = max_len_a + max_len_b.", // todo(ludo): expand
+    description: "The `concat` function takes two buffers or two lists with the same entry type, 
+and returns a concatenated buffer or list of the same entry type, with max_len = max_len_a + max_len_b.",
     example: "(concat \"hello \" \"world\") ;; Returns \"hello world\""
 };
 
 const APPEND_API: SpecialAPI = SpecialAPI {
     input_type: "(buff, buff)|(list, list)",
     output_type: "buff|list",
-    signature: "(concat buff-a buff-b)",
-    description: "The `append` function takes a list or buffer and a matching item or max-len 1 
-buffer and outputs a list or buffer of the same type with max_len += 1.", // todo(ludo): expand
+    signature: "(append buff-a \"a\")",
+    description: "The `append` function takes a list and another value with the same entry type, 
+or a buffer and another buffer of dimension 1 and outputs a buffer or a listof the same type with max_len += 1.",
     example: "(append \"hello \" \"world\") ;; Returns \"hello world\""
 };
 
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     input_type: "Function(A, B) -> B, (list A)",
     output_type: "B",
-    signature: "(asserts-max-len! buffer 10)",
-    description: "This function takes a buffer or list argument, which must be typed as a list 
+    signature: "(asserts-max-len buffer 10)",
+    description: "The `asserts-max-len` function takes a buffer or list argument, which must be typed as a list 
 or buffer of length N and outputs that same list or buffer, but typed with max length number-literal. 
-At runtime, a check is performed, which if it fails, causes a runtime error.",
-    example: "(fold * (list 2 2 2) 1) ;; Returns 8
+At runtime, a check is performed, which if it fails, returns a (none) option.",
+    example: "(asserts-max-len! (list 2 2 2) 3) ;; Returns (list 2 2 2)
 (fold * (list 2 2 2) 0) ;; Returns 0"
 };
 
@@ -431,7 +431,7 @@ const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
     description: "The `map-get` function looks up and returns an entry from a contract's data map.
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
-it returns (some value)",
+it returns (some value).",
     example: "(expects! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
 (expects! (map-get names-map ((name \"blockstack\"))) (err 1)) ;; Same command, using a shorthand for constructing the tuple
 ",
