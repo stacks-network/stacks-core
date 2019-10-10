@@ -221,7 +221,7 @@ fn test_simple_folds_buffer() {
 }
 
 #[test]
-fn test_list_len() {
+fn test_native_len() {
     let test1 = "(len (list 1 2 3 4))";
     let expected = Value::UInt(4);
     assert_eq!(expected, execute(test1).unwrap().unwrap());

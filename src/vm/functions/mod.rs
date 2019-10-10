@@ -1,6 +1,6 @@
 pub mod define;
 pub mod tuples;
-mod lists;
+mod iterables;
 mod arithmetic;
 mod boolean;
 mod database;
@@ -105,14 +105,14 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Let => CallableType::SpecialFunction("native_let", &special_let),
             FetchVar => CallableType::SpecialFunction("native_var-get", &database::special_fetch_variable),
             SetVar => CallableType::SpecialFunction("native_set-var", &database::special_set_variable),
-            Map => CallableType::SpecialFunction("native_map", &lists::list_map),
-            Filter => CallableType::SpecialFunction("native_filter", &lists::list_filter),
-            Fold => CallableType::SpecialFunction("native_fold", &lists::list_fold),
-            Concat => CallableType::SpecialFunction("native_concat", &lists::list_concat),
-            AssertsMaxLen => CallableType::SpecialFunction("native_asserts_max_len", &lists::list_asserts_max_len),
-            Append => CallableType::SpecialFunction("native_append", &lists::list_append),
-            Len => CallableType::SpecialFunction("native_len", &lists::list_len),
-            ListCons => CallableType::NativeFunction("native_cons", &lists::list_cons),
+            Map => CallableType::SpecialFunction("native_map", &iterables::native_map),
+            Filter => CallableType::SpecialFunction("native_filter", &iterables::native_filter),
+            Fold => CallableType::SpecialFunction("native_fold", &iterables::native_fold),
+            Concat => CallableType::SpecialFunction("native_concat", &iterables::native_concat),
+            AssertsMaxLen => CallableType::SpecialFunction("native_asserts_max_len", &iterables::native_asserts_max_len),
+            Append => CallableType::SpecialFunction("native_append", &iterables::native_append),
+            Len => CallableType::SpecialFunction("native_len", &iterables::native_len),
+            ListCons => CallableType::NativeFunction("native_cons", &iterables::list_cons),
             FetchEntry => CallableType::SpecialFunction("native_map-get", &database::special_fetch_entry),
             FetchContractEntry => CallableType::SpecialFunction("native_contract-map-get", &database::special_fetch_contract_entry),
             SetEntry => CallableType::SpecialFunction("native_set-entry", &database::special_set_entry),

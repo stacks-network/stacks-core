@@ -350,7 +350,7 @@ fn test_buff_map() {
 }
 
 #[test]
-fn test_list_asserts_max_len() {
+fn test_native_asserts_max_len() {
     let good = [
         "(asserts-max-len (list 1 2 3 4) u5)"];
     let expected = ["(optional (list 5 int))"];
@@ -374,7 +374,7 @@ fn test_buff_asserts_max_len() {
 // todo(ludo): add more test cases (success + failing).
 
 #[test]
-fn test_list_append() {
+fn test_native_append() {
     let good = [
         "(append (list 2 3) 4)"];
     let expected = ["(list 3 int)"];
@@ -385,7 +385,7 @@ fn test_list_append() {
 }
 
 #[test]
-fn test_list_concat() {
+fn test_native_concat() {
     let good = [
         "(concat (list 2 3) (list 4 5))"];
     let expected = ["(list 4 int)"];

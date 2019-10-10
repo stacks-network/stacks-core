@@ -7,7 +7,7 @@ pub fn list_cons(args: &[Value]) -> Result<Value> {
     Value::list_from(Vec::from(args))
 }
 
-pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn native_filter(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let function_name = args[0].match_atom()
@@ -52,7 +52,7 @@ pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: 
     }
 }
 
-pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn native_fold(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(3, args)?;
 
     let function_name = args[0].match_atom()
@@ -83,7 +83,7 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &L
     }
 }
 
-pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn native_map(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let function_name = args[0].match_atom()
@@ -111,7 +111,7 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
     }
 }
 
-pub fn list_append(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn native_append(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let iterable = eval(&args[0], env, context)?;
@@ -126,7 +126,7 @@ pub fn list_append(args: &[SymbolicExpression], env: &mut Environment, context: 
     }
 }
 
-pub fn list_concat(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn native_concat(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let iterable = eval(&args[0], env, context)?;
@@ -157,7 +157,7 @@ pub fn list_concat(args: &[SymbolicExpression], env: &mut Environment, context: 
     }
 }
 
-pub fn list_asserts_max_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn native_asserts_max_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let iterable = eval(&args[0], env, context)?;
@@ -188,7 +188,7 @@ pub fn list_asserts_max_len(args: &[SymbolicExpression], env: &mut Environment, 
     }
 }
 
-pub fn list_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn native_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(1, args)?;
     
     let iterable = eval(&args[0], env, context)?;

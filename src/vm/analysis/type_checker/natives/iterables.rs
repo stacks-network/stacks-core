@@ -116,8 +116,6 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     Ok(return_type)
 }
 
-// todo(ludo): rename file to iterables.rs
-
 pub fn check_special_concat(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
     

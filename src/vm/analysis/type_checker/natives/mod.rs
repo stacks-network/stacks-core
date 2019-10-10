@@ -7,7 +7,7 @@ use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use std::convert::TryFrom;
 
 mod assets;
-mod lists;
+mod iterables;
 mod maps;
 mod options;
 
@@ -333,13 +333,13 @@ impl TypedNativeFunction {
             Let => Special(SpecialNativeFunction(&check_special_let)),
             FetchVar => Special(SpecialNativeFunction(&check_special_fetch_var)),
             SetVar => Special(SpecialNativeFunction(&check_special_set_var)),
-            Map => Special(SpecialNativeFunction(&lists::check_special_map)),
-            Filter => Special(SpecialNativeFunction(&lists::check_special_filter)),
-            Fold => Special(SpecialNativeFunction(&lists::check_special_fold)),
-            Append => Special(SpecialNativeFunction(&lists::check_special_append)),
-            Concat => Special(SpecialNativeFunction(&lists::check_special_concat)),
-            AssertsMaxLen => Special(SpecialNativeFunction(&lists::check_special_asserts_max_len)),
-            Len => Special(SpecialNativeFunction(&lists::check_special_len)),
+            Map => Special(SpecialNativeFunction(&iterables::check_special_map)),
+            Filter => Special(SpecialNativeFunction(&iterables::check_special_filter)),
+            Fold => Special(SpecialNativeFunction(&iterables::check_special_fold)),
+            Append => Special(SpecialNativeFunction(&iterables::check_special_append)),
+            Concat => Special(SpecialNativeFunction(&iterables::check_special_concat)),
+            AssertsMaxLen => Special(SpecialNativeFunction(&iterables::check_special_asserts_max_len)),
+            Len => Special(SpecialNativeFunction(&iterables::check_special_len)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
             FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),
             FetchContractEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_contract_entry)),
