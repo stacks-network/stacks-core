@@ -30,10 +30,7 @@ pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression],
     // we will only lookup native or defined functions here.
     //   you _cannot_ map a special function.
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
-    
-    // todo(ludo): investigate this statement
-    checker.type_map.set_type(&args[0], no_type())?;
-    
+        
     let argument_type = checker.type_check(&args[1], context)?;
     
     match argument_type {
@@ -60,9 +57,7 @@ pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpressio
     // we will only lookup native or defined functions here.
     //   you _cannot_ map a special function.
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
-    
-    checker.type_map.set_type(&args[0], no_type())?;
-    
+        
     let argument_type = checker.type_check(&args[1], context)?;
 
     {
@@ -90,8 +85,6 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     // we will only lookup native or defined functions here.
     //   you _cannot_ fold a special function.
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
-    
-    checker.type_map.set_type(&args[0], no_type())?;
     
     let argument_type = checker.type_check(&args[1], context)?;
 
