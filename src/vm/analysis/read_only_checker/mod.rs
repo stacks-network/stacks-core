@@ -162,7 +162,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             Modulo | Power | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If |
             Sha512 | Sha512Trunc256 |
             ConsSome | ConsOkay | ConsError | DefaultTo | Expects | ExpectsErr | IsOkay | IsNone |
-            ToUInt | ToInt |
+            ToUInt | ToInt | Append | Concat | AssertsMaxLen |
             ListCons | GetBlockInfo | TupleGet | Len | Print | AsContract | Begin | FetchVar | GetTokenBalance | GetAssetOwner => {
                 self.check_all_read_only(args)
             },
@@ -219,7 +219,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
 
                 self.check_all_read_only(&args[1..args.len()])
             },
-            Map | Filter | Append | Concat | AssertsMaxLen => {
+            Map | Filter => {
                 check_argument_count(2, args)?;
     
                 // note -- we do _not_ check here to make sure we're not mapping on
