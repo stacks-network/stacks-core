@@ -177,19 +177,10 @@ pub fn check_special_asserts_max_len(checker: &mut TypeChecker, args: &[Symbolic
     let iterable = checker.type_check(&args[0], context)?;
     match iterable {
         TypeSignature::ListType(list) => {
-            if list.max_len > expected_len {
-                Ok(TypeSignature::OptionalType(Box::new(TypeSignature::NoType)))
-            } else {
-                Ok(TypeSignature::OptionalType(Box::new(TypeSignature::ListType(ListTypeData::new_list(*list.entry_type, expected_len).unwrap()))))
-            }
+            Ok(TypeSignature::OptionalType(Box::new(TypeSignature::ListType(ListTypeData::new_list(*list.entry_type, expected_len).unwrap()))))
         },
-        TypeSignature::BufferType(buffer_len) => {
-            let iterable_len = u32::from(buffer_len);
-            if iterable_len > expected_len { 
-                Ok(TypeSignature::OptionalType(Box::new(TypeSignature::NoType)))
-            } else {
-                Ok(TypeSignature::OptionalType(Box::new(TypeSignature::BufferType(BufferLength::try_from(expected_len).unwrap()))))
-            }
+        TypeSignature::BufferType(_) => {
+            Ok(TypeSignature::OptionalType(Box::new(TypeSignature::BufferType(BufferLength::try_from(expected_len).unwrap()))))
         },
         _ => Err(CheckErrors::ExpectedListOrBuffer(iterable).into())
     }

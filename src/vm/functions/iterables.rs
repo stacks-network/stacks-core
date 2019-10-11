@@ -153,9 +153,6 @@ pub fn native_concat(args: &[SymbolicExpression], env: &mut Environment, context
                 res.append(&mut rhs_data.data);
                 Value::buff_from(res)
             } else {
-                println!("-> {:?}", lhs);
-                println!("-> {:?}", rhs);
-
                 Err(CheckErrors::TypeError(
                     TypeSignature::BufferType(res.len().try_into().unwrap()),
                     TypeSignature::type_of(&rhs)).into())

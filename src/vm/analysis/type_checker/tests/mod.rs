@@ -329,8 +329,14 @@ fn test_buff() {
 fn test_buff_fold() {
     let good = [
         "(define-private (get-len (x (buff 1)) (acc uint)) (+ acc u1))
-        (fold get-len \"101010\" u0)"];
-    let expected = ["uint"];
+        (fold get-len \"101010\" u0)",
+        "(define-private (slice (x (buff 1)) (acc (tuple (limit uint) (cursor uint) (data (buff 10)))))
+            (if (< (get cursor acc) (get limit acc))
+                (let ((data (default-to (get data acc) (asserts-max-len (concat (get data acc) x) u10))))
+                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data))) 
+                acc))
+        (fold slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\")))"];
+    let expected = ["uint", "(tuple (cursor uint) (data (buff 10)) (limit uint))"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
@@ -369,7 +375,7 @@ fn test_buff_asserts_max_len() {
     let expected = [
         "(optional (buff 5))",
         "(optional (buff 8))",
-        "(optional UnknownType)"];
+        "(optional (buff 4))"];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&test).unwrap()));

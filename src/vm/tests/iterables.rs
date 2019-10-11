@@ -316,13 +316,23 @@ fn test_simple_folds_list() {
 
 #[test]
 fn test_simple_folds_buffer() {
-    let test1 =
-        "(define-private (get-len (x (buff 1)) (acc int)) (+ acc 1))
-         (fold get-len \"blockstack\" 0)";
+    let tests =
+        ["(define-private (get-len (x (buff 1)) (acc int)) (+ acc 1))
+         (fold get-len \"blockstack\" 0)",
+        "(define-private (slice (x (buff 1)) (acc (tuple (limit uint) (cursor uint) (data (buff 10)))))
+            (if (< (get cursor acc) (get limit acc))
+                (let ((data (default-to (get data acc) (asserts-max-len (concat (get data acc) x) u10))))
+                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data))) 
+                acc))
+        (get data (fold slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\"))))"];
 
-    let expected = Value::Int(10);
+    let expected = [
+        Value::Int(10),
+        Value::buff_from(vec![48, 49, 50, 51, 52]).unwrap()];
 
-    assert_eq!(expected, execute(test1).unwrap().unwrap());
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute(test).unwrap().unwrap());
+    }
 }
 
 #[test]
