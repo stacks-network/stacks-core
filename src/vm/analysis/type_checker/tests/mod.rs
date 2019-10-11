@@ -393,40 +393,19 @@ fn test_native_append() {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
     }
 
-    // let bad = [
-    //     "(fold and (list 'true 'false) 2)",
-    //     "(fold hash160 (list 1 2 3 4) 2)",
-    //     "(fold >= (list 1 2 3 4) 2)",
-    //     "(list (list 1 2) (list 'true) (list 5 1 7))",
-    //     "(list 1 2 3 'true 'false 4 5 6)",
-    //     "(filter hash160 (list 1 2 3 4))",
-    //     "(filter not (list 1 2 3 4))",
-    //     "(filter not (list 1 2 3 4) 1)",
-    //     "(filter ynot (list 1 2 3 4))",
-    //     "(map if (list 1 2 3 4 5))",
-    //     "(map mod (list 1 2 3 4 5))",
-    //     "(map - (list 'true 'false 'true 'false))",
-    //     "(map hash160 (+ u1 u2))",
-    //     "(len 1)"];
-    // let bad_expected = [
-    //     CheckErrors::TypeError(BoolType, IntType),
-    //     CheckErrors::IncorrectArgumentCount(1, 2),
-    //     CheckErrors::TypeError(IntType, BoolType),
-    //     CheckErrors::TypeError(IntType, BoolType),
-    //     CheckErrors::TypeError(IntType, BoolType),
-    //     CheckErrors::TypeError(BoolType, buff_type(20)),
-    //     CheckErrors::TypeError(BoolType, IntType),
-    //     CheckErrors::IncorrectArgumentCount(2, 3),
-    //     CheckErrors::IllegalOrUnknownFunctionApplication("ynot".to_string()),
-    //     CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
-    //     CheckErrors::IncorrectArgumentCount(2, 1),
-    //     CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-    //     CheckErrors::ExpectedListOrBuffer(UIntType),
-    //     CheckErrors::ExpectedListOrBuffer(IntType)];
+    let bad = [
+        "(append (list 2 3) u4)",
+        "(append (list u0) 1)",
+        "(append (list u0))"];
 
-    // for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-    //     assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
-    // }
+    let bad_expected = [
+        CheckErrors::TypeError(IntType, UIntType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(2, 1),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
 }
 
 #[test]
@@ -437,6 +416,20 @@ fn test_native_concat() {
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+
+    let bad = [
+        "(concat (list 2 3) (list u4))",
+        "(concat (list u0) (list 1))",
+        "(concat (list u0))"];
+
+    let bad_expected = [
+        CheckErrors::TypeError(IntType, UIntType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(2, 1),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
     }
 }
 
