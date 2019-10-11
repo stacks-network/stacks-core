@@ -2,6 +2,7 @@ use vm::errors::{CheckErrors, InterpreterResult as Result, check_argument_count}
 use vm::types::{Value, TypeSignature::BoolType, TypeSignature};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::{LocalContext, Environment, eval, apply, lookup_function};
+use std::convert::TryInto;
 
 pub fn list_cons(args: &[Value]) -> Result<Value> {
     Value::list_from(Vec::from(args))
@@ -135,22 +136,29 @@ pub fn native_concat(args: &[SymbolicExpression], env: &mut Environment, context
             let mut res = Vec::new();
             res.append(&mut lhs.data);
             let mut rhs = eval(&args[1], env, context)?;
-            if let Value::List(ref mut rhs) = rhs {
-                res.append(&mut rhs.data);
+            if let Value::List(ref mut rhs_data) = rhs {
+                res.append(&mut rhs_data.data);
                 Value::list_from(res)
             } else {
-                Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&rhs)).into())
+                Err(CheckErrors::TypeError(
+                    TypeSignature::type_of(&Value::List(lhs)), 
+                    TypeSignature::type_of(&rhs)).into())
             }
         },
         Value::Buffer(mut lhs) => {
             let mut res = Vec::new();
             res.append(&mut lhs.data);
             let mut rhs = eval(&args[1], env, context)?;
-            if let Value::Buffer(ref mut rhs) = rhs {
-                res.append(&mut rhs.data);
+            if let Value::Buffer(ref mut rhs_data) = rhs {
+                res.append(&mut rhs_data.data);
                 Value::buff_from(res)
             } else {
-                Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&rhs)).into())
+                println!("-> {:?}", lhs);
+                println!("-> {:?}", rhs);
+
+                Err(CheckErrors::TypeError(
+                    TypeSignature::BufferType(res.len().try_into().unwrap()),
+                    TypeSignature::type_of(&rhs)).into())
             }
         },
         _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())

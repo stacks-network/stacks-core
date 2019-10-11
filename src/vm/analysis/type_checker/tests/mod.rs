@@ -362,26 +362,65 @@ fn test_native_asserts_max_len() {
 
 #[test]
 fn test_buff_asserts_max_len() {
-    let good = [
-        "(asserts-max-len \"12345\" u5)"];
-    let expected = ["(optional (buff 5))"];
+    let tests = [
+        "(asserts-max-len \"12345\" u5)",
+        "(asserts-max-len \"12345\" u8)",
+        "(asserts-max-len \"12345\" u4)"];
+    let expected = [
+        "(optional (buff 5))",
+        "(optional (buff 8))",
+        "(optional UnknownType)"];
 
-    for (good_test, expected) in good.iter().zip(expected.iter()) {
-        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&test).unwrap()));
     }
 }
-
-// todo(ludo): add more test cases (success + failing).
 
 #[test]
 fn test_native_append() {
     let good = [
-        "(append (list 2 3) 4)"];
-    let expected = ["(list 3 int)"];
+        "(append (list 2 3) 4)",
+        "(append (list u0) u0)"];
+    let expected = ["(list 3 int)", "(list 2 uint)"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
     }
+
+    // let bad = [
+    //     "(fold and (list 'true 'false) 2)",
+    //     "(fold hash160 (list 1 2 3 4) 2)",
+    //     "(fold >= (list 1 2 3 4) 2)",
+    //     "(list (list 1 2) (list 'true) (list 5 1 7))",
+    //     "(list 1 2 3 'true 'false 4 5 6)",
+    //     "(filter hash160 (list 1 2 3 4))",
+    //     "(filter not (list 1 2 3 4))",
+    //     "(filter not (list 1 2 3 4) 1)",
+    //     "(filter ynot (list 1 2 3 4))",
+    //     "(map if (list 1 2 3 4 5))",
+    //     "(map mod (list 1 2 3 4 5))",
+    //     "(map - (list 'true 'false 'true 'false))",
+    //     "(map hash160 (+ u1 u2))",
+    //     "(len 1)"];
+    // let bad_expected = [
+    //     CheckErrors::TypeError(BoolType, IntType),
+    //     CheckErrors::IncorrectArgumentCount(1, 2),
+    //     CheckErrors::TypeError(IntType, BoolType),
+    //     CheckErrors::TypeError(IntType, BoolType),
+    //     CheckErrors::TypeError(IntType, BoolType),
+    //     CheckErrors::TypeError(BoolType, buff_type(20)),
+    //     CheckErrors::TypeError(BoolType, IntType),
+    //     CheckErrors::IncorrectArgumentCount(2, 3),
+    //     CheckErrors::IllegalOrUnknownFunctionApplication("ynot".to_string()),
+    //     CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
+    //     CheckErrors::IncorrectArgumentCount(2, 1),
+    //     CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
+    //     CheckErrors::ExpectedListOrBuffer(UIntType),
+    //     CheckErrors::ExpectedListOrBuffer(IntType)];
+
+    // for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+    //     assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    // }
 }
 
 #[test]
@@ -534,7 +573,6 @@ fn test_simple_uints() {
         mem_type_check(bad_test).unwrap_err();
     }
 }
-
 
 #[test]
 fn test_response_inference() {
