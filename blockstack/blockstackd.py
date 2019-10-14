@@ -2359,7 +2359,7 @@ def blockstack_tx_filter( tx ):
         return False
 
 
-def index_blockchain(server_state, expected_snapshots=GENESIS_SNAPSHOT):
+def index_blockchain(server_state, expected_snapshots=GENESIS_SNAPSHOT, stop_block=None):
     """
     Index the blockchain:
     * find the range of blocks
@@ -2383,6 +2383,10 @@ def index_blockchain(server_state, expected_snapshots=GENESIS_SNAPSHOT):
         log.error("Failed to find block range")
         db.close()
         return False
+
+    if stop_block is not None:
+        log.info("Synchronizing only up to block {}".format(stop_block))
+        current_block = min(current_block, stop_block)
 
     # sanity check: does the subdomain db exist yet, and are we at the point where we can start indexing them?
     if is_subdomains_enabled(blockstack_opts):
@@ -2428,7 +2432,7 @@ def blockstack_signal_handler( sig, frame ):
     set_running(False)
 
 
-def genesis_block_load(module_path=None):
+def genesis_block_load(working_dir, module_path=None, patch_db=False):
     """
     Make sure the genesis block is good to go.
     Load and instantiate it.
@@ -2470,6 +2474,12 @@ def genesis_block_load(module_path=None):
 
         jsonschema.validate(GENESIS_BLOCK_SCHEMA, genesis_block)
 
+        if patch_db:
+            db_path = virtualchain.get_db_filename(virtualchain_hooks, working_dir)
+            if os.path.exists(db_path):
+                log.info("Replacing built-in genesis block...")
+                chainstate.namedb_replace_genesis(db_path, genesis_block)
+        
         set_genesis_block(genesis_block)
         set_genesis_block_stages(genesis_block_stages)
 
@@ -2478,6 +2488,7 @@ def genesis_block_load(module_path=None):
             log.debug('Stage {} has {} row(s)'.format(i+1, len(stage['rows'])))
 
     except Exception as e:
+        traceback.print_exc()
         log.fatal("Invalid genesis block")
         os.abort()
 
@@ -2492,7 +2503,7 @@ def server_setup(working_dir, port=None, api_port=None, indexer_enabled=None, in
     """
     if not is_genesis_block_instantiated():
         # default genesis block
-        genesis_block_load()
+        genesis_block_load(working_dir)
 
     blockstack_opts = get_blockstack_opts()
     blockstack_api_opts = get_blockstack_api_opts()
@@ -2638,7 +2649,7 @@ def server_shutdown(server_state):
     return True
 
 
-def run_server(working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None, api_port=None, use_api=None, use_indexer=None, indexer_url=None, recover=False):
+def run_server(working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None, api_port=None, use_api=None, use_indexer=None, indexer_url=None, stop_block=None, recover=False):
     """
     Run blockstackd.  Optionally daemonize.
     Return 0 on success
@@ -2678,7 +2689,7 @@ def run_server(working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSHO
         log.debug("Begin Indexing")
         while is_running():
             try:
-               running = index_blockchain(server_state, expected_snapshots=expected_snapshots)
+               running = index_blockchain(server_state, expected_snapshots=expected_snapshots, stop_block=stop_block)
             except Exception, e:
                log.exception(e)
                log.error("FATAL: caught exception while indexing")
@@ -2923,14 +2934,14 @@ def load_expected_snapshots( snapshots_path ):
     return None
    
 
-def do_genesis_block_audit(genesis_block_path=None, key_id=None):
+def do_genesis_block_audit(working_dir, genesis_block_path=None, key_id=None, total_tokens=None):
     """
     Loads and audits the genesis block, optionally using an alternative key
     """
     signing_keys = GENESIS_BLOCK_SIGNING_KEYS
     if genesis_block_path is not None:
         # alternative genesis block
-        genesis_block_load(genesis_block_path)
+        genesis_block_load(working_dir, genesis_block_path)
     
     if key_id is not None:
         # alternative signing key
@@ -2944,12 +2955,13 @@ def do_genesis_block_audit(genesis_block_path=None, key_id=None):
 
         signing_keys = { key_id: out.strip() }
         
-    res = genesis_block_audit(get_genesis_block_stages(), key_bundle=signing_keys)
+    res = genesis_block_audit(get_genesis_block_stages(), key_bundle=signing_keys, total_tokens=total_tokens)
     if not res:
         log.error('Genesis block is NOT signed by {}'.format(', '.join(signing_keys.keys())))
         return False
 
     return True
+
 
 def setup_recovery(working_dir):
     """
@@ -3053,8 +3065,14 @@ def run_blockstackd():
         '--genesis_block', action='store',
         help='Path to an alternative genesis block source file')
     parser.add_argument(
+        '--genesis_block_persist', action='store_true',
+        help='Persist the genesis block data from --genesis_block to the DB')
+    parser.add_argument(
         '--signing_key', action='store',
         help='GPG key ID for an alternative genesis block')
+    parser.add_argument(
+        '--stop_block', action='store',
+        help='Stop indexing once a block is reached')
 
     # -------------------------------------
     parser = subparsers.add_parser(
@@ -3248,14 +3266,20 @@ def run_blockstackd():
             log.info('Using alternative genesis block {}'.format(args.genesis_block))
             if args.signing_key:
                 # audit it
-                res = do_genesis_block_audit(genesis_block_path=args.genesis_block, key_id=args.signing_key)
+                res = do_genesis_block_audit(working_dir, genesis_block_path=args.genesis_block, key_id=args.signing_key)
                 if not res:
                     print >> sys.stderr, 'Genesis block {} is INVALID'.format(args.genesis_block)
                     sys.exit(1)
 
             else:
                 # don't audit it, but instantiate it
-                genesis_block_load(args.genesis_block)
+                genesis_block_load(working_dir, args.genesis_block, patch_db=args.genesis_block_persist)
+
+        else:
+            if args.genesis_block_persist:
+                # instantiate and persist the built-in genesis block
+                log.info("Persisting built-in genesis block")
+                genesis_block_load(working_dir, patch_db=True)
 
         # unclean shutdown?
         is_indexing = BlockstackDB.db_is_indexing(virtualchain_hooks, working_dir)
@@ -3323,8 +3347,14 @@ def run_blockstackd():
         else:
             args.api_port = None
 
+        if args.stop_block is not None:
+            log.info("Will stop indexing at block {}".format(int(args.stop_block)))
+            args.stop_block = int(args.stop_block)
+        else:
+            args.stop_block = None
+
         recover = check_recovery(working_dir)
-        exit_status = run_server(working_dir, foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port, api_port=args.api_port, use_api=use_api, use_indexer=use_indexer, indexer_url=args.indexer_url, recover=recover)
+        exit_status = run_server(working_dir, foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port, api_port=args.api_port, use_api=use_api, use_indexer=use_indexer, indexer_url=args.indexer_url, stop_block=args.stop_block, recover=recover)
         if args.foreground:
            log.info("Service endpoint exited with status code %s" % exit_status )
 
@@ -3456,7 +3486,7 @@ def run_blockstackd():
         key_id = args.signing_key
         genesis_block_path = args.path
 
-        res = do_genesis_block_audit(genesis_block_path=genesis_block_path, key_id=key_id)
+        res = do_genesis_block_audit(working_dir, genesis_block_path=genesis_block_path, key_id=key_id, total_tokens=TOTAL_STACKS_TOKENS)
         if not res:
             print >> sys.stderr, 'Genesis block is INVALID'
             sys.exit(1)
