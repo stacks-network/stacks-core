@@ -59,7 +59,8 @@ BLOCKSTACK_DB_SCRIPT += """
 -- NOTE: creator_address is the address that owned the name or namespace ID at the time of insertion.
 -- NOTE: value_hash is the associated value hash for this history entry at the time of insertion.
 -- NOTE: history_data is a JSON blob with the operation that was committed at this point in time.
-CREATE TABLE history( txid TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS history( 
+                      txid TEXT NOT NULL,
                       history_id TEXT,
                       creator_address TEXT,
                       block_id INT NOT NULL,
@@ -72,15 +73,16 @@ CREATE TABLE history( txid TEXT NOT NULL,
 """
 
 BLOCKSTACK_DB_SCRIPT += """
--- CREATE INDEX history_block_id_index ON history( history_id, block_id );
-CREATE INDEX history_id_index ON history( history_id );
+-- CREATE INDEX IF NOT EXISTS history_block_id_index ON history( history_id, block_id );
+CREATE INDEX IF NOT EXISTS history_id_index ON history( history_id );
 """
 
 BLOCKSTACK_DB_SCRIPT += """
 -- NOTE: this table only grows.
 -- The only time rows can be taken out is when a name or
 -- namespace successfully matches it.
-CREATE TABLE preorders( preorder_hash TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS preorders( 
+                        preorder_hash TEXT NOT NULL,
                         consensus_hash TEXT NOT NULL,
                         sender TEXT NOT NULL,
                         sender_pubkey TEXT,
@@ -101,7 +103,8 @@ CREATE TABLE preorders( preorder_hash TEXT NOT NULL,
 BLOCKSTACK_DB_SCRIPT += """
 -- NOTE: this table includes revealed namespaces
 -- NOTE: 'buckets' is a string representation of an array of 16 integers.
-CREATE TABLE namespaces( namespace_id TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS namespaces( 
+                         namespace_id TEXT NOT NULL,
                          preorder_hash TEXT NOT NULL,
                          version INT,
                          sender TEXT NOT NULL,
@@ -131,7 +134,8 @@ CREATE TABLE namespaces( namespace_id TEXT NOT NULL,
 """
 
 BLOCKSTACK_DB_SCRIPT += """
-CREATE TABLE name_records( name TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS name_records( 
+                           name TEXT NOT NULL,
                            preorder_hash TEXT NOT NULL,
                            name_hash128 TEXT NOT NULL,
                            namespace_id TEXT NOT NULL,
@@ -169,8 +173,9 @@ CREATE TABLE name_records( name TEXT NOT NULL,
 # rows get inserted under the following rules:
 # * if the user buys a name or namespace (or transfers in Phase 2+), a row is inserted that *debits* the account (by increasing the debit_value)
 # * if the user receives tokens through vesting, or through a transfer (phase 2+), or pay-to-namespace payment (phase 2+), a row is inserted that *credits* the account (by increasing the credit_value)
-BLOCKSTACK_DB_ACCOUNTS_TABLE_SCRIPT = """
-CREATE TABLE accounts( address TEXT NOT NULL,
+BLOCKSTACK_DB_ACCOUNTS_SCRIPT = """
+CREATE TABLE IF NOT EXISTS accounts( 
+                       address TEXT NOT NULL,
                        type TEXT NOT NULL,           -- what kind of token? STACKs, etc.
 
                        credit_value TEXT NOT NULL,   -- always increases, encoded as a TEXT to avoid overflow (unit value)
@@ -191,18 +196,17 @@ CREATE TABLE accounts( address TEXT NOT NULL,
 
                        PRIMARY KEY(address,block_id,txid,vtxindex,type) );
 """
-BLOCKSTACK_DB_SCRIPT += BLOCKSTACK_DB_ACCOUNTS_TABLE_SCRIPT
 
-BLOCKSTACK_DB_ADDRESS_ACCOUNTS_INDEX_SCRIPT = """
-CREATE INDEX address_accounts ON accounts(address, type);
+BLOCKSTACK_DB_ACCOUNTS_SCRIPT += """
+CREATE INDEX IF NOT EXISTS address_accounts ON accounts(address, type);
 """
-BLOCKSTACK_DB_SCRIPT += BLOCKSTACK_DB_ADDRESS_ACCOUNTS_INDEX_SCRIPT
 
 # extra time-locked credits to an account.
 # vesting_value will always be positive.
 # when the system reaches a block that vests, a "credit" operation will be generated and inserted into the accounts table to reflect it.
-BLOCKSTACK_DB_ACCOUNT_VESTING_TABLE_SCRIPT = """
-CREATE TABLE account_vesting( address TEXT NOT NULL,            -- account address
+BLOCKSTACK_DB_ACCOUNTS_SCRIPT += """
+CREATE TABLE IF NOT EXISTS account_vesting( 
+                              address TEXT NOT NULL,            -- account address
                               type TEXT NOT NULL,               -- type of token (e.g. STACKS, GENESIS)
                               vesting_value TEXT NOT NULL,      -- value to vest, encoded as a TEXT to avoid overflow (unit value, e.g. microSTACKs)
                               block_id INTEGER NOT NULL,        -- block at which these tokens are credited
@@ -210,22 +214,22 @@ CREATE TABLE account_vesting( address TEXT NOT NULL,            -- account addre
                               PRIMARY KEY(address,type,block_id)
                               );
 """
-BLOCKSTACK_DB_SCRIPT += BLOCKSTACK_DB_ACCOUNT_VESTING_TABLE_SCRIPT
+BLOCKSTACK_DB_SCRIPT += BLOCKSTACK_DB_ACCOUNTS_SCRIPT
 
 BLOCKSTACK_DB_SCRIPT += """
-CREATE INDEX hash_names_index ON name_records( name_hash128, name );
+CREATE INDEX IF NOT EXISTS hash_names_index ON name_records( name_hash128, name );
 """
 
 BLOCKSTACK_DB_SCRIPT += """
-CREATE INDEX address_names_index ON name_records( address, name );
+CREATE INDEX IF NOT EXISTS address_names_index ON name_records( address, name );
 """
 
 BLOCKSTACK_DB_SCRIPT += """
-CREATE INDEX value_hash_names_index on name_records( value_hash, name );
+CREATE INDEX IF NOT EXISTS value_hash_names_index on name_records( value_hash, name );
 """
 
 BLOCKSTACK_DB_SCRIPT += """
-CREATE INDEX addr_names_index ON name_records( address, name );
+CREATE INDEX IF NOT EXISTS addr_names_index ON name_records( address, name );
 """
 
 BLOCKSTACK_DB_SCRIPT += """
@@ -234,9 +238,14 @@ PRAGMA foreign_keys = ON;
 """
 
 BLOCKSTACK_DB_SCRIPT += """
-CREATE TABLE db_version( version TEXT NOT NULL );
-INSERT INTO db_version VALUES ("{}");
-""".format(VERSION)
+CREATE TABLE IF NOT EXISTS db_version( version TEXT NOT NULL );
+"""
+
+BLOCKSTACK_DB_DROP_ACCOUNTS_SCRIPT = """
+DROP INDEX address_accounts;
+DROP TABLE accounts;
+DROP TABLE account_vesting;
+"""
 
 def namedb_genesis_txid(address, metadata):
     """
@@ -383,7 +392,7 @@ def namedb_get_version(con):
         rowdata = namedb_query_execute(con, sql, args, abort=False)
         row = rowdata.fetchone()
         return row['version']
-    except:
+    except Exception as e:
         # no version defined
         return '0.0.0.0'
 
@@ -416,18 +425,60 @@ def namedb_create(path, genesis_block):
     """
 
     global BLOCKSTACK_DB_SCRIPT
+    global VERSION
 
     if os.path.exists( path ):
-        raise Exception("Database '%s' already exists" % path)
+        raise Exception("Database already exists: {}".format(path))
 
     lines = [l + ";" for l in BLOCKSTACK_DB_SCRIPT.split(";")]
     con = sqlite3.connect( path, isolation_level=None, timeout=2**30 )
+    con.row_factory = namedb_row_factory
 
     for line in lines:
         db_query_execute(con, line, ())
 
+    if namedb_get_version(con) == '0.0.0.0':
+        db_query_execute(con, 'INSERT INTO db_version VALUES (?)', (VERSION,))
+
     con.row_factory = namedb_row_factory
 
+    # create genesis block
+    namedb_create_token_genesis(con, genesis_block['rows'], genesis_block['history'])
+    return con
+
+
+def namedb_replace_genesis(path, genesis_block):
+    """
+    Create a sqlite3 db at the given path, if it doesn't exist already.
+    If the db does exist, then replace its genesis block dat with the given 
+    genesis block data.
+    """
+    global BLOCKSTACK_DB_SCRIPT, BLOCKSTACK_DB_DROP_ACCOUNTS_SCRIPT, BLOCKSTACK_DB_ACCOUNTS_SCRIPT
+    global VERSION
+
+    if os.path.exists( path ):
+        log.warn("Modifying existing database {}".format(path))
+
+    lines = [l + ";" for l in BLOCKSTACK_DB_SCRIPT.split(";")]
+    con = sqlite3.connect( path, isolation_level=None, timeout=2**30 )
+    con.row_factory = namedb_row_factory
+
+    for line in lines:
+        db_query_execute(con, line, ())
+
+    if namedb_get_version(con) == '0.0.0.0':
+        db_query_execute(con, 'INSERT INTO db_version VALUES (?)', (VERSION,))
+
+    drop_lines = [l + ";" for l in BLOCKSTACK_DB_DROP_ACCOUNTS_SCRIPT.split(";")]
+    for drop_line in drop_lines:
+        log.debug(drop_line)
+        db_query_execute(con, drop_line, ())
+
+    readd_lines = [l + ";" for l in BLOCKSTACK_DB_ACCOUNTS_SCRIPT.split(';')]
+    for readd_line in readd_lines:
+        log.debug(readd_line)
+        db_query_execute(con, readd_line, ())
+    
     # create genesis block
     namedb_create_token_genesis(con, genesis_block['rows'], genesis_block['history'])
     return con
