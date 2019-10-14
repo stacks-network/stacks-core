@@ -98,7 +98,9 @@ fn test_bad_asset_usage() {
 
     let bad_scripts = ["(ft-get-balance stackoos tx-sender)",
                        "(ft-get-balance u1234 tx-sender)",
+                       "(ft-get-balance 1234 tx-sender)",
                        "(ft-get-balance stackaroos u100)",
+                       "(ft-get-balance stackaroos 100)",
                        "(nft-get-owner u1234 \"abc\")",
                        "(nft-get-owner stackoos \"abc\")",
                        "(nft-get-owner stacka-nfts u1234 )",
@@ -124,13 +126,18 @@ fn test_bad_asset_usage() {
                        "(ft-transfer! stackaroos u2 tx-sender u100)",
                        "(define-fungible-token stackaroos 'true)",
                        "(define-non-fungible-token stackaroos integer)",
+                       "(ft-mint! stackaroos 100 tx-sender)",
+                       "(ft-transfer! stackaroos 1 tx-sender tx-sender)",
     ];
 
     let expected = [
         CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::BadTokenName,
+        CheckErrors::BadTokenName,
         CheckErrors::TypeError(TypeSignature::PrincipalType,
                                TypeSignature::UIntType),
+        CheckErrors::TypeError(TypeSignature::PrincipalType,
+                               TypeSignature::IntType),
         CheckErrors::BadTokenName,
         CheckErrors::NoSuchNFT("stackoos".to_string()),
         CheckErrors::TypeError(buff_type(10),
@@ -170,6 +177,10 @@ fn test_bad_asset_usage() {
         CheckErrors::TypeError(TypeSignature::UIntType,
                                TypeSignature::BoolType),
         CheckErrors::DefineNFTBadSignature.into(),
+        CheckErrors::TypeError(TypeSignature::UIntType,
+                               TypeSignature::IntType),
+        CheckErrors::TypeError(TypeSignature::UIntType,
+                               TypeSignature::IntType),
     ];
 
     for (script, expected_err) in bad_scripts.iter().zip(expected.iter()) {

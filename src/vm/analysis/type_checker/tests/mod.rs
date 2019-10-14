@@ -43,9 +43,11 @@ fn test_get_block_info(){
 
     let bad = ["(get-block-info none u1)",
                "(get-block-info time 'true)",
+               "(get-block-info time 1)",
                "(get-block-info time)"];
     let bad_expected = [ CheckErrors::NoSuchBlockInfoProperty("none".to_string()),
                          CheckErrors::TypeError(UIntType, BoolType),
+                         CheckErrors::TypeError(UIntType, IntType),
                          CheckErrors::RequiresAtLeastArguments(2, 1) ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -105,10 +107,14 @@ fn test_simple_arithmetic_checks() {
 #[test]
 fn test_simple_hash_checks() {
     let good = ["(hash160 u1)",
+                "(hash160 1)",
                 "(sha512 u10)",
+                "(sha512 10)",
                 "(sha512/256 u10)",
-                "(sha256 (keccak256 u1))"];
-    let expected = ["(buff 20)", "(buff 64)", "(buff 32)", "(buff 32)" ];
+                "(sha512/256 10)",
+                "(sha256 (keccak256 u1))",
+                "(sha256 (keccak256 1))"];
+    let expected = ["(buff 20)", "(buff 20)", "(buff 64)", "(buff 64)", "(buff 32)", "(buff 32)", "(buff 32)", "(buff 32)" ];
 
     let bad_types = ["(hash160 'true)",
                      "(sha256 'false)",
@@ -217,6 +223,7 @@ fn test_eqs() {
 #[test]
 fn test_lists() {
     let good = ["(map hash160 (list u1 u2 u3 u4 u5))",
+                "(map hash160 (list 1 2 3 4 5))",
                 "(list (list 1 2) (list 3 4) (list 5 1 7))",
                 "(filter not (list 'false 'true 'false))",
                 "(fold and (list 'true 'true 'false 'false) 'true)",
@@ -224,16 +231,18 @@ fn test_lists() {
                 "(if 'true (list 1 2 3 4) (list))",
                 "(if 'true (list) (list 1 2 3 4))",
                 ];
-    let expected = [ "(list 5 (buff 20))", "(list 3 (list 3 int))", "(list 3 bool)", "bool", "(list 4 int)",
+    let expected = [ "(list 5 (buff 20))", "(list 5 (buff 20))", "(list 3 (list 3 int))", "(list 3 bool)", "bool", "(list 4 int)",
                      "(list 4 int)", "(list 4 int)" ];
 
     let bad = [
         "(fold and (list 'true 'false) 2)",
         "(fold hash160 (list u1 u2 u3 u4) u2)",
+        "(fold hash160 (list 1 2 3 4) 2)",
         "(fold >= (list 1 2 3 4) 2)",
         "(list (list 1 2) (list 'true) (list 5 1 7))",
         "(list 1 2 3 'true 'false 4 5 6)",
         "(filter hash160 (list u1 u2 u3 u4))",
+        "(filter hash160 (list 1 2 3 4))",
         "(filter not (list 1 2 3 4))",
         "(filter not (list 1 2 3 4) 1)",
         "(filter ynot (list 1 2 3 4))",
@@ -244,9 +253,11 @@ fn test_lists() {
     let bad_expected = [
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
+        CheckErrors::TypeError(BoolType, buff_type(20)),
         CheckErrors::TypeError(BoolType, buff_type(20)),
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(2, 3),
