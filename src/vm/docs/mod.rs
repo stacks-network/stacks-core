@@ -358,6 +358,16 @@ value return by the successive applications.",
 (fold * (list 2 2 2) 0) ;; Returns 0"
 };
 
+const LEN_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|list",
+    output_type: "uint",
+    signature: "(len buffer)",
+    description: "The `len` function returns the length of a given buffer / list.",
+    example: "(len \"blockstack\") ;; Returns 10
+(len (list 1 2 3 4 5)) ;; Returns 5
+"
+};
+
 const LIST_API: SpecialAPI = SpecialAPI {
     input_type: "A, ...",
     output_type: "(list A)",
@@ -973,6 +983,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Map => make_for_special(&MAP_API, name),
         Filter => make_for_special(&FILTER_API, name),
         Fold => make_for_special(&FOLD_API, name),
+        Len => make_for_special(&LEN_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
         FetchContractEntry => make_for_special(&FETCH_CONTRACT_API, name),
