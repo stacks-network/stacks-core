@@ -32,6 +32,8 @@ import shutil
 from .schemas import  GENESIS_BLOCK_SCHEMA
 from .genesis_block import GENESIS_BLOCK_SIGNING_KEYS
 
+from .config import TOTAL_STACKS_TOKENS
+
 log = virtualchain.get_logger('audit')
 
 def find_gpg2():
@@ -94,7 +96,7 @@ def check_gpg2_keys(gpg2_path, key_ids):
     return True
 
 
-def genesis_block_audit(genesis_block_stages, key_bundle=GENESIS_BLOCK_SIGNING_KEYS):
+def genesis_block_audit(genesis_block_stages, key_bundle=GENESIS_BLOCK_SIGNING_KEYS, total_tokens=None):
     """
     Verify the authenticity of the stages of the genesis block, optionally with a given set of keys.
     Return True if valid
@@ -147,6 +149,15 @@ def genesis_block_audit(genesis_block_stages, key_bundle=GENESIS_BLOCK_SIGNING_K
         # must match final history row 
         if gb_rows_hash != stage['history'][-1]['hash']:
             log.error('Genesis block stage {} hash mismatch: {} != {}'.format(stage_id, gb_rows_hash, stage['history'][-1]['hash']))
+            shutil.rmtree(d)
+            return False
+
+    # final row must have TOTAL_STACKS_TOKENS
+    if total_tokens is not None:
+        log.debug("Verifying that the total number of microSTX is {}", total_tokens)
+        genesis_total_tokens = sum(row['vesting_total'] + row['value'] for row in genesis_block_stages[-1]['rows'])
+        if genesis_total_tokens != total_tokens:
+            log.error("Genesis block does not have {} tokens, but has {} instead", total_tokens, genesis_total_tokens)
             shutil.rmtree(d)
             return False
 
