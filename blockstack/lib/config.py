@@ -113,6 +113,8 @@ MICROSTACKS_PER_SATOSHI_DEN = 15
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
 NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
 
+TOTAL_STACKS_TOKENS = 1320000000000000
+
 """ blockstack configs
 """
 BLOCKSTACK_TEST = os.environ.get('BLOCKSTACK_TEST', None)
