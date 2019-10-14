@@ -235,7 +235,7 @@ fn special_asserts(args: &[SymbolicExpression], env: &mut Environment, context: 
                 Ok(conditional)
             } else {
                 let thrown = eval(&args[1], env, context)?;
-                Err(ShortReturnType::ExpectedValue(thrown.clone()).into())
+                Err(ShortReturnType::AssertionFailed(thrown.clone()).into())
             }
         },
         _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, conditional).into())

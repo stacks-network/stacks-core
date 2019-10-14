@@ -503,8 +503,8 @@ fn test_asserts_short_circuit() {
         "(begin (asserts! (eq? 1 1) (err 0)) (asserts! (eq? 2 1) (err 1)) (ok 2))"];
 
     let expectations: &[Error] = &[
-        Error::ShortReturn(ShortReturnType::ExpectedValue(Value::error(Value::Int(0)))),
-        Error::ShortReturn(ShortReturnType::ExpectedValue(Value::error(Value::Int(1))))];
+        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(0)))),
+        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(1))))];
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!((*expectation), vm_execute(program).unwrap_err()));
