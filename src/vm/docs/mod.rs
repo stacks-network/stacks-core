@@ -358,6 +358,35 @@ value return by the successive applications.",
 (fold * (list 2 2 2) 0) ;; Returns 0"
 };
 
+const CONCAT_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff, buff)|(list, list)",
+    output_type: "buff|list",
+    signature: "(concat buff-a buff-b)",
+    description: "The `concat` function takes two buffers or two lists with the same entry type, 
+and returns a concatenated buffer or list of the same entry type, with max_len = max_len_a + max_len_b.",
+    example: "(concat \"hello \" \"world\") ;; Returns \"hello world\""
+};
+
+const APPEND_API: SpecialAPI = SpecialAPI {
+    input_type: "list A, A",
+    output_type: "list",
+    signature: "(append (list 1 2 3 4) 5)",
+    description: "The `append` function takes a list and another value with the same entry type, 
+or a buffer and another buffer of length 1 and outputs a buffer or a list of the same type with max_len += 1.",
+    example: "(append (list 1 2 3 4) 5) ;; Returns (list 1 2 3 4 5)"
+};
+
+const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
+    input_type: "Function(A, B) -> B, (list A)",
+    output_type: "B",
+    signature: "(asserts-max-len buffer 10)",
+    description: "The `asserts-max-len` function takes a buffer or list argument, which must be typed as a list 
+or buffer of length N and outputs that same list or buffer, but typed with max length number-literal. 
+At runtime, a check is performed, which if it fails, returns a (none) option.",
+    example: "(asserts-max-len! (list 2 2 2) 3) ;; Returns (list 2 2 2)
+(fold * (list 2 2 2) 0) ;; Returns 0"
+};
+
 const LEN_API: SpecialAPI = SpecialAPI {
     input_type: "buff|list",
     output_type: "uint",
@@ -402,7 +431,7 @@ const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
     description: "The `map-get` function looks up and returns an entry from a contract's data map.
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
-it returns (some value)",
+it returns (some value).",
     example: "(expects! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
 (expects! (map-get names-map ((name \"blockstack\"))) (err 1)) ;; Same command, using a shorthand for constructing the tuple
 ",
@@ -983,6 +1012,9 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Map => make_for_special(&MAP_API, name),
         Filter => make_for_special(&FILTER_API, name),
         Fold => make_for_special(&FOLD_API, name),
+        Append => make_for_special(&APPEND_API, name),
+        Concat => make_for_special(&CONCAT_API, name),
+        AssertsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, name),
         Len => make_for_special(&LEN_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),

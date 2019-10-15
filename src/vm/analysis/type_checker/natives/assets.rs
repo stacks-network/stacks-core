@@ -8,7 +8,6 @@ pub fn check_special_get_owner(checker: &mut TypeChecker, args: &[SymbolicExpres
 
     let asset_name = args[0].match_atom()
         .ok_or(CheckErrors::BadTokenName)?;
-    checker.type_map.set_type(&args[0], no_type())?;
 
     let expected_asset_type = checker.contract_context.get_nft_type(asset_name)
         .cloned()
@@ -25,7 +24,6 @@ pub fn check_special_get_balance(checker: &mut TypeChecker, args: &[SymbolicExpr
 
     let asset_name = args[0].match_atom()
         .ok_or(CheckErrors::BadTokenName)?;
-    checker.type_map.set_type(&args[0], no_type())?;
 
     if !checker.contract_context.ft_exists(asset_name) {
         return Err(CheckErrors::NoSuchFT(asset_name.to_string()).into());
@@ -42,7 +40,6 @@ pub fn check_special_mint_asset(checker: &mut TypeChecker, args: &[SymbolicExpre
 
     let asset_name = args[0].match_atom()
         .ok_or(CheckErrors::BadTokenName)?;
-    checker.type_map.set_type(&args[0], no_type())?;
 
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     let expected_asset_type = checker.contract_context.get_nft_type(asset_name)
@@ -62,7 +59,6 @@ pub fn check_special_mint_token(checker: &mut TypeChecker, args: &[SymbolicExpre
 
     let asset_name = args[0].match_atom()
         .ok_or(CheckErrors::BadTokenName)?;
-    checker.type_map.set_type(&args[0], no_type())?;
 
     let expected_amount: TypeSignature = TypeSignature::UIntType;
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
@@ -85,7 +81,6 @@ pub fn check_special_transfer_asset(checker: &mut TypeChecker, args: &[SymbolicE
 
     let token_name = args[0].match_atom()
         .ok_or(CheckErrors::BadTokenName)?;
-    checker.type_map.set_type(&args[0], no_type())?;
 
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     let expected_asset_type = checker.contract_context.get_nft_type(token_name)
@@ -106,7 +101,6 @@ pub fn check_special_transfer_token(checker: &mut TypeChecker, args: &[SymbolicE
 
     let token_name = args[0].match_atom()
         .ok_or(CheckErrors::BadTokenName)?;
-    checker.type_map.set_type(&args[0], no_type())?;
 
     let expected_amount: TypeSignature = TypeSignature::UIntType;
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
