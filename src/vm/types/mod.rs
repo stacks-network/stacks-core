@@ -158,7 +158,7 @@ impl BlockInfoProperty {
     pub fn type_result(&self) -> TypeSignature {
         use self::BlockInfoProperty::*;
         match self {
-            Time => TypeSignature::IntType,
+            Time => TypeSignature::UIntType,
             VrfSeed | HeaderHash | BurnchainHeaderHash => BUFF_32.clone(),
         }
     }

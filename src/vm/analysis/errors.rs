@@ -197,7 +197,7 @@ fn formatted_expected_types(expected_types: & Vec<TypeSignature>) -> String {
     expected_types_joined = format!("'{}'", expected_types[0]);
 
     if expected_types.len() > 2 {
-        for expected_type in expected_types[1..expected_types.len()-2].into_iter() {
+        for expected_type in expected_types[1..expected_types.len()-1].into_iter() {
             expected_types_joined.push_str(&format!(", '{}'", expected_type));
         }
     }

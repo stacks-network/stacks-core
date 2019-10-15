@@ -34,7 +34,7 @@ pub fn check_special_get_balance(checker: &mut TypeChecker, args: &[SymbolicExpr
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     checker.type_check_expects(&args[1], context, &expected_owner_type)?;
 
-    Ok(TypeSignature::IntType)
+    Ok(TypeSignature::UIntType)
 }
 
 pub fn check_special_mint_asset(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -54,7 +54,7 @@ pub fn check_special_mint_asset(checker: &mut TypeChecker, args: &[SymbolicExpre
 
     Ok(TypeSignature::ResponseType(
         Box::new((TypeSignature::BoolType,
-                  TypeSignature::IntType))).into())
+                  TypeSignature::UIntType))).into())
 }
 
 pub fn check_special_mint_token(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -64,7 +64,7 @@ pub fn check_special_mint_token(checker: &mut TypeChecker, args: &[SymbolicExpre
         .ok_or(CheckErrors::BadTokenName)?;
     checker.type_map.set_type(&args[0], no_type())?;
 
-    let expected_amount: TypeSignature = TypeSignature::IntType;
+    let expected_amount: TypeSignature = TypeSignature::UIntType;
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
 
     checker.type_check_expects(&args[1], context, &expected_amount)?;
@@ -77,7 +77,7 @@ pub fn check_special_mint_token(checker: &mut TypeChecker, args: &[SymbolicExpre
     
     Ok(TypeSignature::ResponseType(
         Box::new((TypeSignature::BoolType,
-                  TypeSignature::IntType))).into())
+                  TypeSignature::UIntType))).into())
 }
 
 pub fn check_special_transfer_asset(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -98,7 +98,7 @@ pub fn check_special_transfer_asset(checker: &mut TypeChecker, args: &[SymbolicE
 
     Ok(TypeSignature::ResponseType(
         Box::new((TypeSignature::BoolType,
-                  TypeSignature::IntType))).into())
+                  TypeSignature::UIntType))).into())
 }
 
 pub fn check_special_transfer_token(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -108,7 +108,7 @@ pub fn check_special_transfer_token(checker: &mut TypeChecker, args: &[SymbolicE
         .ok_or(CheckErrors::BadTokenName)?;
     checker.type_map.set_type(&args[0], no_type())?;
 
-    let expected_amount: TypeSignature = TypeSignature::IntType;
+    let expected_amount: TypeSignature = TypeSignature::UIntType;
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
 
     checker.type_check_expects(&args[1], context, &expected_amount)?;
@@ -121,5 +121,5 @@ pub fn check_special_transfer_token(checker: &mut TypeChecker, args: &[SymbolicE
 
     Ok(TypeSignature::ResponseType(
         Box::new((TypeSignature::BoolType,
-                  TypeSignature::IntType))).into())
+                  TypeSignature::UIntType))).into())
 }
