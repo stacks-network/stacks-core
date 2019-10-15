@@ -256,7 +256,7 @@ mod tests {
         let mut marf = clarity_instance.destroy();
         // should not be in the marf.
         assert!(! (&mut marf).has_entry(&ClarityDatabase::make_contract_key(&contract_identifier)));
-        let mut sql = marf.get_side_store();
+        let sql = marf.get_side_store();
         // sqlite should not have any entries
         assert_eq!(0,
                    sql.mut_conn()
