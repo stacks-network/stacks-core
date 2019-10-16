@@ -1,0 +1,1399 @@
+{
+  "program": {
+    "fileInfos": {
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es5.d.ts": {
+        "version": "1f753cee573dea40df8a9dc873fef5566957b19ad513874f6643d8dfb14842d0",
+        "signature": "1f753cee573dea40df8a9dc873fef5566957b19ad513874f6643d8dfb14842d0"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.d.ts": {
+        "version": "7994d44005046d1413ea31d046577cdda33b8b2470f30281fd9c8b3c99fe2d96",
+        "signature": "7994d44005046d1413ea31d046577cdda33b8b2470f30281fd9c8b3c99fe2d96"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2016.d.ts": {
+        "version": "5f217838d25704474d9ef93774f04164889169ca31475fe423a9de6758f058d1",
+        "signature": "5f217838d25704474d9ef93774f04164889169ca31475fe423a9de6758f058d1"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.d.ts": {
+        "version": "459097c7bdd88fc5731367e56591e4f465f2c9de81a35427a7bd473165c34743",
+        "signature": "459097c7bdd88fc5731367e56591e4f465f2c9de81a35427a7bd473165c34743"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.d.ts": {
+        "version": "2edd3ddf436ef8e12df876dcae4ecd6a8748577944c477bf4b20d5596e0c9843",
+        "signature": "2edd3ddf436ef8e12df876dcae4ecd6a8748577944c477bf4b20d5596e0c9843"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.core.d.ts": {
+        "version": "2a0390a665763bcc90f0670e43c587928d8fefe2a94a11209c1e22cba7b09f52",
+        "signature": "2a0390a665763bcc90f0670e43c587928d8fefe2a94a11209c1e22cba7b09f52"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.collection.d.ts": {
+        "version": "dd94d8ef48c562389eb58af8df3a3a34d11367f7c818192aa5f16470d469e3f0",
+        "signature": "dd94d8ef48c562389eb58af8df3a3a34d11367f7c818192aa5f16470d469e3f0"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.generator.d.ts": {
+        "version": "828413486bdcaa342558e8e4570b1b287b776cb61b4b70b0214bd10c5d9a94c3",
+        "signature": "828413486bdcaa342558e8e4570b1b287b776cb61b4b70b0214bd10c5d9a94c3"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.iterable.d.ts": {
+        "version": "6c9f73334f8bf47aea685ca5b46a8f7e992a223e96fbceb030f26a4d2324ba21",
+        "signature": "6c9f73334f8bf47aea685ca5b46a8f7e992a223e96fbceb030f26a4d2324ba21"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.promise.d.ts": {
+        "version": "e6b8ff2798f8ebd7a1c7afd8671f2cb67ee1901c422f5964d74b0b34c6574ea2",
+        "signature": "e6b8ff2798f8ebd7a1c7afd8671f2cb67ee1901c422f5964d74b0b34c6574ea2"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.proxy.d.ts": {
+        "version": "5e72f949a89717db444e3bd9433468890068bb21a5638d8ab15a1359e05e54fe",
+        "signature": "5e72f949a89717db444e3bd9433468890068bb21a5638d8ab15a1359e05e54fe"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.reflect.d.ts": {
+        "version": "f5b242136ae9bfb1cc99a5971cccc44e99947ae6b5ef6fd8aa54b5ade553b976",
+        "signature": "f5b242136ae9bfb1cc99a5971cccc44e99947ae6b5ef6fd8aa54b5ade553b976"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.symbol.d.ts": {
+        "version": "9ae2860252d6b5f16e2026d8a2c2069db7b2a3295e98b6031d01337b96437230",
+        "signature": "9ae2860252d6b5f16e2026d8a2c2069db7b2a3295e98b6031d01337b96437230"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.symbol.wellknown.d.ts": {
+        "version": "3e0a459888f32b42138d5a39f706ff2d55d500ab1031e0988b5568b0f67c2303",
+        "signature": "3e0a459888f32b42138d5a39f706ff2d55d500ab1031e0988b5568b0f67c2303"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2016.array.include.d.ts": {
+        "version": "3f96f1e570aedbd97bf818c246727151e873125d0512e4ae904330286c721bc0",
+        "signature": "3f96f1e570aedbd97bf818c246727151e873125d0512e4ae904330286c721bc0"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.object.d.ts": {
+        "version": "ff8ad203e83338289b0f5defc1a5b5c253fb7d251b464db497383f915a0df3f4",
+        "signature": "ff8ad203e83338289b0f5defc1a5b5c253fb7d251b464db497383f915a0df3f4"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.sharedmemory.d.ts": {
+        "version": "b8667586a618c5cf64523d4e500ae39e781428abfb28f3de441fc66b56144b6f",
+        "signature": "b8667586a618c5cf64523d4e500ae39e781428abfb28f3de441fc66b56144b6f"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.string.d.ts": {
+        "version": "21df2e0059f14dcb4c3a0e125859f6b6ff01332ee24b0065a741d121250bc71c",
+        "signature": "21df2e0059f14dcb4c3a0e125859f6b6ff01332ee24b0065a741d121250bc71c"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.intl.d.ts": {
+        "version": "c1759cb171c7619af0d2234f2f8fb2a871ee88e956e2ed91bb61778e41f272c6",
+        "signature": "c1759cb171c7619af0d2234f2f8fb2a871ee88e956e2ed91bb61778e41f272c6"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.typedarrays.d.ts": {
+        "version": "28569d59e07d4378cb3d54979c4c60f9f06305c9bb6999ffe6cab758957adc46",
+        "signature": "28569d59e07d4378cb3d54979c4c60f9f06305c9bb6999ffe6cab758957adc46"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.asynciterable.d.ts": {
+        "version": "42102aaeb1bfec213be1e9777466a6d551eeba8567fed18c0cdbca8c35e3c6e4",
+        "signature": "42102aaeb1bfec213be1e9777466a6d551eeba8567fed18c0cdbca8c35e3c6e4"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.intl.d.ts": {
+        "version": "1b820b57379c726f94af50cd60053674af53ff9d079c1563cc70071e8b757dd0",
+        "signature": "1b820b57379c726f94af50cd60053674af53ff9d079c1563cc70071e8b757dd0"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.promise.d.ts": {
+        "version": "efe049114bad1035b0aa9a4a0359f50ab776e3897c411521e51d3013079cbd62",
+        "signature": "efe049114bad1035b0aa9a4a0359f50ab776e3897c411521e51d3013079cbd62"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.regexp.d.ts": {
+        "version": "e7780d04cd4120ee554c665829db2bbdd6b947cbaa3c150b7d9ea74df3beb2e8",
+        "signature": "e7780d04cd4120ee554c665829db2bbdd6b947cbaa3c150b7d9ea74df3beb2e8"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.esnext.intl.d.ts": {
+        "version": "f6e0c89daaf72eac38dfb1d5ef0972183f7f26a68da15bfe5bcb7cfccf0c7db8",
+        "signature": "f6e0c89daaf72eac38dfb1d5ef0972183f7f26a68da15bfe5bcb7cfccf0c7db8"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.esnext.bigint.d.ts": {
+        "version": "63b66918290d794f73832a6d0325be5026236674fe8c0cb0b68d162000d7bbe8",
+        "signature": "63b66918290d794f73832a6d0325be5026236674fe8c0cb0b68d162000d7bbe8"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts": {
+        "version": "54d3a65ec4a02959394f505b0be20af4f685e7a7ae95432fae221d18d06c2638",
+        "signature": "54d3a65ec4a02959394f505b0be20af4f685e7a7ae95432fae221d18d06c2638"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/client.d.ts": {
+        "version": "35f918ba81de49f6e7b20f5ae544de46fbe31f7d293a31061f318c80e698ef73",
+        "signature": "35f918ba81de49f6e7b20f5ae544de46fbe31f7d293a31061f318c80e698ef73"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/transaction.d.ts": {
+        "version": "1a8c5d50440e002a93c694f24408922831a326e4c624204e0db53c780a30b964",
+        "signature": "1a8c5d50440e002a93c694f24408922831a326e4c624204e0db53c780a30b964"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/query.d.ts": {
+        "version": "ae153584c45af8780c71d0f0c7ed10903cf1660e251524f1b06e91a0da28dcfd",
+        "signature": "ae153584c45af8780c71d0f0c7ed10903cf1660e251524f1b06e91a0da28dcfd"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/contractInterface.d.ts": {
+        "version": "c7c4961b7e88a931a0c6be23a2a7326969b8c5fe350c3262f3595800a05b2dde",
+        "signature": "c7c4961b7e88a931a0c6be23a2a7326969b8c5fe350c3262f3595800a05b2dde"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/result.d.ts": {
+        "version": "44e24476c4e1c4650d23a0ea5b2376b36214c83aee87b1b8437d736d61c3583c",
+        "signature": "44e24476c4e1c4650d23a0ea5b2376b36214c83aee87b1b8437d736d61c3583c"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/types.d.ts": {
+        "version": "1dd55fe96c709706618e1e63507c4bbe3d4ad90ddce6909b8ab80511c795eca0",
+        "signature": "1dd55fe96c709706618e1e63507c4bbe3d4ad90ddce6909b8ab80511c795eca0"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts": {
+        "version": "320e7ecc82e6b8ab9293d837a13c36996f002cdb1b305a9df26506ca54d93916",
+        "signature": "320e7ecc82e6b8ab9293d837a13c36996f002cdb1b305a9df26506ca54d93916"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/globals.d.ts": {
+        "version": "0d0f3c7f937ec1706827fef6471d337b2e0d6eb31c3091fa74ff51fdf80c4786",
+        "signature": "0d0f3c7f937ec1706827fef6471d337b2e0d6eb31c3091fa74ff51fdf80c4786"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/assert.d.ts": {
+        "version": "e37e4814461321ef67cbb2f4c9def6be18ff85670e6c665131b320e052905b75",
+        "signature": "e37e4814461321ef67cbb2f4c9def6be18ff85670e6c665131b320e052905b75"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/async_hooks.d.ts": {
+        "version": "138476cfdccbb9e2c7e06602bc216af843a56c4f3469a79106bc660ba94bd66a",
+        "signature": "138476cfdccbb9e2c7e06602bc216af843a56c4f3469a79106bc660ba94bd66a"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/buffer.d.ts": {
+        "version": "fe892fea1e75a442fffb4a604d7eeb451e858787a9f2f01c4e83bf12a3b5048d",
+        "signature": "fe892fea1e75a442fffb4a604d7eeb451e858787a9f2f01c4e83bf12a3b5048d"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/child_process.d.ts": {
+        "version": "13084b2c9d246289892aceb7ecc3fe9666a9cf6d8e59cae17f76649f4e0773e8",
+        "signature": "13084b2c9d246289892aceb7ecc3fe9666a9cf6d8e59cae17f76649f4e0773e8"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/cluster.d.ts": {
+        "version": "d2704553f735d9b9cf31a26cbf4dd085e89b0ec3eec33d684b2517555370b665",
+        "signature": "d2704553f735d9b9cf31a26cbf4dd085e89b0ec3eec33d684b2517555370b665"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/console.d.ts": {
+        "version": "525c8fc510d9632d2a0a9de2d41c3ac1cdd79ff44d3b45c6d81cacabb683528d",
+        "signature": "525c8fc510d9632d2a0a9de2d41c3ac1cdd79ff44d3b45c6d81cacabb683528d"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/constants.d.ts": {
+        "version": "b952021e804dcd9cb5e5552e1ec8bf9f479b61e20da5641e2a542fe77db9a598",
+        "signature": "b952021e804dcd9cb5e5552e1ec8bf9f479b61e20da5641e2a542fe77db9a598"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/crypto.d.ts": {
+        "version": "6b956acd0fa4df8f2723012d18498954438874cc63a0bd639dc470135a782101",
+        "signature": "6b956acd0fa4df8f2723012d18498954438874cc63a0bd639dc470135a782101"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dgram.d.ts": {
+        "version": "3d1cb0eaae19fa89fe381bba6d5a149d1bf34efc0134220879f57e2061732a6d",
+        "signature": "3d1cb0eaae19fa89fe381bba6d5a149d1bf34efc0134220879f57e2061732a6d"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dns.d.ts": {
+        "version": "05e732266b5a36789fd9eb846b1f45fec1b6e318b740e3f20fc22fd95f9ebf31",
+        "signature": "05e732266b5a36789fd9eb846b1f45fec1b6e318b740e3f20fc22fd95f9ebf31"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/domain.d.ts": {
+        "version": "ae3487bdb9b50c1d8bbeb6b55c8b2b9aa79bbc46d7afbc3483169ad8750c4304",
+        "signature": "ae3487bdb9b50c1d8bbeb6b55c8b2b9aa79bbc46d7afbc3483169ad8750c4304"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts": {
+        "version": "4a419878f025046ff6748d073123b0451849f83b7dbca907037a53e3eaa9bbbb",
+        "signature": "4a419878f025046ff6748d073123b0451849f83b7dbca907037a53e3eaa9bbbb"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/fs.d.ts": {
+        "version": "351eba3b2cf940c98b87cc72014a66cc5f10373bf44fbdc525fae1b22d984aab",
+        "signature": "351eba3b2cf940c98b87cc72014a66cc5f10373bf44fbdc525fae1b22d984aab"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http.d.ts": {
+        "version": "896c59370c35abd48415751b78ce927eda463a20f1a3921bf3dc4962504ec06e",
+        "signature": "896c59370c35abd48415751b78ce927eda463a20f1a3921bf3dc4962504ec06e"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http2.d.ts": {
+        "version": "e36a3ca6d86f19ff207dabc61d27088c464f2dc3ffb64b0daf17dc33b85191e6",
+        "signature": "e36a3ca6d86f19ff207dabc61d27088c464f2dc3ffb64b0daf17dc33b85191e6"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/https.d.ts": {
+        "version": "152af7c23ec219f632afa2d861abc65993f56cd39a4f3a4018515dbc05950a74",
+        "signature": "152af7c23ec219f632afa2d861abc65993f56cd39a4f3a4018515dbc05950a74"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/inspector.d.ts": {
+        "version": "3a0bdc4c5b6f84a1abb5356d7a7fa1f96ac6c5b5646eec3ef2b33c1ed095e155",
+        "signature": "3a0bdc4c5b6f84a1abb5356d7a7fa1f96ac6c5b5646eec3ef2b33c1ed095e155"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/module.d.ts": {
+        "version": "03394bf8deb8781b490ae9266a843fbdf00647947d79e25fcbf1d89a9e9c8a66",
+        "signature": "03394bf8deb8781b490ae9266a843fbdf00647947d79e25fcbf1d89a9e9c8a66"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts": {
+        "version": "56a15cc211894d79aa44cbb46c276bfd3f10458a61bff2dec99114db8a7e71e3",
+        "signature": "56a15cc211894d79aa44cbb46c276bfd3f10458a61bff2dec99114db8a7e71e3"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/os.d.ts": {
+        "version": "0ab49f803fa1d0f26682096e87ae239be05fee89ac538d30c59ab5a15bd38e6a",
+        "signature": "0ab49f803fa1d0f26682096e87ae239be05fee89ac538d30c59ab5a15bd38e6a"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/path.d.ts": {
+        "version": "61c84c3b0eb6e60196d15ae5e21793a1d4241c547f0bdd0529ffae838d1a073c",
+        "signature": "61c84c3b0eb6e60196d15ae5e21793a1d4241c547f0bdd0529ffae838d1a073c"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/perf_hooks.d.ts": {
+        "version": "981192e57b0e159c977f1d8e8b8576e9d6b4e013b902e9c0d4b178cb47e2dc86",
+        "signature": "981192e57b0e159c977f1d8e8b8576e9d6b4e013b902e9c0d4b178cb47e2dc86"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/process.d.ts": {
+        "version": "3a8848a9c307429b861402cc69bc472ffe0c05b86474fc158723169161e16389",
+        "signature": "3a8848a9c307429b861402cc69bc472ffe0c05b86474fc158723169161e16389"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/punycode.d.ts": {
+        "version": "eeb0d1ad28e70773ac57ae9fe939c3bad6af2525a463c28f9ec31b5953de6735",
+        "signature": "eeb0d1ad28e70773ac57ae9fe939c3bad6af2525a463c28f9ec31b5953de6735"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/querystring.d.ts": {
+        "version": "8969e0b4d22ca77ad011c8fc4a25ec5d515bdfae4ecbd22608ed0d5c38829c1e",
+        "signature": "8969e0b4d22ca77ad011c8fc4a25ec5d515bdfae4ecbd22608ed0d5c38829c1e"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/readline.d.ts": {
+        "version": "544728a999d35afc7b9e6d7420fb10046c16fcc5cb54fef21d2f5de78bf98830",
+        "signature": "544728a999d35afc7b9e6d7420fb10046c16fcc5cb54fef21d2f5de78bf98830"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/repl.d.ts": {
+        "version": "d0b0b533dc34ff7ffd019665fdc2b2aeae717bc1347e17a5bdc4d6572b5c109a",
+        "signature": "d0b0b533dc34ff7ffd019665fdc2b2aeae717bc1347e17a5bdc4d6572b5c109a"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts": {
+        "version": "c07900741b39a32e2167f08aadcdea84b077727f828f27ceebf534715ea66d97",
+        "signature": "c07900741b39a32e2167f08aadcdea84b077727f828f27ceebf534715ea66d97"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/string_decoder.d.ts": {
+        "version": "17e157df6125098a1a34eb4d201ee4ac03bbe97e471ab5627bb2c40fce555948",
+        "signature": "17e157df6125098a1a34eb4d201ee4ac03bbe97e471ab5627bb2c40fce555948"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/timers.d.ts": {
+        "version": "b40652bf8ce4a18133b31349086523b219724dca8df3448c1a0742528e7ad5b9",
+        "signature": "b40652bf8ce4a18133b31349086523b219724dca8df3448c1a0742528e7ad5b9"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tls.d.ts": {
+        "version": "68f639766f4b9d5c832bbca1203955969a8686137a4a197285dd64519cc26e58",
+        "signature": "68f639766f4b9d5c832bbca1203955969a8686137a4a197285dd64519cc26e58"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/trace_events.d.ts": {
+        "version": "978aecd2e6bc2ac094e9a35eda98ff8586713857b3655e7c98ca5ed8f7d50662",
+        "signature": "978aecd2e6bc2ac094e9a35eda98ff8586713857b3655e7c98ca5ed8f7d50662"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tty.d.ts": {
+        "version": "3a59044813b24482ad7a7963bbee6b62507561969e273fbdc992ed9bc948fe13",
+        "signature": "3a59044813b24482ad7a7963bbee6b62507561969e273fbdc992ed9bc948fe13"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts": {
+        "version": "431151f55411c3f27cf539b987a7d1de453188ed58e54bc946183d280d3444a2",
+        "signature": "431151f55411c3f27cf539b987a7d1de453188ed58e54bc946183d280d3444a2"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts": {
+        "version": "766b7f1a0e67ed1106ae02583408d9e3a820201c4539f9bed8be8e4f07ee6e92",
+        "signature": "766b7f1a0e67ed1106ae02583408d9e3a820201c4539f9bed8be8e4f07ee6e92"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/v8.d.ts": {
+        "version": "e880a08fbb0d9ee2f733f9183f4d1bdb75bc9e0e64060a8a1fc30540791fcded",
+        "signature": "e880a08fbb0d9ee2f733f9183f4d1bdb75bc9e0e64060a8a1fc30540791fcded"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/vm.d.ts": {
+        "version": "f98df5ec124f441b465332271d0b083aeec815cd3c92d9249b9739e6318477a9",
+        "signature": "f98df5ec124f441b465332271d0b083aeec815cd3c92d9249b9739e6318477a9"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/worker_threads.d.ts": {
+        "version": "e761c833140e3ab6f9deab37fe034154f3eb15547dce61395d9b0b1f130f3fa3",
+        "signature": "e761c833140e3ab6f9deab37fe034154f3eb15547dce61395d9b0b1f130f3fa3"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/zlib.d.ts": {
+        "version": "58257a0147702ab415ed18164557a0feb9c5d1351792ea293a876e6b7ed0c559",
+        "signature": "58257a0147702ab415ed18164557a0feb9c5d1351792ea293a876e6b7ed0c559"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/base.d.ts": {
+        "version": "6622f76993bdfeaacb947ba7c4cf26f2e5c5194194d02d792c3cba4174cd8fce",
+        "signature": "6622f76993bdfeaacb947ba7c4cf26f2e5c5194194d02d792c3cba4174cd8fce"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts": {
+        "version": "4f54f0a9dd3b644c99ec32b32f8804d5978bc854799b228ae9c467bf3c84c64c",
+        "signature": "4f54f0a9dd3b644c99ec32b32f8804d5978bc854799b228ae9c467bf3c84c64c"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/globals.d.ts": {
+        "version": "ce6b191c382ee19f23678b8c364484627bcf424e8f408357a2f5530fb8d52a45",
+        "signature": "ce6b191c382ee19f23678b8c364484627bcf424e8f408357a2f5530fb8d52a45"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/index.d.ts": {
+        "version": "765fc34423b93c2ab763670d8d11d99e5f47387c13c161d6f1640dd6d91b7d1c",
+        "signature": "765fc34423b93c2ab763670d8d11d99e5f47387c13c161d6f1640dd6d91b7d1c"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/utils/processUtil.d.ts": {
+        "version": "0258a8842492e50aa4dcf965841f37cf8e8665d44e08e12a0f3c6d3d597b2c21",
+        "signature": "0258a8842492e50aa4dcf965841f37cf8e8665d44e08e12a0f3c6d3d597b2c21"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/clarityBin/index.d.ts": {
+        "version": "0180097a771761b3ddb0e325cba19bd0a7f55372a29f0a64efed7eae56abe922",
+        "signature": "0180097a771761b3ddb0e325cba19bd0a7f55372a29f0a64efed7eae56abe922"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/jsonRpc/index.d.ts": {
+        "version": "f34d4a1d5a8f400cbb47bda11888df76363ed36c62220cd98d7114e4b6904c50",
+        "signature": "f34d4a1d5a8f400cbb47bda11888df76363ed36c62220cd98d7114e4b6904c50"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/registry.d.ts": {
+        "version": "b02ab67af62df69e3856974b800e0b5959ad34dcb09348a68a0315474471ab45",
+        "signature": "b02ab67af62df69e3856974b800e0b5959ad34dcb09348a68a0315474471ab45"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/index.d.ts": {
+        "version": "c970963fd00cb2026c6c20b36a4d12c9985d9dc9107eb299350cbe4f8f5c35a7",
+        "signature": "c970963fd00cb2026c6c20b36a4d12c9985d9dc9107eb299350cbe4f8f5c35a7"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/index.d.ts": {
+        "version": "db5f87b098977860a6a4b42e7f4083206c862e99c6f6210ed5a8d3f9bfc5f91e",
+        "signature": "db5f87b098977860a6a4b42e7f4083206c862e99c6f6210ed5a8d3f9bfc5f91e"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/src/bns-client.ts": {
+        "version": "3b9336a32e0b9538a86df014d20164385d1d90a5988dbe9016dda306004f77aa",
+        "signature": "c7cdf5fcc9f7c5e8d590ba6dd7bcf7295448d2d23b560d11bfc474f59bc1987a"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/src/index.ts": {
+        "version": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "signature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/chai/index.d.ts": {
+        "version": "c465afa89ac28f74167a2ee7c3c6eb8dd1245c2b3bdaa4704d58d35b932de4b7",
+        "signature": "c465afa89ac28f74167a2ee7c3c6eb8dd1245c2b3bdaa4704d58d35b932de4b7"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/mocha/index.d.ts": {
+        "version": "c4c03cf65951d980ba618ae9601d10438730803fc9c8a1f7b34af8739981e205",
+        "signature": "c4c03cf65951d980ba618ae9601d10438730803fc9c8a1f7b34af8739981e205"
+      }
+    },
+    "options": {
+      "module": 1,
+      "target": 4,
+      "lib": [
+        "lib.es2017.d.ts",
+        "lib.esnext.bigint.d.ts"
+      ],
+      "allowSyntheticDefaultImports": true,
+      "esModuleInterop": true,
+      "strict": true,
+      "strictNullChecks": true,
+      "sourceMap": true,
+      "composite": true,
+      "declaration": true,
+      "outDir": "/Users/ludovic/Coding/blockstack-core/core-contracts/lib",
+      "rootDir": "/Users/ludovic/Coding/blockstack-core/core-contracts/src",
+      "configFilePath": "/Users/ludovic/Coding/blockstack-core/core-contracts/tsconfig.build.json"
+    },
+    "referencedMap": {
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es5.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2016.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.core.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.collection.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.generator.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.iterable.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.promise.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.proxy.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.reflect.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.symbol.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.symbol.wellknown.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2016.array.include.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.object.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.sharedmemory.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.string.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.intl.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.typedarrays.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.asynciterable.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.intl.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.promise.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.regexp.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.esnext.intl.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.esnext.bigint.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/client.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/transaction.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/query.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/contractInterface.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/result.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/types.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/contractInterface.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/result.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/client.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/transaction.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/query.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/types.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/result.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/globals.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/assert.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/async_hooks.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/buffer.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/child_process.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/cluster.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/child_process.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/console.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/constants.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/crypto.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dgram.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dns.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dns.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/domain.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/fs.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http2.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/fs.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tls.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/https.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tls.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/inspector.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/module.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dns.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/os.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/path.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/perf_hooks.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/async_hooks.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/process.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/punycode.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/querystring.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/readline.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/repl.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/readline.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/vm.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/string_decoder.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/timers.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tls.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/crypto.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dns.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/trace_events.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tty.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/querystring.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/v8.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/vm.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/worker_threads.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/zlib.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/base.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/globals.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/assert.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/async_hooks.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/buffer.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/child_process.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/cluster.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/console.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/constants.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/crypto.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dgram.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dns.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/domain.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/fs.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http2.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/https.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/inspector.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/module.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/os.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/path.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/perf_hooks.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/process.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/punycode.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/querystring.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/readline.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/repl.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/string_decoder.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/timers.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tls.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/trace_events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tty.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/v8.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/vm.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/worker_threads.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/zlib.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/globals.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/globals.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/base.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/globals.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/utils/processUtil.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/clarityBin/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/utils/processUtil.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/jsonRpc/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/registry.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/clarityBin/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/jsonRpc/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/registry.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/src/bns-client.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/src/index.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/chai/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/mocha/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ]
+    },
+    "exportedModulesMap": {
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es5.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2016.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.core.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.collection.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.generator.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.iterable.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.promise.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.proxy.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.reflect.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.symbol.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.symbol.wellknown.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2016.array.include.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.object.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.sharedmemory.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.string.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.intl.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.typedarrays.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.asynciterable.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.intl.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.promise.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.regexp.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.esnext.intl.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.esnext.bigint.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/registry.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/clarityBin/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/jsonRpc/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/registry.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/src/bns-client.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/index.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/jsonRpc/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/clarityBin/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/utils/processUtil.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/client.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/transaction.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/query.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/types.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/result.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/query.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/transaction.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/client.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/contractInterface.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/types.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/contractInterface.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/result.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/result.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/globals.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/assert.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/base.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/globals.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/assert.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/async_hooks.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/buffer.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/child_process.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/cluster.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/console.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/constants.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/crypto.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dgram.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dns.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/domain.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/fs.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http2.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/https.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/inspector.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/module.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/os.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/path.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/perf_hooks.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/process.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/punycode.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/querystring.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/readline.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/repl.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/string_decoder.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/timers.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tls.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/trace_events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tty.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/v8.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/vm.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/worker_threads.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/zlib.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/base.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/globals.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/utils/processUtil.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/async_hooks.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/perf_hooks.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/async_hooks.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/buffer.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/child_process.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/cluster.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/child_process.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/console.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/constants.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/crypto.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tls.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/crypto.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dns.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/https.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tls.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http2.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/fs.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tls.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dgram.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dns.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dns.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dns.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tty.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/domain.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/worker_threads.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/zlib.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/readline.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/repl.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/readline.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/vm.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/fs.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/inspector.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/module.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/os.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/path.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/process.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/punycode.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/querystring.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/querystring.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/string_decoder.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/timers.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/trace_events.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/mocha/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/chai/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/globals.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/globals.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/vm.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/v8.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ]
+    },
+    "semanticDiagnosticsPerFile": [
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es5.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2016.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.core.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.collection.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.generator.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.iterable.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.promise.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.proxy.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.reflect.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.symbol.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2015.symbol.wellknown.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2016.array.include.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.object.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.sharedmemory.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.string.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.intl.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2017.typedarrays.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.asynciterable.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.intl.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.promise.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.es2018.regexp.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.esnext.intl.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/typescript/lib/lib.esnext.bigint.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/provider.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/client.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/transaction.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/query.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/contractInterface.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/result.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/types.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/core/index.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/globals.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/assert.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/async_hooks.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/buffer.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/child_process.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/cluster.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/console.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/constants.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/crypto.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dgram.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/dns.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/domain.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/events.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/fs.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/http2.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/https.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/inspector.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/module.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/net.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/os.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/path.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/perf_hooks.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/process.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/punycode.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/querystring.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/readline.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/repl.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/string_decoder.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/timers.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tls.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/trace_events.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/tty.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/url.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/v8.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/vm.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/worker_threads.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/zlib.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/base.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/globals.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/index.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/utils/processUtil.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/clarityBin/index.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/jsonRpc/index.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/registry.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/index.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/index.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/src/bns-client.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/src/index.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/chai/index.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/mocha/index.d.ts"
+    ]
+  },
+  "version": "3.5.2"
+}
