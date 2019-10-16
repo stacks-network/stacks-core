@@ -113,37 +113,30 @@
 
 ;; todo(ludo): implement sponsored names, but need a back and forth with the team on the strategy:
 ;; are we splitting FQNs on-chain, or keep passing components (namespace/name/sponsored_name).
-;; (define-map sponsors
-;;   ((name (buff 20)) (namespace (buff 20)))
-;;   ((content (buff 40960))))
-
-(define-private (increment-len (byte (buff 1)) 
-                               (acc uint))
-  (if (not (eql? byte "0"))
-    (+ acc 1)
-    (acc)))
+(define-map sponsors
+  ((name (buff 20)) (namespace (buff 20)))
+  ((content (buff 40960))))
 
 (define-private (compute-namespace-price (namespace (buff 20)))
-  (let ((namespace-len (fold increment-len namespace 0)))
-    (asserts 
-      (> namespace-len 0)
-      (err err-namespace-blank))
+  (err err-not-implemented))
+;;  (let ((namespace-len (fold increment-len namespace 0)))
+;;    (asserts 
+;;     (> namespace-len 0)
+;;      (err err-namespace-blank))
     ;; todo(ludo): feature request?
-    (get-i namespace-len namespace-price-table)))
+;;    (get-i namespace-len namespace-price-table)))
 
-
-
-;; todo(ludo): to implement - dependency on our ability to loop on buffers
 (define-private (compute-name-price (name (buff 16))
                                     (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint))))
-  (let ((name-len (fold increment-len name 0)))
-    (asserts 
-      (> name-len 0)
-      (err err-name-blank))
+  (err err-not-implemented))
+;;   (let ((name-len (fold increment-len name 0)))
+;;    (asserts 
+;;      (> name-len 0)
+;;      (err err-name-blank))
     ;; todo(ludo): feature request?
     ;; Check for vowels discounts
     ;; Check for non-alpha-discounts
-    (get-i name-len buckets)))
+;;    (get-i name-len buckets)))
 
 ;; todo(ludo): to implement
 (define-private (has-name-expired (namespace (buff 20)) (name (buff 16)))
@@ -151,6 +144,10 @@
 
 ;; todo(ludo): to implement
 (define-private (is-name-in-grace-period (namespace (buff 20)) (name (buff 16)))
+  (err err-not-implemented))
+
+;; todo(ludo): to implement
+(define-private (buff-lowercased (namespace (buff 20)))
   (err err-not-implemented))
 
 ;;;; NAMESPACES
@@ -178,6 +175,9 @@
 ;; This second step reveals the salt and the namespace ID (pairing it with its NAMESPACE_PREORDER). It reveals how long
 ;; names last in this namespace before they expire or must be renewed, and it sets a price function for the namespace
 ;; that determines how cheap or expensive names its will be.
+;; Note (1): in the original implementation, the hash of the namespace is being salted so that 2 users preordering the same
+;; namespace wouldn't collide. In this implementation, the hashed-namespace is associated in a tuple, with the principal
+;; of the user.
 (define-public (namespace-reveal (namespace (buff 20))
                                  (namespace-version uint)
                                  (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint)))
@@ -188,14 +188,15 @@
   (let ((hashed-namespace (hash160 namespace))
         (preorder (expects!
           (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
-          (err err-namespace-preorder-not-found))))
+          (err err-namespace-preorder-not-found)))
+        (lowercased-namespace (buff-lowercased namespace)))
     ;; The namespace must not exist yet in the `namespaces` table
-    (expects-err! ;; todo(ludo): challenge this behavior / feature request
-      (map-get namespaces ((namespace namespace)))
+    (expects-err!
+      (map-get namespaces ((namespace lowercased-namespace)))
       (err err-namespace-already-exists))
     ;; The amount burnt must be equal to or greater than the cost of the namespace
     (asserts!
-      (> (get stx-burned preorder) (compute-namespace-price namespace))
+      (> (get stx-burned preorder) (compute-namespace-price lowercased-namespace))
       (err err-namespace-stx-burnt-insufficient))
     ;; todo(ludo): validate the price function inputs
     ;; This transaction must arrive within 24 hours of its `NAMESPACE_PREORDER`
@@ -207,9 +208,10 @@
       ((hashed-namespace hashed-namespace) (buyer tx-sender))
       ((created-at (preorder get created-at)) (claimed 'true) (preorder get stx-to-burn)))
     ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version,
-    ;; and its import principal will be written to the  `namespaces` table
+    ;; and its import principal will be written to the  `namespaces` table.
+    ;; Name should be lowercased.
     (map-set! namespaces
-      ((namespace namespace))
+      ((namespace lowercased-namespace))
       ((name-importer name-importer)
        (revealed-at block-height)
        (launched-at none)
@@ -237,7 +239,7 @@
       (err err-namespace-launchability-expired))
     ;; The sender principal must match the namespace's import principal
     (asserts!
-      (eql? (get name-importer namespace-props) tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+      (eq? (get name-importer namespace-props) tx-sender) ;; todo(ludo): tx-sender or contract-caller?
       (err err-namespace-operation-unauthorized))
     ;; Mint the new name
     (nft-mint! names ((namespace namespace) (name name)) tx-sender) ;; todo(ludo): tx-sender or contract-caller? nft-mint! or nft-mint? ?
@@ -271,7 +273,7 @@
       (err err-namespace-launchability-expired))
     ;; The sender principal must match the namespace's import principal
     (asserts!
-      (eql? (get name-importer namespace-props) tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+      (eq? (get name-importer namespace-props) tx-sender) ;; todo(ludo): tx-sender or contract-caller?
       (err err-namespace-operation-unauthorized))
     ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version, and its import principal will be written to the  `namespaces` table
     (map-set! namespaces
@@ -308,7 +310,7 @@
                               (name (buff 16))
                               (zonefile-content (buff 40960)))
   (let (
-        (hashed-fqn (hash160 (buffer-concat name "." namespace))) ;; todo(ludo): buffer-concat
+        (hashed-fqn (hash160 (concat (concat name ".") namespace)))
         (preorder (expects!
           (map-get name-preorders ((hashed-fqn hashed-fqn) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
           (err err-name-preorder-not-found)))
@@ -319,7 +321,7 @@
     (if (is-none? (nft-get-owner names ((name name) (namespace namespace))))
       (ok 'true)
       (asserts!
-        (eql? (has-name-expired name namespace) 'true)
+        (eq? (has-name-expired name namespace) 'true)
         (err err-name-unavailable)))
     ;; The name's namespace must be launched
     (asserts!
@@ -327,7 +329,7 @@
       (err err-namespace-not-launched))
     ;; The preorder entry must be unclaimed
     (asserts!
-      (eql? (get claimed preorder) 'false))
+      (eq? (get claimed preorder) 'false))
       (err err-name-already-claimed)
     ;; Less than 24 hours must have passed since the name was preordered
     (asserts!
@@ -339,7 +341,7 @@
       (err err-name-stx-burnt-insufficient))
     ;; The principal does not yet own a name
     (asserts!
-      (eql? (nft-get-balance names tx-sender) 0) ;; todo(ludo): feature request
+      (eq? (nft-get-balance names tx-sender) 0) ;; todo(ludo): feature request
       (err err-principal-already-associated))
     ;; Mint the new name
     (nft-mint! names ((namespace namespace) (name name)) tx-sender) ;; todo(ludo): tx-sender or contract-caller?
@@ -370,15 +372,15 @@
       (err err-name-not-found)))) ;; The name must exist
     ;; The sender must match the name's current owner
     (asserts!
-      (eql? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+      (eq? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
       (err err-name-operation-unauthorized))
     ;; The name must not be expired
     (asserts!
-      (eql? (has-name-expired name namespace) 'false) ;; todo(ludo): refactor has-name-expired signature?
+      (eq? (has-name-expired name namespace) 'false) ;; todo(ludo): refactor has-name-expired signature?
       (err err-name-expired))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eql? (is-name-in-grace-period name namespace) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
+      (eq? (is-name-in-grace-period name namespace) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
       (err err-name-grace-period))
     ;; The name must not be revoked
     (asserts!
@@ -406,15 +408,15 @@
       (err err-name-not-found)))) ;; The name must exist
     ;; The sender must match the name's current owner
     (asserts!
-      (eql? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+      (eq? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
       (err err-name-operation-unauthorized))
     ;; The name must not be expired
     (asserts!
-      (eql? (has-name-expired name namespace) 'false) ;; todo(ludo): refactor has-name-expired signature?
+      (eq? (has-name-expired name namespace) 'false) ;; todo(ludo): refactor has-name-expired signature?
       (err err-name-expired))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eql? (is-name-in-grace-period name namespace) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
+      (eq? (is-name-in-grace-period name namespace) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
       (err err-name-grace-period))
     ;; The name must not be revoked
     (asserts!
@@ -422,7 +424,7 @@
       (err err-name-revoked))
     ;; The new owner does not own a name
     (asserts!
-      (eql? (nft-get-balance names new-owner) 0) ;; todo(ludo): feature request
+      (eq? (nft-get-balance names new-owner) 0) ;; todo(ludo): feature request
       (err err-principal-already-associated))
     ;; Burn the tokens
     ;; todo(ludo): missing stx-to-burn
@@ -455,15 +457,15 @@
       (err err-name-not-found)))) ;; The name must exist
     ;; The sender must match the name's current owner
     (asserts!
-      (eql? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+      (eq? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
       (err err-name-operation-unauthorized))
     ;; The name must not be expired
     (asserts!
-      (eql? (has-name-expired name namespace) 'false) ;; todo(ludo): refactor has-name-expired signature?
+      (eq? (has-name-expired name namespace) 'false) ;; todo(ludo): refactor has-name-expired signature?
       (err err-name-expired))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eql? (is-name-in-grace-period name namespace) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
+      (eq? (is-name-in-grace-period name namespace) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
       (err err-name-grace-period))
     ;; The name must not be revoked
     (asserts!
@@ -493,15 +495,15 @@
       (err err-name-not-found)))) ;; The name must exist
     ;; The sender must match the name's current owner
     (asserts!
-      (eql? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+      (eq? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
       (err err-name-operation-unauthorized))
     ;; The name must not be expired
     (asserts!
-      (eql? (has-name-expired name namespace) 'false) ;; todo(ludo): refactor has-name-expired signature?
+      (eq? (has-name-expired name namespace) 'false) ;; todo(ludo): refactor has-name-expired signature?
       (err err-name-expired))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eql? (is-name-in-grace-period name namespace) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
+      (eq? (is-name-in-grace-period name namespace) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
       (err err-name-grace-period))
     ;; The amount burnt must be equal to or greater than the cost of the namespace
     (asserts!
@@ -517,7 +519,7 @@
       (begin
         ;; The new owner does not own a name
         (asserts!
-          (eql? (nft-get-balance names new-owner) 0) ;; todo(ludo): feature request
+          (eq? (nft-get-balance names new-owner) 0) ;; todo(ludo): feature request
           (err err-principal-already-associated))
         (expects!
           (nft-transfer names
@@ -556,5 +558,3 @@
 ;; SPONSORED_NAME_REVOKE
 (define-public sponsored-name-revoke
   (err err-not-implemented))
-
-

@@ -2,7 +2,7 @@ import { Client, Provider, Receipt, Result } from "@blockstack/clarity";
 
 export class BNSClient extends Client {
   constructor(provider: Provider) {
-    super("bns", "bns", provider);
+    super("S1G2081040G2081040G2081040G208105NK8PE5.bns", "bns", provider);
   }
 
   async preorderNamespace(hashedNamespace: string, params: { sender: string }): Promise<Receipt> {
