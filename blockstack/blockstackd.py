@@ -2473,7 +2473,7 @@ def genesis_block_load(working_dir, module_path=None, patch_db=False):
         log.debug('Load built-in genesis block')
         genesis_block = get_genesis_block()
         genesis_block_stages = get_genesis_block_stages()
-        genesis_block_patches = get_genesis_block_patches()
+        genesis_block_patches = get_all_genesis_block_patches()
 
     try:
         for stage in genesis_block_stages:
@@ -2499,7 +2499,7 @@ def genesis_block_load(working_dir, module_path=None, patch_db=False):
 
         log.debug("Genesis block has {} patches".format(len(genesis_block_patches)))
         for block_height in sorted(genesis_block_patches.keys()):
-            log.debug("Patch at {} has {} rows added, {} rows deleted", block_height, len(genesis_block_patches[block_height]['add']), len(genesis_block_patches[block_height]['del']))
+            log.debug("Patch at {} has {} rows added, {} rows deleted".format(block_height, len(genesis_block_patches[block_height]['add']), len(genesis_block_patches[block_height]['del'])))
 
     except Exception as e:
         traceback.print_exc()
@@ -3243,6 +3243,7 @@ def run_blockstackd():
             sys.exit(1)
 
     elif args.action == 'start':
+        '''
         # db state must be compatible
         db_path = virtualchain.get_db_filename(virtualchain_hooks, working_dir)
         if os.path.exists(db_path):
@@ -3250,7 +3251,7 @@ def run_blockstackd():
             if not semver_equal(ver, VERSION):
                 print >> sys.stderr, 'FATAL: this node is version {}, but the chainstate db is version {}.  Please upgrade your chainstate db by either using the `fast_sync` command or re-indexing the blockchain.'.format(VERSION, ver)
                 sys.exit(1)
-
+        '''
         expected_snapshots = {}
 
         pid = read_pid_file(get_pidfile_path(working_dir))
