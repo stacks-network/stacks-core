@@ -2013,6 +2013,30 @@ class BlockstackDB(virtualchain.StateEngine):
         return True
 
 
+    def commit_genesis_patch(self, block_height):
+        """
+        commit any patches to the genesis block allocations.
+        call before commit_account_vesting
+        """
+        if block_height in self.vesting:
+            traceback.print_stack()
+            log.fatal("Tried to merge genesis block data after committing vesting for block {}".format(block_height))
+            os.abort()
+
+        patch = get_genesis_block_patches(str(block_height))
+        if patch is not None:
+            # patch must correspond to a stage in the genesis block
+            assert 'add' in patch
+            assert 'del' in patch
+        
+            # save all state
+            log.debug("Commit all database state before vesting")
+            self.db.commit()
+
+            log.debug("Patch genesis block with {} new rows, {} row deletions".format(len(patch['add']), len(patch['del'])))
+            namedb_patch_genesis(self.db, block_height, patch['add'], patch['del'])
+
+
     def get_block_ops_hash( self, block_id ):
         """
         Get the block's operations hash
