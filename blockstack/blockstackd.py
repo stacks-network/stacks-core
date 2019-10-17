@@ -2443,6 +2443,7 @@ def genesis_block_load(working_dir, module_path=None, patch_db=False):
 
     genesis_block = None
     genesis_block_stages = None
+    genesis_block_patches = None
 
     if module_path:
         log.debug('Load genesis block from {}'.format(module_path))
@@ -2451,11 +2452,16 @@ def genesis_block_load(working_dir, module_path=None, patch_db=False):
             genesis_block_mod = imp.load_source('genesis_block', genesis_block_path)
             genesis_block = genesis_block_mod.GENESIS_BLOCK
             genesis_block_stages = genesis_block_mod.GENESIS_BLOCK_STAGES
+            genesis_block_patches = genesis_block_mod.GENESIS_BLOCK_PATCHES
 
             if BLOCKSTACK_TEST:
                 print ''
                 print 'genesis block'
                 print json.dumps(genesis_block, indent=4, sort_keys=True)
+                print ''
+                print ''
+                print 'genesis block patches'
+                print json.dumps(genesis_block_patches, indent=4, sort_keys=True)
                 print ''
 
         except Exception as e:
@@ -2467,14 +2473,17 @@ def genesis_block_load(working_dir, module_path=None, patch_db=False):
         log.debug('Load built-in genesis block')
         genesis_block = get_genesis_block()
         genesis_block_stages = get_genesis_block_stages()
+        genesis_block_patches = get_genesis_block_patches()
 
     try:
         for stage in genesis_block_stages:
             jsonschema.validate(GENESIS_BLOCK_SCHEMA, stage)
 
         jsonschema.validate(GENESIS_BLOCK_SCHEMA, genesis_block)
+        jsonschema.validate(GENESIS_BLOCK_PATCHES_SCHEMA, genesis_block_patches)
 
         if patch_db:
+            # overwrite genesis data with new data (used for testing)
             db_path = virtualchain.get_db_filename(virtualchain_hooks, working_dir)
             if os.path.exists(db_path):
                 log.info("Replacing built-in genesis block...")
@@ -2482,10 +2491,15 @@ def genesis_block_load(working_dir, module_path=None, patch_db=False):
         
         set_genesis_block(genesis_block)
         set_genesis_block_stages(genesis_block_stages)
+        set_genesis_block_patches(genesis_block_patches)
 
         log.debug('Genesis block has {} stages'.format(len(genesis_block_stages)))
         for i, stage in enumerate(genesis_block_stages):
             log.debug('Stage {} has {} row(s)'.format(i+1, len(stage['rows'])))
+
+        log.debug("Genesis block has {} patches".format(len(genesis_block_patches)))
+        for block_height in sorted(genesis_block_patches.keys()):
+            log.debug("Patch at {} has {} rows added, {} rows deleted", block_height, len(genesis_block_patches[block_height]['add']), len(genesis_block_patches[block_height]['del']))
 
     except Exception as e:
         traceback.print_exc()
