@@ -747,3 +747,34 @@ GENESIS_BLOCK_SCHEMA = {
     ],
 }
 
+GENESIS_BLOCK_PATCH_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'db_version': {
+            'type': 'string',
+        },
+        'add': {
+            'type': 'array',
+            'items': GENESIS_BLOCK_ROW_SCHEMA,
+        },
+        'del': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': OP_GENESIS_ADDRESS_PATTERN
+            }
+        }
+    },
+    'required': [
+        'db_version',
+        'add',
+        'del',
+    ],
+}
+
+GENESIS_BLOCK_PATCHES_SCHEMA = {
+    'type': 'object',
+    'patternProperties': {
+        '^([0-9]+)$': GENESIS_BLOCK_PATCH_SCHEMA
+    }
+}
