@@ -479,6 +479,14 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
         blockstack_opts = get_blockstack_opts()
         new_zonefile_infos = None
 
+        # apply any pending deltas to the genesis block (in-situ upgrades to grant tokens)
+        try:
+            db_state.commit_genesis_patch(block_height+1)
+        except Exception as e:
+            log.exception(e)
+            log.fatal("Failed to apply genesis patch at {}+1".format(block_height))
+            os.abort()
+
         # vest any tokens for the next block (so they'll be immediately usable in the next block)
         try:
             db_state.commit_account_vesting(block_height+1)
