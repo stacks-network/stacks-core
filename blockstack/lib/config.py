@@ -253,12 +253,15 @@ GENESIS_BLOCK = None
 GENESIS_BLOCK_STAGES = None
 GENESIS_BLOCK_INSTANTIATED = False
 GENESIS_BLOCK_STAGES_INSTANTIATED = False
+GENESIS_BLOCK_PATCHES = None
+GENESIS_BLOCK_PATCHES_INSTANTIATED = False
 
 try:
     # use built-in one 
     import genesis_block
     GENESIS_BLOCK = genesis_block.GENESIS_BLOCK
     GENESIS_BLOCK_STAGES = genesis_block.GENESIS_BLOCK_STAGES
+    GENESIS_BLOCK_PATCHES = genesis_block.GENESIS_BLOCK_PATCHES
 except:
     if not BLOCKSTACK_TEST:
         print >> sys.stderr, 'FATAL: no genesis block defined'
@@ -272,6 +275,9 @@ def get_genesis_block():
 
 def get_genesis_block_stages():
     return GENESIS_BLOCK_STAGES
+
+def get_genesis_block_patches(block_height):
+    return GENESIS_BLOCK_PATCHES.get(block_height, None)
 
 def set_genesis_block(new_genesis_block):
     global GENESIS_BLOCK, GENESIS_BLOCK_INSTANTIATED
@@ -288,6 +294,14 @@ def set_genesis_block_stages(new_genesis_block_stages):
 
     GENESIS_BLOCK_STAGES = new_genesis_block_stages
     GENESIS_BLOCK_STAGES_INSTANTIATED = True
+
+def set_genesis_block_patches(new_patches):
+    global GENESIS_BLOCK_PATCHES, GENESIS_BLOCK_PATCHES_INSTANTIATED
+    if GENESIS_BLOCK_PATCHES_INSTANTIATED:
+        assert BLOCKSTACK_TEST, 'Cannot set genesis block patches in production mode'
+
+    GENESIS_BLOCK_PATCHES = new_patches
+    GENESIS_BLOCK_PATCHES_INSTANTIATED = True
 
 def is_genesis_block_instantiated():
     return GENESIS_BLOCK_INSTANTIATED
