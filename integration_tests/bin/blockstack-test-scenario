@@ -1887,6 +1887,7 @@ if __name__ == "__main__":
         f.write('import json\n')
         f.write('false = False\n')
         f.write('true = True\n')
+        f.write('GENESIS_BLOCK_PATCHES = {}\n')
         f.write('GENESIS_BLOCK_STAGES = [{}]\n'.format(json.dumps(genesis_block_data)))
         f.write('GENESIS_BLOCK = GENESIS_BLOCK_STAGES[-1]')
 
