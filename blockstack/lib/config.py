@@ -276,6 +276,9 @@ def get_genesis_block():
 def get_genesis_block_stages():
     return GENESIS_BLOCK_STAGES
 
+def get_all_genesis_block_patches():
+    return GENESIS_BLOCK_PATCHES
+
 def get_genesis_block_patches(block_height):
     return GENESIS_BLOCK_PATCHES.get(block_height, None)
 
