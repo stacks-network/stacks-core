@@ -256,6 +256,15 @@ def namedb_genesis_txid(address, metadata):
     return virtualchain.lib.hashing.bin_double_sha256(preimage).encode('hex')
 
 
+def namedb_genesis_patch_txid(address, metadata):
+    """
+    Make a "fake" txid for a genesis patch entry.
+    Returns a 32-byte hash (double-sha256), hex-encoded
+    """
+    preimage = '{} patch {}'.format(address, metadata)
+    return virtualchain.lib.hashing.bin_double_sha256(preimage).encode('hex')
+
+
 def namedb_vesting_txid(address, token_type, token_amount, block_height):
     """
     Make a "fake" txid for a vesting transaction.
@@ -484,6 +493,488 @@ def namedb_replace_genesis(path, genesis_block):
     return con
 
 
+def namedb_get_account_vesting(cur, address, token_type):
+    """
+    Get the history of an account's tokens.
+    Returns a dict keyed by str(block height)
+    """
+    sql = 'SELECT * FROM account_vesting WHERE address = ? AND type = ? ORDER BY block_id DESC;'
+    args = (address,token_type)
+
+    rows = namedb_query_execute(cur, sql, args)
+    
+    vesting_rows = {}
+    tmp = {}
+    for rowdata in rows:
+        tmp = {}
+        tmp.update(rowdata)
+        assert str(tmp['block_id']) not in vesting_rows.keys()
+        vesting_rows[str(tmp['block_id'])] = int(tmp['vesting_value'])
+
+    return vesting_rows
+
+
+def namedb_get_token_history_at(con, address, token_type, tail_block_height):
+    """
+    Get the history of transactions on a particular token
+    """
+    account_history = namedb_get_account_history_at(con, address, tail_block_height)
+    account_history_by_type = []
+    for row in account_history:
+        if row['type'] == token_type:
+            account_history_by_type.append(row)
+
+    return account_history_by_type
+
+
+def namedb_account_info_normalize(account_info):
+    # check required fields 
+    for f in ['address', 'type', 'value']:
+        assert f in account_info, 'BUG: missing {} in {}'.format(f, account_info)
+
+    metadata = None
+    address = None
+    receive_whitelisted = True
+
+    try:
+        address = account_info['address']
+        if is_c32_address(address):
+            address = address_as_b58(address)
+
+        address = virtualchain.address_reencode(address)
+    except ValueError:
+        assert account_info.get('receive_whitelisted') == False, 'Unspendable address "{}" must be explicitly marked as not receive-whitelisted'.format(account_info['address'])
+
+        log.warning('Using unspendable address "{}"'.format(account_info['address']))
+        address = account_info['address']
+        receive_whitelisted = False
+
+    if 'metadata' in account_info and account_info['metadata'] is not None:
+        metadata = account_info['metadata']
+
+    else:
+        metadata = ''
+
+    return (address, metadata, receive_whitelisted)
+
+
+def namedb_cumulative_vesting_at(vesting, block_height):
+    """
+    find the sum of all tokens unlocked up to (but excluding) this block height
+    """
+    total = 0
+    for ks in sorted(vesting.keys()):
+        if int(ks) > block_height:
+            break
+
+        total += vesting[ks]
+
+    return total
+
+
+def namedb_expand_account_history(account_history, account_info, all_vesting, lock_send, merge_block_height):
+    """
+    Given the token-specific account history, new account info, and combined unlock table,
+    expand the history to include the token unlock mock-transactions that would have occurred.
+    """
+    address, metadata, receive_whitelisted = namedb_account_info_normalize(account_info)
+    all_unlock_block_strs = list(all_vesting.keys())
+    all_unlock_block_strs.sort()
+
+    history_by_block = {}
+    for hist in account_history:
+        if hist['block_id'] not in history_by_block:
+            history_by_block[hist['block_id']] = [hist]
+        else:
+            history_by_block[hist['block_id']].append(hist)
+
+    history_blocks = history_by_block.keys()
+    history_blocks.sort()
+
+    for unlock_block_str in all_unlock_block_strs:
+        unlock_block = int(unlock_block_str)
+        if unlock_block >= merge_block_height:
+            break
+
+        # is there an unlock for this block in the history already?
+        have_unlock = True
+        if unlock_block not in history_by_block:
+            have_unlock = False
+        else:
+            found = False
+            for hist in history_by_block[unlock_block]:
+                if hist['vtxindex'] == 0:
+                    found = True
+                    break
+
+            if not found:
+                have_unlock = False
+
+        if not have_unlock:
+            # this is an unaccounted-for unlock event
+            log.debug("Add retroactive history for {} that unlocks {} tokens at {}".format(address, all_vesting[unlock_block], unlock_block))
+
+            # what was the last state of the account?
+            greatest_prior_block = -1
+            for next_prior_block in reversed(history_blocks):
+                if next_prior_block < unlock_block:
+                    greatest_prior_block = next_prior_block
+                    break
+
+            last_credit_value = 0
+            last_debit_value = 0
+            if greatest_prior_block > 0:
+                last_credit_value = history_by_block[greatest_prior_block][-1]['credit_value']
+                last_debit_value = history_by_block[greatest_prior_block][-1]['debit_value']
+
+            if unlock_block not in history_by_block:
+                history_by_block[unlock_block] = []
+
+            # add a history entry at this block at vtxindex 0.
+            # the credit_value will change by 0 here, since we'll later add the additionally-unlocked tokens to it.
+            # The txid will be regenerated as well
+            history_by_block[unlock_block].insert(0, {
+                'address': address,
+                'type': account_info['type'],
+                'credit_value': last_credit_value,      # no value change here -- this entry is just a place-holder
+                'debit_value': last_debit_value,
+                'lock_transfer_block_id': lock_send,
+                'metadata': metadata,
+                'block_id': unlock_block,
+                'txid': 'new',  # will be regenerated, but identifies this as a new history entry
+                'vtxindex': 0
+            })
+
+    # add new initial value, if not present already
+    if FIRST_BLOCK_MAINNET not in history_by_block.keys():
+        history_by_block[FIRST_BLOCK_MAINNET] = [{
+            'address': address,
+            'type': account_info['type'],
+            'credit_value': 0,
+            'debit_value': 0,
+            'lock_transfer_block_id': lock_send,
+            'metadata': metadata,
+            'block_id': FIRST_BLOCK_MAINNET,
+            'txid': 'new',  # will be regenerated, but identifies this as a new history entry
+            'vtxindex': 0
+        }]
+
+    # recombine
+    ret = []
+
+    for block_height in sorted(history_by_block.keys()):
+        for hist in history_by_block[block_height]:
+            ret.append(hist)
+
+    ret.sort(key=lambda hist: (hist['block_id'],hist['vtxindex']))
+    return ret
+
+
+def namedb_merge_account_at(con, account_info, merge_block_height):
+    """
+    5 passes:
+    0. patch the vesting table
+    1. add new history rows for each additional unlock event
+    2. add the 'value' field to all existing account records
+    3. add the sum over the unlock field to all existing account records
+    4. store everything
+    """
+    address, metadata, receive_whitelisted = namedb_account_info_normalize(account_info)
+
+    lock_send = account_info.get('lock_send', 0)
+    assert lock_send >= 0, 'Invalid lock_send: {}'.format(lock_send)
+ 
+    # all points in time where this account was updated
+    account_history_stx = namedb_get_token_history_at(con, address, 'STACKS', merge_block_height)
+
+    # put in ascending order by block height and vtxindex
+    account_history_stx.sort(key=lambda hist: (hist['block_id'], hist['vtxindex']))
+    
+    # find new lock_send
+    for hist in account_history_stx:
+        lock_send = max(lock_send, hist['lock_transfer_block_id'])
+
+    # get merged vesting schedule
+    cur_vesting = namedb_get_account_vesting(con, address, 'STACKS')
+    new_vesting = account_info['vesting']
+    all_unlock_block_strs = list(set(cur_vesting.keys() + new_vesting.keys()))
+    all_unlock_block_strs.sort()
+    all_vesting = {}
+    for k in all_unlock_block_strs:
+        cur_toks = cur_vesting.get(k, 0)
+        new_toks = new_vesting.get(k, 0)
+
+        all_vesting[int(k)] = cur_toks + new_toks
+        log.debug("Will set unlock {} = {} + {} for {} at block {}".format(all_vesting[int(k)], cur_toks, new_toks, address, int(k)))
+
+    # pass 1: expand account history to include all new unlock events that have occured, as if they unlocked 0 tokens.
+    account_history_stx = namedb_expand_account_history(account_history_stx, account_info, all_vesting, lock_send, merge_block_height)
+    
+    # pass 2: add new_value to all expanded history records
+    new_value = account_info['value']
+    for i in range(0, len(account_history_stx)):
+        log.debug("Retroactively add value {} to {} at {},{}".format(new_value, address, account_history_stx[i]['block_id'], account_history_stx[i]['vtxindex']))
+        account_history_stx[i]['credit_value'] += new_value
+
+    # pass 3: at each point in time, add the sum of all new prior unlocks
+    for i in range(0, len(account_history_stx)):
+        additional_unlocked_so_far = namedb_cumulative_vesting_at(account_info['vesting'], account_history_stx[i]['block_id'])
+        log.debug("Retroactively unlock {} to {} at {},{}".format(additional_unlocked_so_far, address, account_history_stx[i]['block_id'], account_history_stx[i]['vtxindex']))
+
+        account_history_stx[i]['credit_value'] += additional_unlocked_so_far
+
+    # pass 4: regenerate vesting txids
+    for i in range(0, len(account_history_stx)):
+        if account_history_stx[i]['vtxindex'] == 0:
+            account_history_stx[i]['txid'] = namedb_vesting_txid(address, account_info['type'], account_history_stx[i]['credit_value'], account_history_stx[i]['block_id'])
+
+    # pass 5: store everything
+    for hist in account_history_stx:
+        existing = namedb_get_account_tokens_at(con, address, account_info['type'], hist['block_id'], hist['vtxindex'])
+        if existing is not None:
+            sql = 'UPDATE accounts SET credit_value = ?, lock_transfer_block_id = ?, receive_whitelisted = ?, metadata = ? WHERE block_id = ? AND vtxindex = ? AND address = ? and type = ?'
+            args = (hist['credit_value'], lock_send, receive_whitelisted, metadata, hist['block_id'], hist['vtxindex'], address, account_info['type'])
+        else:
+            sql = 'INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?);'
+            args = (address, 'STACKS', hist['credit_value'], hist['debit_value'], lock_send, receive_whitelisted, metadata, hist['block_id'], hist['txid'], hist['vtxindex'])
+
+        log.debug(namedb_format_query(sql, args))
+        namedb_query_execute(con, sql, args)
+
+    # store updated vesting
+    for k in sorted(all_vesting.keys()):
+        sql = 'INSERT OR REPLACE INTO account_vesting VALUES (?,?,?,?);'
+        args = (address, account_info['type'], '{}'.format(all_vesting[k]), int(k))
+        
+        log.debug(namedb_format_query(sql, args))
+        namedb_query_execute(con, sql, args)
+
+
+def namedb_remove_account(con, account_address):
+    """
+    Remove an account's data.  Only applicable to unspendable accounts.
+    """
+    try:
+        address = account_address
+        if is_c32_address(address):
+            address = address_as_b58(address)
+
+        address = virtualchain.address_reencode(address)
+
+        # if we get here, then we tried to remove a legitimate account
+        raise Exception("Tried to remove legitimate account '{}'".format(address))
+
+    except ValueError:
+        # happens if the address is invalid, which is what we want
+        pass
+
+    sql = "DELETE FROM accounts WHERE address = ?"
+    args = (address,)
+    log.debug(namedb_format_query(sql, args))
+    namedb_query_execute(con, sql, args)
+
+    sql = "DELETE FROM account_vesting WHERE address = ?"
+    args = (address,)
+    log.debug(namedb_format_query(sql, args))
+    namedb_query_execute(con, sql, args)
+
+
+def namedb_get_all_premerge_accounts(con, token_type, merge_block_height):
+    """
+    Get all account data up to a given block height, i.e. for verifying a genesis block patch
+    """
+    sql = "SELECT DISTINCT address FROM accounts"
+    args = ()
+    addrs = []
+    rows = namedb_query_execute(con, sql, args)
+    for row in rows:
+        addrs.append(row['address'])
+
+    accounts = []
+    for addr in addrs:
+        vesting = namedb_get_account_vesting(con, addr, token_type)
+        history = namedb_get_token_history_at(con, addr, token_type, merge_block_height)
+        if len(history) == 0:
+            continue
+
+        # put in ascending order by block height and vtxindex
+        history.sort(key=lambda hist: (hist['block_id'], hist['vtxindex']))
+
+        accounts.append({'address': addr, 'vesting': vesting, 'history': history})
+
+    return accounts
+
+
+def namedb_patch_verify(con, token_type, merge_block_height, premerge_account_rows, genesis_add, genesis_del, new_initial_account_balances):
+    """
+    Verify that the accounts and account vesting are consistent with the genesis block history given here.
+    """
+    premerge_accounts = {}
+    genesis_add_accounts = {}
+    genesis_del_accounts = {}
+    new_accounts = {}
+
+    for row in premerge_account_rows:
+        assert 'history' in row
+        assert 'vesting' in row
+        assert row['address'] not in premerge_accounts.keys(), 'Duplicate address {}'.format(row['address'])
+        premerge_accounts[row['address']] = row
+
+    for row in genesis_add:
+        address, metadata, receive_whitelisted = namedb_account_info_normalize(row)
+        genesis_add_accounts[address] = row
+
+    for row in genesis_del:
+        address = row
+        try:
+            if is_c32_address(address):
+                address = address_as_b58(address)
+
+            address = virtualchain.address_reencode(address)
+
+            # if we get here, then we tried to remove a legitimate account
+            raise Exception("Tried to remove legitimate account '{}'".format(address))
+
+        except ValueError:
+            # happens if the address is invalid, which is what we want
+            pass
+
+        genesis_del_accounts[address] = row
+
+    for account_info in new_initial_account_balances:
+        address, metadata, receive_whitelisted = namedb_account_info_normalize(account_info)
+        new_accounts[address] = account_info
+
+    for address in premerge_accounts.keys():
+        if address not in new_accounts:
+            # either absent, or completely unaffected by the patch
+            log.debug("Verify that '{}' is either unaffected or deleted".format(address))
+
+            new_account_history = namedb_get_token_history_at(con, address, token_type, merge_block_height)
+            new_vesting = namedb_get_account_vesting(con, address, token_type)
+
+            if len(new_vesting) > 0 or len(new_account_history) > 0:
+                assert address not in genesis_del_accounts
+            else:
+                assert address in genesis_del_accounts
+            continue
+
+        if address not in genesis_add_accounts:
+            log.debug("Verify that '{}' was NOT affected".format(address))
+            genesis_add_accounts[address] = {
+                'value': 0,
+                'vesting': {},
+            }
+
+        log.debug("Verify pre-merge and post-merge allocations for existing address '{}'".format(address))
+
+        premerge_account_history = premerge_accounts[address]['history']
+        premerge_account_vesting = premerge_accounts[address]['vesting']
+
+        # there must be entries for this account
+        assert len(premerge_account_history) > 0
+
+        # verify that the values from the beginning of time up until now differ by value + cumulative vesting
+        new_account_history = namedb_get_token_history_at(con, address, token_type, merge_block_height)
+        new_vesting = namedb_get_account_vesting(con, address, token_type)
+
+        new_account_history.sort(key=lambda h: (h['block_id'],h['vtxindex']))
+
+        # index history by block
+        new_history_by_block = {}
+        for hist in new_account_history:
+            if hist['block_id'] not in new_history_by_block:
+                new_history_by_block[hist['block_id']] = [hist]
+            else:
+                new_history_by_block[hist['block_id']].append(hist)
+
+        # verify that at each pre-merge history point, the value increased by the newly-granted value and the cumulative vesting
+        for premerge_hist in premerge_account_history:
+            old_value = premerge_hist['credit_value']
+            value_added = genesis_add_accounts[address]['value']
+            new_unlocked_so_far = namedb_cumulative_vesting_at(genesis_add_accounts[address]['vesting'], premerge_hist['block_id'])
+            new_history_item = None
+            for new_hist in new_history_by_block[premerge_hist['block_id']]:
+                if new_hist['vtxindex'] == premerge_hist['vtxindex']:
+                    new_history_item = new_hist
+                    break
+
+            if new_history_item is not None:
+                assert int(old_value) + int(value_added) + int(new_unlocked_so_far) == int(new_history_item['credit_value']), 'at {}: {} + {} + {} != {}\n{}'.format(
+                        premerge_hist['block_id'], old_value, value_added, new_unlocked_so_far, new_history_item['credit_value'], json.dumps(new_history_by_block, indent=4, sort_keys=True))
+
+        # verify that the new vesting is the sum of the old vesting and the added vesting
+        assert sum(new_vesting.values()) == new_accounts[address]['vesting_total'], 'sum({}) != {}'.format(new_vesting, new_accounts[address]['vesting_total'])
+
+        premerge_vesting_plus_new_vesting = {}
+        for block_str in new_accounts[address]['vesting']:
+            if block_str not in premerge_account_vesting:
+                # was new in the patch
+                premerge_vesting_plus_new_vesting[block_str] = genesis_add_accounts[address]['vesting'].get(block_str, 0)
+            else:
+                # was present before 
+                premerge_vesting_plus_new_vesting[block_str] = premerge_account_vesting[block_str] + genesis_add_accounts[address]['vesting'].get(block_str, 0)
+
+        assert premerge_vesting_plus_new_vesting == new_accounts[address]['vesting'], '{} != {}'.format(json.dumps(premerge_vesting_plus_new_vesting, sort_keys=True), json.dumps(new_accounts[address]['vesting'], sort_keys=True))
+
+    for address in new_accounts.keys():
+        if address in premerge_accounts:
+            continue
+
+        assert address in genesis_add_accounts, '"{}" is in the new genesis block but not the genesis "add" delta'
+
+        log.debug("Verify post-merge allocations for new address '{}'".format(address))
+        new_account_history = namedb_get_token_history_at(con, address, token_type, merge_block_height)
+        new_vesting = namedb_get_account_vesting(con, address, token_type)
+        
+        # put in order by blockchain order 
+        new_account_history.sort(key=lambda h: (h['block_id'],h['vtxindex']))
+
+        # each history item corresponds to a retroactive vesting, or it's the first token grant
+        assert new_account_history[0]['block_id'] == FIRST_BLOCK_MAINNET, 'first block for "{}" is {}'.format(address, new_account_history[0]['block_id'])
+        assert new_account_history[0]['vtxindex'] == 0
+        assert new_account_history[0]['credit_value'] == genesis_add_accounts[address]['value']
+
+        for new_hist in new_account_history[1:]:
+            new_unlocked_so_far = namedb_cumulative_vesting_at(genesis_add_accounts[address]['vesting'], new_hist['block_id'])
+            assert new_hist['vtxindex'] == 0
+            assert new_hist['credit_value'] == genesis_add_accounts[address]['value'] + new_unlocked_so_far
+
+
+def namedb_patch_genesis(con, merge_block_height, genesis_block_add, genesis_block_delete):
+    """
+    Merge the given rows into the genesis block at a particular block height
+    """
+    # sanity check -- cannot add and remove the same account
+    addr_add = {}
+    addr_del = {}
+    for row in genesis_block_add:
+        addr_add[row['address']] = row
+
+    for addr in genesis_block_delete:
+        addr_del[addr] = addr
+
+    for addr in addr_add.keys():
+        if addr in addr_del.keys():
+            raise Exception("Tried to add and delete '{}'".format(addr))
+
+    # do the merge
+    namedb_query_execute(con, "BEGIN", ())
+    for account_info in genesis_block_add:
+        namedb_merge_account_at(con, account_info, merge_block_height)
+
+    for account_address in genesis_block_delete:
+        namedb_remove_account(con, account_address)
+
+    # update genesis history 
+    genesis_hash = namedb_genesis_block_history_hash({'add': genesis_block_add, 'del': genesis_block_delete})
+    sql = 'INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?);'
+    args = (BLOCKSTACK_BURN_ADDRESS, 'PATCH', '0', '0', True, False, genesis_hash, merge_block_height, genesis_hash, 0)
+    namedb_query_execute(con, sql, args)
+
+    namedb_query_execute(con, "END", ())
+
+
 def namedb_open( path ):
     """
     Open a connection to our database
@@ -492,11 +983,12 @@ def namedb_open( path ):
     db_query_execute(con, 'pragma mmap_size=536870912', ())
     con.row_factory = namedb_row_factory
 
+    '''
     version = namedb_get_version(con)
     if not semver_equal(version, VERSION):
         # wrong version
         raise Exception('Database has version {}, but this node is version {}.  Please update your node database (such as with fast_sync).'.format(version, VERSION))
-
+    '''
     return con
 
 
@@ -1575,7 +2067,7 @@ def namedb_account_credit(cur, account_addr, token_type, amount, block_id, vtxin
         os.abort()
 
     new_balance = new_credit_value - new_debit_value
-    log.debug("Account balance of '{}' tokens for {} is now {}".format(token_type, account_addr, new_balance))
+    log.debug("Account balance of '{}' tokens for {} is now {} at {},{}".format(token_type, account_addr, new_balance, block_id, vtxindex))
 
     res = namedb_account_transaction_save(cur, account_addr, token_type, new_credit_value, new_debit_value, block_id, vtxindex, txid, account)
     if not res:
@@ -1826,6 +2318,60 @@ def namedb_get_account(cur, address, token_type):
     return ret
 
 
+def namedb_get_account_at(cur, address, block_number):
+    """
+    Get the state(s) that a given account was in at a given block height
+    Normally this is one state if nothing happened in this block.
+    Otherwise, this is one or more states.
+
+    Returns an array of states
+    """
+    query = 'SELECT * FROM accounts WHERE address = ? AND block_id = ? ORDER BY block_id DESC, vtxindex DESC'
+    args = (address, block_number)
+    history_rows = namedb_query_execute(cur, query, args)
+    ret = []
+
+    for row in history_rows:
+        tmp = {}
+        tmp.update(row)
+        ret.append(tmp)
+
+    if len(ret) > 0:
+        # account changed in this block
+        return ret
+    
+    # if the account did not change in this block, then find the latest version of this account at this block
+    query = 'SELECT * from accounts WHERE address = ? AND block_id < ? ORDER BY block_id DESC,vtxindex DESC LIMIT 1'
+    args = (address, block_number)
+    history_rows = namedb_query_execute(cur, query, args)
+
+    for row in history_rows:
+        tmp = {}
+        tmp.update(row)
+        ret.append(tmp)
+
+    return ret
+
+
+def namedb_get_account_tokens_at(cur, address, token_type, block_height, vtxindex):
+    """
+    Get an account in time, given the address at a time.
+    Returns the account row on success
+    Returns None if not found
+    """
+    sql = 'SELECT * FROM accounts WHERE address = ? AND type = ? AND block_id = ? AND vtxindex = ? ORDER BY block_id DESC, vtxindex DESC LIMIT 1;'
+    args = (address,token_type,block_height,vtxindex)
+
+    rows = namedb_query_execute(cur, sql, args)
+    row = rows.fetchone()
+    if row is None:
+        return None
+
+    ret = {}
+    ret.update(row)
+    return ret
+
+
 def namedb_get_account_delta(cur, address, token_type, block_id, vtxindex):
     """
     Get the account state for a token type at the given (block_id,vtxindex), plus the account state for
@@ -1896,12 +2442,38 @@ def namedb_get_account_history(cur, address, offset=None, count=None):
     return ret
 
 
+def namedb_get_account_history_at(cur, address, tail_block_height, offset=None, count=None):
+    """
+    Get the history of an account's tokens up to (but excluding) the given block height
+    """
+    sql = 'SELECT * FROM accounts WHERE address = ? AND block_id <= ? ORDER BY block_id DESC, vtxindex DESC'
+    args = (address,tail_block_height)
+
+    if count is not None:
+        sql += ' LIMIT ?'
+        args += (count,)
+
+    if offset is not None:
+        sql += ' OFFSET ?'
+        args += (offset,)
+
+    sql += ';'
+    rows = namedb_query_execute(cur, sql, args)
+
+    ret = []
+    for rowdata in rows:
+        tmp = {}
+        tmp.update(rowdata)
+        ret.append(tmp)
+
+    return ret
+
+
 def namedb_get_all_account_addresses(cur):
     """
     TESTING ONLY
     get all account addresses
     """
-    assert BLOCKSTACK_TEST, 'BUG: this method is only available in test mode'
     sql = 'SELECT DISTINCT address FROM accounts;'
     args = ()
     rows = namedb_query_execute(cur, sql, args)
@@ -2159,41 +2731,6 @@ def namedb_get_record_states_at(cur, history_id, block_number):
     for row in history_rows:
         history_data = simplejson.loads(row['history_data'])
         ret.append(history_data)
-
-    return ret
-
-
-def namedb_get_account_at(cur, address, block_number):
-    """
-    Get the state(s) that a given account was in at a given block height
-    Normally this is one state if nothing happened in this block.
-    Otherwise, this is one or more states.
-
-    Returns an array of states
-    """
-    query = 'SELECT * FROM accounts WHERE address = ? AND block_id = ? ORDER BY block_id DESC, vtxindex DESC'
-    args = (address, block_number)
-    history_rows = namedb_query_execute(cur, query, args)
-    ret = []
-
-    for row in history_rows:
-        tmp = {}
-        tmp.update(row)
-        ret.append(tmp)
-
-    if len(ret) > 0:
-        # account changed in this block
-        return ret
-    
-    # if the account did not change in this block, then find the latest version of this account at this block
-    query = 'SELECT * from accounts WHERE address = ? AND block_id < ? ORDER BY block_id DESC,vtxindex DESC LIMIT 1'
-    args = (address, block_number)
-    history_rows = namedb_query_execute(cur, query, args)
-
-    for row in history_rows:
-        tmp = {}
-        tmp.update(row)
-        ret.append(tmp)
 
     return ret
     
