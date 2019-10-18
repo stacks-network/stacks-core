@@ -28,7 +28,11 @@
   ],
   "dependencies": {
     "@blockstack/clarity": "^0.1.9-alpha.0",
-    "@blockstack/clarity-native-bin": "^0.1.9-alpha.0"
+    "@blockstack/clarity-native-bin": "^0.1.9-alpha.0",
+    "@types/ripemd160": "^2.0.0",
+    "@types/sha.js": "^2.4.0",
+    "ripemd160": "^2.0.2",
+    "sha.js": "^2.4.11"
   },
   "devDependencies": {
     "@types/chai": "^4.1.7",
