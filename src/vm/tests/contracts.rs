@@ -91,8 +91,6 @@ fn test_get_block_info_eval() {
 
     for i in 0..contracts.len() {
         let mut owned_env = OwnedEnvironment::memory();
-        // start an initial transaction.
-        owned_env.begin();
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
         owned_env.initialize_contract(contract_identifier, contracts[i]).unwrap();
 
@@ -621,7 +619,6 @@ fn test_at_unknown_block() {
         let contract = "(define-data-var foo int 3)
                         (at-block 0x0202020202020202020202020202020202020202020202020202020202020202
                           (+ 1 2))";
-        owned_env.begin();
         let err = owned_env.initialize_contract(QualifiedContractIdentifier::local("contract").unwrap(), &contract).unwrap_err();
         eprintln!("{}", err);
         match err {
@@ -631,7 +628,7 @@ fn test_at_unknown_block() {
         }
     }
 
-    with_marfed_environment(test, false);
+    with_marfed_environment(test, true);
 }
 
 #[test]

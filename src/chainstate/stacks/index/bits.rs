@@ -36,8 +36,9 @@ use sha2::Digest;
 use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
-    fast_extend_from_slice
 };
+
+use chainstate::stacks::index::storage::{BlockHashMap};
 
 use chainstate::stacks::index::node::{
     clear_backptr,
@@ -49,7 +50,8 @@ use chainstate::stacks::index::node::{
     TrieNode256,
     TrieLeaf,
     TriePtr,
-    TRIEPTR_SIZE
+    TRIEPTR_SIZE,
+    ConsensusSerializable
 };
 
 use chainstate::stacks::index::storage::{
@@ -65,6 +67,8 @@ use chainstate::stacks::index::node::{
 
 use chainstate::stacks::index::Error;
 
+use chainstate::burn::BLOCK_HEADER_HASH_ENCODED_SIZE;
+
 use util::log;
 use util::macros::is_trace;
 
@@ -74,14 +78,6 @@ pub fn get_path_byte_len(p: &Vec<u8>) -> usize {
     assert!(p.len() < 255);
     let path_len_byte_len = 1;
     path_len_byte_len + p.len()
-}
-
-/// Encode a Trie path to a byte buffer.
-pub fn path_to_bytes(p: &Vec<u8>, buf: &mut Vec<u8>) -> () {
-    // always true by construction
-    assert!(p.len() < 256);
-    buf.push(p.len() as u8);
-    buf.append(&mut p.clone());
 }
 
 /// Decode a trie path from a Readable object.
@@ -150,37 +146,6 @@ pub fn get_ptrs_byte_len(ptrs: &[TriePtr]) -> usize {
     node_id_len + TRIEPTR_SIZE * ptrs.len()
 }
 
-/// Encode a Trie node's child pointers as a byte string by appending them to the given buffer.
-#[inline]
-pub fn ptrs_to_bytes(node_id: u8, ptrs: &[TriePtr], buf: &mut Vec<u8>) -> () {
-    assert!(check_node_id(node_id));
-    assert_eq!(node_id_to_ptr_count(node_id), ptrs.len());
-
-    buf.push(node_id);
-
-    // In benchmarks, this while() loop is noticeably faster than the more idiomatic "for ptr in ptrs.iter()"
-    let mut i = 0;
-    while i < ptrs.len() {
-        ptrs[i].to_bytes(buf);
-        i += 1;
-    }
-}
-
-/// Encode only the consensus-relevant bits of a Trie node's child pointers to the given buffer.
-#[inline]
-pub fn ptrs_to_consensus_bytes(node_id: u8, ptrs: &[TriePtr], buf: &mut Vec<u8>) -> () {
-    assert!(check_node_id(node_id));
-
-    buf.push(node_id);
-    
-    // In benchmarks, this while() loop is noticeably faster than the more idiomatic "for ptr in ptrs.iter()"
-    let mut i = 0;
-    while i < ptrs.len() {
-        ptrs[i].to_consensus_bytes(buf);
-        i += 1;
-    }
-}
-
 /// Read a Trie node's children from a Readable object, and write them to the given ptrs_buf slice.
 /// Returns the Trie node ID detected.
 #[inline]
@@ -232,86 +197,54 @@ pub fn ptrs_from_bytes<R: Read>(node_id: u8, r: &mut R, ptrs_buf: &mut [TriePtr]
 }
 
 /// Calculate the hash of a TrieNode, given its childrens' hashes.
-pub fn get_node_hash<T: TrieNode + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>) -> TrieHash {
+pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>, map: &M) -> TrieHash {
     let mut hasher = TrieHasher::new();
-    let mut buf = Vec::with_capacity(node.byte_len());
 
-    node.to_consensus_bytes(&mut buf);
-    hasher.input(&buf);
+    node.write_consensus_bytes(map, &mut hasher)
+        .expect("IO Failure pushing to hasher.");
+
     for child_hash in child_hashes {
-        hasher.input(&child_hash.as_bytes());
+        hasher.input(child_hash.as_ref());
     }
-    
+
     let mut res = [0u8; 32];
     res.copy_from_slice(hasher.result().as_slice());
 
     let ret = TrieHash(res);
+
     trace!("get_node_hash: hash {:?} = {:?} + {:?}", &ret, node, child_hashes);
     ret
 }
 
-/// Calculate the hash of a TrieNodeType, given its childrens' hashes.
-#[inline]
-pub fn get_nodetype_hash(node: &TrieNodeType, child_hashes: &Vec<TrieHash>) -> TrieHash {
-    match node {
-        TrieNodeType::Leaf(ref data) => get_node_hash(data, child_hashes),
-        TrieNodeType::Node4(ref data) => get_node_hash(data, child_hashes),
-        TrieNodeType::Node16(ref data) => get_node_hash(data, child_hashes),
-        TrieNodeType::Node48(ref data) => get_node_hash(data, child_hashes),
-        TrieNodeType::Node256(ref data) => get_node_hash(data, child_hashes)
-    }
-}
-
-/// Calculate the hash of a TrieNode, given a byte buffer encoding all of its children's hashes.
-pub fn get_node_hash_bytes<T: TrieNode + std::fmt::Debug>(node: &T, child_hash_bytes: &Vec<u8>) -> TrieHash {
-    assert_eq!(child_hash_bytes.len() % TRIEHASH_ENCODED_SIZE, 0);
-
+/// Calculate the hash of a TrieNode, given its childrens' hashes.
+pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
     let mut hasher = TrieHasher::new();
-    let mut buf = Vec::with_capacity(node.byte_len());
+    node.write_consensus_bytes_leaf(&mut hasher)
+        .expect("IO Failure pushing to hasher.");
 
-    node.to_consensus_bytes(&mut buf);
-    hasher.input(&buf);
-    hasher.input(child_hash_bytes);
-    
     let mut res = [0u8; 32];
     res.copy_from_slice(hasher.result().as_slice());
 
     let ret = TrieHash(res);
 
-    if is_trace() {
-        // not in prod -- can spend a few cycles on fancy debug output
-        if child_hash_bytes.len() >= 50 {
-            // extract individual hashes
-            let mut all_hashes = Vec::with_capacity(child_hash_bytes.len() / TRIEHASH_ENCODED_SIZE);
-            for i in 0..child_hash_bytes.len() / TRIEHASH_ENCODED_SIZE {
-                let mut h_slice = [0u8; TRIEHASH_ENCODED_SIZE];
-                h_slice.copy_from_slice(&child_hash_bytes[TRIEHASH_ENCODED_SIZE*i..TRIEHASH_ENCODED_SIZE*(i+1)]);
-                all_hashes.push(TrieHash(h_slice))
-            }
-            trace!("get_node_hash_bytes: hash {:?} = {:?} + {:?}... ({})", &ret, node, &all_hashes, child_hash_bytes.len());
-        }
-        else {
-            trace!("get_node_hash_bytes: hash {:?} = {:?} + {:?}... ({})", &ret, node, &child_hash_bytes, child_hash_bytes.len());
-        }
-    }
+    trace!("get_leaf_hash: hash {:?} = {:?} + []", &ret, node);
     ret
 }
 
 #[inline]
-pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<u8>) -> TrieHash {
+pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
     match node {
-        TrieNodeType::Node4(ref data) => get_node_hash_bytes(data, child_hash_bytes),
-        TrieNodeType::Node16(ref data) => get_node_hash_bytes(data, child_hash_bytes),
-        TrieNodeType::Node48(ref data) => get_node_hash_bytes(data, child_hash_bytes),
-        TrieNodeType::Node256(ref data) => get_node_hash_bytes(data, child_hash_bytes),
-        TrieNodeType::Leaf(ref data) => get_node_hash_bytes(data, child_hash_bytes),
+        TrieNodeType::Node4(ref data) => get_node_hash(data, child_hash_bytes, map),
+        TrieNodeType::Node16(ref data) => get_node_hash(data, child_hash_bytes, map),
+        TrieNodeType::Node48(ref data) => get_node_hash(data, child_hash_bytes, map),
+        TrieNodeType::Node256(ref data) => get_node_hash(data, child_hash_bytes, map),
+        TrieNodeType::Leaf(ref data) => get_node_hash(data, child_hash_bytes, map),
     }
 }
 
-
 /// Low-level method for reading a TrieHash into a byte buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
-pub fn read_hash_bytes<F: Read + Seek>(f: &mut F, buf: &mut Vec<u8>) -> Result<(), Error> {
+pub fn read_hash_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
     let mut hashbytes = [0u8; 32];
     f.read_exact(&mut hashbytes)
         .map_err(|e| {
@@ -324,33 +257,36 @@ pub fn read_hash_bytes<F: Read + Seek>(f: &mut F, buf: &mut Vec<u8>) -> Result<(
             }
         })?;
     
-    fast_extend_from_slice(buf, &hashbytes);
-    Ok(())
+    Ok(hashbytes)
+}
+
+pub fn read_block_identifier<F: Read + Seek>(f: &mut F) -> Result<u32, Error> {
+    let mut bytes = [0u8; 4];
+    f.read_exact(&mut bytes)
+        .map_err(|e| {
+            if e.kind() == ErrorKind::UnexpectedEof {
+                Error::CorruptionError(format!("Failed to read hash in full from {}", f.seek(SeekFrom::Current(0)).unwrap()))
+            }
+            else {
+                eprintln!("failed: {:?}", &e);
+                Error::IOError(e)
+            }
+        })?;
+    
+    Ok(u32::from_le_bytes(bytes))
 }
 
 /// Low-level method for reading a node's hash bytes into a buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
-pub fn read_node_hash_bytes<F: Read + Seek>(f: &mut F, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
+pub fn read_node_hash_bytes<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
     fseek(f, ptr.ptr() as u64)?;
-    read_hash_bytes(f, buf)
+    read_hash_bytes(f)
 }
 
 /// Read the root hash from a TrieFileStorage instance
 pub fn read_root_hash(s: &mut TrieFileStorage) -> Result<TrieHash, Error> {
     let ptr = s.root_trieptr();
-    let mut hash_bytes = Vec::with_capacity(TRIEHASH_ENCODED_SIZE);
-    s.read_node_hash_bytes(&ptr, &mut hash_bytes)?;
-
-    // safe because this is TRIEHASH_ENCODED_SIZE bytes long
-    Ok(trie_hash_from_bytes(&hash_bytes))
-}
-
-/// Converts a vec of bytes to a TrieHash.
-/// Panics if the vec isn't TRIEHASH_ENCODED_SIZE bytes long
-#[inline]
-pub fn trie_hash_from_bytes(v: &Vec<u8>) -> TrieHash {
-    assert_eq!(v.len(), TRIEHASH_ENCODED_SIZE);
-    TrieHash::from_bytes(&v[..]).unwrap()
+    Ok(s.read_node_hash_bytes(&ptr)?)
 }
 
 /// count the number of allocated children in a list of a node's children pointers.
@@ -364,21 +300,6 @@ pub fn count_children(children: &[TriePtr]) -> usize {
     cnt
 }
 
-/// Convert a buffer of hash data into a list of TrieHashes.
-/// Used for proof generation and for debugging/testing purposes.
-pub fn hash_buf_to_trie_hashes(hashes_buf: &Vec<u8>) -> Vec<TrieHash> {
-    assert_eq!(hashes_buf.len() % TRIEHASH_ENCODED_SIZE, 0);
-
-    // extract individual hashes
-    let mut all_hashes = Vec::with_capacity(hashes_buf.len() / TRIEHASH_ENCODED_SIZE);
-    for i in 0..hashes_buf.len() / TRIEHASH_ENCODED_SIZE {
-        let mut h_slice = [0u8; TRIEHASH_ENCODED_SIZE];
-        h_slice.copy_from_slice(&hashes_buf[TRIEHASH_ENCODED_SIZE*i..TRIEHASH_ENCODED_SIZE*(i+1)]);
-        all_hashes.push(TrieHash(h_slice))
-    }
-    all_hashes
-}
-
 /// Deserialize a node.
 /// Node wire format:
 /// 0               32 33               33+X         33+X+Y
@@ -387,10 +308,9 @@ pub fn hash_buf_to_trie_hashes(hashes_buf: &Vec<u8>) -> Vec<TrieHash> {
 ///
 /// X is fixed and determined by the TrieNodeType variant.
 /// Y is variable, but no more than TriePath::len()
-pub fn read_nodetype<F: Read + Write + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
+pub fn read_nodetype<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
     trace!("read_nodetype at {:?}", ptr);
-    let mut h_bytes = Vec::with_capacity(TRIEHASH_ENCODED_SIZE);
-    read_node_hash_bytes(f, ptr, &mut h_bytes)?;
+    let h = read_node_hash_bytes(f, ptr)?;
 
     let node = match ptr.id() {
         TrieNodeID::Node4 => {
@@ -418,8 +338,6 @@ pub fn read_nodetype<F: Read + Write + Seek>(f: &mut F, ptr: &TriePtr) -> Result
         }
     };
 
-    let mut h = [0u8; TRIEHASH_ENCODED_SIZE];
-    h.copy_from_slice(&h_bytes[0..TRIEHASH_ENCODED_SIZE]);
     Ok((node, TrieHash(h)))
 }
 
@@ -432,19 +350,18 @@ pub fn get_node_byte_len(node: &TrieNodeType) -> usize {
 
 /// write all the bytes for a node, including its hash, to the given Writeable object.
 /// Returns the number of bytes written.
-pub fn write_nodetype_bytes<F: Write + Seek>(f: &mut F, node: &TrieNodeType, hash: TrieHash) -> Result<usize, Error> {
-    let mut bytes = Vec::with_capacity(node.byte_len() + TRIEHASH_ENCODED_SIZE);
-    
-    fast_extend_from_slice(&mut bytes, hash.as_bytes());
-    node.to_bytes(&mut bytes);
-    
-    assert_eq!(bytes.len(), node.byte_len() + TRIEHASH_ENCODED_SIZE);
+pub fn write_nodetype_bytes<F: Write + Seek>(f: &mut F, node: &TrieNodeType, hash: TrieHash) -> Result<u64, Error> {
+    let start = ftell(f)?;
+    f.write_all(hash.as_bytes())?;
+    node.write_bytes(f)?;
+    let end = ftell(f)?;
+    trace!("write_nodetype: {:?} {:?} at {}-{}", node, &hash, start, end);
 
-    let ptr = ftell(f)?;
-    trace!("write_nodetype: {:?} {:?} at {}-{}", node, &hash, ptr, ptr + bytes.len() as u64);
+    Ok(end-start)
+}
 
-    f.write_all(&bytes[..])
-        .map_err(|e| Error::IOError(e))?;
-
-    Ok(bytes.len())
+pub fn write_path_to_bytes<W: Write>(path: &[u8], w: &mut W) -> Result<(), Error> {
+    w.write_all(&[path.len() as u8])?;
+    w.write_all(path)?;
+    Ok(())
 }

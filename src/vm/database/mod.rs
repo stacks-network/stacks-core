@@ -10,7 +10,7 @@ pub use self::key_value_wrapper::{
     KeyValueStorage, RollbackWrapper };
 pub use self::clarity_db::{ClarityDatabase};
 pub use self::structures::{ClaritySerializable, ClarityDeserializable };
-pub use self::sqlite::{SqliteStore, SqliteConnection};
+pub use self::sqlite::{SqliteConnection};
 pub use self::marf::{sqlite_marf, MarfedKV};
 
 impl KeyValueStorage for HashMap<String, String> {

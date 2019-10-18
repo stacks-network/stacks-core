@@ -13,7 +13,7 @@ use chainstate::stacks::index::storage::{TrieFileStorage};
 
 use vm::ast::parse;
 use vm::contexts::OwnedEnvironment;
-use vm::database::{ClarityDatabase, SqliteStore, SqliteConnection, KeyValueStorage,
+use vm::database::{ClarityDatabase, SqliteConnection, KeyValueStorage,
                    MarfedKV, memory_db, sqlite_marf};
 use vm::errors::{InterpreterResult};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
@@ -71,15 +71,16 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     })
 }
 
-fn clarity_db(marf_kv: &mut MarfedKV) -> ClarityDatabase {
+fn clarity_db<S: KeyValueStorage>(marf_kv: &mut MarfedKV<S>) -> ClarityDatabase {
     ClarityDatabase::new(Box::new(marf_kv))
 }
 
 
 // This function is pretty weird! But it helps cut down on
 //   repeating a lot of block initialization for the simulation commands.
-fn in_block<F,R>(mut marf_kv: MarfedKV, f: F) -> R
-where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
+fn in_block<F,R,S>(mut marf_kv: MarfedKV<S>, f: F) -> R
+where F: FnOnce(MarfedKV<S>) -> (MarfedKV<S>, R),
+      S: KeyValueStorage {
     let from = marf_kv.get_chain_tip().clone();
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
     let to = friendly_expect_opt(BlockHeaderHash::from_bytes(&random_bytes),
@@ -136,7 +137,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     let mut marf = friendly_expect(sqlite_marf(&args[2], None), "Failed to open VM database.");
                     let result = { let mut db = AnalysisDatabase::new(Box::new(&mut marf));
                                    run_analysis(&contract_id, &mut ast, &mut db, false) };
-                    marf.commit();
                     result
                 } else {
                     let memory = friendly_expect(SqliteConnection::memory(), "Could not open in-memory analysis DB");
