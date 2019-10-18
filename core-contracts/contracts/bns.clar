@@ -205,9 +205,9 @@
                                  (name-importer principal))
   ;; The salt and namespace must hash to a preorder entry in the `namespace_preorders` table.
   ;; The sender must match the principal in the preorder entry (implied)
-  (let ((hashed-namespace (hash160 namespace))
-        (preorder (expects!
-          (map-get namespace-preorders ((hashed-namespace (hash160 namespace)) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
+  (let ((hashed-namespace (hash160 namespace)))
+    (let ((preorder (expects!
+          (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
           (err err-namespace-preorder-not-found)))
         (lowercased-namespace (buff-lowercased namespace)))
     ;; The namespace must not exist yet in the `namespaces` table
