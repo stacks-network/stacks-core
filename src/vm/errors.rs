@@ -1,5 +1,6 @@
 use std::fmt;
 use std::error;
+use vm::ast::errors::ParseError;
 pub use vm::analysis::errors::{CheckErrors};
 pub use vm::analysis::errors::{check_argument_count, check_arguments_at_least};
 use vm::types::{Value, TypeSignature};
@@ -55,7 +56,10 @@ pub enum RuntimeErrorType {
     ArithmeticUnderflow,
     SupplyOverflow(i128, i128),
     DivisionByZero,
+    // error in parsing types
     ParseError(String),
+    // error in parsing the AST
+    ASTError(ParseError),
     MaxStackDepthReached,
     MaxContextDepthReached,
     ListDimensionTooHigh,
@@ -77,6 +81,7 @@ pub enum RuntimeErrorType {
 #[derive(Debug, PartialEq)]
 pub enum ShortReturnType {
     ExpectedValue(Value),
+    AssertionFailed(Value),
 }
 
 pub type InterpreterResult <R> = Result<R, Error>;
@@ -159,7 +164,8 @@ impl From<InterpreterError> for Error {
 impl Into<Value> for ShortReturnType {
     fn into(self) -> Value {
         match self {
-            ShortReturnType::ExpectedValue(v) => v
+            ShortReturnType::ExpectedValue(v) => v,
+            ShortReturnType::AssertionFailed(v) => v
         }
     }
 }

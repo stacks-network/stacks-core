@@ -50,14 +50,16 @@ extern crate libc;
 extern crate assert_json_diff;
 
 #[macro_use]
-extern crate blockstack_lib;
+pub mod util;
 
-use std::env;
-use blockstack_lib::{ util::log, clarity };
+#[macro_use]
+pub mod chainstate;
 
-fn main() {
-    log::set_loglevel(log::LOG_DEBUG).unwrap();
-    let argv : Vec<String> = env::args().collect();
+pub mod address;
+pub mod burnchains;
+pub mod core;
+pub mod deps;
+pub mod net;
+pub mod vm;
 
-    clarity::invoke_command(&argv[0], &argv[1..]);
-}
+pub mod clarity;

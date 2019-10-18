@@ -8,6 +8,7 @@ use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase, memory_db};
 use vm::representations::{SymbolicExpression, ClarityName, ContractName};
 use vm::contracts::Contract;
+use vm::ast::ContractAST;
 use vm::ast;
 use vm::eval;
 
@@ -248,21 +249,42 @@ impl <'a> OwnedEnvironment <'a> {
                          sender.clone(), sender)
     }
 
-    pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
-        let mut exec_env = self.get_exec_environment(None);
-        exec_env.initialize_contract(contract_identifier, contract_content)
+    fn execute_in_env <F, A> (&mut self, sender: Value, f: F) -> Result<(A, AssetMap)>
+    where F: FnOnce(&mut Environment) -> Result<A> {
+        assert!(self.context.is_top_level());
+        self.begin();
+
+        let result = {
+            let mut exec_env = self.get_exec_environment(Some(sender));
+            f(&mut exec_env)
+        };
+
+        match result {
+            Ok(return_value) => {
+                let asset_map = self.commit()?;
+                Ok((return_value, asset_map))
+            },
+            Err(e) => {
+                self.context.roll_back();
+                Err(e)
+            },
+        }
+    }
+
+    pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<((), AssetMap)> {
+        self.execute_in_env(Value::from(contract_identifier.issuer.clone()),
+                            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content))
+    }
+
+    pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &ContractAST) -> Result<((), AssetMap)> {
+        self.execute_in_env(Value::from(contract_identifier.issuer.clone()),
+                            |exec_env| exec_env.initialize_contract_from_ast(contract_identifier, contract_content))
     }
 
     pub fn execute_transaction(&mut self, sender: Value, contract_identifier: QualifiedContractIdentifier, 
                                tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap)> {
-        assert!(self.context.is_top_level());
-        self.begin();
-        let return_value = {
-            let mut exec_env = self.get_exec_environment(Some(sender));
-            exec_env.execute_contract(&contract_identifier, tx_name, args)
-        }?;
-        let asset_map = self.commit()?;
-        Ok((return_value, asset_map))
+        self.execute_in_env(sender, 
+                            |exec_env| exec_env.execute_contract(&contract_identifier, tx_name, args))
     }
 
     pub fn begin(&mut self) {
@@ -272,6 +294,13 @@ impl <'a> OwnedEnvironment <'a> {
     pub fn commit(&mut self) -> Result<AssetMap> {
         self.context.commit()?
             .ok_or(InterpreterError::FailedToConstructAssetTable.into())
+    }
+
+    /// Destroys this environment, returning ownership of its database reference.
+    ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
+    ///   because the database is not guaranteed to be in a sane state.
+    pub fn destruct(self) -> Option<ClarityDatabase<'a>> {
+        self.context.destruct()
     }
 }
 
@@ -423,10 +452,16 @@ impl <'a,'b> Environment <'a,'b> {
     }
 
     pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
+        let contract_ast = ast::build_ast(&contract_identifier, contract_content)
+            .map_err(RuntimeErrorType::ASTError)?;
+        self.initialize_contract_from_ast(contract_identifier, &contract_ast)
+    }
+
+    pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &ContractAST) -> Result<()> {
         self.global_context.begin();
-        let result = Contract::initialize(contract_identifier.clone(), 
-                                          contract_content,
-                                          &mut self.global_context);
+        let result = Contract::initialize_from_ast(contract_identifier.clone(), 
+                                                   contract_content,
+                                                   &mut self.global_context);
         match result {
             Ok(contract) => {
                 self.global_context.database.insert_contract(&contract_identifier, contract);
@@ -439,6 +474,7 @@ impl <'a,'b> Environment <'a,'b> {
             }
         }
     }
+
 }
 
 impl <'a> GlobalContext<'a> {
@@ -547,6 +583,17 @@ impl <'a> GlobalContext<'a> {
         } else {
             self.roll_back();
             result
+        }
+    }
+
+    /// Destroys this context, returning ownership of its database reference.
+    ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
+    ///   because the database is not guaranteed to be in a sane state.
+    pub fn destruct(self) -> Option<ClarityDatabase<'a>> {
+        if self.is_top_level() {
+            Some(self.database)
+        } else {
+            None
         }
     }
 }

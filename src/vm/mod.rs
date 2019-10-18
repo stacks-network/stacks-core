@@ -10,6 +10,7 @@ mod representations;
 pub mod ast;
 pub mod contexts;
 pub mod database;
+pub mod clarity;
 
 mod functions;
 mod variables;

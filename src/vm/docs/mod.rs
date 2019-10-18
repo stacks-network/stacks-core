@@ -598,6 +598,16 @@ principal and executes `expr` with that context. It returns the resulting value 
     example: "(as-contract (print tx-sender)) ;; Returns 'CTcontract.name"
 };
 
+const ASSERTS_API: SpecialAPI = SpecialAPI {
+    input_type: "bool, C",
+    output_type: "bool",
+    signature: "(asserts! bool-expr thrown-value)",
+    description: "The `asserts!` function admits a boolean argument and asserts its evaluation: 
+if bool-expr is `true`, `asserts!` returns `true` and proceeds in the program execution. 
+If the supplied argument is returning a 'false value, `asserts!` _returns_ `thrown-value` and exits the current 
+control-flow.",
+    example: "(asserts! (eq? 1 1) (err 1)) ;; Returns 'true",
+};
 
 const EXPECTS_API: SpecialAPI = SpecialAPI {
     input_type: "(optional A) | (response A B), C",
@@ -1028,6 +1038,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ConsError => make_for_special(&CONS_ERR_API, name),
         ConsSome =>  make_for_special(&CONS_SOME_API, name),
         DefaultTo => make_for_special(&DEFAULT_TO_API, name),
+        Asserts => make_for_special(&ASSERTS_API, name),
         Expects => make_for_special(&EXPECTS_API, name),
         ExpectsErr => make_for_special(&EXPECTS_ERR_API, name),
         IsOkay => make_for_special(&IS_OK_API, name),
