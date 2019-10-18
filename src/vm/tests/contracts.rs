@@ -80,7 +80,7 @@ fn test_get_block_info_eval() {
     ];
 
     let expected = [
-        Ok(Value::Int(0)),
+        Ok(Value::UInt(0)),
         Err(true),
         Err(true),
         Err(true),
@@ -103,7 +103,7 @@ fn test_get_block_info_eval() {
         match &expected[i] {
             Ok(val) => {
                 match (val, &eval_result.unwrap()) {
-                    (Value::Int(_), Value::Int(_)) => {},
+                    (Value::UInt(_), Value::UInt(_)) => {},
                     (x, y) => assert_eq!(x, y)
                 }
             },
