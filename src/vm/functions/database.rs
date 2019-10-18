@@ -210,7 +210,7 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
-        Value::Int(result) => Ok(result),
+        Value::UInt(result) => Ok(result),
         x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x))
     }?;
 
@@ -228,7 +228,7 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
     match block_info_prop {
         Time => {
             let block_time = env.global_context.database.get_simmed_block_time(height_value);
-            Ok(Value::Int(block_time as i128))
+            Ok(Value::UInt(block_time as u128))
         },
         VrfSeed => {
             let vrf_seed = env.global_context.database.get_simmed_block_vrf_seed(height_value);
