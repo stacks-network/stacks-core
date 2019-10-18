@@ -27,7 +27,7 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &mut E
             },
             NativeVariables::BlockHeight => {
                 let block_height = env.global_context.database.get_simmed_block_height();
-                Ok(Some(Value::Int(block_height as i128)))
+                Ok(Some(Value::UInt(block_height as u128)))
             },
             NativeVariables::BurnBlockHeight => {
                 Err(RuntimeErrorType::NotImplemented.into())

@@ -16,7 +16,7 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-public (faucet)
            (let ((original-sender tx-sender))
              (as-contract (ft-transfer! stackaroos 1 tx-sender original-sender))))
-         (define-public (mint-after (block-to-release int))
+         (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
                (err \"must be in the future\")))
@@ -209,7 +209,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         Value::Int(1003));
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), &token_contract_id.clone(), "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap();
+        p1.clone(), &token_contract_id.clone(), "mint-after", &symbols_from_values(vec![Value::UInt(25)])).unwrap();
 
     assert!(!is_committed(&result));
     assert_eq!(asset_map.to_table().len(), 0);

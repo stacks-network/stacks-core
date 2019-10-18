@@ -53,7 +53,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
          (define-public (faucet)
            (let ((original-sender tx-sender))
              (as-contract (print (token-transfer (print original-sender) 1)))))                     
-         (define-public (mint-after (block-to-release int))
+         (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
                (err \"must be in the future\")))
@@ -67,7 +67,7 @@ fn get_principal() -> Value {
 }
 
 #[test]
-fn test_get_block_info_eval(){
+fn test_get_block_info_eval() {
 
     let contracts = [
         "(define-private (test-func) (get-block-info time 1))",
@@ -191,12 +191,12 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
 
         assert!(!is_committed(&env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), 
                               "mint-after", 
-                              &symbols_from_values(vec![Value::Int(25)])).unwrap()));
+                              &symbols_from_values(vec![Value::UInt(25)])).unwrap()));
         
         env.global_context.database.sim_mine_blocks(10);
         assert!(is_committed(&env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), 
                              "mint-after", 
-                             &symbols_from_values(vec![Value::Int(25)])).unwrap()));
+                             &symbols_from_values(vec![Value::UInt(25)])).unwrap()));
         
         assert!(!is_committed(&
                               env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), "faucet", &vec![]).unwrap()));
