@@ -1,8 +1,8 @@
 import { Provider, ProviderRegistry, Receipt } from "@blockstack/clarity";
 import { expect } from "chai";
-import { BNSClient } from "../src/bns-client";
+import { BNSClient, PriceFunction } from "../src/bns-client";
 
-describe("BNSClient Test Suite", () => {
+describe("BNS Test Suite", () => {
   let bns: BNSClient;
   let provider: Provider;
 
@@ -15,24 +15,185 @@ describe("BNSClient Test Suite", () => {
   const bob = addresses[1];
   const charlie = addresses[2];
 
+  const cases = [{
+    namespace: "blockstack",
+    version: 1,
+    salt: "0000",
+    value: 42,
+    namespaceOwner: alice,
+    nameOwner: bob,
+    priceFunction: {
+      buckets: [],
+      base: 1,
+      coeff: 2,
+      noVoyelDiscount: 0,
+      nonAlphaDiscount: 0,
+    },
+    renewalRule: 1,
+    nameImporter: alice,
+    zonefile: "LOREM IPSUM DOLOR SIT AMET",
+  }];
+
   before(async () => {
     provider = await ProviderRegistry.createProvider();
     bns = new BNSClient(provider);
   });
 
-  describe("Deploying an instance of the contract", () => {
+  describe("NAMESPACE_PREORDER operation", async () => {
     before(async () => {
       await bns.deployContract();
     });
 
-    // it("should ...", async () => {
-    //   const preorder = await bns.preorderNamespace("id", { sender: alice });
-    //   console.log(preorder);
-    // });
+    it("should succeed when 'hashed-namespace' is a *unique 20 bytes buffer, 'stx-to-burn' > 0, and balance provisioned accordingly", async () => {
+      // await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+    });
+
+    it("should fail if 'hashed-namespace' is missing");
+
+    it("should fail if 'hashed-namespace' is not exactly 20 bytes long");
+
+    it("should fail if 'stx-to-burn' is missing");
+
+    it("should fail if 'stx-to-burn' is 0");
+
+    it("should fail if Alice's balance is less than 'stx-to-burn'");
+
+    describe("Given an existing pre-order for 'hashed-namespace' from Alice", () => {
+      it("should fail on re-submissions if TTL did not expire");
+
+      it("should succeed on re-submissions if TTL did expire");
+    });
+
+    describe("Given an existing pre-order for 'hashed-namespace' from Bob", () => {
+      it("should fail on re-submissions if TTL did not expire");
+
+      it("should succeed on re-submissions if TTL did expire");
+    });
   });
 
-  // before(async () => {
-  //   await provider.mineBlock();
-  // });
+  describe("NAMESPACE_REVEAL operation", async () => {
+    it("should fail if 'salt' is missing");
 
+    it("should fail if 'namespace' is missing");
+
+    it("should fail if 'price-function' is missing");
+
+    it("should fail if 'renewal-rule' is missing");
+
+    it("should fail if the namespace hashing / salting does not match the entry from the preorder");
+
+    it("should fail if the namespace hashing / salting does not match the entry from the preorder");
+
+    it("should fail if 'price-function' is missing");
+
+    describe("Given an existing pre-order for 'hashed-namespace' from Alice", async () => {
+
+      let namespace = "blockstack";
+
+      before(async () => {
+        // await bns.namespacePreorder(
+        //   cases[0].namespace, 
+        //   cases[0].salt, 
+        //   cases[0].value, { sender: cases[0].namespaceOwner });
+      });
+  
+      it("should fail if TTL expired");
+
+      it("should succeed if the price-function, renewal-rule, namespace and salt are valid", async () => {
+        // const reveal = await bns.namespaceReveal(
+        //   cases[0].namespace, 
+        //   cases[0].version, 
+        //   cases[0].priceFunction, 
+        //   cases[0].renewalRule, 
+        //   cases[0].nameImporter, { sender: cases[0].namespaceOwner });
+      });
+    });
+
+    describe("Given an existing pre-order for 'hashed-namespace' from Bob", () => {
+      it("should fail if TTL have not expired");
+
+      it("should fail if TTL expired");
+    });
+  });
+
+  describe("NAME_IMPORT operation", async () => {
+    it("should fail if 'namespace' is missing");
+
+    it("should succeed on case #0", async () => {
+      let receipt = await bns.namespacePreorder(
+        cases[0].namespace, 
+        cases[0].salt, 
+        cases[0].value, { sender: cases[0].namespaceOwner });
+      console.log(receipt);
+
+      receipt = await bns.namespaceReveal(
+        cases[0].namespace, 
+        cases[0].version, 
+        cases[0].priceFunction, 
+        cases[0].renewalRule, 
+        cases[0].nameImporter, { sender: cases[0].namespaceOwner });
+      console.log(receipt);
+
+      receipt = await bns.namespaceReady(cases[0].namespace, { sender: cases[0].namespaceOwner });
+      console.log(receipt);
+
+      receipt = await bns.namePreorder(
+        cases[0].namespace,
+        "id",
+        cases[0].salt, 
+        cases[0].value, { sender: cases[0].nameOwner });
+      console.log(receipt);
+
+      receipt = await bns.nameRegister(
+        cases[0].namespace, 
+        "id", 
+        cases[0].salt, 
+        cases[0].zonefile, { sender: cases[0].nameOwner });
+      console.log(receipt);
+    });
+  });
+
+  describe("NAMESPACE_READY operation", () => {
+    it("should fail if 'namespace' is missing");
+  });
+
+  describe("NAME_PREORDER operation", () => {
+    it("should fail if 'namespace' is missing");
+  });
+
+  describe("NAME_REGISTER operation", () => {
+    it("should fail if 'namespace' is missing");
+  });
+
+  describe("NAME_UPDATE operation", () => {
+    it("should fail if 'namespace' is missing");
+  });
+
+  describe("NAME_TRANSFER operation", () => {
+    it("should fail if 'namespace' is missing");
+  });
+
+  describe("NAME_REVOKE operation", () => {
+    it("should fail if 'namespace' is missing");
+  });
+
+  describe("NAME_RENEWAL operation", () => {
+    it("should fail if 'namespace' is missing");
+  });
+
+  describe("SPONSORED_NAME_REGISTER_BATCH operation", () => {
+    it("should fail if 'namespace' is missing");
+  });
+
+  describe("SPONSORED_NAME_UPDATE operation", () => {
+    it("should fail if 'namespace' is missing");
+  });
+
+  describe("SPONSORED_NAME_TRANSFER operation", () => {
+    it("should fail if 'namespace' is missing");
+  });
+
+  describe("SPONSORED_NAME_REVOKE operation", () => {
+    it("should fail if 'namespace' is missing");
+  });
 });
