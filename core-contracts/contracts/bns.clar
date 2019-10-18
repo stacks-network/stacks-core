@@ -175,9 +175,13 @@
 ;; Returns pre-order's expiration date (in blocks).
 (define-public (namespace-preorder (hashed-namespace (buff 20))
                                    (stx-to-burn uint))
-  (begin
-    (asserts!
-      (is-none? (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer contract-caller))))
+  (let ((former-preorder (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer contract-caller)))))
+    ;; Ensure eventual former pre-order expired 
+    (asserts! 
+      (if (is-none? former-preorder) 
+        'true
+        (>= block-height (+ namespace-preorder-claimability-ttl ;; todo(ludo): settle on [created-at created-at+ttl[ or [created-at created-at+ttl]
+                            (expects! (get created-at former-preorder) (err err-panic))))) 
       (err err-namespace-preorder-already-exists))
     ;; Burn the tokens
     ;; todo(ludo): we are missing stx-burn! native function
