@@ -31,20 +31,19 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
     let value = eval(&args[1], env, context)?;
 
     match value {
-        Value::Optional(ref opt_data) => {
+        Value::Optional(opt_data) => {
             match opt_data.data {
-                Some(ref data) => {
-                    let data: &Value = data;
-                    if let Value::Tuple(tuple_data) = data {
-                        Ok(Value::some(tuple_data.get(arg_name)?))
+                Some(data) => {
+                    if let Value::Tuple(tuple_data) = *data {
+                        Ok(Value::some(tuple_data.get_owned(arg_name)?))
                     } else {
-                        Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(data)).into())
+                        Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&data)).into())
                     }
                 },
-                None => Ok(value.clone()) // just pass through none-types.
+                None => Ok(Value::none()) // just pass through none-types.
             }
         },
-        Value::Tuple(tuple_data) => tuple_data.get(arg_name),
+        Value::Tuple(tuple_data) => tuple_data.get_owned(arg_name),
         _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&value)).into())
     }
 }

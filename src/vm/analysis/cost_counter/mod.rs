@@ -1,6 +1,7 @@
+use std::collections::{HashMap, BTreeMap};
 use vm::representations::{SymbolicExpression, ClarityName};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
-use vm::types::{Value, PrincipalData, TypeSignature, TupleTypeSignature, FunctionArg,
+use vm::types::{Value, PrincipalData, TypeSignature, TupleTypeSignature, FunctionArg, BUFF_32,
                 FunctionType, FixedFunction, parse_name_type_pairs};
 use vm::functions::{NativeFunctions, handle_binding_list};
 use vm::functions::define::DefineFunctionsParsed;
@@ -21,17 +22,19 @@ pub enum CostSpecification {
 
 pub enum SpecialCostType { ContractCall, If, Map, Filter, Fold, Let, TupleCons, TupleGet }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum CostFunctions {
     Constant(u64),
     Linear(u64, u64),
+    NLogN(u64, u64),
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SimpleCostSpecification {
     write_length: CostFunctions,
     read_count: CostFunctions,
     runtime: CostFunctions,
 }
-
 
 pub struct ExecutionCost {
     write_length: u64,
@@ -39,21 +42,21 @@ pub struct ExecutionCost {
     runtime: u64
 }
 
-pub struct ContractContext {}
-
 pub struct CostContext {
     context_depth: u64,
+    defined_functions: HashMap<String, SimpleCostSpecification>,
 }
 
 pub struct CostCounter <'a, 'b> {
-    contract_context: ContractContext,
     type_map: TypeMap,
     cost_context: CostContext,
     db: &'a mut AnalysisDatabase <'b>
 }
 
-#[derive(PartialEq, Eq, Debug, Deserialize, Serialize)]
-pub struct ContractCostAnalysis {}
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ContractCostAnalysis {
+    defined_functions: BTreeMap<String, SimpleCostSpecification>
+}
 
 trait CostOverflowingMath <T> {
     fn cost_overflow_mul(self, other: T) -> CheckResult<T>;
@@ -73,8 +76,13 @@ impl CostOverflowingMath <u64> for u64 {
 
 impl ContractCostAnalysis {
     pub fn get_function_cost(&self, function_name: &str) -> Option<SimpleCostSpecification> {
-        panic!("Not implemented")
+        self.defined_functions.get(function_name).cloned()
     }
+}
+
+// ONLY WORKS IF INPUT IS u64
+fn int_log2(input: u64) -> u64 {
+    (64 - input.leading_zeros()).into()
 }
 
 impl CostFunctions {
@@ -83,6 +91,16 @@ impl CostFunctions {
             CostFunctions::Constant(val) => Ok(*val),
             CostFunctions::Linear(a, b) => { a.cost_overflow_mul(input)?
                                              .cost_overflow_add(*b) }
+            CostFunctions::NLogN(a, b) => {
+                if input == 0 {
+                    return Err(CheckErrors::CostOverflow.into());
+                }
+                // a*input*log(input)) + b
+                int_log2(input)
+                    .cost_overflow_mul(input)?
+                    .cost_overflow_mul(*a)?
+                    .cost_overflow_add(*b)
+            }
         }
     }
 }
@@ -108,7 +126,8 @@ impl SimpleCostSpecification {
 impl CostContext {
     fn new() -> CostContext {
         CostContext {
-            context_depth: 0
+            context_depth: 0,
+            defined_functions: HashMap::new(),
         }
     }
 
@@ -125,14 +144,9 @@ impl CostContext {
         assert!(self.context_depth >= 1);
         self.context_depth -= 1;
     }
-}
 
-impl ContractContext {
-    pub fn new() -> ContractContext {
-        Self {}
-    }
-    pub fn get_defined_function_cost_spec(&self, function_name: &str) -> Option<SimpleCostSpecification> {
-        panic!("Not implemented")
+    fn get_defined_function_cost_spec(&self, function_name: &str) -> Option<&SimpleCostSpecification> {
+        self.defined_functions.get(function_name)
     }
 }
 
@@ -173,24 +187,61 @@ impl ExecutionCost {
     }
 }
 
+fn parse_signature_cost(&SymbolicExpression) -> ExecutionCost {
+    panic!("Not implemented");
+}
+
 impl <'a, 'b> CostCounter <'a, 'b> {
     fn new(db: &'a mut AnalysisDatabase<'b>, type_map: TypeMap) -> CostCounter<'a, 'b> {
         Self {
             db, type_map,
-            contract_context: ContractContext::new(),
             cost_context: CostContext::new()
         }
     }
 
-    fn handle_variable_lookup(&mut self, variable_name: &str) -> CheckResult<ExecutionCost> {
-        let mut compute_cost = get_reserved_name_cost(variable_name)
-            .unwrap_or(ExecutionCost::zero());
-        // add lookup cost
-        compute_cost.add_runtime(variable_name.len() as u64)?;
-        Ok(compute_cost)
+    // Handle a top level expression,
+    //    if defining a function, add that function to the cost context.
+    //    otherwise, return the execution of instantiating the contract context (i.e., evaluating 
+    //      plain expressions, constants, persisted variables).
+    fn handle_top_level_expression(&mut self, expression: &SymbolicExpression) -> CheckResult<ExecutionCost> {
+        let define_type = match DefineFunctionsParsed::try_parse(expression)? {
+            Some(define_type) => define_type,
+            // not a define statement, but just a normal expression. return the execution cost of that expression.
+            None => return self.handle_expression(expression)
+        };
+        let execution_cost = match define_type {
+            DefineFunctionsParsed::Constant { name, value } => {
+                let mut evaluation_cost = self.handle_expression(value)?;
+                evaluation_cost.add_runtime(name.len() as u64)?;
+                evaluation_cost
+            },
+            DefineFunctionsParsed::PrivateFunction { signature, body } => {
+                let mut evaluation_cost = ExecutionCost {
+                    runtime: 
+                };
+            },
+            _ => {
+                panic!("Not implemented")
+            }
+        };
+        Ok(execution_cost)
     }
 
-    fn handle_special_function(&mut self, function: SpecialCostType, args: &[SymbolicExpression]) -> CheckResult<ExecutionCost> {
+    fn handle_variable_lookup(&mut self, variable_name: &str) -> CheckResult<ExecutionCost> {
+        match get_reserved_name_cost(variable_name) {
+            Some(mut reserved_name_cost) => {
+                reserved_name_cost.add_runtime(variable_name.len() as u64)?;
+                Ok(reserved_name_cost)
+            },
+            None => {
+                let mut lookup_cost = ExecutionCost::runtime(variable_name.len() as u64);
+                lookup_cost.multiply(self.cost_context.context_depth)?;
+                Ok(lookup_cost)
+            }
+        }
+    }
+
+    fn handle_special_function(&mut self, function: &SpecialCostType, args: &[SymbolicExpression]) -> CheckResult<ExecutionCost> {
         use self::SpecialCostType::*;
         match function {
             // assert argument lengths, because this pass _must_ have occurred _after_
@@ -204,7 +255,7 @@ impl <'a, 'b> CostCounter <'a, 'b> {
                 };
                 let function_name = args[1].match_atom()
                     .ok_or(CheckErrors::ContractCallExpectName)?;
-                let cost = self.db.get_contract_function_cost(&contract_id, function_name)
+                let cost_spec = self.db.get_contract_function_cost(&contract_id, function_name)
                     .ok_or_else(|| CheckErrors::NoSuchPublicFunction(contract_id.to_string(), function_name.to_string()))?;
                 // BASE COST:
                 //   RUNTIME = linear cost of hashing function_name + some constant
@@ -212,7 +263,8 @@ impl <'a, 'b> CostCounter <'a, 'b> {
                 let mut total_cost = ExecutionCost { write_length: 0,
                                                      read_count: 1,
                                                      runtime: 1+(function_name.len() as u64) };
-                let exec_cost = self.handle_simple_function(cost, &args[2..])?;
+                let arg_size = self.handle_simple_function_args(&args[2..])?;
+                let exec_cost = cost_spec.compute_cost(arg_size)?;
 
                 total_cost.add(&exec_cost)?;
 
@@ -233,15 +285,15 @@ impl <'a, 'b> CostCounter <'a, 'b> {
                 assert_eq!(args.len(), 2);
 
                 let function_name = args[0].match_atom()
-                    .expect("Analysis Failure: Function argument should have been atom.");
+                    .expect("Function argument should have been atom.");
                 let list_arg_type = match self.type_map.get_type(&args[1]) {
                     Some(TypeSignature::ListType(l)) => l,
-                    x => panic!("Analysis Failure: Expected list type, but annotated type was: {:#?}", x)
+                    x => panic!("Expected list type, but annotated type was: {:#?}", x)
                 };
                 let list_item_type = list_arg_type.get_list_item_type();
                 let list_max_len = list_arg_type.get_max_len();
 
-                let function_spec = self.contract_context.get_defined_function_cost_spec(function_name)
+                let function_spec = self.cost_context.get_defined_function_cost_spec(function_name)
                     .ok_or_else(|| CheckErrors::UnknownFunction(function_name.to_string()))?;
                 let mut single_execution_cost = function_spec.compute_cost(list_item_type.size().into())?;
 
@@ -257,18 +309,18 @@ impl <'a, 'b> CostCounter <'a, 'b> {
                 assert_eq!(args.len(), 3);
 
                 let function_name = args[0].match_atom()
-                    .expect("Analysis Failure: Function argument should have been atom.");
+                    .expect("Function argument should have been atom.");
                 let list_arg_type = match self.type_map.get_type(&args[1]) {
                     Some(TypeSignature::ListType(l)) => l,
-                    x => panic!("Analysis Failure: Expected list type, but annotated type was: {:#?}", x)
+                    x => panic!("Expected list type, but annotated type was: {:#?}", x)
                 };
                 let initial_value_type = self.type_map.get_type(&args[2])
-                    .expect("Analysis Failure: Expected a type annotation");
+                    .expect("Expected a type annotation");
 
                 let list_item_type = list_arg_type.get_list_item_type();
                 let list_max_len = list_arg_type.get_max_len();
 
-                let function_spec = self.contract_context.get_defined_function_cost_spec(function_name)
+                let function_spec = self.cost_context.get_defined_function_cost_spec(function_name)
                     .ok_or_else(|| CheckErrors::UnknownFunction(function_name.to_string()))?;
 
                 let function_arg_len = u64::from(list_item_type.size())
@@ -289,7 +341,7 @@ impl <'a, 'b> CostCounter <'a, 'b> {
                 assert!(args.len() >= 2);
 
                 let bindings = args[0].match_list()
-                    .expect("Analysis Failure: Let expression must be supplied a binding list.");
+                    .expect("Let expression must be supplied a binding list.");
 
                 let mut binding_cost = ExecutionCost::runtime(1);
 
@@ -312,12 +364,43 @@ impl <'a, 'b> CostCounter <'a, 'b> {
 
                 Ok(binding_cost)
             },
-            TupleCons => panic!("Unimplemented"),
-            TupleGet => panic!("Unimplemented"),
+            TupleCons => {
+                assert!(args.len() >= 1);
+
+                let mut binding_cost = ExecutionCost::runtime(1);
+                handle_binding_list(args, |var_name, var_sexp| {
+                    // the cost of binding the name.
+                    binding_cost.add_runtime(var_name.len() as u64)?;
+
+                    // the cost of calculating the bound value
+                    binding_cost.add(
+                        &self.handle_expression(var_sexp)?)
+                })?;
+
+                Ok(binding_cost)
+            },
+            TupleGet => {
+                assert!(args.len() == 2);
+
+                let tuple_length = match self.type_map.get_type(&args[1]).expect("Type should be annotated") {
+                    TypeSignature::TupleType(tuple_data) => tuple_data.len(),
+                    _ => panic!("Expected tuple type")
+                };
+
+                let var_name = args[0].match_atom().expect("Tuple get should be atom name.");
+
+                // the cost of a lookup
+                let mut lookup_cost = SimpleCostSpecification::new_diskless(CostFunctions::NLogN(1, 1))
+                    .compute_cost(tuple_length)?;
+                // you always do a O(n) equality check on names in lookups.
+                lookup_cost.add_runtime(var_name.len() as u64)?;
+
+                Ok(lookup_cost)
+            },
         }
     }
 
-    fn handle_simple_function(&mut self, function_spec: SimpleCostSpecification, args: &[SymbolicExpression]) -> CheckResult<ExecutionCost> {
+    fn handle_simple_function_args(&mut self, args: &[SymbolicExpression]) -> CheckResult<u64> {
         let argument_cost = self.handle_all_expressions(args)?;
         let mut argument_len = 0;
         for arg in args {
@@ -326,20 +409,24 @@ impl <'a, 'b> CostCounter <'a, 'b> {
             argument_len = u64::from(arg_type.size()).cost_overflow_add(argument_len)?;
         }
 
-        function_spec.compute_cost(argument_len)
+        Ok(argument_len)
     }
 
     fn handle_function_application(&mut self, function_name: &str, args: &[SymbolicExpression]) -> CheckResult<ExecutionCost> {
         if let Some(native_function) = NativeFunctions::lookup_by_name(function_name) {
             match get_native_function_cost_spec(&native_function) {
-                CostSpecification::Special(cost_type) => self.handle_special_function(cost_type, args),
-                CostSpecification::Simple(cost_type) => self.handle_simple_function(cost_type, args),
+                CostSpecification::Special(cost_type) => self.handle_special_function(&cost_type, args),
+                CostSpecification::Simple(cost_type) => {
+                    let arguments_size = self.handle_simple_function_args(args)?;
+                    cost_type.compute_cost(arguments_size)
+                }
             }
         } else {
             // not a native function, so try to find in context
-            let simple_cost_spec = self.contract_context.get_defined_function_cost_spec(function_name)
+            let arguments_size = self.handle_simple_function_args(args)?;
+            let simple_cost_spec = self.cost_context.get_defined_function_cost_spec(function_name)
                 .ok_or_else(|| CheckErrors::UnknownFunction(function_name.to_string()))?;
-            self.handle_simple_function(simple_cost_spec, args)
+            simple_cost_spec.compute_cost(arguments_size)
         }
     }
 
@@ -375,9 +462,27 @@ fn get_function_lookup_cost(name: &str) -> CheckResult<ExecutionCost> {
 }
 
 pub fn get_reserved_name_cost(name: &str) -> Option<ExecutionCost> {
-    panic!("Not implemented")
+    match NativeVariables::lookup_by_name(name) {
+        Some(NativeVariables::TxSender) | Some(NativeVariables::ContractCaller) => {
+            // cost of cloning the principal
+            Some(ExecutionCost::runtime(TypeSignature::PrincipalType.size() as u64))
+        },
+        Some(NativeVariables::BurnBlockHeight) | Some(NativeVariables::BlockHeight) => {
+            // cost of looking up and cloning the block height
+            Some(ExecutionCost {
+                runtime: BUFF_32.size() as u64,
+                read_count: 1,
+                write_length: 0 })
+        },
+        Some(NativeVariables::NativeNone) => {
+            // cost of cloning a none type
+            Some(ExecutionCost::runtime(1))
+        },
+        None => None,
+    }
 }
 
+// note: this could be refactored to return static pointers.
 pub fn get_native_function_cost_spec(func: &NativeFunctions) -> CostSpecification {
     use self::CostFunctions::{Constant, Linear};
     use vm::functions::NativeFunctions::*;
