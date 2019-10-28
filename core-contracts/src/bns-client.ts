@@ -43,8 +43,14 @@ export class BNSClient extends Client {
                         renewalRule: number, 
                         nameImporter: string, 
                         params: { sender: string }): Promise<Receipt> {
+    let priceFuncAsArgs = [
+      `u${priceFunction.base}`, 
+      `u${priceFunction.coeff}`, 
+      ...priceFunction.buckets.map(bucket => `u${bucket}`), 
+      `u${priceFunction.nonAlphaDiscount}`, 
+      `u${priceFunction.noVoyelDiscount}`];
     const tx = this.createTransaction({
-      method: { name: "namespace-reveal", args: [`"${namespace}"`, `u${namespaceVersion}`, `u1`, `u${renewalRule}`, `'${nameImporter}`] }
+      method: { name: "namespace-reveal", args: [`"${namespace}"`, `u${namespaceVersion}`, ...priceFuncAsArgs, `u${renewalRule}`, `'${nameImporter}`] }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);

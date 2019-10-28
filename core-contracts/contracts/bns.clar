@@ -47,31 +47,31 @@
 ;; todo(ludo): how do we adjust stx-price?
 (define-constant stx-to-usd-cents 15)
 (define-constant stx-to-micro-stx 1000000)
-(define-constant namespace-1-char (/ (* 96000 stx-to-micro-stx) stx-to-usd-cents))
-(define-constant namespace-2-to-3-char (/ (* 9600 stx-to-micro-stx) stx-to-usd-cents))
-(define-constant namespace-4-to-7-char (/ (* 960 stx-to-micro-stx) stx-to-usd-cents))
-(define-constant namespace-8-to-20-char (/ (* 96 stx-to-micro-stx) stx-to-usd-cents))
+(define-constant namespace-tier-1 (/ (* 96000 stx-to-micro-stx) stx-to-usd-cents))
+(define-constant namespace-tier-2 (/ (* 9600 stx-to-micro-stx) stx-to-usd-cents))
+(define-constant namespace-tier-3 (/ (* 960 stx-to-micro-stx) stx-to-usd-cents))
+(define-constant namespace-tier-4 (/ (* 96 stx-to-micro-stx) stx-to-usd-cents))
 (define-constant namespace-price-table (list
-  namespace-1-char
-  namespace-2-to-3-char
-  namespace-2-to-3-char
-  namespace-4-to-7-char
-  namespace-4-to-7-char
-  namespace-4-to-7-char
-  namespace-4-to-7-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char))
+  namespace-tier-1
+  namespace-tier-2
+  namespace-tier-2
+  namespace-tier-3
+  namespace-tier-3
+  namespace-tier-3
+  namespace-tier-3
+  namespace-tier-4
+  namespace-tier-4
+  namespace-tier-4
+  namespace-tier-4
+  namespace-tier-4
+  namespace-tier-4
+  namespace-tier-4
+  namespace-tier-4
+  namespace-tier-4
+  namespace-tier-4
+  namespace-tier-4
+  namespace-tier-4
+  namespace-tier-4))
 ;; todo(ludo): "a" vs "A"?
 (define-constant discounted-vowels (list
   "a" "e" "i" "o" "u" "y"))
@@ -93,7 +93,12 @@
    (launched-at (optional uint))
    (namespace-version uint)
    (renewal-rule uint)
-   (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint)))))
+   (price-function (tuple 
+    (buckets (list 16 uint)) 
+    (base uint) 
+    (coeff uint) 
+    (nonalpha-discount uint) 
+    (no-voyel-discount uint)))))
 
 (define-map namespace-preorders
   ((hashed-namespace (buff 20)) (buyer principal))
@@ -127,26 +132,45 @@
   ((name (buff 20)) (namespace (buff 20)))
   ((content (buff 40960))))
 
+(define-data-var stx-price uint u12)
+
+(define-constant namespace-prices-tiers (list
+  u96000 u9600 u9600 u960 u960 u960 u960 u96))
+
+(define-private (min (a uint) (b uint))
+  (if (<= a b) a b))
+
 (define-private (compute-namespace-price (namespace (buff 20)))
-  u0)
-;;  (let ((namespace-len (fold increment-len namespace 0)))
-;;    (asserts 
-;;     (> namespace-len 0)
-;;      (err err-namespace-blank))
-    ;; todo(ludo): feature request?
-;;    (get-i namespace-len namespace-price-table)))
+  (let ((namespace-len (len namespace)))
+    (asserts!
+      (> namespace-len u0)
+      (err err-namespace-blank))
+    (ok (get value (fold 
+      element-at 
+      namespace-prices-tiers 
+      (tuple (limit (min u8 namespace-len)) (cursor u0) (value u0)))))))
+
+(define-private (element-at (i uint) (acc (tuple (limit uint) (cursor uint) (value uint))))
+  (if (eq? (get cursor acc) (get limit acc))
+    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (value i))
+    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (value (get value acc)))))
+  
+(define-private (get-exp-at-index (buckets (list 16 uint)) (index uint))
+  (get value (fold element-at buckets (tuple (limit index) (cursor u0) (value u0)))))
+
+(define-private (max (a uint) (b uint))
+  (if (> a b) a b))
 
 (define-private (compute-name-price (name (buff 16))
                                     (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint))))
-  u0)
-;;   (let ((name-len (fold increment-len name 0)))
-;;    (asserts 
-;;      (> name-len 0)
-;;      (err err-name-blank))
-    ;; todo(ludo): feature request?
-    ;; Check for vowels discounts
-    ;; Check for non-alpha-discounts
-;;    (get-i name-len buckets)))
+  (let ((exponent (get-exp-at-index (get buckets price-function) (- (len name) u1))))
+    (/
+      (*
+        (get coeff price-function)
+        (pow (get base price-function) exponent))
+      (max u1 (max
+        (get nonalpha-discount price-function)
+        (get no-voyel-discount price-function))))))
 
 ;; todo(ludo): to implement
 (define-private (has-name-expired (namespace (buff 20)) (name (buff 16)))
@@ -178,7 +202,7 @@
   (let ((former-preorder (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer contract-caller)))))
     ;; Ensure eventual former pre-order expired 
     (asserts! 
-      (if (is-none? former-preorder) 
+      (if (is-none? former-preorder)
         'true
         (>= block-height (+ namespace-preorder-claimability-ttl ;; todo(ludo): settle on [created-at created-at+ttl[ or [created-at created-at+ttl]
                             (expects! (get created-at former-preorder) (err err-panic))))) 
@@ -200,7 +224,26 @@
 ;; of the user.
 (define-public (namespace-reveal (namespace (buff 20))
                                  (namespace-version uint)
-                                 (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint)))
+                                 (p-func-base uint)
+                                 (p-func-coeff uint)
+                                 (p-func-b1 uint)
+                                 (p-func-b2 uint)
+                                 (p-func-b3 uint)
+                                 (p-func-b4 uint)
+                                 (p-func-b5 uint)
+                                 (p-func-b6 uint)
+                                 (p-func-b7 uint)
+                                 (p-func-b8 uint)
+                                 (p-func-b9 uint)
+                                 (p-func-b10 uint)
+                                 (p-func-b11 uint)
+                                 (p-func-b12 uint)
+                                 (p-func-b13 uint)
+                                 (p-func-b14 uint)
+                                 (p-func-b15 uint)
+                                 (p-func-b16 uint)
+                                 (p-func-non-alpha-discount uint)
+                                 (p-func-no-voyel-discount uint)
                                  (renewal-rule uint)
                                  (name-importer principal))
   ;; The salt and namespace must hash to a preorder entry in the `namespace_preorders` table.
@@ -209,14 +252,39 @@
     (let ((preorder (expects!
           (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
           (err err-namespace-preorder-not-found)))
-        (lowercased-namespace (buff-lowercased namespace)))
+        (lowercased-namespace (buff-lowercased namespace))
+        (price-function (tuple 
+          (buckets (list         
+            p-func-b1
+            p-func-b2
+            p-func-b3
+            p-func-b4
+            p-func-b5
+            p-func-b6
+            p-func-b7
+            p-func-b8
+            p-func-b9
+            p-func-b10
+            p-func-b11
+            p-func-b12
+            p-func-b13
+            p-func-b14
+            p-func-b15
+            p-func-b16))
+          (base p-func-base)
+          (coeff p-func-coeff)
+          (nonalpha-discount p-func-non-alpha-discount)
+          (no-voyel-discount p-func-no-voyel-discount)))
+        (namespace-price (expects! 
+          (compute-namespace-price namespace)
+          (err err-namespace-blank)))) ;; todo(ludo): not ideal.
     ;; The namespace must not exist yet in the `namespaces` table
     (asserts!
       (is-none? (map-get namespaces ((namespace lowercased-namespace))))
       (err err-namespace-already-exists))
     ;; The amount burnt must be equal to or greater than the cost of the namespace
     (asserts!
-      (> (get stx-burned preorder) (compute-namespace-price lowercased-namespace))
+      (> (get stx-burned preorder) namespace-price)
       (err err-namespace-stx-burnt-insufficient))
     ;; todo(ludo): validate the price function inputs
     ;; This transaction must arrive within 24 hours of its `NAMESPACE_PREORDER`
@@ -237,7 +305,7 @@
        (launched-at none)
        (namespace-version namespace-version)
        (renewal-rule renewal-rule)
-       (price-function price-function))))))
+       (price-function price-function)))))))
 
 ;; NAME_IMPORT
 ;; Once a namespace is revealed, the user has the option to populate it with a set of names. Each imported name is given

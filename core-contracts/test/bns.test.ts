@@ -23,7 +23,7 @@ describe("BNS Test Suite", () => {
     namespaceOwner: alice,
     nameOwner: bob,
     priceFunction: {
-      buckets: [],
+      buckets: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
       base: 1,
       coeff: 2,
       noVoyelDiscount: 0,
