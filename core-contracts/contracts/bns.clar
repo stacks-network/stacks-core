@@ -15,6 +15,7 @@
 (define-constant err-namespace-stx-burnt-insufficient 1012)
 (define-constant err-namespace-blank 1013)
 (define-constant err-namespace-already-launched 1014)
+(define-constant err-namespace-hash-malformed 1015)
 
 (define-constant err-name-preorder-not-found 2001)
 (define-constant err-name-preorder-expired 2002)
@@ -34,8 +35,10 @@
 
 (define-constant err-principal-already-associated 3001)
 (define-constant err-not-implemented 0)
+(define-constant err-insufficient-funds 4001)
 
 ;;;; Constants
+(define-constant burn-address 'S0000000000000000000002AA028H)
 
 ;; TTL
 ;; todo(ludo): add real values
@@ -215,9 +218,14 @@
         (>= block-height (+ namespace-preorder-claimability-ttl ;; todo(ludo): settle on [created-at created-at+ttl[ or [created-at created-at+ttl]
                             (expects! (get created-at former-preorder) (err err-panic)))))
       (err err-namespace-preorder-already-exists))
+          (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))
+    ;; Ensure that the hashed namespace is 20 bytes long
+    (asserts! (eq? (len hashed-namespace) u20) (err err-namespace-hash-malformed))
+    ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))
     ;; Burn the tokens - todo(ludo): switch to native STX once available
-    (ft-transfer! stx stx-to-burn tx-sender 'S0000000000000000000002AA028H)
+    (expects! (ft-transfer! stx stx-to-burn tx-sender burn-address) (err err-insufficient-funds))
+    ;; Register the preorder
     (map-set! namespace-preorders
       ((hashed-namespace hashed-namespace) (buyer contract-caller))
       ((created-at block-height) (claimed 'false) (stx-burned stx-to-burn)))

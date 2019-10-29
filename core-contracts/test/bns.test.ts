@@ -1,4 +1,4 @@
-import { Provider, ProviderRegistry, Receipt } from "@blockstack/clarity";
+import { Provider, ProviderRegistry, Receipt, Query } from "@blockstack/clarity";
 import { expect } from "chai";
 import { BNSClient, PriceFunction } from "../src/bns-client";
 
@@ -42,22 +42,62 @@ describe("BNS Test Suite", async () => {
   describe("NAMESPACE_PREORDER operation", async () => {
     before(async () => {
       await bns.deployContract();
+      // Seed Alice's balance
+      await bns.submitQuery()
     });
 
     it("should fail if 'hashed-namespace' is blank", async () => {
-      await bns.namespacePreorder("", cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+      // Should fail when using the helper
+      let error;
+      try {
+        await bns.namespacePreorder("", cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+      } catch (e) {
+        error = e;
+      }
+      expect(error).instanceOf(Error);
+      expect(error.message).eq("Namespace can't be empty");
+
+      // Should fail when bypassing the helper
+      const tx = bns.createTransaction({
+        method: { name: "namespace-preorder", args: [`""`, `u${cases[0].value}`] }
+      });
+      await tx.sign(cases[0].namespaceOwner);
+      const res = await bns.submitTransaction(tx);
+      expect(res.success).eq(false);
+      expect(res.result).eq('1015');
     });
 
     it("should fail if 'stx-to-burn' is 0", async () => {
-      await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 0, { sender: cases[0].namespaceOwner });
+      // Should fail when using the helper
+      let error;
+      try {
+        await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 0, { sender: cases[0].namespaceOwner });
+      } catch (e) {
+        error = e;
+      }
+      expect(error).instanceOf(Error);
+      expect(error.message).eq("STX should be non-zero positive");
+
+      // Should fail when bypassing the helper
+      const tx = bns.createTransaction({
+        method: { name: "namespace-preorder", args: [`0x09438924095489319301`, `u0`] }
+      });
+      await tx.sign(cases[0].namespaceOwner);
+      const res = await bns.submitTransaction(tx);
+      expect(res.success).eq(false);
+      expect(res.result).eq('1012');
     });
 
-    it("should fail if Alice's balance is less than 'stx-to-burn'");
+    it("should fail if Alice can't afford paying the fee", async () => {
+      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 10000, { sender: cases[0].namespaceOwner });
+      expect(receipt.success).eq(false);
+      expect(receipt.result).eq('4001');
+    });    
 
     it("should succeed when 'hashed-namespace' is a *unique 20 bytes buffer, 'stx-to-burn' > 0, and balance provisioned accordingly", async () => {
-      await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
-      // send queries
-      // todo(ludo): Check Alice's STX balance
+      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('u30');
     });    
 
     describe("Given an existing pre-order for 'hashed-namespace' re-ordering ", () => {
@@ -132,6 +172,7 @@ describe("BNS Test Suite", async () => {
       receipt = await bns.namespaceReveal(
         cases[0].namespace, 
         cases[0].version, 
+        cases[0].salt,
         cases[0].priceFunction, 
         cases[0].renewalRule, 
         cases[0].nameImporter, { sender: cases[0].namespaceOwner });

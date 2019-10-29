@@ -15,13 +15,19 @@ export class BNSClient extends Client {
     super("S1G2081040G2081040G2081040G208105NK8PE5.bns", "bns", provider);
   }
 
-
   // (namespace-preorder (hashed-namespace (buff 20))
   //                     (stx-to-burn uint))
   async namespacePreorder(namespace: string, 
                           salt: string,
                           STX: number, 
                           params: { sender: string }): Promise<Receipt> {
+    if (namespace === '') {
+      throw new Error("Namespace can't be empty");
+    }
+    if (STX <= 0) {
+      throw new Error("STX should be non-zero positive");
+    }
+
     let sha256 = new shajs.sha256().update(namespace).digest();
     let hash160 = new ripemd160().update(sha256).digest('hex');
     let hashedNamespace = `0x${hash160}`;
