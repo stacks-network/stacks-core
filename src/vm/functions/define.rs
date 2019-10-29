@@ -34,7 +34,7 @@ pub enum DefineResult {
     Function(ClarityName, DefinedFunction),
     Map(String, TupleTypeSignature, TupleTypeSignature),
     PersistedVariable(String, TypeSignature, Value),
-    FungibleToken(String, Option<i128>),
+    FungibleToken(String, Option<u128>),
     NonFungibleAsset(String, TypeSignature),
     NoDefine
 }
@@ -110,12 +110,8 @@ fn handle_define_fungible_token(asset_name: &ClarityName, total_supply: Option<&
     if let Some(total_supply_expr) = total_supply {
         let context = LocalContext::new();
         let total_supply_value = eval(total_supply_expr, env, &context)?;
-        if let Value::Int(total_supply_int) = total_supply_value {
-            if total_supply_int <= 0 {
-                Err(RuntimeErrorType::NonPositiveTokenSupply.into())
-            } else {
-                Ok(DefineResult::FungibleToken(asset_name.to_string(), Some(total_supply_int)))
-            }
+        if let Value::UInt(total_supply_int) = total_supply_value {
+            Ok(DefineResult::FungibleToken(asset_name.to_string(), Some(total_supply_int)))
         } else {
             Err(CheckErrors::TypeValueError(TypeSignature::UIntType, total_supply_value).into())
         }
