@@ -85,6 +85,9 @@
 ;;                                         (nonalpha-discount uint)
 ;;                                         (no-voyel-discount uint)))
 
+;; todo(ludo): replace this temporary token by the native STX
+(define-fungible-token stx)
+
 ;;;; Data
 (define-map namespaces
   ((namespace (buff 20)))
@@ -150,6 +153,11 @@
       namespace-prices-tiers 
       (tuple (limit (min u8 namespace-len)) (cursor u0) (value u0)))))))
 
+;; NAMESPACE_1_CHAR_COST_STACKS = int((96000.0 * MICROSTACKS_PER_STACKS) / STACKS_PRICE)
+;; NAMESPACE_23_CHAR_COST_STACKS = int((9600.0 * MICROSTACKS_PER_STACKS) / STACKS_PRICE)
+;; NAMESPACE_4567_CHAR_COST_STACKS = int((960.0 * MICROSTACKS_PER_STACKS) / STACKS_PRICE)
+;; NAMESPACE_8UP_CHAR_COST_STACKS = int((96.0 * MICROSTACKS_PER_STACKS) / STACKS_PRICE)
+
 (define-private (element-at (i uint) (acc (tuple (limit uint) (cursor uint) (value uint))))
   (if (eq? (get cursor acc) (get limit acc))
     (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (value i))
@@ -205,10 +213,11 @@
       (if (is-none? former-preorder)
         'true
         (>= block-height (+ namespace-preorder-claimability-ttl ;; todo(ludo): settle on [created-at created-at+ttl[ or [created-at created-at+ttl]
-                            (expects! (get created-at former-preorder) (err err-panic))))) 
+                            (expects! (get created-at former-preorder) (err err-panic)))))
       (err err-namespace-preorder-already-exists))
-    ;; Burn the tokens
-    ;; todo(ludo): we are missing stx-burn! native function
+    (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))
+    ;; Burn the tokens - todo(ludo): switch to native STX once available
+    (ft-transfer! stx stx-to-burn tx-sender 'S0000000000000000000002AA028H)
     (map-set! namespace-preorders
       ((hashed-namespace hashed-namespace) (buyer contract-caller))
       ((created-at block-height) (claimed 'false) (stx-burned stx-to-burn)))
@@ -224,6 +233,7 @@
 ;; of the user.
 (define-public (namespace-reveal (namespace (buff 20))
                                  (namespace-version uint)
+                                 (namespace-salt (buff 20))
                                  (p-func-base uint)
                                  (p-func-coeff uint)
                                  (p-func-b1 uint)
@@ -248,36 +258,38 @@
                                  (name-importer principal))
   ;; The salt and namespace must hash to a preorder entry in the `namespace_preorders` table.
   ;; The sender must match the principal in the preorder entry (implied)
-  (let ((hashed-namespace (hash160 namespace)))
-    (let ((preorder (expects!
-          (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
-          (err err-namespace-preorder-not-found)))
-        (lowercased-namespace (buff-lowercased namespace))
-        (price-function (tuple 
-          (buckets (list         
-            p-func-b1
-            p-func-b2
-            p-func-b3
-            p-func-b4
-            p-func-b5
-            p-func-b6
-            p-func-b7
-            p-func-b8
-            p-func-b9
-            p-func-b10
-            p-func-b11
-            p-func-b12
-            p-func-b13
-            p-func-b14
-            p-func-b15
-            p-func-b16))
-          (base p-func-base)
-          (coeff p-func-coeff)
-          (nonalpha-discount p-func-non-alpha-discount)
-          (no-voyel-discount p-func-no-voyel-discount)))
-        (namespace-price (expects! 
-          (compute-namespace-price namespace)
-          (err err-namespace-blank)))) ;; todo(ludo): not ideal.
+  (let (
+    (hashed-namespace (hash160 namespace))
+    (price-function (tuple 
+      (buckets (list         
+        p-func-b1
+        p-func-b2
+        p-func-b3
+        p-func-b4
+        p-func-b5
+        p-func-b6
+        p-func-b7
+        p-func-b8
+        p-func-b9
+        p-func-b10
+        p-func-b11
+        p-func-b12
+        p-func-b13
+        p-func-b14
+        p-func-b15
+        p-func-b16))
+      (base p-func-base)
+      (coeff p-func-coeff)
+      (nonalpha-discount p-func-non-alpha-discount)
+      (no-voyel-discount p-func-no-voyel-discount))))
+    (let (
+      (preorder (expects!
+        (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
+        (err err-namespace-preorder-not-found)))
+      (lowercased-namespace (buff-lowercased namespace))
+      (namespace-price (expects! 
+        (compute-namespace-price namespace)
+        (err err-namespace-blank)))) ;; todo(ludo): not ideal.
     ;; The namespace must not exist yet in the `namespaces` table
     (asserts!
       (is-none? (map-get namespaces ((namespace lowercased-namespace))))

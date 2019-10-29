@@ -15,6 +15,7 @@ export class BNSClient extends Client {
     super("S1G2081040G2081040G2081040G208105NK8PE5.bns", "bns", provider);
   }
 
+
   // (namespace-preorder (hashed-namespace (buff 20))
   //                     (stx-to-burn uint))
   async namespacePreorder(namespace: string, 
@@ -39,6 +40,7 @@ export class BNSClient extends Client {
   //                   (name-importer principal))
   async namespaceReveal(namespace: string, 
                         namespaceVersion: number, 
+                        salt: string,
                         priceFunction: PriceFunction, 
                         renewalRule: number, 
                         nameImporter: string, 
@@ -50,7 +52,7 @@ export class BNSClient extends Client {
       `u${priceFunction.nonAlphaDiscount}`, 
       `u${priceFunction.noVoyelDiscount}`];
     const tx = this.createTransaction({
-      method: { name: "namespace-reveal", args: [`"${namespace}"`, `u${namespaceVersion}`, ...priceFuncAsArgs, `u${renewalRule}`, `'${nameImporter}`] }
+      method: { name: "namespace-reveal", args: [`"${namespace}"`, `u${namespaceVersion}`, `"${salt}"`, ...priceFuncAsArgs, `u${renewalRule}`, `'${nameImporter}`] }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);

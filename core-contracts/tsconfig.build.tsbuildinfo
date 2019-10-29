@@ -337,9 +337,17 @@
         "version": "db5f87b098977860a6a4b42e7f4083206c862e99c6f6210ed5a8d3f9bfc5f91e",
         "signature": "db5f87b098977860a6a4b42e7f4083206c862e99c6f6210ed5a8d3f9bfc5f91e"
       },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/ripemd160/index.d.ts": {
+        "version": "9cfa85b3e62aa1b98d51df7a462e9e18996bc911fab2f795e4cc1e2b393ae190",
+        "signature": "9cfa85b3e62aa1b98d51df7a462e9e18996bc911fab2f795e4cc1e2b393ae190"
+      },
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/sha.js/index.d.ts": {
+        "version": "b6a6fb3519346f9cd67d89bb7455138328691b1780688fac1febe03ae3648cd9",
+        "signature": "b6a6fb3519346f9cd67d89bb7455138328691b1780688fac1febe03ae3648cd9"
+      },
       "/Users/ludovic/Coding/blockstack-core/core-contracts/src/bns-client.ts": {
-        "version": "3b9336a32e0b9538a86df014d20164385d1d90a5988dbe9016dda306004f77aa",
-        "signature": "c7cdf5fcc9f7c5e8d590ba6dd7bcf7295448d2d23b560d11bfc474f59bc1987a"
+        "version": "931f62d08165e5aa60a64d58467e8ed804d97d805acf3f2958c183c632a11b16",
+        "signature": "9177b39a2eea91e3860c0658cf5771eaa9c6ee21e66f2403b986465421731685"
       },
       "/Users/ludovic/Coding/blockstack-core/core-contracts/src/index.ts": {
         "version": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -823,8 +831,22 @@
         "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
         "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
       ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/ripemd160/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/crypto.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/sha.js/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/crypto.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
       "/Users/ludovic/Coding/blockstack-core/core-contracts/src/bns-client.ts": [
         "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/ripemd160/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/sha.js/index.d.ts",
         "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
         "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
       ],
@@ -1081,6 +1103,18 @@
         "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts",
         "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/globals.d.ts",
         "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/sha.js/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/crypto.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
+      ],
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/ripemd160/index.d.ts": [
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/crypto.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/index.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/util.d.ts",
+        "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/ts3.2/util.d.ts"
       ],
       "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/utils/processUtil.d.ts": [
         "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/node/stream.d.ts",
@@ -1389,6 +1423,8 @@
       "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/registry.d.ts",
       "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/providers/index.d.ts",
       "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@blockstack/clarity/lib/index.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/ripemd160/index.d.ts",
+      "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/sha.js/index.d.ts",
       "/Users/ludovic/Coding/blockstack-core/core-contracts/src/bns-client.ts",
       "/Users/ludovic/Coding/blockstack-core/core-contracts/src/index.ts",
       "/Users/ludovic/Coding/blockstack-core/core-contracts/node_modules/@types/chai/index.d.ts",

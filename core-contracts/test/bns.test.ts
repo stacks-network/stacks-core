@@ -2,7 +2,7 @@ import { Provider, ProviderRegistry, Receipt } from "@blockstack/clarity";
 import { expect } from "chai";
 import { BNSClient, PriceFunction } from "../src/bns-client";
 
-describe("BNS Test Suite", () => {
+describe("BNS Test Suite", async () => {
   let bns: BNSClient;
   let provider: Provider;
 
@@ -44,32 +44,35 @@ describe("BNS Test Suite", () => {
       await bns.deployContract();
     });
 
-    it("should succeed when 'hashed-namespace' is a *unique 20 bytes buffer, 'stx-to-burn' > 0, and balance provisioned accordingly", async () => {
-      // await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+    it("should fail if 'hashed-namespace' is blank", async () => {
+      await bns.namespacePreorder("", cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
     });
 
-    it("should fail if 'hashed-namespace' is missing");
-
-    it("should fail if 'hashed-namespace' is not exactly 20 bytes long");
-
-    it("should fail if 'stx-to-burn' is missing");
-
-    it("should fail if 'stx-to-burn' is 0");
+    it("should fail if 'stx-to-burn' is 0", async () => {
+      await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 0, { sender: cases[0].namespaceOwner });
+    });
 
     it("should fail if Alice's balance is less than 'stx-to-burn'");
 
-    describe("Given an existing pre-order for 'hashed-namespace' from Alice", () => {
-      it("should fail on re-submissions if TTL did not expire");
+    it("should succeed when 'hashed-namespace' is a *unique 20 bytes buffer, 'stx-to-burn' > 0, and balance provisioned accordingly", async () => {
+      await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+      // send queries
+      // todo(ludo): Check Alice's STX balance
+    });    
 
-      it("should succeed on re-submissions if TTL did expire");
-    });
-
-    describe("Given an existing pre-order for 'hashed-namespace' from Bob", () => {
-      it("should fail on re-submissions if TTL did not expire");
-
-      it("should succeed on re-submissions if TTL did expire");
+    describe("Given an existing pre-order for 'hashed-namespace' re-ordering ", () => {
+      describe("When Bob submits a pre-order with the same salted hashed namespace", async () => {
+        it("should succeed");  
+      });
+      describe("When Alice submits a pre-order with the same salted hashed namespace", () => {
+        it("should fail if TTL is still valid");
+  
+        it("should succeed if TTL is expired");
+      });  
     });
   });
+
+      // testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
 
   describe("NAMESPACE_REVEAL operation", async () => {
     it("should fail if 'salt' is missing");
