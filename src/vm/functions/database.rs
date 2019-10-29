@@ -210,7 +210,7 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
-        Value::Int(result) => Ok(result),
+        Value::UInt(result) => Ok(result),
         x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x))
     }?;
 

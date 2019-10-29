@@ -556,7 +556,7 @@ block indicated by the _block-hash_ argument. The `expr` closure must be read-on
 The function returns the result of evaluating `expr`.
 ",
     example: "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 (var-get data))
-(at-block (get-block-info header-hash (- block-height 10)) (var-get data))"
+(at-block (get-block-info header-hash (- block-height u10)) (var-get data))"
 };
         
 
@@ -669,9 +669,9 @@ and block times are accurate only to within two hours. See [BIP113](https://gith
 
 The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 32-byte buffer. 
 ",
-    example: "(get-block-info time 10) ;; Returns 1557860301
-(get-block-info header-hash 2) ;; Returns 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb
-(get-block-info vrf-seed 6) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4
+    example: "(get-block-info time u10) ;; Returns 1557860301
+(get-block-info header-hash u2) ;; Returns 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb
+(get-block-info vrf-seed u6) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4
 "
 };
 
