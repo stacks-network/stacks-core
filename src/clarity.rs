@@ -273,9 +273,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             };
 
-            let contract_name = &args[1];
-            let contract_identifier = friendly_expect(QualifiedContractIdentifier::local(contract_name), 
-                                                      "Failed to get contract name");
+            let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[1]), "Failed to parse contract identifier.");
 
             let mut vm_env = OwnedEnvironment::new(db);
             
