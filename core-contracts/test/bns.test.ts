@@ -42,8 +42,6 @@ describe("BNS Test Suite", async () => {
   describe("NAMESPACE_PREORDER operation", async () => {
     before(async () => {
       await bns.deployContract();
-      // Seed Alice's balance
-      await bns.submitQuery()
     });
 
     it("should fail if 'hashed-namespace' is blank", async () => {
@@ -89,7 +87,7 @@ describe("BNS Test Suite", async () => {
     });
 
     it("should fail if Alice can't afford paying the fee", async () => {
-      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 10000, { sender: cases[0].namespaceOwner });
+      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 2000, { sender: cases[0].namespaceOwner });
       expect(receipt.success).eq(false);
       expect(receipt.result).eq('4001');
     });    
@@ -100,14 +98,33 @@ describe("BNS Test Suite", async () => {
       expect(receipt.result).eq('u30');
     });    
 
-    describe("Given an existing pre-order for 'hashed-namespace' re-ordering ", () => {
+    describe("Given an existing pre-order for 'blockstack' registered by Alice ", () => {
       describe("When Bob submits a pre-order with the same salted hashed namespace", async () => {
-        it("should succeed");  
+        it("should succeed", async () => {
+          let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: bob });
+          expect(receipt.success).eq(true);
+          expect(receipt.result).eq('u30');
+        }); 
       });
+
       describe("When Alice submits a pre-order with the same salted hashed namespace", () => {
-        it("should fail if TTL is still valid");
+        it("should fail if TTL is still valid", async () => {
+          let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+          expect(receipt.success).eq(false);
+          expect(receipt.result).eq('1003');
+        });
   
-        it("should succeed if TTL is expired");
+        it("should succeed if TTL is expired", async () => {
+          // for (let i = 0; i < 40; i++) { 
+          //   await provider.mineBlock();
+          // }
+
+          await provider.mineBlock();
+          
+          let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: bob });
+          expect(receipt.success).eq(true);
+          expect(receipt.result).eq('u30');
+        }); 
       });  
     });
   });

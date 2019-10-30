@@ -75,7 +75,7 @@
   namespace-tier-4
   namespace-tier-4
   namespace-tier-4))
-;; todo(ludo): "a" vs "A"?
+;; todo(ludo): "a" vs "A"? "+" ?
 (define-constant discounted-vowels (list
   "a" "e" "i" "o" "u" "y"))
 (define-constant discounted-non-alpha-chars (list
@@ -210,7 +210,9 @@
 ;; Returns pre-order's expiration date (in blocks).
 (define-public (namespace-preorder (hashed-namespace (buff 20))
                                    (stx-to-burn uint))
-  (let ((former-preorder (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer contract-caller)))))
+  (let 
+    ((former-preorder 
+      (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer contract-caller)))))
     ;; Ensure eventual former pre-order expired 
     (asserts! 
       (if (is-none? former-preorder)
@@ -297,7 +299,7 @@
       (lowercased-namespace (buff-lowercased namespace))
       (namespace-price (expects! 
         (compute-namespace-price namespace)
-        (err err-namespace-blank)))) ;; todo(ludo): not ideal.
+        (err err-namespace-blank))))
     ;; The namespace must not exist yet in the `namespaces` table
     (asserts!
       (is-none? (map-get namespaces ((namespace lowercased-namespace))))
@@ -675,6 +677,11 @@
        (imported-at none)
        (revoked-at none)))
     (ok 1)))
+
+;; todo(ludo): to be removed
+(begin
+  (ft-mint! stx u1000 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7)
+  (ft-mint! stx u1000 'S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE))
 
 ;;;; SPONSORED_NAME
 

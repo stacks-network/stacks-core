@@ -399,9 +399,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 Ok((x, _)) => {
                     if let Value::Response(data) = x {
                         if data.committed {
-                            println!("Transaction executed and committed. Returned: {}", data.data);
+                            println!("{{\"success\": true, \"result\": \"{}\"}}", data.data);
                         } else {
-                            println!("Aborted: {}", data.data);
+                            println!("{{\"success\": false, \"result\": \"{}\"}}", data.data);
                         }
                     } else {
                         panic!(format!("Expected a ResponseType result from transaction. Found: {}", x));
