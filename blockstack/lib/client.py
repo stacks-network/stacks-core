@@ -3433,6 +3433,17 @@ def get_transaction_status(txid, hostport=None, proxy=None):
                     'op': {
                         'type': 'string'
                     },
+                    'reason': {
+                        'anyOf': [
+                            {
+                                'type': 'string',
+                            },
+                            {
+                                'type': 'null'
+                            }
+                        ]
+                    }
+                        
                 },
                 'required': ['status']
             },
