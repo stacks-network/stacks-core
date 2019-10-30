@@ -254,6 +254,12 @@ snv_fail = []
 # names we expect will fail SNV, at a particular block 
 snv_fail_at = {}
 
+# globally deactivate SNV test
+disable_snv = False
+
+# globally deactive DID test
+disable_did_test = False
+
 # zonefiles that should be stored, since we pushed them 
 atlas_zonefiles_present = []
 
@@ -310,6 +316,15 @@ def expect_snv_fail_at( name, block_id ):
     else:
         snv_fail_at[block_id].append(name)
 
+
+def disable_snv_checks():
+    global disable_snv
+    disable_snv = True
+
+
+def disable_did_checks():
+    global disable_did_test
+    disable_did_test = True
 
 def expect_atlas_zonefile( zonefile_hash ):
     """
@@ -2041,6 +2056,11 @@ def snv_all_names( state_engine ):
     global api_call_history
     global snv_fail
     global snv_fail_at
+    global disable_snv
+
+    if disable_snv:
+        log.debug("SNV checks disabled for this test")
+        return True
 
     all_names = {}  # map name to {"block_id":..., "consensus_hash":...}
 
@@ -2296,6 +2316,11 @@ def check_historic_names_by_address( state_engine ):
     global api_call_history
     global snv_fail_at
     global snv_fail
+    global disable_did_test
+
+    if disable_did_test:
+        log.debug("Skipping DID test")
+        return True
 
     ret = True
 
