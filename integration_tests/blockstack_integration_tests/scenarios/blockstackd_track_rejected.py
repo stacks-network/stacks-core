@@ -34,7 +34,7 @@ TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 683
 TEST ENV BLOCKSTACK_EPOCH_3_END_BLOCK 684
 TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 1
 TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER 1
-TEST ENV BLOCKSTACK_DB_SAVE_REJECTED 1"
+TEST ENV BLOCKSTACK_DB_SAVE_REJECTED 1
 """
 
 wallets = [
@@ -53,19 +53,22 @@ def test_failed_tx(txid, op):
     assert resp['tx']['op'] == op, json.dumps(resp)
     
 def scenario( wallets, **kw ):
+   
+    testlib.disable_snv_checks()
+    testlib.disable_did_checks()
 
     # make failed transactions
-    resp = testlib.blockstack_namespace_preorder("test", wallets[1].addr, wallets[0].privkey, consensus_hash='00000000000000000000000000000000', safety_checks=False, expect_fail=True)
+    resp = testlib.blockstack_namespace_preorder("test2", wallets[1].addr, wallets[0].privkey, consensus_hash='00000000000000000000000000000000', safety_checks=False, expect_fail=True)
     testlib.next_block( **kw )
 
     test_failed_tx(resp['transaction_hash'], 'NAMESPACE_PREORDER')
 
-    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS, safety_checks=False, expect_fail=True)
+    resp = testlib.blockstack_namespace_reveal( "test2", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS, safety_checks=False, expect_fail=True)
     testlib.next_block( **kw )
     
     test_failed_tx(resp['transaction_hash'], 'NAMESPACE_REVEAL')
 
-    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey, safety_checks=False, expect_fail=True)
+    resp = testlib.blockstack_namespace_ready( "test2", wallets[1].privkey, safety_checks=False, expect_fail=True)
     testlib.next_block( **kw )
     
     test_failed_tx(resp['transaction_hash'], 'NAMESPACE_READY')
@@ -83,7 +86,7 @@ def scenario( wallets, **kw ):
     # start failing again
     resp = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, consensus_hash='00000000000000000000000000000000', safety_checks=False, expect_fail=True)
     testlib.next_block( **kw )
-
+    
     test_failed_tx(resp['transaction_hash'], 'NAME_PREORDER')
 
     resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, safety_checks=False, expect_fail=True)
@@ -98,17 +101,17 @@ def scenario( wallets, **kw ):
     
     resp = testlib.blockstack_name_transfer("foo.test", wallets[0].addr, True, wallets[3].privkey, safety_checks=False, expect_fail=True)
     testlib.next_block(**kw)
-
+    
     test_failed_tx(resp['transaction_hash'], 'NAME_TRANSFER')
 
     resp = testlib.blockstack_name_renew("foo.test", wallets[3].privkey, safety_checks=False, expect_fail=True)
     testlib.next_block(**kw)
-
+    
     test_failed_tx(resp['transaction_hash'], 'NAME_REGISTRATION')
 
     resp = testlib.blockstack_name_revoke("foo.test", wallets[3].privkey, safety_checks=False, expect_fail=True)
     testlib.next_block(**kw)
-
+    
     test_failed_tx(resp['transaction_hash'], 'NAME_REVOKE')
 
     resp = testlib.blockstack_send_tokens(wallets[0].addr, 'STACKS', 123, wallets[3].privkey, consensus_hash='11111111111111111111111111111111', safety_checks=False, expect_fail=True)
