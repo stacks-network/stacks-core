@@ -13,7 +13,7 @@ Ping the Blockstack node to see if it's alive.
 + Response 200 (application/json)
   + Body
 
-            {
+            { 
                 "status": "alive",
                 "version": "###version###"
             }
@@ -33,6 +33,78 @@ Ping the Blockstack node to see if it's alive.
                     "status",
                     "version"
                 ]
+            }
+
+## Query the node's runtime status [GET /v1/info]
+
+Get the Blockstack node's runtime status, to see if it is indexing or not, and
+to see how far along it is in indexing the blockchain.
+
++ Public Endpoint
++ Response 200 (application/json)
+  + Body
+
+            {
+                "consensus": "a55d440eb192a1857739b0e0742fd312",
+                "first_block": 373601,
+                "indexing": false,
+                "last_block_processed": 601574,
+                "last_block_seen": 601580,
+                "server_alive": true,
+                "server_version": "###version###",
+                "testnet": false,
+                "zonefile_count": 103123
+            }
+
+  + Schema
+
+            {
+               "type": "object",
+               "properties": {
+                  "consensus": {
+                     "type": "string",
+                     "pattern": "^[0-9a-f]{32}$",
+                  },
+                  "first_block": {
+                     "type": "integer",
+                     "minimum": 0,
+                  },
+                  "indexing": {
+                     "type": "boolean"
+                  },
+                  "last_block_processed": {
+                     "type": "integer",
+                     "minimum": 0,
+                  },
+                  "last_block_seen": {
+                     "type": "integer",
+                     "minimum": 0,
+                  },
+                  "server_alive": {
+                     "type": "boolean",
+                  },
+                  "server_version": {
+                     "type": "string",
+                  },
+                  "testnet": {
+                     "type": "boolean",
+                  },
+                  "zonefile_count": {
+                     "type": "integer",
+                     "minimum": 0
+                  }
+               },
+               "required": [
+                  "consensus",
+                  "first_block",
+                  "indexing",
+                  "last_block_processed',
+                  "last_block_seen",
+                  "server_alive",
+                  "server_version",
+                  "testnet",
+                  "zonefile_count"
+               ]
             }
 
 # Group Managing Names
@@ -1005,6 +1077,106 @@ Get the current Blockstack consensus hash on a blockchain.
                 },
             }
 
+## Get consensus hash at a block height [GET /v1/blockchains/{blockchainName}/consensus/{blockHeight}]
+
+Get the consensus hash at a prior block height.  If the block was not yet
+processed, this endpoint returns an HTTP 503 error code.
+
++ Public Endpoint
++ Parameters
+   + blockchainName : bitcoin (string) - the given blockchain
+   + blockHeight : 599286 (integer) - the block height
++ Response 200 (application/json)
+   + Body
+
+            {
+               "consensus_hash": "28bbe023522c6dc29e962fa8b3d9520b"
+            }
+
+   + Schema
+
+            {
+               "type": "object",
+               "properties": {
+                  "consensus_hash": {
+                     "type": "string",
+                     "pattern": "^[0-9a-fA-F]{32}$",
+                  },
+               },
+               "required": [ "consensus_hash" ]
+            }
+
++ Response 404 (application/json)
+   + Body
+
+            {
+               "error": "Unsupported blockchain"
+            }
+
+   + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': { 'type': 'string' },
+                },
+            }
+
++ Response 503 (application/json)
+   + Body
+
+            { "error": "The node has not processed block 10000000" }
+
+   + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': { 'type': 'string' },
+                },
+            }
+
+## Get the block height of a consensus hash [GET /v1/blockchains/{blockchainName}/consensus-block/{consensusHash}]
+
+Get the block height of a given consensus hash. 
++ Public Endpoint
++ Parameters
+   + blockchainName : bitcoin (string) - the given blockchain
+   + consensusHash : 9a580fc92380a546116089025ec3abb2 (string) - the given consensus hash
++ Response 200 (application/json)
+   + Body
+
+            {
+               "block_height": 599840
+            }
+
+   + Schema
+
+            {
+               "type": "object",
+               "properties": {
+                  "block_height": {
+                     "type": "integer",
+                     "minimum": 0
+                  }
+               },
+               "required": [ "block_height" ]
+            }
+
++ Response 404 (application/json)
+   + Body
+
+            { "error": "No block for this consensus hash" }
+
+   + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': { 'type': 'string' },
+                },
+            }
+
 ## Get total names on blockchain [GET /v1/blockchains/{blockchainName}/name_count{?all}]
 
 Get a count of the number of names on a blockchain.  This does not include
@@ -1639,6 +1811,79 @@ Get the Blockstack operations in a given block
                 'properties': {
                     'error': { 'type': 'string' },
                 },
+            }
+
+## Get the status of an indexed transaction [GET /v1/blockchains/{blockchainName}/transactions/{transactionID}]
+
+Get the status of an indexed transaction -- whether or not it was accepted by
+the consensus rules, rejected by the consensus rules, or ignored entirely.  This
+method is best-effort in that it is only guaranteed to identify transactions
+that were accepted.  The node operator must explicitly activate the ability to
+track rejected transactions as well, and even then, the node operator does not
+need to store all rejected transactions.  If there was no data stored for a
+transaction, it will be reported as ignored.
++ Public Endpoint
++ Parameters
+  + blockchainName: bitcoin (string) - the given blockchain
+  + transactionID: c5e3d37362a5e02630f9e2a8e43295c353d2b0c3443f0497fa1f8a1df97fff99 (string) - the transaction ID
++ Response 200 (application/json)
+   + Body
+
+            {
+                "indexing": true,
+                "lastblock": 600234,
+                "status": true,
+                "tx": {
+                    "block_height": 600226,
+                    "op": "TOKEN_TRANSFER",
+                    "status": "rejected",
+                    "vtxindex": 2409
+                } 
+            }
+
+   + Schema
+
+            {
+               "type": "object",
+               "properties": {
+                  "indexing": {
+                     "type": "boolean",
+                  },
+                  "lastblock": {
+                     "type": "integer",
+                     "minimum" 0,
+                  },
+                  "status": {
+                     "type": "boolean",
+                  },
+                  "tx": {
+                     "type": "object",
+                     "properties": {
+                        "block_height": {
+                           "type": "integer",
+                           "minimum": 0,
+                        },
+                        "op": {
+                           "type": "string",
+                        },
+                        "status": {
+                           "type": "string",
+                           "pattern": "^accepted$|^rejected$|^ignored$",
+                        },
+                        "vtxindex": {
+                           "type": "integer",
+                           "minimum": 0
+                        },
+                     },
+                     "required": [ "status" ]
+                  },
+               },
+               "required': {
+                  "indexing",
+                  "lastblock",
+                  "status",
+                  "tx"
+               }
             }
 
 # Group Namespace Operations
