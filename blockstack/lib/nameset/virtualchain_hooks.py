@@ -373,6 +373,7 @@ def db_check( block_id, new_ops, op, op_data, txid, vtxindex, checked_ops, db_st
                 os.abort()
 
         else:
+            db_state.log_reject(block_id, vtxindex, op, op_data, do_print=False)
             accept = False 
 
     return accept
@@ -493,6 +494,14 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
         except Exception as e:
             log.exception(e)
             log.fatal("Failed to vest accounts at {}+1".format(block_height))
+            os.abort()
+
+        # record all rejected transactions
+        try:
+            db_state.store_rejected(block_height)
+        except Exception as e:
+            log.exception(e)
+            log.fatal("Failed to log rejected txs")
             os.abort()
 
         try:
