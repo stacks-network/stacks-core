@@ -269,9 +269,9 @@
   ;; The salt and namespace must hash to a preorder entry in the `namespace_preorders` table.
   ;; The sender must match the principal in the preorder entry (implied)
   (let (
-    (hashed-namespace (hash160 namespace))
+    (hashed-namespace (hash160 (concat namespace namespace-salt)))
     (price-function (tuple 
-      (buckets (list         
+      (buckets (list
         p-func-b1
         p-func-b2
         p-func-b3

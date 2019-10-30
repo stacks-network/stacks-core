@@ -28,7 +28,7 @@ export class BNSClient extends Client {
       throw new Error("STX should be non-zero positive");
     }
 
-    let sha256 = new shajs.sha256().update(namespace).digest();
+    let sha256 = new shajs.sha256().update(`${namespace}${salt}`).digest();
     let hash160 = new ripemd160().update(sha256).digest('hex');
     let hashedNamespace = `0x${hash160}`;
     const tx = this.createTransaction({
