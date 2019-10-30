@@ -444,19 +444,19 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 panic_test!();
             }
 
-            let db = match SqliteConnection::open(&args[1]) {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n{}", error);
-                    panic_test!();
-                }
-            };
+            let vm_filename = &args[1];
 
-            let mut db = ClarityDatabase::new(Box::new(db));
-            db.begin();
-            let blockheight = db.get_simmed_block_height();
-            println!("Simulated block height: \n{}", blockheight);
-            db.roll_back();
+            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
+            in_block(marf_kv, |mut kv| {
+                { 
+                    let mut db = clarity_db(&mut kv);
+                    db.begin();
+                    let blockheight = db.get_simmed_block_height();
+                    db.roll_back();
+                    println!("Simulated block height: \n{}", blockheight)
+                };
+                (kv, ())
+            });
         },
         _ => {
             print_usage(invoked_by)
