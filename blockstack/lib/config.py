@@ -1613,19 +1613,19 @@ def default_blockstack_opts( working_dir, config_file=None ):
    save_rejected_environ = False
 
    try:
-       backup_frequency = int(os.environ.get(BACKUP_FREQUENCY_ENV_VAR, backup_frequency))
+       backup_frequency = int(os.environ.get(BACKUP_FREQUENCY_ENV_VAR, None))
        backup_frequency_environ = True
    except:
        pass
 
    try:
-       backup_max_age = int(os.environ.get(BACKUP_MAX_AGE_ENV_VAR, backup_max_age))
+       backup_max_age = int(os.environ.get(BACKUP_MAX_AGE_ENV_VAR, None))
        backup_max_age_environ = True
    except:
        pass
 
    try:
-       save_rejected_value = int(os.environ.get(SAVE_REJECTED_ENV_VAR, "0"))
+       save_rejected_value = int(os.environ.get(SAVE_REJECTED_ENV_VAR, None))
        save_rejected = save_rejected_value != 0
        save_rejected_environ = True
    except:
