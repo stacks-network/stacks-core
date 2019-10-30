@@ -126,7 +126,7 @@ class BlockstackDB(virtualchain.StateEngine):
                 self.db_metadata = namedb_metadata_create(db_metadata_path)
             else:
                 self.db_metadata = namedb_metadata_open(db_metadata_path)
-
+        
         # vesting flags for blocks
         self.vesting = {}
 
@@ -519,7 +519,8 @@ class BlockstackDB(virtualchain.StateEngine):
 
     def log_reject( self, block_id, vtxindex, op, op_data, do_print=True):
         """
-        Log a rejected operation
+        Log a rejected operation.
+        Idempotently updates self.rejected table.
         """
 
         debug_op = self.sanitize_op( op_data )
@@ -531,13 +532,28 @@ class BlockstackDB(virtualchain.StateEngine):
                     ", ".join( ["%s='%s'" % (k, debug_op[k]) for k in sorted(debug_op.keys())] ))
 
         if block_id not in self.rejected:
+            self.rejected[block_id] = {vtxindex: {}}
+
+        self.rejected[block_id][vtxindex]['op'] = op
+        self.rejected[block_id][vtxindex]['txid'] = op_data['txid']
+        
+        return
+
+
+    def log_reject_reason(self, block_id, vtxindex, op, txid, reason):
+        """
+        Add a reason as to why a transaction was rejected
+        """
+        if block_id not in self.rejected:
             self.rejected[block_id] = {}
 
         self.rejected[block_id][vtxindex] = {
             'op': op,
-            'txid': op_data['txid']
+            'txid': txid,
+            'reason': reason
         }
         
+        log.warning(reason)
         return
 
 
@@ -2095,8 +2111,12 @@ class BlockstackDB(virtualchain.StateEngine):
         for vtxindex in rejected.keys():
             txid = '{}'.format(rejected[vtxindex]['txid'])
             op = '{}'.format(rejected[vtxindex]['op'])
-            sql = "INSERT OR REPLACE INTO rejected (block_id,vtxindex,op,txid) VALUES (?,?,?,?)"
-            args = ('{}'.format(block_id), '{}'.format(vtxindex), op, txid)
+            reason = rejected[vtxindex].get('reason', None)
+            if reason is not None:
+                reason = '{}'.format(reason)
+
+            sql = "INSERT OR REPLACE INTO rejected (block_id,vtxindex,op,txid,reason) VALUES (?,?,?,?,?)"
+            args = ('{}'.format(block_id), '{}'.format(vtxindex), op, txid, reason)
             namedb_query_execute(self.db_metadata, sql, args)
 
         namedb_query_execute(self.db_metadata, "END", ())
@@ -2116,7 +2136,7 @@ class BlockstackDB(virtualchain.StateEngine):
                 'status': 'accepted',
                 'block_height': hist_row['block_id'],
                 'vtxindex': hist_row['vtxindex'],
-                'op': hist_row['op']
+                'op': hist_row['op'],
             }
             return ret
 
@@ -2134,7 +2154,8 @@ class BlockstackDB(virtualchain.StateEngine):
                 'status': 'rejected',
                 'block_height': row['block_id'],
                 'vtxindex': row['vtxindex'],
-                'op': row['op']
+                'op': row['op'],
+                'reason': row.get('reason', '(not recorded)')
             }
             return rejected_row
 
