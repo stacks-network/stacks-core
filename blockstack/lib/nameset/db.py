@@ -248,11 +248,12 @@ DROP TABLE account_vesting;
 """
 
 BLOCKSTACK_METADATA_DB_SCRIPT = """
-CREATE TABLE rejected(
+CREATE TABLE IF NOT EXISTS rejected(
     block_id INT NOT NULL,
     vtxindex INT NOT NULL,
     op TEXT NOT NULL,
     txid TEXT NOT NULL,
+    reason TEXT,
     PRIMARY KEY(txid)
 );
 CREATE TABLE IF NOT EXISTS db_version( version TEXT NOT NULL );
