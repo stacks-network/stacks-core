@@ -247,6 +247,17 @@ DROP TABLE accounts;
 DROP TABLE account_vesting;
 """
 
+BLOCKSTACK_METADATA_DB_SCRIPT = """
+CREATE TABLE rejected(
+    block_id INT NOT NULL,
+    vtxindex INT NOT NULL,
+    op TEXT NOT NULL,
+    txid TEXT NOT NULL,
+    PRIMARY KEY(txid)
+);
+CREATE TABLE IF NOT EXISTS db_version( version TEXT NOT NULL );
+"""
+
 def namedb_genesis_txid(address, metadata):
     """
     Make a "fake" txid for a genesis block entry.
@@ -453,6 +464,32 @@ def namedb_create(path, genesis_block):
 
     # create genesis block
     namedb_create_token_genesis(con, genesis_block['rows'], genesis_block['history'])
+    return con
+
+
+def namedb_metadata_create(path):
+    """
+    Create a sqlite3 db at the given path.
+    Create all the tables and indexes we need.
+    """
+
+    global BLOCKSTACK_METADATA_DB_SCRIPT
+    global VERSION
+
+    if os.path.exists( path ):
+        raise Exception("Database already exists: {}".format(path))
+
+    lines = [l + ";" for l in BLOCKSTACK_METADATA_DB_SCRIPT.split(";")]
+    con = sqlite3.connect( path, isolation_level=None, timeout=2**30 )
+    con.row_factory = namedb_row_factory
+
+    for line in lines:
+        db_query_execute(con, line, ())
+
+    if namedb_get_version(con) == '0.0.0.0':
+        db_query_execute(con, 'INSERT INTO db_version VALUES (?)', (VERSION,))
+
+    con.row_factory = namedb_row_factory
     return con
 
 
@@ -989,6 +1026,16 @@ def namedb_open( path ):
         # wrong version
         raise Exception('Database has version {}, but this node is version {}.  Please update your node database (such as with fast_sync).'.format(version, VERSION))
     '''
+    return con
+
+
+def namedb_metadata_open( path ):
+    """
+    Open a connection to our metadata database
+    """
+    con = sqlite3.connect( path, isolation_level=None, timeout=2**30 )
+    db_query_execute(con, 'pragma mmap_size=536870912', ())
+    con.row_factory = namedb_row_factory
     return con
 
 
@@ -3443,6 +3490,23 @@ def namedb_is_name_zonefile_hash(cur, name, zonefile_hash):
         break
 
     return count > 0
+
+
+def namedb_get_history_by_txid(cur, txid):
+    """
+    Get a history row by txid
+    Return None if there's no row with this txid
+    """
+    qry = 'SELECT * FROM history WHERE txid = ?'
+    args = (txid,)
+    rows = namedb_query_execute(cur, qry, args)
+    row = rows.fetchone()
+    if row is None:
+        return None
+
+    ret = {}
+    ret.update(row)
+    return ret
 
 
 if __name__ == "__main__":
