@@ -59,10 +59,10 @@ def check( state_engine, token_op, block_id, checked_ops ):
     Return True if accepted
     Return False if not
     """
-
+    
     epoch_features = get_epoch_features(block_id)
     if EPOCH_FEATURE_TOKEN_TRANSFER not in epoch_features:
-        log.warning("Token transfers are not enabled in this epoch")
+        state_engine.log_reject_reason(block_id, token_op['vtxindex'], TOKEN_TRANSFER, token_op['txid'], "Token transfers are not enabled in this epoch")
         return False
 
     consensus_hash = token_op['consensus_hash']
@@ -73,12 +73,12 @@ def check( state_engine, token_op, block_id, checked_ops ):
 
     # token value must be positive
     if token_value <= 0:
-        log.warning("Zero-value token transfer from {}".format(address))
+        state_engine.log_reject_reason(block_id, token_op['vtxindex'], TOKEN_TRANSFER, token_op['txid'], "Zero-value token transfer from {}".format(address))
         return False
 
     # can't send to ourselves 
     if address == recipient_address:
-        log.warning('Cannot transfer token from the account to itself ({})'.format(address))
+        state_engine.log_reject_reason(block_id, token_op['vtxindex'], TOKEN_TRANSFER, token_op['txid'], 'Cannot transfer token from the account to itself ({})'.format(address))
         return False
 
     # consensus hash must be valid, if given.
@@ -86,36 +86,35 @@ def check( state_engine, token_op, block_id, checked_ops ):
         # if the consensus hash is all 0's, and we're past epoch 4, then it's acceptable.
         # if it's not all 0's, then check it.
         if consensus_hash != '00' * LENGTHS['consensus_hash'] and not state_engine.is_consensus_hash_valid(block_id, consensus_hash):
-            log.warning('Invalid consensus hash {}'.format(consensus_hash))
+            state_engine.log_reject_reason(block_id, token_op['vtxindex'], TOKEN_TRANSFER, token_op['txid'], 'Invalid consensus hash {}'.format(consensus_hash))
             return False
     else:
         # unconditional requirement that the consensus hash is valid
         if not state_engine.is_consensus_hash_valid(block_id, consensus_hash):
-            log.warning('Invalid consensus hash {}'.format(consensus_hash))
+            state_engine.log_reject_reason(block_id, token_op['vtxindex'], TOKEN_TRANSFER, token_op['txid'], 'Invalid consensus hash {}'.format(consensus_hash))
             return False
-
 
     # sender account must exist
     account_info = state_engine.get_account(address, token_type)
     if account_info is None:
-        log.warning("No account for {} ({})".format(address, token_type))
+        state_engine.log_reject_reason(block_id, token_op['vtxindex'], TOKEN_TRANSFER, token_op['txid'], "No account for {} ({})".format(address, token_type))
         return False
 
     # sender must not be transfer-locked
     if block_id < account_info['lock_transfer_block_id']:
-        log.warning('Account {} is blocked from transferring tokens until block height {}'.format(address, account_info['lock_transfer_block_id']))
+        state_engine.log_reject_reason(block_id, token_op['vtxindex'], TOKEN_TRANSFER, token_op['txid'], 'Account {} is blocked from transferring tokens until block height {}'.format(address, account_info['lock_transfer_block_id']))
         return False
 
     # sender must have enough balance of the token  
     account_balance = state_engine.get_account_balance(account_info)
     if account_balance < token_value:
-        log.warning('Account {} has {} {}; tried to send {}'.format(address, account_balance, token_type, token_value))
+        state_engine.log_reject_reason(block_id, token_op['vtxindex'], TOKEN_TRANSFER, token_op['txid'], 'Account {} has {} {}; tried to send {}'.format(address, account_balance, token_type, token_value))
         return False
     
     receiver_account = state_engine.get_account(recipient_address, token_type)
     if receiver_account is not None:
         if not receiver_account['receive_whitelisted']:
-            log.warning('Receiver account {} is not whitelisted'.format(recipient_address))
+            state_engine.log_reject_reason(block_id, token_op['vtxindex'], TOKEN_TRANSFER, token_op['txid'], 'Receiver account {} is not whitelisted'.format(recipient_address))
             return False
 
     log.debug("Account {} will pay {} {} to {}".format(address, token_value, token_type, recipient_address))
