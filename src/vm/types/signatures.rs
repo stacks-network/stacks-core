@@ -56,8 +56,8 @@ pub const BUFF_20: TypeSignature = BufferType(BufferLength(20));
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
-    pub max_len: u32,
-    pub entry_type: Box<TypeSignature>
+    max_len: u32,
+    entry_type: Box<TypeSignature>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

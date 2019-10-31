@@ -129,13 +129,13 @@ fn test_simple_map_concat() {
     assert_eq!(
         execute("(concat (list 1) 3)").unwrap_err(),
         CheckErrors::TypeError(
-            ListType(ListTypeData { max_len: 1, entry_type: Box::new(IntType) }), 
+            ListType(ListTypeData::new_list(TypeSignature::IntType, 1).unwrap()), 
             IntType).into());
 
     assert_eq!(
         execute("(concat (list 1) \"1\")").unwrap_err(),
         CheckErrors::TypeError(
-            ListType(ListTypeData { max_len: 1, entry_type: Box::new(IntType)}), 
+            ListType(ListTypeData::new_list(TypeSignature::IntType, 1).unwrap()), 
             BufferType(1_u32.try_into().unwrap())).into());
 }
 
@@ -167,7 +167,7 @@ fn test_simple_buff_concat() {
         execute("(concat \"1\" (list 1))").unwrap_err(),
         CheckErrors::TypeError(
             BufferType(1_u32.try_into().unwrap()),
-            ListType(ListTypeData { max_len: 1, entry_type: Box::new(IntType)})).into());
+            ListType(ListTypeData::new_list(TypeSignature::IntType, 1).unwrap())).into());
 }
 
 #[test]

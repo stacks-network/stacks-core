@@ -117,11 +117,14 @@ pub fn check_special_concat(checker: &mut TypeChecker, args: &[SymbolicExpressio
         TypeSignature::ListType(lhs_list) => {
             let rhs_type = checker.type_check(&args[1], context)?;
             if let TypeSignature::ListType(rhs_list) = rhs_type {
-                if lhs_list.entry_type.admits_type(&*rhs_list.entry_type) {
-                    let return_type = TypeSignature::list_of(*lhs_list.entry_type, lhs_list.max_len + rhs_list.max_len)?;
+                let (lhs_entry_type, lhs_max_len) = lhs_list.destruct();
+                let (rhs_entry_type, rhs_max_len) = rhs_list.destruct();
+
+                if lhs_entry_type.admits_type(&rhs_entry_type) {
+                    let return_type = TypeSignature::list_of(lhs_entry_type, lhs_max_len + rhs_max_len)?;
                     return Ok(return_type);
                 } else {
-                    return Err(CheckErrors::TypeError(*lhs_list.entry_type, *rhs_list.entry_type).into());
+                    return Err(CheckErrors::TypeError(lhs_entry_type, rhs_entry_type).into());
                 }
             } else {
                 return Err(CheckErrors::TypeError(rhs_type.clone(), TypeSignature::ListType(lhs_list)).into());
@@ -148,11 +151,13 @@ pub fn check_special_append(checker: &mut TypeChecker, args: &[SymbolicExpressio
     match lhs_type {
         TypeSignature::ListType(lhs_list) => {
             let rhs_type = checker.type_check(&args[1], context)?;
-            if lhs_list.entry_type.admits_type(&rhs_type) {
-                let return_type = TypeSignature::list_of(*lhs_list.entry_type, lhs_list.max_len + 1)?;
+            let (lhs_entry_type, lhs_max_len) = lhs_list.destruct();
+
+            if lhs_entry_type.admits_type(&rhs_type) {
+                let return_type = TypeSignature::list_of(lhs_entry_type, lhs_max_len + 1)?;
                 return Ok(return_type);
             } else {
-                return Err(CheckErrors::TypeError(*lhs_list.entry_type, rhs_type).into());
+                return Err(CheckErrors::TypeError(lhs_entry_type, rhs_type).into());
             }
         },
         _ => Err(CheckErrors::ExpectedListApplication.into())
@@ -177,7 +182,8 @@ pub fn check_special_asserts_max_len(checker: &mut TypeChecker, args: &[Symbolic
     let iterable = checker.type_check(&args[0], context)?;
     match iterable {
         TypeSignature::ListType(list) => {
-            Ok(TypeSignature::OptionalType(Box::new(TypeSignature::ListType(ListTypeData::new_list(*list.entry_type, expected_len).unwrap()))))
+            let (lhs_entry_type, _) = list.destruct();
+            Ok(TypeSignature::OptionalType(Box::new(TypeSignature::ListType(ListTypeData::new_list(lhs_entry_type, expected_len).unwrap()))))
         },
         TypeSignature::BufferType(_) => {
             Ok(TypeSignature::OptionalType(Box::new(TypeSignature::BufferType(BufferLength::try_from(expected_len).unwrap()))))
