@@ -377,11 +377,11 @@ or a buffer and another buffer of length 1 and outputs a buffer or a list of the
 };
 
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(A, B) -> B, (list A)",
-    output_type: "B",
+    input_type: "buff|list, uint",
+    output_type: "buff|list",
     signature: "(asserts-max-len buffer 10)",
-    description: "The `asserts-max-len` function takes a buffer or list argument, which must be typed as a list 
-or buffer of length N and outputs that same list or buffer, but typed with max length number-literal. 
+    description: "The `asserts-max-len` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list 
+or buffer of length M and outputs that same list or buffer, but typed with max length N. 
 At runtime, a check is performed, which if it fails, returns a (none) option.",
     example: "(asserts-max-len! (list 2 2 2) 3) ;; Returns (list 2 2 2)
 (fold * (list 2 2 2) 0) ;; Returns 0"

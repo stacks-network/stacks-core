@@ -167,12 +167,11 @@ pub fn native_asserts_max_len(args: &[SymbolicExpression], env: &mut Environment
 
     let iterable = eval(&args[0], env, context)?;
 
-    let expected_len = eval(&args[1], env, context)?;
-    if let Value::UInt(expected_len) = expected_len {
+    if let Some(Value::UInt(expected_len)) = args[1].match_literal_value() {
         match iterable {
             Value::List(list) => {
                 let iterable_len = list.data.len() as u128;
-                if iterable_len > expected_len {
+                if iterable_len > *expected_len {
                     Ok(Value::none())
                 } else {
                     Ok(Value::some(Value::List(list)))
@@ -180,7 +179,7 @@ pub fn native_asserts_max_len(args: &[SymbolicExpression], env: &mut Environment
             },
             Value::Buffer(buff) => {
                 let iterable_len = buff.data.len() as u128;
-                if iterable_len > expected_len { 
+                if iterable_len > *expected_len { 
                     Ok(Value::none())
                 } else {
                     Ok(Value::some(Value::Buffer(buff)))
@@ -189,7 +188,8 @@ pub fn native_asserts_max_len(args: &[SymbolicExpression], env: &mut Environment
             _ => return Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
         }
     } else {
-        Err(CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::type_of(&expected_len)).into())
+        let actual_len = eval(&args[1], env, context)?;
+        Err(CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::type_of(&actual_len)).into())
     }
 }
 
