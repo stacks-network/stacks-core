@@ -534,6 +534,9 @@ class BlockstackDB(virtualchain.StateEngine):
         if block_id not in self.rejected:
             self.rejected[block_id] = {vtxindex: {}}
 
+        if vtxindex not in self.rejected[block_id]:
+            self.rejected[block_id][vtxindex] = {}
+
         self.rejected[block_id][vtxindex]['op'] = op
         self.rejected[block_id][vtxindex]['txid'] = op_data['txid']
         
