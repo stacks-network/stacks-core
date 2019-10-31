@@ -121,7 +121,9 @@ pub fn check_special_concat(checker: &mut TypeChecker, args: &[SymbolicExpressio
                 let (rhs_entry_type, rhs_max_len) = rhs_list.destruct();
 
                 if lhs_entry_type.admits_type(&rhs_entry_type) {
-                    let return_type = TypeSignature::list_of(lhs_entry_type, lhs_max_len + rhs_max_len)?;
+                    let new_len = lhs_max_len.checked_add(rhs_max_len)
+                        .ok_or(CheckErrors::MaxLengthOverflow)?;
+                    let return_type = TypeSignature::list_of(lhs_entry_type, new_len)?;
                     return Ok(return_type);
                 } else {
                     return Err(CheckErrors::TypeError(lhs_entry_type, rhs_entry_type).into());
@@ -133,7 +135,8 @@ pub fn check_special_concat(checker: &mut TypeChecker, args: &[SymbolicExpressio
         TypeSignature::BufferType(lhs_buff_len) => {
             let rhs_type = checker.type_check(&args[1], context)?;
             if let TypeSignature::BufferType(rhs_buff_len) = rhs_type {
-                let size: u32 = u32::from(lhs_buff_len) + u32::from(rhs_buff_len);
+                let size: u32 = u32::from(lhs_buff_len).checked_add(u32::from(rhs_buff_len))
+                    .ok_or(CheckErrors::MaxLengthOverflow)?;
                 let return_type = TypeSignature::buffer_of_size(size);
                 return Ok(return_type);
             } else {
@@ -154,7 +157,9 @@ pub fn check_special_append(checker: &mut TypeChecker, args: &[SymbolicExpressio
             let (lhs_entry_type, lhs_max_len) = lhs_list.destruct();
 
             if lhs_entry_type.admits_type(&rhs_type) {
-                let return_type = TypeSignature::list_of(lhs_entry_type, lhs_max_len + 1)?;
+                let new_len = lhs_max_len.checked_add(1)
+                    .ok_or(CheckErrors::MaxLengthOverflow)?;
+                let return_type = TypeSignature::list_of(lhs_entry_type, new_len)?;
                 return Ok(return_type);
             } else {
                 return Err(CheckErrors::TypeError(lhs_entry_type, rhs_type).into());
@@ -174,10 +179,8 @@ pub fn check_special_asserts_max_len(checker: &mut TypeChecker, args: &[Symbolic
             return Err(CheckErrors::TypeError(TypeSignature::UIntType, expexted_len_type).into())
         }
     };
-    if expected_len > u128::from(MAX_VALUE_SIZE)  {
-        return Err(CheckErrors::MaxLengthOverflow.into())
-    }
-    let expected_len = expected_len as u32;
+    let expected_len = u32::try_from(expected_len)
+        .map_err(|_e| CheckErrors::MaxLengthOverflow)?;
 
     let iterable = checker.type_check(&args[0], context)?;
     match iterable {
