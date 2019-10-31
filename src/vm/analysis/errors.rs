@@ -8,6 +8,9 @@ pub type CheckResult <T> = Result<T, CheckError>;
 
 #[derive(Debug, PartialEq)]
 pub enum CheckErrors {
+    // cost checker errors
+    CostOverflow,
+
     ValueTooLarge,
     ExpectedName,
 
@@ -37,6 +40,7 @@ pub enum CheckErrors {
 
     // Checker runtime failures
     TypeAlreadyAnnotatedFailure,
+    TypeAnnotationExpectedFailure,
     CheckerImplementationFailure,
 
     // Assets
@@ -90,7 +94,6 @@ pub enum CheckErrors {
     // expect a function, or applying a function to a list
     NonFunctionApplication,
     ExpectedListApplication,
-    ExpectedListOrBuffer(TypeSignature),
 
     // let syntax
     BadLetSyntax,
@@ -209,6 +212,8 @@ impl DiagnosableError for CheckErrors {
 
     fn message(&self) -> String {
         match &self {
+            CheckErrors::TypeAnnotationExpectedFailure => "analysis expected type to already be annotated for expression".into(),
+            CheckErrors::CostOverflow => "contract execution cost overflowed cost counter".into(),
             CheckErrors::InvalidTypeDescription => "supplied type description is invalid".into(),
             CheckErrors::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             CheckErrors::BadSyntaxExpectedListOfPairs => "bad syntax: function expects a list of pairs to bind names, e.g., ((name-0 a) (name-1 b) ...)".into(),
@@ -255,7 +260,6 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
             CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),
-            CheckErrors::ExpectedListOrBuffer(found_type) => format!("expecting expression of type 'list' or 'buff', found '{}'", found_type),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
             CheckErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),
             CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"),

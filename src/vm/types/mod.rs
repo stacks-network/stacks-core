@@ -200,6 +200,10 @@ impl Value {
             data: Box::new(data) })
     }
 
+    pub fn size(&self) -> u32 {
+        TypeSignature::type_of(self).size()
+    }
+
     /// Invariant: the supplied Values have already been "checked", i.e., it's a valid Value object
     ///  this invariant is enforced through the Value constructors, each of which checks to ensure
     ///  that any typing data is correct.
@@ -391,9 +395,13 @@ impl TupleData {
         Self::new(expected.clone(), data_map)
     }
 
-    pub fn get(&self, name: &str) -> Result<Value> {
+    pub fn get(&self, name: &str) -> Result<&Value> {
         self.data_map.get(name)
-            .cloned()
+            .ok_or_else(|| CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into())
+    }
+
+    pub fn get_owned(mut self, name: &str) -> Result<Value> {
+        self.data_map.remove(name)
             .ok_or_else(|| CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into())
     }
 }

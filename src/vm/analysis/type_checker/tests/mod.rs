@@ -215,32 +215,6 @@ fn test_eqs() {
 }
 
 #[test]
-fn test_asserts() {
-    let good = ["(asserts! (eq? 1 1) 'false)",
-                "(asserts! (eq? 1 1) (err 1))"];
-
-    let expected = ["bool", "bool"];
-
-    let bad = [
-        "(asserts! (eq? 1 0))",
-        "(asserts! 1 'false)",
-        "(asserts! 1 0 'false)" ];
-
-    let bad_expected = [ CheckErrors::IncorrectArgumentCount(2, 1),
-                         CheckErrors::TypeError(BoolType, IntType),
-                         CheckErrors::IncorrectArgumentCount(2, 3) ];
-
-    for (good_test, expected) in good.iter().zip(expected.iter()) {
-        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
-    }
-    
-    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
-    }
-}
-
-
-#[test]
 fn test_lists() {
     let good = ["(map hash160 (list 1 2 3 4 5))",
                 "(list (list 1 2) (list 3 4) (list 5 1 7))",
@@ -249,10 +223,9 @@ fn test_lists() {
                 "(map - (list (+ 1 2) 3 (+ 4 5) (* (+ 1 2) 3)))",
                 "(if 'true (list 1 2 3 4) (list))",
                 "(if 'true (list) (list 1 2 3 4))",
-                "(len (list 1 2 3 4))"
                 ];
     let expected = [ "(list 5 (buff 20))", "(list 3 (list 3 int))", "(list 3 bool)", "bool", "(list 4 int)",
-                     "(list 4 int)", "(list 4 int)", "uint"];
+                     "(list 4 int)", "(list 4 int)" ];
 
     let bad = [
         "(fold and (list 'true 'false) 2)",
@@ -267,8 +240,7 @@ fn test_lists() {
         "(map if (list 1 2 3 4 5))",
         "(map mod (list 1 2 3 4 5))",
         "(map - (list 'true 'false 'true 'false))",
-        "(map hash160 (+ u1 u2))",
-        "(len 1)"];
+        "(map hash160 (+ 1 2))",];
     let bad_expected = [
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(1, 2),
@@ -282,8 +254,7 @@ fn test_lists() {
         CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-        CheckErrors::ExpectedListApplication,
-        CheckErrors::ExpectedListOrBuffer(IntType)];
+        CheckErrors::ExpectedListApplication ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));

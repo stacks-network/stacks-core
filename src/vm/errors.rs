@@ -81,7 +81,6 @@ pub enum RuntimeErrorType {
 #[derive(Debug, PartialEq)]
 pub enum ShortReturnType {
     ExpectedValue(Value),
-    AssertionFailed(Value),
 }
 
 pub type InterpreterResult <R> = Result<R, Error>;
@@ -164,8 +163,7 @@ impl From<InterpreterError> for Error {
 impl Into<Value> for ShortReturnType {
     fn into(self) -> Value {
         match self {
-            ShortReturnType::ExpectedValue(v) => v,
-            ShortReturnType::AssertionFailed(v) => v
+            ShortReturnType::ExpectedValue(v) => v
         }
     }
 }

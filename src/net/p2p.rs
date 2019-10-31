@@ -806,7 +806,7 @@ impl PeerNetwork {
                 to_remove.push(*event_id);
                 continue;
             }
-            let mut convo = self.peers.get_mut(&event_id).unwrap();
+            let convo = self.peers.get_mut(&event_id).unwrap();
 
             test_debug!("{:?}: process data from {:?}", local_peer, convo);
 
@@ -857,7 +857,7 @@ impl PeerNetwork {
     /// Meant to prime sockets so we wake up on the next loop pass immediately to finish sending.
     fn send_outbound_messages(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, burndb_conn: &DBConn) -> Vec<usize> {
         let mut to_remove = vec![];
-        for (mut event_id, mut convo) in self.peers.iter_mut() {
+        for (event_id, convo) in self.peers.iter_mut() {
             if !self.sockets.contains_key(&event_id) {
                 test_debug!("Rogue socket event {}", event_id);
                 to_remove.push(*event_id);
@@ -1132,7 +1132,7 @@ impl PeerNetwork {
 
                 // begin re-key 
                 let mut inflight_handshakes = HashMap::new();
-                for (event_id, mut convo) in self.peers.iter_mut() {
+                for (event_id, convo) in self.peers.iter_mut() {
                     let nk = convo.to_neighbor_key();
                     let handshake_data = HandshakeData::from_local_peer(new_local_peer);
                     let handshake = StacksMessageType::Handshake(handshake_data);

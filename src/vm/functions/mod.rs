@@ -8,7 +8,7 @@ mod options;
 mod assets;
 
 use std::convert::TryInto;
-use vm::errors::{CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
+use vm::errors::{CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::CallableType;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
@@ -38,7 +38,6 @@ define_named_enum!(NativeFunctions {
     Let("let"),
     Map("map"),
     Fold("fold"),
-    Len("len"),
     ListCons("list"),
     FetchVar("var-get"),
     SetVar("var-set!"),
@@ -64,7 +63,6 @@ define_named_enum!(NativeFunctions {
     ConsOkay("ok"),
     ConsSome("some"),
     DefaultTo("default-to"),
-    Asserts("asserts!"),
     Expects("expects!"),
     ExpectsErr("expects-err!"),
     IsOkay("is-ok?"),
@@ -106,7 +104,6 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Map => CallableType::SpecialFunction("native_map", &lists::list_map),
             Filter => CallableType::SpecialFunction("native_filter", &lists::list_filter),
             Fold => CallableType::SpecialFunction("native_fold", &lists::list_fold),
-            Len => CallableType::SpecialFunction("native_len", &lists::list_len),
             ListCons => CallableType::NativeFunction("native_cons", &lists::list_cons),
             FetchEntry => CallableType::SpecialFunction("native_map-get", &database::special_fetch_entry),
             FetchContractEntry => CallableType::SpecialFunction("native_contract-map-get", &database::special_fetch_contract_entry),
@@ -129,7 +126,6 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ConsOkay => CallableType::NativeFunction("native_okay", &options::native_okay),
             ConsError => CallableType::NativeFunction("native_error", &options::native_error),
             DefaultTo => CallableType::NativeFunction("native_default_to", &options::native_default_to),
-            Asserts => CallableType::SpecialFunction("native_asserts", &special_asserts),
             Expects => CallableType::NativeFunction("native_expects", &options::native_expects),
             ExpectsErr => CallableType::NativeFunction("native_expects_err", &options::native_expects_err),
             IsOkay => CallableType::NativeFunction("native_is_okay", &options::native_is_okay),
@@ -225,28 +221,10 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Loca
     }
 }
 
-fn special_asserts(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    check_argument_count(2, args)?;
-
-    // handle the conditional clause.
-    let conditional = eval(&args[0], env, context)?;
-
-    match conditional {
-        Value::Bool(result) => {
-            if result {
-                Ok(conditional)
-            } else {
-                let thrown = eval(&args[1], env, context)?;
-                Err(ShortReturnType::AssertionFailed(thrown.clone()).into())
-            }
-        },
-        _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, conditional).into())
-    }
-}
-
-fn parse_eval_bindings(bindings: &[SymbolicExpression],
-                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(ClarityName, Value)>> {
-    let mut result = Vec::new();
+pub fn handle_binding_list <F, E> (bindings: &[SymbolicExpression], mut handler: F) -> std::result::Result<(), E>
+where F: FnMut(&ClarityName, &SymbolicExpression) -> std::result::Result<(), E>,
+      E: From<CheckErrors>
+{
     for binding in bindings.iter() {
         let binding_expression = binding.match_list()
             .ok_or(CheckErrors::BadSyntaxBinding)?;
@@ -255,9 +233,22 @@ fn parse_eval_bindings(bindings: &[SymbolicExpression],
         }
         let var_name = binding_expression[0].match_atom()
             .ok_or(CheckErrors::BadSyntaxBinding)?;
-        let value = eval(&binding_expression[1], env, context)?;
-        result.push((var_name.clone(), value));
+        let var_sexp = &binding_expression[1];
+
+        handler(var_name, var_sexp)?;
     }
+    Ok(())
+}
+
+pub fn parse_eval_bindings(bindings: &[SymbolicExpression],
+                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(ClarityName, Value)>> {
+    let mut result = Vec::new();
+    handle_binding_list(bindings, |var_name, var_sexp| {
+        eval(var_sexp, env, context)
+            .and_then(|value| {
+                result.push((var_name.clone(), value));
+                Ok(()) })
+    })?;
 
     Ok(result)
 }

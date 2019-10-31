@@ -97,23 +97,10 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     //           B = list items type
     
     // f must accept the initial value and the list items type
-    let return_type = function_type.check_args(&[initial_value_type, list_items_type.clone()])?;
+    let return_type = function_type.check_args(&[list_items_type.clone(), initial_value_type])?;
 
     // f must _also_ accepts its own return type!
     let return_type = function_type.check_args(&[return_type, list_items_type])?;
     
     Ok(return_type)
-}
-
-pub fn check_special_len(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    check_argument_count(1, args)?;
-
-    let collection_type = checker.type_check(&args[0], context)?;
-
-    match collection_type {
-        TypeSignature::ListType(_) | TypeSignature::BufferType(_) => Ok(()),
-        _ => Err(CheckErrors::ExpectedListOrBuffer(collection_type.clone()))
-    }?;
-
-    Ok(TypeSignature::UIntType)
 }

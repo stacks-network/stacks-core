@@ -147,20 +147,13 @@ impl <'a> DefinitionSorter {
                                     }
                                     return Ok(());
                                 }
-                                NativeFunctions::Len => {
-                                    // Args: buffer | list
-                                    if function_args.len() == 1 {
-                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
-                                    }
-                                    return Ok(());
-                                },
                                 NativeFunctions::TupleGet => {
                                     // Args: [key-name, expr]: ignore key-name
                                     if function_args.len() == 2 {
                                         self.probe_for_dependencies(&function_args[1], tle_index)?;
                                     }
                                     return Ok(());
-                                },
+                                }, 
                                 NativeFunctions::TupleCons => {
                                     // Args: [(key-name A), (key-name-2 B), ...]: handle as a tuple
                                     self.probe_for_dependencies_in_tuple_list(function_args, tle_index)?;

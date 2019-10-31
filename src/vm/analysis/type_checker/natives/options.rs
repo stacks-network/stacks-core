@@ -68,17 +68,6 @@ pub fn check_special_default_to(checker: &mut TypeChecker, args: &[SymbolicExpre
     }
 }
 
-pub fn check_special_asserts(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    check_argument_count(2, args)?;
-
-    checker.type_check_expects(&args[0], context, &TypeSignature::BoolType)?;
-    let on_error = checker.type_check(&args[1], context)?;
-
-    checker.track_return_type(on_error)?;
-
-    Ok(TypeSignature::BoolType)
-}
-
 pub fn check_special_expects(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
     

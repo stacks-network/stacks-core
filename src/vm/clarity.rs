@@ -81,7 +81,7 @@ impl ClarityInstance {
     }
 
     pub fn destroy(mut self) -> MarfedKV<SqliteConnection> {
-        let mut datastore = self.datastore.take()
+        let datastore = self.datastore.take()
             .expect("FAIL: attempt to recover database connection from clarity instance which is still open");
 
         datastore
