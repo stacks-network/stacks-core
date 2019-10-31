@@ -67,7 +67,7 @@ pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpressio
             _ => Err(CheckErrors::ExpectedListOrBuffer(argument_type.clone()))
         }?;
     
-        let filter_type = function_type.check_args(&[input_type.clone()])?;
+        let filter_type = function_type.check_args(&[input_type])?;
 
         if TypeSignature::BoolType != filter_type {
             return Err(CheckErrors::TypeError(TypeSignature::BoolType, filter_type).into())
