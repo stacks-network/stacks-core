@@ -377,17 +377,6 @@ supplied value must be of the same type.",
     example: "(list (+ 1 2) 4 5) ;; Returns [3 4 5]",
 };
 
-const ASSERTS_API: SpecialAPI = SpecialAPI {
-    input_type: "bool, C",
-    output_type: "bool",
-    signature: "(asserts! bool-expr thrown-value)",
-    description: "The `asserts!` function admits a boolean argument and asserts its evaluation: 
-if bool-expr is `true`, `asserts!` returns `true` and proceeds in the program execution. 
-If the supplied argument is returning a 'false value, `asserts!` _returns_ `thrown-value` and exits the current 
-control-flow.",
-    example: "(asserts! (eq? 1 1) (err 1)) ;; Returns 'true",
-};
-
 const BEGIN_API: SpecialAPI = SpecialAPI {
     input_type: "AnyType, ... A",
     output_type: "A",
@@ -580,6 +569,16 @@ principal and executes `expr` with that context. It returns the resulting value 
     example: "(as-contract (print tx-sender)) ;; Returns 'CTcontract.name"
 };
 
+const ASSERTS_API: SpecialAPI = SpecialAPI {
+    input_type: "bool, C",
+    output_type: "bool",
+    signature: "(asserts! bool-expr thrown-value)",
+    description: "The `asserts!` function admits a boolean argument and asserts its evaluation: 
+if bool-expr is `true`, `asserts!` returns `true` and proceeds in the program execution. 
+If the supplied argument is returning a 'false value, `asserts!` _returns_ `thrown-value` and exits the current 
+control-flow.",
+    example: "(asserts! (eq? 1 1) (err 1)) ;; Returns 'true",
+};
 
 const EXPECTS_API: SpecialAPI = SpecialAPI {
     input_type: "(optional A) | (response A B), C",
