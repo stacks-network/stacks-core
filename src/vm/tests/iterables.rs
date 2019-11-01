@@ -128,15 +128,11 @@ fn test_simple_map_concat() {
 
     assert_eq!(
         execute("(concat (list 1) 3)").unwrap_err(),
-        CheckErrors::TypeError(
-            ListType(ListTypeData::new_list(TypeSignature::IntType, 1).unwrap()), 
-            IntType).into());
+        RuntimeErrorType::BadTypeConstruction.into());
 
     assert_eq!(
         execute("(concat (list 1) \"1\")").unwrap_err(),
-        CheckErrors::TypeError(
-            ListType(ListTypeData::new_list(TypeSignature::IntType, 1).unwrap()), 
-            BufferType(1_u32.try_into().unwrap())).into());
+        RuntimeErrorType::BadTypeConstruction.into());
 }
 
 #[test]
@@ -158,16 +154,12 @@ fn test_simple_buff_concat() {
     }
 
     assert_eq!(
-        execute("(concat \"1\" 3)").unwrap_err(),
-        CheckErrors::TypeError(
-            BufferType(1_u32.try_into().unwrap()), 
-            IntType).into());
+        res.unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into());
 
     assert_eq!(
         execute("(concat \"1\" (list 1))").unwrap_err(),
-        CheckErrors::TypeError(
-            BufferType(1_u32.try_into().unwrap()),
-            ListType(ListTypeData::new_list(TypeSignature::IntType, 1).unwrap())).into());
+        RuntimeErrorType::BadTypeConstruction.into());
 }
 
 #[test]
