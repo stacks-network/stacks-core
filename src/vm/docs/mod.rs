@@ -358,6 +358,16 @@ value return by the successive applications.",
 (fold * (list 2 2 2) 0) ;; Returns 0"
 };
 
+const LEN_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|list",
+    output_type: "uint",
+    signature: "(len buffer)",
+    description: "The `len` function returns the length of a given buffer / list.",
+    example: "(len \"blockstack\") ;; Returns 10
+(len (list 1 2 3 4 5)) ;; Returns 5
+"
+};
+
 const LIST_API: SpecialAPI = SpecialAPI {
     input_type: "A, ...",
     output_type: "(list A)",
@@ -365,6 +375,17 @@ const LIST_API: SpecialAPI = SpecialAPI {
     description: "The `list` function constructs a list composed of the inputted values. Each
 supplied value must be of the same type.",
     example: "(list (+ 1 2) 4 5) ;; Returns [3 4 5]",
+};
+
+const ASSERTS_API: SpecialAPI = SpecialAPI {
+    input_type: "bool, C",
+    output_type: "bool",
+    signature: "(asserts! bool-expr thrown-value)",
+    description: "The `asserts!` function admits a boolean argument and asserts its evaluation: 
+if bool-expr is `true`, `asserts!` returns `true` and proceeds in the program execution. 
+If the supplied argument is returning a 'false value, `asserts!` _returns_ `thrown-value` and exits the current 
+control-flow.",
+    example: "(asserts! (eq? 1 1) (err 1)) ;; Returns 'true",
 };
 
 const BEGIN_API: SpecialAPI = SpecialAPI {
@@ -963,6 +984,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Map => make_for_special(&MAP_API, name),
         Filter => make_for_special(&FILTER_API, name),
         Fold => make_for_special(&FOLD_API, name),
+        Len => make_for_special(&LEN_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
         FetchContractEntry => make_for_special(&FETCH_CONTRACT_API, name),
@@ -985,6 +1007,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ConsError => make_for_special(&CONS_ERR_API, name),
         ConsSome =>  make_for_special(&CONS_SOME_API, name),
         DefaultTo => make_for_special(&DEFAULT_TO_API, name),
+        Asserts => make_for_special(&ASSERTS_API, name),
         Expects => make_for_special(&EXPECTS_API, name),
         ExpectsErr => make_for_special(&EXPECTS_ERR_API, name),
         IsOkay => make_for_special(&IS_OK_API, name),
