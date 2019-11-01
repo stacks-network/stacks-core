@@ -63,25 +63,23 @@ pub fn native_fold(args: &[SymbolicExpression], env: &mut Environment, context: 
     let iterable = eval(&args[1], env, context)?;
     let initial = eval(&args[2], env, context)?;
 
-    match iterable {
+    let mapped_args: Vec<_> = match iterable {
         Value::List(mut list) => {
-            list.data.drain(..).try_fold(initial, |acc, x| {
-                let arguments = vec![
-                    SymbolicExpression::atom_value(x), 
-                    SymbolicExpression::atom_value(acc)];
-                apply(&function, &arguments, env, context)
-            })
+            list.data.drain(..).map(|x| {
+                SymbolicExpression::atom_value(x)
+            }).collect()
         },
         Value::Buffer(mut buff) => {
-            buff.data.drain(..).try_fold(initial, |acc, x| {
-                let arguments = vec![
-                    SymbolicExpression::atom_value(Value::buff_from(vec![x]).unwrap()), 
-                    SymbolicExpression::atom_value(acc)];
-                apply(&function, &arguments, env, context)
-            })
+            buff.data.drain(..).map(|x| {
+                let element = Value::buff_from(vec![x]).unwrap();
+                SymbolicExpression::atom_value(element)
+            }).collect()
         },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
-    }
+        _ => return Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
+    };
+    mapped_args.iter().try_fold(initial, |acc, x| {
+        apply(&function, &[x.clone(), SymbolicExpression::atom_value(acc)], env, context)
+    })
 }
 
 pub fn native_map(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
