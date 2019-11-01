@@ -127,35 +127,23 @@ pub fn native_append(args: &[SymbolicExpression], env: &mut Environment, context
 pub fn native_concat(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    let iterable = eval(&args[0], env, context)?;
-    match iterable {
-        Value::List(mut lhs) => {
-            let mut res = Vec::new();
-            res.append(&mut lhs.data);
-            let mut rhs = eval(&args[1], env, context)?;
-            if let Value::List(ref mut rhs_data) = rhs {
-                res.append(&mut rhs_data.data);
-                Value::list_from(res)
-            } else {
-                Err(CheckErrors::TypeError(
-                    TypeSignature::type_of(&Value::List(lhs)), 
-                    TypeSignature::type_of(&rhs)).into())
-            }
+    let lhs = eval(&args[0], env, context)?;
+    let rhs = eval(&args[1], env, context)?;
+
+    match (lhs, rhs) {
+        (Value::List(lhs_data), Value::List(mut rhs_data)) => {
+            let mut data = lhs_data.data;
+            data.append(&mut rhs_data.data);
+            Value::list_from(data)
         },
-        Value::Buffer(mut lhs) => {
-            let mut res = Vec::new();
-            res.append(&mut lhs.data);
-            let mut rhs = eval(&args[1], env, context)?;
-            if let Value::Buffer(ref mut rhs_data) = rhs {
-                res.append(&mut rhs_data.data);
-                Value::buff_from(res)
-            } else {
-                Err(CheckErrors::TypeError(
-                    TypeSignature::BufferType(res.len().try_into().unwrap()),
-                    TypeSignature::type_of(&rhs)).into())
-            }
+        (Value::Buffer(lhs_data), Value::Buffer(mut rhs_data)) => {
+            let mut data = lhs_data.data;
+            data.append(&mut rhs_data.data);
+            Value::buff_from(data)
         },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
+        (_, _) => {
+            Err(RuntimeErrorType::BadTypeConstruction.into())
+        }
     }
 }
 
