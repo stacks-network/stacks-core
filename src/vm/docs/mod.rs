@@ -362,7 +362,7 @@ const LEN_API: SpecialAPI = SpecialAPI {
     input_type: "buff|list",
     output_type: "uint",
     signature: "(len buffer)",
-    description: "The `len` function returns the length of a given buffer / list.",
+    description: "The `len` function returns the length of a given buffer or list.",
     example: "(len \"blockstack\") ;; Returns 10
 (len (list 1 2 3 4 5)) ;; Returns 5
 "
@@ -401,8 +401,8 @@ const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
     signature: "(map-get map-name key-tuple)",
     description: "The `map-get` function looks up and returns an entry from a contract's data map.
 The value is looked up using `key-tuple`.
-If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
-it returns (some value)",
+If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
+it returns `(some value)`.",
     example: "(expects! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
 (expects! (map-get names-map ((name \"blockstack\"))) (err 1)) ;; Same command, using a shorthand for constructing the tuple
 ",
@@ -453,8 +453,8 @@ const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
     signature: "(contract-map-get .contract-name map-name key-tuple)",
     description: "The `contract-map-get` function looks up and returns an entry from a
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
-If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
-it returns (some value).",
+If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
+it returns `(some value)`.",
     example: "(expects! (contract-map-get .names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
 (expects! (contract-map-get .names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
 ",
