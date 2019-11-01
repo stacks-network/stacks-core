@@ -8,7 +8,7 @@ mod options;
 mod assets;
 
 use std::convert::TryInto;
-use vm::errors::{CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
+use vm::errors::{CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::CallableType;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
@@ -38,6 +38,7 @@ define_named_enum!(NativeFunctions {
     Let("let"),
     Map("map"),
     Fold("fold"),
+    Len("len"),
     ListCons("list"),
     FetchVar("var-get"),
     SetVar("var-set!"),
@@ -63,6 +64,7 @@ define_named_enum!(NativeFunctions {
     ConsOkay("ok"),
     ConsSome("some"),
     DefaultTo("default-to"),
+    Asserts("asserts!"),
     Expects("expects!"),
     ExpectsErr("expects-err!"),
     IsOkay("is-ok?"),
@@ -104,6 +106,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Map => CallableType::SpecialFunction("native_map", &lists::list_map),
             Filter => CallableType::SpecialFunction("native_filter", &lists::list_filter),
             Fold => CallableType::SpecialFunction("native_fold", &lists::list_fold),
+            Len => CallableType::SpecialFunction("native_len", &lists::list_len),
             ListCons => CallableType::NativeFunction("native_cons", &lists::list_cons),
             FetchEntry => CallableType::SpecialFunction("native_map-get", &database::special_fetch_entry),
             FetchContractEntry => CallableType::SpecialFunction("native_contract-map-get", &database::special_fetch_contract_entry),
@@ -126,6 +129,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ConsOkay => CallableType::NativeFunction("native_okay", &options::native_okay),
             ConsError => CallableType::NativeFunction("native_error", &options::native_error),
             DefaultTo => CallableType::NativeFunction("native_default_to", &options::native_default_to),
+            Asserts => CallableType::SpecialFunction("native_asserts", &special_asserts),
             Expects => CallableType::NativeFunction("native_expects", &options::native_expects),
             ExpectsErr => CallableType::NativeFunction("native_expects_err", &options::native_expects_err),
             IsOkay => CallableType::NativeFunction("native_is_okay", &options::native_is_okay),
@@ -215,6 +219,25 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Loca
                 eval(&args[1], env, context)
             } else {
                 eval(&args[2], env, context)
+            }
+        },
+        _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, conditional).into())
+    }
+}
+
+fn special_asserts(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    // handle the conditional clause.
+    let conditional = eval(&args[0], env, context)?;
+
+    match conditional {
+        Value::Bool(result) => {
+            if result {
+                Ok(conditional)
+            } else {
+                let thrown = eval(&args[1], env, context)?;
+                Err(ShortReturnType::AssertionFailed(thrown.clone()).into())
             }
         },
         _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, conditional).into())

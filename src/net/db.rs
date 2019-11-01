@@ -641,7 +641,7 @@ impl PeerDB {
                     WHERE network_id = ?11 AND addrbytes = ?12 AND port = ?13",
                    &[&neighbor.addr.peer_version as &dyn ToSql, &to_hex(&neighbor.public_key.to_bytes_compressed()), &(neighbor.expire_block as i64) as &dyn ToSql, &(neighbor.last_contact_time as i64) as &dyn ToSql,
                      &neighbor.asn, &neighbor.org, &neighbor.whitelisted, &neighbor.blacklisted, &(neighbor.in_degree as i64) as &dyn ToSql, &(neighbor.out_degree as i64) as &dyn ToSql,
-                   &neighbor.addr.network_id as &dyn ToSql, &to_hex(&neighbor.addr.addrbytes.as_bytes().to_vec()) as &dyn ToSql, &neighbor.addr.port])
+                     &neighbor.addr.network_id as &dyn ToSql, &to_hex(&neighbor.addr.addrbytes.as_bytes().to_vec()) as &dyn ToSql, &neighbor.addr.port])
             .map_err(db_error::SqliteError)?;
 
         Ok(())

@@ -449,6 +449,20 @@ mod test {
                 Err(CheckErrors::ValueTooLarge.into()));
         }
     }
+
+    #[test]
+    fn simple_size_test() {
+        assert_eq!(Value::Int(10).size(), 16);
+    }
+
+    #[test]
+    fn simple_tuple_get_test() {
+        let t = TupleData::from_data(vec![("abc".into(), Value::Int(0))]).unwrap();
+        assert_eq!(t.get("abc"), Ok(&Value::Int(0)));
+        // should error!
+        t.get("abcd").unwrap_err();
+    }
+
     #[test]
     fn test_some_displays() {
         assert_eq!(&format!("{}", Value::list_from(vec![Value::Int(10), Value::Int(5)]).unwrap()),

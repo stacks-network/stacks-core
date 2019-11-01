@@ -131,6 +131,21 @@ fn test_simple_folds() {
 }
 
 #[test]
+fn test_list_len() {
+    let test1 = "(len (list 1 2 3 4))";
+    let expected = Value::UInt(4);
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
+}
+
+#[test]
+fn test_buff_len() {
+    let test1 = "(len \"blockstack\")";
+    let expected = Value::UInt(10);
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
+}
+
+
+#[test]
 fn test_construct_bad_list() {
     let test1 = "(list 1 2 3 'true)";
     assert_eq!(execute(test1).unwrap_err(), 
