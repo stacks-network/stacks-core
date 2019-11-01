@@ -97,7 +97,7 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     //           B = list items type
     
     // f must accept the initial value and the list items type
-    let return_type = function_type.check_args(&[list_items_type.clone(), initial_value_type])?;
+    let return_type = function_type.check_args(&[initial_value_type, list_items_type.clone()])?;
 
     // f must _also_ accepts its own return type!
     let return_type = function_type.check_args(&[return_type, list_items_type])?;
