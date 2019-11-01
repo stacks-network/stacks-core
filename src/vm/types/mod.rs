@@ -241,6 +241,10 @@ impl Value {
         // construct the buffer
         Ok(Value::Buffer(BuffData { data: buff_data }))
     }
+
+    pub fn buff_from_byte(byte: u8) -> Value {
+        Value::Buffer(BuffData { data: vec![byte] })
+    }
 }
 
 impl fmt::Display for OptionalData {

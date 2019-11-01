@@ -1,4 +1,4 @@
-use vm::errors::{CheckErrors, InterpreterResult as Result, check_argument_count};
+use vm::errors::{CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
 use vm::types::{Value, TypeSignature::BoolType, TypeSignature};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::{LocalContext, Environment, eval, apply, lookup_function};
@@ -36,7 +36,7 @@ pub fn native_filter(args: &[SymbolicExpression], env: &mut Environment, context
         Value::Buffer(mut buff) => {
             let mut filtered_vec = Vec::new();
             for x in buff.data.drain(..) {
-                let v = Value::buff_from(vec![x.clone()]).unwrap();
+                let v = Value::buff_from(vec![x.clone()])?;
                 let argument = [ SymbolicExpression::atom_value(v) ];
                 let filter_eval = apply(&function, &argument, env, context)?;
                 if let Value::Bool(include) = filter_eval {
@@ -71,8 +71,7 @@ pub fn native_fold(args: &[SymbolicExpression], env: &mut Environment, context: 
         },
         Value::Buffer(mut buff) => {
             buff.data.drain(..).map(|x| {
-                let element = Value::buff_from(vec![x]).unwrap();
-                SymbolicExpression::atom_value(element)
+                SymbolicExpression::atom_value(Value::buff_from_byte(x))
             }).collect()
         },
         _ => return Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
@@ -98,8 +97,7 @@ pub fn native_map(args: &[SymbolicExpression], env: &mut Environment, context: &
         },
         Value::Buffer(mut buff) => {
             buff.data.drain(..).map(|x| {
-                let element = Value::buff_from(vec![x]).unwrap();
-                vec![SymbolicExpression::atom_value(element)]
+                vec![SymbolicExpression::atom_value(Value::buff_from_byte(x))]
             }).collect()
         },
         _ => return Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
