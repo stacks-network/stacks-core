@@ -8,6 +8,8 @@ use vm::functions::define::DefineFunctionsParsed;
 use vm::variables::NativeVariables;
 use vm::MAX_CONTEXT_DEPTH;
 
+pub mod constants; 
+
 use super::type_checker::contexts::{TypeMap};
 
 use super::AnalysisDatabase;
@@ -187,7 +189,7 @@ impl ExecutionCost {
     }
 }
 
-fn parse_signature_cost(&SymbolicExpression) -> ExecutionCost {
+fn parse_signature_cost(signature: &[SymbolicExpression]) -> ExecutionCost {
     panic!("Not implemented");
 }
 
@@ -216,9 +218,10 @@ impl <'a, 'b> CostCounter <'a, 'b> {
                 evaluation_cost
             },
             DefineFunctionsParsed::PrivateFunction { signature, body } => {
-                let mut evaluation_cost = ExecutionCost {
-                    runtime: 
-                };
+                let signature_parsing_cost = parse_signature_cost(signature);
+                let mut evaluation_cost = self.handle_expression(body)?;
+                evaluation_cost.add(&signature_parsing_cost)?;
+                evaluation_cost
             },
             _ => {
                 panic!("Not implemented")
@@ -496,13 +499,51 @@ pub fn get_native_function_cost_spec(func: &NativeFunctions) -> CostSpecificatio
         Let =>          { return CostSpecification::Special(SpecialCostType::Let) },
         TupleCons =>    { return CostSpecification::Special(SpecialCostType::TupleCons) },
         TupleGet =>     { return CostSpecification::Special(SpecialCostType::TupleGet) },
-        Add | Subtract | Multiply | Divide => SimpleCostSpecification::new_diskless(Linear(1, 0)),
-        CmpGeq | CmpLeq | CmpLess | CmpGreater => SimpleCostSpecification::new_diskless(Constant(1)),
-        ToUInt | ToInt => SimpleCostSpecification::new_diskless(Constant(1)),
-        Modulo | Power | BitwiseXOR => SimpleCostSpecification::new_diskless(Constant(1)),
-        And | Or | Not => SimpleCostSpecification::new_diskless(Constant(1)),
-        Equals => SimpleCostSpecification::new_diskless(Linear(1, 0)),
-        ListCons => SimpleCostSpecification::new_diskless(Linear(1, 0)),
+        Asserts =>  SimpleCostSpecification::new_diskless(Linear(constants::ASSERTS_COST_A,  constants::ASSERTS_COST_B)),
+
+        // cost of arithmetics is linear in the number of arguments.
+        Add =>      SimpleCostSpecification::new_diskless(Linear(constants::ADD_COST_A,      0)),
+        Multiply => SimpleCostSpecification::new_diskless(Linear(constants::MULTIPLY_COST_A, 0)),
+        Divide =>   SimpleCostSpecification::new_diskless(Linear(constants::DIVIDE_COST_A,   0)),
+        Subtract => SimpleCostSpecification::new_diskless(Linear(constants::SUBTRACT_COST_A, 0)),
+
+        // these arith. ops are _constant_ since they are of fixed length integers.
+        CmpGeq | CmpLeq | CmpLess | CmpGreater =>
+                        SimpleCostSpecification::new_diskless(Constant(constants::COMPARE_COST)),
+        ToUInt | ToInt => 
+                        SimpleCostSpecification::new_diskless(Constant(constants::INT_CAST_COST)),
+        Modulo      =>  SimpleCostSpecification::new_diskless(Constant(constants::MOD_COST)),
+        Power       =>  SimpleCostSpecification::new_diskless(Constant(constants::POW_COST)),
+        BitwiseXOR  =>  SimpleCostSpecification::new_diskless(Constant(constants::XOR_COST)),
+
+        And | Or => SimpleCostSpecification::new_diskless(Linear(constants::AND_OR_COST_A, 0)),
+
+        Not => SimpleCostSpecification::new_diskless(Constant(constants::NOT_COST)),
+        Equals => SimpleCostSpecification::new_diskless(Linear(constants::EQUALS_COST_A, 0)),
+
+        // ensure this is a constant cost, since length is cached from list constructor.
+        Len => SimpleCostSpecification::new_diskless(Constant(constants::LEN_COST)),
+
+        ListCons => SimpleCostSpecification::new_diskless(Linear(constants::LIST_CONS_A, 0)),
+        Begin => SimpleCostSpecification::new_diskless(Constant(constants::BEGIN_COST)),
+        Sha512Trunc256 =>
+                     SimpleCostSpecification::new_diskless(Linear(constants::SHA512T_A, constants::SHA512T_B)),
+        Hash160 =>   SimpleCostSpecification::new_diskless(Linear(constants::HASH160_A, constants::HASH160_B)),
+        Sha256 =>    SimpleCostSpecification::new_diskless(Linear(constants::SHA256_A,  constants::SHA256_B)),
+        Sha512 =>    SimpleCostSpecification::new_diskless(Linear(constants::SHA512_A,  constants::SHA512_B)),
+        Keccak256 => SimpleCostSpecification::new_diskless(Linear(constants::KECC256_A, constants::KECC256_B)),
+
+        ConsSome | ConsOkay | ConsError 
+                             => SimpleCostSpecification::new_diskless(Linear(constants::CONS_OPTION_A, constants::CONS_OPTION_B)),
+        DefaultTo            => SimpleCostSpecification::new_diskless(Linear(constants::DEFAULT_TO_A,  constants::DEFAULT_TO_B)),
+        Expects | ExpectsErr => SimpleCostSpecification::new_diskless(Linear(constants::EXPECTS_A,     constants::EXPECTS_B)),
+        Print =>                SimpleCostSpecification::new_diskless(Linear(constants::PRINT_A, constants::PRINT_B)),
+
+        IsOkay | IsNone => SimpleCostSpecification::new_diskless(Constant(constants::IS_OPTION_COST)),
+        AsContract =>      SimpleCostSpecification::new_diskless(Constant(constants::AS_CONTRACT_COST)),
+
+        // These may need to be handled specially.
+        //    read costs are linear (may be super-linear to parse) in the _stored type_.
         FetchVar => SimpleCostSpecification {
             read_count: Constant(1),
             write_length: Constant(0),
@@ -518,20 +559,11 @@ pub fn get_native_function_cost_spec(func: &NativeFunctions) -> CostSpecificatio
             write_length: Constant(0),
             runtime: Linear(1, 1),
         },
-        Begin => SimpleCostSpecification::new_diskless(Constant(1)),
-        // Note: these hash functions will have different costs after benchmarking,
-        //    but for now, they can all be linear(1,1).
-        Hash160 | Sha256 | Sha512 | Sha512Trunc256 | Keccak256 => SimpleCostSpecification::new_diskless(Linear(1, 1)),
-        Print => SimpleCostSpecification::new_diskless(Linear(1, 1)),
-        AsContract => SimpleCostSpecification::new_diskless(Constant(1)),
         GetBlockInfo => SimpleCostSpecification {
             read_count: Constant(1),
             write_length: Constant(0),
             runtime: Constant(1)
         },
-        ConsSome | ConsOkay | ConsError => SimpleCostSpecification::new_diskless(Linear(1, 1)),
-        DefaultTo | Expects | ExpectsErr => SimpleCostSpecification::new_diskless(Linear(1, 1)),
-        IsOkay | IsNone => SimpleCostSpecification::new_diskless(Constant(1)),
         MintAsset | TransferAsset => SimpleCostSpecification {
             read_count: Constant(1),
             write_length: Linear(1, 1),
