@@ -87,27 +87,26 @@ pub fn native_map(args: &[SymbolicExpression], env: &mut Environment, context: &
 
     let function_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
+    let iterable = eval(&args[1], env, context)?;
     let function = lookup_function(&function_name, env)?;
 
-    let iterable = eval(&args[1], env, context)?;
-    match iterable {
+    let mapped_args: Vec<_> = match iterable {
         Value::List(mut list) => {
-            let mapped_vec = list.data.drain(..).map(|x| {
-                let argument = vec![SymbolicExpression::atom_value(x)];
-                apply(&function, &argument, env, context).unwrap()
-            }).collect();
-            Value::list_from(mapped_vec)
+            list.data.drain(..).map(|x| {
+                vec![SymbolicExpression::atom_value(x)]
+            }).collect()
         },
         Value::Buffer(mut buff) => {
-            let mapped_vec = buff.data.drain(..).map(|x| {
+            buff.data.drain(..).map(|x| {
                 let element = Value::buff_from(vec![x]).unwrap();
-                let argument = vec![SymbolicExpression::atom_value(element)];
-                apply(&function, &argument, env, context).unwrap()
-            }).collect();
-            Value::list_from(mapped_vec)
+                vec![SymbolicExpression::atom_value(element)]
+            }).collect()
         },
-        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
-    }
+        _ => return Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
+    };
+    let mapped_vec: Result<Vec<_>> =
+        mapped_args.iter().map(|argument| apply(&function, &argument, env, context)).collect();
+    Value::list_from(mapped_vec?)
 }
 
 pub fn native_append(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
