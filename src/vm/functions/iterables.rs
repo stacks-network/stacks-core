@@ -153,24 +153,15 @@ pub fn native_asserts_max_len(args: &[SymbolicExpression], env: &mut Environment
     let iterable = eval(&args[0], env, context)?;
 
     if let Some(Value::UInt(expected_len)) = args[1].match_literal_value() {
-        match iterable {
-            Value::List(list) => {
-                let iterable_len = list.data.len() as u128;
-                if iterable_len > *expected_len {
-                    Ok(Value::none())
-                } else {
-                    Ok(Value::some(Value::List(list)))
-                }
-            },
-            Value::Buffer(buff) => {
-                let iterable_len = buff.data.len() as u128;
-                if iterable_len > *expected_len { 
-                    Ok(Value::none())
-                } else {
-                    Ok(Value::some(Value::Buffer(buff)))
-                }
-            },
+        let iterable_len = match iterable {
+            Value::List(ref list) => list.data.len(),
+            Value::Buffer(ref buff) => buff.data.len(),
             _ => return Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&iterable)).into())
+        };
+        if iterable_len as u128 > *expected_len {
+            Ok(Value::none())
+        } else {
+            Ok(Value::some(iterable))
         }
     } else {
         let actual_len = eval(&args[1], env, context)?;
