@@ -43,6 +43,11 @@ use burnchains::bitcoin::address::{
     to_c32_version_byte
 };
 
+use vm::types::{
+    PrincipalData,
+    StandardPrincipalData,
+};
+
 
 impl StacksMessageCodec for StacksAddress {
     fn serialize(&self) -> Vec<u8> {
@@ -133,6 +138,11 @@ impl StacksAddress {
             version: version,
             bytes: addr.bytes.clone()
         }
+    }
+
+    /// Convert to PrincipalData::Standard(StandardPrincipalData)
+    pub fn to_account_principal(&self) -> PrincipalData {
+        PrincipalData::Standard(StandardPrincipalData(self.version, self.bytes.as_bytes().clone()))
     }
 }
 
