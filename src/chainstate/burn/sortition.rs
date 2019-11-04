@@ -135,7 +135,7 @@ impl BlockSnapshot {
         let burn_block_height = block_header.block_height;
 
         // get the last winner's VRF seed in this block's fork
-        let last_sortition_snapshot = BurnDB::get_last_snapshot_with_sortition(tx, burn_block_height - 1, &block_header.parent_index_root)
+        let last_sortition_snapshot = BurnDB::get_last_snapshot_with_sortition(tx, burn_block_height - 1, &block_header.parent_block_hash)
             .expect("FATAL: failed to query last snapshot with sortition");
 
         let VRF_seed =
@@ -174,7 +174,7 @@ impl BlockSnapshot {
         let non_winning_block_hash = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
 
         let ops_hash = OpsHash::from_txids(txids);
-        let ch = ConsensusHash::from_parent_block_data(tx, &ops_hash, block_height - 1, first_block_height, &block_header.parent_index_root, burn_total)?;
+        let ch = ConsensusHash::from_parent_block_data(tx, &ops_hash, block_height - 1, first_block_height, &block_header.parent_block_hash, burn_total)?;
 
         info!("SORTITION({}): NO BLOCK CHOSEN", block_height);
 
@@ -274,7 +274,7 @@ impl BlockSnapshot {
         };
         
         let next_ops_hash = OpsHash::from_txids(&txids);
-        let next_ch = ConsensusHash::from_parent_block_data(tx, &next_ops_hash, block_height - 1, first_block_height, &block_header.parent_index_root, next_burn_total)?;
+        let next_ch = ConsensusHash::from_parent_block_data(tx, &next_ops_hash, block_height - 1, first_block_height, &block_header.parent_block_hash, next_burn_total)?;
 
         info!("SORTITION({}): WINNER IS {:?} (from {:?})", block_height, winning_block_hash, winning_txid);
 
