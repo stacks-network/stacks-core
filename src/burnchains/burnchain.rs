@@ -124,7 +124,7 @@ impl BurnchainStateTransition {
         }
 
         // find all VRF leader keys that were consumed by the block commits of this block 
-        let consumed_leader_keys = BurnDB::get_consumed_leader_keys(tx, &parent_snapshot.index_root, &block_commits)
+        let consumed_leader_keys = BurnDB::get_consumed_leader_keys(tx, &parent_snapshot.burn_header_hash, &block_commits)
             .map_err(burnchain_error::DBError)?;
 
         // calculate the burn distribution from these operations.
@@ -1478,7 +1478,7 @@ pub mod tests {
 
             let ch = {
                 let mut tx = db.tx_begin().unwrap();
-                BurnDB::get_consensus_at(&mut tx, (i as u64) + first_block_height, &parent_index_root).unwrap()
+                BurnDB::get_consensus_at(&mut tx, (i as u64) + first_block_height, &parent_burn_block_hash).unwrap()
             };
 
             let next_leader_key = LeaderKeyRegisterOp {
