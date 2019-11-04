@@ -248,31 +248,33 @@ pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
     Ok((data_path, marf_path))
 }
 
-pub struct IndexDBTx<'a> {
+pub struct IndexDBTx<'a, C> {
     pub tx: DBTx<'a>,
     pub index: &'a mut MARF,
+    pub context: C,
     block_linkage: Option<(BlockHeaderHash, BlockHeaderHash)>
 }
 
-impl<'a> Deref for IndexDBTx<'a> {
+impl<'a, C> Deref for IndexDBTx<'a, C> {
     type Target = DBTx<'a>;
     fn deref(&self) -> &DBTx<'a> {
         &self.tx
     }
 }
 
-impl<'a> DerefMut for IndexDBTx<'a> {
+impl<'a, C> DerefMut for IndexDBTx<'a, C> {
     fn deref_mut(&mut self) -> &mut DBTx<'a> {
         &mut self.tx
     }
 }
 
-impl<'a> IndexDBTx<'a> {
-    pub fn new(tx: DBTx<'a>, index: &'a mut MARF) -> IndexDBTx<'a> {
+impl<'a, C> IndexDBTx<'a, C> {
+    pub fn new(tx: DBTx<'a>, index: &'a mut MARF, context: C) -> IndexDBTx<'a, C> {
         IndexDBTx {
             tx: tx,
             index: index,
             block_linkage: None,
+            context: context
         }
     }
 
@@ -288,6 +290,24 @@ impl<'a> IndexDBTx<'a> {
         );
         "#, NO_PARAMS).map_err(Error::SqliteError)?;
         Ok(())
+    }
+
+    /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
+    pub fn get_ancestor_block_hash(&mut self, block_height: u64, tip_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+        assert!(block_height < u32::max_value() as u64);
+        MARF::get_block_at_height(self.index.borrow_storage_backend(), block_height as u32, tip_block_hash).map_err(Error::IndexError)
+    }
+
+    /// Get the height of an ancestor block, if it is indeed the ancestor.
+    pub fn get_ancestor_block_height(&mut self, ancestor_block_hash: &BlockHeaderHash, tip_block_hash: &BlockHeaderHash) -> Result<Option<u64>, Error> {
+        match MARF::get_block_height(self.index.borrow_storage_backend(), ancestor_block_hash, tip_block_hash).map_err(Error::IndexError)? {
+            Some(height_u32) => {
+                Ok(Some(height_u32 as u64))
+            }
+            None => {
+                Ok(None)
+            }
+        }
     }
 
     /// Store some data to the index storage.
