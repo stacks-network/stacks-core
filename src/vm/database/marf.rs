@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use vm::errors::{ InterpreterError, InterpreterResult as Result, IncomparableError, RuntimeErrorType };
 use vm::database::{KeyValueStorage, SqliteConnection};
 use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::{MARFValue, Error as MarfError};
+use chainstate::stacks::index::{MARFValue, Error as MarfError, TrieHash};
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
 
@@ -118,6 +118,11 @@ impl <S> MarfedKV <S> where S: KeyValueStorage {
     pub fn get_chain_tip(&self) -> &BlockHeaderHash {
         &self.chain_tip
     }
+    pub fn get_root_hash(&mut self) -> TrieHash {
+        self.marf.get_root_hash_at(&self.chain_tip)
+            .expect("FATAL: Failed to read MARF root hash")
+    }
+
     #[cfg(test)]
     pub fn get_side_store(&mut self) -> &mut S {
         &mut self.side_store
