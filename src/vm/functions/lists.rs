@@ -74,3 +74,14 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
         Err(CheckErrors::ExpectedListApplication.into())
     }
 }
+
+pub fn list_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    check_argument_count(1, args)?;
+    
+    let len_target = eval(&args[0], env, context)?;
+    match len_target {
+        Value::List(list) => Ok(Value::UInt(list.data.len() as u128)),
+        Value::Buffer(buff) => Ok(Value::UInt(buff.data.len() as u128)),
+        _ => Err(CheckErrors::ExpectedListApplication.into())
+    }
+}

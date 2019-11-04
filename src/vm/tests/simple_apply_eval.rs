@@ -1,6 +1,6 @@
 use vm::{eval, execute as vm_execute};
 use vm::database::memory_db;
-use vm::errors::{CheckErrors, RuntimeErrorType, Error};
+use vm::errors::{CheckErrors, ShortReturnType, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
@@ -480,4 +480,32 @@ fn test_lets() {
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+}
+
+#[test]
+fn test_asserts() {
+    let tests = [
+        "(begin (asserts! (eq? 1 1) (err 0)) (ok 1))",
+        "(begin (asserts! (eq? 1 1) (err 0)) (asserts! (eq? 2 2) (err 1)) (ok 2))"];
+
+    let expectations = [
+        Value::okay(Value::Int(1)),
+        Value::okay(Value::Int(2))];
+
+    tests.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+}
+
+#[test]
+fn test_asserts_short_circuit() {
+    let tests = [
+        "(begin (asserts! (eq? 1 0) (err 0)) (ok 1))",
+        "(begin (asserts! (eq? 1 1) (err 0)) (asserts! (eq? 2 1) (err 1)) (ok 2))"];
+
+    let expectations: &[Error] = &[
+        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(0)))),
+        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(1))))];
+
+    tests.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!((*expectation), vm_execute(program).unwrap_err()));
 }

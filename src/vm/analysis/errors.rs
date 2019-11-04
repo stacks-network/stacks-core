@@ -90,6 +90,7 @@ pub enum CheckErrors {
     // expect a function, or applying a function to a list
     NonFunctionApplication,
     ExpectedListApplication,
+    ExpectedListOrBuffer(TypeSignature),
 
     // let syntax
     BadLetSyntax,
@@ -254,6 +255,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
             CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),
+            CheckErrors::ExpectedListOrBuffer(found_type) => format!("expecting expression of type 'list' or 'buff', found '{}'", found_type),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
             CheckErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),
             CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"),
