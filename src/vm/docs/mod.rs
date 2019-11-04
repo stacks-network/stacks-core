@@ -358,6 +358,16 @@ value return by the successive applications.",
 (fold * (list 2 2 2) 0) ;; Returns 0"
 };
 
+const LEN_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|list",
+    output_type: "uint",
+    signature: "(len buffer)",
+    description: "The `len` function returns the length of a given buffer or list.",
+    example: "(len \"blockstack\") ;; Returns 10
+(len (list 1 2 3 4 5)) ;; Returns 5
+"
+};
+
 const LIST_API: SpecialAPI = SpecialAPI {
     input_type: "A, ...",
     output_type: "(list A)",
@@ -391,8 +401,8 @@ const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
     signature: "(map-get map-name key-tuple)",
     description: "The `map-get` function looks up and returns an entry from a contract's data map.
 The value is looked up using `key-tuple`.
-If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
-it returns (some value)",
+If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
+it returns `(some value)`.",
     example: "(expects! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
 (expects! (map-get names-map ((name \"blockstack\"))) (err 1)) ;; Same command, using a shorthand for constructing the tuple
 ",
@@ -443,8 +453,8 @@ const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
     signature: "(contract-map-get .contract-name map-name key-tuple)",
     description: "The `contract-map-get` function looks up and returns an entry from a
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
-If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
-it returns (some value).",
+If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
+it returns `(some value)`.",
     example: "(expects! (contract-map-get .names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
 (expects! (contract-map-get .names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
 ",
@@ -559,6 +569,16 @@ principal and executes `expr` with that context. It returns the resulting value 
     example: "(as-contract (print tx-sender)) ;; Returns 'CTcontract.name"
 };
 
+const ASSERTS_API: SpecialAPI = SpecialAPI {
+    input_type: "bool, C",
+    output_type: "bool",
+    signature: "(asserts! bool-expr thrown-value)",
+    description: "The `asserts!` function admits a boolean argument and asserts its evaluation: 
+if bool-expr is `true`, `asserts!` returns `true` and proceeds in the program execution. 
+If the supplied argument is returning a 'false value, `asserts!` _returns_ `thrown-value` and exits the current 
+control-flow.",
+    example: "(asserts! (eq? 1 1) (err 1)) ;; Returns 'true",
+};
 
 const EXPECTS_API: SpecialAPI = SpecialAPI {
     input_type: "(optional A) | (response A B), C",
@@ -963,6 +983,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Map => make_for_special(&MAP_API, name),
         Filter => make_for_special(&FILTER_API, name),
         Fold => make_for_special(&FOLD_API, name),
+        Len => make_for_special(&LEN_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
         FetchContractEntry => make_for_special(&FETCH_CONTRACT_API, name),
@@ -985,6 +1006,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ConsError => make_for_special(&CONS_ERR_API, name),
         ConsSome =>  make_for_special(&CONS_SOME_API, name),
         DefaultTo => make_for_special(&DEFAULT_TO_API, name),
+        Asserts => make_for_special(&ASSERTS_API, name),
         Expects => make_for_special(&EXPECTS_API, name),
         ExpectsErr => make_for_special(&EXPECTS_ERR_API, name),
         IsOkay => make_for_special(&IS_OK_API, name),
