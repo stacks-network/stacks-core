@@ -35,6 +35,8 @@ pub struct OwnedEnvironment <'a> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AssetMapEntry {
+    STX(i128),
+    Burn(i128),
     Token(i128),
     Asset(Vec<Value>)
 }
@@ -45,6 +47,8 @@ pub enum AssetMapEntry {
  */
 #[derive(Debug)]
 pub struct AssetMap {
+    stx_map: HashMap<PrincipalData, i128>,
+    burn_map: HashMap<PrincipalData, i128>,
     token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, i128>>,
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>
 }
@@ -86,9 +90,25 @@ pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
 impl AssetMap {
     pub fn new() -> AssetMap {
         AssetMap {
+            stx_map: HashMap::new(),
+            burn_map: HashMap::new(),
             token_map: HashMap::new(),
             asset_map: HashMap::new()
         }
+    }
+    
+    // This will get the next amount for a (principal, stx) entry in the stx table.
+    fn get_next_stx_amount(&self, principal: &PrincipalData, amount: i128) -> Result<i128> {
+        let current_amount = self.stx_map.get(principal).unwrap_or(&0);
+        current_amount.checked_add(amount)
+            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+    }
+    
+    // This will get the next amount for a (principal, stx) entry in the burn table.
+    fn get_next_stx_burn_amount(&self, principal: &PrincipalData, amount: i128) -> Result<i128> {
+        let current_amount = self.burn_map.get(principal).unwrap_or(&0);
+        current_amount.checked_add(amount)
+            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
     }
 
     // This will get the next amount for a (principal, asset) entry in the asset table.
@@ -100,6 +120,28 @@ impl AssetMap {
             
         current_amount.checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+    }
+
+    pub fn add_stx_transfer(&mut self, principal: &PrincipalData, amount: i128) -> Result<()> {
+        if amount < 0 {
+            panic!("Should never attempt to log a negative STX transfer.");
+        }
+
+        let next_amount = self.get_next_stx_amount(principal, amount)?;
+        self.stx_map.insert(principal.clone(), next_amount);
+
+        Ok(())
+    }
+    
+    pub fn add_stx_burn(&mut self, principal: &PrincipalData, amount: i128) -> Result<()> {
+        if amount < 0 {
+            panic!("Should never attempt to log a negative STX burn.");
+        }
+
+        let next_amount = self.get_next_stx_burn_amount(principal, amount)?;
+        self.burn_map.insert(principal.clone(), next_amount);
+
+        Ok(())
     }
 
     pub fn add_asset_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, transfered: Value) {
@@ -140,11 +182,24 @@ impl AssetMap {
     //   aborting _all_ changes in the event of an error, leaving self unchanged
     pub fn commit_other(&mut self, mut other: AssetMap) -> Result<()> {
         let mut to_add = Vec::new();
+        let mut stx_to_add = Vec::new();
+        let mut stx_burn_to_add = Vec::new();
+
         for (principal, mut principal_map) in other.token_map.drain() {
             for (asset, amount) in principal_map.drain() {
                 let next_amount = self.get_next_amount(&principal, &asset, amount)?;
                 to_add.push((principal.clone(), asset, next_amount));
             }
+        }
+
+        for (principal, stx_amount) in other.stx_map.drain() {
+            let next_amount = self.get_next_stx_amount(&principal, stx_amount)?;
+            stx_to_add.push((principal.clone(), next_amount));
+        }
+
+        for (principal, stx_burn_amount) in other.burn_map.drain() {
+            let next_amount = self.get_next_stx_burn_amount(&principal, stx_burn_amount)?;
+            stx_burn_to_add.push((principal.clone(), next_amount));
         }
 
         // After this point, this function will not fail.
@@ -165,6 +220,13 @@ impl AssetMap {
             }
         }
 
+        for (principal, stx_amount) in stx_to_add.drain(..) {
+            self.stx_map.insert(principal, stx_amount);
+        }
+
+        for (principal, stx_burn_amount) in stx_burn_to_add.drain(..) {
+            self.burn_map.insert(principal, stx_burn_amount);
+        }
 
         for (principal, asset, amount) in to_add.drain(..) {
             if !self.token_map.contains_key(&principal) {
@@ -190,6 +252,16 @@ impl AssetMap {
             map.insert(principal, output_map);
         }
 
+        for (principal, stx_amount) in self.stx_map.drain() {
+            let mut output_map = HashMap::new();
+            output_map.insert(AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: ClarityName::from("STX") }, stx_amount);
+        }
+        
+        for (principal, stx_burned_amount) in self.burn_map.drain() {
+            let mut output_map = HashMap::new();
+            output_map.insert(AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: ClarityName::from("BURNED") }, stx_burned_amount);
+        }
+
         for (principal, mut principal_map) in self.asset_map.drain() {
             let output_map = if map.contains_key(&principal) {
                 map.get_mut(&principal).unwrap()
@@ -204,6 +276,28 @@ impl AssetMap {
         }
 
         return map
+    }
+
+    pub fn get_stx(&self, principal: &PrincipalData) -> Option<i128> {
+        match self.stx_map.get(principal) {
+            Some(value) => Some(*value),
+            None => None
+        }
+    }
+
+    pub fn get_stx_burned(&self, principal: &PrincipalData) -> Option<i128> {
+        match self.burn_map.get(principal) {
+            Some(value) => Some(*value),
+            None => None
+        }
+    }
+
+    pub fn get_stx_burned_total(&self) -> i128 {
+        let mut total : i128 = 0;
+        for principal in self.burn_map.keys() {
+            total = total.checked_add(*self.burn_map.get(principal).unwrap_or(&0i128)).expect("BURN OVERFLOW");
+        }
+        total
     }
 
     pub fn get_fungible_tokens(&self, principal: &PrincipalData, asset_identifier: &AssetIdentifier) -> Option<i128> {
@@ -269,6 +363,12 @@ impl fmt::Display for AssetMap {
                 }
                 write!(f, "] {}\n", asset)?;
             }
+        }
+        for (principal, stx_amount) in self.stx_map.iter() {
+            write!(f, "{} spent {} microSTX\n", principal, stx_amount)?;
+        }
+        for (principal, stx_burn_amount) in self.burn_map.iter() {
+            write!(f, "{} burned {} microSTX\n", principal, stx_burn_amount)?;
         }
         write!(f, "]")
     }
@@ -782,24 +882,36 @@ mod test {
         let c_contract_id = QualifiedContractIdentifier::local("c").unwrap();
         let d_contract_id = QualifiedContractIdentifier::local("d").unwrap();
         let e_contract_id = QualifiedContractIdentifier::local("e").unwrap();
+        let f_contract_id = QualifiedContractIdentifier::local("f").unwrap();
+        let g_contract_id = QualifiedContractIdentifier::local("g").unwrap();
 
         let p1 = PrincipalData::Contract(a_contract_id.clone());
         let p2 = PrincipalData::Contract(b_contract_id.clone());
         let p3 = PrincipalData::Contract(c_contract_id.clone());
         let p4 = PrincipalData::Contract(d_contract_id.clone());
         let p5 = PrincipalData::Contract(e_contract_id.clone());
+        let p6 = PrincipalData::Contract(f_contract_id.clone());
+        let p7 = PrincipalData::Contract(g_contract_id.clone());
 
         let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
         let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
         let t3 = AssetIdentifier { contract_identifier: c_contract_id.clone(), asset_name: "a".into() };
         let t4 = AssetIdentifier { contract_identifier: d_contract_id.clone(), asset_name: "a".into() };
         let t5 = AssetIdentifier { contract_identifier: e_contract_id.clone(), asset_name: "a".into() };
+        let t6 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: "STX".into() };
+        let t7 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: "BURNED".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
 
         am1.add_token_transfer(&p1, t1.clone(), 10).unwrap();
         am2.add_token_transfer(&p1, t1.clone(), 15).unwrap();
+        
+        am1.add_stx_transfer(&p1, 20).unwrap();
+        am2.add_stx_transfer(&p2, 25).unwrap();
+
+        am1.add_stx_burn(&p1, 30).unwrap();
+        am2.add_stx_burn(&p2, 35).unwrap();
 
         // test merging in a token that _didn't_ have an entry in the parent
         am2.add_token_transfer(&p1, t4.clone(), 1).unwrap();
@@ -821,6 +933,14 @@ mod test {
         am1.add_asset_transfer(&p2, t3.clone(), Value::Int(5));
         am2.add_asset_transfer(&p2, t3.clone(), Value::Int(3));
         am2.add_asset_transfer(&p2, t3.clone(), Value::Int(4));
+
+        // test merging in STX transfers
+        am1.add_stx_transfer(&p1, 21).unwrap();
+        am2.add_stx_transfer(&p2, 26).unwrap();
+
+        // test merging in STX burns
+        am1.add_stx_burn(&p1, 31).unwrap();
+        am2.add_stx_burn(&p2, 36).unwrap();
 
         am1.commit_other(am2).unwrap();
 
@@ -844,6 +964,12 @@ mod test {
 
         assert_eq!(table[&p3][&t3], AssetMapEntry::Asset(
             vec![Value::Int(10)]));
+
+        assert_eq!(table[&p1][&t6], AssetMapEntry::STX(20 + 21));
+        assert_eq!(table[&p2][&t6], AssetMapEntry::STX(25 + 26));
+
+        assert_eq!(table[&p1][&t7], AssetMapEntry::Burn(30 + 31));
+        assert_eq!(table[&p2][&t7], AssetMapEntry::Burn(35 + 36));
     }
 
 }
