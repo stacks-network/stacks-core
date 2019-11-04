@@ -38,6 +38,7 @@ use sha2::Digest;
 use chainstate::burn::*;
 use chainstate::burn::operations::*;
 
+use burnchains::BurnchainHeaderHash;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
 
@@ -53,13 +54,13 @@ impl StacksMessageCodec for VRFProof {
         if index > u32::max_value() - VRF_PROOF_ENCODED_SIZE {
             return Err(net_error::OverflowError);
         }
-        if index + VRF_PROOF_ENCODED_SIZE < max_size {
+        if index + VRF_PROOF_ENCODED_SIZE > max_size {
             return Err(net_error::OverflowError);
         }
-
         if (buf.len() as u32) < index + VRF_PROOF_ENCODED_SIZE {
             return Err(net_error::UnderflowError);
         }
+
         let res = VRFProof::from_slice(&buf[(index as usize)..((index+VRF_PROOF_ENCODED_SIZE) as usize)])
             .ok_or(net_error::DeserializeError)?;
             
@@ -76,9 +77,12 @@ impl StacksMessageCodec for StacksWorkScore {
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<StacksWorkScore, net_error> {
-        let burn = read_next(buf, index, max_size)?;
-        let work = read_next(buf, index, max_size)?;
+    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksWorkScore, net_error> {
+        let mut index = *index_ptr;
+        let burn = read_next(buf, &mut index, max_size)?;
+        let work = read_next(buf, &mut index, max_size)?;
+
+        *index_ptr = index;
         Ok(StacksWorkScore {
             burn,
             work
@@ -117,17 +121,20 @@ impl StacksMessageCodec for StacksBlockHeader {
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<StacksBlockHeader, net_error> {
-        let version: u8                         = read_next(buf, index, max_size)?;
-        let total_work : StacksWorkScore        = read_next(buf, index, max_size)?;
-        let proof : VRFProof                    = read_next(buf, index, max_size)?;
-        let parent_block: BlockHeaderHash       = read_next(buf, index, max_size)?;
-        let parent_microblock: BlockHeaderHash  = read_next(buf, index, max_size)?;
-        let parent_microblock_sequence: u8      = read_next(buf, index, max_size)?;
-        let tx_merkle_root: Sha512Trunc256Sum          = read_next(buf, index, max_size)?;
-        let state_index_root: TrieHash          = read_next(buf, index, max_size)?;
-        let pubkey_hash_buf: Hash160            = read_next(buf, index, max_size)?;
+    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksBlockHeader, net_error> {
+        let mut index = *index_ptr;
 
+        let version: u8                         = read_next(buf, &mut index, max_size)?;
+        let total_work : StacksWorkScore        = read_next(buf, &mut index, max_size)?;
+        let proof : VRFProof                    = read_next(buf, &mut index, max_size)?;
+        let parent_block: BlockHeaderHash       = read_next(buf, &mut index, max_size)?;
+        let parent_microblock: BlockHeaderHash  = read_next(buf, &mut index, max_size)?;
+        let parent_microblock_sequence: u8      = read_next(buf, &mut index, max_size)?;
+        let tx_merkle_root: Sha512Trunc256Sum   = read_next(buf, &mut index, max_size)?;
+        let state_index_root: TrieHash          = read_next(buf, &mut index, max_size)?;
+        let pubkey_hash_buf: Hash160            = read_next(buf, &mut index, max_size)?;
+
+        *index_ptr = index;
         Ok(StacksBlockHeader {
             version,
             total_work,
@@ -168,6 +175,25 @@ impl StacksBlockHeader {
         BlockHeaderHash::from_serialized_header(&buf[..])
     }
 
+    /// This is the "block hash" used for extending the state index root.
+    /// This method is necessary because the index root must be globally unique (but, the same stacks
+    /// block header can show up multiple times on different burn chain forks).
+    pub fn make_index_block_hash(burn_block_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> BlockHeaderHash {
+        let mut hash_bytes = vec![];
+        hash_bytes.extend_from_slice(&mut block_hash.as_bytes().clone());
+        hash_bytes.extend_from_slice(&mut burn_block_hash.as_bytes().clone());
+        
+        let h = Sha512Trunc256Sum::from_data(&hash_bytes);
+        let mut b = [0u8; 32];
+        b.copy_from_slice(h.as_bytes());
+        BlockHeaderHash(b)
+    }
+
+    pub fn index_block_hash(&self, burn_hash: &BurnchainHeaderHash) -> BlockHeaderHash {
+        let block_hash = self.block_hash();
+        StacksBlockHeader::make_index_block_hash(burn_hash, &block_hash)
+    }
+
     pub fn from_parent(parent_header: &StacksBlockHeader, parent_microblock_header: &StacksMicroblockHeader,  work_delta: &StacksWorkScore, proof: &VRFProof, tx_merkle_root: &Sha512Trunc256Sum, state_index_root: &TrieHash, microblock_pubkey_hash: &Hash160) -> StacksBlockHeader {
         StacksBlockHeader {
             version: STACKS_BLOCK_VERSION,
@@ -185,21 +211,25 @@ impl StacksBlockHeader {
     /// Validate this block header against the burnchain.
     /// Used to determine whether or not we'll keep a block around (even if we don't yet have its parent).
     pub fn validate_burnchain(&self, snapshot: &BlockSnapshot, leader_key: &LeaderKeyRegisterOp, block_commit: &LeaderBlockCommitOp, parent_snapshot: &BlockSnapshot, parent_block_commit: &LeaderBlockCommitOp) -> bool {
+        // this header must match the header that won sortition on the burn chain
         if self.block_hash() != snapshot.winning_stacks_block_hash {
             test_debug!("Invalid Stacks block header {}: invalid commit: {} != {}", self.block_hash().to_hex(), self.block_hash().to_hex(), snapshot.winning_stacks_block_hash.to_hex());
             return false;
         }
 
+        // this header must match the parent header as recorded on the burn chain
         if self.parent_block != parent_snapshot.winning_stacks_block_hash {
             test_debug!("Invalid Stacks block header {}: invalid parent hash: {} != {}", self.block_hash().to_hex(), self.parent_block.to_hex(), parent_snapshot.winning_stacks_block_hash.to_hex());
             return false;
         }
         
+        // this header's proof must hash to the winning block header's new VRF seed
         if !parent_block_commit.new_seed.is_from_proof(&self.proof) {
             test_debug!("Invalid Stacks block header {}: invalid VRF proof: hash({}) != {} (but {})", self.block_hash().to_hex(), self.proof.to_hex(), parent_block_commit.new_seed.to_hex(), VRFSeed::from_proof(&self.proof).to_hex());
             return false;
         }
 
+        // this header must commit to all of the proof-of-burn and proof-of-work seen so far
         if self.total_work.burn != parent_snapshot.total_burn {
             test_debug!("Invalid Stacks block header {}: invalid total burns: {} != {}", self.block_hash().to_hex(), self.total_work.burn, parent_snapshot.total_burn);
             return false;
@@ -207,6 +237,8 @@ impl StacksBlockHeader {
 
         // TODO: work score?
 
+        // this header's VRF proof must have been generated from the winning block commit's miner's
+        // VRF public key.
         let valid = match VRF::verify(&leader_key.public_key, &self.proof, &parent_block_commit.new_seed.as_bytes().to_vec()) {
             Ok(v) => {
                 v
@@ -223,8 +255,11 @@ impl StacksBlockHeader {
 
         // not verified by this method:
         // * parent_microblock and parent_microblock_sequence
-        // * tx_merkle_root
-        // * state_index_root
+        // use validate_parent() for that.
+        //
+        // also not verified:
+        // * tx_merkle_root     (validated on deserialization)
+        // * state_index_root   (validated on process_block())
         true
     }
 
@@ -280,14 +315,19 @@ impl StacksMessageCodec for StacksBlock {
 
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksBlock, net_error> {
         // no matter what, do not allow us to parse a block bigger than 1MB
-        let index = *index_ptr;
+        let mut index = *index_ptr;
         if index > u32::max_value() - MAX_BLOCK_SIZE {
             return Err(net_error::OverflowError);
         }
 
         let size_clamp = index + MAX_BLOCK_SIZE;
-        let header : StacksBlockHeader      = read_next(buf, index_ptr, size_clamp)?;
-        let txs : Vec<StacksTransaction>    = read_next(buf, index_ptr, size_clamp)?;
+        let header : StacksBlockHeader      = read_next(buf, &mut index, size_clamp)?;
+        let txs : Vec<StacksTransaction>    = read_next(buf, &mut index, size_clamp)?;
+
+        // there must be at least one transaction (the coinbase)
+        if txs.len() == 0 {
+            return Err(net_error::DeserializeError);
+        }
 
         // all transactions must have anchor mode either OnChainOnly or Any
         // (no OffChainOnly allowed)
@@ -313,6 +353,38 @@ impl StacksMessageCodec for StacksBlock {
             return Err(net_error::DeserializeError);
         }
 
+        // there is exactly one coinbase, and it's the first transaction
+        match txs[0].payload {
+            TransactionPayload::Coinbase(_) => {},
+            _ => {
+                return Err(net_error::DeserializeError);
+            }
+        };
+
+        // the coinbase must be anchored
+        match txs[0].anchor_mode {
+            TransactionAnchorMode::OnChainOnly => {},
+            _ => {
+                return Err(net_error::DeserializeError);
+            }
+        };
+
+        // only one coinbase
+        let mut coinbase_count = 0;
+        for tx in txs.iter() {
+            match tx.payload {
+                TransactionPayload::Coinbase(_) => {
+                    coinbase_count += 1;
+                },
+                _ => {}
+            }
+        }
+
+        if coinbase_count != 1 {
+            return Err(net_error::DeserializeError);
+        }
+
+        *index_ptr = index;
         Ok(StacksBlock {
             header,
             txs
@@ -345,6 +417,10 @@ impl StacksBlock {
     
     pub fn block_hash(&self) -> BlockHeaderHash {
         self.header.block_hash()
+    }
+    
+    pub fn index_block_hash(&self, burn_hash: &BurnchainHeaderHash) -> BlockHeaderHash {
+        self.header.index_block_hash(burn_hash)
     }
 
     /// Validate the block, except for the transactions and state root.
@@ -381,6 +457,22 @@ impl StacksBlock {
         
         return true;
     }
+
+    /// Find and return the coinbase transaction.  It's always the first transaction.
+    /// If there are 0 coinbase txs, or more than 1, then return None
+    pub fn get_coinbase_tx(&self) -> Option<StacksTransaction> {
+        if self.txs.len() == 0 {
+            return None;
+        }
+        match self.txs[0].payload {
+            TransactionPayload::Coinbase(_) => {
+                Some(self.txs[0].clone())
+            },
+            _ => {
+                None
+            }
+        }
+    }
 }
 
 
@@ -396,15 +488,19 @@ impl StacksMessageCodec for StacksMicroblockHeader {
     }
 
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMicroblockHeader, net_error> {
-        let version : u8                    = read_next(buf, index_ptr, max_size)?;
-        let sequence : u8                   = read_next(buf, index_ptr, max_size)?;
-        let prev_block : BlockHeaderHash    = read_next(buf, index_ptr, max_size)?;
-        let tx_merkle_root : Sha512Trunc256Sum     = read_next(buf, index_ptr, max_size)?;
-        let signature : MessageSignature    = read_next(buf, index_ptr, max_size)?;
+        let mut index = *index_ptr;
+
+        let version : u8                        = read_next(buf, &mut index, max_size)?;
+        let sequence : u8                       = read_next(buf, &mut index, max_size)?;
+        let prev_block : BlockHeaderHash        = read_next(buf, &mut index, max_size)?;
+        let tx_merkle_root : Sha512Trunc256Sum  = read_next(buf, &mut index, max_size)?;
+        let signature : MessageSignature        = read_next(buf, &mut index, max_size)?;
 
         let _ = signature.to_secp256k1_recoverable()
             .ok_or(net_error::DeserializeError)?;
         
+        *index_ptr = index;
+
         Ok(StacksMicroblockHeader {
             version,
             sequence,
@@ -546,14 +642,15 @@ impl StacksMessageCodec for StacksMicroblock {
 
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMicroblock, net_error> {
         // no matter what, do not allow us to parse a block bigger than the maximal size
-        let index = *index_ptr;
+        let mut index = *index_ptr;
+
         if index > u32::max_value() - MAX_MICROBLOCK_SIZE {
             return Err(net_error::OverflowError);
         }
 
         let size_clamp = index + MAX_MICROBLOCK_SIZE;
-        let header : StacksMicroblockHeader = read_next(buf, index_ptr, size_clamp)?;
-        let txs : Vec<StacksTransaction>    = read_next(buf, index_ptr, size_clamp)?;
+        let header : StacksMicroblockHeader = read_next(buf, &mut index, size_clamp)?;
+        let txs : Vec<StacksTransaction>    = read_next(buf, &mut index, size_clamp)?;
 
         // all transactions must have anchor mode either OffChainOnly or Any
         // (no OnChainOnly allowed)
@@ -581,6 +678,17 @@ impl StacksMessageCodec for StacksMicroblock {
             return Err(net_error::DeserializeError);
         }
 
+        // there is no coinbase
+        for tx in txs.iter() {
+            match tx.payload {
+                TransactionPayload::Coinbase(_) => {
+                    return Err(net_error::DeserializeError);
+                }
+                _ => {}
+            }
+        }
+
+        *index_ptr = index;
         Ok(StacksMicroblock {
             header,
             txs
@@ -649,7 +757,7 @@ mod test {
     use util::hash::*;
 
     #[test]
-    fn block_ecvrf_proof() {
+    fn codec_stacks_block_ecvrf_proof() {
         let proof_bytes = hex_bytes("024c1484fcb05cecdb4dbfb9bf4e08e7f529aea3b3a2515716ad4e9cf7bace6c91181b6bb7d8201c5a85a11c626d1848aa2ac4d188c7e24a94faa32d1eec48d600fad7c55c7e71adb6a7dd6c73f6fc02").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
 
@@ -657,7 +765,7 @@ mod test {
     }
    
     #[test]
-    fn block_work_score() {
+    fn codec_stacks_block_work_score() {
         let work_score = StacksWorkScore {
             burn: 123,
             work: 456
@@ -668,5 +776,81 @@ mod test {
         ];
         
         check_codec_and_corruption::<StacksWorkScore>(&work_score, &work_score_bytes);
+    }
+
+    #[test]
+    fn codec_stacks_block_header() {
+        let proof_bytes = hex_bytes("024c1484fcb05cecdb4dbfb9bf4e08e7f529aea3b3a2515716ad4e9cf7bace6c91181b6bb7d8201c5a85a11c626d1848aa2ac4d188c7e24a94faa32d1eec48d600fad7c55c7e71adb6a7dd6c73f6fc02").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let header = StacksBlockHeader {
+            version: 0x12,
+            total_work: StacksWorkScore {
+                burn: 123,
+                work: 456,
+            },
+            proof: proof,
+            parent_block: BlockHeaderHash([0u8; 32]),
+            parent_microblock: BlockHeaderHash([1u8; 32]),
+            parent_microblock_sequence: 3,
+            tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
+            state_index_root: TrieHash([3u8; 32]),
+            microblock_pubkey_hash: Hash160([4u8; 20])
+        };
+
+        let header_bytes = vec![
+            // version
+            0x12,
+            // work score
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 123,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 200,
+            // proof
+            0x02, 0x4c, 0x14, 0x84, 0xfc, 0xb0, 0x5c, 0xec, 0xdb, 0x4d, 0xbf, 0xb9, 0xbf, 0x4e, 0x08, 0xe7, 0xf5, 0x29, 0xae, 0xa3, 
+            0xb3, 0xa2, 0x51, 0x57, 0x16, 0xad, 0x4e, 0x9c, 0xf7, 0xba, 0xce, 0x6c, 0x91, 0x18, 0x1b, 0x6b, 0xb7, 0xd8, 0x20, 0x1c, 
+            0x5a, 0x85, 0xa1, 0x1c, 0x62, 0x6d, 0x18, 0x48, 0xaa, 0x2a, 0xc4, 0xd1, 0x88, 0xc7, 0xe2, 0x4a, 0x94, 0xfa, 0xa3, 0x2d, 
+            0x1e, 0xec, 0x48, 0xd6, 0x00, 0xfa, 0xd7, 0xc5, 0x5c, 0x7e, 0x71, 0xad, 0xb6, 0xa7, 0xdd, 0x6c, 0x73, 0xf6, 0xfc, 0x02,
+            // parent block
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // parent microblock
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            // parent microblock sequence
+            0x03,
+            // tx merkle root
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            // state index root
+            0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
+            // public key hash buf
+            0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04
+        ];
+
+        check_codec_and_corruption::<StacksBlockHeader>(&header, &header_bytes);
+    }
+    
+    #[test]
+    fn codec_stacks_microblock_header() {
+        let header = StacksMicroblockHeader {
+            version: 0x12,
+            sequence: 0x34,
+            prev_block: BlockHeaderHash([0u8; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
+            signature: MessageSignature([2u8; 65]),
+        };
+
+        let header_bytes = vec![
+            // version
+            0x12,
+            // sequence
+            0x34,
+            // prev block
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // tx merkle root
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            // signature
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            0x02
+        ];
+
+        check_codec_and_corruption::<StacksMicroblockHeader>(&header, &header_bytes);
     }
 }
