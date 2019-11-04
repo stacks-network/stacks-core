@@ -674,6 +674,53 @@ impl StacksMessageCodec for TransactionAuth {
 }
 
 impl TransactionAuth {
+    pub fn from_p2pkh(privk: &StacksPrivateKey) -> Option<TransactionAuth> {
+        match TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(privk)) {
+            Some(auth) => Some(TransactionAuth::Standard(auth)),
+            None => None
+        }
+    }
+
+    pub fn from_p2sh(privks: &Vec<StacksPrivateKey>, num_sigs: u16) -> Option<TransactionAuth> {
+        let mut pubks = vec![];
+        for privk in privks.iter() {
+            pubks.push(StacksPublicKey::from_private(privk));
+        }
+
+        match TransactionSpendingCondition::new_multisig_p2sh(num_sigs, pubks) {
+            Some(auth) => Some(TransactionAuth::Standard(auth)),
+            None => None
+        }
+    }
+
+    pub fn from_p2wpkh(privk: &StacksPrivateKey) -> Option<TransactionAuth> {
+        match TransactionSpendingCondition::new_singlesig_p2wpkh(StacksPublicKey::from_private(privk)) {
+            Some(auth) => Some(TransactionAuth::Standard(auth)),
+            None => None
+        }
+    }
+
+    pub fn from_p2wsh(privks: &Vec<StacksPrivateKey>, num_sigs: u16) -> Option<TransactionAuth> {
+        let mut pubks = vec![];
+        for privk in privks.iter() {
+            pubks.push(StacksPublicKey::from_private(privk));
+        }
+
+        match TransactionSpendingCondition::new_multisig_p2wsh(num_sigs, pubks) {
+            Some(auth) => Some(TransactionAuth::Standard(auth)),
+            None => None
+        }
+    }
+
+    // merge two standard auths into a sponsored auth.
+    // build them with the above helper methods
+    pub fn into_sponsored(self, sponsor_auth: TransactionAuth) -> Option<TransactionAuth> {
+        match (self, sponsor_auth) {
+            (TransactionAuth::Standard(sc), TransactionAuth::Standard(sp)) => Some(TransactionAuth::Sponsored(sc, sp)),
+            (_, _) => None,
+        }
+    }
+
     pub fn is_standard(&self) -> bool {
         match *self {
             TransactionAuth::Standard(_) => true,
