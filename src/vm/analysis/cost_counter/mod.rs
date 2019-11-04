@@ -17,12 +17,23 @@ pub use super::types::{ContractAnalysis, AnalysisPass};
 
 pub use super::errors::{CheckResult, CheckError, CheckErrors};
 
+pub const TYPE_ANNOTATED_FAIL: &'static str = "Type should be annotated";
+
 pub enum CostSpecification {
     Simple(SimpleCostSpecification),
     Special(SpecialCostType),
 }
 
-pub enum SpecialCostType { ContractCall, If, Map, Filter, Fold, Let, TupleCons, TupleGet }
+pub enum SpecialCostType { ContractCall, If, Map, Filter, 
+                           Fold, Let, TupleCons, TupleGet,
+                           // these are special because the runtime cost is
+                           //   associated with the _stored type_, not the arguments.
+                           FetchVar, FetchEntry, FetchContractEntry,
+                           // these are special because they only should measure
+                           //   one of their arguments
+                           SetVar, SetEntry, InsertEntry, DeleteEntry,
+                           MintAsset, TransferAsset, GetAssetOwner
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum CostFunctions {
@@ -33,13 +44,17 @@ pub enum CostFunctions {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SimpleCostSpecification {
+    write_count: CostFunctions,
     write_length: CostFunctions,
     read_count: CostFunctions,
+    read_length: CostFunctions,
     runtime: CostFunctions,
 }
 
 pub struct ExecutionCost {
     write_length: u64,
+    write_count: u64,
+    read_length: u64,
     read_count: u64,
     runtime: u64
 }
@@ -51,6 +66,7 @@ pub struct CostContext {
 
 pub struct CostCounter <'a, 'b> {
     type_map: TypeMap,
+    analysis: &'a ContractAnalysis,
     cost_context: CostContext,
     db: &'a mut AnalysisDatabase <'b>
 }
@@ -111,7 +127,9 @@ impl SimpleCostSpecification {
     pub fn new_diskless(runtime: CostFunctions) -> SimpleCostSpecification {
         SimpleCostSpecification {
             write_length: CostFunctions::Constant(0),
+            write_count: CostFunctions::Constant(0),
             read_count: CostFunctions::Constant(0),
+            read_length: CostFunctions::Constant(0),
             runtime
         }
     }
@@ -119,7 +137,9 @@ impl SimpleCostSpecification {
     pub fn compute_cost(&self, input: u64) -> CheckResult<ExecutionCost> {
         Ok(ExecutionCost {
             write_length: self.write_length.compute_cost(input)?,
+            write_count:  self.write_count.compute_cost(input)?,
             read_count:   self.read_count.compute_cost(input)?,
+            read_length:  self.read_length.compute_cost(input)?,
             runtime:      self.runtime.compute_cost(input)?
         })
     }
@@ -154,11 +174,11 @@ impl CostContext {
 
 impl ExecutionCost {
     fn zero() -> ExecutionCost {
-        Self { runtime: 0, write_length: 0, read_count: 0 }
+        Self { runtime: 0, write_length: 0, read_count: 0, write_count: 0, read_length: 0 }
     }
 
     fn runtime(runtime: u64) -> ExecutionCost {
-        Self { runtime, write_length: 0, read_count: 0 }
+        Self { runtime, write_length: 0, read_count: 0, write_count: 0, read_length: 0 }
     }
 
     fn add_runtime(&mut self, runtime: u64) -> CheckResult<()> {
@@ -168,15 +188,19 @@ impl ExecutionCost {
 
     fn add(&mut self, other: &ExecutionCost) -> CheckResult<()> {
         self.runtime = self.runtime.cost_overflow_add(other.runtime)?;
-        self.read_count = self.runtime.cost_overflow_add(other.read_count)?;
-        self.write_length = self.runtime.cost_overflow_add(other.write_length)?;
+        self.read_count   = self.read_count.cost_overflow_add(other.read_count)?;
+        self.read_length  = self.read_length.cost_overflow_add(other.read_length)?;
+        self.write_length = self.write_length.cost_overflow_add(other.write_length)?;
+        self.write_count  = self.write_count.cost_overflow_add(other.write_count)?;
         Ok(())
     }
 
     fn multiply(&mut self, times: u64) -> CheckResult<()> {
         self.runtime = self.runtime.cost_overflow_mul(times)?;
-        self.read_count = self.runtime.cost_overflow_mul(times)?;
-        self.write_length = self.runtime.cost_overflow_mul(times)?;
+        self.read_count   = self.read_count.cost_overflow_mul(times)?;
+        self.read_length  = self.read_length.cost_overflow_mul(times)?;
+        self.write_length = self.write_length.cost_overflow_mul(times)?;
+        self.write_count  = self.write_count.cost_overflow_mul(times)?;
         Ok(())
     }
 
@@ -184,7 +208,9 @@ impl ExecutionCost {
         Self {
             runtime: first.runtime.max(second.runtime),
             write_length: first.write_length.max(second.write_length),
-            read_count: first.read_count.max(second.read_count)
+            write_count:  first.write_count.max(second.write_count),
+            read_count:   first.read_count.max(second.read_count),
+            read_length:  first.read_length.max(second.read_length)
         }
     }
 }
@@ -194,9 +220,9 @@ fn parse_signature_cost(signature: &[SymbolicExpression]) -> ExecutionCost {
 }
 
 impl <'a, 'b> CostCounter <'a, 'b> {
-    fn new(db: &'a mut AnalysisDatabase<'b>, type_map: TypeMap) -> CostCounter<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>, type_map: TypeMap, analysis: &'a ContractAnalysis) -> CostCounter<'a, 'b> {
         Self {
-            db, type_map,
+            db, type_map, analysis,
             cost_context: CostContext::new()
         }
     }
@@ -245,6 +271,7 @@ impl <'a, 'b> CostCounter <'a, 'b> {
     }
 
     fn handle_special_function(&mut self, function: &SpecialCostType, args: &[SymbolicExpression]) -> CheckResult<ExecutionCost> {
+        use self::CostFunctions::{Constant, Linear};
         use self::SpecialCostType::*;
         match function {
             // assert argument lengths, because this pass _must_ have occurred _after_
@@ -256,16 +283,16 @@ impl <'a, 'b> CostCounter <'a, 'b> {
                     Some(Value::Principal(PrincipalData::Contract(ref contract_id))) => contract_id,
                     _ => return Err(CheckErrors::ContractCallExpectName.into())
                 };
-                let function_name = args[1].match_atom()
-                    .ok_or(CheckErrors::ContractCallExpectName)?;
+                let function_name = args[1].match_atom().expect("Function argument should have been atom.");
                 let cost_spec = self.db.get_contract_function_cost(&contract_id, function_name)
-                    .ok_or_else(|| CheckErrors::NoSuchPublicFunction(contract_id.to_string(), function_name.to_string()))?;
+                    .expect("Public function should exist");
                 // BASE COST:
                 //   RUNTIME = linear cost of hashing function_name + some constant
                 //   READS = 1
-                let mut total_cost = ExecutionCost { write_length: 0,
-                                                     read_count: 1,
-                                                     runtime: 1+(function_name.len() as u64) };
+                let mut total_cost = ExecutionCost {
+                    write_length: 0, write_count: 0, read_count: 1,
+                    read_length: self.db.get_contract_size(&contract_id).expect("Contract should exist"),
+                    runtime: 1+(function_name.len() as u64) };
                 let arg_size = self.handle_simple_function_args(&args[2..])?;
                 let exec_cost = cost_spec.compute_cost(arg_size)?;
 
@@ -346,11 +373,11 @@ impl <'a, 'b> CostCounter <'a, 'b> {
                 let bindings = args[0].match_list()
                     .expect("Let expression must be supplied a binding list.");
 
-                let mut binding_cost = ExecutionCost::runtime(1);
+                let mut binding_cost = ExecutionCost::runtime(constants::LET_CONSTANT_COST);
 
                 handle_binding_list(bindings, |var_name, var_sexp| {
                     // the cost of binding the name.
-                    binding_cost.add_runtime(var_name.len() as u64)?;
+                    binding_cost.add(&get_binding_cost(var_name)?)?;
 
                     // the cost of calculating the bound value
                     binding_cost.add(
@@ -370,10 +397,10 @@ impl <'a, 'b> CostCounter <'a, 'b> {
             TupleCons => {
                 assert!(args.len() >= 1);
 
-                let mut binding_cost = ExecutionCost::runtime(1);
+                let mut binding_cost = ExecutionCost::runtime(constants::TUPLE_CONS_CONSTANT_COST);
                 handle_binding_list(args, |var_name, var_sexp| {
                     // the cost of binding the name.
-                    binding_cost.add_runtime(var_name.len() as u64)?;
+                    binding_cost.add(&get_binding_cost(var_name)?)?;
 
                     // the cost of calculating the bound value
                     binding_cost.add(
@@ -385,7 +412,7 @@ impl <'a, 'b> CostCounter <'a, 'b> {
             TupleGet => {
                 assert!(args.len() == 2);
 
-                let tuple_length = match self.type_map.get_type(&args[1]).expect("Type should be annotated") {
+                let tuple_length = match self.type_map.get_type(&args[1]).expect(TYPE_ANNOTATED_FAIL) {
                     TypeSignature::TupleType(tuple_data) => tuple_data.len(),
                     _ => panic!("Expected tuple type")
                 };
@@ -399,6 +426,278 @@ impl <'a, 'b> CostCounter <'a, 'b> {
                 lookup_cost.add_runtime(var_name.len() as u64)?;
 
                 Ok(lookup_cost)
+            },
+            FetchEntry => {
+                assert!(args.len() == 2);
+                let map_name = args[0].match_atom().expect("Argument should be atomic name.");
+                let key_tuple = &args[1];
+
+                let key_tuple_size = u64::from(self.type_map.get_type(key_tuple)
+                                               .expect(TYPE_ANNOTATED_FAIL)
+                                               .size());
+                // the cost of the hash lookup...
+                let mut hash_cost = get_hash_cost(map_name.len() as u64, key_tuple_size)?;
+
+                // the cost of the database read...
+                let value_tuple_size = u64::from(self.analysis.get_map_type(map_name)
+                                                 .expect("Map should exist")
+                                                 .1.size());
+                let read_cost = SimpleCostSpecification {
+                    read_count: Constant(1),
+                    read_length: Constant(value_tuple_size as u64),
+                    write_length: Constant(0), write_count: Constant(0),
+                    runtime: Linear(constants::LOOKUP_RUNTIME_COST_A, constants::LOOKUP_RUNTIME_COST_B),
+                }.compute_cost(value_tuple_size)?;
+
+                hash_cost.add(&read_cost)?;
+
+                Ok(hash_cost)
+            },
+            FetchVar => {
+                assert!(args.len() == 1);
+                let var_name = args[0].match_atom().expect("Argument should be atomic name.");
+
+                // the cost of the hash lookup...
+                let mut hash_cost = get_hash_cost(var_name.len() as u64, 0)?;
+
+                // the cost of the database read...
+                let value_size = u64::from(self.analysis.get_persisted_variable_type(var_name)
+                                                 .expect("Variable should exist").size());
+                let read_cost = SimpleCostSpecification {
+                    read_count: Constant(1),
+                    read_length: Constant(value_size as u64),
+                    write_length: Constant(0), write_count: Constant(0),
+                    runtime: Linear(constants::LOOKUP_RUNTIME_COST_A, constants::LOOKUP_RUNTIME_COST_B),
+                }.compute_cost(value_size)?;
+
+                hash_cost.add(&read_cost)?;
+
+                Ok(hash_cost)
+            },
+            FetchContractEntry => {
+                assert!(args.len() == 3);
+                let contract = match args[0].match_literal_value() {
+                    Some(Value::Principal(PrincipalData::Contract(x))) => x,
+                    _ => panic!("Argument should be literal contract identifier")
+                };
+
+                let map_name = args[1].match_atom().expect("Argument should be atomic name.");
+                let key_tuple = &args[2];
+
+                let key_tuple_size = u64::from(self.type_map.get_type(key_tuple).expect(TYPE_ANNOTATED_FAIL)
+                                               .size());
+                // the cost of the hash lookup...
+                let mut hash_cost = get_hash_cost(map_name.len() as u64, key_tuple_size)?;
+
+                // the cost of the database read...
+                let value_tuple_size = u64::from(self.db.get_map_type(contract, map_name)
+                                                 .expect("Map should exist")
+                                                 .1.size());
+                let read_cost = SimpleCostSpecification {
+                    read_count: Constant(1),
+                    read_length: Constant(value_tuple_size as u64),
+                    write_length: Constant(0), write_count: Constant(0),
+                    runtime: Linear(constants::LOOKUP_RUNTIME_COST_A, constants::LOOKUP_RUNTIME_COST_B),
+                }.compute_cost(value_tuple_size)?;
+
+                hash_cost.add(&read_cost)?;
+
+                Ok(hash_cost)
+            },
+            SetVar => {
+                assert!(args.len() == 2);
+                let var_name = args[0].match_atom().expect("Argument should be atomic name.");
+                let value_arg = &args[1];
+                let value_size =  u64::from(self.type_map.get_type(value_arg)
+                                            .expect(TYPE_ANNOTATED_FAIL)
+                                            .size());
+
+                // the cost of the hash lookup...
+                let mut hash_cost = get_hash_cost(var_name.len() as u64, 0)?;
+
+                // the cost of the database op...
+                let write_cost = SimpleCostSpecification {
+                    read_count: Constant(0), read_length: Constant(0),
+                    write_length: Constant(value_size), write_count: Constant(1),
+                    runtime: Linear(constants::DB_WRITE_RUNTIME_COST_A, constants::DB_WRITE_RUNTIME_COST_B),
+                }.compute_cost(value_size)?;
+
+                hash_cost.add(&write_cost)?;
+
+                // the cost of computing the value arg
+                hash_cost.add(&self.handle_expression(value_arg)?)?;
+
+                Ok(hash_cost)
+            },
+            SetEntry => {
+                assert!(args.len() == 3);
+                let map_name = args[0].match_atom().expect("Argument should be atomic name.");
+                let key_tuple = &args[1];
+                let value_tuple = &args[2];
+
+                let value_size =  u64::from(self.type_map.get_type(value_tuple)
+                                            .expect(TYPE_ANNOTATED_FAIL)
+                                            .size());
+
+                let key_size =  u64::from(self.type_map.get_type(key_tuple)
+                                          .expect(TYPE_ANNOTATED_FAIL)
+                                          .size());
+                // the cost of the hash lookup...
+                let mut hash_cost = get_hash_cost(map_name.len() as u64, key_size)?;
+
+                // the cost of the database op...
+                let write_cost = SimpleCostSpecification {
+                    read_count: Constant(0), read_length: Constant(0),
+                    write_length: Constant(value_size), write_count: Constant(1),
+                    runtime: Linear(constants::DB_WRITE_RUNTIME_COST_A, constants::DB_WRITE_RUNTIME_COST_B),
+                }.compute_cost(value_size)?;
+
+                hash_cost.add(&write_cost)?;
+
+                // the cost of computing the key, value args
+                hash_cost.add(&self.handle_expression(key_tuple)?)?;
+                hash_cost.add(&self.handle_expression(value_tuple)?)?;
+
+                Ok(hash_cost)
+            },
+            InsertEntry => {
+                assert!(args.len() == 3);
+                let map_name = args[0].match_atom().expect("Argument should be atomic name.");
+                let key_tuple = &args[1];
+                let value_tuple = &args[2];
+
+                let value_size =  u64::from(self.type_map.get_type(value_tuple)
+                                            .expect(TYPE_ANNOTATED_FAIL)
+                                            .size());
+
+                let key_size =  u64::from(self.type_map.get_type(key_tuple)
+                                          .expect(TYPE_ANNOTATED_FAIL)
+                                          .size());
+                // the cost of the hash lookup...
+                let mut hash_cost = get_hash_cost(map_name.len() as u64, key_size)?;
+
+                // the cost of the database op...
+                let write_cost = SimpleCostSpecification {
+                    read_count: Constant(1), read_length: Constant(0),
+                    write_length: Constant(value_size), write_count: Constant(1),
+                    runtime: Linear(constants::DB_WRITE_RUNTIME_COST_A, constants::DB_WRITE_RUNTIME_COST_B),
+                }.compute_cost(value_size)?;
+
+                hash_cost.add(&write_cost)?;
+
+                // the cost of computing the key, value args
+                hash_cost.add(&self.handle_expression(key_tuple)?)?;
+                hash_cost.add(&self.handle_expression(value_tuple)?)?;
+
+                Ok(hash_cost)
+            },
+            DeleteEntry => {
+                assert!(args.len() == 2);
+                let map_name = args[0].match_atom().expect("Argument should be atomic name.");
+                let key_tuple = &args[1];
+
+                let key_size =  u64::from(self.type_map.get_type(key_tuple)
+                                          .expect(TYPE_ANNOTATED_FAIL)
+                                          .size());
+                // the cost of the hash lookup...
+                let mut hash_cost = get_hash_cost(map_name.len() as u64, key_size)?;
+
+                // the cost of the database op...
+                let write_cost = SimpleCostSpecification {
+                    read_count: Constant(1), read_length: Constant(0),
+                    write_length: Constant(1), write_count: Constant(1),
+                    runtime: Linear(constants::DB_WRITE_RUNTIME_COST_A, constants::DB_WRITE_RUNTIME_COST_B),
+                }.compute_cost(1)?;
+
+                hash_cost.add(&write_cost)?;
+
+                // the cost of computing the key, value args
+                hash_cost.add(&self.handle_expression(key_tuple)?)?;
+
+                Ok(hash_cost)
+            },
+            MintAsset => {
+                assert!(args.len() == 3);
+                let asset_name = args[0].match_atom().expect("Argument should be atomic name.");
+                let asset_key = &args[1];
+                let asset_owner = &args[2];
+
+                let key_size =  u64::from(self.type_map.get_type(asset_key)
+                                          .expect(TYPE_ANNOTATED_FAIL)
+                                          .size());
+                // the cost of the hash lookup...
+                let mut hash_cost = get_hash_cost(asset_name.len() as u64, key_size)?;
+
+                // the cost of the database op...
+                let write_cost = SimpleCostSpecification {
+                    read_count: Constant(1), read_length: Linear(1, 0),
+                    write_count: Constant(1), write_length: Linear(1, 0),
+                    runtime: Linear(constants::DB_WRITE_RUNTIME_COST_A, constants::DB_WRITE_RUNTIME_COST_B),
+                }.compute_cost(constants::ASSET_OWNER_LENGTH)?;
+
+                hash_cost.add(&write_cost)?;
+
+                // the cost of computing the key, value args
+                hash_cost.add(&self.handle_expression(asset_key)?)?;
+                hash_cost.add(&self.handle_expression(asset_owner)?)?;
+
+                Ok(hash_cost)
+            },
+            TransferAsset => {
+                assert!(args.len() == 4);
+                let asset_name = args[0].match_atom().expect("Argument should be atomic name.");
+                let asset_key = &args[1];
+                let asset_sender = &args[2];
+                let asset_receiver = &args[3];
+
+                let key_size =  u64::from(self.type_map.get_type(asset_key)
+                                          .expect(TYPE_ANNOTATED_FAIL)
+                                          .size());
+                // the cost of the hash lookup...
+                let mut hash_cost = get_hash_cost(asset_name.len() as u64, key_size)?;
+                // you do two lookups
+                hash_cost.multiply(2)?;
+
+                // the cost of the database ops...
+                let write_cost = SimpleCostSpecification {
+                    read_count: Constant(1), read_length: Linear(1, 0),
+                    write_count: Constant(1), write_length: Linear(1, 0),
+                    runtime: Linear(2*constants::DB_WRITE_RUNTIME_COST_A, 2*constants::DB_WRITE_RUNTIME_COST_B),
+                }.compute_cost(constants::ASSET_OWNER_LENGTH)?;
+
+                hash_cost.add(&write_cost)?;
+
+                // the cost of computing the key, value args
+                hash_cost.add(&self.handle_expression(asset_key)?)?;
+                hash_cost.add(&self.handle_expression(asset_sender)?)?;
+                hash_cost.add(&self.handle_expression(asset_receiver)?)?;
+
+                Ok(hash_cost)
+            },
+            GetAssetOwner => {
+                assert!(args.len() == 2);
+                let asset_name = args[0].match_atom().expect("Argument should be atomic name.");
+                let asset_key = &args[1];
+
+                let key_size =  u64::from(self.type_map.get_type(asset_key)
+                                          .expect(TYPE_ANNOTATED_FAIL)
+                                          .size());
+                // the cost of the hash lookup...
+                let mut hash_cost = get_hash_cost(asset_name.len() as u64, key_size)?;
+
+                // the cost of the database ops...
+                let write_cost = SimpleCostSpecification {
+                    read_count: Constant(1), read_length: Linear(1, 0),
+                    write_count: Constant(0), write_length: Constant(0),
+                    runtime: Linear(constants::LOOKUP_RUNTIME_COST_A, constants::LOOKUP_RUNTIME_COST_B),
+                }.compute_cost(constants::ASSET_OWNER_LENGTH)?;
+
+                hash_cost.add(&write_cost)?;
+
+                // the cost of computing the key, value args
+                hash_cost.add(&self.handle_expression(asset_key)?)?;
+
+                Ok(hash_cost)
             },
         }
     }
@@ -457,29 +756,39 @@ impl <'a, 'b> CostCounter <'a, 'b> {
     }
 }
 
+fn get_hash_cost(name_size: u64, type_size: u64) -> CheckResult<ExecutionCost> {
+    SimpleCostSpecification::new_diskless(CostFunctions::Linear(constants::DB_HASH_COST_A, constants::DB_HASH_COST_B))
+        .compute_cost(type_size.cost_overflow_add(name_size)?)
+}
+
+fn get_binding_cost(name: &str) -> CheckResult<ExecutionCost> {
+    SimpleCostSpecification::new_diskless(CostFunctions::Linear(constants::BINDING_COST_A, constants::BINDING_COST_B))
+        .compute_cost(name.len() as u64)
+}
+
 fn get_function_lookup_cost(name: &str) -> CheckResult<ExecutionCost> {
     // hashing function name => linear.
     //   
-    let lookup_spec = SimpleCostSpecification::new_diskless(CostFunctions::Linear(1, 1));
-    lookup_spec.compute_cost(name.len() as u64)
+    SimpleCostSpecification::new_diskless(CostFunctions::Linear(constants::FUNC_LOOKUP_COST_A, constants::FUNC_LOOKUP_COST_B))
+        .compute_cost(name.len() as u64)
 }
 
 pub fn get_reserved_name_cost(name: &str) -> Option<ExecutionCost> {
     match NativeVariables::lookup_by_name(name) {
         Some(NativeVariables::TxSender) | Some(NativeVariables::ContractCaller) => {
             // cost of cloning the principal
-            Some(ExecutionCost::runtime(TypeSignature::PrincipalType.size() as u64))
+            Some(ExecutionCost::runtime(constants::RESERVED_VAR_PRINCIPAL_COST))
         },
         Some(NativeVariables::BurnBlockHeight) | Some(NativeVariables::BlockHeight) => {
             // cost of looking up and cloning the block height
             Some(ExecutionCost {
-                runtime: BUFF_32.size() as u64,
-                read_count: 1,
-                write_length: 0 })
+                runtime: constants::BLOCK_HEIGHT_LOOKUP_COST,
+                read_count: 1, read_length: BUFF_32.size() as u64,
+                write_length: 0, write_count: 0 })
         },
         Some(NativeVariables::NativeNone) => {
             // cost of cloning a none type
-            Some(ExecutionCost::runtime(1))
+            Some(ExecutionCost::runtime(constants::RESERVED_VAR_NONE_COST))
         },
         None => None,
     }
@@ -542,52 +851,46 @@ pub fn get_native_function_cost_spec(func: &NativeFunctions) -> CostSpecificatio
         IsOkay | IsNone => SimpleCostSpecification::new_diskless(Constant(constants::IS_OPTION_COST)),
         AsContract =>      SimpleCostSpecification::new_diskless(Constant(constants::AS_CONTRACT_COST)),
 
-        // These may need to be handled specially.
-        //    read costs are linear (may be super-linear to parse) in the _stored type_.
-        FetchVar => SimpleCostSpecification {
-            read_count: Constant(1),
-            write_length: Constant(0),
-            runtime: Linear(1, 1),
-        },
-        SetVar | SetEntry | InsertEntry | DeleteEntry => SimpleCostSpecification {
-            read_count: Constant(1),
-            write_length: Linear(1, 1),
-            runtime: Linear(1, 1),
-        },
-        FetchEntry | FetchContractEntry => SimpleCostSpecification {
-            read_count: Constant(1),
-            write_length: Constant(0),
-            runtime: Linear(1, 1),
-        },
+        // Fetches need to be handled specially.
+        //    read runtime costs are linear (may be super-linear to parse) in the _stored type_, not the
+        //      argument length
+        FetchVar => { return CostSpecification::Special(SpecialCostType::FetchVar) },
+        FetchEntry => { return CostSpecification::Special(SpecialCostType::FetchEntry) },
+        FetchContractEntry => { return CostSpecification::Special(SpecialCostType::FetchContractEntry) },
+        SetVar  => { return CostSpecification::Special(SpecialCostType::SetVar) },
+        SetEntry => { return CostSpecification::Special(SpecialCostType::SetEntry) },
+        InsertEntry => { return CostSpecification::Special(SpecialCostType::InsertEntry) },
+        DeleteEntry => { return CostSpecification::Special(SpecialCostType::DeleteEntry) },
         GetBlockInfo => SimpleCostSpecification {
             read_count: Constant(1),
-            write_length: Constant(0),
-            runtime: Constant(1)
+            read_length: Constant(constants::GET_BLOCK_INFO_READ_LEN),
+            write_length: Constant(0), write_count: Constant(0),
+            runtime: Constant(constants::GET_BLOCK_INFO_COST)
         },
-        MintAsset | TransferAsset => SimpleCostSpecification {
-            read_count: Constant(1),
-            write_length: Linear(1, 1),
-            runtime: Linear(1, 1),
+        MintAsset => { return CostSpecification::Special(SpecialCostType::MintAsset) },
+        TransferAsset => { return CostSpecification::Special(SpecialCostType::TransferAsset) },
+        TransferToken => SimpleCostSpecification {
+            read_count: Constant(1), write_count: Constant(1),
+            read_length: Constant(constants::TRANSFER_TOKEN_READ_LEN),
+            write_length: Constant(constants::TRANSFER_TOKEN_WRITE_LEN),
+            runtime: Constant(constants::TRANSFER_TOKEN_COST),
         },
-        MintToken | TransferToken => SimpleCostSpecification {
-            read_count: Constant(1),
-            write_length: Constant(1),
-            runtime: Constant(1),
+        MintToken => SimpleCostSpecification {
+            read_count: Constant(1), write_count: Constant(1),            
+            read_length: Constant(constants::MINT_TOKEN_READ_LEN),
+            write_length: Constant(constants::MINT_TOKEN_WRITE_LEN),
+            runtime: Constant(constants::MINT_TOKEN_COST),
         },
         GetTokenBalance => SimpleCostSpecification {
-            read_count: Constant(1),
-            write_length: Constant(0),
-            runtime: Constant(1),
+            read_count: Constant(1), read_length: Constant(constants::GET_TOKEN_BALANCE_READ_LEN),
+            write_length: Constant(0), write_count: Constant(0),
+            runtime: Constant(constants::GET_TOKEN_BALANCE_COST),
         },
-        GetAssetOwner => SimpleCostSpecification {
-            read_count: Constant(1),
-            write_length: Constant(0),
-            runtime: Linear(1,1), // computing marf key hash is linear with input size
-        },
+        GetAssetOwner => { return CostSpecification::Special(SpecialCostType::GetAssetOwner) },
         AtBlock => SimpleCostSpecification {
-            read_count: Constant(1),
-            write_length: Constant(0),
-            runtime: Constant(1),
+            read_count: Constant(1), read_length: Constant(constants::AT_BLOCK_READ_LEN),
+            write_length: Constant(0), write_count: Constant(0),
+            runtime: Constant(constants::AT_BLOCK_COST),
         },
     };
 

@@ -49,3 +49,44 @@ pub const EXPECTS_A: u64 = 1;
 pub const EXPECTS_B: u64 = 1;
 
 pub const IS_OPTION_COST: u64 = 1;
+
+pub const GET_BLOCK_INFO_COST: u64 = 1;
+pub const GET_BLOCK_INFO_READ_LEN: u64 = 1;
+
+pub const BINDING_COST_A: u64 = 1;
+pub const BINDING_COST_B: u64 = 1;
+
+pub const FUNC_LOOKUP_COST_A: u64 = 1;
+pub const FUNC_LOOKUP_COST_B: u64 = 1;
+
+pub const LOOKUP_RUNTIME_COST_A: u64 = 1;
+pub const LOOKUP_RUNTIME_COST_B: u64 = 1;
+
+pub const DB_HASH_COST_A: u64 = 1;
+pub const DB_HASH_COST_B: u64 = 1;
+
+pub const LET_CONSTANT_COST: u64 = 1;
+pub const TUPLE_CONS_CONSTANT_COST: u64 = 1;
+
+pub const DB_WRITE_RUNTIME_COST_A: u64 = 1;
+pub const DB_WRITE_RUNTIME_COST_B: u64 = 1;
+
+pub const TRANSFER_TOKEN_READ_LEN: u64 = 1;
+pub const TRANSFER_TOKEN_WRITE_LEN: u64 = 1;
+pub const TRANSFER_TOKEN_COST: u64 = 1;
+
+pub const MINT_TOKEN_READ_LEN: u64 = 1;
+pub const MINT_TOKEN_WRITE_LEN: u64 = 1;
+pub const MINT_TOKEN_COST: u64 = 1;
+
+pub const GET_TOKEN_BALANCE_COST: u64 = 1;
+pub const GET_TOKEN_BALANCE_READ_LEN: u64 = 1;
+
+pub const AT_BLOCK_COST: u64 = 1;
+pub const AT_BLOCK_READ_LEN: u64 = 1;
+
+pub const BLOCK_HEIGHT_LOOKUP_COST: u64 = 1;
+pub const RESERVED_VAR_NONE_COST: u64 = 1;
+pub const RESERVED_VAR_PRINCIPAL_COST: u64 = 1;
+
+pub const ASSET_OWNER_LENGTH: u64 = 1;

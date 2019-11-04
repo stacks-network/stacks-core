@@ -133,4 +133,9 @@ impl <'a> AnalysisDatabase <'a> {
         let contract = self.load_contract_costs(contract_identifier)?;
         contract.get_function_cost(function_name)
     }
+
+    pub fn get_contract_size(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<u64> {
+        let key = AnalysisDatabase::make_storage_key("size", contract_identifier);
+        self.get(&key)
+    }
 }
