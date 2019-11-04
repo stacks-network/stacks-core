@@ -81,15 +81,18 @@ impl StacksMessageCodec for StacksString {
 
         // must encode a valid string
         let s = String::from_utf8(bytes.clone())
-            .map_err(|_e| net_error::DeserializeError)?;
+            .map_err(|_e| {
+                warn!("Invalid StacksString -- could not build from utf8");
+                net_error::DeserializeError
+            })?;
         
         if !StacksString::is_valid_string(&s) {
             // non-printable ASCII or not ASCII
+            warn!("Invalid StacksString -- non-printable ASCII or non-ASCII");
             return Err(net_error::DeserializeError);
         }
 
         *index_ptr = index;
-
         Ok(StacksString(bytes))
     }
 }
@@ -97,21 +100,21 @@ impl StacksMessageCodec for StacksString {
 fn read_clarity_string_bytes(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<Vec<u8>, net_error> {
     let mut index = *index_ptr;
     let len_byte : u8 = read_next(buf, &mut index, max_size)?;
-    if len_byte as usize > CLARITY_MAX_STRING_LENGTH as usize {
-        return Err(net_error::DeserializeError);
-    }
+    let len = len_byte as u32;
 
-    if index.checked_add(len_byte as u32).is_none() {
+    if index > u32::max_value() - len {
         return Err(net_error::OverflowError);
     }
-    if index + (len_byte as u32) > max_size {
+    if index + len > max_size {
         return Err(net_error::OverflowError);
     }
-    if (buf.len() as u32) < index + (len_byte as u32) {
+    if (buf.len() as u32) < index + len {
         return Err(net_error::UnderflowError);
     }
 
-    let bytes : Vec<u8> = buf[(index as usize)..((index as usize) + (len_byte as usize))].to_vec();
+    let bytes : Vec<u8> = buf[(index as usize)..((index + len) as usize)].to_vec();
+    index += len;
+
     *index_ptr = index;
     Ok(bytes)
 }
@@ -137,8 +140,7 @@ impl StacksMessageCodec for ClarityName {
 
         // must decode to a clarity name
         let name = ClarityName::try_from(s).map_err(|_e| net_error::DeserializeError)?;
-
-        index = *index_ptr;
+        *index_ptr = index;
         Ok(name)
     }
 }
@@ -221,6 +223,28 @@ impl StacksString {
             },
             Err(_) => {
                 return None;
+            }
+        }
+    }
+    
+    pub fn is_clarity_variable(&self) -> bool {
+        // must parse to a single Clarity variable
+        match lex(&self.to_string()) {
+            Ok(lexed) => {
+                if lexed.len() != 1 {
+                    return false;
+                }
+                match lexed[0].0 {
+                    LexItem::Variable(_) => {
+                        true
+                    },
+                    _ => {
+                        false
+                    }
+                }
+            },
+            Err(_) => {
+                false
             }
         }
     }
