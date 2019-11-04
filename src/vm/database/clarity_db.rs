@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError};
-use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, QualifiedContractIdentifier, NONE};
+use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, StandardPrincipalData, QualifiedContractIdentifier, NONE};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -25,7 +25,8 @@ pub enum StoreType {
     DataMap, Variable, FungibleToken, CirculatingSupply, NonFungibleToken,
     DataMapMeta, VariableMeta, FungibleTokenMeta, NonFungibleTokenMeta,
     Contract,
-    SimmedBlock, SimmedBlockHeight
+    SimmedBlock, SimmedBlockHeight,
+    Nonce, STXBalance
 }
 
 pub struct ClarityDatabase<'a> {
@@ -203,7 +204,7 @@ impl <'a> ClarityDatabase <'a> {
 
         let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::VariableMeta, variable_name);
 
-        assert!(!self.store.has_entry(&key), "Clarity VM attempted to initialize existing variable");
+        assert!(!self.store.has_entry(&key), format!("Clarity VM attempted to initialize existing variable '{}'", variable_name));
 
         self.put(&key, &variable_data);
     }
@@ -460,5 +461,48 @@ impl <'a> ClarityDatabase <'a> {
         self.put(&key, principal);
 
         Ok(())
+    }
+}
+
+// load/store STX token state and account nonces
+impl<'a> ClarityDatabase<'a> {
+    fn make_key_for_account(principal: &PrincipalData, data: StoreType) -> String {
+        format!("vm::{}::{}", principal, data as u8)
+    }
+
+    pub fn make_key_for_account_balance(principal: &PrincipalData) -> String {
+        ClarityDatabase::make_key_for_account(principal, StoreType::STXBalance)
+    }
+
+    pub fn make_key_for_account_nonce(principal: &PrincipalData) -> String {
+        ClarityDatabase::make_key_for_account(principal, StoreType::Nonce)
+    }
+
+    pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> u128 {
+        let key = ClarityDatabase::make_key_for_account_balance(principal);
+        let result = self.get(&key);
+        match result {
+            None => 0,
+            Some(balance) => balance
+        }
+    }
+
+    pub fn set_account_stx_balance(&mut self, principal: &PrincipalData, balance: u128) {
+        let key = ClarityDatabase::make_key_for_account_balance(principal);
+        self.put(&key, &balance);
+    }
+
+    pub fn get_account_nonce(&mut self, principal: &PrincipalData) -> u64 {
+        let key = ClarityDatabase::make_key_for_account_nonce(principal);
+        let result = self.get(&key);
+        match result {
+            None => 0,
+            Some(nonce) => nonce
+        }
+    }
+
+    pub fn set_account_nonce(&mut self, principal: &PrincipalData, nonce: u64) {
+        let key = ClarityDatabase::make_key_for_account_nonce(principal);
+        self.put(&key, &nonce);
     }
 }
