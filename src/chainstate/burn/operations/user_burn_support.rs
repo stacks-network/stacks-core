@@ -222,7 +222,7 @@ impl BlockstackOperation for UserBurnSupportOp {
         // Consensus hash must be recent and valid
         /////////////////////////////////////////////////////////////////
 
-        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(tx, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.index_root)
+        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(tx, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.burn_header_hash)
             .expect("Sqlite failure while verifying that a consensus hash is fresh");
 
         if !consensus_hash_recent {
@@ -244,7 +244,7 @@ impl BlockstackOperation for UserBurnSupportOp {
             return Err(op_error::ParseError);
         }
 
-        let register_key_opt = BurnDB::get_leader_key_at(tx, leader_key_block_height, self.key_vtxindex.into(), &chain_tip.index_root)
+        let register_key_opt = BurnDB::get_leader_key_at(tx, leader_key_block_height, self.key_vtxindex.into(), &chain_tip.burn_header_hash)
             .expect("Sqlite failure while fetching a leader record by VRF key");
 
         if register_key_opt.is_none() {

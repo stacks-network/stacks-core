@@ -195,7 +195,7 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         /////////////////////////////////////////////////////////////////
 
         // key selected here must never have been submitted on this fork before 
-        let has_key_already = BurnDB::has_VRF_public_key(tx, &self.public_key, &chain_tip.index_root)
+        let has_key_already = BurnDB::has_VRF_public_key(tx, &self.public_key, &chain_tip.burn_header_hash)
             .expect("Sqlite failure while fetching VRF public key");
 
         if has_key_already {
@@ -207,7 +207,7 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
         // Consensus hash must be recent and valid
         /////////////////////////////////////////////////////////////////
 
-        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(tx, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.index_root)
+        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(tx, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.burn_header_hash)
             .expect("Sqlite failure while checking consensus hash freshness");
 
         if !consensus_hash_recent {

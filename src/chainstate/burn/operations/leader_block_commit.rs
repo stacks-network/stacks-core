@@ -313,7 +313,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         // Block must be unique
         /////////////////////////////////////////////////////////////////////////////////////
         
-        let is_already_committed = BurnDB::expects_stacks_block_in_fork(tx, &self.block_header_hash, &chain_tip.index_root)
+        let is_already_committed = BurnDB::expects_stacks_block_in_fork(tx, &self.block_header_hash, &chain_tip.burn_header_hash)
             .expect("FATAL: failed to query DB for prior instances of this block");
 
         if is_already_committed {
@@ -330,22 +330,22 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             return Err(op_error::BlockCommitNoLeaderKey);
         }
 
-        let register_key = match BurnDB::get_leader_key_at(tx, leader_key_block_height, self.key_vtxindex.into(), &chain_tip.index_root)
+        let register_key = match BurnDB::get_leader_key_at(tx, leader_key_block_height, self.key_vtxindex.into(), &chain_tip.burn_header_hash)
             .expect("Sqlite failure while getting a prior leader VRF key") {
             Some(key) => {
                 key
             },
             None => {
-                warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, chain_tip.index_root.to_hex());
+                warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, chain_tip.burn_header_hash.to_hex());
                 return Err(op_error::BlockCommitNoLeaderKey);
             }
         };
 
-        let is_key_consumed = BurnDB::is_leader_key_consumed(tx, &register_key, &chain_tip.index_root)
+        let is_key_consumed = BurnDB::is_leader_key_consumed(tx, &register_key, &chain_tip.burn_header_hash)
             .expect("Sqlite failure while verifying that a leader VRF key is not consumed");
 
         if is_key_consumed {
-            warn!("Invalid block commit: leader key at ({},{}) is already used as of {} in fork {}", register_key.block_height, register_key.vtxindex, chain_tip.block_height, chain_tip.index_root.to_hex());
+            warn!("Invalid block commit: leader key at ({},{}) is already used as of {} in fork {}", register_key.block_height, register_key.vtxindex, chain_tip.block_height, chain_tip.burn_header_hash.to_hex());
             return Err(op_error::BlockCommitLeaderKeyAlreadyUsed);
         }
 
@@ -363,7 +363,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         }
         else if self.parent_block_backptr != 0 || self.parent_vtxindex != 0 {
             // not building off of genesis, so the parent block must exist
-            match BurnDB::get_block_commit_parent(tx, parent_block_height, self.parent_vtxindex.into(), &chain_tip.index_root)
+            match BurnDB::get_block_commit_parent(tx, parent_block_height, self.parent_vtxindex.into(), &chain_tip.burn_header_hash)
                 .expect("Sqlite failure while verifying that this block commitment is new") {
                 Some(_) => {},
                 None => {
