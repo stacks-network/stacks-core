@@ -853,4 +853,9 @@ mod test {
 
         check_codec_and_corruption::<StacksMicroblockHeader>(&header, &header_bytes);
     }
+
+    // TODO:
+    // * blocks themselves
+    // * wellformed (and not wellformed) blocks
+    // * size limits
 }
