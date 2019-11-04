@@ -438,6 +438,7 @@ pub mod test {
         pub start_height: u64,
         pub mined: u64,
         pub tip_index_root: TrieHash,
+        pub tip_header_hash: BurnchainHeaderHash,
         pub pending_blocks: Vec<TestBurnchainBlock>,
         pub blocks: Vec<TestBurnchainBlock>
     }
@@ -558,7 +559,7 @@ pub mod test {
                 public_keys: pubks
             };
             
-            let last_snapshot = BurnDB::get_last_snapshot_with_sortition(tx, self.block_height - 1, &self.parent_index_root).expect("FATAL: failed to read last snapshot with sortition");
+            let last_snapshot = BurnDB::get_last_snapshot_with_sortition(tx, self.block_height - 1, &self.parent_block_hash).expect("FATAL: failed to read last snapshot with sortition");
             let mut txop = match BurnDB::get_block_commit(tx, &last_snapshot.winning_block_txid, &last_snapshot.burn_header_hash)
                 .expect("FATAL: failed to read block commit") {
                 Some(parent) => {
@@ -634,11 +635,12 @@ pub mod test {
     }
 
     impl TestBurnchainFork {
-        fn new(start_height: u64, start_index_hash: &TrieHash) -> TestBurnchainFork {
+        fn new(start_height: u64, start_header_hash: &BurnchainHeaderHash, start_index_root: &TrieHash) -> TestBurnchainFork {
             TestBurnchainFork {
                 start_height,
                 mined: 0,
-                tip_index_root: start_index_hash.clone(),
+                tip_header_hash: start_header_hash.clone(),
+                tip_index_root: start_index_root.clone(),
                 blocks: vec![],
                 pending_blocks: vec![]
             }
@@ -649,8 +651,8 @@ pub mod test {
         }
 
         pub fn get_tip<'a>(&mut self, tx: &mut BurnDBTx<'a>) -> BlockSnapshot {
-            test_debug!("Get tip snapshot at {}", &self.tip_index_root.to_hex());
-            BurnDB::get_block_snapshot_at(tx, &self.tip_index_root).unwrap().unwrap()
+            test_debug!("Get tip snapshot at {}", &self.tip_header_hash.to_hex());
+            BurnDB::get_block_snapshot(tx, &self.tip_header_hash).unwrap().unwrap()
         }
 
         pub fn next_block<'a>(&mut self, tx: &mut BurnDBTx<'a>) -> TestBurnchainBlock {
@@ -676,6 +678,7 @@ pub mod test {
                 self.blocks.push(block);
                 self.mined += 1;
                 self.tip_index_root = snapshot.index_root;
+                self.tip_header_hash = snapshot.burn_header_hash;
             }
 
             // give back the new chain tip
@@ -711,7 +714,7 @@ pub mod test {
         }
 
         let first_snapshot = BurnDB::get_first_block_snapshot(node.burndb.conn()).unwrap();
-        let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.index_root);
+        let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root);
         let mut prev_keys = vec![];
 
         for i in 0..10 {
@@ -725,7 +728,7 @@ pub mod test {
                 for j in 0..miners.len() {
                     let block_commit_op = {
                         let mut tx = node.burndb.tx_begin().unwrap();
-                        let hash = BlockHeaderHash([(i + j + miners.len()) as u8; 32]);
+                        let hash = BlockHeaderHash([(i*10 + j + miners.len()) as u8; 32]);
                         block.add_leader_block_commit(&mut tx, &mut miners[j], &hash, ((j + 1) as u64) * 1000, &prev_keys[j])
                     };
                 }
@@ -743,6 +746,8 @@ pub mod test {
 
             fork.append_block(block);
             node.mine_fork(&mut fork);
+
+            // TODO: test that everything is accepted
         }
     }
 }
