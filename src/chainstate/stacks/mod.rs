@@ -61,7 +61,8 @@ use vm::types::{
 };
 
 use vm::representations::{ContractName, ClarityName};
-use vm::errors::Error as clarity_error;
+use vm::clarity::Error as clarity_error;
+use vm::errors::Error as clarity_vm_error;
 
 pub type StacksPublicKey = secp256k1::Secp256k1PublicKey;
 pub type StacksPrivateKey = secp256k1::Secp256k1PrivateKey;
@@ -77,8 +78,8 @@ pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21;        // N
 pub const STACKS_BLOCK_VERSION: u8 = 0;
 pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 
-impl StandardPrincipalData {
-    pub fn from_address(addr: &StacksAddress) -> StandardPrincipalData {
+impl From<StacksAddress> for StandardPrincipalData {
+    fn from(addr: StacksAddress) -> StandardPrincipalData {
         StandardPrincipalData(addr.version, addr.bytes.as_bytes().clone())
     }
 }
@@ -104,10 +105,11 @@ pub enum Error {
     InvalidFee,
     InvalidStacksBlock,
     InvalidStacksTransaction,
-    PostConditionArithmeticError,
+    PostConditionFailed,
     NoSuchBlockError,
     InvalidChainstateDB,
     ClarityError(clarity_error),
+    ClarityInterpreterError(clarity_vm_error),
     DBError(db_error),
     NetError(net_error),
     MARFError(marf_error),
@@ -119,10 +121,11 @@ impl fmt::Display for Error {
             Error::InvalidFee => f.write_str(error::Error::description(self)),
             Error::InvalidStacksBlock => f.write_str(error::Error::description(self)),
             Error::InvalidStacksTransaction => f.write_str(error::Error::description(self)),
-            Error::PostConditionArithmeticError => f.write_str(error::Error::description(self)),
+            Error::PostConditionFailed => f.write_str(error::Error::description(self)),
             Error::NoSuchBlockError => f.write_str(error::Error::description(self)),
             Error::InvalidChainstateDB => f.write_str(error::Error::description(self)),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
+            Error::ClarityInterpreterError(ref e) => f.write_str(&format!("{:?}", e)),
             Error::DBError(ref e) => fmt::Display::fmt(e, f),
             Error::NetError(ref e) => fmt::Display::fmt(e, f),
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
@@ -136,10 +139,11 @@ impl error::Error for Error {
             Error::InvalidFee => None,
             Error::InvalidStacksBlock => None,
             Error::InvalidStacksTransaction => None,
-            Error::PostConditionArithmeticError => None,
+            Error::PostConditionFailed => None,
             Error::NoSuchBlockError => None,
             Error::InvalidChainstateDB => None,
             Error::ClarityError(ref e) => Some(e),
+            Error::ClarityInterpreterError(ref e) => None,
             Error::DBError(ref e) => Some(e),
             Error::NetError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
@@ -151,10 +155,11 @@ impl error::Error for Error {
             Error::InvalidFee => "Invalid fee",
             Error::InvalidStacksBlock => "Invalid Stacks block",
             Error::InvalidStacksTransaction => "Invalid Stacks transaction",
-            Error::PostConditionArithmeticError => "Postcondition violated",
+            Error::PostConditionFailed => "Postcondition violation",
             Error::NoSuchBlockError => "No such Stacks block",
             Error::InvalidChainstateDB => "Invalid chainstate database",
             Error::ClarityError(ref e) => e.description(),
+            Error::ClarityInterpreterError(ref e) => "Clarity fucked up and Aaron didn't make this error struct implement the Error trait, so who knows what went wrong?",
             Error::DBError(ref e) => e.description(),
             Error::NetError(ref e) => e.description(),
             Error::MARFError(ref e) => e.description()
@@ -384,13 +389,21 @@ pub enum TransactionAuth {
     Sponsored(TransactionSpendingCondition, TransactionSpendingCondition),  // the second account pays on behalf of the first account
 }
 
+/// A transaction that transfers a token
+#[derive(Debug, Clone, PartialEq)]
+pub enum TransactionTokenTransfer {
+    STX(StacksAddress, u64),
+    Fungible(AssetInfo, StacksAddress, u64),
+    Nonfungible(AssetInfo, StacksString, StacksAddress)
+}
+
 /// A transaction that calls into a smart contract
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransactionContractCall {
     pub address: StacksAddress,
     pub contract_name: ContractName,
     pub function_name: ClarityName,
-    pub function_args: Vec<ClarityName>
+    pub function_args: Vec<StacksString>
 }
 
 /// A transaction that instantiates a smart contract
@@ -400,19 +413,31 @@ pub struct TransactionSmartContract {
     pub code_body: StacksString
 }
 
+/// A coinbase commits to 32 bytes of control-plane information
+pub struct CoinbasePayload([u8; 32]);
+impl_byte_array_message_codec!(CoinbasePayload, 32);
+impl_array_newtype!(CoinbasePayload, u8, 32);
+impl_array_hexstring_fmt!(CoinbasePayload);
+impl_byte_array_newtype!(CoinbasePayload, u8, 32);
+pub const CONIBASE_PAYLOAD_ENCODED_SIZE : u32 = 32;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionPayload {
+    TokenTransfer(TransactionTokenTransfer),
     ContractCall(TransactionContractCall),
     SmartContract(TransactionSmartContract),
-    PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader)        // the previous epoch leader sent two microblocks with the same sequence, and this is proof
+    PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),       // the previous epoch leader sent two microblocks with the same sequence, and this is proof
+    Coinbase(CoinbasePayload)
 }
 
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum TransactionPayloadID {
-    SmartContract = 0,
-    ContractCall = 1,
-    PoisonMicroblock = 2,
+    TokenTransfer = 0,
+    SmartContract = 1,
+    ContractCall = 2,
+    PoisonMicroblock = 3,
+    Coinbase = 4
 }
 
 /// Encoding of an asset type identifier 
@@ -465,7 +490,7 @@ impl FungibleConditionCode {
         }
     }
 
-    pub fn check(&self, amount_sent_condition: u64, amount_sent: u64) -> bool {
+    pub fn check(&self, amount_sent_condition: i128, amount_sent: i128) -> bool {
         match *self {
             FungibleConditionCode::SentEq => amount_sent == amount_sent_condition,
             FungibleConditionCode::SentGt => amount_sent > amount_sent_condition,
@@ -568,7 +593,7 @@ pub struct StacksBlockHeader {
     pub proof: VRFProof,
     pub parent_block: BlockHeaderHash,          // NOTE: even though this is also present in the burn chain, we need this here for super-light clients that don't even have burn chain headers
     pub parent_microblock: BlockHeaderHash,
-    pub parent_microblock_sequence: u8,         // highest sequence number of the microblock stream that is the parent of this block (0 if no stream)
+    pub parent_microblock_sequence: u8,         // highest sequence number of the microblock stream that is the parent of this block (0 if no stream)  TODO: expand to u16?
     pub tx_merkle_root: Sha512Trunc256Sum,
     pub state_index_root: TrieHash,
     pub microblock_pubkey_hash: Hash160,        // we'll get the public key back from the first signature
