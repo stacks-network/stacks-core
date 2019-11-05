@@ -363,7 +363,7 @@ impl StacksChainState {
             .map_err(Error::DBError)?
             .expect("FATAL: have block commit but no block snapshot");
 
-        let leader_key = BurnDB::get_leader_key_at(tx, block_commit.block_height - (block_commit.key_block_backptr as u64), block_commit.key_vtxindex as u32, &block_snapshot.burn_header_hash)
+        let leader_key = BurnDB::get_leader_key_at(tx, block_commit.key_block_ptr as u64, block_commit.key_vtxindex as u32, &block_snapshot.burn_header_hash)
             .map_err(Error::DBError)?
             .expect("FATAL: have block commit but no leader key");
 
@@ -371,11 +371,7 @@ impl StacksChainState {
             .map_err(Error::DBError)?
             .expect("FATAL: no parent block snapshot");
 
-        let parent_block_commit = BurnDB::get_block_commit_parent(tx, block_commit.block_height - (block_commit.parent_block_backptr as u64), block_commit.parent_vtxindex as u32, &block_snapshot.parent_burn_header_hash)
-            .map_err(Error::DBError)?
-            .expect("FATAL: have block commit but no parent");
-
-        let valid = block.header.validate_burnchain(&block_snapshot, &leader_key, &block_commit, &parent_snapshot, &parent_block_commit);
+        let valid = block.header.validate_burnchain(&block_snapshot, &leader_key, &block_commit, &parent_snapshot);
         Ok(valid)
     }
 
@@ -408,15 +404,19 @@ impl StacksChainState {
         // does this block match the burnchain state?
         let valid_burnchain = self.validate_block_burnchain(burn_tx, burn_block_hash, block)?;
         if !valid_burnchain {
-            error!("Invalid block {}", block.block_hash());
-            return Err(Error::InvalidStacksBlock);
+            let msg = format!("Invalid block {}", block.block_hash());
+            warn!("{}", &msg);
+
+            return Err(Error::InvalidStacksBlock(msg));
         }
 
         // does this block connect to the anchored parent and the parent stream?
         let valid_parent = block.validate(&parent_header_info.anchored_header, parent_microblocks);
         if !valid_parent {
-            error!("Invalid block {}", block.block_hash());
-            return Err(Error::InvalidStacksBlock);
+            let msg = format!("Invalid block {}", block.block_hash());
+            warn!("{}", &msg);
+
+            return Err(Error::InvalidStacksBlock(msg));
         }
      
         // store the block
@@ -483,7 +483,7 @@ impl StacksChainState {
 
     /// Create the block reward
     fn make_miner_reward(mainnet: bool, block: &StacksBlock, block_height: u64, tx_fees: u128, streamed_fees: u128, burns: u128) -> Result<MinerPaymentSchedule, Error> {
-        let coinbase_tx = block.get_coinbase_tx().ok_or(Error::InvalidStacksBlock)?;
+        let coinbase_tx = block.get_coinbase_tx().ok_or(Error::InvalidStacksBlock("No coinbase transaction".to_string()))?;
         let miner_auth = coinbase_tx.get_origin();
         let miner_addr = 
             if mainnet {
@@ -540,10 +540,11 @@ impl StacksChainState {
             let mut clarity_tx = state.block_begin(&parent_chain_tip.burn_block_hash, &parent_chain_tip.anchored_header.block_hash(), chain_tip_burn_block_hash, &chain_tip_header.block_hash());
             let (microblock_fees, microblock_burns) = match StacksChainState::process_microblocks(&mut clarity_tx, &microblocks) {
                 Err(e) => {
-                    error!("Invalid Stacks microblocks {},{}: {:?}", block.header.parent_microblock.to_hex(), block.header.parent_microblock_sequence, &e);
-                    
+                    let msg = format!("Invalid Stacks microblocks {},{}: {:?}", block.header.parent_microblock.to_hex(), block.header.parent_microblock_sequence, &e);
+                    warn!("{}", &msg);
+
                     clarity_tx.rollback_block();
-                    return Err(Error::InvalidStacksBlock);
+                    return Err(Error::InvalidStacksBlock(msg));
                 },
                 Ok((fees, burns)) => {
                     (fees, burns)
@@ -552,28 +553,31 @@ impl StacksChainState {
 
             let (block_fees, block_burns) = match StacksChainState::process_block(&mut clarity_tx, &block) {
                 Err(e) => {
-                    error!("Invalid Stacks block {}: {:?}", block.block_hash().to_hex(), &e);
-                    
+                    let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash().to_hex(), &e);
+                    warn!("{}", &msg);
+
                     clarity_tx.rollback_block();
-                    return Err(Error::InvalidStacksBlock);
+                    return Err(Error::InvalidStacksBlock(msg));
                 },
                 Ok((block_fees, block_burns)) => (block_fees, block_burns)
             };
 
             let root_hash = clarity_tx.get_root_hash();
             if root_hash != block.header.state_index_root {
-                error!("Block {} state root mismatch: expected {}, got {}", block.block_hash(), root_hash, block.header.state_index_root);
+                let msg = format!("Block {} state root mismatch: expected {}, got {}", block.block_hash(), root_hash, block.header.state_index_root);
+                warn!("{}", &msg);
                 
                 clarity_tx.rollback_block();
-                return Err(Error::InvalidStacksBlock);
+                return Err(Error::InvalidStacksBlock(msg));
             }
 
             let miner_reward = match StacksChainState::make_miner_reward(mainnet, &block, next_block_height, block_fees, microblock_fees, block_burns) {
                 Err(e) => {
-                    error!("Invalid Stacks block {}: failed to find coinbase", block.block_hash().to_hex());
+                    let msg = format!("Invalid Stacks block {}: failed to find coinbase", block.block_hash().to_hex());
+                    warn!("{}", &msg);
 
                     clarity_tx.rollback_block();
-                    return Err(Error::InvalidStacksBlock);
+                    return Err(Error::InvalidStacksBlock(msg));
                 },
                 Ok(reward) => reward
             };
