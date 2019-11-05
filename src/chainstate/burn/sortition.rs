@@ -262,17 +262,20 @@ impl BlockSnapshot {
         };
 
         // Try to pick a next block.
-        let (winning_txid,  winning_block_hash) = match BlockSnapshot::select_winning_block(tx, block_header, &next_sortition_hash, burn_dist)? {
+        let (winning_txid, winning_block_hash, winning_block_vrf_seed) = match BlockSnapshot::select_winning_block(tx, block_header, &next_sortition_hash, burn_dist)? {
             None => {
                 // should be unreachable, but would happen if there were no burns
                 warn!("No winner for block {} {:?}", block_height, &block_hash);
                 return BlockSnapshot::make_snapshot_no_sortition(tx, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids)
             },
             Some(winning_block) => {
-                (winning_block.txid, winning_block.block_header_hash)
+                (winning_block.txid, winning_block.block_header_hash, winning_block.new_seed)
             }
         };
-        
+      
+        // mix in the winning block's VRF seed to the sortition hash.  The next block commits must
+        // prove on this final sortition hash.
+        let final_sortition_hash = next_sortition_hash.mix_VRF_seed(&winning_block_vrf_seed);
         let next_ops_hash = OpsHash::from_txids(&txids);
         let next_ch = ConsensusHash::from_parent_block_data(tx, &next_ops_hash, block_height - 1, first_block_height, &block_header.parent_block_hash, next_burn_total)?;
 
@@ -286,7 +289,7 @@ impl BlockSnapshot {
             ops_hash: next_ops_hash,
             total_burn: next_burn_total,
             sortition: true,
-            sortition_hash: next_sortition_hash,
+            sortition_hash: final_sortition_hash,
             winning_block_txid: winning_txid,
             winning_stacks_block_hash: winning_block_hash,
             index_root: TrieHash::from_empty_data(),     // will be overwritten,
@@ -374,4 +377,6 @@ mod test {
         assert!(!snapshot_no_burns.sortition);
         assert_eq!(snapshot_no_transactions.total_burn, 0);
     }
+
+    // TODO: make snapshot with sortition
 }
