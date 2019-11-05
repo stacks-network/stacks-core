@@ -33,7 +33,7 @@ use util::db::DBConn;
 
 use util;
 use util::log;
-use util::hash::{to_hex, hex_bytes, Hash160, Sha256Sum};
+use util::hash::{to_hex, hex_bytes, Hash160, Sha512Trunc256Sum};
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
 use util::macros::is_big_endian;
@@ -528,7 +528,7 @@ impl PeerDB {
             bytes.push(((network_id & 0x0000ff00) >>  8) as u8);
             bytes.push(((network_id & 0x000000ff)      ) as u8);
 
-            let h = Sha256Sum::from_data(&bytes[..]);
+            let h = Sha512Trunc256Sum::from_data(&bytes[..]);
             let slot : u32 =
                 (h.as_bytes()[0] as u32) |
                 ((h.as_bytes()[1] as u32) << 8) |

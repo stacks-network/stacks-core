@@ -21,6 +21,8 @@ use super::Error;
 use sha2::Sha256;
 use sha2::Digest;
 
+// TODO: normalize!
+
 const C32_CHARACTERS: &str = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 fn c32_encode(input_bytes: &[u8]) -> String {
@@ -51,7 +53,6 @@ fn c32_encode(input_bytes: &[u8]) -> String {
     }
 
     // remove leading zeros from c32 encoding
-
     while let Some(v) = result.pop() {
         if v != c32_chars[0] {
             result.push(v);
@@ -60,7 +61,6 @@ fn c32_encode(input_bytes: &[u8]) -> String {
     }
 
     // add leading zeros from input.
-
     for current_value in input_bytes.iter() {
         if *current_value == 0 {
             result.push(c32_chars[0]);
@@ -115,7 +115,6 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
     }
 
     result.reverse();
-
     Ok(result)
 }
 
@@ -350,4 +349,6 @@ mod test {
             assert_eq!(c32_encoded, *expected_c32);
         }
     }
+
+    // TODO: test normalization 
 }

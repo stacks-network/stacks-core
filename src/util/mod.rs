@@ -24,6 +24,7 @@ pub mod hash;
 pub mod pair;
 pub mod secp256k1;
 pub mod uint;
+pub mod strings;
 pub mod vrf;
 
 use std::time;
@@ -78,4 +79,3 @@ impl error::Error for HexError {
         }
     }
 }
-

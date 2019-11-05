@@ -38,6 +38,7 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::bits::{
     get_leaf_hash,
     get_node_hash,
+    read_root_hash,
 };
 
 use chainstate::stacks::index::node::{
@@ -521,7 +522,6 @@ impl MARF {
             }
         }
 
-
         MARF::get_by_key(storage, current_block_hash, &hash_key)
             .map(|option_result| {
                 option_result.map( |marf_value| { u32::from(marf_value) } )
@@ -551,6 +551,9 @@ impl MARF {
     pub fn set_block_height(&mut self, block_hash: &BlockHeaderHash, height: u32) -> Result<(), Error> {
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
+
+        test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, block_hash.to_hex());
+        test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash.to_hex(), height);
 
         self.insert(&hash_key, MARFValue::from(height))?;
         self.insert(&height_key, MARFValue::from(block_hash.clone()))
@@ -726,9 +729,25 @@ impl MARF {
     }
 
     /// Access internal storage
-    #[cfg(test)]
     pub fn borrow_storage_backend(&mut self) -> &mut TrieFileStorage {
         &mut self.storage
+    }
+
+    /// Get the current root trie hash
+    pub fn get_root_hash(&mut self) -> Result<TrieHash, Error> {
+        read_root_hash(&mut self.storage)
+    }
+    
+    /// Get the root trie hash at a particular block
+    pub fn get_root_hash_at(&mut self, block_hash: &BlockHeaderHash) -> Result<TrieHash, Error> {
+        let cur_block_hash = self.storage.get_cur_block();
+
+        self.storage.open_block(block_hash)?;
+        let root_hash_res = read_root_hash(&mut self.storage);
+
+        // restore
+        self.storage.open_block(&cur_block_hash)?;
+        root_hash_res
     }
 }
 
