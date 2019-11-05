@@ -47,8 +47,6 @@ use chainstate::stacks::StacksBlock;
 use chainstate::stacks::StacksMicroblock;
 use chainstate::stacks::StacksTransaction;
 
-use chainstate::stacks::MAX_BLOCK_SIZE;
-
 use util::hash::DoubleSha256;
 use util::hash::Hash160;
 use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
@@ -589,7 +587,6 @@ pub const MAX_NEIGHBORS_DATA_LEN : u32 = 128;
 pub const MAX_RELAYERS_LEN : u32 = 16;
 
 // messages can't be bigger than 16MB plus the preamble and relayers
-// (note that MAX_BLOCK_SIZE is less than this)
 pub const MAX_MESSAGE_LEN : u32 = (1 + 16 * 1024 * 1024) + (PREAMBLE_ENCODED_SIZE + MAX_RELAYERS_LEN * RELAY_DATA_ENCODED_SIZE);
 
 // maximum length of a microblock's hash list
@@ -1012,7 +1009,7 @@ mod test {
         pub fn add_empty_burnchain_block(&mut self) -> u64 {
             let empty_block = {
                 let mut burndb = self.burndb.take().unwrap();
-                let sn = BurnDB::get_canonical_chain_tip(burndb.conn()).unwrap();
+                let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();
                 let empty_block = self.empty_burnchain_block(sn.block_height);
                 self.burndb = Some(burndb);
                 empty_block
