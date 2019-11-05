@@ -20,8 +20,9 @@
 pub mod address;
 pub mod auth;
 pub mod block;
-pub mod db;
+// pub mod db;
 pub mod index;
+// pub mod miner;
 pub mod transaction;
 
 use std::fmt;
@@ -103,11 +104,13 @@ impl AddressHashMode {
 #[derive(Debug)]
 pub enum Error {
     InvalidFee,
-    InvalidStacksBlock,
-    InvalidStacksTransaction,
-    PostConditionFailed,
+    InvalidStacksBlock(String),
+    InvalidStacksTransaction(String),
+    PostConditionFailed(String),
     NoSuchBlockError,
     InvalidChainstateDB,
+    BlockTooBigError,
+    MicroblockStreamTooLongError,
     ClarityError(clarity_error),
     ClarityInterpreterError(clarity_vm_error),
     DBError(db_error),
@@ -119,11 +122,13 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::InvalidFee => f.write_str(error::Error::description(self)),
-            Error::InvalidStacksBlock => f.write_str(error::Error::description(self)),
-            Error::InvalidStacksTransaction => f.write_str(error::Error::description(self)),
-            Error::PostConditionFailed => f.write_str(error::Error::description(self)),
+            Error::InvalidStacksBlock(ref s) => fmt::Display::fmt(s, f),
+            Error::InvalidStacksTransaction(ref s) => fmt::Display::fmt(s, f),
+            Error::PostConditionFailed(ref s) => fmt::Display::fmt(s, f),
             Error::NoSuchBlockError => f.write_str(error::Error::description(self)),
             Error::InvalidChainstateDB => f.write_str(error::Error::description(self)),
+            Error::BlockTooBigError => f.write_str(error::Error::description(self)),
+            Error::MicroblockStreamTooLongError => f.write_str(error::Error::description(self)),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
             Error::ClarityInterpreterError(ref e) => f.write_str(&format!("{:?}", e)),
             Error::DBError(ref e) => fmt::Display::fmt(e, f),
@@ -137,11 +142,13 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&error::Error> {
         match *self {
             Error::InvalidFee => None,
-            Error::InvalidStacksBlock => None,
-            Error::InvalidStacksTransaction => None,
-            Error::PostConditionFailed => None,
+            Error::InvalidStacksBlock(ref _s) => None,
+            Error::InvalidStacksTransaction(ref _s) => None,
+            Error::PostConditionFailed(ref _s) => None,
             Error::NoSuchBlockError => None,
             Error::InvalidChainstateDB => None,
+            Error::BlockTooBigError => None,
+            Error::MicroblockStreamTooLongError => None,
             Error::ClarityError(ref e) => Some(e),
             Error::ClarityInterpreterError(ref e) => None,
             Error::DBError(ref e) => Some(e),
@@ -153,11 +160,13 @@ impl error::Error for Error {
     fn description(&self) -> &str {
         match *self {
             Error::InvalidFee => "Invalid fee",
-            Error::InvalidStacksBlock => "Invalid Stacks block",
-            Error::InvalidStacksTransaction => "Invalid Stacks transaction",
-            Error::PostConditionFailed => "Postcondition violation",
+            Error::InvalidStacksBlock(ref s) => s.as_str(),
+            Error::InvalidStacksTransaction(ref s) => s.as_str(),
+            Error::PostConditionFailed(ref s) => s.as_str(),
             Error::NoSuchBlockError => "No such Stacks block",
             Error::InvalidChainstateDB => "Invalid chainstate database",
+            Error::BlockTooBigError => "Too much data in block",
+            Error::MicroblockStreamTooLongError => "Too many microblocks in stream",
             Error::ClarityError(ref e) => e.description(),
             Error::ClarityInterpreterError(ref e) => "Clarity fucked up and Aaron didn't make this error struct implement the Error trait, so who knows what went wrong?",
             Error::DBError(ref e) => e.description(),
@@ -565,7 +574,7 @@ pub struct StacksTransaction {
     pub chain_id: u32,
     pub auth: TransactionAuth,
     pub fee: u64,
-    pub anchor_mode: TransactionAnchorMode,
+    pub anchor_mode: TransactionAnchorMode,                 // TODO; merge anchor mode and post condition mode into a single-byte field?
     pub post_condition_mode: TransactionPostConditionMode,
     pub post_conditions: Vec<TransactionPostCondition>,
     pub payload: TransactionPayload
@@ -625,14 +634,217 @@ pub struct StacksMicroblock {
     pub txs: Vec<StacksTransaction>
 }
 
+/// A structure for incrementially building up a block
+pub struct StacksBlockBuilder {
+    pub header: StacksBlockHeader,
+    pub txs: Vec<StacksTransaction>,
+    pub micro_txs: Vec<StacksTransaction>,
+    anchored_done: bool,
+    bytes_so_far: u64,
+    prev_microblock_header: StacksMicroblockHeader,
+    miner_privkey: StacksPrivateKey
+}
+
 // maximum amount of data a leader can send during its epoch (2MB)
 pub const MAX_EPOCH_SIZE : u32 = 2097152;
-
-// maximum block size is 1MB.  Complaints to /dev/null -- if you need bigger, start an app chain
-pub const MAX_BLOCK_SIZE : u32 = 1048576;
 
 // maximum microblock size is 64KB, but note that the current leader has a space budget of
 // $MAX_EPOCH_SIZE bytes (so the average microblock size needs to be 4kb if there are 256 of them)
 pub const MAX_MICROBLOCK_SIZE : u32 = 65536;
 
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use chainstate::stacks::*;
+    use net::*;
+    use net::codec::*;
+    use net::codec::test::check_codec_and_corruption;
 
+    use chainstate::stacks::StacksPublicKey as PubKey;
+
+    use util::log;
+
+    use vm::representations::{ClarityName, ContractName};
+
+    /// Make a representative of each kind of transaction we support
+    pub fn codec_all_transactions(version: &TransactionVersion, chain_id: u32, anchor_mode: &TransactionAnchorMode, post_condition_mode: &TransactionPostConditionMode) -> Vec<StacksTransaction> {
+        let addr = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
+        let asset_name = ClarityName::try_from("hello-asset").unwrap();
+        let asset_value = StacksString::from_str("asset-value").unwrap();
+        let contract_name = ContractName::try_from("hello-world").unwrap();
+        let hello_contract_call = "hello contract call";
+        let hello_contract_name = "hello-contract-name";
+        let hello_contract_body = "hello contract code body";
+        let asset_info = AssetInfo {
+            contract_address: addr.clone(),
+            contract_name: contract_name.clone(),
+            asset_name: asset_name.clone(),
+        };
+        
+        let mblock_header_1 = StacksMicroblockHeader {
+            version: 0x12,
+            sequence: 0x34,
+            prev_block: BlockHeaderHash([0u8; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
+            signature: MessageSignature([2u8; 65]),
+        };
+        
+        let mblock_header_2 = StacksMicroblockHeader {
+            version: 0x12,
+            sequence: 0x34,
+            prev_block: BlockHeaderHash([0u8; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
+            signature: MessageSignature([3u8; 65]),
+        };
+
+        let spending_conditions = vec![
+            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                signer: Hash160([0x11; 20]),
+                hash_mode: SinglesigHashMode::P2PKH,
+                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
+                nonce: 123,
+                signature: MessageSignature::from_raw(&vec![0xff; 65])
+            }),
+            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                signer: Hash160([0x11; 20]),
+                hash_mode: SinglesigHashMode::P2PKH,
+                key_encoding: TransactionPublicKeyEncoding::Compressed,
+                nonce: 234,
+                signature: MessageSignature::from_raw(&vec![0xff; 65])
+            }),
+            TransactionSpendingCondition::Multisig(MultisigSpendingCondition {
+                signer: Hash160([0x11; 20]),
+                hash_mode: MultisigHashMode::P2SH,
+                nonce: 345,
+                fields: vec![
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                    TransactionAuthField::PublicKey(PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()),
+                ],
+                signatures_required: 2
+            }),
+            TransactionSpendingCondition::Multisig(MultisigSpendingCondition {
+                signer: Hash160([0x11; 20]),
+                hash_mode: MultisigHashMode::P2SH,
+                nonce: 456,
+                fields: vec![
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                    TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
+                ],
+                signatures_required: 2
+            }),
+            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                signer: Hash160([0x11; 20]),
+                hash_mode: SinglesigHashMode::P2WPKH,
+                key_encoding: TransactionPublicKeyEncoding::Compressed,
+                nonce: 567,
+                signature: MessageSignature::from_raw(&vec![0xfe; 65]),
+            }),
+            TransactionSpendingCondition::Multisig(MultisigSpendingCondition {
+                signer: Hash160([0x11; 20]),
+                hash_mode: MultisigHashMode::P2WSH,
+                nonce: 678,
+                fields: vec![
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                    TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
+                ],
+                signatures_required: 2
+            })
+        ];
+
+        let mut tx_auths = vec![];
+        for i in 0..spending_conditions.len() {
+            let spending_condition = &spending_conditions[i];
+            let next_spending_condition = &spending_conditions[(i + 1) % spending_conditions.len()];
+
+            tx_auths.push(TransactionAuth::Standard(spending_condition.clone()));
+            tx_auths.push(TransactionAuth::Sponsored(spending_condition.clone(), next_spending_condition.clone()));
+        }
+
+        let tx_fees = vec![123];
+
+        let tx_post_conditions = vec![
+            vec![TransactionPostCondition::STX(FungibleConditionCode::SentLt, 12345)],
+            vec![TransactionPostCondition::Fungible(
+                AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
+                FungibleConditionCode::SentGt, 
+                23456)
+            ],
+            vec![TransactionPostCondition::Nonfungible(
+                AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() },
+                StacksString::from_str(&"0x01020304").unwrap(), 
+                NonfungibleConditionCode::Present)
+            ],
+            vec![TransactionPostCondition::STX(FungibleConditionCode::SentLt, 12345),
+                TransactionPostCondition::Fungible(AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
+                                                   FungibleConditionCode::SentGt, 
+                                                   23456)
+            ],
+            vec![TransactionPostCondition::STX(FungibleConditionCode::SentLt, 12345), 
+                TransactionPostCondition::Nonfungible(AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
+                                                      StacksString::from_str(&"0x01020304").unwrap(), 
+                                                      NonfungibleConditionCode::Present)
+            ],
+            vec![TransactionPostCondition::Fungible(AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
+                                                    FungibleConditionCode::SentGt, 
+                                                    23456),
+                 TransactionPostCondition::Nonfungible(AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
+                                                       StacksString::from_str(&"0x01020304").unwrap(), 
+                                                       NonfungibleConditionCode::Present)
+            ],
+            vec![TransactionPostCondition::STX(FungibleConditionCode::SentLt, 12345),
+                 TransactionPostCondition::Nonfungible(AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
+                                                       StacksString::from_str(&"0x01020304").unwrap(), 
+                                                       NonfungibleConditionCode::Present),
+                 TransactionPostCondition::Fungible(AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
+                                                    FungibleConditionCode::SentGt, 
+                                                    23456)
+            ],
+        ];
+
+        let tx_payloads = vec![
+            TransactionPayload::TokenTransfer(TransactionTokenTransfer::STX(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, 123)),
+            TransactionPayload::TokenTransfer(TransactionTokenTransfer::Fungible(asset_info.clone(), StacksAddress { version: 2, bytes: Hash160([0xfe; 20]) }, 456)),
+            TransactionPayload::TokenTransfer(TransactionTokenTransfer::Nonfungible(asset_info.clone(), asset_value.clone(), StacksAddress { version: 3, bytes: Hash160([0xfd; 20]) })),
+            TransactionPayload::ContractCall(TransactionContractCall {
+                address: StacksAddress { version: 4, bytes: Hash160([0xfc; 20]) },
+                contract_name: ContractName::try_from("hello-contract-name").unwrap(),
+                function_name: ClarityName::try_from("hello-contract-call").unwrap(),
+                function_args: vec![StacksString::from_str("0").unwrap()]
+            }),
+            TransactionPayload::SmartContract(TransactionSmartContract {
+                name: ContractName::try_from(hello_contract_name).unwrap(),
+                code_body: StacksString::from_str(hello_contract_body).unwrap(),
+            }),
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32])),
+            TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
+        ];
+
+        // create all kinds of transactions
+        let mut all_txs = vec![];
+        for spending_condition in spending_conditions.iter() {
+            for tx_auth in tx_auths.iter() {
+                for tx_fee in tx_fees.iter() {
+                    for tx_post_condition in tx_post_conditions.iter() {
+                        for tx_payload in tx_payloads.iter() {
+                            let tx = StacksTransaction {
+                                version: (*version).clone(),
+                                chain_id: chain_id,
+                                auth: tx_auth.clone(),
+                                fee: *tx_fee,
+                                anchor_mode: (*anchor_mode).clone(),
+                                post_condition_mode: (*post_condition_mode).clone(),
+                                post_conditions: tx_post_condition.clone(),
+                                payload: tx_payload.clone()
+                            };
+                            all_txs.push(tx);
+                        }
+                    }
+                }
+            }
+        }
+        all_txs
+    }
+}
