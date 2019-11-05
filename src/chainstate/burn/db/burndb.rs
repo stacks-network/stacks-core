@@ -203,8 +203,8 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
 impl RowOrder for LeaderBlockCommitOp {
     fn row_order() -> Vec<&'static str> {
         vec!["txid","vtxindex","block_height","burn_header_hash","block_header_hash","new_seed",
-             "parent_block_backptr","parent_vtxindex","key_block_backptr","key_vtxindex",
-             "epoch_num","memo","burn_fee","input"]
+             "parent_block_ptr","parent_vtxindex","key_block_ptr","key_vtxindex", "memo",
+             "burn_fee","input"]
     }
 }
 
@@ -216,14 +216,13 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let burn_header_hash = BurnchainHeaderHash::from_row(row, 3 + index)?;
         let block_header_hash = BlockHeaderHash::from_row(row, 4 + index)?;
         let new_seed = VRFSeed::from_row(row, 5 + index)?;
-        let parent_block_backptr : u16 = row.get(6 + index);
+        let parent_block_ptr : u32 = row.get(6 + index);
         let parent_vtxindex: u16 = row.get(7 + index);
-        let key_block_backptr : u16 = row.get(8 + index);
+        let key_block_ptr : u32 = row.get(8 + index);
         let key_vtxindex : u16 = row.get(9 + index);
-        let epoch_num : u32 = row.get(10 + index);
-        let memo_hex : String = row.get(11 + index);
-        let burn_fee_str : String = row.get(12 + index);
-        let input_json : String = row.get(13 + index);
+        let memo_hex : String = row.get(10 + index);
+        let burn_fee_str : String = row.get(11 + index);
+        let input_json : String = row.get(12 + index);
         
         let memo_bytes = hex_bytes(&memo_hex)
             .map_err(|_e| db_error::ParseError)?;
@@ -243,11 +242,10 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let block_commit = LeaderBlockCommitOp {
             block_header_hash: block_header_hash,
             new_seed: new_seed,
-            parent_block_backptr: parent_block_backptr,
+            parent_block_ptr: parent_block_ptr,
             parent_vtxindex: parent_vtxindex,
-            key_block_backptr: key_block_backptr,
+            key_block_ptr: key_block_ptr,
             key_vtxindex: key_vtxindex,
-            epoch_num: epoch_num,
             memo: memo,
 
             burn_fee: burn_fee,
@@ -264,7 +262,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 
 impl RowOrder for UserBurnSupportOp {
     fn row_order() -> Vec<&'static str> {
-        vec!["txid","vtxindex","block_height","burn_header_hash","consensus_hash","public_key","key_block_backptr","key_vtxindex","block_header_hash_160","memo","burn_fee"]
+        vec!["txid","vtxindex","block_height","burn_header_hash","consensus_hash","public_key","key_block_ptr","key_vtxindex","block_header_hash_160","burn_fee"]
     }
 }
 
@@ -277,17 +275,11 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
 
         let consensus_hash = ConsensusHash::from_row(row, 4 + index)?;
         let public_key = VRFPublicKey::from_row(row, 5 + index)?;
-        let key_block_backptr: u16 = row.get(6 + index);
+        let key_block_ptr: u32 = row.get(6 + index);
         let key_vtxindex : u16 = row.get(7 + index);
         let block_header_hash_160 = Hash160::from_row(row, 8 + index)?;
-        let memo_hex : String = row.get(9 + index);
 
-        let burn_fee_str : String = row.get(10 + index);
-        
-        let memo_bytes = hex_bytes(&memo_hex)
-            .map_err(|_e| db_error::ParseError)?;
-
-        let memo = memo_bytes.to_vec();
+        let burn_fee_str : String = row.get(9 + index);
 
         let burn_fee = burn_fee_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
@@ -299,10 +291,9 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
         let user_burn = UserBurnSupportOp {
             consensus_hash: consensus_hash,
             public_key: public_key,
-            key_block_backptr: key_block_backptr,
+            key_block_ptr: key_block_ptr,
             key_vtxindex: key_vtxindex,
             block_header_hash_160: block_header_hash_160,
-            memo: memo,
             burn_fee: burn_fee,
 
             txid: txid,
@@ -368,11 +359,10 @@ const BURNDB_SETUP : &'static [&'static str]= &[
 
         block_header_hash TEXT NOT NULL,
         new_seed TEXT NOT NULL,
-        parent_block_backptr INTEGER NOT NULL,
+        parent_block_ptr INTEGER NOT NULL,
         parent_vtxindex INTEGER NOT NULL,
-        key_block_backptr INTEGER NOT NULL,
+        key_block_ptr INTEGER NOT NULL,
         key_vtxindex INTEGER NOT NULL,
-        epoch_num INTEGER NOT NULL,
         memo TEXT,
         
         burn_fee TEXT NOT NULL,     -- use text to encode really big numbers
@@ -390,10 +380,9 @@ const BURNDB_SETUP : &'static [&'static str]= &[
 
         consensus_hash TEXT NOT NULL,
         public_key TEXT NOT NULL,
-        key_block_backptr INTEGER NOT NULL,
+        key_block_ptr INTEGER NOT NULL,
         key_vtxindex INTEGER NOT NULL,
         block_header_hash_160 TEXT NOT NULL,
-        memo TEXT,
 
         burn_fee TEXT NOT NULL,
 
@@ -422,7 +411,10 @@ pub struct BurnDBTxContext {
 pub type BurnDBTx<'a> = IndexDBTx<'a, BurnDBTxContext>;
 
 fn burndb_get_ancestor_block_hash<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BurnchainHeaderHash>, db_error> {
-    assert!(block_height >= tx.context.first_block_height);
+    if block_height < tx.context.first_block_height {
+        return Ok(None);
+    }
+    
     let tip_bhh = BlockHeaderHash::from(tip_block_hash.clone());
     let first_block_height = tx.context.first_block_height;
     match tx.get_ancestor_block_hash(block_height - first_block_height, &tip_bhh)? {
@@ -656,6 +648,58 @@ impl BurnDB {
         Ok(())
     }
 
+    /// Get a blockstack burnchain operation by txid
+    pub fn get_burnchain_transaction(conn: &Connection, txid: &Txid) -> Result<Option<BlockstackOperationType>, db_error> {
+        // leader key?
+        let leader_key_row_order = LeaderKeyRegisterOp::row_order().join(",");
+        let leader_key_sql = format!("SELECT {} FROM leader_keys WHERE txid = ?1 LIMIT 1", leader_key_row_order);
+        let args = [&txid.to_hex() as &ToSql];
+
+        let leader_key_rows = query_rows::<LeaderKeyRegisterOp, _>(conn, &leader_key_sql, &args)?;
+        match leader_key_rows.len() {
+            0 => {},
+            1 => {
+                return Ok(Some(BlockstackOperationType::LeaderKeyRegister(leader_key_rows[0].clone())));
+            },
+            _ => {
+                panic!("Multiple leader keys with same txid");
+            }
+        }
+        
+        // block commit?
+        let block_commit_row_order = LeaderBlockCommitOp::row_order().join(",");
+        let block_commit_sql = format!("SELECT {} FROM block_commits WHERE txid = ?1 LIMIT 1", block_commit_row_order);
+
+        let block_commit_rows = query_rows::<LeaderBlockCommitOp, _>(conn, &block_commit_sql, &args)?;
+        match block_commit_rows.len() {
+            0 => {},
+            1 => {
+                return Ok(Some(BlockstackOperationType::LeaderBlockCommit(block_commit_rows[0].clone())));
+            },
+            _ => {
+                panic!("Multiple block commits with same txid");
+            }
+        }
+
+        // user burn?
+        let user_burn_row_order = UserBurnSupportOp::row_order().join(",");
+        let user_burn_sql = format!("SELECT {} FROM user_burn_support WHERE txid = ?1 LIMIT 1", user_burn_row_order);
+
+        let user_burn_rows = query_rows::<UserBurnSupportOp, _>(conn, &user_burn_sql, &args)?;
+        match user_burn_rows.len() {
+            0 => {},
+            1 => {
+                return Ok(Some(BlockstackOperationType::UserBurnSupport(user_burn_rows[0].clone())));
+            },
+            _ => {
+                panic!("Multiple user burns with the same txid");
+            }
+        }
+
+        Ok(None)
+    }
+
+
     /// Get a value from the fork index
     fn index_value_get<'a>(tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, key: &String) -> Result<Option<String>, db_error> {
         let mut header_hash_bytes = [0u8; 32];
@@ -744,11 +788,21 @@ impl BurnDB {
         Ok(root_hash)
     }
 
-    /// Get the canonical chain tips -- the longest chain tip we know about.
+    /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
-    pub fn get_canonical_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
+    pub fn get_canonical_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let row_order = BlockSnapshot::row_order().join(",");
         let qry = format!("SELECT {} FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1", row_order);
+        let rows = query_rows::<BlockSnapshot, _>(conn, &qry, NO_PARAMS)?;
+        assert!(rows.len() > 0);
+        Ok(rows[0].clone())
+    }
+
+    /// Get the canonical stacks chain tip -- the tip of the longest stacks chain we know about.
+    /// Break ties deterministically by ordering on burnchain block hash.
+    pub fn get_canonical_stacks_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
+        let row_order = BlockSnapshot::row_order().join(",");
+        let qry = format!("SELECT {} FROM snapshots ORDER BY stacks_block_height DESC, burn_header_hash ASC LIMIT 1", row_order);
         let rows = query_rows::<BlockSnapshot, _>(conn, &qry, NO_PARAMS)?;
         assert!(rows.len() > 0);
         Ok(rows[0].clone())
@@ -820,12 +874,11 @@ impl BurnDB {
         // represent burn fee as TEXT 
         let burn_fee_str = format!("{}", block_commit.burn_fee);
 
-        tx.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, epoch_num, memo, burn_fee, input) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        tx.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input) \
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                     &[&block_commit.txid.to_hex(), &block_commit.vtxindex as &ToSql, &(block_commit.block_height as i64) as &ToSql, &block_commit.burn_header_hash.to_hex(), 
-                    &block_commit.block_header_hash.to_hex(), &block_commit.new_seed.to_hex(), &block_commit.parent_block_backptr as &ToSql, &block_commit.parent_vtxindex as &ToSql,
-                    &block_commit.key_block_backptr as &ToSql, &block_commit.key_vtxindex as &ToSql, &block_commit.epoch_num as &ToSql, &to_hex(&block_commit.memo[..]), 
-                    &burn_fee_str, &tx_input_str])
+                    &block_commit.block_header_hash.to_hex(), &block_commit.new_seed.to_hex(), &block_commit.parent_block_ptr as &ToSql, &block_commit.parent_vtxindex as &ToSql,
+                    &block_commit.key_block_ptr as &ToSql, &block_commit.key_vtxindex as &ToSql, &to_hex(&block_commit.memo[..]), &burn_fee_str as &ToSql, &tx_input_str])
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -842,11 +895,10 @@ impl BurnDB {
         // represent burn fee as TEXT 
         let burn_fee_str = format!("{}", user_burn.burn_fee);
 
-        tx.execute("INSERT INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, key_block_backptr, key_vtxindex, block_header_hash_160, memo, burn_fee) \
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        tx.execute("INSERT INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, key_block_ptr, key_vtxindex, block_header_hash_160, burn_fee) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                    &[&user_burn.txid.to_hex(), &user_burn.vtxindex as &ToSql, &(user_burn.block_height as i64) as &ToSql, &user_burn.burn_header_hash.to_hex(), &user_burn.consensus_hash.to_hex(),
-                   &user_burn.public_key.to_hex(), &user_burn.key_block_backptr as &ToSql, &user_burn.key_vtxindex as &ToSql, &user_burn.block_header_hash_160.to_hex(), &to_hex(&user_burn.memo[..]),
-                   &burn_fee_str])
+                   &user_burn.public_key.to_hex(), &user_burn.key_block_ptr as &ToSql, &user_burn.key_vtxindex as &ToSql, &user_burn.block_header_hash_160.to_hex(), &burn_fee_str])
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -856,7 +908,7 @@ impl BurnDB {
     pub fn get_first_block_snapshot(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let row_order = BlockSnapshot::row_order().join(",");
         let qry = format!("SELECT {} FROM snapshots WHERE consensus_hash = ?1", row_order);
-        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &[&ConsensusHash([0u8; 20]).to_hex()])?;
+        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &[&ConsensusHash::empty().to_hex()])?;
         match rows.len() {
             0 => {
                 // should never happen
@@ -969,7 +1021,7 @@ impl BurnDB {
         // get the set of VRF keys consumed by these commits 
         let mut leader_keys = vec![];
         for i in 0..block_candidates.len() {
-            let leader_key_block_height = block_candidates[i].block_height - (block_candidates[i].key_block_backptr as u64);
+            let leader_key_block_height = block_candidates[i].key_block_ptr as u64;
             let leader_key_vtxindex = block_candidates[i].key_vtxindex as u32;
             let leader_key = BurnDB::get_leader_key_at(tx, leader_key_block_height, leader_key_vtxindex, parent_tip_block_hash)?
                 .expect(&format!("FATAL: no leader key for accepted block commit {} (at {},{})", &block_candidates[i].txid.to_hex(), leader_key_block_height, leader_key_vtxindex));
@@ -1158,6 +1210,59 @@ impl BurnDB {
 
         Ok(key_status)
     }
+    
+    /// Get all fresh consensus hashes in this fork.
+    pub fn get_fresh_consensus_hashes<'a>(tx: &mut BurnDBTx<'a>, current_block_height: u64, consensus_hash_lifetime: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Vec<ConsensusHash>, db_error> {
+        assert!(current_block_height < BLOCK_HEIGHT_MAX);
+        let first_snapshot = BurnDB::get_first_block_snapshot(tx)?;
+        let tip_snapshot = match BurnDB::get_block_snapshot(tx, tip_block_hash)? {
+            None => {
+                return Err(db_error::NotFoundError);
+            }
+            Some(sn) => {
+                sn
+            }
+        };
+
+        let mut oldest_height = 
+            if current_block_height < consensus_hash_lifetime {
+                0
+            }
+            else {
+                current_block_height - consensus_hash_lifetime
+            };
+
+        if oldest_height < first_snapshot.block_height {
+            oldest_height = first_snapshot.block_height;
+        }
+
+        let mut fresh_chs = vec![];
+
+        for i in oldest_height..current_block_height+1 {
+            // all of these values should exist
+            let block_hash = match burndb_get_ancestor_block_hash(tx, i, tip_block_hash)? {
+                Some(bhh) => {
+                    BurnchainHeaderHash::from(bhh)
+                },
+                None => {
+                    panic!("Discontiguous index: missing block {}", i);
+                }
+            };
+
+            let ancestor_snapshot = match BurnDB::get_block_snapshot(tx, &block_hash)? {
+                Some(sn) => {
+                    sn
+                },
+                None => {
+                    panic!("Discontiguous index: missing block {}", block_hash.to_hex());
+                }
+            };
+
+            fresh_chs.push(ancestor_snapshot.consensus_hash.clone());
+        }
+
+        return Ok(fresh_chs);
+    }
 
     /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
     /// The fork must exist.
@@ -1294,7 +1399,7 @@ impl BurnDB {
     /// Get a burn blockchain snapshot, given a burnchain configuration struct.
     /// Used mainly by the network code to determine what the chain tip currently looks like.
     pub fn get_burnchain_view<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain) -> Result<BurnchainView, db_error> {
-        let chain_tip = BurnDB::get_canonical_chain_tip(tx)?;
+        let chain_tip = BurnDB::get_canonical_burn_chain_tip(tx)?;
         if chain_tip.block_height < burnchain.first_block_height {
             // should never happen, but don't panic since this is network-callable code
             error!("Invalid block height from DB: {}: expected at least {}", chain_tip.block_height, burnchain.first_block_height);
@@ -1445,7 +1550,7 @@ mod tests {
 
         let snapshot = {
             let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let mut sn = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
             
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -1470,7 +1575,7 @@ mod tests {
 
         let new_snapshot = {
             let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let mut sn = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
 
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -1517,11 +1622,10 @@ mod tests {
         let block_commit = LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-            parent_block_backptr: 0x4140,
-            parent_vtxindex: 0x4342,
-            key_block_backptr: 1,
+            parent_block_ptr: 0x43424140,
+            parent_vtxindex: 0x5150,
+            key_block_ptr: (block_height + 1) as u32,
             key_vtxindex: vtxindex as u16,
-            epoch_num: 0x71706362,
             memo: vec![0x80],
 
             burn_fee: 12345,
@@ -1543,7 +1647,7 @@ mod tests {
 
         let snapshot = {
             let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let mut sn = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
             
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -1574,7 +1678,7 @@ mod tests {
         
         let snapshot_consumed = {
             let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let mut sn = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
             
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -1610,7 +1714,7 @@ mod tests {
         // advance and get parent
         let empty_snapshot = {
             let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let mut sn = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
             
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -1721,9 +1825,8 @@ mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
-            key_block_backptr: 1,
+            key_block_ptr: (block_height + 1) as u32,
             key_vtxindex: vtxindex as u16,
-            memo: vec![0x05],
             burn_fee: 12345,
 
             txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
@@ -1736,7 +1839,7 @@ mod tests {
         
         let snapshot = {
             let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let mut sn = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
             
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -1753,7 +1856,7 @@ mod tests {
         
         let user_burn_snapshot = {
             let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let mut sn = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
             
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -1802,7 +1905,7 @@ mod tests {
         
         let no_key_snapshot = {
             let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let mut sn = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
             
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -1826,7 +1929,7 @@ mod tests {
 
         let key_snapshot = {
             let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let mut sn = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
             
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -1880,7 +1983,7 @@ mod tests {
             tx.commit().unwrap();
         }
 
-        let tip = BurnDB::get_canonical_chain_tip(db.conn()).unwrap();
+        let tip = BurnDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
 
         let ch_fresh = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255]).unwrap();
         let ch_oldest_fresh = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(255 - consensus_hash_lifetime) as u8]).unwrap();
@@ -1950,7 +2053,7 @@ mod tests {
             tx.commit().unwrap();
         }
 
-        let tip = BurnDB::get_canonical_chain_tip(db.conn()).unwrap();
+        let tip = BurnDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
 
         for i in 0..256 {
             // should succeed within the conn
@@ -1982,11 +2085,10 @@ mod tests {
         let block_commit = LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-            parent_block_backptr: 0x4140,
+            parent_block_ptr: 0x43424140,
             parent_vtxindex: 0x4342,
-            key_block_backptr: 1,
+            key_block_ptr: (block_height + 1) as u32,
             key_vtxindex: vtxindex as u16,
-            epoch_num: 0x71706362,
             memo: vec![0x80],
 
             burn_fee: 12345,
@@ -2008,9 +2110,8 @@ mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
-            key_block_backptr: 1,
+            key_block_ptr: (block_height + 1) as u32,
             key_vtxindex: vtxindex as u16,
-            memo: vec![0x05],
             burn_fee: 12345,
 
             txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
@@ -2023,7 +2124,7 @@ mod tests {
 
         let key_snapshot = {
             let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let mut sn = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
             
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -2040,7 +2141,7 @@ mod tests {
         
         let commit_snapshot = {
             let mut tx = db.tx_begin().unwrap();
-            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let mut sn = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
             
             let sn_parent = sn.clone();
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
@@ -2121,7 +2222,7 @@ mod tests {
 
         let chain_tip = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_canonical_chain_tip(&mut tx).unwrap()
+            BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap()
         };
 
         let initial_snapshot = {
@@ -2134,14 +2235,14 @@ mod tests {
 
         {
             let mut tx = db.tx_begin().unwrap();
-            let chain_tip = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let chain_tip = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
             BurnDB::append_chain_tip_snapshot(&mut tx, &chain_tip, &snapshot_without_sortition, &vec![], &vec![]).unwrap();
             tx.commit().unwrap();
         }
         
         let chain_tip = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_canonical_chain_tip(&mut tx).unwrap()
+            BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap()
         };
 
         let mut next_snapshot = {
@@ -2154,14 +2255,14 @@ mod tests {
 
         {
             let mut tx = db.tx_begin().unwrap();
-            let chain_tip = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            let chain_tip = BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap();
             BurnDB::append_chain_tip_snapshot(&mut tx, &chain_tip, &snapshot_with_sortition, &vec![], &vec![]).unwrap();
             tx.commit().unwrap();
         }
         
         let chain_tip = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_canonical_chain_tip(&mut tx).unwrap()
+            BurnDB::get_canonical_burn_chain_tip(&mut tx).unwrap()
         };
 
         let next_snapshot_2 = {
@@ -2362,7 +2463,7 @@ mod tests {
             let mut expected_tip = next_snapshot.clone();
             expected_tip.index_root = next_index_root;
 
-            let canonical_tip = BurnDB::get_canonical_chain_tip(db.conn()).unwrap();
+            let canonical_tip = BurnDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
             assert_eq!(canonical_tip, expected_tip);
 
             verify_fork_integrity(&mut db, &canonical_tip.burn_header_hash);
