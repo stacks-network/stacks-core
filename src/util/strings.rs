@@ -282,21 +282,40 @@ mod test {
     use net::codec::test::check_codec_and_corruption;
 
     #[test]
-    fn tx_stacks_string() {
-        let s = "hello world";
+    fn tx_stacks_strings_codec() {
+        let s = "hello-world";
         let stacks_str = StacksString::from_str(&s).unwrap();
+        let clarity_str = ClarityName::try_from(s.clone()).unwrap();
+        let contract_str = ContractName::try_from(s.clone()).unwrap();
 
         assert_eq!(stacks_str[..], s.as_bytes().to_vec()[..]);
         let s2 = stacks_str.to_string();
         assert_eq!(s2.to_string(), s.to_string());
 
+        // stacks strings have a 4-byte length prefix
         let b = stacks_str.serialize();
         let mut bytes = vec![0x00, 0x00, 0x00, s.len() as u8];
         bytes.extend_from_slice(s.as_bytes());
 
         check_codec_and_corruption::<StacksString>(&stacks_str, &bytes);
+
+        // clarity names and contract names have a 1-byte length prefix
+        let mut clarity_bytes = vec![s.len() as u8];
+        clarity_bytes.extend_from_slice(clarity_str.as_bytes());
+        check_codec_and_corruption::<ClarityName>(&clarity_str, &clarity_bytes);
+
+        let mut contract_bytes = vec![s.len() as u8];
+        contract_bytes.extend_from_slice(contract_str.as_bytes());
+        check_codec_and_corruption::<ContractName>(&contract_str, &clarity_bytes);
     }
 
-    // TODO: ClarityName and ContractName
+    #[test]
+    fn tx_stacks_string_invalid() {
+        let s = "hello\rworld";
+        assert!(StacksString::from_str(&s).is_none());
+
+        let s = "hello\x01world";
+        assert!(StacksString::from_str(&s).is_none());
+    }
 }
 
