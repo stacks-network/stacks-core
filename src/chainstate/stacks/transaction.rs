@@ -153,7 +153,7 @@ impl TransactionContractCall {
             let value = match arg.try_as_clarity_literal() {
                 Some(v) => v,
                 None => {
-                    return Err(Error::InvalidStacksTransaction);
+                    return Err(Error::InvalidStacksTransaction(format!("String '{:?}' does not encode a Clarity literal", arg)));
                 }
             };
             arguments.push(value);
@@ -443,6 +443,7 @@ impl StacksMessageCodec for StacksTransaction {
             x if x == TransactionVersion::Mainnet as u8 => TransactionVersion::Mainnet,
             x if x == TransactionVersion::Testnet as u8 => TransactionVersion::Testnet,
             _ => {
+                warn!("Invalid tx: invalid version");
                 return Err(net_error::DeserializeError);
             }
         };
@@ -458,6 +459,7 @@ impl StacksMessageCodec for StacksTransaction {
                 TransactionAnchorMode::Any
             },
             _ => {
+                warn!("Invalid tx: invalid anchor mode");
                 return Err(net_error::DeserializeError);
             }
         };
@@ -468,11 +470,13 @@ impl StacksMessageCodec for StacksTransaction {
         match payload {
             TransactionPayload::PoisonMicroblock(_, _) => {
                 if anchor_mode != TransactionAnchorMode::OnChainOnly {
+                    warn!("Invalid tx: invalid anchor mode for poison microblock");
                     return Err(net_error::DeserializeError);
                 }
             },
             TransactionPayload::Coinbase(_) => {
                 if anchor_mode != TransactionAnchorMode::OnChainOnly {
+                    warn!("Invalid tx: invalid anchor mode for coinbase");
                     return Err(net_error::DeserializeError);
                 }
             },
@@ -487,12 +491,13 @@ impl StacksMessageCodec for StacksTransaction {
                 TransactionPostConditionMode::Deny
             },
             _ => {
+                warn!("Invalid tx: invalid post condition mode");
                 return Err(net_error::DeserializeError);
             }
         };
 
         *index_ptr = index;
-        Ok(StacksTransaction {
+        let ret = StacksTransaction {
             version,
             chain_id,
             auth,
@@ -501,7 +506,9 @@ impl StacksMessageCodec for StacksTransaction {
             post_condition_mode,
             post_conditions,
             payload
-        })
+        };
+
+        Ok(ret)
     }
 }
 
@@ -794,6 +801,7 @@ mod test {
     use net::*;
     use net::codec::*;
     use net::codec::test::check_codec_and_corruption;
+    use chainstate::stacks::test::codec_all_transactions;
 
     use chainstate::stacks::StacksPublicKey as PubKey;
 
@@ -1274,40 +1282,28 @@ mod test {
             code_body: StacksString::from_str(hello_contract_body).unwrap(),
         };
 
-        let mut contract_call_bytes = vec![
-            0x00, 0x00, 0x00, hello_contract_call.len() as u8
-        ];
-        contract_call_bytes.extend_from_slice(hello_contract_call.as_bytes());
+        let mut contract_call_bytes = vec![];
+        contract_call_bytes.append(&mut contract_call.address.serialize());
+        contract_call_bytes.append(&mut contract_call.contract_name.serialize());
+        contract_call_bytes.append(&mut contract_call.function_name.serialize());
+        contract_call_bytes.append(&mut contract_call.function_args.serialize());
 
-        let mut smart_contract_name_bytes = vec![
-            0x00, 0x00, 0x00, hello_contract_name.len() as u8
-        ];
-        smart_contract_name_bytes.extend_from_slice(hello_contract_name.as_bytes());
-
-        let mut smart_contract_code_bytes = vec![
-            0x00, 0x00, 0x00, hello_contract_body.len() as u8
-        ];
-        smart_contract_code_bytes.extend_from_slice(hello_contract_body.as_bytes());
-
-        let mut payload_contract_call = vec![];
-        payload_contract_call.append(&mut contract_call_bytes);
-        
-        let mut payload_smart_contract = vec![];
-        payload_smart_contract.append(&mut smart_contract_name_bytes);
-        payload_smart_contract.append(&mut smart_contract_code_bytes);
+        let mut smart_contract_bytes = vec![];
+        smart_contract_bytes.append(&mut smart_contract.name.serialize());
+        smart_contract_bytes.append(&mut smart_contract.code_body.serialize());
 
         let mut transaction_contract_call = vec![
             TransactionPayloadID::ContractCall as u8
         ];
-        transaction_contract_call.append(&mut payload_contract_call.clone());
+        transaction_contract_call.append(&mut contract_call_bytes.clone());
 
         let mut transaction_smart_contract = vec![
             TransactionPayloadID::SmartContract as u8
         ];
-        transaction_smart_contract.append(&mut payload_smart_contract.clone());
+        transaction_smart_contract.append(&mut smart_contract_bytes.clone());
 
-        check_codec_and_corruption::<TransactionContractCall>(&contract_call, &payload_contract_call);
-        check_codec_and_corruption::<TransactionSmartContract>(&smart_contract, &payload_smart_contract);
+        check_codec_and_corruption::<TransactionContractCall>(&contract_call, &contract_call_bytes);
+        check_codec_and_corruption::<TransactionSmartContract>(&smart_contract, &smart_contract_bytes);
         check_codec_and_corruption::<TransactionPayload>(&TransactionPayload::ContractCall(contract_call.clone()), &transaction_contract_call);
         check_codec_and_corruption::<TransactionPayload>(&TransactionPayload::SmartContract(smart_contract.clone()), &transaction_smart_contract);
     }
@@ -1413,17 +1409,17 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
         ];
 
-        let asset_name = ClarityName::try_from("hello asset").unwrap();
+        let asset_name = ClarityName::try_from("hello-asset").unwrap();
         let mut asset_name_bytes = vec![
             // length
-            0x00, 0x00, 0x00, asset_name.len() as u8,
+            asset_name.len() as u8,
         ];
         asset_name_bytes.extend_from_slice(&asset_name.to_string().as_str().as_bytes());
 
         let contract_name = ContractName::try_from("hello-world").unwrap();
         let mut contract_name_bytes = vec![
             // length
-            0x00, 0x00, 0x00, contract_name.len() as u8,
+            contract_name.len() as u8,
         ];
         contract_name_bytes.extend_from_slice(&contract_name.to_string().as_str().as_bytes());
 
@@ -1536,199 +1532,26 @@ mod test {
 
     #[test]
     fn tx_stacks_transaction_codec() {
-        let addr = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
-        let asset_name = ClarityName::try_from("hello-asset").unwrap();
-        let asset_value = StacksString::from_str("asset-value").unwrap();
-        let contract_name = ContractName::try_from("hello-world").unwrap();
-        let hello_contract_call = "hello contract call";
-        let hello_contract_name = "hello-contract-name";
-        let hello_contract_body = "hello contract code body";
-        let asset_info = AssetInfo {
-            contract_address: addr.clone(),
-            contract_name: contract_name.clone(),
-            asset_name: asset_name.clone(),
-        };
-        
-        let mblock_header_1 = StacksMicroblockHeader {
-            version: 0x12,
-            sequence: 0x34,
-            prev_block: BlockHeaderHash([0u8; 32]),
-            tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
-            signature: MessageSignature([2u8; 65]),
-        };
-        
-        let mblock_header_2 = StacksMicroblockHeader {
-            version: 0x12,
-            sequence: 0x34,
-            prev_block: BlockHeaderHash([0u8; 32]),
-            tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
-            signature: MessageSignature([3u8; 65]),
-        };
+        let all_txs = codec_all_transactions(&TransactionVersion::Mainnet, 0, &TransactionAnchorMode::OnChainOnly, &TransactionPostConditionMode::Deny);
+        for tx in all_txs.iter() {
+            let mut tx_bytes = vec![
+                // version
+                TransactionVersion::Mainnet as u8,
+                // chain ID
+                0x00, 0x00, 0x00, 0x00
+            ];
+            
+            tx_bytes.append(&mut (tx.auth.serialize()));
+            tx_bytes.append(&mut (tx.fee.serialize()));
+            tx_bytes.append(&mut vec![TransactionAnchorMode::OnChainOnly as u8]);
+            tx_bytes.append(&mut vec![TransactionPostConditionMode::Deny as u8]);
+            tx_bytes.append(&mut (tx.post_conditions.serialize()));
+            tx_bytes.append(&mut (tx.payload.serialize()));
 
-        let spending_conditions = vec![
-            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                signer: Hash160([0x11; 20]),
-                hash_mode: SinglesigHashMode::P2PKH,
-                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                nonce: 123,
-                signature: MessageSignature::from_raw(&vec![0xff; 65])
-            }),
-            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                signer: Hash160([0x11; 20]),
-                hash_mode: SinglesigHashMode::P2PKH,
-                key_encoding: TransactionPublicKeyEncoding::Compressed,
-                nonce: 234,
-                signature: MessageSignature::from_raw(&vec![0xff; 65])
-            }),
-            TransactionSpendingCondition::Multisig(MultisigSpendingCondition {
-                signer: Hash160([0x11; 20]),
-                hash_mode: MultisigHashMode::P2SH,
-                nonce: 345,
-                fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
-                    TransactionAuthField::PublicKey(PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()),
-                ],
-                signatures_required: 2
-            }),
-            TransactionSpendingCondition::Multisig(MultisigSpendingCondition {
-                signer: Hash160([0x11; 20]),
-                hash_mode: MultisigHashMode::P2SH,
-                nonce: 456,
-                fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
-                    TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
-                ],
-                signatures_required: 2
-            }),
-            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                signer: Hash160([0x11; 20]),
-                hash_mode: SinglesigHashMode::P2WPKH,
-                key_encoding: TransactionPublicKeyEncoding::Compressed,
-                nonce: 567,
-                signature: MessageSignature::from_raw(&vec![0xfe; 65]),
-            }),
-            TransactionSpendingCondition::Multisig(MultisigSpendingCondition {
-                signer: Hash160([0x11; 20]),
-                hash_mode: MultisigHashMode::P2WSH,
-                nonce: 678,
-                fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
-                    TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
-                ],
-                signatures_required: 2
-            })
-        ];
+            test_debug!("---------");
+            test_debug!("test tx:\n{:?}", &tx);
 
-        let mut tx_auths = vec![];
-        for i in 0..spending_conditions.len() {
-            let spending_condition = &spending_conditions[i];
-            let next_spending_condition = &spending_conditions[(i + 1) % spending_conditions.len()];
-
-            tx_auths.push(TransactionAuth::Standard(spending_condition.clone()));
-            tx_auths.push(TransactionAuth::Sponsored(spending_condition.clone(), next_spending_condition.clone()));
-        }
-
-        let tx_fees = vec![123];
-
-        let tx_post_conditions = vec![
-            vec![TransactionPostCondition::STX(FungibleConditionCode::SentLt, 12345)],
-            vec![TransactionPostCondition::Fungible(
-                AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
-                FungibleConditionCode::SentGt, 
-                23456)
-            ],
-            vec![TransactionPostCondition::Nonfungible(
-                AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() },
-                StacksString::from_str(&"0x01020304").unwrap(), 
-                NonfungibleConditionCode::Present)
-            ],
-            vec![TransactionPostCondition::STX(FungibleConditionCode::SentLt, 12345),
-                TransactionPostCondition::Fungible(AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
-                                                   FungibleConditionCode::SentGt, 
-                                                   23456)
-            ],
-            vec![TransactionPostCondition::STX(FungibleConditionCode::SentLt, 12345), 
-                TransactionPostCondition::Nonfungible(AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
-                                                      StacksString::from_str(&"0x01020304").unwrap(), 
-                                                      NonfungibleConditionCode::Present)
-            ],
-            vec![TransactionPostCondition::Fungible(AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
-                                                    FungibleConditionCode::SentGt, 
-                                                    23456),
-                 TransactionPostCondition::Nonfungible(AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
-                                                       StacksString::from_str(&"0x01020304").unwrap(), 
-                                                       NonfungibleConditionCode::Present)
-            ],
-            vec![TransactionPostCondition::STX(FungibleConditionCode::SentLt, 12345),
-                 TransactionPostCondition::Nonfungible(AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
-                                                       StacksString::from_str(&"0x01020304").unwrap(), 
-                                                       NonfungibleConditionCode::Present),
-                 TransactionPostCondition::Fungible(AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
-                                                    FungibleConditionCode::SentGt, 
-                                                    23456)
-            ],
-        ];
-
-        let tx_payloads = vec![
-            TransactionPayload::TokenTransfer(TransactionTokenTransfer::STX(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, 123)),
-            TransactionPayload::TokenTransfer(TransactionTokenTransfer::Fungible(asset_info.clone(), StacksAddress { version: 2, bytes: Hash160([0xfe; 20]) }, 456)),
-            TransactionPayload::TokenTransfer(TransactionTokenTransfer::Nonfungible(asset_info.clone(), asset_value.clone(), StacksAddress { version: 3, bytes: Hash160([0xfd; 20]) })),
-            TransactionPayload::ContractCall(TransactionContractCall {
-                address: StacksAddress { version: 4, bytes: Hash160([0xfc; 20]) },
-                contract_name: ContractName::try_from("hello-contract-name").unwrap(),
-                function_name: ClarityName::try_from("hello-contract-call").unwrap(),
-                function_args: vec![StacksString::from_str("0").unwrap()]
-            }),
-            TransactionPayload::SmartContract(TransactionSmartContract {
-                name: ContractName::try_from(hello_contract_name).unwrap(),
-                code_body: StacksString::from_str(hello_contract_body).unwrap(),
-            }),
-            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32])),
-            TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
-        ];
-
-        // test all combinations
-        for spending_condition in spending_conditions.iter() {
-            for tx_auth in tx_auths.iter() {
-                for tx_fee in tx_fees.iter() {
-                    for tx_post_condition in tx_post_conditions.iter() {
-                        for tx_payload in tx_payloads.iter() {
-                            let tx_mainnet = StacksTransaction {
-                                version: TransactionVersion::Mainnet,
-                                chain_id: 0,
-                                auth: tx_auth.clone(),
-                                fee: *tx_fee,
-                                anchor_mode: TransactionAnchorMode::OnChainOnly,
-                                post_condition_mode: TransactionPostConditionMode::Deny,
-                                post_conditions: tx_post_condition.clone(),
-                                payload: tx_payload.clone()
-                            };
-
-                            let mut tx_bytes = vec![
-                                // version
-                                TransactionVersion::Mainnet as u8,
-                                // chain ID
-                                0x00, 0x00, 0x00, 0x00
-                            ];
-                            
-                            tx_bytes.append(&mut (tx_auth.serialize()));
-                            tx_bytes.append(&mut (tx_fee.serialize()));
-                            tx_bytes.append(&mut vec![TransactionAnchorMode::OnChainOnly as u8]);
-                            tx_bytes.append(&mut vec![TransactionPostConditionMode::Deny as u8]);
-                            tx_bytes.append(&mut (tx_post_condition.serialize()));
-                            tx_bytes.append(&mut (tx_payload.serialize()));
-
-                            test_debug!("---------");
-                            test_debug!("test tx:\n{:?}", &tx_mainnet);
-
-                            check_codec_and_corruption::<StacksTransaction>(&tx_mainnet, &tx_bytes);
-                        }
-                    }
-                }
-            }
+            check_codec_and_corruption::<StacksTransaction>(&tx, &tx_bytes);
         }
     }
 
@@ -2715,6 +2538,4 @@ mod test {
             test_signature_and_corruption(&signed_tx, true, false);
         }
     } 
-
-    // TODO: test StacksStrings that are not Clarity literals
 }
