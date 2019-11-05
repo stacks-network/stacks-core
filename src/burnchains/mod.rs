@@ -496,6 +496,17 @@ pub mod test {
             self.vrf_key_map.insert(VRFPublicKey::from_private(&pk), pk.clone());
             pk
         }
+
+        pub fn make_proof(&self, vrf_pubkey: &VRFPublicKey, last_sortition_hash: &SortitionHash) -> Option<VRFProof> {
+            match self.vrf_key_map.get(vrf_pubkey) {
+                Some(ref prover_key) => {
+                    Some(VRF::prove(prover_key, &last_sortition_hash.as_bytes().to_vec()))
+                },
+                None => {
+                    None
+                }
+            }
+        }
     }
 
     // creates miners deterministically
@@ -551,7 +562,6 @@ pub mod test {
         }
 
         pub fn add_leader_block_commit<'a>(&mut self, tx: &mut BurnDBTx<'a>, miner: &mut TestMiner, block_hash: &BlockHeaderHash, burn_fee: u64, leader_key: &LeaderKeyRegisterOp) -> LeaderBlockCommitOp {
-            let prover_key = miner.vrf_key_map.get(&leader_key.public_key).expect(&format!("FATAL: no private key for {}", leader_key.public_key.to_hex())).clone();
             let pubks = miner.privks.iter().map(|ref pk| StacksPublicKey::from_private(pk)).collect();
             let input = BurnchainSigner {
                 hash_mode: miner.hash_mode.clone(),
@@ -563,13 +573,11 @@ pub mod test {
             let mut txop = match BurnDB::get_block_commit(tx, &last_snapshot.winning_block_txid, &last_snapshot.burn_header_hash)
                 .expect("FATAL: failed to read block commit") {
                 Some(parent) => {
-                    let prover_pubk = VRFPublicKey::from_private(&prover_key);
-
-                    // prove on the parent's seed to produce the new seed
-                    let proof = VRF::prove(&prover_key, &parent.new_seed.as_bytes().to_vec());
+                    // prove on the last sortition hash to produce the new seed
+                    let proof = miner.make_proof(&leader_key.public_key, &last_snapshot.sortition_hash).expect(&format!("FATAL: no private key for {}", leader_key.public_key.to_hex()));
                     let new_seed = VRFSeed::from_proof(&proof);
-
-                    let mut txop = LeaderBlockCommitOp::new(block_hash, self.block_height, &new_seed, &parent, (self.block_height - leader_key.block_height) as u16, leader_key.vtxindex as u16, burn_fee, &input);
+                    
+                    let mut txop = LeaderBlockCommitOp::new(block_hash, self.block_height, &new_seed, &parent, leader_key.block_height as u32, leader_key.vtxindex as u16, burn_fee, &input);
                     txop
                 },
                 None => {
@@ -579,7 +587,6 @@ pub mod test {
                 }
             };
         
-            txop.epoch_num = (self.block_height - miner.burnchain.first_block_height) as u32;
             txop.block_height = self.block_height;
             txop.vtxindex = self.txs.len() as u32;
             txop.burn_header_hash = BurnchainHeaderHash::from_test_data(txop.block_height, &self.parent_index_root);
@@ -627,7 +634,7 @@ pub mod test {
             let (header, parent_snapshot) = Burnchain::get_burnchain_block_attachment_info(tx, &block).expect("FATAL: failed to get burnchain linkage info");
             let mut blockstack_txs = self.txs.clone();
 
-            Burnchain::apply_blockstack_txs_safety_checks(&mut blockstack_txs);
+            Burnchain::apply_blockstack_txs_safety_checks(&block, &mut blockstack_txs);
             
             let new_snapshot = Burnchain::process_block_ops(tx, burnchain, &parent_snapshot, &header, &blockstack_txs).expect("FATAL: failed to generate snapshot");
             new_snapshot
@@ -723,6 +730,8 @@ pub mod test {
                 fork.next_block(&mut tx)
             };
 
+            let mut next_commits = vec![];
+
             if prev_keys.len() > 0 {
                 // make a Stacks block (hash) for each of the prior block's keys
                 for j in 0..miners.len() {
@@ -731,6 +740,7 @@ pub mod test {
                         let hash = BlockHeaderHash([(i*10 + j + miners.len()) as u8; 32]);
                         block.add_leader_block_commit(&mut tx, &mut miners[j], &hash, ((j + 1) as u64) * 1000, &prev_keys[j])
                     };
+                    next_commits.push(block_commit_op);
                 }
             }
 
@@ -747,8 +757,40 @@ pub mod test {
             fork.append_block(block);
             node.mine_fork(&mut fork);
 
-            // TODO: test that everything is accepted
+            // all keys accepted
+            for key in prev_keys.iter() {
+                let tx_opt = BurnDB::get_burnchain_transaction(node.burndb.conn(), &key.txid).unwrap();
+                assert!(tx_opt.is_some());
+
+                let tx = tx_opt.unwrap();
+                match tx {
+                    BlockstackOperationType::LeaderKeyRegister(ref op) => {
+                        assert_eq!(*op, *key);
+                    },
+                    _ => {
+                        assert!(false);
+                    }
+                }
+            }
+
+            // all commits accepted
+            for commit in next_commits.iter() {
+                let tx_opt = BurnDB::get_burnchain_transaction(node.burndb.conn(), &commit.txid).unwrap();
+                assert!(tx_opt.is_some());
+
+                let tx = tx_opt.unwrap();
+                match tx {
+                    BlockstackOperationType::LeaderBlockCommit(ref op) => {
+                        assert_eq!(*op, *commit);
+                    },
+                    _ => {
+                        assert!(false);
+                    }
+                }
+            }
         }
     }
+
+    // TODO: expand to forks
 }
 
