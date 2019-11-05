@@ -90,10 +90,10 @@ impl BurnSamplePoint {
         // sanity check -- each block commit must refer to a consumed key
         for i in 0..all_block_candidates.len() {
             let bc = &all_block_candidates[i];
-            match key_index.get(&(bc.block_height - (bc.key_block_backptr as u64), bc.key_vtxindex as u32)) {
+            match key_index.get(&(bc.key_block_ptr as u64, bc.key_vtxindex as u32)) {
                 None => {
                     panic!("No leader key for block commitment {} at ({},{}) -- points to ({},{})",
-                            &bc.txid.to_hex(), bc.block_height, bc.vtxindex, bc.block_height - (bc.key_block_backptr as u64), bc.key_vtxindex);
+                            &bc.txid.to_hex(), bc.block_height, bc.vtxindex, bc.key_block_ptr, bc.key_vtxindex);
                 },
                 Some(_) => {}
             }
@@ -105,10 +105,10 @@ impl BurnSamplePoint {
         let mut burn_sample = Vec::with_capacity(all_block_candidates.len());
         for i in 0..all_block_candidates.len() {
             let bc = &all_block_candidates[i];
-            match key_index.get(&(bc.block_height - (bc.key_block_backptr as u64), bc.key_vtxindex as u32)) {
+            match key_index.get(&(bc.key_block_ptr as u64, bc.key_vtxindex as u32)) {
                 None => {
                     // leader key already consumed; drop this commit
-                    warn!("VRF public key at {},{} already consumed; ignoring block commit {},{} ({})", bc.block_height - (bc.key_block_backptr as u64), bc.key_vtxindex, bc.block_height, bc.vtxindex, bc.txid.to_hex());
+                    warn!("VRF public key at {},{} already consumed; ignoring block commit {},{} ({})", bc.key_block_ptr, bc.key_vtxindex, bc.block_height, bc.vtxindex, bc.txid.to_hex());
                     continue;
                 },
                 Some(i) => {
@@ -125,7 +125,7 @@ impl BurnSamplePoint {
             };
 
             // key consumed
-            key_index.remove(&(bc.block_height - (bc.key_block_backptr as u64), bc.key_vtxindex as u32));
+            key_index.remove(&(bc.key_block_ptr as u64, bc.key_vtxindex as u32));
         }
 
         // assign user burns to the burn sample points 
@@ -164,7 +164,7 @@ impl BurnSamplePoint {
             
             for i in 0..user_burns.len() - 1 {
                 if user_burns[i].vtxindex >= user_burns[i+1].vtxindex {
-                    panic!("FATAL ERROR: user_burns are not in order");
+                    panic!("FATAL ERROR: user burns are not in order");
                 }
             }
         }
@@ -356,9 +356,8 @@ mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("4444444444444444444444444444444444444444").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
-            key_block_backptr: 258,
+            key_block_ptr: 1,
             key_vtxindex: 772,
-            memo: vec![0x05],
             burn_fee: 12345,
 
             txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
@@ -371,9 +370,8 @@ mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("4444444444444444444444444444444444444444").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
-            key_block_backptr: 258,
-            key_vtxindex: 772,
-            memo: vec![0x05],
+            key_block_ptr: 123,
+            key_vtxindex: 456,
             burn_fee: 10000,
 
             txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
@@ -386,9 +384,8 @@ mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("4444444444444444444444444444444444444444").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
-            key_block_backptr: 258,
-            key_vtxindex: 772,
-            memo: vec![0x05],
+            key_block_ptr: 123,
+            key_vtxindex: 456,
             burn_fee: 30000,
 
             txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
@@ -401,13 +398,12 @@ mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("4444444444444444444444444444444444444444").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap()).unwrap(),       // 22222....2223
-            key_block_backptr: 258,
-            key_vtxindex: 772,
-            memo: vec![0x05],
+            key_block_ptr: 122,
+            key_vtxindex: 457,
             burn_fee: 20000,
 
             txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716d").unwrap()).unwrap(),
-            vtxindex: 14,
+            vtxindex: 15,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
         };
@@ -416,13 +412,12 @@ mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("4444444444444444444444444444444444444444").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap()).unwrap(),       // 22222....2223
-            key_block_backptr: 258,
-            key_vtxindex: 772,
-            memo: vec![0x05],
+            key_block_ptr: 122,
+            key_vtxindex: 457,
             burn_fee: 40000,
 
             txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
-            vtxindex: 15,
+            vtxindex: 16,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
         };
@@ -431,13 +426,12 @@ mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("4444444444444444444444444444444444444444").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("3f3338db51f2b1f6ac0cf6177179a24ee130c04ef2f9849a64a216969ab60e70").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap()).unwrap(),
-            key_block_backptr: 258,
+            key_block_ptr: 121,
             key_vtxindex: 772,
-            memo: vec![0x05],
             burn_fee: 12345,
 
             txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716e").unwrap()).unwrap(),
-            vtxindex: 15,
+            vtxindex: 17,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
         };
@@ -445,11 +439,10 @@ mod tests {
         let block_commit_1 = LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-            parent_block_backptr: 123,
+            parent_block_ptr: 111,
             parent_vtxindex: 456,
-            key_block_backptr: 1,
+            key_block_ptr: 123,
             key_vtxindex: 456,
-            epoch_num: 50,
             memo: vec![0x80],
 
             burn_fee: 12345,
@@ -462,7 +455,7 @@ mod tests {
             },
 
             txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
-            vtxindex: 444,
+            vtxindex: 443,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
         };        
@@ -470,11 +463,10 @@ mod tests {
         let block_commit_2 = LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222223").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333334").unwrap()).unwrap(),
-            parent_block_backptr: 123,
+            parent_block_ptr: 112,
             parent_vtxindex: 111,
-            key_block_backptr: 2,
+            key_block_ptr: 122,
             key_vtxindex: 457,
-            epoch_num: 50,
             memo: vec![0x80],
 
             burn_fee: 12345,
@@ -487,7 +479,7 @@ mod tests {
             },
 
             txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27d0").unwrap()).unwrap(),
-            vtxindex: 445,
+            vtxindex: 444,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
         };        
@@ -495,11 +487,10 @@ mod tests {
         let block_commit_3 = LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222224").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333335").unwrap()).unwrap(),
-            parent_block_backptr: 123,
+            parent_block_ptr: 113,
             parent_vtxindex: 111,
-            key_block_backptr: 3,
+            key_block_ptr: 121,
             key_vtxindex: 10,
-            epoch_num: 50,
             memo: vec![0x80],
 
             burn_fee: 23456,
@@ -661,9 +652,9 @@ mod tests {
                     block_commit_2.clone(),
                 ],
                 user_burns: vec![
-                    user_burn_nokey.clone(),
                     user_burn_noblock.clone(),
                     user_burn_1.clone(),
+                    user_burn_nokey.clone(),
                 ],
                 res: vec![
                     BurnSamplePoint {
@@ -696,10 +687,10 @@ mod tests {
                     block_commit_2.clone(),
                 ],
                 user_burns: vec![
-                    user_burn_nokey.clone(),
                     user_burn_noblock.clone(),
                     user_burn_1.clone(),
                     user_burn_2.clone(),
+                    user_burn_nokey.clone(),
                 ],
                 res: vec![
                     BurnSamplePoint {
@@ -734,12 +725,12 @@ mod tests {
                     block_commit_2.clone(),
                 ],
                 user_burns: vec![
-                    user_burn_nokey.clone(),
                     user_burn_noblock.clone(),
-                    user_burn_2_2.clone(),
-                    user_burn_1_2.clone(),
                     user_burn_1.clone(),
+                    user_burn_1_2.clone(),
                     user_burn_2.clone(),
+                    user_burn_2_2.clone(),
+                    user_burn_nokey.clone(),
                 ],
                 res: vec![
                     BurnSamplePoint {
@@ -749,8 +740,8 @@ mod tests {
                         candidate: block_commit_1.clone(),
                         key: leader_key_1.clone(),
                         user_burns: vec![
-                            user_burn_1_2.clone(),
                             user_burn_1.clone(),
+                            user_burn_1_2.clone(),
                         ],
                     },
                     BurnSamplePoint {
@@ -760,8 +751,8 @@ mod tests {
                         candidate: block_commit_2.clone(),
                         key: leader_key_2.clone(),
                         user_burns: vec![
+                            user_burn_2.clone(),
                             user_burn_2_2.clone(),
-                            user_burn_2.clone()
                         ],
                     },
                 ]
@@ -778,12 +769,12 @@ mod tests {
                     block_commit_3.clone(),
                 ],
                 user_burns: vec![
-                    user_burn_nokey.clone(),
                     user_burn_noblock.clone(),
-                    user_burn_2_2.clone(),
-                    user_burn_1_2.clone(),
                     user_burn_1.clone(),
+                    user_burn_1_2.clone(),
                     user_burn_2.clone(),
+                    user_burn_2_2.clone(),
+                    user_burn_nokey.clone(),
                 ],
                 res: vec![
                     BurnSamplePoint {
@@ -793,8 +784,8 @@ mod tests {
                         candidate: block_commit_1.clone(),
                         key: leader_key_1.clone(),
                         user_burns: vec![
-                            user_burn_1_2.clone(),
                             user_burn_1.clone(),
+                            user_burn_1_2.clone(),
                         ],
                     },
                     BurnSamplePoint {
@@ -804,8 +795,8 @@ mod tests {
                         candidate: block_commit_2.clone(),
                         key: leader_key_2.clone(),
                         user_burns: vec![
+                            user_burn_2.clone(),
                             user_burn_2_2.clone(),
-                            user_burn_2.clone()
                         ],
                     },
                     BurnSamplePoint {
