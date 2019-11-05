@@ -659,7 +659,7 @@ impl Burnchain {
     /// Apply safety checks on extracted blockstack transactions
     /// - put them in order by vtxindex
     /// - make sure there are no vtxindex duplicates
-    pub fn apply_blockstack_txs_safety_checks(blockstack_txs: &mut Vec<BlockstackOperationType>) -> () {
+    pub fn apply_blockstack_txs_safety_checks(block: &BurnchainBlock, blockstack_txs: &mut Vec<BlockstackOperationType>) -> () {
         // safety -- make sure these are in order
         blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
@@ -669,6 +669,13 @@ impl Burnchain {
                 if blockstack_txs[i].vtxindex() == blockstack_txs[i+1].vtxindex() {
                     panic!("FATAL: BUG: duplicate vtxindex {} in block {}", blockstack_txs[i].vtxindex(), blockstack_txs[i].block_height());
                 }
+            }
+        }
+
+        // safety -- block heights all match
+        for tx in blockstack_txs.iter() {
+            if tx.block_height() != block.block_height() {
+                panic!("FATAL: BUG: block height mismatch: {} != {}", tx.block_height(), block.block_height());
             }
         }
     }
@@ -683,7 +690,7 @@ impl Burnchain {
         let (header, parent_snapshot) = Burnchain::get_burnchain_block_attachment_info(&mut tx, block)?;
         let mut blockstack_txs = Burnchain::get_blockstack_transactions(burnchain, block, &header);
 
-        Burnchain::apply_blockstack_txs_safety_checks(&mut blockstack_txs);
+        Burnchain::apply_blockstack_txs_safety_checks(block, &mut blockstack_txs);
         
         let new_snapshot = Burnchain::process_block_ops(&mut tx, burnchain, &parent_snapshot, &header, &blockstack_txs)?;
 
@@ -737,7 +744,7 @@ impl Burnchain {
         let mut burndb = self.connect_db(&indexer, true)?;
 
         let headers_path = indexer.get_headers_path();
-        let burn_chain_tip = BurnDB::get_canonical_chain_tip(burndb.conn())
+        let burn_chain_tip = BurnDB::get_canonical_burn_chain_tip(burndb.conn())
             .map_err(|e| {
                 error!("Failed to query burn chain tip from burn DB");
                 burnchain_error::DBError(e)
@@ -780,6 +787,8 @@ impl Burnchain {
 
         let burnchain_config = self.clone();
 
+        // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
+        // and if so, do nothing.
         let download_thread : thread::JoinHandle<Result<(), burnchain_error>> = thread::spawn(move || {
             loop {
                 debug!("Try recv next header");
@@ -965,9 +974,8 @@ pub mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
-            key_block_backptr: 1,
+            key_block_ptr: 123,
             key_vtxindex: 456,
-            memo: vec![0x05],
             burn_fee: 10000,
 
             txid: Txid::from_bytes(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716b").unwrap()).unwrap(),
@@ -980,9 +988,8 @@ pub mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
-            key_block_backptr: 1,
+            key_block_ptr: 123,
             key_vtxindex: 456,
-            memo: vec![0x05],
             burn_fee: 30000,
 
             txid: Txid::from_bytes(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
@@ -995,9 +1002,8 @@ pub mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap()).unwrap(),       // 22222....2223
-            key_block_backptr: 2,
+            key_block_ptr: 122,
             key_vtxindex: 457,
-            memo: vec![0x05],
             burn_fee: 20000,
 
             txid: Txid::from_bytes(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716d").unwrap()).unwrap(),
@@ -1010,9 +1016,8 @@ pub mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap()).unwrap(),       // 22222....2223
-            key_block_backptr: 2,
+            key_block_ptr: 122,
             key_vtxindex: 457,
-            memo: vec![0x05],
             burn_fee: 40000,
 
             txid: Txid::from_bytes(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716e").unwrap()).unwrap(),
@@ -1026,9 +1031,8 @@ pub mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
-            key_block_backptr: 1,
+            key_block_ptr: 122,
             key_vtxindex: 772,
-            memo: vec![0x05],
             burn_fee: 12345,
 
             txid: Txid::from_bytes(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716f").unwrap()).unwrap(),
@@ -1042,9 +1046,8 @@ pub mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("3f3338db51f2b1f6ac0cf6177179a24ee130c04ef2f9849a64a216969ab60e70").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap()).unwrap(),
-            key_block_backptr: 1,
+            key_block_ptr: 122,
             key_vtxindex: 457,
-            memo: vec![0x05],
             burn_fee: 12345,
 
             txid: Txid::from_bytes(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c7170").unwrap()).unwrap(),
@@ -1056,11 +1059,10 @@ pub mod tests {
         let block_commit_1 = LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-            parent_block_backptr: 0,
+            parent_block_ptr: 0,
             parent_vtxindex: 0,
-            key_block_backptr: 1,
+            key_block_ptr: 123,
             key_vtxindex: 456,
-            epoch_num: 4,
             memo: vec![0x80],
 
             burn_fee: 12345,
@@ -1081,11 +1083,10 @@ pub mod tests {
         let block_commit_2 = LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222223").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333334").unwrap()).unwrap(),
-            parent_block_backptr: 0,
+            parent_block_ptr: 0,
             parent_vtxindex: 0,
-            key_block_backptr: 2,
+            key_block_ptr: 122,
             key_vtxindex: 457,
-            epoch_num: 4,
             memo: vec![0x80],
 
             burn_fee: 12345,
@@ -1106,11 +1107,10 @@ pub mod tests {
         let block_commit_3 = LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222224").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333335").unwrap()).unwrap(),
-            parent_block_backptr: 0,
+            parent_block_ptr: 0,
             parent_vtxindex: 0,
-            key_block_backptr: 3,
+            key_block_ptr: 121,
             key_vtxindex: 10,
-            epoch_num: 4,
             memo: vec![0x80],
 
             burn_fee: 23456,
@@ -1450,11 +1450,10 @@ pub mod tests {
                 let next_block_commit = LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&vec![i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                     new_seed: VRFSeed::from_bytes(&vec![i,i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
-                    parent_block_backptr: if i == 1 { 0 } else { 1 },
-                    parent_vtxindex: if i == 1 { 0 } else { (2 * (i - 1)) as u16 },
-                    key_block_backptr: 1,
+                    parent_block_ptr: (if i == 1 { 0 } else { first_block_height + (i as u64) }) as u32,
+                    parent_vtxindex: (if i == 1 { 0 } else { (2 * (i - 1)) }) as u16,
+                    key_block_ptr: (first_block_height + (i as u64)) as u32,
                     key_vtxindex: (2 * (i - 1) + 1) as u16,
-                    epoch_num: (i + 1) as u32,
                     memo: vec![i],
 
                     burn_fee: i as u64,
@@ -1468,7 +1467,7 @@ pub mod tests {
 
                     txid: Txid::from_bytes(&vec![i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i]).unwrap(),
                     vtxindex: (2 * i) as u32,
-                    block_height: first_block_height + (i + 1) as u64,
+                    block_height: first_block_height + ((i + 1) as u64),
                     burn_header_hash: burn_block_hash.clone(),
                 };
 
@@ -1530,7 +1529,8 @@ pub mod tests {
     // TODO; test that all but the first of the block commits committing to the same key are
     // dropped
     // TODO: test that we can get the histories of all Stacks block headers from different fork segments
-    
+    // TODO: test top-level sync with a burn chain reorg
+    // -- make sure the chain can switch from fork A to fork B back to fork A safely.
     // TODO: test that only relevant user burns get stored in a burn distribution, and that they're
     // all present in the DB
 }
