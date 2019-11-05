@@ -104,27 +104,35 @@ impl StacksChainState {
     fn process_transaction_precheck<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(), Error> {
         // valid auth?
         if !tx.verify().map_err(Error::NetError)? {
-            error!("Invalid tx {}: invalid signature(s)", tx.txid().to_hex());
-            return Err(Error::InvalidStacksTransaction);
+            let msg = format!("Invalid tx {}: invalid signature(s)", tx.txid().to_hex());
+            warn!("{}", &msg);
+
+            return Err(Error::InvalidStacksTransaction(msg));
         }
 
         // destined for us?
         if clarity_tx.config.chain_id != tx.chain_id {
-            error!("Invalid tx {}: invalid chain ID {} (expected {})", tx.txid().to_hex(), tx.chain_id, clarity_tx.config.chain_id);
-            return Err(Error::InvalidStacksTransaction);
+            let msg = format!("Invalid tx {}: invalid chain ID {} (expected {})", tx.txid().to_hex(), tx.chain_id, clarity_tx.config.chain_id);
+            warn!("{}", &msg);
+
+            return Err(Error::InvalidStacksTransaction(msg));
         }
 
         match tx.version {
             TransactionVersion::Mainnet => {
                 if !clarity_tx.config.mainnet {
-                    error!("Invalid tx {}: on testnet; got mainnet", tx.txid().to_hex());
-                    return Err(Error::InvalidStacksTransaction);
+                    let msg = format!("Invalid tx {}: on testnet; got mainnet", tx.txid().to_hex());
+                    warn!("{}", &msg);
+
+                    return Err(Error::InvalidStacksTransaction(msg));
                 }
             },
             TransactionVersion::Testnet => {
                 if clarity_tx.config.mainnet {
-                    error!("Invalid tx {}: on mainnet; got testnet", tx.txid().to_hex());
-                    return Err(Error::InvalidStacksTransaction);
+                    let msg = format!("Invalid tx {}: on mainnet; got testnet", tx.txid().to_hex());
+                    warn!("{}", &msg);
+
+                    return Err(Error::InvalidStacksTransaction(msg));
                 }
             }
         }
@@ -254,12 +262,16 @@ impl StacksChainState {
                         }).map_err(|e| {
                             match e {
                                 clarity_error::BadTransaction(ref s) => {
-                                    warn!("Error validating STX-transfer transaction {:?}: {}", tx.txid().to_hex(), s);
-                                    Error::InvalidStacksTransaction
+                                    let msg = format!("Error validating STX-transfer transaction {:?}: {}", tx.txid().to_hex(), s);
+                                    warn!("{}", &msg);
+
+                                    Error::InvalidStacksTransaction(msg)
                                 },
                                 clarity_error::PostCondition(ref s) => {
-                                    warn!("Error validating STX-transfer transaction {:?} post-conditions: {}", tx.txid().to_hex(), s);
-                                    Error::PostConditionFailed
+                                    let msg = format!("Error validating STX-transfer transaction {:?} post-conditions: {}", tx.txid().to_hex(), s);
+                                    warn!("{}", &msg);
+
+                                    Error::PostConditionFailed(msg)
                                 },
                                 _ => Error::ClarityError(e)
                             }
@@ -304,12 +316,16 @@ impl StacksChainState {
                         }).map_err(|e| {
                             match e {
                                 clarity_error::BadTransaction(ref s) => {
-                                    warn!("Error validating FT-transfer transaction {:?}: {}", tx.txid().to_hex(), s);
-                                    Error::InvalidStacksTransaction
+                                    let msg = format!("Error validating FT-transfer transaction {:?}: {}", tx.txid().to_hex(), s);
+                                    warn!("{}", &msg);
+
+                                    Error::InvalidStacksTransaction(msg)
                                 },
                                 clarity_error::PostCondition(ref s) => {
-                                    warn!("Error validating FT-transfer transaction {:?} post-conditions: {}", tx.txid().to_hex(), s);
-                                    Error::PostConditionFailed
+                                    let msg = format!("Error validating FT-transfer transaction {:?} post-conditions: {}", tx.txid().to_hex(), s);
+                                    warn!("{}", &msg);
+
+                                    Error::PostConditionFailed(msg)
                                 },
                                 _ => Error::ClarityError(e)
                             }
@@ -318,7 +334,7 @@ impl StacksChainState {
                     TransactionTokenTransfer::Nonfungible(ref asset_info, ref token_name, ref addr) => {
                         let recipient_principal = PrincipalData::Standard(StandardPrincipalData::from(addr.clone()));
                         let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(asset_info.contract_address.clone()), asset_info.contract_name.clone());
-                        let asset = token_name.try_as_clarity_literal().ok_or(Error::InvalidStacksTransaction)?;
+                        let asset = token_name.try_as_clarity_literal().ok_or(Error::InvalidStacksTransaction(format!("Asset '{:?}' does not encode a Clarity literal", token_name)))?;
                         
                         clarity_tx.connection().with_clarity_db(|ref mut db| {
                             // does the sender have this asset?
@@ -345,12 +361,16 @@ impl StacksChainState {
                         }).map_err(|e| {
                             match e {
                                 clarity_error::BadTransaction(ref s) => {
-                                    warn!("Error validating NFT-transfer transaction {:?}: {}", tx.txid().to_hex(), s);
-                                    Error::InvalidStacksTransaction
+                                    let msg = format!("Error validating NFT-transfer transaction {:?}: {}", tx.txid().to_hex(), s);
+                                    warn!("{}", &msg);
+
+                                    Error::InvalidStacksTransaction(msg)
                                 },
                                 clarity_error::PostCondition(ref s) => {
-                                    warn!("Error validating FT-transfer transaction {:?} post-conditions: {}", tx.txid().to_hex(), s);
-                                    Error::PostConditionFailed
+                                    let msg = format!("Error validating FT-transfer transaction {:?} post-conditions: {}", tx.txid().to_hex(), s);
+                                    warn!("{}", &msg);
+
+                                    Error::PostConditionFailed(msg)
                                 },
                                 _ => Error::ClarityError(e)
                             }
@@ -399,8 +419,10 @@ impl StacksChainState {
 
                 // can't be instantiated already
                 if StacksChainState::get_contract(clarity_tx, &contract_id)?.is_some() {
-                    error!("Duplicate contract '{}'", &contract_id);
-                    return Err(Error::InvalidStacksTransaction);
+                    let msg = format!("Duplicate contract '{}'", &contract_id);
+                    warn!("{}", &msg);
+
+                    return Err(Error::InvalidStacksTransaction(msg));
                 }
 
                 // analysis pass
