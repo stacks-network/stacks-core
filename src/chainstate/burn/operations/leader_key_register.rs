@@ -368,14 +368,34 @@ mod tests {
     #[test]
     fn test_check() {
         
-        let first_block_height = 120;
+        let first_block_height = 121;
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();
         
         let block_122_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap();
         let block_123_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000003").unwrap();
         let block_124_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap();
         let block_125_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000005").unwrap();
+        let block_125_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000006").unwrap();
+        let block_126_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000007").unwrap();
+        let block_127_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000008").unwrap();
+        let block_128_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000009").unwrap();
+        let block_129_hash = BurnchainHeaderHash::from_hex("000000000000000000000000000000000000000000000000000000000000000a").unwrap();
+        let block_130_hash = BurnchainHeaderHash::from_hex("000000000000000000000000000000000000000000000000000000000000000b").unwrap();
+        let block_131_hash = BurnchainHeaderHash::from_hex("000000000000000000000000000000000000000000000000000000000000000c").unwrap();
         
+        let block_header_hashes = [
+            block_122_hash.clone(),
+            block_123_hash.clone(),
+            block_124_hash.clone(),
+            block_125_hash.clone(),
+            block_126_hash.clone(),
+            block_127_hash.clone(),
+            block_128_hash.clone(),
+            block_129_hash.clone(),
+            block_130_hash.clone(),
+            block_131_hash.clone()
+        ];
+
         let burnchain = Burnchain {
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
@@ -403,8 +423,6 @@ mod tests {
         };
        
         let block_ops = vec![
-            // 121
-            vec![],
             // 122
             vec![],
             // 123
@@ -425,6 +443,8 @@ mod tests {
             vec![],
             // 130
             vec![],
+            // 131
+            vec![],
         ];
 
         // populate consensus hashes
@@ -434,9 +454,9 @@ mod tests {
             for i in 0..10 {
                 let mut snapshot_row = BlockSnapshot {
                     block_height: i + 1 + first_block_height,
-                    burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    burn_header_hash: block_header_hashes[i as usize].clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
-                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
                     sortition: true,
@@ -444,7 +464,7 @@ mod tests {
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     index_root: TrieHash::from_empty_data(),
-                    stacks_block_height: i + 1 + first_block_height
+                    stacks_block_height: i + 1
                 };
                 let next_tip_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &block_ops[i as usize], &vec![]).unwrap();
                 snapshot_row.index_root = next_tip_root;
@@ -466,7 +486,7 @@ mod tests {
 
                     txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
                     vtxindex: 455,
-                    block_height: 122,
+                    block_height: 123,
                     burn_header_hash: block_123_hash.clone(),
                 },
                 res: Err(op_error::LeaderKeyAlreadyRegistered),

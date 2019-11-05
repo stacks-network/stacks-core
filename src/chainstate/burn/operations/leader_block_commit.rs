@@ -63,11 +63,10 @@ use util::db::DBTx;
 struct ParsedData {
     block_header_hash: BlockHeaderHash,
     new_seed: VRFSeed,
-    parent_block_backptr: u16,
+    parent_block_ptr: u32,
     parent_vtxindex: u16,
-    key_block_backptr: u16,
+    key_block_ptr: u32,
     key_vtxindex: u16,
-    epoch_num: u32,
     memo: Vec<u8>
 }
 
@@ -77,17 +76,14 @@ impl LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             block_height: block_height,
             new_seed: VRFSeed([0u8; 32]),
-            key_block_backptr: (block_height - paired_key.block_height) as u16,
+            key_block_ptr: paired_key.block_height as u32,
             key_vtxindex: paired_key.vtxindex as u16,
-            parent_block_backptr: 0,
+            parent_block_ptr: 0,
             parent_vtxindex: 0,
             memo: vec![0x00],       // informs mined_at not to touch parent backkptrs
             burn_fee: burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
-
-            // partially filled in
-            epoch_num: 0,
 
             // to be filled in 
             txid: Txid([0u8; 32]),
@@ -97,12 +93,12 @@ impl LeaderBlockCommitOp {
     }
 
     #[cfg(test)]
-    pub fn new(block_header_hash: &BlockHeaderHash, block_height: u64, new_seed: &VRFSeed, parent: &LeaderBlockCommitOp, key_block_backptr: u16, key_vtxindex: u16, burn_fee: u64, input: &BurnchainSigner) -> LeaderBlockCommitOp {
+    pub fn new(block_header_hash: &BlockHeaderHash, block_height: u64, new_seed: &VRFSeed, parent: &LeaderBlockCommitOp, key_block_ptr: u32, key_vtxindex: u16, burn_fee: u64, input: &BurnchainSigner) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             new_seed: new_seed.clone(),
-            key_block_backptr: key_block_backptr,
+            key_block_ptr: key_block_ptr,
             key_vtxindex: key_vtxindex,
-            parent_block_backptr: (block_height - parent.block_height) as u16,
+            parent_block_ptr: parent.block_height as u32,
             parent_vtxindex: parent.vtxindex as u16,
             memo: vec![],
             burn_fee: burn_fee,
@@ -110,7 +106,6 @@ impl LeaderBlockCommitOp {
             block_header_hash: block_header_hash.clone(),
 
             // to be filled in
-            epoch_num: 0,
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             block_height: 0,
@@ -120,31 +115,15 @@ impl LeaderBlockCommitOp {
 
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
-            TODO: pick one of these.
-
-            TODO: we probably don't need to commit to the PoW difficulty on-chain if all we're doing is training miners.
-            we can add it as something committed to in the MARF, so we can probably soft-fork it in if needed
-            (assuming we want to make the transition to native PoW at all).
-
-            Hybrid PoB/PoW Wire format:
-            0      2  3               34               67     68     70    71   72     76    80
-            |------|--|----------------|---------------|------|------|-----|-----|-----|-----|
-             magic  op   block hash       new seed     parent parent key   key   epoch  PoW
-                       (31-byte; lead 0)               delta  txoff  delta txoff num.   nonce
-
-             Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
-
-             The values parent-txoff and key-txoff are in network byte order.
-
             Wire format:
-            0      2  3            35               67     69     71    73   75     79    80
-            |------|--|-------------|---------------|------|------|-----|-----|-----|-----|
-             magic  op   block hash     new seed     parent parent key   key   epoch  memo
-                                                     delta  txoff  delta txoff num.
+            0      2  3            35               67     71     73    77   79     80
+            |------|--|-------------|---------------|------|------|-----|-----|-----|
+             magic  op   block hash     new seed     parent parent key   key   memo
+                                                     block  txoff  block txoff
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
 
-             The values parent-delta, parent-txoff, key-delta, and key-txoff are in network byte order.
+             The values parent-block, parent-txoff, key-block, and key-txoff are in network byte order.
 
              parent-delta and parent-txoff will both be 0 if this block builds off of the genesis block.
         */
@@ -157,21 +136,19 @@ impl LeaderBlockCommitOp {
 
         let block_header_hash = BlockHeaderHash::from_bytes(&data[0..32]).unwrap();
         let new_seed = VRFSeed::from_bytes(&data[32..64]).unwrap();
-        let parent_block_backptr = parse_u16_from_be(&data[64..66]).unwrap();
-        let parent_vtxindex = parse_u16_from_be(&data[66..68]).unwrap();
-        let key_block_backptr = parse_u16_from_be(&data[68..70]).unwrap();
-        let key_vtxindex = parse_u16_from_be(&data[70..72]).unwrap();
-        let epoch_num = parse_u32_from_be(&data[72..76]).unwrap();
+        let parent_block_ptr = parse_u32_from_be(&data[64..68]).unwrap();
+        let parent_vtxindex = parse_u16_from_be(&data[68..70]).unwrap();
+        let key_block_ptr = parse_u32_from_be(&data[70..74]).unwrap();
+        let key_vtxindex = parse_u16_from_be(&data[74..76]).unwrap();
         let memo = data[76..77].to_vec();
 
         Some(ParsedData {
             block_header_hash,
             new_seed,
-            parent_block_backptr,
+            parent_block_ptr,
             parent_vtxindex,
-            key_block_backptr,
+            key_block_ptr,
             key_vtxindex,
-            epoch_num,
             memo
         })
     }
@@ -219,43 +196,37 @@ impl LeaderBlockCommitOp {
         };
 
         // basic sanity checks 
-        if data.parent_block_backptr == 0 {
+        if data.parent_block_ptr == 0 {
             if data.parent_vtxindex != 0 {
                 warn!("Invalid tx: parent block back-pointer must be positive");
                 return Err(op_error::ParseError);
             }
-            // if parent block backptr and parent vtxindex are both 0, then this block's parent is
+            // if parent block ptr and parent vtxindex are both 0, then this block's parent is
             // the genesis block.
         }
 
-        if data.parent_block_backptr as u64 >= block_height {
-            warn!("Invalid tx: parent block back-pointer {} exceeds block height {}", data.parent_block_backptr, block_height);
+        if data.parent_block_ptr as u64 >= block_height {
+            warn!("Invalid tx: parent block back-pointer {} exceeds block height {}", data.parent_block_ptr, block_height);
             return Err(op_error::ParseError);
         }
 
-        if data.key_block_backptr == 0 {
+        if data.key_block_ptr == 0 {
             warn!("Invalid tx: key block back-pointer must be positive");
             return Err(op_error::ParseError);
         }
 
-        if data.key_block_backptr as u64 >= block_height {
-            warn!("Invalid tx: key block back-pointer {} exceeds block height {}", data.key_block_backptr, block_height);
-            return Err(op_error::ParseError);
-        }
-
-        if data.epoch_num as u64 >= block_height {
-            warn!("Invalid tx: epoch number {} exceeds block height {}", data.epoch_num, block_height);
+        if data.key_block_ptr as u64 >= block_height {
+            warn!("Invalid tx: key block back-pointer {} exceeds block height {}", data.key_block_ptr, block_height);
             return Err(op_error::ParseError);
         }
 
         Ok(LeaderBlockCommitOp {
             block_header_hash: data.block_header_hash,
             new_seed: data.new_seed,
-            parent_block_backptr: data.parent_block_backptr,
+            parent_block_ptr: data.parent_block_ptr,
             parent_vtxindex: data.parent_vtxindex,
-            key_block_backptr: data.key_block_backptr,
+            key_block_ptr: data.key_block_ptr,
             key_vtxindex: data.key_vtxindex,
-            epoch_num: data.epoch_num,
             memo: data.memo,
 
             burn_fee: burn_fee,
@@ -275,8 +246,8 @@ impl BlockstackOperation for LeaderBlockCommitOp {
     }
         
     fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), op_error> {
-        let leader_key_block_height = self.block_height - (self.key_block_backptr as u64);
-        let parent_block_height = self.block_height - (self.parent_block_backptr as u64);
+        let leader_key_block_height = self.key_block_ptr as u64;
+        let parent_block_height = self.parent_block_ptr as u64;
         
         // this will be the chain tip we're building on
         let chain_tip = BurnDB::get_block_snapshot(tx, &block_header.parent_block_hash)
@@ -286,6 +257,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         /////////////////////////////////////////////////////////////////////////////////////
         // There must be a burn
         /////////////////////////////////////////////////////////////////////////////////////
+        
         if self.burn_fee == 0 {
             warn!("Invalid block commit: no burn amount");
             return Err(op_error::BlockCommitBadInput);
@@ -301,12 +273,6 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         if self.block_height < first_block_snapshot.block_height {
             warn!("Invalid block commit: predates genesis height {}", first_block_snapshot.block_height);
             return Err(op_error::BlockCommitPredatesGenesis);
-        }
-
-        let target_epoch = self.block_height - first_block_snapshot.block_height;
-        if (self.epoch_num as u64) != target_epoch {
-            warn!("Invalid block commit: current epoch is {}; got {}", target_epoch, self.epoch_num);
-            return Err(op_error::BlockCommitBadEpoch);
         }
 
         /////////////////////////////////////////////////////////////////////////////////////
@@ -325,8 +291,8 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         // There must exist a previously-accepted *unused* key from a LeaderKeyRegister
         /////////////////////////////////////////////////////////////////////////////////////
 
-        if self.key_block_backptr == 0 {
-            warn!("Invalid block commit: references leader key in the same block");
+        if leader_key_block_height >= self.block_height {
+            warn!("Invalid block commit: references leader key in the same or later block ({} >= {})", leader_key_block_height, self.block_height);
             return Err(op_error::BlockCommitNoLeaderKey);
         }
 
@@ -356,12 +322,12 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         // be committed already).
         /////////////////////////////////////////////////////////////////////////////////////
 
-        if self.parent_block_backptr == 0 && self.parent_vtxindex != 0 {
+        if parent_block_height == self.block_height {
             // tried to build off a block in the same epoch (not allowed)
-            warn!("Invalid block commit: cannot build off of a commit in the same epoch");
+            warn!("Invalid block commit: cannot build off of a commit in the same block");
             return Err(op_error::BlockCommitNoParent);
         }
-        else if self.parent_block_backptr != 0 || self.parent_vtxindex != 0 {
+        else if self.parent_block_ptr != 0 || self.parent_vtxindex != 0 {
             // not building off of genesis, so the parent block must exist
             match BurnDB::get_block_commit_parent(tx, parent_block_height, self.parent_vtxindex.into(), &chain_tip.burn_header_hash)
                 .expect("Sqlite failure while verifying that this block commitment is new") {
@@ -467,11 +433,10 @@ mod tests {
                 result: Some(LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 0x4140,
-                    parent_vtxindex: 0x4342,
-                    key_block_backptr: 0x5150,
-                    key_vtxindex: 0x6160,
-                    epoch_num: 0x71706362,
+                    parent_block_ptr: 0x43424140,
+                    parent_vtxindex: 0x5150,
+                    key_block_ptr: 0x63626160,
+                    key_vtxindex: 0x7170,
                     memo: vec![0x80],
 
                     burn_fee: 12345,
@@ -609,11 +574,10 @@ mod tests {
         let block_commit_1 = LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-            parent_block_backptr: 1,
-            parent_vtxindex: 1,
-            key_block_backptr: 1,
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: 124,
             key_vtxindex: 456,
-            epoch_num: 50,
             memo: vec![0x80],
 
             burn_fee: 12345,
@@ -673,7 +637,7 @@ mod tests {
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_hash: block_header_hashes[i].clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
-                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i as u64,
                     sortition: true,
@@ -681,7 +645,7 @@ mod tests {
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     index_root: TrieHash::from_empty_data(),
-                    stacks_block_height: (i + 1 + first_block_height as usize) as u64,
+                    stacks_block_height: (i + 1) as u64,
                 };
                 let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &block_ops[i], &consumed_leader_keys[i]).unwrap();
                 
@@ -701,11 +665,10 @@ mod tests {
                 op: LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 50,
+                    parent_block_ptr: 50,
                     parent_vtxindex: 456,
-                    key_block_backptr: 1,
+                    key_block_ptr: 1,
                     key_vtxindex: 457,
-                    epoch_num: 50,
                     memo: vec![0x80],
 
                     burn_fee: 12345,
@@ -725,43 +688,14 @@ mod tests {
                 res: Err(op_error::BlockCommitPredatesGenesis),
             },
             CheckFixture {
-                // reject -- epoch does not match block height 
-                op: LeaderBlockCommitOp {
-                    block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
-                    new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 1,
-                    parent_vtxindex: 444,
-                    key_block_backptr: 2,
-                    key_vtxindex: 457,
-                    epoch_num: 50,
-                    memo: vec![0x80],
-
-                    burn_fee: 12345,
-                    input: BurnchainSigner {
-                        public_keys: vec![
-                            StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
-                        ],
-                        num_sigs: 1, 
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
-
-                    txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
-                    vtxindex: 444,
-                    block_height: 126,
-                    burn_header_hash: block_126_hash.clone(),
-                },
-                res: Err(op_error::BlockCommitBadEpoch),
-            },
-            CheckFixture {
                 // reject -- no such leader key 
                 op: LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 1,
+                    parent_block_ptr: 1,
                     parent_vtxindex: 444,
-                    key_block_backptr: 2,
+                    key_block_ptr: 2,
                     key_vtxindex: 400,
-                    epoch_num: (126 - first_block_height) as u32,
                     memo: vec![0x80],
 
                     burn_fee: 12345,
@@ -785,11 +719,10 @@ mod tests {
                 op: LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 1,
+                    parent_block_ptr: 124,
                     parent_vtxindex: 444,
-                    key_block_backptr: 2,
+                    key_block_ptr: 124,
                     key_vtxindex: 456,
-                    epoch_num: (126 - first_block_height) as u32,
                     memo: vec![0x80],
 
                     burn_fee: 12345,
@@ -813,11 +746,10 @@ mod tests {
                 op: LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 1,
+                    parent_block_ptr: 125,
                     parent_vtxindex: 445,
-                    key_block_backptr: 2,
+                    key_block_ptr: 124,
                     key_vtxindex: 457,
-                    epoch_num: (126 - first_block_height) as u32,
                     memo: vec![0x80],
 
                     burn_fee: 12345,
@@ -841,11 +773,10 @@ mod tests {
                 op: LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 0,
+                    parent_block_ptr: 126,
                     parent_vtxindex: 444,
-                    key_block_backptr: 2,
+                    key_block_ptr: 124,
                     key_vtxindex: 457,
-                    epoch_num: (126 - first_block_height) as u32,
                     memo: vec![0x80],
 
                     burn_fee: 12345,
@@ -869,11 +800,10 @@ mod tests {
                 op: LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 1,
+                    parent_block_ptr: 125,
                     parent_vtxindex: 444,
-                    key_block_backptr: 2,
+                    key_block_ptr: 124,
                     key_vtxindex: 457,
-                    epoch_num: (126 - first_block_height) as u32,
                     memo: vec![0x80],
 
                     burn_fee: 12345,
@@ -897,11 +827,10 @@ mod tests {
                 op: LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 1,
+                    parent_block_ptr: 125,
                     parent_vtxindex: 444,
-                    key_block_backptr: 2,
+                    key_block_ptr: 124,
                     key_vtxindex: 457,
-                    epoch_num: (126 - first_block_height) as u32,
                     memo: vec![0x80],
 
                     burn_fee: 0,
@@ -925,11 +854,10 @@ mod tests {
                 op: LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 1,
+                    parent_block_ptr: 125,
                     parent_vtxindex: 444,
-                    key_block_backptr: 2,
+                    key_block_ptr: 124,
                     key_vtxindex: 457,
-                    epoch_num: (126 - first_block_height) as u32,
                     memo: vec![0x80],
 
                     burn_fee: 12345,
@@ -953,11 +881,10 @@ mod tests {
                 op: LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 0,
+                    parent_block_ptr: 0,
                     parent_vtxindex: 0,
-                    key_block_backptr: 2,
+                    key_block_ptr: 124,
                     key_vtxindex: 457,
-                    epoch_num: (126 - first_block_height) as u32,
                     memo: vec![0x80],
 
                     burn_fee: 12345,

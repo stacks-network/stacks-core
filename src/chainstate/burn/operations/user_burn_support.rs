@@ -32,6 +32,7 @@ use chainstate::burn::operations::{
     UserBurnSupportOp,
     BlockstackOperation,
     BlockstackOperationType,
+    parse_u32_from_be,
     parse_u16_from_be
 };
 
@@ -54,24 +55,20 @@ use util::db::DBTx;
 struct ParsedData {
     pub consensus_hash: ConsensusHash,
     pub public_key: VRFPublicKey,
-    pub key_block_backptr: u16,
+    pub key_block_ptr: u32,
     pub key_vtxindex: u16,
     pub block_header_hash_160: Hash160,
-    pub memo: Vec<u8>
 }
 
 impl UserBurnSupportOp {
     #[cfg(test)]
-    pub fn new(public_key: &VRFPublicKey, key_block_height: u16, key_vtxindex: u16, block_hash: &BlockHeaderHash, burn_fee: u64) -> UserBurnSupportOp {
+    pub fn new(public_key: &VRFPublicKey, key_block_height: u32, key_vtxindex: u16, block_hash: &BlockHeaderHash, burn_fee: u64) -> UserBurnSupportOp {
         UserBurnSupportOp {
             public_key: public_key.clone(),
             block_header_hash_160: Hash160::from_sha256(block_hash.as_bytes()),
-            memo: vec![],
             burn_fee: burn_fee,
             key_vtxindex: key_vtxindex,
-
-            // partially filled in
-            key_block_backptr: key_block_height,
+            key_block_ptr: key_block_height,
             
             // to be filled in 
             consensus_hash: ConsensusHash([0u8; 20]),
@@ -96,7 +93,6 @@ impl UserBurnSupportOp {
             self.burn_header_hash = block_header.block_hash.clone();
         }
 
-        self.key_block_backptr = (block_header.block_height - (self.key_block_backptr as u64)) as u16;
         self.block_height = block_header.block_height;
     }
 
@@ -104,22 +100,24 @@ impl UserBurnSupportOp {
         /*
             Wire format:
 
-            0      2  3              23                       55                 75       77        79    80
-            |------|--|---------------|-----------------------|------------------|--------|---------|-----|
-             magic  op consensus hash    proving public key       block hash 160   key blk  key      memo
-                                                                                   backptr  vtxindex
+            0      2  3              22                       54                 74       78        80
+            |------|--|---------------|-----------------------|------------------|--------|---------|
+             magic  op consensus hash    proving public key       block hash 160   key blk  key
+                       (truncated by 1)                                                     vtxindex
 
             
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
         */
-        // memo can be empty, and magic + op are omitted 
         if data.len() < 77 {
             warn!("USER_BURN_SUPPORT payload is malformed ({} bytes)", data.len());
             return None;
         }
 
-        let consensus_hash = ConsensusHash::from_vec(&data[0..20].to_vec()).expect("FATAL: invalid data slice for consensus hash");
-        let pubkey = match VRFPublicKey::from_bytes(&data[20..52].to_vec()) {
+        let mut consensus_hash_trunc = data[0..19].to_vec();
+        consensus_hash_trunc.push(0);
+        
+        let consensus_hash = ConsensusHash::from_vec(&consensus_hash_trunc).expect("FATAL: invalid data slice for consensus hash");
+        let pubkey = match VRFPublicKey::from_bytes(&data[19..51].to_vec()) {
             Some(pubk) => {
                 pubk
             },
@@ -129,19 +127,16 @@ impl UserBurnSupportOp {
             }
         };
 
-        let block_header_hash_160 = Hash160::from_vec(&data[52..72].to_vec()).expect("FATAL: invalid data slice for block hash160");
-        let key_block_backptr = parse_u16_from_be(&data[72..74]).unwrap();
-        let key_vtxindex = parse_u16_from_be(&data[74..76]).unwrap();
-
-        let memo = data[76..].to_vec();
+        let block_header_hash_160 = Hash160::from_vec(&data[51..71].to_vec()).expect("FATAL: invalid data slice for block hash160");
+        let key_block_ptr = parse_u32_from_be(&data[71..75]).unwrap();
+        let key_vtxindex = parse_u16_from_be(&data[75..77]).unwrap();
 
         Some(ParsedData {
             consensus_hash,
             public_key: pubkey,
             block_header_hash_160,
-            key_block_backptr,
+            key_block_ptr,
             key_vtxindex,
-            memo
         })
     }
 
@@ -178,13 +173,13 @@ impl UserBurnSupportOp {
         };
 
         // basic sanity checks
-        if data.key_block_backptr == 0 {
-            warn!("Invalid tx: key block back-pointer must be positive");
+        if data.key_block_ptr == 0 {
+            warn!("Invalid tx: key block pointer must be positive");
             return Err(op_error::ParseError);
         }
 
-        if data.key_block_backptr as u64 >= block_height {
-            warn!("Invalid tx: key block back-pointer {} exceeds block height {}", data.key_block_backptr, block_height);
+        if data.key_block_ptr as u64 > block_height {
+            warn!("Invalid tx: key block back-pointer {} exceeds block height {}", data.key_block_ptr, block_height);
             return Err(op_error::ParseError);
         }
 
@@ -192,9 +187,8 @@ impl UserBurnSupportOp {
             consensus_hash: data.consensus_hash,
             public_key: data.public_key,
             block_header_hash_160: data.block_header_hash_160,
-            key_block_backptr: data.key_block_backptr,
+            key_block_ptr: data.key_block_ptr,
             key_vtxindex: data.key_vtxindex,
-            memo: data.memo,
             burn_fee: burn_fee,
 
             txid: tx.txid(),
@@ -216,16 +210,25 @@ impl BlockstackOperation for UserBurnSupportOp {
             .expect("FATAL: failed to query parent block snapshot")
             .expect("FATAL: no parent snapshot in the DB");
 
-        let leader_key_block_height = self.block_height - (self.key_block_backptr as u64);
+        let leader_key_block_height = self.key_block_ptr as u64;
 
         /////////////////////////////////////////////////////////////////
         // Consensus hash must be recent and valid
         /////////////////////////////////////////////////////////////////
-
-        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(tx, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, &chain_tip.burn_header_hash)
+   
+        // NOTE: we only care about the first 19 bytes
+        let fresh_chs = BurnDB::get_fresh_consensus_hashes(tx, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &chain_tip.burn_header_hash)
             .expect("Sqlite failure while verifying that a consensus hash is fresh");
 
-        if !consensus_hash_recent {
+        let mut is_fresh = false;
+        for ch in fresh_chs.iter() {
+            if ch.as_bytes()[0..19] == self.consensus_hash.as_bytes()[0..19] {
+                is_fresh = true;
+                break;
+            }
+        }
+
+        if !is_fresh {
             warn!("Invalid user burn: invalid consensus hash {}", &self.consensus_hash.to_hex());
             return Err(op_error::UserBurnSupportBadConsensusHash);
         }
@@ -234,13 +237,13 @@ impl BlockstackOperation for UserBurnSupportOp {
         // There must exist a previously-accepted LeaderKeyRegisterOp that matches this 
         // user support burn's VRF public key.
         /////////////////////////////////////////////////////////////////////////////////////
-        if self.key_block_backptr == 0 {
+        if self.key_block_ptr == 0 {
             warn!("Invalid tx: key block back-pointer must be positive");
             return Err(op_error::ParseError);
         }
 
-        if self.key_block_backptr as u64 >= self.block_height {
-            warn!("Invalid tx: key block back-pointer {} exceeds block height {}", self.key_block_backptr, self.block_height);
+        if self.key_block_ptr as u64 > self.block_height {
+            warn!("Invalid tx: key block back-pointer {} exceeds block height {}", self.key_block_ptr, self.block_height);
             return Err(op_error::ParseError);
         }
 
@@ -321,17 +324,16 @@ mod tests {
             OpFixture {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402204c51707ac34b6dcbfc518ba40c5fc4ef737bf69cc21a9f8a8e6f621f511f78e002200caca0f102d5df509c045c4fe229d957aa7ef833dc8103dc2fe4db15a22bab9e012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000030000000000000000536a4c5069645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a3333333333333333333333333333333333333333010203040539300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
                 result: Some(UserBurnSupportOp {
-                    consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
-                    public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
-                    block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    key_block_backptr: 513,
-                    key_vtxindex: 1027,
-                    memo: vec![0x05],
+                    consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222200").unwrap()).unwrap(),
+                    public_key: VRFPublicKey::from_bytes(&hex_bytes("22a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c").unwrap()).unwrap(),
+                    block_header_hash_160: Hash160::from_bytes(&hex_bytes("7a33333333333333333333333333333333333333").unwrap()).unwrap(),
+                    key_block_ptr: 0x03020133,
+                    key_vtxindex: 0x0504,
                     burn_fee: 12345,
 
                     txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
                     vtxindex: vtxindex,
-                    block_height: block_height,
+                    block_height: 0x03020133 + 1,
                     burn_header_hash: burn_header_hash,
                 })
             },
@@ -396,7 +398,7 @@ mod tests {
                     assert!(false);
                 },
                 (Err(_e), Some(_result)) => {
-                    test_debug!("Did not parse a tx when we should have");
+                    test_debug!("Did not parse a tx when we should have: {:?}", _result);
                     assert!(false);
                 }
             };
@@ -405,14 +407,32 @@ mod tests {
 
     #[test]
     fn test_check() {
-        let first_block_height = 120;
+        let first_block_height = 121;
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();
         
         let block_122_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap();
         let block_123_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000003").unwrap();
         let block_124_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap();
         let block_125_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000005").unwrap();
+        let block_126_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000006").unwrap();
+        let block_127_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000007").unwrap();
+        let block_128_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000008").unwrap();
+        let block_129_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000009").unwrap();
+        let block_130_hash = BurnchainHeaderHash::from_hex("000000000000000000000000000000000000000000000000000000000000000a").unwrap();
+        let block_131_hash = BurnchainHeaderHash::from_hex("000000000000000000000000000000000000000000000000000000000000000b").unwrap();
         
+        let block_header_hashes = [
+            block_122_hash.clone(),
+            block_123_hash.clone(),
+            block_124_hash.clone(),
+            block_125_hash.clone(),
+            block_126_hash.clone(),
+            block_127_hash.clone(),
+            block_128_hash.clone(),
+            block_129_hash.clone(),
+            block_130_hash.clone(),
+            block_131_hash.clone(),
+        ];
         let burnchain = Burnchain {
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
@@ -440,8 +460,6 @@ mod tests {
         };
 
         let block_ops = vec![
-            // 121
-            vec![],
             // 122
             vec![],
             // 123
@@ -461,7 +479,9 @@ mod tests {
             // 129
             vec![],
             // 130
-            vec![]
+            vec![],
+            // 131
+            vec![],
         ];
         
         // populate consensus hashes
@@ -471,9 +491,9 @@ mod tests {
             for i in 0..10 {
                 let mut snapshot_row = BlockSnapshot {
                     block_height: i + 1 + first_block_height,
-                    burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    burn_header_hash: block_header_hashes[i as usize].clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
-                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i + 1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
                     sortition: true,
@@ -481,7 +501,7 @@ mod tests {
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     index_root: TrieHash::from_empty_data(),
-                    stacks_block_height: i + 1 + first_block_height,
+                    stacks_block_height: i + 1,
                 };
                 let tip_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &block_ops[i as usize], &vec![]).unwrap();
                 snapshot_row.index_root = tip_index_root;
@@ -499,9 +519,8 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("1000000000000000000000000000000000000000").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
-                    key_block_backptr: 1,
+                    key_block_ptr: 123,
                     key_vtxindex: 456,
-                    memo: vec![0x05],
                     burn_fee: 10000,
 
                     txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716b").unwrap()).unwrap(),
@@ -517,9 +536,8 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
-                    key_block_backptr: 1,
+                    key_block_ptr: 123,
                     key_vtxindex: 457,
-                    memo: vec![0x05],
                     burn_fee: 10000,
 
                     txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716b").unwrap()).unwrap(),
@@ -535,9 +553,8 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
-                    key_block_backptr: 1,
+                    key_block_ptr: 123,
                     key_vtxindex: 456,
-                    memo: vec![0x05],
                     burn_fee: 10000,
 
                     txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716b").unwrap()).unwrap(),

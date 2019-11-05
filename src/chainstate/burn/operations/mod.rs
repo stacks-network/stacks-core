@@ -64,7 +64,6 @@ pub enum Error {
     
     // all the things that can go wrong with block commits
     BlockCommitPredatesGenesis,
-    BlockCommitBadEpoch,
     BlockCommitAlreadyExists,
     BlockCommitNoLeaderKey,
     BlockCommitLeaderKeyAlreadyUsed,
@@ -87,7 +86,6 @@ impl fmt::Display for Error {
             Error::InvalidInput => f.write_str(error::Error::description(self)),
 
             Error::BlockCommitPredatesGenesis => f.write_str(error::Error::description(self)),
-            Error::BlockCommitBadEpoch => f.write_str(error::Error::description(self)),
             Error::BlockCommitNoLeaderKey => f.write_str(error::Error::description(self)),
             Error::BlockCommitAlreadyExists => f.write_str(error::Error::description(self)),
             Error::BlockCommitLeaderKeyAlreadyUsed => f.write_str(error::Error::description(self)),
@@ -110,7 +108,6 @@ impl error::Error for Error {
             Error::InvalidInput => None,
 
             Error::BlockCommitPredatesGenesis => None,
-            Error::BlockCommitBadEpoch => None,
             Error::BlockCommitAlreadyExists => None,
             Error::BlockCommitNoLeaderKey => None,
             Error::BlockCommitLeaderKeyAlreadyUsed => None,
@@ -131,7 +128,6 @@ impl error::Error for Error {
             Error::InvalidInput => "Invalid input",
 
             Error::BlockCommitPredatesGenesis => "Block commit predates genesis block",
-            Error::BlockCommitBadEpoch => "Block commit has a bad epoch value",
             Error::BlockCommitAlreadyExists => "Block commit commits to an already-seen block",
             Error::BlockCommitNoLeaderKey => "Block commit has no matching register key",
             Error::BlockCommitLeaderKeyAlreadyUsed => "Block commit register key already used",
@@ -151,11 +147,10 @@ impl error::Error for Error {
 pub struct LeaderBlockCommitOp {
     pub block_header_hash: BlockHeaderHash, // hash of Stacks block header (double-sha256)
     pub new_seed: VRFSeed,                  // new seed for this block
-    pub parent_block_backptr: u16,          // back-pointer to the block that contains the parent block hash 
+    pub parent_block_ptr: u32,              // pointer to the block that contains the parent block hash 
     pub parent_vtxindex: u16,               // offset in the parent block where the parent block hash can be found
-    pub key_block_backptr: u16,             // back-pointer to the block that contains the leader key registration 
+    pub key_block_ptr: u32,                 // pointer to the block that contains the leader key registration 
     pub key_vtxindex: u16,                  // offset in the block where the leader key can be found
-    pub epoch_num: u32,                     // which epoch this commit was meant for?
     pub memo: Vec<u8>,                      // extra unused byte
 
     pub burn_fee: u64,                      // how many burn tokens (e.g. satoshis) were destroyed to produce this block
@@ -186,10 +181,9 @@ pub struct LeaderKeyRegisterOp {
 pub struct UserBurnSupportOp {
     pub consensus_hash: ConsensusHash,
     pub public_key: VRFPublicKey,
-    pub key_block_backptr: u16,
+    pub key_block_ptr: u32,
     pub key_vtxindex: u16,
     pub block_header_hash_160: Hash160,
-    pub memo: Vec<u8>,
     pub burn_fee: u64,
 
     // common to all transactions
