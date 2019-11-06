@@ -19,7 +19,24 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", async () => {
     namespace: "blockstack",
     version: 1,
     salt: "0000",
-    value: 42,
+    value: 96,
+    namespaceOwner: alice,
+    nameOwner: bob,
+    priceFunction: {
+      buckets: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      base: 1,
+      coeff: 2,
+      noVoyelDiscount: 0,
+      nonAlphaDiscount: 0,
+    },
+    renewalRule: 1,
+    nameImporter: alice,
+    zonefile: "LOREM IPSUM DOLOR SIT AMET",
+  }, {
+    namespace: "id",
+    version: 1,
+    salt: "0000",
+    value: 9600,
     namespaceOwner: alice,
     nameOwner: bob,
     priceFunction: {
@@ -85,16 +102,28 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", async () => {
     });
 
     it("should fail if Alice can't afford paying the fee", async () => {
-      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 2000, { sender: cases[0].namespaceOwner });
+      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 200000, { sender: cases[0].namespaceOwner });
       expect(receipt.success).eq(false);
       expect(receipt.result).eq('4001');
-    });    
+    });
 
-    it("should succeed when 'hashed-namespace' is a *unique 20 bytes buffer, 'stx-to-burn' > 0, and balance provisioned accordingly", async () => {
+    it("should succeed when Alice pre-orders 'blockstack', 'stx-to-burn' = 96 (balance ok)", async () => {
       let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
       expect(receipt.success).eq(true);
       expect(receipt.result).eq('u30');
-    });    
+    });
+
+    it("should fail when Bob pre-orders 'id', 'stx-to-burn' = 9600 (balance insufficient)", async () => {
+      let receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: bob });
+      expect(receipt.success).eq(false);
+      expect(receipt.result).eq('4001');
+    });
+
+    it("should succeed when Alice pre-orders 'id', 'stx-to-burn' = 9600 (balance ok)", async () => {
+      let receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: cases[1].namespaceOwner });
+      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('u30');
+    });
 
     describe("Given an existing pre-order for 'blockstack' registered by Alice ", () => {
       describe("When Bob submits a pre-order with the same salted hashed namespace", async () => {

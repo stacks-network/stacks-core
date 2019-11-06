@@ -19,7 +19,24 @@ describe("BNS Test Suite - NAME_PREORDER", async () => {
     namespace: "blockstack",
     version: 1,
     salt: "0000",
-    value: 42,
+    value: 96,
+    namespaceOwner: alice,
+    nameOwner: bob,
+    priceFunction: {
+      buckets: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      base: 1,
+      coeff: 2,
+      noVoyelDiscount: 0,
+      nonAlphaDiscount: 0,
+    },
+    renewalRule: 1,
+    nameImporter: alice,
+    zonefile: "LOREM IPSUM DOLOR SIT AMET",
+  }, {
+    namespace: "id",
+    version: 1,
+    salt: "0000",
+    value: 9600,
     namespaceOwner: alice,
     nameOwner: bob,
     priceFunction: {
@@ -37,9 +54,61 @@ describe("BNS Test Suite - NAME_PREORDER", async () => {
   before(async () => {
     provider = await ProviderRegistry.createProvider();
     bns = new BNSClient(provider);
+    await bns.deployContract();
   });
 
-  describe("Triggering this operation", () => {
-    it("pending");
+  describe("Pre-ordering the name 'bob.blockstack'", async () => {
+    it("should fail if the hash of the FQN is mal-formed");
+
+    it("should fail if Bob's balance is insufficient", async () => {
+      let receipt = await bns.namePreorder(
+        cases[0].namespace,
+        "bob",
+        cases[0].salt, 
+        10000, { sender: cases[0].nameOwner });
+      expect(receipt.success).eq(false);
+      expect(receipt.result).eq('4001');    
+    });
+
+    it("should succeed if Bob's balance is provisioned", async () => {
+      let receipt = await bns.namePreorder(
+        cases[0].namespace,
+        "bob",
+        cases[0].salt, 
+        200, { sender: cases[0].nameOwner });
+      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('u30');    
+    });
+
+    it("should fail if the same order is being re-submitted by Bob", async () => {
+      let receipt = await bns.namePreorder(
+        cases[0].namespace,
+        "bob",
+        cases[0].salt, 
+        200, { sender: cases[0].nameOwner });
+      expect(receipt.success).eq(false);
+      expect(receipt.result).eq('2016');    
+    });
+
+    it("should succeed if the same order is being re-submitted by Alice", async () => {
+      let receipt = await bns.namePreorder(
+        cases[0].namespace,
+        "bob",
+        cases[0].salt, 
+        200, { sender: alice });
+      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('u30');    
+    });
+
+    it("should succeed once claimability TTL expired", async () => {
+      await provider.mineBlocks(11);
+      let receipt = await bns.namePreorder(
+        cases[0].namespace,
+        "bob",
+        cases[0].salt, 
+        200, { sender: cases[0].nameOwner });
+      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('u41');    
+    });
   });
 });

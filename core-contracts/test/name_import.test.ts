@@ -18,8 +18,9 @@ describe("BNS Test Suite - NAME_IMPORT", async () => {
   const cases = [{
     namespace: "blockstack",
     version: 1,
-    salt: "0000",
-    value: 42,
+    salt: "salt-for-alice",
+    value: 96,
+    importedName: "id",
     namespaceOwner: alice,
     nameOwner: bob,
     priceFunction: {
@@ -37,9 +38,48 @@ describe("BNS Test Suite - NAME_IMPORT", async () => {
   before(async () => {
     provider = await ProviderRegistry.createProvider();
     bns = new BNSClient(provider);
+    await bns.deployContract();
   });
 
   describe("Triggering this operation", () => {
-    it("pending");
+    it("should fail if 'salt' is blank");
+
+    it("should fail if 'namespace' is blank");
+
+    it("should fail if 'price-function' is invalid");
+
+    it("should fail if 'renewal-rule' is invalid");
+  });
+
+  describe("Given a revealed pre-order from Alice for the namespace 'blockstack' initiated at block #20", async () => {
+
+    before(async () => {
+      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
+      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('u30');
+
+      receipt = await bns.namespaceReveal(
+        cases[0].namespace, 
+        cases[0].version, 
+        cases[0].salt,
+        cases[0].priceFunction, 
+        cases[0].renewalRule, 
+        cases[0].nameImporter, { sender: cases[0].namespaceOwner });
+      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('true');
+    });
+
+    describe("Importing the name 'id'", async () => {
+
+      it("should fail if TTL expired");
+
+      it("should succeed if the namespace has already been revealed less than a year ago (todo: fix TTL)", async () => {
+        let receipt = await bns.nameImport(cases[0].namespace, cases[0].importedName, cases[0].zonefile, { sender: cases[0].namespaceOwner });
+        expect(receipt.success).eq(true);
+        expect(receipt.result).eq('true');
+      });
+
+      it("should fail if the namespace has already been launched");
+    });
   });
 });

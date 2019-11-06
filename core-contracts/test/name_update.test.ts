@@ -19,7 +19,7 @@ describe("BNS Test Suite - NAME_UPDATE", async () => {
     namespace: "blockstack",
     version: 1,
     salt: "0000",
-    value: 42,
+    value: 96,
     namespaceOwner: alice,
     nameOwner: bob,
     priceFunction: {
