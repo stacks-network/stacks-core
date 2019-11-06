@@ -101,7 +101,6 @@ export class BNSClient extends Client {
     let sha256 = new shajs.sha256().update(fqn).digest();
     let hash160 = new ripemd160().update(sha256).digest('hex');
     let hashedFqn = `0x${hash160}`;
-    console.log(hashedFqn);
     const tx = this.createTransaction({
       method: { name: "name-preorder", args: [`${hashedFqn}`, `u${STX}`] }
     });
@@ -134,7 +133,7 @@ export class BNSClient extends Client {
                    zonefileContent: string, 
                    params: { sender: string }): Promise<Receipt> {
     const tx = this.createTransaction({
-      method: { name: "name-register", args: [`"${namespace}"`, `"${name}"`, `"${zonefileContent}"`] }
+      method: { name: "name-update", args: [`"${namespace}"`, `"${name}"`, `"${zonefileContent}"`] }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);
@@ -164,7 +163,7 @@ export class BNSClient extends Client {
                    name: string, 
                    params: { sender: string }): Promise<Receipt> {
     const tx = this.createTransaction({
-      method: { name: "name-transfer", args: [`"${namespace}"`, `"${name}"`] }
+      method: { name: "name-revoke", args: [`"${namespace}"`, `"${name}"`] }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);
@@ -189,10 +188,4 @@ export class BNSClient extends Client {
     const res = await this.submitTransaction(tx);
     return res;
   }
-
-  // todo(ludo): implement these entrypoints
-  // sponsored-name-register-batch
-  // sponsored-name-update
-  // sponsored-name-transfer
-  // sponsored-name-revoke
 }
