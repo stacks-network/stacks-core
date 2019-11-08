@@ -39,6 +39,9 @@ pub const PRINT_B: u64 = 1;
 
 pub const AS_CONTRACT_COST: u64 = 1;
 
+pub const CONTRACT_CALL_RUNTIME_A: u64 = 1;
+pub const CONTRACT_CALL_RUNTIME_B: u64 = 1;
+
 pub const CONS_OPTION_A: u64 = 1;
 pub const CONS_OPTION_B: u64 = 1;
 
@@ -58,6 +61,8 @@ pub const BINDING_COST_B: u64 = 1;
 
 pub const FUNC_LOOKUP_COST_A: u64 = 1;
 pub const FUNC_LOOKUP_COST_B: u64 = 1;
+pub const VAR_LOOKUP_COST_A: u64 = 1;
+pub const VAR_LOOKUP_COST_B: u64 = 1;
 
 pub const LOOKUP_RUNTIME_COST_A: u64 = 1;
 pub const LOOKUP_RUNTIME_COST_B: u64 = 1;
@@ -66,7 +71,12 @@ pub const DB_HASH_COST_A: u64 = 1;
 pub const DB_HASH_COST_B: u64 = 1;
 
 pub const LET_CONSTANT_COST: u64 = 1;
-pub const TUPLE_CONS_CONSTANT_COST: u64 = 1;
+
+pub const TUPLE_CONS_A: u64 = 1;
+pub const TUPLE_CONS_B: u64 = 1;
+
+pub const TUPLE_LOOKUP_A: u64 = 1;
+pub const TUPLE_LOOKUP_B: u64 = 1;
 
 pub const DB_WRITE_RUNTIME_COST_A: u64 = 1;
 pub const DB_WRITE_RUNTIME_COST_B: u64 = 1;
