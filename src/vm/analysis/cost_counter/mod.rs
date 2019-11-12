@@ -7,12 +7,13 @@ pub use self::costs::{CostOverflowingMath, ExecutionCost, CostFunctions, CostSpe
 use self::natives::{SpecialCostType};
 
 use std::collections::{HashMap, BTreeMap};
-use vm::representations::{SymbolicExpression, ClarityName};
+use std::iter::FromIterator;
+
+use vm::representations::{SymbolicExpression, SymbolicExpressionType, depth_traverse, ClarityName};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
 use vm::types::{Value, PrincipalData, TypeSignature, TupleTypeSignature, FunctionArg, BUFF_32,
                 FunctionType, FixedFunction, parse_name_type_pairs};
-use vm::functions::{NativeFunctions, handle_binding_list};
-use vm::functions::define::DefineFunctionsParsed;
+use vm::functions::{define::DefineFunctionsParsed, NativeFunctions};
 use vm::variables::NativeVariables;
 use vm::MAX_CONTEXT_DEPTH;
 
@@ -31,13 +32,13 @@ pub struct CostContext {
 }
 
 pub struct CostCounter <'a, 'b> {
-    pub type_map: TypeMap,
+    pub type_map: &'a TypeMap,
     pub analysis: &'a ContractAnalysis,
     pub cost_context: CostContext,
     pub db: &'a mut AnalysisDatabase <'b>
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ContractCostAnalysis {
     defined_functions: BTreeMap<String, SimpleCostSpecification>
 }
@@ -75,26 +76,55 @@ impl CostContext {
     }
 }
 
-// this is the cost of parsing a function signature into types 
-fn parse_signature_cost(signature: &[SymbolicExpression]) -> ExecutionCost {
-    panic!("NotImplemented")
+impl From<CostContext> for ContractCostAnalysis {
+    fn from(mut ctxt: CostContext) -> ContractCostAnalysis {
+        ContractCostAnalysis {
+            defined_functions: BTreeMap::from_iter(ctxt.defined_functions.drain())
+        }
+    }
 }
 
-fn parse_type_cost(type_description: &SymbolicExpression) -> ExecutionCost {
-    panic!("NotImplemented")
+impl <'a, 'b> AnalysisPass for CostCounter <'a, 'b> {
+    fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
+        let (instantiation_cost, cost_analysis) = {
+            let counter = CostCounter::new(analysis_db,
+                                           contract_analysis.type_map.as_ref()
+                                           .expect("Type mapping must have been set"),
+                                           contract_analysis);
+            counter.run()
+        }?;
+
+        contract_analysis.cost_analysis = Some(cost_analysis);
+        contract_analysis.instantiation_cost = Some(instantiation_cost);
+
+        Ok(())
+    }
 }
 
 impl <'a, 'b> CostCounter <'a, 'b> {
-    fn new(db: &'a mut AnalysisDatabase<'b>, type_map: TypeMap, analysis: &'a ContractAnalysis) -> CostCounter<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>, type_map: &'a TypeMap, analysis: &'a ContractAnalysis) -> CostCounter<'a, 'b> {
         Self {
             db, type_map, analysis,
             cost_context: CostContext::new()
         }
     }
 
+    // Return the non-analysis cost of _instantiating_ the contract
+    //  and the execution cost analysis 
+    pub fn run(mut self) -> CheckResult<(ExecutionCost, ContractCostAnalysis)> {
+        let mut evaluation_cost = ExecutionCost::zero();
+        for exp in self.analysis.expressions_iter() {
+            evaluation_cost.add(&self.handle_top_level_expression(exp)?)?;
+        }
+
+        let contract_cost_analysis = ContractCostAnalysis::from(self.cost_context);
+
+        Ok((evaluation_cost, contract_cost_analysis))
+    }
+
     // Handle a top level expression,
     //    if defining a function, add that function to the cost context.
-    //    otherwise, return the execution of instantiating the contract context (i.e., evaluating 
+    //    otherwise, return the execution cost of instantiating the contract context (i.e., evaluating 
     //      plain expressions, constants, persisted variables).
     fn handle_top_level_expression(&mut self, expression: &SymbolicExpression) -> CheckResult<ExecutionCost> {
         let define_type = match DefineFunctionsParsed::try_parse(expression)? {
@@ -111,7 +141,7 @@ impl <'a, 'b> CostCounter <'a, 'b> {
             DefineFunctionsParsed::PrivateFunction { signature, body } |
             DefineFunctionsParsed::PublicFunction { signature, body } |
             DefineFunctionsParsed::ReadOnlyFunction { signature, body } => {
-                let mut evaluation_cost = parse_signature_cost(signature);
+                let evaluation_cost = common_costs::parse_signature_cost(signature)?;
                 let execution_cost = self.handle_expression(body)?;
 
                 let function_name = signature[0].match_atom().expect("Function signature should be name");
@@ -121,7 +151,7 @@ impl <'a, 'b> CostCounter <'a, 'b> {
             },
             DefineFunctionsParsed::NonFungibleToken { name, nft_type } => {
                 let mut evaluation_cost = common_costs::get_binding_cost(name)?;
-                let compute_type_cost = parse_type_cost(nft_type);
+                let compute_type_cost = common_costs::parse_type_cost(nft_type)?;
                 evaluation_cost.add(&compute_type_cost)?;
                 evaluation_cost
             }
@@ -136,15 +166,15 @@ impl <'a, 'b> CostCounter <'a, 'b> {
             },
             DefineFunctionsParsed::Map { name, key_type, value_type } => {
                 let mut evaluation_cost = common_costs::get_binding_cost(name)?;
-                let key_cost = parse_type_cost(key_type);
-                let value_cost = parse_type_cost(value_type);
+                let key_cost = common_costs::parse_type_cost(key_type)?;
+                let value_cost = common_costs::parse_type_cost(value_type)?;
                 evaluation_cost.add(&key_cost)?;
                 evaluation_cost.add(&value_cost)?;
                 evaluation_cost
             },
             DefineFunctionsParsed::PersistedVariable  { name, data_type, initial } => {
                 let mut evaluation_cost = common_costs::get_binding_cost(name)?;
-                let type_cost = parse_type_cost(data_type);
+                let type_cost = common_costs::parse_type_cost(data_type)?;
                 let initial_eval_cost = self.handle_expression(initial)?;
                 evaluation_cost.add(&type_cost)?;
                 evaluation_cost.add(&initial_eval_cost)?;

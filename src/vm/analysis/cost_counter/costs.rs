@@ -7,14 +7,14 @@ pub enum CostSpecification {
     Special(SpecialCostType),
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub enum CostFunctions {
     Constant(u64),
     Linear(u64, u64),
     NLogN(u64, u64),
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct SimpleCostSpecification {
     pub write_count: CostFunctions,
     pub write_length: CostFunctions,
@@ -23,6 +23,7 @@ pub struct SimpleCostSpecification {
     pub runtime: CostFunctions,
 }
 
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ExecutionCost {
     pub write_length: u64,
     pub write_count: u64,

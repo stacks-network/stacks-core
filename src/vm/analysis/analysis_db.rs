@@ -93,11 +93,6 @@ impl <'a> AnalysisDatabase <'a> {
         self.get(&key)
     }
 
-    fn load_contract_costs(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractCostAnalysis> {
-        let key = AnalysisDatabase::make_storage_key("cost", contract_identifier);
-        self.get(&key)
-    }
-
     pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: &ContractAnalysis) -> CheckResult<()> {
         let key = AnalysisDatabase::make_storage_key("types", contract_identifier);
         if self.store.has_entry(&key) {
@@ -130,8 +125,8 @@ impl <'a> AnalysisDatabase <'a> {
     }
 
     pub fn get_contract_function_cost(&mut self, contract_identifier: &QualifiedContractIdentifier, function_name: &str) -> Option<SimpleCostSpecification> {
-        let contract = self.load_contract_costs(contract_identifier)?;
-        contract.get_function_cost(function_name)
+        let contract = self.load_contract(contract_identifier)?;
+        contract.cost_analysis.as_ref()?.get_function_cost(function_name)
     }
 
     pub fn get_contract_size(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<u64> {
