@@ -105,7 +105,7 @@ fn test_simple_read_only_violations() {
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (func1) (begin (map-set! tokens (tuple (account tx-sender)) (tuple (balance 10))) (list 1 2)))
          (define-read-only (not-reading-only)
-            (asserts-max-len (func1) 3))"];
+            (asserts-max-len! (func1) 3))"];
 
     for contract in bad_contracts.iter() {
         let err = mem_type_check(contract).unwrap_err();
