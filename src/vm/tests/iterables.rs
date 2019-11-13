@@ -89,7 +89,7 @@ fn test_simple_map_append() {
 }
 
 #[test]
-fn test_simple_map_concat() {
+fn test_simple_list_concat() {
     let tests = [
         "(concat (list 1 2) (list 4 8))", 
         "(concat (list 1) (list 4 8))", 
@@ -154,7 +154,7 @@ fn test_simple_buff_concat() {
     }
 
     assert_eq!(
-        res.unwrap_err(),
+        execute("(concat \"1\" 3)").unwrap_err(),
         RuntimeErrorType::BadTypeConstruction.into());
 
     assert_eq!(
