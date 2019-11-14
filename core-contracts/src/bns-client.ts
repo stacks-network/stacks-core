@@ -21,7 +21,14 @@ export class BNSClient extends Client {
                           salt: string,
                           STX: number, 
                           params: { sender: string }): Promise<Receipt> {
-    let sha256 = new shajs.sha256().update(namespace).digest();
+    if (namespace === '') {
+      throw new Error("Namespace can't be empty");
+    }
+    if (STX <= 0) {
+      throw new Error("STX should be non-zero positive");
+    }
+
+    let sha256 = new shajs.sha256().update(`${namespace}${salt}`).digest();
     let hash160 = new ripemd160().update(sha256).digest('hex');
     let hashedNamespace = `0x${hash160}`;
     const tx = this.createTransaction({
@@ -39,12 +46,19 @@ export class BNSClient extends Client {
   //                   (name-importer principal))
   async namespaceReveal(namespace: string, 
                         namespaceVersion: number, 
+                        salt: string,
                         priceFunction: PriceFunction, 
                         renewalRule: number, 
                         nameImporter: string, 
                         params: { sender: string }): Promise<Receipt> {
+    let priceFuncAsArgs = [
+      `u${priceFunction.base}`, 
+      `u${priceFunction.coeff}`, 
+      ...priceFunction.buckets.map(bucket => `u${bucket}`), 
+      `u${priceFunction.nonAlphaDiscount}`, 
+      `u${priceFunction.noVoyelDiscount}`];
     const tx = this.createTransaction({
-      method: { name: "namespace-reveal", args: [`"${namespace}"`, `u${namespaceVersion}`, `u1`, `u${renewalRule}`, `'${nameImporter}`] }
+      method: { name: "namespace-reveal", args: [`"${namespace}"`, `u${namespaceVersion}`, `"${salt}"`, ...priceFuncAsArgs, `u${renewalRule}`, `'${nameImporter}`] }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);
@@ -87,7 +101,6 @@ export class BNSClient extends Client {
     let sha256 = new shajs.sha256().update(fqn).digest();
     let hash160 = new ripemd160().update(sha256).digest('hex');
     let hashedFqn = `0x${hash160}`;
-    console.log(hashedFqn);
     const tx = this.createTransaction({
       method: { name: "name-preorder", args: [`${hashedFqn}`, `u${STX}`] }
     });
@@ -120,7 +133,7 @@ export class BNSClient extends Client {
                    zonefileContent: string, 
                    params: { sender: string }): Promise<Receipt> {
     const tx = this.createTransaction({
-      method: { name: "name-register", args: [`"${namespace}"`, `"${name}"`, `"${zonefileContent}"`] }
+      method: { name: "name-update", args: [`"${namespace}"`, `"${name}"`, `"${zonefileContent}"`] }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);
@@ -150,7 +163,7 @@ export class BNSClient extends Client {
                    name: string, 
                    params: { sender: string }): Promise<Receipt> {
     const tx = this.createTransaction({
-      method: { name: "name-transfer", args: [`"${namespace}"`, `"${name}"`] }
+      method: { name: "name-revoke", args: [`"${namespace}"`, `"${name}"`] }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);
@@ -169,16 +182,24 @@ export class BNSClient extends Client {
                     zonefileContent: null|string, 
                     params: { sender: string }): Promise<Receipt> {
     const tx = this.createTransaction({
-      method: { name: "name-renewal", args: [`"${namespace}"`, `"${name}"`, `${STX}`] }
+      method: { name: "name-renewal", args: [`"${namespace}"`, `"${name}"`, `${STX}`, `(some\ '${newOwner})`, `(some\ "${zonefileContent}")`] }
+    });
+    await tx.sign(params.sender);
+    const res = await this.submitTransaction(tx);
+    console.log(res);
+    return res;
+  }
+
+  // (get-name-zonefile (namespace (buff 20))
+  //                    (name (buff 16)))
+  async getNameZonefile(namespace: string, 
+                        name: string, 
+                        params: { sender: string }): Promise<Receipt> {
+    const tx = this.createTransaction({
+      method: { name: "get-name-zonefile", args: [`"${namespace}"`, `"${name}"`] }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);
     return res;
   }
-
-  // todo(ludo): implement these entrypoints
-  // sponsored-name-register-batch
-  // sponsored-name-update
-  // sponsored-name-transfer
-  // sponsored-name-revoke
 }
