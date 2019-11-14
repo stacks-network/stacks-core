@@ -39,8 +39,16 @@ use burnchains::BurnchainHeaderHash;
 
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
-use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::index::marf::MARF;
+use chainstate::stacks::index::{
+    TrieHash,
+    MARFValue
+};
+use chainstate::stacks::index::marf::{
+    MARF,
+    BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
+    BLOCK_HEIGHT_TO_HASH_MAPPING_KEY
+};
+
 use chainstate::stacks::index::storage::TrieFileStorage;
 
 use std::path::{Path, PathBuf};
@@ -83,9 +91,9 @@ pub struct StacksChainState {
     pub chain_id: u32,
     clarity_state: ClarityInstance,
     pub headers_db: DBConn,
+    pub blocks_db: DBConn,
     headers_index: MARF,
     pub blocks_path: String,
-    db_path: String
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -111,7 +119,7 @@ pub struct StacksHeaderInfo {
     pub microblock_tail: Option<StacksMicroblockHeader>,
     pub block_height: u64,
     pub index_root: TrieHash,
-    pub burn_block_hash: BurnchainHeaderHash
+    pub burn_header_hash: BurnchainHeaderHash
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -123,7 +131,19 @@ pub struct DBConfig {
 
 impl StacksHeaderInfo {
     pub fn index_block_hash(&self) -> BlockHeaderHash {
-        self.anchored_header.index_block_hash(&self.burn_block_hash)
+        self.anchored_header.index_block_hash(&self.burn_header_hash)
+    }
+    pub fn genesis() -> StacksHeaderInfo {
+        StacksHeaderInfo {
+            anchored_header: StacksBlockHeader::genesis(),
+            microblock_tail: None,
+            block_height: 0,
+            index_root: TrieHash([0u8; 32]),
+            burn_header_hash: BurnchainHeaderHash([0u8; 32])
+        }
+    }
+    pub fn is_genesis(&self) -> bool {
+        self.anchored_header.is_genesis()
     }
 }
 
@@ -152,7 +172,7 @@ impl FromRow<DBConfig> for DBConfig {
 
 impl RowOrder for StacksHeaderInfo {
     fn row_order() -> Vec<&'static str> {
-        let mut header_rows = vec!["block_height", "index_root", "burn_block_hash"];
+        let mut header_rows = vec!["block_height", "index_root", "burn_header_hash"];
         header_rows.append(&mut StacksBlockHeader::row_order());
         header_rows
     }
@@ -162,7 +182,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
     fn from_row<'a>(row: &'a Row, index: usize) -> Result<StacksHeaderInfo, db_error> {
         let block_height_i64 : i64 = row.get(index);
         let index_root = TrieHash::from_row(row, index+1)?;
-        let burn_block_hash = BurnchainHeaderHash::from_row(row, index+2)?;
+        let burn_header_hash = BurnchainHeaderHash::from_row(row, index+2)?;
         let stacks_header = StacksBlockHeader::from_row(row, index+3)?;
         
         if block_height_i64 < 0 {
@@ -174,7 +194,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             microblock_tail: None,
             block_height: block_height_i64 as u64,
             index_root: index_root,
-            burn_block_hash: burn_block_hash
+            burn_header_hash: burn_header_hash
         })
     }
 }
@@ -195,6 +215,11 @@ impl<'a> ClarityTx<'a> {
         self.block.commit_block()
     }
 
+    pub fn commit_to_block(self, height: u32, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> () {
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_hash, block_hash);
+        self.block.commit_to_block(&index_block_hash)
+    }
+
     pub fn rollback_block(self) -> () {
         self.block.rollback_block()
     }
@@ -202,11 +227,13 @@ impl<'a> ClarityTx<'a> {
     pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a> {
         &mut self.block
     }
+
+    pub fn get_block_path(&mut self, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> PathBuf {
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_hash, block_hash);
+        self.block.get_marf().get_block_path(&index_block_hash)
+    }
 }
 
-// TODO: need to index Stacks blocks by both burn block hash and block hash, since the same block
-// can be mined on two different burn chain forks (and both must be processed).
-// This affects this code here, as well as burndb.
 const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
     "PRAGMA foreign_keys = ON;",
     r#"
@@ -218,6 +245,7 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
         proof TEXT NOT NULL,
         parent_block TEXT NOT NULL,
         parent_microblock TEXT NOT NULL,
+        parent_microblock_sequence INTEGER NOT NULL,
         tx_merkle_root TEXT NOT NULL,
         state_index_root TEXT NOT NULL,
         microblock_pubkey_hash TEXT NOT NULL,
@@ -230,32 +258,31 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
         -- internal use only
         block_height INTEGER NOT NULL,
         index_root TEXT NOT NULL,                   -- TODO: this might not actually be needed
-        burn_block_hash TEXT UNIQUE NOT NULL,       -- all burn header hashes are guaranteed to be unique
+        burn_header_hash TEXT UNIQUE NOT NULL,       -- all burn header hashes are guaranteed to be unique
 
-        PRIMARY KEY(burn_block_hash,block_hash)
+        PRIMARY KEY(burn_header_hash,block_hash)
     );
     "#,
     r#"
     CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);
-    CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,burn_block_hash,block_hash);
+    CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,burn_header_hash,block_hash);
     "#,
     r#"
     -- scheduled payments
     CREATE TABLE payments(
         address TEXT NOT NULL,
         block_hash TEXT NOT NULL,
-        burn_block_hash TEXT NOT NULL,
+        burn_header_hash TEXT NOT NULL,
         coinbase TEXT NOT NULL,             -- encodes u128
         tx_fees_anchored TEXT NOT NULL,     -- encodes u128
         tx_fees_streamed TEXT NOT NULL,     -- encodes u128
         burns TEXT NOT NULL,                -- encodes u128
         
         -- internal use
-        index_root TEXT NOT NULL,           -- TODO: this might not actually be needed
-        block_height INTEGER NOT NULL,
+        stacks_block_height INTEGER NOT NULL,
 
-        PRIMARY KEY(address,block_hash,burn_block_hash),
-        FOREIGN KEY(index_root,burn_block_hash,block_hash) REFERENCES block_headers(index_root,burn_block_hash,block_hash)
+        PRIMARY KEY(burn_header_hash,block_hash),
+        FOREIGN KEY(burn_header_hash,block_hash) REFERENCES block_headers(burn_header_hash,block_hash)
     );
     "#,
     r#"
@@ -273,10 +300,10 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
         -- internal use only
         block_height INTEGER NOT NULL,
         parent_block_hash TEXT NOT NULL,        -- matches the parent anchored block (and by extension, snapshot and block commit) to which this stream is appended
-        parent_burn_block_hash TEXT NOT NULL,   -- matches the parent anchored block
+        parent_burn_header_hash TEXT NOT NULL,   -- matches the parent anchored block
         
-        PRIMARY KEY(microblock_hash,parent_block_hash,parent_burn_block_hash),
-        FOREIGN KEY(parent_burn_block_hash,parent_block_hash) REFERENCES block_headers(burn_block_hash,block_hash)
+        PRIMARY KEY(microblock_hash,parent_block_hash,parent_burn_header_hash),
+        FOREIGN KEY(parent_burn_header_hash,parent_block_hash) REFERENCES block_headers(burn_header_hash,block_hash)
     );
     "#,
     r#"
@@ -354,9 +381,9 @@ impl StacksChainState {
         Ok(conn)
     }
     
-    fn open_index(index_root: &str) -> Result<MARF, Error> {
-        test_debug!("Open index at {}", index_root);
-        let marf = MARF::from_path(index_root).map_err(|e| Error::DBError(db_error::IndexError(e)))?;
+    fn open_index(marf_path: &str) -> Result<MARF, Error> {
+        test_debug!("Open MARF index at {}", marf_path);
+        let marf = MARF::from_path(marf_path).map_err(|e| Error::DBError(db_error::IndexError(e)))?;
         Ok(marf)
     }
     
@@ -393,16 +420,40 @@ impl StacksChainState {
 
         path.push(chain_id_str);
         let root_path_str = path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
-        let (db_path, index_path) = db_mkdirs(&root_path_str).map_err(Error::DBError)?;
 
-        path.push("blocks");
         StacksChainState::mkdirs(&path)?;
 
-        let blocks_path = path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
-        let headers_db = StacksChainState::open_headers_db(mainnet, chain_id, &db_path, &index_path)?;
-        let index = StacksChainState::open_index(&index_path)?;
+        let mut blocks_path = path.clone();
 
-        let vm_state = sqlite_marf(path_str, None).map_err(Error::ClarityInterpreterError)?;
+        blocks_path.push("blocks");
+        StacksChainState::mkdirs(&blocks_path)?;
+
+        let blocks_path_root = blocks_path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
+
+        blocks_path.push("staging.db");
+        let blocks_db_path = blocks_path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
+
+        let mut headers_path = path.clone();
+
+        headers_path.push("vm");
+        StacksChainState::mkdirs(&headers_path)?;
+
+        headers_path.push("headers.db");
+        let headers_db_path = headers_path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
+
+        headers_path.pop();
+        headers_path.push("clarity");
+        let headers_index_root = headers_path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
+
+        headers_path.push("marf");
+        let headers_index_marf = headers_path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
+
+        let headers_db = StacksChainState::open_headers_db(mainnet, chain_id, &headers_db_path, &headers_index_marf)?;
+        let blocks_db = StacksChainState::open_blocks_db(&blocks_db_path)?;
+
+        let headers_index = StacksChainState::open_index(&headers_index_marf)?;
+
+        let vm_state = sqlite_marf(&headers_index_root, None).map_err(Error::ClarityInterpreterError)?;
         let clarity_state = ClarityInstance::new(vm_state);
         
         Ok(StacksChainState {
@@ -410,9 +461,9 @@ impl StacksChainState {
             chain_id: chain_id,
             clarity_state: clarity_state,
             headers_db: headers_db,
-            headers_index: index,
-            blocks_path: blocks_path,
-            db_path: path_str.to_string()
+            blocks_db: blocks_db,
+            headers_index: headers_index,
+            blocks_path: blocks_path_root,
         })
     }
 
@@ -425,8 +476,14 @@ impl StacksChainState {
     }
     
     /// Begin a transaction against the (indexed) stacks chainstate DB.
-    pub fn tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
+    pub fn headers_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
         let tx = self.headers_db.transaction().map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        Ok(StacksDBTx::new(tx, &mut self.headers_index, ()))
+    }
+    
+    /// Begin a transaction against our staging block index DB.
+    pub fn blocks_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
+        let tx = self.blocks_db.transaction().map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
         Ok(StacksDBTx::new(tx, &mut self.headers_index, ()))
     }
 
@@ -435,11 +492,11 @@ impl StacksChainState {
         let conf = self.config();
 
         // mix burn header hash and stacks block header hash together, since the stacks block hash
-        // it nos guaranteed to be globally unique (but the burn header hash _is_).
+        // it not guaranteed to be globally unique (but the burn header hash _is_).
         let parent_index_block = 
-            if *parent_block == TrieFileStorage::block_sentinel() {
+            if *parent_block == BlockHeaderHash([0u8; 32]) {
                 // begin first-ever block
-                parent_block.clone()
+                TrieFileStorage::block_sentinel()
             }
             else {
                 // subsequent block
@@ -447,46 +504,46 @@ impl StacksChainState {
             };
 
         let new_index_block = StacksBlockHeader::make_index_block_hash(new_burn_hash, new_block);
+
+        debug!("Begin processing Stacks block off of {}/{}", parent_burn_hash.to_hex(), parent_block.to_hex());
+        test_debug!("Child MARF index root:  {} = {} + {}", new_index_block.to_hex(), new_burn_hash.to_hex(), new_block.to_hex());
+        test_debug!("Parent MARF index root: {} = {} + {}", parent_burn_hash.to_hex(), parent_block.to_hex(), parent_index_block.to_hex());
+
         let clarity_tx = self.clarity_state.begin_block(&parent_index_block, &new_index_block);
+
+        test_debug!("Got clarity TX!");
         ClarityTx {
             block: clarity_tx,
             config: conf
         }
     }
-    
-    /// Add fork-indexed fields.
-    /// Nothing special here; we only need to store the height <--> index-block-hash mapping.
-    fn index_add_fork_info<'a>(tx: &mut StacksDBTx<'a>, parent_tip: &StacksBlockHeader, parent_burn_block: &BurnchainHeaderHash, new_tip: &StacksBlockHeader, new_burn_block: &BurnchainHeaderHash) -> Result<TrieHash, Error> {
-        let parent_block_hash = parent_tip.index_block_hash(parent_burn_block);
-        let new_block_hash = new_tip.index_block_hash(new_burn_block);
-
-        tx.put_indexed_begin(&parent_block_hash, &new_block_hash).map_err(Error::DBError)?;
-        let root_hash = tx.put_indexed_all(&vec![], &vec![]).map_err(Error::DBError)?;
-        tx.indexed_commit().map_err(Error::DBError)?;
-        Ok(root_hash)
-    }
-
+   
     /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
     /// Return the new Stacks header info.
     pub fn advance_tip(&mut self, parent_tip: &StacksBlockHeader, parent_burn_block: &BurnchainHeaderHash, parent_block_height: u64, new_tip: &StacksBlockHeader, new_burn_block: &BurnchainHeaderHash, block_reward: &MinerPaymentSchedule) -> Result<StacksHeaderInfo, Error> {
-        assert_eq!(new_tip.parent_block, parent_tip.block_hash());
+        if new_tip.parent_block != BlockHeaderHash([0u8; 32]) {
+            // not the first-ever block, so linkage must occur
+            assert_eq!(new_tip.parent_block, parent_tip.block_hash());
+        }
         let new_tip_block_height = parent_block_height.checked_add(1).expect("Block height overflow");
 
-        let mut tx = self.tx_begin()?;
-        let root_hash = StacksChainState::index_add_fork_info(&mut tx, parent_tip, parent_burn_block, new_tip, new_burn_block)?;
+        let mut tx = self.headers_tx_begin()?;
+        let root_hash = tx.get_root_hash_at(&new_tip.index_block_hash(new_burn_block)).map_err(Error::DBError)?;
 
         let new_tip_info = StacksHeaderInfo {
             anchored_header: new_tip.clone(),
             microblock_tail: None,
             index_root: root_hash,
             block_height: new_tip_block_height,
-            burn_block_hash: new_burn_block.clone()
+            burn_header_hash: new_burn_block.clone()
         };
 
         StacksChainState::insert_stacks_block_header(&mut tx, &new_tip_info)?;
         StacksChainState::insert_miner_payment_schedule(&mut tx, &new_tip_info, block_reward)?;
 
         tx.commit().map_err(Error::DBError)?;
+        
+        debug!("Advanced to new tip! {}/{}", new_burn_block.to_hex(), new_tip.block_hash());
         Ok(new_tip_info)
     }
 }
@@ -506,6 +563,11 @@ pub mod test {
             Err(_) => {}
         };
 
+        StacksChainState::open(mainnet, chain_id, &path).unwrap()
+    }
+
+    pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
+        let path = format!("/tmp/blockstack-test-chainstate-{}", test_name);
         StacksChainState::open(mainnet, chain_id, &path).unwrap()
     }
 
