@@ -114,6 +114,12 @@
   ((name (buff 20)) (namespace (buff 20)))
   ((content (buff 40960))))
 
+(define-private (min (a uint) (b uint))
+  (if (<= a b) a b))
+
+(define-private (max (a uint) (b uint))
+  (if (> a b) a b))
+
 (define-private (compute-namespace-price (namespace (buff 20)))
   u0)
 ;;  (let ((namespace-len (fold increment-len namespace 0)))
@@ -122,6 +128,90 @@
 ;;      (err err-namespace-blank))
     ;; todo(ludo): feature request?
 ;;    (get-i namespace-len namespace-price-table)))
+(define-private (element-at (i uint) (acc (tuple (limit uint) (cursor uint) (value uint))))
+  (if (eq? (get cursor acc) (get limit acc))
+    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (value i))
+    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (value (get value acc)))))
+  
+(define-private (get-exp-at-index (buckets (list 16 uint)) (index uint))
+  (get value (fold element-at buckets (tuple (limit index) (cursor u0) (value u0)))))
+
+;; todo(ludo): feature request (and (>= char 0x30) (<= char 0x39)) ?
+(define-private (is-digit (char (buff 1)))
+  (or 
+    (eq? char "0") 
+    (eq? char "1") 
+    (eq? char "2") 
+    (eq? char "3") 
+    (eq? char "4") 
+    (eq? char "5") 
+    (eq? char "6") 
+    (eq? char "7") 
+    (eq? char "8") 
+    (eq? char "9")))
+
+(define-private (is-downcased-alpha (char (buff 1)))
+  (or 
+    (eq? char "a") 
+    (eq? char "b") 
+    (eq? char "c") 
+    (eq? char "d") 
+    (eq? char "e") 
+    (eq? char "f") 
+    (eq? char "g") 
+    (eq? char "h") 
+    (eq? char "i") 
+    (eq? char "j") 
+    (eq? char "k") 
+    (eq? char "l") 
+    (eq? char "m") 
+    (eq? char "n") 
+    (eq? char "o") 
+    (eq? char "p") 
+    (eq? char "q") 
+    (eq? char "r") 
+    (eq? char "s") 
+    (eq? char "t") 
+    (eq? char "u") 
+    (eq? char "v") 
+    (eq? char "w") 
+    (eq? char "x") 
+    (eq? char "y") 
+    (eq? char "z")))
+
+(define-private (is-vowel (char (buff 1)))
+  (or 
+    (eq? char "a") 
+    (eq? char "e") 
+    (eq? char "i") 
+    (eq? char "o") 
+    (eq? char "u") 
+    (eq? char "y")))
+
+(define-private (is-special-char (char (buff 1)))
+  (or 
+    (eq? char "-") 
+    (eq? char "_")))
+
+(define-private (is-char-valid (char (buff 1)))
+  (or 
+    (is-downcased-alpha char)
+    (is-digit char)
+    (is-special-char char)))
+
+(define-private (is-nonalpha (char (buff 1)))
+  (or 
+    (is-digit char)
+    (is-special-char char)))
+
+(define-private (has-vowels-chars (name (buff 16)))
+  (> (len (filter is-vowel name)) u0))
+
+(define-private (has-nonalpha-chars (name (buff 16)))
+  (> (len (filter is-nonalpha name)) u0))
+
+(define-private (has-invalid-chars (name (buff 20)))
+  (< (len (filter is-char-valid name)) (len name)))
 
 (define-private (compute-name-price (name (buff 16))
                                     (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint))))
