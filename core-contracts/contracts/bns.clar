@@ -437,14 +437,24 @@
 ;; and it pays the registration fee to the namespace owner's designated address
 (define-public (name-preorder (hashed-fqn (buff 20))
                               (stx-to-burn uint))
-  (begin
-    (asserts!
-      (is-none? (map-get name-preorders ((hashed-fqn hashed-fqn) (buyer tx-sender)))) ;; todo(ludo): tx-sender or contract-caller?
-      (err err-namespace-preorder-already-exists))
-    ;; Burn the tokens
-    ;; todo(ludo): we are missing stx-burn! native function
+  (let 
+    ((former-preorder 
+      (map-get name-preorders ((hashed-fqn hashed-fqn) (buyer tx-sender)))))
+    ;; Ensure eventual former pre-order expired 
+    (asserts! 
+      (if (is-none? former-preorder)
+        'true
+        (>= block-height (+ name-preorder-claimability-ttl ;; todo(ludo): settle on [created-at created-at+ttl[ or [created-at created-at+ttl]
+                            (expects! (get created-at former-preorder) (err err-panic)))))
+      (err err-name-preorder-already-exists))
+          (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))    
+    ;; Ensure that the hashed fqn is 20 bytes long
+    (asserts! (eq? (len hashed-fqn) u20) (err err-name-hash-malformed))
+    ;; Ensure that user will be burning a positive amount of tokens
+    (asserts! (> stx-to-burn u0) (err err-name-stx-burnt-insufficient))
     ;; Burn the tokens - todo(ludo): switch to native STX once available
     (expects! (ft-transfer! stx stx-to-burn tx-sender burn-address) (err err-insufficient-funds)) ;; todo(ludo): tx-sender or contract-caller?
+    ;; Register the pre-order
     (map-set! name-preorders
       ((hashed-fqn hashed-fqn) (buyer tx-sender))
       ((created-at block-height) (stx-burned stx-to-burn) (claimed 'false)))
