@@ -655,7 +655,62 @@
        (revoked-at none)))
     (ok 'true)))
 
+;; Additionals public methods
 
+(define-public (can-name-be-registered (namespace (buff 20)) (name (buff 16)))
+  (let (
+      (wrapped-name-props (map-get name-properties ((namespace namespace) (name name))))
+      (current-owner (map-get owner-name ((owner tx-sender))))
+      (namespace-props (expects! (map-get namespaces ((namespace namespace))) (ok 'false))))
+    ;; Ensure that namespace has been launched 
+    (expects! (get launched-at namespace-props) (ok 'false))
+    ;; Early return - Name has never be minted
+    (asserts! (is-none? (nft-get-owner names (tuple (name name) (namespace namespace)))) (ok 'true))
+    ;; Integrity check - Ensure that we have some entries in nft && owner-name && name-props
+    (asserts! 
+      (and 
+        (not (is-none? wrapped-name-props))
+        (not (is-none? current-owner)))
+      (err err-panic))
+    (let ((name-props (expects! wrapped-name-props (err err-panic))))
+      ;; Early return - Name has been revoked and can be registered
+      (asserts! (not (is-none? (get revoked-at name-props))) (ok 'true))
+      ;; Integrity check - Ensure that the name was either "imported" or "registered".
+      (asserts! 
+        (or 
+          (and (not (is-none? (get registered-at name-props))) (is-none? (get imported-at name-props)))
+          (and (not (is-none? (get imported-at name-props))) (is-none? (get registered-at name-props))))
+        (err err-panic))
+      ;; Ensure that name was not imported (vs registered) - no expiration
+      (asserts! (is-none? (get registered-at name-props)) (ok 'false))
+      ;; Is lease expired?
+      (ok (> block-height (+ name-lease-duration (expects! (get registered-at name-props) (err err-panic))))))))
+
+(define-public (get-name-zonefile (namespace (buff 20)) (name (buff 16)))
+  (let (
+    (owner (expects!
+      (nft-get-owner names (tuple (name name) (namespace namespace)))
+      (err err-name-not-found))) ;; The name must exist
+    (name-props (expects!
+      (map-get name-properties ((name name) (namespace namespace)))
+      (err err-name-not-found)))
+    (is-lease-expired (is-name-lease-expired namespace name)))
+    ;; The name must not be expired
+    (if (is-ok? is-lease-expired)
+      (asserts! (not (expects! is-lease-expired (err err-panic))) (err err-name-expired))
+      'true)
+    ;; The name must not be in the renewal grace period
+    (asserts!
+      (eq? (is-name-in-grace-period namespace name) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
+      (err err-name-grace-period))
+    ;; The name must not be revoked
+    (asserts!
+      (is-none? (get revoked-at name-props))
+      (err err-name-revoked))
+    ;; Get the zonefile
+    (ok (expects! 
+      (get content (map-get zonefiles ((namespace namespace) (name name))))
+      (err 9)))))
 
 ;; todo(ludo): to be removed
 (begin
