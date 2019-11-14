@@ -28,6 +28,10 @@ use std::io::{
     Cursor
 };
 
+use std::path::{
+    PathBuf
+};
+
 use std::marker::PhantomData;
 use std::fs;
 
@@ -220,7 +224,7 @@ impl MARF {
                     match e {
                         Error::NotFoundError => {
                             // bring root forward
-                            trace!("Extend {:?} to {:?}", &cur_bhh, new_bhh);
+                            debug!("Extend {:?} to {:?}", &cur_bhh, new_bhh);
                             storage.open_block(&cur_bhh)?;
                             storage.extend_to_block(new_bhh)?;
                             MARF::root_copy(storage, &cur_bhh)?;
@@ -641,13 +645,18 @@ impl MARF {
 
         // new chain tip must not exist
         if self.storage.open_block(next_chain_tip).is_ok() {
+            error!("Block data already exists: {}", next_chain_tip.to_hex());
             return Err(Error::ExistsError);
         }
 
         // current chain tip must exist if it's not the "sentinel"
         let is_parent_sentinel = chain_tip == &TrieFileStorage::block_sentinel();
         if !is_parent_sentinel {
+            trace!("Extending off of existing node {}", chain_tip.to_hex());
             self.storage.open_block(chain_tip)?;
+        }
+        else {
+            trace!("First-ever block {}", next_chain_tip.to_hex());
         }
 
         let block_height = 
@@ -683,6 +692,28 @@ impl MARF {
         match self.open_chain_tip.take() {
             Some(_tip) => {
                 self.storage.flush()?;
+            },
+            None => {}
+        };
+        Ok(())
+    }
+    
+    /// Finish writing the next trie in the MARF, but change the hash of the current Trie's 
+    /// block hash to something other than what we opened it as.  This persists all changes.
+    pub fn commit_to(&mut self, real_bhh: &BlockHeaderHash) -> Result<(), Error> {
+        if self.open_chain_tip.is_some() {
+            // re-set the internal block height <--> hash map to the block hash we'll write
+            // this under.
+            let height = match self.open_chain_tip {
+                Some(ref tip) => tip.height,
+                None => unreachable!()
+            };
+            self.set_block_height(real_bhh, height)?;
+        }
+
+        match self.open_chain_tip.take() {
+            Some(_tip) => {
+                self.storage.flush_to(Some(real_bhh))?;
             },
             None => {}
         };
@@ -748,6 +779,11 @@ impl MARF {
         // restore
         self.storage.open_block(&cur_block_hash)?;
         root_hash_res
+    }
+
+    /// Get the path to a block's trie
+    pub fn get_block_path(&self, block_hash: &BlockHeaderHash) -> PathBuf {
+        TrieFileStorage::block_path(&self.storage.dir_path, block_hash)
     }
 }
 
@@ -1876,6 +1912,101 @@ mod test {
                 block_table = Some(
                     merkle_test_marf_key_value(m.borrow_storage_backend(), &expected_chain_tips[k], &key, &expected_value, block_table));
             }
+        }
+    }
+
+    #[test]
+    fn marf_insert_flush_to_different_block() {
+        let path = "/tmp/marf_insert_flush_to_different_block".to_string();
+        let f = TrieFileStorage::new_overwrite(&path).unwrap();
+        let target_block = BlockHeaderHash([1u8; 32]);
+        let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+        let mut marf = MARF::from_storage(f);
+        marf.begin(&TrieFileStorage::block_sentinel(), &target_block).unwrap();
+
+        let mut root_table_cache = None;
+
+        let mut blocks = vec![];
+        let count = 256 * 8;
+
+        for i in 0..count {
+            let i0 = i / 256;
+            let i1 = i % 256;
+            let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
+            let next_block_header = 
+                if (i + 1) % 256 == 0 {
+                    // next block 
+                    Some(BlockHeaderHash::from_bytes(&[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,i0 as u8, i1 as u8])).unwrap()
+                } else {
+                    None
+                };
+
+            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
+            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
+
+            if let Some(next_block_header) = next_block_header {
+                marf.commit_to(&block_header).unwrap();
+                marf.begin(&block_header, &target_block).unwrap();
+                blocks.push(block_header.clone());
+                block_header = next_block_header;
+            }
+
+            marf.insert_raw(triepath, value.clone()).unwrap();
+            
+            // all I/O happens off the target block
+            let read_value = MARF::get_path(marf.borrow_storage_backend(), &target_block,
+                                            &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
+
+            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
+            assert_eq!(marf.borrow_storage_backend().get_cur_block(), target_block);
+
+            // can prove off of the target block
+            root_table_cache = Some(
+                merkle_test_marf(marf.borrow_storage_backend(), &target_block, &path.to_vec(), &value.data.to_vec(), root_table_cache));
+        }
+
+        let num_blocks = blocks.len();
+        block_header = blocks[num_blocks - 1].clone();
+
+        for (i, block) in blocks.iter().enumerate() {
+            test_debug!("Verify block height and hash at {} {}", i, block);
+            assert_eq!(MARF::get_block_height(marf.borrow_storage_backend(), block, &block_header).unwrap(),
+                       Some(i as u32));
+            assert_eq!(MARF::get_block_at_height(marf.borrow_storage_backend(), i as u32, &block_header).unwrap(),
+                       Some(block.clone()));
+        }
+
+        root_table_cache = None;
+
+        for i in 0..count {
+            let i0 = i / 256;
+            let i1 = i % 256;
+            let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
+
+            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
+            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
+
+            // all but the final value are dangling off of block_header.
+            // the last value is dangling off of target_block.
+
+            let read_from_block = 
+                if i == count - 1 {
+                    target_block.clone()
+                }
+                else {
+                    block_header.clone()
+                };
+
+            // all I/O happens off the final block header
+            test_debug!("{}: Get {} off of {}", i, &triepath.to_hex(), &read_from_block.to_hex());
+            let read_value = MARF::get_path(marf.borrow_storage_backend(), &read_from_block,
+                                            &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
+
+            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
+            
+            // can make a merkle proof to each one using the final committed block header
+            root_table_cache = Some(
+                merkle_test_marf(marf.borrow_storage_backend(), &read_from_block, &path.to_vec(), &value.data.to_vec(), root_table_cache));
         }
     }
 }
