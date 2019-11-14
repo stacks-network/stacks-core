@@ -15,12 +15,13 @@
 (define-constant err-namespace-stx-burnt-insufficient 1012)
 (define-constant err-namespace-blank 1013)
 (define-constant err-namespace-already-launched 1014)
+(define-constant err-namespace-hash-malformed 1015)
+(define-constant err-namespace-charset-invalid 1016)
 
 (define-constant err-name-preorder-not-found 2001)
 (define-constant err-name-preorder-expired 2002)
 (define-constant err-name-preorder-funds-insufficient 2003)
 (define-constant err-name-unavailable 2004)
-(define-constant err-name-namespace-not-found 2005)
 (define-constant err-name-operation-unauthorized 2006)
 (define-constant err-name-stx-burnt-insufficient 2007)
 (define-constant err-name-expired 2008)
@@ -31,52 +32,35 @@
 (define-constant err-name-not-found 2013)
 (define-constant err-name-revoked 2014)
 (define-constant err-name-transfer-failed 2015)
+(define-constant err-name-preorder-already-exists 2016)
+(define-constant err-name-hash-malformed 2017)
+(define-constant err-name-preordered-before-namespace-launch 2018)
+(define-constant err-name-was-not-registered 2019)
+(define-constant err-name-could-not-be-minted 2020)
+(define-constant err-name-could-not-be-transfered 2021)
+(define-constant err-name-charset-invalid 2022)
 
 (define-constant err-principal-already-associated 3001)
 (define-constant err-not-implemented 0)
+(define-constant err-insufficient-funds 4001)
 
 ;;;; Constants
+(define-constant burn-address 'S0000000000000000000002AA028H)
 
 ;; TTL
 ;; todo(ludo): add real values
 (define-constant namespace-preorder-claimability-ttl u10)
 (define-constant namespace-launchability-ttl u10)
 (define-constant name-preorder-claimability-ttl u10)
+(define-constant name-lease-duration u10)
 
 ;; Price tables
-;; todo(ludo): how do we adjust stx-price?
-(define-constant stx-to-usd-cents 15)
-(define-constant stx-to-micro-stx 1000000)
-(define-constant namespace-1-char (/ (* 96000 stx-to-micro-stx) stx-to-usd-cents))
-(define-constant namespace-2-to-3-char (/ (* 9600 stx-to-micro-stx) stx-to-usd-cents))
-(define-constant namespace-4-to-7-char (/ (* 960 stx-to-micro-stx) stx-to-usd-cents))
-(define-constant namespace-8-to-20-char (/ (* 96 stx-to-micro-stx) stx-to-usd-cents))
-(define-constant namespace-price-table (list
-  namespace-1-char
-  namespace-2-to-3-char
-  namespace-2-to-3-char
-  namespace-4-to-7-char
-  namespace-4-to-7-char
-  namespace-4-to-7-char
-  namespace-4-to-7-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char
-  namespace-8-to-20-char))
-;; todo(ludo): "a" vs "A"?
-(define-constant discounted-vowels (list
-  "a" "e" "i" "o" "u" "y"))
-(define-constant discounted-non-alpha-chars (list
-  "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "-" "_"))
+;; todo(ludo): should we have some kind of oracle, for stabilizing name's prices?
+(define-constant namespace-prices-tiers (list
+  u96000 
+  u9600 u9600 
+  u960 u960 u960 u960 
+  u96 u96 u96 u96 u96 u96 u96 u96 u96 u96 u96 u96 u96))
 
 ;; todo(ludo): feature request?
 ;; (define-type price-function-type (tuple (buckets (list 16 uint))
