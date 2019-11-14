@@ -108,8 +108,6 @@
   ((name (buff 16)) (namespace (buff 20)))
   ((content (buff 40960)) (updated-at uint)))
 
-;; todo(ludo): implement sponsored names, but need a back and forth with the team on the strategy:
-;; are we splitting FQNs on-chain, or keep passing components (namespace/name/sponsored_name).
 (define-map sponsors
   ((name (buff 20)) (namespace (buff 20)))
   ((content (buff 40960))))
@@ -232,16 +230,6 @@
 ;; todo(ludo): to implement
 (define-private (is-name-in-grace-period (namespace (buff 20)) (name (buff 16)))
   'false)
-
-;; todo(ludo): to implement
-(define-private (buff-lowercased (namespace (buff 20)))
-  namespace)
-
-(define-private (is-buyer-already-owning-name (owner principal))
-  'true)
-
-(define-private (can-user-own-name (owner principal))
-  'true)
 
 ;;;; NAMESPACES
 
@@ -449,7 +437,7 @@
       (asserts!
         (> (get stx-burned preorder) (compute-name-price name (get price-function namespace-props)))
         (err err-name-stx-burnt-insufficient))
-      ;; The principal can buy a name
+      ;; The principal can register a name
       (asserts!
         can-sender-buy-name
         (err err-principal-already-associated))
@@ -543,8 +531,6 @@
       (asserts!
         can-new-owner-get-name
         (err err-principal-already-associated))
-      ;; Burn the tokens
-      ;; todo(ludo): missing stx-to-burn
       ;; Transfer the name
       (expects!
         (nft-transfer! names
@@ -590,7 +576,7 @@
     (asserts!
       (is-none? (get revoked-at name-props))
       (err err-name-revoked))
-    ;; Update the zonefile
+    ;; Delete the zonefile
     (map-set! name-properties
       ((namespace namespace) (name name))
       ((registered-at (get registered-at name-props))
@@ -669,23 +655,11 @@
        (revoked-at none)))
     (ok 'true)))
 
-;; SPONSORED_NAME_REGISTER_BATCH
-;;(define-public sponsored-name-register-batch
-;;  (err err-not-implemented))
 
-;; SPONSORED_NAME_UPDATE
-;;(define-public sponsored-name-update
-;;  (err err-not-implemented))
 
-;; SPONSORED_NAME_TRANSFER
-;;(define-public sponsored-name-transfer
-;;  (err err-not-implemented))
 ;; todo(ludo): to be removed
 (begin
   (ft-mint! stx u10000000000 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7)
   (ft-mint! stx u10000000 'S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE)
   (ft-mint! stx u10000000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))
 
-;; SPONSORED_NAME_REVOKE
-;;(define-public sponsored-name-revoke
-;;  (err err-not-implemented))
