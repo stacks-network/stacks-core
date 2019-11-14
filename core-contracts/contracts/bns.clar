@@ -39,10 +39,11 @@
 (define-constant err-name-could-not-be-minted 2020)
 (define-constant err-name-could-not-be-transfered 2021)
 (define-constant err-name-charset-invalid 2022)
+(define-constant err-name-not-resolvable 2023)
 
 (define-constant err-principal-already-associated 3001)
-(define-constant err-not-implemented 0)
 (define-constant err-insufficient-funds 4001)
+(define-constant err-zonefile-not-found 5001)
 
 ;;;; Constants
 (define-constant burn-address 'S0000000000000000000002AA028H)
@@ -653,13 +654,25 @@
       (map-set! owner-name
         ((owner new-owner))
         ((namespace namespace) (name name)))
-      ;; Update the zonefile, if any.
+      ;; todo(ludo): can you transfer an imported name? what is the expected behavior?
       (if (is-none? zonefile-content)
-        'true
-        (map-set! zonefiles
+        (map-set! name-properties
           ((namespace namespace) (name name))
-          ((updated-at block-height)
-          (content (expects! zonefile-content (err err-panic))))))
+          ((registered-at (get registered-at name-props))
+          (imported-at (get imported-at name-props))
+          (revoked-at (get revoked-at name-props))
+          (zonefile-hash 0x00)))
+        (let ((new-zonefile-content (expects! zonefile-content (err err-panic))))
+          (map-set! zonefiles
+            ((namespace namespace) (name name))
+            ((updated-at block-height)
+            (content new-zonefile-content)))
+          (map-set! name-properties
+            ((namespace namespace) (name name))
+            ((registered-at (get registered-at name-props))
+            (imported-at (get imported-at name-props))
+            (revoked-at (get revoked-at name-props))
+            (zonefile-hash (hash160 new-zonefile-content))))))
       (ok 'true))))
 
 ;; NAME_REVOKE
@@ -699,7 +712,7 @@
       ((registered-at none)
        (imported-at none)
        (revoked-at (some block-height))
-       (zonefile-hash 0x0000000000000000000000000000000000000000)))
+       (zonefile-hash 0x00)))
     (ok 'true)))
 
 ;; NAME_RENEWAL
@@ -817,7 +830,6 @@
       ;; Is lease expired?
       (is-name-lease-expired namespace name))))
 
-
 (define-public (name-resolve (namespace (buff 19)) (name (buff 16)))
   (let (
     (owner (expects!
@@ -826,23 +838,28 @@
     (name-props (expects!
       (map-get name-properties ((name name) (namespace namespace)))
       (err err-name-not-found)))
-    (is-lease-expired (is-name-lease-expired namespace name)))
+    (is-lease-expired (is-name-lease-expired namespace name))
+    (zonefile-content (expects!
+      (get content (map-get zonefiles ((namespace namespace) (name name))))
+      (err err-zonefile-not-found))))
     ;; The name must not be expired
     (if (is-ok? is-lease-expired)
       (asserts! (not (expects! is-lease-expired (err err-panic))) (err err-name-expired))
       'true)
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eq? (is-name-in-grace-period namespace name) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
+      (eq? (is-name-in-grace-period namespace name) 'false)
       (err err-name-grace-period))
     ;; The name must not be revoked
     (asserts!
       (is-none? (get revoked-at name-props))
       (err err-name-revoked))
+    ;; The zonefile hash and the zonefile must match
+    (asserts!
+      (eq? (hash160 zonefile-content) (get zonefile-hash name-props))
+      (err err-name-not-resolvable))
     ;; Get the zonefile
-    (ok (expects! 
-      (get content (map-get zonefiles ((namespace namespace) (name name))))
-      (err 9)))))
+    (ok zonefile-content)))
 
 ;; todo(ludo): to be removed
 (begin
