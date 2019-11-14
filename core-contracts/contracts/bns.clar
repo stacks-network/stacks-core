@@ -92,8 +92,8 @@
   ((name (buff 16)) (namespace (buff 20)))
   ((registered-at (optional uint))
    (imported-at (optional uint))
-   (revoked-at (optional uint))))
-;; todo(ludo): bind a hash of the zonefile
+   (revoked-at (optional uint))
+   (zonefile-hash (buff 20))))
 
 (define-map name-preorders
   ((hashed-fqn (buff 20)) (buyer principal))
@@ -394,7 +394,8 @@
       ((namespace namespace) (name name))
       ((registered-at none)
        (imported-at (some block-height))
-       (revoked-at none)))
+       (revoked-at none)
+       (zonefile-hash (hash160 zonefile-content))))
     ;; Import the zonefile
     (map-set! zonefiles
       ((namespace namespace) (name name))
@@ -542,7 +543,8 @@
         ((namespace namespace) (name name))
         ((registered-at (some block-height))
         (imported-at none)
-        (revoked-at none)))
+        (revoked-at none)
+        (zonefile-hash (hash160 zonefile-content))))
       (map-set! owner-name
         ((owner tx-sender))
         ((namespace namespace) (name name)))
@@ -675,11 +677,12 @@
       (err err-name-revoked))
     ;; Delete the zonefile
     (map-delete! zonefiles ((namespace namespace) (name name)))
-    (map-set! name-properties
+    (map-delete! name-properties
       ((namespace namespace) (name name))
       ((registered-at none)
        (imported-at none)
-       (revoked-at (some block-height)))) ;; todo(ludo): should we just delete the entry?
+       (revoked-at (some block-height))
+       (zonefile-hash 0x0000000000000000000000000000000000000000)))
     (ok 'true)))
 
 ;; NAME_RENEWAL
@@ -742,17 +745,23 @@
             (ok 'true)))))
         ;; Update the zonefile, if any.
     (if (is-none? zonefile-content)
-      'false
-      (map-set! zonefiles
+      (map-set! name-properties
         ((namespace namespace) (name name))
-        ((updated-at block-height)
-         (content (expects! zonefile-content (err err-panic))))))
-    ;; Update the name's properties
-    (map-set! name-properties
-      ((namespace namespace) (name name))
-      ((registered-at (some block-height))
-       (imported-at none)
-       (revoked-at none)))
+        ((registered-at (some block-height))
+         (imported-at none)
+         (revoked-at none)
+         (zonefile-hash (get zonefile-hash name-props))))
+      (let ((new-zonefile-content (expects! zonefile-content (err err-panic))))
+        (map-set! zonefiles
+          ((namespace namespace) (name name))
+          ((updated-at block-height)
+           (content new-zonefile-content)))
+        (map-set! name-properties
+          ((namespace namespace) (name name))
+          ((registered-at (some block-height))
+          (imported-at none)
+          (revoked-at none)
+          (zonefile-hash (hash160 new-zonefile-content))))))
     (ok 'true)))
 
 ;; Additionals public methods
