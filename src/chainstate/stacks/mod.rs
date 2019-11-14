@@ -20,9 +20,9 @@
 pub mod address;
 pub mod auth;
 pub mod block;
-// pub mod db;
+pub mod db;
 pub mod index;
-// pub mod miner;
+pub mod miner;
 pub mod transaction;
 
 use std::fmt;
@@ -44,8 +44,10 @@ use util::secp256k1::MessageSignature;
 
 use address::AddressHashMode;
 use burnchains::Txid;
+use burnchains::BurnchainHeaderHash;
 
 use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::operations::LeaderBlockCommitOp;
 
 use chainstate::stacks::index::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use chainstate::stacks::index::Error as marf_error;
@@ -639,6 +641,7 @@ pub struct StacksBlockBuilder {
     pub header: StacksBlockHeader,
     pub txs: Vec<StacksTransaction>,
     pub micro_txs: Vec<StacksTransaction>,
+    parent_commit_burn_header_hash: BurnchainHeaderHash,
     anchored_done: bool,
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
