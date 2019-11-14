@@ -28,11 +28,11 @@ pub fn get_variable_lookup_cost(name: &str, context_depth: u64) -> CheckResult<E
     Ok(lookup_cost)
 }
 
-pub fn parse_type_cost(type_description: &SymbolicExpression) -> CheckResult<ExecutionCost> {
+pub fn get_expression_size(expr: &SymbolicExpression) -> CheckResult<u64> {
     let mut tot_size: u64 = 0;
 
     let traversal_result: CheckResult<()> = depth_traverse(
-        type_description,
+        expr,
         |e| {
             let expr_size = match &e.expr {
                 SymbolicExpressionType::AtomValue(v) | SymbolicExpressionType::LiteralValue(v) => u64::from(v.size()),
@@ -42,10 +42,26 @@ pub fn parse_type_cost(type_description: &SymbolicExpression) -> CheckResult<Exe
             tot_size = tot_size.cost_overflow_add(expr_size)?;
             Ok(())
         });
-    traversal_result?;
 
+    traversal_result?;
+    Ok(tot_size)
+}
+
+pub fn contract_storage_cost(contract_size: u64) -> CheckResult<ExecutionCost> {
+    let storage_cost_func = SimpleCostSpecification {
+        write_count: CostFunctions::Constant(1),
+        write_length: CostFunctions::Linear(constants::STORE_CONTRACT_LENGTH_A, constants::STORE_CONTRACT_LENGTH_B),
+        read_count: CostFunctions::Constant(1),
+        read_length: CostFunctions::Constant(constants::STORE_CONTRACT_READ_LENGTH),
+        runtime: CostFunctions::Linear(constants::STORE_CONTRACT_RUNTIME_A, constants::STORE_CONTRACT_RUNTIME_B)
+    };
+
+    storage_cost_func.compute_cost(contract_size)
+}
+
+pub fn parse_type_cost(type_description: &SymbolicExpression) -> CheckResult<ExecutionCost> {
     SimpleCostSpecification::new_diskless(CostFunctions::Linear(constants::PARSE_TYPE_A, constants::PARSE_TYPE_B))
-        .compute_cost(tot_size)
+        .compute_cost(get_expression_size(type_description)?)
 }
 
 // this is the cost of parsing a function signature into the type <-> argument mapping and binding the function name

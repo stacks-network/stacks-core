@@ -64,6 +64,12 @@ pub const FUNC_LOOKUP_COST_B: u64 = 1;
 pub const VAR_LOOKUP_COST_A: u64 = 1;
 pub const VAR_LOOKUP_COST_B: u64 = 1;
 
+pub const STORE_CONTRACT_LENGTH_A: u64 = 1;
+pub const STORE_CONTRACT_LENGTH_B: u64 = 1;
+pub const STORE_CONTRACT_RUNTIME_A: u64 = 1;
+pub const STORE_CONTRACT_RUNTIME_B: u64 = 1;
+pub const STORE_CONTRACT_READ_LENGTH: u64 = 1;
+
 pub const PARSE_TYPE_A: u64 = 1;
 pub const PARSE_TYPE_B: u64 = 1;
 

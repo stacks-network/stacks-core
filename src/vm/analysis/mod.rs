@@ -17,6 +17,7 @@ pub use self::analysis_db::{AnalysisDatabase};
 use self::definition_sorter::DefinitionSorter;
 use self::read_only_checker::ReadOnlyChecker;
 use self::type_checker::TypeChecker;
+use self::cost_counter::CostCounter;
 
 #[cfg(test)]
 pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
@@ -51,6 +52,7 @@ pub fn run_analysis(contract_identifier: &QualifiedContractIdentifier,
         DefinitionSorter::run_pass(&mut contract_analysis, db)?;
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         TypeChecker::run_pass(&mut contract_analysis, db)?;
+        CostCounter::run_pass(&mut contract_analysis, db)?;
         if save_contract {
             db.insert_contract(&contract_identifier, &contract_analysis)?;
         }

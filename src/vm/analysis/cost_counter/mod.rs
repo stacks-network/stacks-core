@@ -3,6 +3,9 @@ pub mod costs;
 pub mod natives;
 pub mod common_costs;
 
+#[cfg(test)]
+mod tests;
+
 pub use self::costs::{CostOverflowingMath, ExecutionCost, CostFunctions, CostSpecification, SimpleCostSpecification};
 use self::natives::{SpecialCostType};
 
@@ -116,6 +119,15 @@ impl <'a, 'b> CostCounter <'a, 'b> {
         for exp in self.analysis.expressions_iter() {
             evaluation_cost.add(&self.handle_top_level_expression(exp)?)?;
         }
+
+        // add the cost of _storing_ the contract
+        let mut contract_size = 0;
+        for exp in self.analysis.expressions_iter() {
+            contract_size = contract_size.cost_overflow_add(
+                common_costs::get_expression_size(exp)?)?;
+        }
+
+        evaluation_cost.add(&common_costs::contract_storage_cost(contract_size)?)?;
 
         let contract_cost_analysis = ContractCostAnalysis::from(self.cost_context);
 
@@ -275,3 +287,4 @@ pub fn get_reserved_name_cost(name: &str) -> Option<ExecutionCost> {
         None => None,
     }
 }
+
