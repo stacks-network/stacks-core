@@ -257,10 +257,9 @@ impl <'a, 'b> CostCounter <'a, 'b> {
             AtomValue(ref value) | LiteralValue(ref value) => Ok(ExecutionCost::runtime(value.size() as u64)),
             Atom(ref variable_name) => self.handle_variable_lookup(variable_name),
             List(ref children) => {
-                let (function_expr, args) = children.split_first()
-                    .ok_or(CheckErrors::NonFunctionApplication)?;
+                let (function_expr, args) = children.split_first().expect("Bad function application");
                 let function_name = function_expr.match_atom()
-                    .ok_or(CheckErrors::BadFunctionName)?;
+                    .expect(&format!("Bad function name: {}", function_expr));
                 self.handle_function_application(&function_name, args)
             }
         }

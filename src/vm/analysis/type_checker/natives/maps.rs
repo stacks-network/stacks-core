@@ -9,6 +9,17 @@ use vm::analysis::type_checker::{TypeResult, TypingContext,
                                  check_arguments_at_least,
                                  CheckError, CheckErrors, no_type, TypeChecker};
 
+fn check_and_type_map_arg_tuple(checker: &mut TypeChecker, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
+    match tuples::get_definition_type_of_tuple_argument(expr) {
+        Explicit => checker.type_check(expr, context),
+        Implicit(ref inner_expr) => {
+            let type_result = check_special_tuple_cons(checker, inner_expr, context)?;
+            checker.type_map.set_type(expr, type_result.clone())?;
+            Ok(type_result)
+        }
+    }
+}
+
 pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
 
     check_arguments_at_least(2, args)?;
@@ -18,10 +29,7 @@ pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpr
         
     checker.type_map.set_type(&args[0], no_type())?;
 
-    let key_type = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-        Implicit(ref inner_expr) => check_special_tuple_cons(checker, inner_expr, context)?,
-        Explicit => checker.type_check(&args[1], context)?
-    };
+    let key_type = check_and_type_map_arg_tuple(checker, &args[1], context)?;
 
     let (expected_key_type, value_type) = checker.contract_context.get_map_type(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
@@ -50,10 +58,7 @@ pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[Sym
     checker.type_map.set_type(&args[0], no_type())?;
     checker.type_map.set_type(&args[1], no_type())?;
     
-    let key_type = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
-        Implicit(ref inner_expr) => check_special_tuple_cons(checker, inner_expr, context)?,
-        Explicit => checker.type_check(&args[2], context)?
-    };
+    let key_type = check_and_type_map_arg_tuple(checker, &args[2], context)?;
     
     let (expected_key_type, value_type) = checker.db.get_map_type(&contract_identifier, map_name)?;
 
@@ -74,10 +79,7 @@ pub fn check_special_delete_entry(checker: &mut TypeChecker, args: &[SymbolicExp
 
     checker.type_map.set_type(&args[0], no_type())?;
 
-    let key_type = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-        Implicit(ref inner_expr) => check_special_tuple_cons(checker, inner_expr, context)?,
-        Explicit => checker.type_check(&args[1], context)?
-    };
+    let key_type = check_and_type_map_arg_tuple(checker, &args[1], context)?;
     
     let (expected_key_type, _) = checker.contract_context.get_map_type(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
@@ -97,15 +99,8 @@ pub fn check_special_set_entry(checker: &mut TypeChecker, args: &[SymbolicExpres
     
     checker.type_map.set_type(&args[0], no_type())?;
     
-    let key_type = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-        Implicit(ref inner_expr) => check_special_tuple_cons(checker, inner_expr, context)?,
-        Explicit => checker.type_check(&args[1], context)?
-    };
-
-    let value_type = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
-        Implicit(ref inner_expr) => check_special_tuple_cons(checker, inner_expr, context)?,
-        Explicit => checker.type_check(&args[2], context)?
-    };
+    let key_type = check_and_type_map_arg_tuple(checker, &args[1], context)?;
+    let value_type = check_and_type_map_arg_tuple(checker, &args[2], context)?;
     
     let (expected_key_type, expected_value_type) = checker.contract_context.get_map_type(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
@@ -126,17 +121,10 @@ pub fn check_special_insert_entry(checker: &mut TypeChecker, args: &[SymbolicExp
         .ok_or(CheckErrors::BadMapName)?;
     
     checker.type_map.set_type(&args[0], no_type())?;
-    
-    let key_type = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-        Implicit(ref inner_expr) => check_special_tuple_cons(checker, inner_expr, context)?,
-        Explicit => checker.type_check(&args[1], context)?
-    };
-    
-    let value_type = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
-        Implicit(ref inner_expr) => check_special_tuple_cons(checker, inner_expr, context)?,
-        Explicit => checker.type_check(&args[2], context)?
-    };
-        
+
+    let key_type = check_and_type_map_arg_tuple(checker, &args[1], context)?;
+    let value_type = check_and_type_map_arg_tuple(checker, &args[2], context)?;
+
     let (expected_key_type, expected_value_type) = checker.contract_context.get_map_type(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
     

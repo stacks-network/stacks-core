@@ -3,7 +3,8 @@ use vm::representations::{SymbolicExpression, ClarityName};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
 use vm::types::{Value, PrincipalData, TypeSignature, TupleTypeSignature, FunctionArg, BUFF_32,
                 FunctionType, FixedFunction, parse_name_type_pairs};
-use vm::functions::{NativeFunctions, handle_binding_list};
+use vm::functions::{NativeFunctions, handle_binding_list, tuples};
+use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 use vm::functions::define::DefineFunctionsParsed;
 use vm::variables::NativeVariables;
 use vm::MAX_CONTEXT_DEPTH;
@@ -126,6 +127,29 @@ pub fn get_native_function_cost_spec(func: &NativeFunctions) -> CostSpecificatio
     };
 
     CostSpecification::Simple(result)
+}
+
+fn handle_special_tuple_cons<'a, 'b>(inst: &mut CostCounter<'a, 'b>, tuple_bindings: &[SymbolicExpression]) -> CheckResult<ExecutionCost> {
+    let mut binding_cost = SimpleCostSpecification::new_diskless(
+        CostFunctions::NLogN(constants::TUPLE_CONS_A, constants::TUPLE_CONS_B))
+        .compute_cost(tuple_bindings.len() as u64)?;
+    handle_binding_list(tuple_bindings, |var_name, var_sexp| {
+        // the cost of binding the name.
+        binding_cost.add(&get_binding_cost(var_name)?)?;
+
+        // the cost of calculating the bound value
+        binding_cost.add(
+            &inst.handle_expression(var_sexp)?)
+    })?;
+
+    Ok(binding_cost)
+}
+
+fn handle_tuple_argument<'a, 'b>(inst: &mut CostCounter<'a, 'b>, arg: &SymbolicExpression) -> CheckResult<ExecutionCost> {
+    match tuples::get_definition_type_of_tuple_argument(arg) {
+        Explicit => inst.handle_expression(arg),
+        Implicit(ref inner_expr) => handle_special_tuple_cons(inst, inner_expr)
+    }
 }
 
 pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function: &SpecialCostType, args: &[SymbolicExpression])
@@ -267,27 +291,20 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
         TupleCons => {
             assert!(args.len() >= 1);
 
-            let tuple_bindings = args[0].match_list().expect("Tuple should have binding list");
-
-            let mut binding_cost = SimpleCostSpecification::new_diskless(
-                CostFunctions::NLogN(constants::TUPLE_CONS_A, constants::TUPLE_CONS_B))
-                .compute_cost(tuple_bindings.len() as u64)?;
-            handle_binding_list(tuple_bindings, |var_name, var_sexp| {
-                // the cost of binding the name.
-                binding_cost.add(&get_binding_cost(var_name)?)?;
-
-                // the cost of calculating the bound value
-                binding_cost.add(
-                    &inst.handle_expression(var_sexp)?)
-            })?;
-
-            Ok(binding_cost)
+            handle_special_tuple_cons(inst, args)
         },
         TupleGet => {
             assert!(args.len() == 2);
 
             let tuple_length = match inst.type_map.get_type(&args[1]).expect(TYPE_ANNOTATED_FAIL) {
                 TypeSignature::TupleType(tuple_data) => tuple_data.len(),
+                TypeSignature::OptionalType(value_type) => {
+                    if let TypeSignature::TupleType(ref tuple_data) = **value_type {
+                        tuple_data.len()
+                    } else {
+                        panic!("Expected tuple type")
+                    }
+                }
                 _ => panic!("Expected tuple type")
             };
 
@@ -326,6 +343,8 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
             }.compute_cost(value_tuple_size)?;
 
             hash_cost.add(&read_cost)?;
+
+            hash_cost.add(&handle_tuple_argument(inst, key_tuple)?)?;
 
             Ok(hash_cost)
         },
@@ -375,6 +394,8 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
                 write_length: Constant(0), write_count: Constant(0),
                 runtime: Linear(constants::LOOKUP_RUNTIME_COST_A, constants::LOOKUP_RUNTIME_COST_B),
             }.compute_cost(value_tuple_size)?;
+
+            hash_cost.add(&handle_tuple_argument(inst, key_tuple)?)?;
 
             hash_cost.add(&read_cost)?;
 
@@ -431,8 +452,8 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
             hash_cost.add(&write_cost)?;
 
             // the cost of computing the key, value args
-            hash_cost.add(&inst.handle_expression(key_tuple)?)?;
-            hash_cost.add(&inst.handle_expression(value_tuple)?)?;
+            hash_cost.add(&handle_tuple_argument(inst, key_tuple)?)?;
+            hash_cost.add(&handle_tuple_argument(inst, value_tuple)?)?;
 
             Ok(hash_cost)
         },
@@ -462,8 +483,8 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
             hash_cost.add(&write_cost)?;
 
             // the cost of computing the key, value args
-            hash_cost.add(&inst.handle_expression(key_tuple)?)?;
-            hash_cost.add(&inst.handle_expression(value_tuple)?)?;
+            hash_cost.add(&handle_tuple_argument(inst, key_tuple)?)?;
+            hash_cost.add(&handle_tuple_argument(inst, value_tuple)?)?;
 
             Ok(hash_cost)
         },
@@ -488,7 +509,7 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
             hash_cost.add(&write_cost)?;
 
             // the cost of computing the key, value args
-            hash_cost.add(&inst.handle_expression(key_tuple)?)?;
+            hash_cost.add(&handle_tuple_argument(inst, key_tuple)?)?;
 
             Ok(hash_cost)
         },
