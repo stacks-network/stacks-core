@@ -80,7 +80,12 @@
    (launched-at (optional uint))
    (namespace-version uint)
    (renewal-rule uint)
-   (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint)))))
+   (price-function (tuple 
+    (buckets (list 16 uint)) 
+    (base uint) 
+    (coeff uint) 
+    (nonalpha-discount uint) 
+    (no-voyel-discount uint)))))
 
 (define-map namespace-preorders
   ((hashed-namespace (buff 20)) (buyer principal))
