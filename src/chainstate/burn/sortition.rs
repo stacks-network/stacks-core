@@ -362,7 +362,7 @@ mod test {
             burns: 0,
             range_start: Uint256::from_u64(0),
             range_end: Uint256([0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF]),
-            candidate: LeaderBlockCommitOp::initial(&BlockHeaderHash([1u8; 32]), first_block_height + 1, &key, 0, &BurnchainSigner::new_p2pkh(&StacksPublicKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())),
+            candidate: LeaderBlockCommitOp::initial(&BlockHeaderHash([1u8; 32]), first_block_height + 1, &VRFSeed::initial(), &key, 0, &BurnchainSigner::new_p2pkh(&StacksPublicKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())),
             key: LeaderKeyRegisterOp::new(&StacksAddress::new(0, Hash160([0u8; 20])), &VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap()),
             user_burns: vec![]
         };
