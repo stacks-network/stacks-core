@@ -556,6 +556,9 @@
       (ok 'true))))
 
 ;; NAME_UPDATE
+;; A NAME_UPDATE transaction changes the name's zone file hash. You would send one of these transactions 
+;; if you wanted to change the name's zone file contents. 
+;; For example, you would do this if you want to deploy your own Gaia hub and want other people to read from it.
 (define-public (name-update (namespace (buff 19))
                             (name (buff 16))
                             (zonefile-content (buff 40960)))
@@ -590,6 +593,11 @@
     (ok 'true)))
 
 ;; NAME_TRANSFER
+;; A NAME_TRANSFER transaction changes the name's public key hash. You would send one of these transactions if you wanted to:
+;; - Change your private key
+;; - Send the name to someone else
+;; When transferring a name, you have the option to also clear the name's zone file hash (i.e. set it to null). 
+;; This is useful for when you send the name to someone else, so the recipient's name does not resolve to your zone file.
 (define-public (name-transfer (namespace (buff 19))
                               (name (buff 16))
                               (new-owner principal)
@@ -650,6 +658,10 @@
       (ok 'true))))
 
 ;; NAME_REVOKE
+;; A NAME_REVOKE transaction makes a name unresolvable. The BNS consensus rules stipulate that once a name 
+;; is revoked, no one can change its public key hash or its zone file hash. 
+;; The name's zone file hash is set to null to prevent it from resolving.
+;; You should only do this if your private key is compromised, or if you want to render your name unusable for whatever reason.
 (define-public (name-revoke (namespace (buff 19))
                             (name (buff 16)))
   (let (
@@ -686,6 +698,13 @@
     (ok 'true)))
 
 ;; NAME_RENEWAL
+;; Depending in the namespace rules, a name can expire. For example, names in the .id namespace expire after 2 years. 
+;; You need to send a NAME_RENEWAL every so often to keep your name.
+;; You will pay the registration cost of your name to the namespace's designated burn address when you renew it.
+;; When a name expires, it enters a month-long "grace period" (5000 blocks). 
+;; It will stop resolving in the grace period, and all of the above operations will cease to be honored by the BNS consensus rules.
+;; You may, however, send a NAME_RENEWAL during this grace period to preserve your name.
+;; If your name is in a namespace where names do not expire, then you never need to use this transaction.
 (define-public (name-renewal (namespace (buff 19))
                              (name (buff 16))
                              (stx-to-burn uint)
