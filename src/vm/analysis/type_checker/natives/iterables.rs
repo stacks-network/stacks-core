@@ -4,6 +4,7 @@ use vm::types::{ TypeSignature, FunctionType };
 use vm::types::{Value, MAX_VALUE_SIZE};
 pub use vm::types::signatures::{ListTypeData, BufferLength};
 use std::convert::TryFrom;
+use std::convert::TryInto;
 
 use vm::analysis::type_checker::{
     TypeResult, TypingContext, CheckResult, check_argument_count, CheckErrors, no_type, TypeChecker};
@@ -137,7 +138,7 @@ pub fn check_special_concat(checker: &mut TypeChecker, args: &[SymbolicExpressio
             if let TypeSignature::BufferType(rhs_buff_len) = rhs_type {
                 let size: u32 = u32::from(lhs_buff_len).checked_add(u32::from(rhs_buff_len))
                     .ok_or(CheckErrors::MaxLengthOverflow)?;
-                let return_type = TypeSignature::buffer_of_size(size);
+                let return_type = TypeSignature::BufferType(size.try_into()?);
                 return Ok(return_type);
             } else {
                 return Err(CheckErrors::TypeError(rhs_type.clone(), TypeSignature::max_buffer()).into());
