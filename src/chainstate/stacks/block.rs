@@ -170,6 +170,10 @@ impl StacksBlockHeader {
         }
     }
 
+    pub fn is_genesis(&self) -> bool {
+        self.parent_block == BlockHeaderHash([0u8; 32])
+    }
+
     pub fn block_hash(&self) -> BlockHeaderHash {
         let buf = self.serialize();
         BlockHeaderHash::from_serialized_header(&buf[..])
@@ -194,48 +198,72 @@ impl StacksBlockHeader {
         StacksBlockHeader::make_index_block_hash(burn_hash, &block_hash)
     }
 
-    pub fn from_parent(parent_header: &StacksBlockHeader, parent_microblock_header: &StacksMicroblockHeader, work_delta: &StacksWorkScore, proof: &VRFProof, tx_merkle_root: &Sha512Trunc256Sum, state_index_root: &TrieHash, microblock_pubkey_hash: &Hash160) -> StacksBlockHeader {
+    pub fn from_parent(parent_header: &StacksBlockHeader,
+                       parent_microblock_header: Option<&StacksMicroblockHeader>,
+                       work_delta: &StacksWorkScore,
+                       proof: &VRFProof,
+                       tx_merkle_root: &Sha512Trunc256Sum,
+                       state_index_root: &TrieHash,
+                       microblock_pubkey_hash: &Hash160) -> StacksBlockHeader {
+
+        let (parent_microblock, parent_microblock_sequence) = match parent_microblock_header {
+            Some(header) => {
+                (header.block_hash(), header.sequence)
+            },
+            None => {
+                (BlockHeaderHash([0u8; 32]), 0)
+            }
+        };
+
         StacksBlockHeader {
             version: STACKS_BLOCK_VERSION,
             total_work: parent_header.total_work.add(work_delta),
             proof: proof.clone(),
             parent_block: parent_header.block_hash(),
-            parent_microblock: parent_microblock_header.block_hash(),
-            parent_microblock_sequence: parent_microblock_header.sequence,
+            parent_microblock: parent_microblock,
+            parent_microblock_sequence: parent_microblock_sequence,
             tx_merkle_root: tx_merkle_root.clone(),
             state_index_root: state_index_root.clone(),
             microblock_pubkey_hash: microblock_pubkey_hash.clone(),
         }
     }
 
-    pub fn from_parent_empty(parent_header: &StacksBlockHeader, parent_microblock_header: &StacksMicroblockHeader, work_delta: &StacksWorkScore, proof: &VRFProof, microblock_pubkey_hash: &Hash160) -> StacksBlockHeader {
+    pub fn from_parent_empty(parent_header: &StacksBlockHeader, parent_microblock_header: Option<&StacksMicroblockHeader>, work_delta: &StacksWorkScore, proof: &VRFProof, microblock_pubkey_hash: &Hash160) -> StacksBlockHeader {
         StacksBlockHeader::from_parent(parent_header, parent_microblock_header, work_delta, proof, &Sha512Trunc256Sum([0u8; 32]), &TrieHash([0u8; 32]), microblock_pubkey_hash)
     }
 
     /// Validate this block header against the burnchain.
     /// Used to determine whether or not we'll keep a block around (even if we don't yet have its parent).
-    pub fn validate_burnchain(&self, snapshot: &BlockSnapshot, leader_key: &LeaderKeyRegisterOp, block_commit: &LeaderBlockCommitOp, parent_snapshot: &BlockSnapshot) -> bool {
+    /// * burn_chain_tip is the BlockSnapshot encoding the sortition that selected this block for
+    /// inclusion in the Stacks blockchain chain state.
+    /// * stacks_chain_tip is the BlockSnapshot for the parent Stacks block this header builds on
+    /// (i.e. this is the BlockSnapshot that corresponds to the parent of the given block_commit).
+    pub fn validate_burnchain(&self, burn_chain_tip: &BlockSnapshot, sortition_chain_tip: &BlockSnapshot, leader_key: &LeaderKeyRegisterOp, block_commit: &LeaderBlockCommitOp, stacks_chain_tip: &BlockSnapshot) -> bool {
+        // the burn chain tip's sortition must have chosen given block commit
+        assert_eq!(burn_chain_tip.winning_stacks_block_hash, block_commit.block_header_hash);
+        assert_eq!(burn_chain_tip.winning_block_txid, block_commit.txid);
+        
         // this header must match the header that won sortition on the burn chain
-        if self.block_hash() != snapshot.winning_stacks_block_hash {
-            test_debug!("Invalid Stacks block header {}: invalid commit: {} != {}", self.block_hash().to_hex(), self.block_hash().to_hex(), snapshot.winning_stacks_block_hash.to_hex());
+        if self.block_hash() != burn_chain_tip.winning_stacks_block_hash {
+            debug!("Invalid Stacks block header {}: invalid commit: {} != {}", self.block_hash().to_hex(), self.block_hash().to_hex(), burn_chain_tip.winning_stacks_block_hash.to_hex());
             return false;
         }
 
         // this header must match the parent header as recorded on the burn chain
-        if self.parent_block != parent_snapshot.winning_stacks_block_hash {
-            test_debug!("Invalid Stacks block header {}: invalid parent hash: {} != {}", self.block_hash().to_hex(), self.parent_block.to_hex(), parent_snapshot.winning_stacks_block_hash.to_hex());
+        if self.parent_block != stacks_chain_tip.winning_stacks_block_hash {
+            debug!("Invalid Stacks block header {}: invalid parent hash: {} != {}", self.block_hash().to_hex(), self.parent_block.to_hex(), stacks_chain_tip.winning_stacks_block_hash.to_hex());
             return false;
         }
         
-        // this header's proof must hash to the winning block header's new VRF seed
+        // this header's proof must hash to the burn chain tip's VRF seed
         if !block_commit.new_seed.is_from_proof(&self.proof) {
-            test_debug!("Invalid Stacks block header {}: invalid VRF proof: hash({}) != {} (but {})", self.block_hash().to_hex(), self.proof.to_hex(), block_commit.new_seed.to_hex(), VRFSeed::from_proof(&self.proof).to_hex());
+            debug!("Invalid Stacks block header {}: invalid VRF proof: hash({}) != {} (but {})", self.block_hash().to_hex(), self.proof.to_hex(), block_commit.new_seed.to_hex(), VRFSeed::from_proof(&self.proof).to_hex());
             return false;
         }
 
-        // this header must commit to all of the proof-of-burn and proof-of-work seen so far
-        if self.total_work.burn != parent_snapshot.total_burn {
-            test_debug!("Invalid Stacks block header {}: invalid total burns: {} != {}", self.block_hash().to_hex(), self.total_work.burn, parent_snapshot.total_burn);
+        // this header must commit to all of the work seen so far in this stacks blockchain fork.
+        if self.total_work.burn != stacks_chain_tip.total_burn {
+            debug!("Invalid Stacks block header {}: invalid total burns: {} != {}", self.block_hash().to_hex(), self.total_work.burn, stacks_chain_tip.total_burn);
             return false;
         }
 
@@ -243,7 +271,7 @@ impl StacksBlockHeader {
 
         // this header's VRF proof must have been generated from the last sortition's sortition
         // hash (which includes the last commit's VRF seed)
-        let valid = match VRF::verify(&leader_key.public_key, &self.proof, &parent_snapshot.sortition_hash.as_bytes().to_vec()) {
+        let valid = match VRF::verify(&leader_key.public_key, &self.proof, &sortition_chain_tip.sortition_hash.as_bytes().to_vec()) {
             Ok(v) => {
                 v
             },
@@ -253,7 +281,7 @@ impl StacksBlockHeader {
         };
 
         if !valid {
-            test_debug!("Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof {}", self.block_hash().to_hex(), leader_key.public_key.to_hex(), self.proof.to_hex());
+            debug!("Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}", self.block_hash().to_hex(), leader_key.public_key.to_hex(), burn_chain_tip.sortition_hash.to_hex());
             return false;
         }
 
@@ -271,36 +299,36 @@ impl StacksBlockHeader {
     /// Call after validate_burnchain()
     pub fn validate_parent(&self, parent: &StacksBlockHeader, microblock_parent_opt: Option<&StacksMicroblockHeader>) -> bool {
         if parent.block_hash() != self.parent_block {
-            test_debug!("Invalid Stacks block header {}: parent {} != {}", self.block_hash().to_hex(), parent.block_hash().to_hex(), self.parent_block.to_hex());
+            debug!("Invalid Stacks block header {}: parent {} != {}", self.block_hash().to_hex(), parent.block_hash().to_hex(), self.parent_block.to_hex());
             return false;
         }
 
         if let Some(ref microblock_parent) = microblock_parent_opt {
             if self.parent_microblock_sequence == 0 {
                 // we have no parent microblock 
-                test_debug!("Invalid Stacks block header {}: no parent microblock (sequence 0), but expected {}", self.block_hash().to_hex(), microblock_parent.sequence);
+                debug!("Invalid Stacks block header {}: no parent microblock (sequence 0), but expected {}", self.block_hash().to_hex(), microblock_parent.sequence);
                 return false;
             }
 
             if microblock_parent.block_hash() != self.parent_microblock {
-                test_debug!("Invalid Stacks block header {}: parent microblock {} != {}", self.block_hash().to_hex(), microblock_parent.block_hash().to_hex(), self.parent_microblock.to_hex());
+                debug!("Invalid Stacks block header {}: parent microblock {} != {}", self.block_hash().to_hex(), microblock_parent.block_hash().to_hex(), self.parent_microblock.to_hex());
                 return false;
             }
 
             if microblock_parent.sequence != self.parent_microblock_sequence {
-                test_debug!("Invalid Stacks block header {}: parent microblock sequence {} != {}", self.block_hash().to_hex(), microblock_parent.sequence, self.parent_microblock_sequence);
+                debug!("Invalid Stacks block header {}: parent microblock sequence {} != {}", self.block_hash().to_hex(), microblock_parent.sequence, self.parent_microblock_sequence);
                 return false;
             }
         }
         else {
             // no parent microblock, so these fields must be 0'ed
             if self.parent_microblock_sequence != 0 {
-                test_debug!("Invalid Stacks block header {}: sequence is not 0 (but is {})", self.block_hash().to_hex(), self.parent_microblock_sequence);
+                debug!("Invalid Stacks block header {}: sequence is not 0 (but is {})", self.block_hash().to_hex(), self.parent_microblock_sequence);
                 return false;
             }
 
             if self.parent_microblock != BlockHeaderHash([0u8; 32]) {
-                test_debug!("Invalid Stacks block header {}: parent microblock {} != {}", self.block_hash().to_hex(), self.parent_microblock.to_hex(), BlockHeaderHash([0u8; 32]).to_hex());
+                debug!("Invalid Stacks block header {}: parent microblock {} != {}", self.block_hash().to_hex(), self.parent_microblock.to_hex(), BlockHeaderHash([0u8; 32]).to_hex());
                 return false;
             }
         }
@@ -422,7 +450,7 @@ impl StacksBlock {
         let txids = txs.iter().map(|ref tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
-        let header = StacksBlockHeader::from_parent(parent_header, parent_microblock_header, work_delta, proof, &tx_merkle_root, state_index_root, microblock_pubkey_hash);
+        let header = StacksBlockHeader::from_parent(parent_header, Some(parent_microblock_header), work_delta, proof, &tx_merkle_root, state_index_root, microblock_pubkey_hash);
         StacksBlock {
             header, 
             txs
@@ -593,6 +621,12 @@ impl StacksMicroblockHeader {
             signature: MessageSignature::empty()
         }
     }
+    
+    /// Create the first microblock header in a microblock stream for an empty microblock stream.
+    /// The header will not be signed
+    pub fn first_empty_unsigned(parent_block_hash: &BlockHeaderHash) -> StacksMicroblockHeader {
+        StacksMicroblockHeader::first_unsigned(parent_block_hash, &Sha512Trunc256Sum([0u8; 32]))
+    }
 
     /// Create an unsigned microblock header from its parent
     /// Return an error on overflow
@@ -615,6 +649,8 @@ impl StacksMicroblockHeader {
         })
     }
 
+    /// Verify that this microblock connects to its parent microblock (or anchored block), and that
+    /// it was signed by the anchored block's miner.
     pub fn validate_parent(&self, parent_hash: &BlockHeaderHash, parent_sequence: Option<u8>, parent_pubkey_hash: &Hash160) -> bool {
         match parent_sequence {
             Some(seq) => {
