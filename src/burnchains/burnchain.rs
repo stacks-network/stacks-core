@@ -602,6 +602,7 @@ impl Burnchain {
 
         info!("OPS-HASH({}): {}", this_block_height, &snapshot.ops_hash.to_hex());
         info!("INDEX-ROOT({}): {}", this_block_height, &snapshot.index_root.to_hex());
+        info!("SORTITION-HASH({}): {}", this_block_height, &snapshot.sortition_hash.to_hex());
         info!("CONSENSUS({}): {}", this_block_height, &snapshot.consensus_hash.to_hex());
         Ok(snapshot)
     }
