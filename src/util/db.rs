@@ -166,10 +166,10 @@ where
     T: FromRow<T>
 {
     let mut stmt = conn.prepare(sql_query)
-        .expect("FATAL: failed to prepare Sqlite query");
+        .map_err(Error::SqliteError)?;
 
     let mut rows = stmt.query(sql_args)
-        .expect("FATAL: failed to execute Sqlite query");
+        .map_err(Error::SqliteError)?;
 
     // gather 
     let mut row_data = vec![];
@@ -180,7 +180,7 @@ where
                 row_data.push(next_row);
             },
             Err(e) => {
-                panic!("FATAL: Failed to read row from Sqlite");
+                return Err(Error::SqliteError(e));
             }
         };
     }
@@ -188,23 +188,39 @@ where
     Ok(row_data)
 }
 
-/// Boilerplate for querying a single integer (first item of the query must be an int)
+/// Boilerplate for querying a single integer (first and only item of the query must be an int)
 pub fn query_int<P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<i64, Error>
 where
     P: IntoIterator,
     P::Item: ToSql
 {
     let mut stmt = conn.prepare(sql_query)
-        .expect("FATAL: failed to prepare Sqlite query");
+        .map_err(Error::SqliteError)?;
 
-    let count = stmt.query_row(sql_args,
-        |row| {
-            let res : i64 = row.get(0);
-            res
-        })
-        .expect("FATAL: failed to query Sqlite row");
+    let mut rows = stmt.query(sql_args)
+        .map_err(Error::SqliteError)?;
 
-    Ok(count)
+    let mut row_data = vec![];
+    while let Some(row_res) = rows.next() {
+        match row_res {
+            Ok(row) => {
+                if row_data.len() > 0 {
+                    return Err(Error::Overflow);
+                }
+                let i : i64 = row.get(0);
+                row_data.push(i);
+            },
+            Err(e) => {
+                return Err(Error::SqliteError(e));
+            }
+        };
+    }
+
+    if row_data.len() == 0 {
+        return Err(Error::NotFoundError);
+    }
+
+    Ok(row_data[0])
 }
 
 pub fn query_count<P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<i64, Error>
@@ -444,5 +460,11 @@ impl<'a, C> IndexDBTx<'a, C> {
             self.index.commit().map_err(Error::IndexError)?;
         }
         Ok(())
+    }
+
+    /// Get the root hash
+    pub fn get_root_hash_at(&mut self, bhh: &BlockHeaderHash) -> Result<TrieHash, Error> {
+        let root_hash = self.index.get_root_hash_at(bhh).map_err(Error::IndexError)?;
+        Ok(root_hash)
     }
 }
