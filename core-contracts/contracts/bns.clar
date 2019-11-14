@@ -69,6 +69,9 @@
 ;;                                         (nonalpha-discount uint)
 ;;                                         (no-voyel-discount uint)))
 
+;; todo(ludo): replace this temporary token by the native STX
+(define-fungible-token stx)
+
 ;;;; Data
 (define-map namespaces
   ((namespace (buff 20)))
@@ -169,6 +172,8 @@
       (err err-namespace-preorder-already-exists))
     ;; Burn the tokens
     ;; todo(ludo): we are missing stx-burn! native function
+    ;; Burn the tokens - todo(ludo): switch to native STX once available
+    (expects! (ft-transfer! stx stx-to-burn tx-sender burn-address) (err err-insufficient-funds))
     (map-set! namespace-preorders
       ((hashed-namespace hashed-namespace) (buyer contract-caller))
       ((created-at block-height) (claimed 'false) (stx-burned stx-to-burn)))
@@ -304,6 +309,8 @@
       (err err-namespace-preorder-already-exists))
     ;; Burn the tokens
     ;; todo(ludo): we are missing stx-burn! native function
+    ;; Burn the tokens - todo(ludo): switch to native STX once available
+    (expects! (ft-transfer! stx stx-to-burn tx-sender burn-address) (err err-insufficient-funds)) ;; todo(ludo): tx-sender or contract-caller?
     (map-set! name-preorders
       ((hashed-fqn hashed-fqn) (buyer tx-sender))
       ((created-at block-height) (stx-burned stx-to-burn) (claimed 'false)))
@@ -585,6 +592,11 @@
 ;; SPONSORED_NAME_TRANSFER
 ;;(define-public sponsored-name-transfer
 ;;  (err err-not-implemented))
+;; todo(ludo): to be removed
+(begin
+  (ft-mint! stx u10000000000 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7)
+  (ft-mint! stx u10000000 'S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE)
+  (ft-mint! stx u10000000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))
 
 ;; SPONSORED_NAME_REVOKE
 ;;(define-public sponsored-name-revoke
