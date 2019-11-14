@@ -353,7 +353,7 @@
       ((namespace namespace) (name name))
       ((updated-at block-height)
        (content zonefile-content)))
-    (ok 1)))
+    (ok 'true)))
 
 ;; NAMESPACE_READY
 ;; The final step of the process launches the namespace and makes the namespace available to the public. Once a namespace
@@ -469,7 +469,7 @@
         ((namespace namespace) (name name))
         ((updated-at block-height)
         (content zonefile-content)))
-      (ok 1))))
+      (ok 'true))))
 
 ;; NAME_UPDATE
 (define-public (name-update (namespace (buff 20))
@@ -503,7 +503,7 @@
       ((namespace namespace) (name name))
       ((updated-at block-height)
        (content zonefile-content)))
-    (ok 1)))
+    (ok 'true)))
 
 ;; NAME_TRANSFER
 (define-public (name-transfer (namespace (buff 20))
@@ -562,7 +562,7 @@
           ((namespace namespace) (name name))
           ((updated-at block-height)
           (content (expects! zonefile-content (err err-panic))))))
-      (ok 1))))
+      (ok 'true))))
 
 ;; NAME_REVOKE
 (define-public (name-revoke (namespace (buff 20))
@@ -596,7 +596,7 @@
       ((registered-at (get registered-at name-props))
        (imported-at (get imported-at name-props))
        (revoked-at (some block-height))))
-    (ok 1)))
+    (ok 'true)))
 
 ;; NAME_RENEWAL
 (define-public (name-renewal (namespace (buff 20))
@@ -667,9 +667,7 @@
       ((registered-at (some block-height))
        (imported-at none)
        (revoked-at none)))
-    (ok 1)))
-
-;;;; SPONSORED_NAME
+    (ok 'true)))
 
 ;; SPONSORED_NAME_REGISTER_BATCH
 ;;(define-public sponsored-name-register-batch
