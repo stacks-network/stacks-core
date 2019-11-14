@@ -236,9 +236,26 @@
         (ok 'false)
         (ok (> block-height (+ lifetime registered-at)))))))
 
-;; todo(ludo): to implement
+;; todo(ludo): should be refactored - based on (is-name-lease-expired)
 (define-private (is-name-in-grace-period (namespace (buff 19)) (name (buff 16)))
-  'false)
+  (let (
+    (namespace-props (expects! 
+      (map-get namespaces ((namespace namespace))) 
+      (err err-namespace-not-found)))
+    (name-props (expects! 
+      (map-get name-properties ((namespace namespace) (name name))) 
+      (err err-name-not-found))))
+    (let (
+      (registered-at (expects! 
+        (get registered-at name-props) 
+        (err err-name-was-not-registered)))
+      (lifetime 
+        (get renewal-rule namespace-props)))
+      (if (eq? lifetime u0)
+        (ok 'false)
+        (ok (and 
+          (> block-height (+ lifetime registered-at)) 
+          (<= block-height (+ (+ lifetime registered-at) name-grace-period-duration))))))))
 
 ;;;; NAMESPACES
 ;; NAMESPACE_PREORDER
@@ -584,7 +601,7 @@
       (err err-name-expired))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eq? (is-name-in-grace-period namespace name) 'false)
+      (eq? (expects! (is-name-in-grace-period namespace name) (err err-panic)) 'false)
       (err err-name-grace-period))
     ;; The name must not be revoked
     (asserts!
@@ -639,7 +656,7 @@
         (err err-name-expired))
       ;; The name must not be in the renewal grace period
       (asserts!
-        (eq? (is-name-in-grace-period namespace name) 'false)
+        (eq? (expects! (is-name-in-grace-period namespace name) (err err-panic)) 'false)
         (err err-name-grace-period))
       ;; The name must not be revoked
       (asserts!
@@ -704,7 +721,7 @@
       (err err-name-expired))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eq? (is-name-in-grace-period namespace name) 'false)
+      (eq? (expects! (is-name-in-grace-period namespace name) (err err-panic)) 'false)
       (err err-name-grace-period))
     ;; The name must not be revoked
     (asserts!
@@ -753,7 +770,7 @@
       (err err-name-expired))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eq? (is-name-in-grace-period namespace name) 'false)
+      (eq? (expects! (is-name-in-grace-period namespace name) (err err-panic)) 'false)
       (err err-name-grace-period))
     ;; The amount burnt must be equal to or greater than the cost of the namespace
     (asserts!
@@ -853,7 +870,7 @@
       'true)
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eq? (is-name-in-grace-period namespace name) 'false)
+      (eq? (expects! (is-name-in-grace-period namespace name) (err err-panic)) 'false)
       (err err-name-grace-period))
     ;; The name must not be revoked
     (asserts!
