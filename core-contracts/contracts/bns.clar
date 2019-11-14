@@ -463,12 +463,13 @@
 ;; NAME_REGISTRATION
 ;; This is the second transaction to be sent. It reveals the salt and the name to all BNS nodes,
 ;; and assigns the name an initial public key hash and zone file hash
+;; todo(ludo): should we clean / expire the pre-order if something wrong happened? 
 (define-public (name-register (namespace (buff 20))
                               (name (buff 16))
                               (zonefile-content (buff 40960)))
   (let (
     (hashed-fqn (hash160 (concat (concat name ".") namespace)))
-    (current-owned-name (map-get owner-name ((owner tx-sender)))))
+    (name-currently-owned (map-get owner-name ((owner tx-sender)))))
     (let ( 
         (preorder (expects!
           (map-get name-preorders ((hashed-fqn hashed-fqn) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
@@ -476,22 +477,33 @@
         (namespace-props (expects!
           (map-get namespaces ((namespace namespace)))
           (err err-namespace-not-found)))
-        (can-sender-buy-name (if (is-none? current-owned-name)
+        (current-owner (nft-get-owner names (tuple (name name) (namespace namespace)))) ;; todo(ludo): implicit tuple syntax not available here.
+        (can-sender-register-name (if (is-none? name-currently-owned)
                                  'true
-                                 (has-name-expired 
-                                   (expects! (get namespace current-owned-name) (err err-panic))
-                                   (expects! (get name current-owned-name) (err err-panic))))))
-      ;; The name must not exist yet, or be expired
-      (if (is-none? (nft-get-owner names (tuple (name name) (namespace namespace)))) ;; todo(ludo): implicit tuple syntax not available here.
+                                  (expects! 
+                                    (is-name-lease-expired
+                                      (expects! (get namespace name-currently-owned) (err err-panic))
+                                      (expects! (get name name-currently-owned) (err err-panic)))
+                                    (err err-panic)))))
+      ;; The name must only have valid chars
+      (asserts!
+        (not (has-invalid-chars name))
+        (err err-name-charset-invalid))
+      ;; The name must not exist yet, or be expired - todo(ludo): existing name transfers not handled
+      (if (is-none? current-owner)
         'true
         (asserts!
-          (has-name-expired namespace name)
+          (expects! (is-name-lease-expired namespace name) (err err-panic))
           (err err-name-unavailable)))
       ;; The name's namespace must be launched
       (asserts!
         (eq? (is-none? (get launched-at namespace-props)) 'false) ;; todo(ludo): is-some? would be more readable.
         (err err-namespace-not-launched))
-      ;; The preorder entry must be unclaimed
+      ;; The preorder must have been created after the launch of the namespace
+      (asserts!
+        (> (get created-at preorder) (expects! (get launched-at namespace-props) (err err-panic)))
+        (err err-name-preordered-before-namespace-launch))
+      ;; The preorder entry must be unclaimed - todo(ludo): is this assertion redundant?
       (asserts!
         (eq? (get claimed preorder) 'false)
         (err err-name-already-claimed))
@@ -499,17 +511,30 @@
       (asserts!
         (< block-height (+ (get created-at preorder) name-preorder-claimability-ttl))
         (err err-name-claimability-expired))
-      ;; The amount burnt must be equal to or greater than the cost of the namespace
+      ;; The amount burnt must be equal to or greater than the cost of the name
       (asserts!
-        (> (get stx-burned preorder) (compute-name-price name (get price-function namespace-props)))
+        (>= (get stx-burned preorder) (compute-name-price name (get price-function namespace-props)))
         (err err-name-stx-burnt-insufficient))
       ;; The principal can register a name
       (asserts!
-        can-sender-buy-name
+        can-sender-register-name
         (err err-principal-already-associated))
-      ;; Mint the new name
-      (nft-mint! names (tuple (namespace namespace) (name name)) tx-sender) ;; todo(ludo): tx-sender or contract-caller?
-      ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version, and its import principal will be written to the  `namespaces` table
+      ;; Mint / Transfer the name
+      (if (is-none? current-owner)
+        (expects! 
+          (nft-mint! 
+            names 
+            (tuple (namespace namespace) (name name)) 
+            tx-sender)  ;; todo(ludo): tx-sender or contract-caller?
+          (err err-name-could-not-be-minted))
+        (expects!
+          (nft-transfer!
+            names
+            (tuple (name name) (namespace namespace))
+            (expects! current-owner (err err-panic))
+            tx-sender) ;; tx-sender or contract-caller?
+          (err err-name-could-not-be-transfered)))
+      ;; Update name's metadata / properties
       (map-set! name-properties
         ((namespace namespace) (name name))
         ((registered-at (some block-height))
@@ -518,7 +543,7 @@
       (map-set! owner-name
         ((owner tx-sender))
         ((namespace namespace) (name name)))
-      ;; Import the zonefile
+      ;; Import the zonefile - todo(ludo): keep a hash of the zonefile in name-properties
       (map-set! zonefiles
         ((namespace namespace) (name name))
         ((updated-at block-height)
