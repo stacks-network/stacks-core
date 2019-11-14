@@ -240,18 +240,24 @@
 ;; Returns pre-order's expiration date (in blocks).
 (define-public (namespace-preorder (hashed-namespace (buff 20))
                                    (stx-to-burn uint))
-  (let ((former-preorder (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer contract-caller)))))
+  (let 
+    ((former-preorder 
+      (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer contract-caller)))))
     ;; Ensure eventual former pre-order expired 
     (asserts! 
-      (if (is-none? former-preorder) 
+      (if (is-none? former-preorder)
         'true
         (>= block-height (+ namespace-preorder-claimability-ttl ;; todo(ludo): settle on [created-at created-at+ttl[ or [created-at created-at+ttl]
-                            (expects! (get created-at former-preorder) (err err-panic))))) 
+                            (expects! (get created-at former-preorder) (err err-panic)))))
       (err err-namespace-preorder-already-exists))
-    ;; Burn the tokens
-    ;; todo(ludo): we are missing stx-burn! native function
+          (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))
+    ;; Ensure that the hashed namespace is 20 bytes long
+    (asserts! (eq? (len hashed-namespace) u20) (err err-namespace-hash-malformed))
+    ;; Ensure that user will be burning a positive amount of tokens
+    (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))
     ;; Burn the tokens - todo(ludo): switch to native STX once available
     (expects! (ft-transfer! stx stx-to-burn tx-sender burn-address) (err err-insufficient-funds))
+    ;; Register the preorder
     (map-set! namespace-preorders
       ((hashed-namespace hashed-namespace) (buyer contract-caller))
       ((created-at block-height) (claimed 'false) (stx-burned stx-to-burn)))
