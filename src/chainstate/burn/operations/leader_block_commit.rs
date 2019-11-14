@@ -59,6 +59,8 @@ use util::vrf::VRFPrivateKey;
 use util::db::DBConn;
 use util::db::DBTx;
 
+use chainstate::stacks::index::storage::TrieFileStorage;
+
 // return type from parse_data below
 struct ParsedData {
     block_header_hash: BlockHeaderHash,
@@ -71,11 +73,10 @@ struct ParsedData {
 }
 
 impl LeaderBlockCommitOp {
-    #[cfg(test)]
-    pub fn initial(block_header_hash: &BlockHeaderHash, block_height: u64, paired_key: &LeaderKeyRegisterOp, burn_fee: u64, input: &BurnchainSigner) -> LeaderBlockCommitOp {
+    pub fn initial(block_header_hash: &BlockHeaderHash, block_height: u64, new_seed: &VRFSeed, paired_key: &LeaderKeyRegisterOp, burn_fee: u64, input: &BurnchainSigner) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             block_height: block_height,
-            new_seed: VRFSeed([0u8; 32]),
+            new_seed: new_seed.clone(),
             key_block_ptr: paired_key.block_height as u32,
             key_vtxindex: paired_key.vtxindex as u16,
             parent_block_ptr: 0,

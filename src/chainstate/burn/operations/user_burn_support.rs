@@ -79,23 +79,6 @@ impl UserBurnSupportOp {
         }
     }
 
-    #[cfg(test)]
-    pub fn set_mined_at(&mut self, burnchain: &Burnchain, consensus_hash: &ConsensusHash, block_header: &BurnchainBlockHeader) -> () {
-        if self.consensus_hash != ConsensusHash([0u8; 20]) {
-            self.consensus_hash = consensus_hash.clone();
-        }
-
-        if self.txid != Txid([0u8; 32]) {
-            self.txid = Txid::from_test_data(block_header.block_height, self.vtxindex, &block_header.block_hash);
-        }
-        
-        if self.burn_header_hash != BurnchainHeaderHash([0u8; 32]) {
-            self.burn_header_hash = block_header.block_hash.clone();
-        }
-
-        self.block_height = block_header.block_height;
-    }
-
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
