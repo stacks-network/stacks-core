@@ -132,7 +132,7 @@ describe("BNS Test Suite - NAME_REVOKE", async () => {
           receipt = await bns.getNameZonefile(
             cases[0].namespace, 
             "bob", { sender: cases[0].nameOwner });
-          expect(receipt.result).eq('2014');
+          expect(receipt.result).eq('5001');
           expect(receipt.success).eq(false);
         });
       });

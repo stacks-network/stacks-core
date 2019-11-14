@@ -65,7 +65,7 @@ describe("BNS Test Suite - NAME_PREORDER", async () => {
         cases[0].namespace,
         "bob",
         cases[0].salt, 
-        10000, { sender: cases[0].nameOwner });
+        20000000, { sender: cases[0].nameOwner });
       expect(receipt.success).eq(false);
       expect(receipt.result).eq('4001');    
     });

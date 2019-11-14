@@ -29,7 +29,7 @@ describe("BNS Test Suite - NAME_REGISTER", async () => {
       noVoyelDiscount: 4,
       nonAlphaDiscount: 4,
     },
-    renewalRule: 4294967295,
+    renewalRule: 10,
     nameImporter: alice,
     zonefile: "0000",
   }, {
@@ -46,7 +46,7 @@ describe("BNS Test Suite - NAME_REGISTER", async () => {
       noVoyelDiscount: 20,
       nonAlphaDiscount: 20,
     },
-    renewalRule: 52595,
+    renewalRule: 20,
     nameImporter: alice,
     zonefile: "1111",
   }];
@@ -283,7 +283,7 @@ describe("BNS Test Suite - NAME_REGISTER", async () => {
         });
 
         it("should succeed once 'bob.blockstack' is expired", async () => {
-          await provider.mineBlocks(10);
+          await provider.mineBlocks(cases[0].renewalRule);
 
           let receipt = await bns.namePreorder(
             cases[0].namespace,

@@ -241,13 +241,12 @@
   'false)
 
 ;;;; NAMESPACES
-
 ;; NAMESPACE_PREORDER
 ;; This step registers the salted hash of the namespace with BNS nodes, and burns the requisite amount of cryptocurrency.
 ;; Additionally, this step proves to the BNS nodes that user has honored the BNS consensus rules by including a recent
 ;; consensus hash in the transaction.
 ;; Returns pre-order's expiration date (in blocks).
-(define-public (namespace-preorder (hashed-namespace (buff 19))
+(define-public (namespace-preorder (hashed-namespace (buff 20))
                                    (stx-to-burn uint))
   (let 
     ((former-preorder 
@@ -445,7 +444,7 @@
 ;; NAME_PREORDER
 ;; This is the first transaction to be sent. It tells all BNS nodes the salted hash of the BNS name,
 ;; and it pays the registration fee to the namespace owner's designated address
-(define-public (name-preorder (hashed-fqn (buff 19))
+(define-public (name-preorder (hashed-fqn (buff 20))
                               (stx-to-burn uint))
   (let 
     ((former-preorder 
@@ -592,6 +591,12 @@
       (is-none? (get revoked-at name-props))
       (err err-name-revoked))
     ;; Update the zonefile
+    (map-set! name-properties
+      ((namespace namespace) (name name))
+      ((registered-at (get registered-at name-props))
+      (imported-at (get imported-at name-props))
+      (revoked-at (get revoked-at name-props))
+      (zonefile-hash (hash160 zonefile-content))))
     (map-set! zonefiles
       ((namespace namespace) (name name))
       ((updated-at block-height)
@@ -707,7 +712,7 @@
       (err err-name-revoked))
     ;; Delete the zonefile
     (map-delete! zonefiles ((namespace namespace) (name name)))
-    (map-delete! name-properties
+    (map-set! name-properties
       ((namespace namespace) (name name))
       ((registered-at none)
        (imported-at none)
@@ -865,5 +870,6 @@
 (begin
   (ft-mint! stx u10000000000 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7)
   (ft-mint! stx u10000000 'S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE)
-  (ft-mint! stx u10000000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))
+  (ft-mint! stx u10000000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+  (ft-mint! stx u1000 'SPMQEKN07D1VHAB8XQV835E3PTY3QWZRZ5H0DM36))
 

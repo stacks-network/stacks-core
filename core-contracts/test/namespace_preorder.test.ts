@@ -9,11 +9,13 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", async () => {
   const addresses = [
     "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7",
     "S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE",
-    "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR"
+    "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR",
+    "SPMQEKN07D1VHAB8XQV835E3PTY3QWZRZ5H0DM36"
   ];
   const alice = addresses[0];
   const bob = addresses[1];
   const charlie = addresses[2];
+  const dave = addresses[3];
 
   const cases = [{
     namespace: "blockstack",
@@ -102,7 +104,7 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", async () => {
     });
 
     it("should fail if Alice can't afford paying the fee", async () => {
-      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 200000, { sender: cases[0].namespaceOwner });
+      let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, 20000000000, { sender: cases[0].namespaceOwner });
       expect(receipt.success).eq(false);
       expect(receipt.result).eq('4001');
     });
@@ -113,8 +115,8 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", async () => {
       expect(receipt.result).eq('u30');
     });
 
-    it("should fail when Bob pre-orders 'id', 'stx-to-burn' = 9600 (balance insufficient)", async () => {
-      let receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: bob });
+    it("should fail when Dave pre-orders 'id', 'stx-to-burn' = 9600 (balance insufficient)", async () => {
+      let receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: dave });
       expect(receipt.success).eq(false);
       expect(receipt.result).eq('4001');
     });

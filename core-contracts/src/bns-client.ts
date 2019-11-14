@@ -196,7 +196,7 @@ export class BNSClient extends Client {
                         name: string, 
                         params: { sender: string }): Promise<Receipt> {
     const tx = this.createTransaction({
-      method: { name: "get-name-zonefile", args: [`"${namespace}"`, `"${name}"`] }
+      method: { name: "name-resolve", args: [`"${namespace}"`, `"${name}"`] }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);
