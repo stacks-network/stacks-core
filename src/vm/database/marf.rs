@@ -96,7 +96,7 @@ pub fn sqlite_marf(path_str: &str, chain_tip: Option<BlockHeaderHash>) -> Result
 impl <S> MarfedKV <S> where S: KeyValueStorage {
     pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
         self.marf.begin(current, next)
-            .expect("ERROR: Failed to begin new MARF block");
+            .expect(&format!("ERROR: Failed to begin new MARF block {} - {}", current.to_hex(), next.to_hex()));
         self.chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Failed to get open MARF")
             .clone();
@@ -112,8 +112,10 @@ impl <S> MarfedKV <S> where S: KeyValueStorage {
         self.marf.commit()
             .expect("ERROR: Failed to commit MARF block");
     }
-    pub fn chain_tips(&mut self) -> Vec<BlockHeaderHash> {
-        self.marf.chain_tips()
+    pub fn commit_to(&mut self, final_bhh: &BlockHeaderHash) {
+        self.side_store.commit(&self.chain_tip);
+        self.marf.commit_to(final_bhh)
+            .expect("ERROR: Failed to commit MARF block");
     }
     pub fn get_chain_tip(&self) -> &BlockHeaderHash {
         &self.chain_tip
@@ -121,6 +123,9 @@ impl <S> MarfedKV <S> where S: KeyValueStorage {
     pub fn get_root_hash(&mut self) -> TrieHash {
         self.marf.get_root_hash_at(&self.chain_tip)
             .expect("FATAL: Failed to read MARF root hash")
+    }
+    pub fn get_marf(&mut self) -> &mut MARF {
+        &mut self.marf
     }
 
     #[cfg(test)]
