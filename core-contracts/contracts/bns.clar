@@ -119,13 +119,15 @@
   (if (> a b) a b))
 
 (define-private (compute-namespace-price (namespace (buff 20)))
-  u0)
-;;  (let ((namespace-len (fold increment-len namespace 0)))
-;;    (asserts 
-;;     (> namespace-len 0)
-;;      (err err-namespace-blank))
-    ;; todo(ludo): feature request?
-;;    (get-i namespace-len namespace-price-table)))
+  (let ((namespace-len (len namespace)))
+    (asserts!
+      (> namespace-len u0)
+      (err err-namespace-blank))
+    (ok (get value (fold 
+      element-at 
+      namespace-prices-tiers 
+      (tuple (limit (min u8 namespace-len)) (cursor u0) (value u0)))))))
+
 (define-private (element-at (i uint) (acc (tuple (limit uint) (cursor uint) (value uint))))
   (if (eq? (get cursor acc) (get limit acc))
     (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (value i))
@@ -213,15 +215,17 @@
 
 (define-private (compute-name-price (name (buff 16))
                                     (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint))))
-  u0)
-;;   (let ((name-len (fold increment-len name 0)))
-;;    (asserts 
-;;      (> name-len 0)
-;;      (err err-name-blank))
-    ;; todo(ludo): feature request?
-    ;; Check for vowels discounts
-    ;; Check for non-alpha-discounts
-;;    (get-i name-len buckets)))
+  (let (
+    (exponent (get-exp-at-index (get buckets price-function) (min u15 (- (len name) u1))))
+    (no-voyel-discount (if (not (has-vowels-chars name)) (get no-voyel-discount price-function) u1))
+    (nonalpha-discount (if (has-nonalpha-chars name) (get nonalpha-discount price-function) u1)))
+    (*
+      (/
+        (*
+          (get coeff price-function)
+          (pow (get base price-function) exponent))
+        (max nonalpha-discount no-voyel-discount))
+      u10))) ;; 10 = name_cost (100) * "old_price_multiplier" (0.1) - todo(ludo): sort this out.
 
 ;; todo(ludo): to implement
 (define-private (has-name-expired (namespace (buff 20)) (name (buff 16)))
