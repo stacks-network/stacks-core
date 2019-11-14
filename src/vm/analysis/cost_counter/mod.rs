@@ -89,7 +89,7 @@ impl From<CostContext> for ContractCostAnalysis {
 
 impl <'a, 'b> AnalysisPass for CostCounter <'a, 'b> {
     fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
-        let (instantiation_cost, cost_analysis) = {
+        let (instantiation_cost, cost_analysis, size) = {
             let counter = CostCounter::new(analysis_db,
                                            contract_analysis.type_map.as_ref()
                                            .expect("Type mapping must have been set"),
@@ -99,6 +99,7 @@ impl <'a, 'b> AnalysisPass for CostCounter <'a, 'b> {
 
         contract_analysis.cost_analysis = Some(cost_analysis);
         contract_analysis.instantiation_cost = Some(instantiation_cost);
+        contract_analysis.contract_size = Some(size);
 
         Ok(())
     }
@@ -114,7 +115,7 @@ impl <'a, 'b> CostCounter <'a, 'b> {
 
     // Return the non-analysis cost of _instantiating_ the contract
     //  and the execution cost analysis 
-    pub fn run(mut self) -> CheckResult<(ExecutionCost, ContractCostAnalysis)> {
+    pub fn run(mut self) -> CheckResult<(ExecutionCost, ContractCostAnalysis, u64)> {
         let mut evaluation_cost = ExecutionCost::zero();
         for exp in self.analysis.expressions_iter() {
             evaluation_cost.add(&self.handle_top_level_expression(exp)?)?;
@@ -131,7 +132,7 @@ impl <'a, 'b> CostCounter <'a, 'b> {
 
         let contract_cost_analysis = ContractCostAnalysis::from(self.cost_context);
 
-        Ok((evaluation_cost, contract_cost_analysis))
+        Ok((evaluation_cost, contract_cost_analysis, contract_size))
     }
 
     // Handle a top level expression,

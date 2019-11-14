@@ -27,12 +27,14 @@ pub struct ContractAnalysis {
     pub persisted_variable_types: BTreeMap<ClarityName, TypeSignature>,
     pub fungible_tokens: BTreeSet<ClarityName>,
     pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
-    pub cost_analysis: Option<ContractCostAnalysis>,
-    pub instantiation_cost: Option<ExecutionCost>,
     #[serde(skip)]
     pub top_level_expression_sorting: Option<Vec<usize>>,
     #[serde(skip)]
     pub expressions: Vec<SymbolicExpression>,
+    // the following are set by the cost analysis
+    pub cost_analysis: Option<ContractCostAnalysis>,
+    pub instantiation_cost: Option<ExecutionCost>,
+    pub contract_size: Option<u64>,
 }
 
 impl ContractAnalysis {
@@ -40,7 +42,7 @@ impl ContractAnalysis {
         ContractAnalysis {
             contract_identifier,
             expressions,
-            type_map: None, cost_analysis: None, instantiation_cost: None,
+            type_map: None, cost_analysis: None, instantiation_cost: None, contract_size: None,
             private_function_types: BTreeMap::new(),
             public_function_types: BTreeMap::new(),
             read_only_function_types: BTreeMap::new(),
