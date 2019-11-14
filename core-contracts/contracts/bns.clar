@@ -273,23 +273,73 @@
 ;; of the user.
 (define-public (namespace-reveal (namespace (buff 20))
                                  (namespace-version uint)
-                                 (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint)))
+                                 (namespace-salt (buff 20))
+                                 (p-func-base uint)
+                                 (p-func-coeff uint)
+                                 (p-func-b1 uint)
+                                 (p-func-b2 uint)
+                                 (p-func-b3 uint)
+                                 (p-func-b4 uint)
+                                 (p-func-b5 uint)
+                                 (p-func-b6 uint)
+                                 (p-func-b7 uint)
+                                 (p-func-b8 uint)
+                                 (p-func-b9 uint)
+                                 (p-func-b10 uint)
+                                 (p-func-b11 uint)
+                                 (p-func-b12 uint)
+                                 (p-func-b13 uint)
+                                 (p-func-b14 uint)
+                                 (p-func-b15 uint)
+                                 (p-func-b16 uint)
+                                 (p-func-non-alpha-discount uint)
+                                 (p-func-no-voyel-discount uint)
                                  (renewal-rule uint)
                                  (name-importer principal))
   ;; The salt and namespace must hash to a preorder entry in the `namespace_preorders` table.
   ;; The sender must match the principal in the preorder entry (implied)
-  (let ((hashed-namespace (hash160 namespace)))
-    (let ((preorder (expects!
-          (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
-          (err err-namespace-preorder-not-found)))
-        (lowercased-namespace (buff-lowercased namespace)))
+  (let (
+    (hashed-namespace (hash160 (concat namespace namespace-salt)))
+    (price-function (tuple 
+      (buckets (list
+        p-func-b1
+        p-func-b2
+        p-func-b3
+        p-func-b4
+        p-func-b5
+        p-func-b6
+        p-func-b7
+        p-func-b8
+        p-func-b9
+        p-func-b10
+        p-func-b11
+        p-func-b12
+        p-func-b13
+        p-func-b14
+        p-func-b15
+        p-func-b16))
+      (base p-func-base)
+      (coeff p-func-coeff)
+      (nonalpha-discount p-func-non-alpha-discount)
+      (no-voyel-discount p-func-no-voyel-discount))))
+    (let (
+      (preorder (expects!
+        (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
+        (err err-namespace-preorder-not-found)))
+      (namespace-price (expects! 
+        (compute-namespace-price namespace)
+        (err err-namespace-blank))))
+    ;; The namespace must only have valid chars
+    (asserts!
+      (not (has-invalid-chars namespace))
+      (err err-namespace-charset-invalid))
     ;; The namespace must not exist yet in the `namespaces` table
     (asserts!
-      (is-none? (map-get namespaces ((namespace lowercased-namespace))))
+      (is-none? (map-get namespaces ((namespace namespace))))
       (err err-namespace-already-exists))
     ;; The amount burnt must be equal to or greater than the cost of the namespace
     (asserts!
-      (> (get stx-burned preorder) (compute-namespace-price lowercased-namespace))
+      (>= (get stx-burned preorder) namespace-price)
       (err err-namespace-stx-burnt-insufficient))
     ;; todo(ludo): validate the price function inputs
     ;; This transaction must arrive within 24 hours of its `NAMESPACE_PREORDER`
@@ -304,13 +354,13 @@
     ;; and its import principal will be written to the  `namespaces` table.
     ;; Name should be lowercased.
     (ok (map-set! namespaces
-      ((namespace lowercased-namespace))
+      ((namespace namespace))
       ((name-importer name-importer)
        (revealed-at block-height)
        (launched-at none)
        (namespace-version namespace-version)
        (renewal-rule renewal-rule)
-       (price-function price-function))))))
+       (price-function price-function)))))))
 
 ;; NAME_IMPORT
 ;; Once a namespace is revealed, the user has the option to populate it with a set of names. Each imported name is given
