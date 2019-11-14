@@ -669,22 +669,23 @@
       (err err-name-operation-unauthorized))
     ;; The name must not be expired
     (asserts!
-      (eq? (has-name-expired namespace name) 'false) ;; todo(ludo): refactor has-name-expired signature?
+      (eq? (expects! (is-name-lease-expired namespace name) (err err-panic)) 'false)
       (err err-name-expired))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eq? (is-name-in-grace-period namespace name) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
+      (eq? (is-name-in-grace-period namespace name) 'false)
       (err err-name-grace-period))
     ;; The name must not be revoked
     (asserts!
       (is-none? (get revoked-at name-props))
       (err err-name-revoked))
     ;; Delete the zonefile
+    (map-delete! zonefiles ((namespace namespace) (name name)))
     (map-set! name-properties
       ((namespace namespace) (name name))
-      ((registered-at (get registered-at name-props))
-       (imported-at (get imported-at name-props))
-       (revoked-at (some block-height))))
+      ((registered-at none)
+       (imported-at none)
+       (revoked-at (some block-height)))) ;; todo(ludo): should we just delete the entry?
     (ok 'true)))
 
 ;; NAME_RENEWAL
