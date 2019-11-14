@@ -52,7 +52,7 @@
 (define-constant namespace-preorder-claimability-ttl u10)
 (define-constant namespace-launchability-ttl u10)
 (define-constant name-preorder-claimability-ttl u10)
-(define-constant name-lease-duration u10)
+(define-constant name-grace-period-duration u5)
 
 ;; Price tables
 ;; todo(ludo): should we have some kind of oracle, for stabilizing name's prices?
@@ -218,13 +218,22 @@
       u10))) ;; 10 = name_cost (100) * "old_price_multiplier" (0.1) - todo(ludo): sort this out.
 
 (define-private (is-name-lease-expired (namespace (buff 19)) (name (buff 16)))
-  (let ((name-props (expects! 
-    (map-get name-properties ((namespace namespace) (name name))) 
-    (err err-name-not-found))))
-    (let ((registered-at (expects! 
-      (get registered-at name-props) 
-      (err err-name-was-not-registered))))
-      (ok (> block-height (+ name-lease-duration registered-at))))))
+  (let (
+    (namespace-props (expects! 
+      (map-get namespaces ((namespace namespace))) 
+      (err err-namespace-not-found)))
+    (name-props (expects! 
+      (map-get name-properties ((namespace namespace) (name name))) 
+      (err err-name-not-found))))
+    (let (
+      (registered-at (expects! 
+        (get registered-at name-props) 
+        (err err-name-was-not-registered)))
+      (lifetime 
+        (get renewal-rule namespace-props)))
+      (if (eq? lifetime u0)
+        (ok 'false)
+        (ok (> block-height (+ lifetime registered-at)))))))
 
 ;; todo(ludo): to implement
 (define-private (is-name-in-grace-period (namespace (buff 19)) (name (buff 16)))
@@ -805,10 +814,9 @@
           (and (not (is-none? (get registered-at name-props))) (is-none? (get imported-at name-props)))
           (and (not (is-none? (get imported-at name-props))) (is-none? (get registered-at name-props))))
         (err err-panic))
-      ;; Ensure that name was not imported (vs registered) - no expiration
-      (asserts! (is-none? (get registered-at name-props)) (ok 'false))
       ;; Is lease expired?
-      (ok (> block-height (+ name-lease-duration (expects! (get registered-at name-props) (err err-panic))))))))
+      (is-name-lease-expired namespace name))))
+
 
 (define-public (name-resolve (namespace (buff 19)) (name (buff 16)))
   (let (
