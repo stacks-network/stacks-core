@@ -10,6 +10,7 @@ use vm::ast;
 use vm::analysis;
 
 use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::TrieHash;
 
 use std::error;
@@ -135,6 +136,7 @@ impl <'a> ClarityBlockConnection <'a> {
     pub fn rollback_block(mut self) {
         // this is a "lower-level" rollback than the roll backs performed in
         //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
+        debug!("Commit Clarity datastore");
         self.datastore.rollback();
 
         self.parent.datastore.replace(self.datastore);
@@ -145,14 +147,34 @@ impl <'a> ClarityBlockConnection <'a> {
     /// (2) committing side-storage.
     /// Returns the MARF root hash
     pub fn commit_block(mut self) {
+        debug!("Commit Clarity datastore");
         self.datastore.commit();
 
         self.parent.datastore.replace(self.datastore);
     }
+    
+    /// Commits all changes in the current block by
+    /// (1) committing the current MARF tip to storage,
+    /// (2) committing side-storage.  Commits to a different 
+    /// block hash than the one opened (i.e. since the caller
+    /// may not have known the "real" block hash at the 
+    /// time of opening).
+    /// Returns the MARF root hash
+    pub fn commit_to_block(mut self, final_bhh: &BlockHeaderHash) {
+        debug!("Commit Clarity datastore to {}", final_bhh.to_hex());
+        self.datastore.commit_to(final_bhh);
 
-    /// Get the MARf root hash
+        self.parent.datastore.replace(self.datastore);
+    }
+
+    /// Get the MARF root hash
     pub fn get_root_hash(&mut self) -> TrieHash {
         self.datastore.get_root_hash()
+    }
+
+    /// Get the inner MARF
+    pub fn get_marf(&mut self) -> &mut MARF {
+        self.datastore.get_marf()
     }
 
     /// Do something to the underlying DB that involves writing.
