@@ -800,12 +800,18 @@ impl BurnDB {
 
     /// Get the canonical stacks chain tip -- the tip of the longest stacks chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
-    pub fn get_canonical_stacks_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
+    pub fn get_canonical_stacks_chain_tip(conn: &Connection) -> Result<Option<BlockSnapshot>, db_error> {
         let row_order = BlockSnapshot::row_order().join(",");
         let qry = format!("SELECT {} FROM snapshots ORDER BY stacks_block_height DESC, burn_header_hash ASC LIMIT 1", row_order);
         let rows = query_rows::<BlockSnapshot, _>(conn, &qry, NO_PARAMS)?;
-        assert!(rows.len() > 0);
-        Ok(rows[0].clone())
+        match rows.len() {
+            0 => {
+                Ok(None)
+            },
+            _ => {
+                Ok(Some(rows[0].clone()))
+            }
+        }
     }
 
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
@@ -1048,7 +1054,7 @@ impl BurnDB {
 
         let row_order = LeaderKeyRegisterOp::row_order().join(",");
 
-        let qry = format!("SELECT {} FROM leader_keys WHERE burn_block_hash = ?1 AND block_height = ?2 ORDER BY vtxindex ASC", row_order);
+        let qry = format!("SELECT {} FROM leader_keys WHERE burn_header_hash = ?1 AND block_height = ?2 ORDER BY vtxindex ASC", row_order);
         let args = [&ancestor_snapshot.burn_header_hash.to_hex() as &ToSql, &(block_height as i64) as &ToSql];
 
         query_rows::<LeaderKeyRegisterOp, _>(tx, &qry.to_string(), &args)
@@ -1168,11 +1174,11 @@ impl BurnDB {
     }
 
     /// Get a block commit by its committed block
-    pub fn get_block_commit_for_stacks_block(conn: &Connection, burn_block_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+    pub fn get_block_commit_for_stacks_block(conn: &Connection, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         let row_order = LeaderBlockCommitOp::row_order().join(",");
 
-        let qry = format!("SELECT {} FROM block_commits WHERE burn_block_hash = ?1 AND block_header_hash = ?2", row_order);
-        let args = [&burn_block_hash.to_hex(), &block_hash.to_hex()];
+        let qry = format!("SELECT {} FROM block_commits WHERE burn_header_hash = ?1 AND block_header_hash = ?2", row_order);
+        let args = [&burn_header_hash.to_hex(), &block_hash.to_hex()];
         let rows = query_rows::<LeaderBlockCommitOp, _>(conn, &qry.to_string(), &args)?;
 
         match rows.len() {
@@ -1181,6 +1187,19 @@ impl BurnDB {
             _ => {
                 // should never happen 
                 panic!("FATAL: multiple block commits for {}", &block_hash.to_hex());
+            }
+        }
+    }
+
+    /// Get a block snapshot for a winning block hash in a given burn chain fork.
+    pub fn get_block_snapshot_for_winning_stacks_block<'a>(tx: &mut BurnDBTx<'a>, tip_burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+        match BurnDB::index_value_get(tx, tip_burn_header_hash, &format!("burndb::sortition_block_hash::{}", block_hash.to_hex()))? {
+            Some(burn_header_hash_str) => {
+                let bhh = BurnchainHeaderHash::from_hex(&burn_header_hash_str).expect(&format!("FATAL: corrupt database: failed to parse {} as a hex string", &burn_header_hash_str));
+                BurnDB::get_block_snapshot(tx, &bhh)
+            },
+            None => {
+                Ok(None)
             }
         }
     }
