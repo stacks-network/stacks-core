@@ -227,9 +227,14 @@
         (max nonalpha-discount no-voyel-discount))
       u10))) ;; 10 = name_cost (100) * "old_price_multiplier" (0.1) - todo(ludo): sort this out.
 
-;; todo(ludo): to implement
-(define-private (has-name-expired (namespace (buff 20)) (name (buff 16)))
-  'true)
+(define-private (is-name-lease-expired (namespace (buff 20)) (name (buff 16)))
+  (let ((name-props (expects! 
+    (map-get name-properties ((namespace namespace) (name name))) 
+    (err err-name-not-found))))
+    (let ((registered-at (expects! 
+      (get registered-at name-props) 
+      (err err-name-was-not-registered))))
+      (ok (> block-height (+ name-lease-duration registered-at))))))
 
 ;; todo(ludo): to implement
 (define-private (is-name-in-grace-period (namespace (buff 20)) (name (buff 16)))
