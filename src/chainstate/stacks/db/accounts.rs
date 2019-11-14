@@ -155,13 +155,14 @@ impl StacksChainState {
 
         let tip = &tip_info.anchored_header;
 
-        tx.execute("INSERT INTO payments (address,block_hash,burn_block_hash,coinbase,tx_fees_anchored,tx_fees_streamed,burns,index_root,stacks_block_height) \
-                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
-                    &[&block_reward.address.to_string(), &tip.block_hash().to_hex(), &tip_info.burn_block_hash.to_hex(), &format!("{}", block_reward.coinbase), &format!("{}", block_reward.tx_fees_anchored),
-                      &format!("{}", child_streamed_tx_fee), &format!("{}", block_reward.burns), &tip_info.index_root.to_hex(), &(tip_info.block_height as i64) as &ToSql])
+        tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,burns,stacks_block_height) \
+                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                    &[&block_reward.address.to_string(), &tip.block_hash().to_hex(), &tip_info.burn_header_hash.to_hex(), &format!("{}", block_reward.coinbase), &format!("{}", block_reward.tx_fees_anchored),
+                      &format!("{}", child_streamed_tx_fee), &format!("{}", block_reward.burns), &(tip_info.block_height as i64) as &ToSql])
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        if tip_info.block_height > 0 {
+        /*
+        if tip_info.block_height > 1 {
             match StacksChainState::get_block_reward_in_fork(tx, tip_info, tip_info.block_height - 1)? {
                 Some(payment_schedule) => {
                     tx.execute("UPDATE payments SET tx_fees_streamed = tx_fees_streamed + ?1 WHERE address = ?2 AND block_hash = ?3",
@@ -173,6 +174,7 @@ impl StacksChainState {
                 }
             };
         }
+        */
         Ok(())
     }
  
@@ -197,8 +199,8 @@ impl StacksChainState {
         };
         
         let row_order = MinerPaymentSchedule::row_order().join(",");
-        let qry = format!("SELECT {} FROM rewards WHERE block_hash = ?1 AND burn_block_hash = ?2", row_order);
-        let args = [&ancestor_info.anchored_header.block_hash().to_hex(), &ancestor_info.burn_block_hash.to_hex()];
+        let qry = format!("SELECT {} FROM rewards WHERE block_hash = ?1 AND burn_header_hash = ?2", row_order);
+        let args = [&ancestor_info.anchored_header.block_hash().to_hex(), &ancestor_info.burn_header_hash.to_hex()];
         let rows = query_rows::<MinerPaymentSchedule, _>(tx, &qry, &args).map_err(Error::DBError)?;
         match rows.len() {
             0 => Ok(None),
