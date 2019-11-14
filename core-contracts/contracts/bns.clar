@@ -599,20 +599,23 @@
         (err err-name-not-found))) ;; The name must exist
       (can-new-owner-get-name (if (is-none? current-owned-name)
                                   'true
-                                  (has-name-expired 
-                                    (expects! (get namespace current-owned-name) (err err-panic))
-                                    (expects! (get name current-owned-name) (err err-panic))))))
+                                  (expects! 
+                                    (is-name-lease-expired
+                                      (expects! (get namespace current-owned-name) (err err-panic))
+                                      (expects! (get name current-owned-name) (err err-panic)))
+                                    (err err-panic)))))
       ;; The sender must match the name's current owner
       (asserts!
         (eq? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
         (err err-name-operation-unauthorized))
       ;; The name must not be expired
+      (asserts! 'false (err err-panic))
       (asserts!
-        (eq? (has-name-expired namespace name) 'false) ;; todo(ludo): refactor has-name-expired signature?
+        (eq? (expects! (is-name-lease-expired namespace name) (err err-panic)) 'false)
         (err err-name-expired))
       ;; The name must not be in the renewal grace period
       (asserts!
-        (eq? (is-name-in-grace-period namespace name) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
+        (eq? (is-name-in-grace-period namespace name) 'false)
         (err err-name-grace-period))
       ;; The name must not be revoked
       (asserts!
