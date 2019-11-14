@@ -103,10 +103,6 @@
   ((name (buff 16)) (namespace (buff 19)))
   ((content (buff 40960)) (updated-at uint)))
 
-(define-map sponsors
-  ((name (buff 20)) (namespace (buff 20)))
-  ((content (buff 40960))))
-
 (define-private (min (a uint) (b uint))
   (if (<= a b) a b))
 
