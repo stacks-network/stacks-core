@@ -92,8 +92,15 @@ impl ExecutionCost {
 }
 
 // ONLY WORKS IF INPUT IS u64
-fn int_log2(input: u64) -> u64 {
-    (64 - input.leading_zeros()).into()
+fn int_log2(input: u64) -> Option<u64> {
+    63_u32.checked_sub(input.leading_zeros())
+        .map(|floor_log| {
+            if input.trailing_zeros() == floor_log {
+                u64::from(floor_log)
+            } else {
+                u64::from(floor_log + 1)
+            }
+        })
 }
 
 impl CostFunctions {
@@ -103,11 +110,9 @@ impl CostFunctions {
             CostFunctions::Linear(a, b) => { a.cost_overflow_mul(input)?
                                              .cost_overflow_add(*b) }
             CostFunctions::NLogN(a, b) => {
-                if input == 0 {
-                    return Err(CheckErrors::CostOverflow.into());
-                }
                 // a*input*log(input)) + b
                 int_log2(input)
+                    .ok_or_else(|| CheckErrors::CostOverflow)?
                     .cost_overflow_mul(input)?
                     .cost_overflow_mul(*a)?
                     .cost_overflow_add(*b)
@@ -150,4 +155,36 @@ impl From<ExecutionCost> for SimpleCostSpecification {
             runtime: CostFunctions::Constant(runtime),
         }
     }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_overflows() {
+        assert_eq!(
+            u64::max_value().cost_overflow_add(1),
+            Err(CheckErrors::CostOverflow.into()));
+        assert_eq!(
+            u64::max_value().cost_overflow_mul(2),
+            Err(CheckErrors::CostOverflow.into()));
+        assert_eq!(
+            CostFunctions::NLogN(1, 1).compute_cost(0),
+            Err(CheckErrors::CostOverflow.into()));
+    }
+
+    #[test]
+    fn test_simple_log2s() {
+        let inputs = [
+            1, 2, 4, 8, 16, 31, 32, 33, 39, 64, 128, 2_u64.pow(63), u64::max_value() ];
+        let expected = [
+            0, 1, 2, 3, 4, 5, 5, 6, 6, 6, 7, 63, 64 ];
+        for (input, expected) in inputs.iter().zip(expected.iter()) {
+            assert_eq!(
+                int_log2(*input).unwrap(),
+                *expected);
+        }
+    }
+
 }

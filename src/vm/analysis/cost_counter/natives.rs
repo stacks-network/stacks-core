@@ -164,7 +164,7 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
 
             let contract_id = match args[0].match_literal_value() {
                 Some(Value::Principal(PrincipalData::Contract(ref contract_id))) => contract_id,
-                _ => return Err(CheckErrors::ContractCallExpectName.into())
+                _ => panic!("Contract call expects a contract principal")
             };
             let function_name = args[1].match_atom().expect("Function argument should have been atom.");
             let cost_spec = inst.db.get_contract_function_cost(&contract_id, function_name)

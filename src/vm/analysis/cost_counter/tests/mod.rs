@@ -29,18 +29,29 @@ fn cost_check_contract(exp: &str) -> CheckResult<(ContractCostAnalysis, Executio
 //   from the analysis.
 
 #[test]
-fn test_simple_maps() {
+fn tests_simple_map() {
     let mapped_func = "(define-private (increment-x (x int)) (+ x 1))";
     let tests = [ format!("{} (map increment-x (list 1 2 3 4 5 6 7 8 9 0))", mapped_func),
                   format!("{} (map increment-x (list 1 2 3))", mapped_func) ];
 
-    let expected = [
-        ExecutionCost { write_length: 232, write_count: 1, read_length: 1, read_count: 1, runtime: 582 },
-        ExecutionCost { write_length: 120, write_count: 1, read_length: 1, read_count: 1, runtime: 246 },
-    ];
-
-    for (test, expected_cost) in tests.iter().zip(expected.iter()) {
-        let (_, exec_cost) = cost_check_contract(test).unwrap();
-        assert_eq!(exec_cost, *expected_cost);
+    for test in tests.iter() {
+        cost_check_contract(test).unwrap();
     }
+}
+
+#[test]
+fn tests_simple_fold() {
+    let mapped_func = "(define-private (sum (x int) (y int)) (+ x y))";
+    let tests = [ format!("{} (fold sum (list 1 2 3) 0)", mapped_func),
+                  format!("{} (fold sum (list 1 2 3) (+ 1 2 3))", mapped_func) ];
+
+    for test in tests.iter() {
+        cost_check_contract(test).unwrap();
+    }
+}
+
+#[test]
+fn test_bounded_ft() {
+    let mapped_func = "(define-fungible-token stackaroos (* 2 1 4))";
+    cost_check_contract(mapped_func).unwrap();
 }
