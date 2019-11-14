@@ -48,7 +48,7 @@
 (define-constant burn-address 'S0000000000000000000002AA028H)
 
 ;; TTL
-;; todo(ludo): add real values
+;; todo(ludo): add real-life values
 (define-constant namespace-preorder-claimability-ttl u10)
 (define-constant namespace-launchability-ttl u10)
 (define-constant name-preorder-claimability-ttl u10)
@@ -61,13 +61,6 @@
   u9600 u9600 
   u960 u960 u960 u960 
   u96 u96 u96 u96 u96 u96 u96 u96 u96 u96 u96 u96 u96))
-
-;; todo(ludo): feature request?
-;; (define-type price-function-type (tuple (buckets (list 16 uint))
-;;                                         (base uint)
-;;                                         (coeff uint)
-;;                                         (nonalpha-discount uint)
-;;                                         (no-voyel-discount uint)))
 
 ;; todo(ludo): replace this temporary token by the native STX
 (define-fungible-token stx)
@@ -91,9 +84,6 @@
   ((hashed-namespace (buff 20)) (buyer principal))
   ((created-at uint) (claimed bool) (stx-burned uint)))
 
-;; todo(ludo): fix name and namespace sizes.
-;; according https://docs.blockstack.org/core/wire-format.html
-;; "namespace" = 20, "name" = 16? what about subdomains/sponsored names?
 (define-non-fungible-token names (tuple (name (buff 16)) (namespace (buff 20))))
 
 (define-map owner-name ((owner principal)) ((name (buff 16)) (namespace (buff 20))))
@@ -141,7 +131,6 @@
 (define-private (get-exp-at-index (buckets (list 16 uint)) (index uint))
   (get value (fold element-at buckets (tuple (limit index) (cursor u0) (value u0)))))
 
-;; todo(ludo): feature request (and (>= char 0x30) (<= char 0x39)) ?
 (define-private (is-digit (char (buff 1)))
   (or 
     (eq? char "0") 
