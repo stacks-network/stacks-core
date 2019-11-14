@@ -567,11 +567,11 @@
       (err err-name-operation-unauthorized))
     ;; The name must not be expired
     (asserts!
-      (eq? (has-name-expired namespace name) 'false) ;; todo(ludo): refactor has-name-expired signature?
+      (eq? (expects! (is-name-lease-expired namespace name) (err err-panic)) 'false)
       (err err-name-expired))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eq? (is-name-in-grace-period namespace name) 'false) ;; todo(ludo): refactor is-name-in-grace-period signature?
+      (eq? (is-name-in-grace-period namespace name) 'false)
       (err err-name-grace-period))
     ;; The name must not be revoked
     (asserts!
