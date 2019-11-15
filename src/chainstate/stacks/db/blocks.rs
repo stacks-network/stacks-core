@@ -1019,6 +1019,7 @@ impl StacksChainState {
                     .expect("FATAL: burn DB does not have snapshot for parent block commit")
             };
 
+        test_debug!("Check against stacks chain tip {:?}", &stacks_chain_tip);
         let valid = block.header.validate_burnchain(&burn_chain_tip, &sortition_snapshot, &leader_key, &block_commit, &stacks_chain_tip);
         Ok(valid)
     }
@@ -1464,12 +1465,36 @@ impl StacksChainState {
         };
 
         let (next_tip_opt, next_microblock_poison_opt) = self.process_next_staging_block(&best_chain_tips)?;
-        ret.push((next_tip_opt, next_microblock_poison_opt));
+        match next_tip_opt {
+            Some(next_tip) => {
+                ret.push((Some(next_tip), next_microblock_poison_opt));
+            },
+            None => {
+                match next_microblock_poison_opt {
+                    Some(poison) => {
+                        ret.push((None, Some(poison)));
+                    },
+                    None => {}
+                }
+            }
+        }
 
         for i in 0..(max_blocks-1) {
             // process any other pending 
             let (next_tip_opt, next_microblock_poison_opt) = self.process_next_staging_block(&vec![])?;
-            ret.push((next_tip_opt, next_microblock_poison_opt));
+            match next_tip_opt {
+                Some(next_tip) => {
+                    ret.push((Some(next_tip), next_microblock_poison_opt));
+                },
+                None => {
+                    match next_microblock_poison_opt {
+                        Some(poison) => {
+                            ret.push((None, Some(poison)));
+                        },
+                        None => {}
+                    }
+                }
+            }
         }
 
         Ok(ret)
