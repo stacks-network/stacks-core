@@ -983,7 +983,7 @@ impl StacksChainState {
                 return Ok(false);
             }
         };
-        
+
         // burn chain tip that selected this commit's block
         let burn_chain_tip = BurnDB::get_block_snapshot(tx, &block_commit.burn_header_hash)
             .map_err(Error::DBError)?
@@ -1019,7 +1019,6 @@ impl StacksChainState {
                     .expect("FATAL: burn DB does not have snapshot for parent block commit")
             };
 
-        test_debug!("Check against stacks chain tip {:?}", &stacks_chain_tip);
         let valid = block.header.validate_burnchain(&burn_chain_tip, &sortition_snapshot, &leader_key, &block_commit, &stacks_chain_tip);
         Ok(valid)
     }
