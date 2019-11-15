@@ -1382,10 +1382,10 @@ impl BurnDB {
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition<'a>(tx: &mut BurnDBTx<'a>, burn_block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<BlockSnapshot, db_error> {
         assert!(burn_block_height < BLOCK_HEIGHT_MAX);
-        test_debug!("Get snapshot with index root {}, expect height {}", tip_block_hash.to_hex(), burn_block_height);
+        test_debug!("Get snapshot at burn block {}, expect height {}", tip_block_hash.to_hex(), burn_block_height);
         let tip_snapshot = match BurnDB::get_block_snapshot(tx, tip_block_hash)? {
             None => {
-                error!("No tip with index root {}", tip_block_hash.to_hex());
+                error!("No tip at burn block {}", tip_block_hash.to_hex());
                 return Err(db_error::NotFoundError);
             }
             Some(sn) => {
