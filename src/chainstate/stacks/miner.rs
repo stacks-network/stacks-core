@@ -48,10 +48,10 @@ use burnchains::PublicKey;
 use util::vrf::*;
 
 impl StacksBlockBuilder {
-    pub fn from_parent(parent_header: &StacksBlockHeader, parent_microblock_header: Option<&StacksMicroblockHeader>, parent_commit_burn_header_hash: &BurnchainHeaderHash, work_delta: &StacksWorkScore, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
+    pub fn from_parent(parent_header: &StacksBlockHeader, parent_microblock_header: Option<&StacksMicroblockHeader>, parent_commit_burn_header_hash: &BurnchainHeaderHash, total_work: &StacksWorkScore, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
         let pubk = StacksPublicKey::from_private(microblock_privkey);
         let pubkh = Hash160::from_data(&pubk.to_bytes());
-        let header = StacksBlockHeader::from_parent_empty(parent_header, parent_microblock_header, work_delta, proof, &pubkh);
+        let header = StacksBlockHeader::from_parent_empty(parent_header, parent_microblock_header, total_work, proof, &pubkh);
         let bytes_so_far = header.serialize().len() as u64;
         StacksBlockBuilder {
             header: header,
@@ -254,11 +254,11 @@ pub mod test {
             key_register_op
         }
 
-        pub fn add_block_commit(&mut self, burn_block: &mut TestBurnchainBlock, miner: &mut TestMiner, block_hash: &BlockHeaderHash, burn_amount: u64, key_op: &LeaderKeyRegisterOp) -> LeaderBlockCommitOp {
+        pub fn add_block_commit(&mut self, burn_block: &mut TestBurnchainBlock, miner: &mut TestMiner, block_hash: &BlockHeaderHash, burn_amount: u64, key_op: &LeaderKeyRegisterOp, parent_block_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp {
             let block_commit_op = {
                 let mut tx = self.burn.burndb.tx_begin().unwrap();
                 let parent_snapshot = burn_block.parent_snapshot.clone();
-                burn_block.add_leader_block_commit(&mut tx, miner, block_hash, burn_amount, key_op, Some(&parent_snapshot))
+                burn_block.add_leader_block_commit(&mut tx, miner, block_hash, burn_amount, key_op, Some(&parent_snapshot), parent_block_snapshot)
             };
             block_commit_op
         }
@@ -310,27 +310,29 @@ pub mod test {
         {
             let proof = miner.make_proof(&miner_key.public_key, &burn_block.parent_snapshot.sortition_hash).unwrap();
 
-            let mut builder = match parent_stacks_block {
+            let (mut builder, parent_block_snapshot_opt) = match parent_stacks_block {
                 None => {
                     // first stacks block
-                    StacksBlockBuilder::first(&burn_block.parent_snapshot.burn_header_hash, &proof, &miner.next_microblock_privkey())
+                    let builder = StacksBlockBuilder::first(&burn_block.parent_snapshot.burn_header_hash, &proof, &miner.next_microblock_privkey());
+                    (builder, None)
                 },
                 Some(parent_stacks_block) => {
                     // building off an existing stacks block
-                    let (burned_last, parent_stacks_block_snapshot) = {
+                    let parent_stacks_block_snapshot = {
                         let mut tx = self.burn.burndb.tx_begin().unwrap();
                         let parent_stacks_block_snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &burn_block.parent_snapshot.burn_header_hash, &parent_stacks_block.block_hash()).unwrap().unwrap();
                         let burned_last = BurnDB::get_block_burn_amount(&mut tx, burn_block.parent_snapshot.block_height, &burn_block.parent_snapshot.burn_header_hash).unwrap();
-                        (burned_last, parent_stacks_block_snapshot)
+                        parent_stacks_block_snapshot
                     };
 
                     let new_work = StacksWorkScore {
-                        burn: burned_last as u64,
+                        burn: parent_stacks_block_snapshot.total_burn,
                         work: 0
                     };
 
-                    test_debug!("Burned as of {} {}: {}", burn_block.block_height, burn_block.parent_snapshot.burn_header_hash.to_hex(), new_work.burn);
-                    StacksBlockBuilder::from_parent(&parent_stacks_block.header, None, &parent_stacks_block_snapshot.burn_header_hash, &new_work, &proof, &miner.next_microblock_privkey())
+                    test_debug!("Burned in {} {}: {}", burn_block.block_height, burn_block.parent_snapshot.burn_header_hash.to_hex(), new_work.burn);
+                    let builder = StacksBlockBuilder::from_parent(&parent_stacks_block.header, None, &parent_stacks_block_snapshot.burn_header_hash, &new_work, &proof, &miner.next_microblock_privkey());
+                    (builder, Some(parent_stacks_block_snapshot))
                 }
             };
 
@@ -342,7 +344,7 @@ pub mod test {
             test_debug!("Commit to stacks block {}", stacks_block.block_hash());
 
             // send block commit for this block (block i)
-            let block_commit_op = self.add_block_commit(burn_block, miner, &stacks_block.block_hash(), burn_amount, miner_key);
+            let block_commit_op = self.add_block_commit(burn_block, miner, &stacks_block.block_hash(), burn_amount, miner_key, parent_block_snapshot_opt.as_ref());
             self.commit_ops.insert(block_commit_op.block_header_hash.clone(), self.anchored_blocks.len()-1);
 
             (stacks_block, block_commit_op)
