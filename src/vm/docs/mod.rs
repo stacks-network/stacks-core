@@ -383,7 +383,7 @@ const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     description: "The `asserts-max-len!` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list 
 or buffer of length M and outputs that same list or buffer, but typed with max length N. 
 At runtime, a check is performed, which if it fails, returns a (none) option.",
-    example: "(asserts-max-len! (list 2 2 2) 3) ;; Returns (list 2 2 2)"
+    example: "(asserts-max-len! (list 2 2 2) 3) ;; Returns (some (list 2 2 2))"
 };
 
 const LEN_API: SpecialAPI = SpecialAPI {
