@@ -187,7 +187,8 @@ pub fn check_special_asserts_max_len(checker: &mut TypeChecker, args: &[Symbolic
     match iterable {
         TypeSignature::ListType(list) => {
             let (lhs_entry_type, _) = list.destruct();
-            Ok(TypeSignature::OptionalType(Box::new(TypeSignature::ListType(ListTypeData::new_list(lhs_entry_type, expected_len).unwrap()))))
+            let resized_list = ListTypeData::new_list(lhs_entry_type, expected_len)?;
+            Ok(TypeSignature::OptionalType(Box::new(TypeSignature::ListType(resized_list))))
         },
         TypeSignature::BufferType(_) => {
             Ok(TypeSignature::OptionalType(Box::new(TypeSignature::BufferType(BufferLength::try_from(expected_len).unwrap()))))
