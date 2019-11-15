@@ -82,7 +82,7 @@
     (no-voyel-discount uint)))))
 
 (define-map namespace-preorders
-  ((hashed-namespace (buff 20)) (buyer principal))
+  ((hashed-salted-namespace (buff 20)) (buyer principal))
   ((created-at uint) (claimed bool) (stx-burned uint)))
 
 (define-non-fungible-token names (tuple (name (buff 16)) (namespace (buff 19))))
@@ -263,11 +263,11 @@
 ;; Additionally, this step proves to the BNS nodes that user has honored the BNS consensus rules by including a recent
 ;; consensus hash in the transaction.
 ;; Returns pre-order's expiration date (in blocks).
-(define-public (namespace-preorder (hashed-namespace (buff 20))
+(define-public (namespace-preorder (hashed-salted-namespace (buff 20))
                                    (stx-to-burn uint))
   (let 
     ((former-preorder 
-      (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer contract-caller)))))
+      (map-get namespace-preorders ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller)))))
     ;; Ensure eventual former pre-order expired 
     (asserts! 
       (if (is-none? former-preorder)
@@ -277,14 +277,14 @@
       (err err-namespace-preorder-already-exists))
           (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))
     ;; Ensure that the hashed namespace is 20 bytes long
-    (asserts! (eq? (len hashed-namespace) u20) (err err-namespace-hash-malformed))
+    (asserts! (eq? (len hashed-salted-namespace) u20) (err err-namespace-hash-malformed))
     ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))
     ;; Burn the tokens - todo(ludo): switch to native STX once available
     (expects! (ft-transfer! stx stx-to-burn tx-sender burn-address) (err err-insufficient-funds))
     ;; Register the preorder
     (map-set! namespace-preorders
-      ((hashed-namespace hashed-namespace) (buyer contract-caller))
+      ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller))
       ((created-at block-height) (claimed 'false) (stx-burned stx-to-burn)))
     ;; todo(ludo): don't improvise, look at the returned values in the codebase
     (ok (+ block-height namespace-preorder-claimability-ttl))))
@@ -324,7 +324,7 @@
   ;; The salt and namespace must hash to a preorder entry in the `namespace_preorders` table.
   ;; The sender must match the principal in the preorder entry (implied)
   (let (
-    (hashed-namespace (hash160 (concat namespace namespace-salt)))
+    (hashed-salted-namespace (hash160 (concat namespace namespace-salt)))
     (price-function (tuple 
       (buckets (list
         p-func-b1
@@ -349,7 +349,7 @@
       (no-voyel-discount p-func-no-voyel-discount))))
     (let (
       (preorder (expects!
-        (map-get namespace-preorders ((hashed-namespace hashed-namespace) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
+        (map-get namespace-preorders ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
         (err err-namespace-preorder-not-found)))
       (namespace-price (expects! 
         (compute-namespace-price namespace)
@@ -373,7 +373,7 @@
       (err err-namespace-preorder-claimability-expired))
     ;; The preorder record for this namespace will be marked as "claimed"
     (map-set! namespace-preorders
-      ((hashed-namespace hashed-namespace) (buyer tx-sender))
+      ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender))
       ((created-at (get created-at preorder)) (claimed 'true) (stx-burned (get stx-burned preorder))))
     ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version,
     ;; and its import principal will be written to the  `namespaces` table.
