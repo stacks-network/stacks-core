@@ -200,7 +200,7 @@ impl StacksBlockHeader {
 
     pub fn from_parent(parent_header: &StacksBlockHeader,
                        parent_microblock_header: Option<&StacksMicroblockHeader>,
-                       work_delta: &StacksWorkScore,
+                       total_work: &StacksWorkScore,
                        proof: &VRFProof,
                        tx_merkle_root: &Sha512Trunc256Sum,
                        state_index_root: &TrieHash,
@@ -217,7 +217,7 @@ impl StacksBlockHeader {
 
         StacksBlockHeader {
             version: STACKS_BLOCK_VERSION,
-            total_work: parent_header.total_work.add(work_delta),
+            total_work: total_work.clone(),
             proof: proof.clone(),
             parent_block: parent_header.block_hash(),
             parent_microblock: parent_microblock,
