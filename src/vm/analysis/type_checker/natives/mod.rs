@@ -1,5 +1,5 @@
 use vm::errors::{Error as InterpError, RuntimeErrorType};
-use vm::functions::NativeFunctions;
+use vm::functions::{NativeFunctions, handle_binding_list};
 use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use vm::types::{BUFF_32, BUFF_20, BUFF_64, TypeSignature, TupleTypeSignature, BlockInfoProperty, Value, PrincipalData, MAX_VALUE_SIZE, FunctionArg, FunctionType, FixedFunction};
 use super::{TypeChecker, TypingContext, TypeResult, no_type, check_argument_count, check_arguments_at_least}; 
@@ -16,7 +16,7 @@ pub enum TypedNativeFunction {
     Simple(SimpleNativeFunction)
 }
 
-pub struct SpecialNativeFunction(&'static Fn(&mut TypeChecker, &[SymbolicExpression], &TypingContext) -> TypeResult);
+pub struct SpecialNativeFunction(&'static dyn Fn(&mut TypeChecker, &[SymbolicExpression], &TypingContext) -> TypeResult);
 pub struct SimpleNativeFunction(pub FunctionType);
 
 fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -87,20 +87,14 @@ pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpre
     check_arguments_at_least(1, args)?;
     
     let mut tuple_type_data = Vec::new();
-    for pair in args.iter() {
-        let pair_expression = pair.match_list()
-            .ok_or(CheckErrors::TupleExpectsPairs)?;
-        if pair_expression.len() != 2 {
-            return Err(CheckError::new(CheckErrors::TupleExpectsPairs))
-        }
-        
-        let var_name = pair_expression[0].match_atom()
-            .ok_or(CheckErrors::TupleExpectsPairs)?;
-        checker.type_map.set_type(&pair_expression[0], no_type())?;
-        
-        let var_type = checker.type_check(&pair_expression[1], context)?;
-        tuple_type_data.push((var_name.clone(), var_type))
-    }
+
+    handle_binding_list(args, |var_name, var_sexp| {
+        checker.type_check(var_sexp, context)
+            .and_then(|var_type| {
+                tuple_type_data.push((var_name.clone(), var_type));
+                Ok(())
+            })
+    })?;
     
     let tuple_signature = TupleTypeSignature::try_from(tuple_type_data)
         .map_err(|_| CheckErrors::BadTupleConstruction)?;
@@ -116,27 +110,16 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     
     let mut out_context = context.extend()?;
 
-    for binding in binding_list.iter() {
-        let binding_exps = binding.match_list()
-            .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
-        
-        if binding_exps.len() != 2 {
-            return Err(CheckError::new(CheckErrors::BadSyntaxBinding))
-        }
-
-        let var_name = binding_exps[0].match_atom()
-            .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
-
+    handle_binding_list(binding_list, |var_name, var_sexp| {
         checker.contract_context.check_name_used(var_name)?;
-
         if out_context.lookup_variable_type(var_name).is_some() {
             return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.to_string())))
         }
 
-        checker.type_map.set_type(&binding_exps[0], no_type())?;
-        let typed_result = checker.type_check(&binding_exps[1], context)?;
+        let typed_result = checker.type_check(var_sexp, context)?;
         out_context.variable_types.insert(var_name.clone(), typed_result);
-    }
+        Ok(())
+    })?;
     
     let mut typed_args = checker.type_check_all(&args[1..args.len()], &out_context)?;
     

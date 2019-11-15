@@ -970,7 +970,7 @@ mod test {
 
             let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
         
-            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+            let (nodeptr, node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
             // end of path -- cursor points to the insertion point
             let mut leaf_data = match node {
                 TrieNodeType::Leaf(ref data) => data.clone(),

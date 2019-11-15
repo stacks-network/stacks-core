@@ -24,7 +24,7 @@ impl ClarityDeserializable<ContractAnalysis> for ContractAnalysis {
 }
 
 impl <'a> AnalysisDatabase <'a> {
-    pub fn new(store: Box<KeyValueStorage + 'a>) -> AnalysisDatabase<'a> {
+    pub fn new(store: Box<dyn KeyValueStorage + 'a>) -> AnalysisDatabase<'a> {
         AnalysisDatabase {
             store: RollbackWrapper::new(store)
         }
@@ -58,7 +58,7 @@ impl <'a> AnalysisDatabase <'a> {
         self.store.rollback();
     }
 
-    fn put(&mut self, key: &str, value: &ClaritySerializable) {
+    fn put <T: ClaritySerializable> (&mut self, key: &str, value: &T) {
         self.store.put(&key, &value.serialize());
     }
 
@@ -68,17 +68,17 @@ impl <'a> AnalysisDatabase <'a> {
     }
 
     // Creates the key used to store the given contract in the underlying Key-Value store.
-    fn make_storage_key(contract_identifier: &QualifiedContractIdentifier) -> String {
-        format!("analysis::{}", contract_identifier)
+    fn make_storage_key(prefix: &'static str, contract_identifier: &QualifiedContractIdentifier) -> String {
+        format!("analysis::{}::{}", prefix, contract_identifier)
     }
 
     fn load_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractAnalysis> {
-        let key = AnalysisDatabase::make_storage_key(contract_identifier);
+        let key = AnalysisDatabase::make_storage_key("types", contract_identifier);
         self.get(&key)
     }
 
     pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: &ContractAnalysis) -> CheckResult<()> {
-        let key = AnalysisDatabase::make_storage_key(contract_identifier);
+        let key = AnalysisDatabase::make_storage_key("types", contract_identifier);
         if self.store.has_entry(&key) {
             return Err(CheckError::new(CheckErrors::ContractAlreadyExists(contract_identifier.to_string())))
         }
@@ -107,4 +107,5 @@ impl <'a> AnalysisDatabase <'a> {
             .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
         Ok(map_type.clone())
     }
+
 }

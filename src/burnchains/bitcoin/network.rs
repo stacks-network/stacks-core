@@ -176,7 +176,7 @@ impl BitcoinIndexer {
             }
             _ => {
                 match handler {
-                    Some(mut custom_handler) => {
+                    Some(custom_handler) => {
                         custom_handler.handle_message(self, message.clone())
                     }
                     None => {
