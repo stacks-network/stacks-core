@@ -90,9 +90,9 @@ impl VarInt {
     #[inline]
     pub fn encoded_length(&self) -> u64 {
         match self.0 {
-            0...0xFC             => { 1 }
-            0xFD...0xFFFF        => { 3 }
-            0x10000...0xFFFFFFFF => { 5 }
+            0..=0xFC             => { 1 }
+            0xFD..=0xFFFF        => { 3 }
+            0x10000..=0xFFFFFFFF => { 5 }
             _                    => { 9 }
         }
     }
@@ -102,9 +102,9 @@ impl<S: SimpleEncoder> ConsensusEncodable<S> for VarInt {
     #[inline]
     fn consensus_encode(&self, s: &mut S) -> Result<(), serialize::Error> {
         match self.0 {
-            0...0xFC             => { (self.0 as u8).consensus_encode(s) }
-            0xFD...0xFFFF        => { s.emit_u8(0xFD)?; (self.0 as u16).consensus_encode(s) }
-            0x10000...0xFFFFFFFF => { s.emit_u8(0xFE)?; (self.0 as u32).consensus_encode(s) }
+            0..=0xFC             => { (self.0 as u8).consensus_encode(s) }
+            0xFD..=0xFFFF        => { s.emit_u8(0xFD)?; (self.0 as u16).consensus_encode(s) }
+            0x10000..=0xFFFFFFFF => { s.emit_u8(0xFE)?; (self.0 as u32).consensus_encode(s) }
             _                    => { s.emit_u8(0xFF)?; (self.0 as u64).consensus_encode(s) }
         }
     }

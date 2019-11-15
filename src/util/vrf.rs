@@ -235,8 +235,8 @@ impl fmt::Display for Error {
     }
 }
 
-impl error::Error for Error {
-    fn cause(&self) -> Option<&error::Error> {
+impl error::Error for ECVRF_Error {
+    fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::InvalidPublicKey => None,
             Error::InvalidDataError => None,

@@ -388,7 +388,7 @@ macro_rules! construct_uint {
 
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                <fmt::Debug>::fmt(self, f)
+                <dyn fmt::Debug>::fmt(self, f)
             }
         }
     );

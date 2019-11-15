@@ -878,7 +878,7 @@ impl TrieFileStorage {
         }
 
         let last_extended = match self.last_extended.take() {
-            Some((bhh, mut trie_ram)) => {
+            Some((bhh, trie_ram)) => {
                 let ptr = TriePtr::new(set_backptr(TrieNodeID::Node256), 0, 0);
 
                 let root_hash = trie_ram.read_node_hash(&ptr)?;

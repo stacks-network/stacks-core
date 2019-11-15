@@ -319,7 +319,7 @@ impl fmt::Display for Error {
 }
 
 impl error::Error for Error {
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::UnsupportedBurnchain => None,
             Error::Bitcoin(ref e) => Some(e),

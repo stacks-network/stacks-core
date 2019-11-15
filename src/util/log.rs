@@ -30,7 +30,7 @@ thread_local!(static loglevel: RefCell<u8> = RefCell::new(LOG_DEBUG));
 pub fn set_loglevel(ll: u8) -> Result<(), String> {
     loglevel.with(move |level| {
         match ll {
-            LOG_DEBUG...LOG_ERROR => {
+            LOG_DEBUG..=LOG_ERROR => {
                 *level.borrow_mut() = ll;
                 Ok(())
             },

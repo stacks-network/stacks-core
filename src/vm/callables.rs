@@ -8,8 +8,8 @@ use vm::{eval, Value, LocalContext, Environment};
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
-    NativeFunction(&'static str, &'static Fn(&[Value]) -> Result<Value>),
-    SpecialFunction(&'static str, &'static Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
+    NativeFunction(&'static str, &'static dyn Fn(&[Value]) -> Result<Value>),
+    SpecialFunction(&'static str, &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]

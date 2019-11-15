@@ -258,7 +258,7 @@ impl Neighbor {
                 ret
             },
             None => {
-                let mut ret = Neighbor::empty(&addr, &pubk, handshake_data.expire_block_height);
+                let ret = Neighbor::empty(&addr, &pubk, handshake_data.expire_block_height);
                 ret
             }
         };
@@ -806,7 +806,7 @@ impl Conversation {
                 };
 
             let now = get_epoch_time_secs();
-            let mut reply_opt = reply_opt_res?;
+            let reply_opt = reply_opt_res?;
             match reply_opt {
                 None => {},
                 Some(mut reply) => {

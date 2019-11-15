@@ -34,7 +34,7 @@ pub struct ClarityDatabase<'a> {
 }
 
 impl <'a> ClarityDatabase <'a> {
-    pub fn new(store: Box<KeyValueStorage + 'a>) -> ClarityDatabase<'a> {
+    pub fn new(store: Box<dyn KeyValueStorage + 'a>) -> ClarityDatabase<'a> {
         ClarityDatabase {
             store: RollbackWrapper::new(store)
         }
@@ -74,7 +74,7 @@ impl <'a> ClarityDatabase <'a> {
         self.store.set_block_hash(bhh)
     }
 
-    fn put(&mut self, key: &str, value: &ClaritySerializable) {
+    fn put <T: ClaritySerializable> (&mut self, key: &str, value: &T) {
         self.store.put(&key, &value.serialize());
     }
 

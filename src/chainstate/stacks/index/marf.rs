@@ -1175,7 +1175,7 @@ mod test {
                 test_debug!("get-prev {} of {}", j, i);
                 test_debug!("----------------");
                 
-                let mut prev_path = path_gen(j, path.clone());
+                let prev_path = path_gen(j, path.clone());
                 
                 let prev_block_header = BlockHeaderHash::from_bytes(&[j as u8; 32]).unwrap();
                 

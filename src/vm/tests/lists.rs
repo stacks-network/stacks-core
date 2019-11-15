@@ -130,7 +130,6 @@ fn test_simple_folds() {
     assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 
-
 #[test]
 fn test_list_len() {
     let test1 = "(len (list 1 2 3 4))";

@@ -305,6 +305,10 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
 }
 
 impl TupleTypeSignature {
+    pub fn len(&self) -> u64 {
+        self.type_map.len() as u64
+    }
+
     pub fn field_type(&self, field: &str) -> Option<&TypeSignature> {
         self.type_map.get(field)
     }

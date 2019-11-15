@@ -8,6 +8,9 @@ pub type CheckResult <T> = Result<T, CheckError>;
 
 #[derive(Debug, PartialEq)]
 pub enum CheckErrors {
+    // cost checker errors
+    CostOverflow,
+
     ValueTooLarge,
     ExpectedName,
 
@@ -37,6 +40,7 @@ pub enum CheckErrors {
 
     // Checker runtime failures
     TypeAlreadyAnnotatedFailure,
+    TypeAnnotationExpectedFailure,
     CheckerImplementationFailure,
 
     // Assets
@@ -209,6 +213,8 @@ impl DiagnosableError for CheckErrors {
 
     fn message(&self) -> String {
         match &self {
+            CheckErrors::TypeAnnotationExpectedFailure => "analysis expected type to already be annotated for expression".into(),
+            CheckErrors::CostOverflow => "contract execution cost overflowed cost counter".into(),
             CheckErrors::InvalidTypeDescription => "supplied type description is invalid".into(),
             CheckErrors::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             CheckErrors::BadSyntaxExpectedListOfPairs => "bad syntax: function expects a list of pairs to bind names, e.g., ((name-0 a) (name-1 b) ...)".into(),
