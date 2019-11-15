@@ -27,7 +27,7 @@ pub struct Diagnostic {
 
 impl Diagnostic {
 
-    pub fn err(error: &DiagnosableError) -> Diagnostic {
+    pub fn err(error: &dyn DiagnosableError) -> Diagnostic {
         Diagnostic {
             spans: vec![],
             level: Level::Error,

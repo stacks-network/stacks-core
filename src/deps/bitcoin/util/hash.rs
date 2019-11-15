@@ -206,15 +206,15 @@ impl Sha256dHash {
         let mut ret = [0; 32];
         for i in 0..32 {
            let hi = match bytes[2*i] {
-               b @ b'0'...b'9' => (b - b'0') as u8,
-               b @ b'a'...b'f' => (b - b'a' + 10) as u8,
-               b @ b'A'...b'F' => (b - b'A' + 10) as u8,
+               b @ b'0'..=b'9' => (b - b'0') as u8,
+               b @ b'a'..=b'f' => (b - b'a' + 10) as u8,
+               b @ b'A'..=b'F' => (b - b'A' + 10) as u8,
                b => return Err(HexError::BadCharacter(b as char))
            };
            let lo = match bytes[2*i + 1] {
-               b @ b'0'...b'9' => (b - b'0') as u8,
-               b @ b'a'...b'f' => (b - b'a' + 10) as u8,
-               b @ b'A'...b'F' => (b - b'A' + 10) as u8,
+               b @ b'0'..=b'9' => (b - b'0') as u8,
+               b @ b'a'..=b'f' => (b - b'a' + 10) as u8,
+               b @ b'A'..=b'F' => (b - b'A' + 10) as u8,
                b => return Err(HexError::BadCharacter(b as char))
            };
            ret[31 - i] = hi * 0x10 + lo;
