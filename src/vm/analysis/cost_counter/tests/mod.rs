@@ -55,3 +55,10 @@ fn test_bounded_ft() {
     let mapped_func = "(define-fungible-token stackaroos (* 2 1 4))";
     cost_check_contract(mapped_func).unwrap();
 }
+
+#[test]
+fn test_nft_transfer() {
+    let contract = "(define-non-fungible-token stackos uint)
+                    (nft-transfer! stackos u9 tx-sender tx-sender)";
+    cost_check_contract(contract).unwrap();
+}
