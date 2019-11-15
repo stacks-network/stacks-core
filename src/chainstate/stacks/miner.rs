@@ -278,12 +278,31 @@ pub mod test {
                 }
             }
         }
-        
+
+        pub fn get_anchored_block(&self, miner: &TestMiner, block_hash: &BlockHeaderHash) -> Option<StacksBlock> {
+            match self.commit_ops.get(block_hash) {
+                None => None,
+                Some(idx) => Some(self.anchored_blocks[*idx].clone())
+            }
+        }
+
+        pub fn get_last_winning_snapshot<'a>(tx: &mut BurnDBTx<'a>, fork_tip: &BlockSnapshot, miner: &TestMiner) -> Option<BlockSnapshot> {
+            for commit_op in miner.block_commits.iter().rev() {
+                match BurnDB::get_block_snapshot_for_winning_stacks_block(tx, &fork_tip.burn_header_hash, &commit_op.block_header_hash).unwrap() {
+                    Some(sn) => {
+                        return Some(sn);
+                    }
+                    None => {}
+                }
+            }
+            return None;
+        }
+
         fn mine_stacks_block<F>(&mut self,
                                 miner: &mut TestMiner, 
                                 burn_block: &mut TestBurnchainBlock, 
                                 miner_key: &LeaderKeyRegisterOp, 
-                                parent_block: Option<&StacksBlock>, 
+                                parent_stacks_block: Option<&StacksBlock>, 
                                 burn_amount: u64,
                                 block_assembler: F) -> (StacksBlock, LeaderBlockCommitOp) 
         where
@@ -291,20 +310,27 @@ pub mod test {
         {
             let proof = miner.make_proof(&miner_key.public_key, &burn_block.parent_snapshot.sortition_hash).unwrap();
 
-            let mut builder = match parent_block {
+            let mut builder = match parent_stacks_block {
                 None => {
                     // first stacks block
                     StacksBlockBuilder::first(&burn_block.parent_snapshot.burn_header_hash, &proof, &miner.next_microblock_privkey())
                 },
-                Some(last_block) => {
-                    // subsequent stacks block
-                    let last_snapshot = BurnDB::get_block_snapshot(self.burn.burndb.conn(), &burn_block.parent_snapshot.burn_header_hash).unwrap().unwrap();
-                    let last_commit = BurnDB::get_block_commit(self.burn.burndb.conn(), &last_snapshot.winning_block_txid, &last_snapshot.burn_header_hash).unwrap().unwrap();
+                Some(parent_stacks_block) => {
+                    // building off an existing stacks block
+                    let (burned_last, parent_stacks_block_snapshot) = {
+                        let mut tx = self.burn.burndb.tx_begin().unwrap();
+                        let parent_stacks_block_snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &burn_block.parent_snapshot.burn_header_hash, &parent_stacks_block.block_hash()).unwrap().unwrap();
+                        let burned_last = BurnDB::get_block_burn_amount(&mut tx, burn_block.parent_snapshot.block_height, &burn_block.parent_snapshot.burn_header_hash).unwrap();
+                        (burned_last, parent_stacks_block_snapshot)
+                    };
+
                     let new_work = StacksWorkScore {
-                        burn: 1000,
+                        burn: burned_last as u64,
                         work: 0
                     };
-                    StacksBlockBuilder::from_parent(&last_block.header, None, &last_commit.burn_header_hash, &new_work, &proof, &miner.next_microblock_privkey())
+
+                    test_debug!("Burned as of {} {}: {}", burn_block.block_height, burn_block.parent_snapshot.burn_header_hash.to_hex(), new_work.burn);
+                    StacksBlockBuilder::from_parent(&parent_stacks_block.header, None, &parent_stacks_block_snapshot.burn_header_hash, &new_work, &proof, &miner.next_microblock_privkey())
                 }
             };
 
@@ -437,15 +463,225 @@ pub mod test {
             assert!(poison_opt.is_none());
 
             let chain_tip = chain_tip_opt.unwrap();
+
             assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block.block_hash());
             assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
+        }
+    }
+
+    /// mine 10 empty stacks blocks, but fork the stacks blockchain at height 5
+    #[test]
+    fn mine_anchored_empty_blocks_stacks_fork() {
+        let mut node = TestStacksNode::new(false, 0x80000000, "mine_anchored_empty_blocks_stacks_fork");
+        let mut miner_factory = TestMinerFactory::new();
+        let mut miner_1 = miner_factory.next_miner(&node.burn.burnchain, 1, 1, AddressHashMode::SerializeP2PKH); 
+        let mut miner_2 = miner_factory.next_miner(&node.burn.burnchain, 1, 1, AddressHashMode::SerializeP2PKH); 
+
+        let first_snapshot = BurnDB::get_first_block_snapshot(node.burn.burndb.conn()).unwrap();
+        let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
+        
+        let mut first_burn_block = node.next_burn_block(&mut fork);
+
+        // first, register a VRF key
+         node.add_key_register(&mut first_burn_block, &mut miner_1);
+
+        test_debug!("Mine {} initial transactions", first_burn_block.txs.len());
+
+        fork.append_block(first_burn_block);
+        node.burn.mine_fork(&mut fork);
+
+        // next, build up some stacks blocks
+        for i in 0..5 {
+            let mut burn_block = {
+                let mut tx = node.burn.burndb.tx_begin().unwrap();
+                fork.next_block(&mut tx)
+            };
+            
+            let last_key = node.get_last_key(&miner_1);
+            let parent_block_opt = node.get_last_anchored_block(&miner_1);
+
+            // send next key (key for block i+1)
+            node.add_key_register(&mut burn_block, &mut miner_1);
+            node.add_key_register(&mut burn_block, &mut miner_2);
+
+            let (stacks_block, block_commit_op) = node.mine_stacks_block(&mut miner_1, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |ref mut builder, ref mut miner| {
+                // make a coinbase for this miner
+                let mut tx_coinbase = StacksTransaction::new(TransactionVersion::Testnet, miner.as_transaction_auth().unwrap(), TransactionPayload::Coinbase(CoinbasePayload([i as u8; 32])));
+                tx_coinbase.chain_id = 0x80000000;
+                tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
+                let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
+
+                miner.sign_as_origin(&mut tx_signer);
+                let tx_coinbase_signed = tx_signer.get_tx().unwrap();
+
+                test_debug!("Produce anchored stacks block");
+
+                let stacks_block = {
+                    let mut miner_chainstate = open_chainstate(false, 0x80000000, "mine_anchored_empty_blocks_stacks_fork");
+                    
+                    let mut epoch = builder.epoch_begin(&mut miner_chainstate, &tx_coinbase_signed).unwrap();
+                    let anchored_block = builder.mine_anchored_block(&mut epoch);
+                    builder.epoch_finish(epoch);
+
+                    anchored_block
+                };
+                stacks_block
+            });
+
+            // process burn chain
+            fork.append_block(burn_block);
+            let fork_snapshot = node.burn.mine_fork(&mut fork);
+
+            // "discover" the stacks block
+            preprocess_stacks_block(&mut node, &fork_snapshot, &stacks_block, &block_commit_op);
+
+            // process all blocks
+            test_debug!("Process Stacks block {}", &stacks_block.block_hash().to_hex());
+            let tip_info_list = node.chainstate.process_blocks(node.burn.burndb.conn(), 1).unwrap();
+
+            // processed _this_ block
+            assert_eq!(tip_info_list.len(), 1);
+            let (chain_tip_opt, poison_opt) = tip_info_list[0].clone();
+
+            assert!(chain_tip_opt.is_some());
+            assert!(poison_opt.is_none());
+
+            let chain_tip = chain_tip_opt.unwrap();
+
+            assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block.block_hash());
+            assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
+        }
+
+        test_debug!("\n\n\nBegin fork\n\n");
+
+        for i in 0..5 {
+            let mut burn_block = {
+                let mut tx = node.burn.burndb.tx_begin().unwrap();
+                fork.next_block(&mut tx)
+            };
+            
+            let last_key_1 = node.get_last_key(&miner_1);
+            let last_key_2 = node.get_last_key(&miner_2);
+
+            let (block_1_snapshot_opt, block_2_snapshot_opt) = {
+                let mut tx = node.burn.burndb.tx_begin().unwrap();
+                let chain_tip = fork.get_tip(&mut tx);
+                let block_1_snapshot_opt = TestStacksNode::get_last_winning_snapshot(&mut tx, &chain_tip, &miner_1);
+                let block_2_snapshot_opt = TestStacksNode::get_last_winning_snapshot(&mut tx, &chain_tip, &miner_2);
+                (block_1_snapshot_opt, block_2_snapshot_opt)
+            };
+
+            let parent_block_opt_1 = match block_1_snapshot_opt {
+                Some(sn) => node.get_anchored_block(&miner_1, &sn.winning_stacks_block_hash),
+                None => None
+            };
+            
+            let parent_block_opt_2 = match block_2_snapshot_opt {
+                Some(sn) => node.get_anchored_block(&miner_2, &sn.winning_stacks_block_hash),
+                None => parent_block_opt_1.clone()
+            };
+
+            // send next key (key for block i+1)
+            node.add_key_register(&mut burn_block, &mut miner_1);
+            node.add_key_register(&mut burn_block, &mut miner_2);
+
+            let (stacks_block_1, block_commit_op_1) = node.mine_stacks_block(&mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |ref mut builder, ref mut miner| {
+                // make a coinbase for this miner
+                let mut tx_coinbase = StacksTransaction::new(TransactionVersion::Testnet, miner.as_transaction_auth().unwrap(), TransactionPayload::Coinbase(CoinbasePayload([i as u8; 32])));
+                tx_coinbase.chain_id = 0x80000000;
+                tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
+                let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
+
+                miner.sign_as_origin(&mut tx_signer);
+                let tx_coinbase_signed = tx_signer.get_tx().unwrap();
+
+                test_debug!("Produce anchored stacks block 1");
+
+                let stacks_block = {
+                    let mut miner_chainstate = open_chainstate(false, 0x80000000, "mine_anchored_empty_blocks_stacks_fork");
+                    
+                    let mut epoch = builder.epoch_begin(&mut miner_chainstate, &tx_coinbase_signed).unwrap();
+                    let anchored_block = builder.mine_anchored_block(&mut epoch);
+                    builder.epoch_finish(epoch);
+
+                    anchored_block
+                };
+                
+                test_debug!("Finished producing anchored stacks block 1");
+                stacks_block
+            });
+            
+            let (stacks_block_2, block_commit_op_2) = node.mine_stacks_block(&mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |ref mut builder, ref mut miner| {
+                // make a coinbase for this miner
+                let mut tx_coinbase = StacksTransaction::new(TransactionVersion::Testnet, miner.as_transaction_auth().unwrap(), TransactionPayload::Coinbase(CoinbasePayload([i as u8; 32])));
+                tx_coinbase.chain_id = 0x80000000;
+                tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
+                let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
+
+                miner.sign_as_origin(&mut tx_signer);
+                let tx_coinbase_signed = tx_signer.get_tx().unwrap();
+
+                test_debug!("Produce anchored stacks block 2");
+
+                let stacks_block = {
+                    let mut miner_chainstate = open_chainstate(false, 0x80000000, "mine_anchored_empty_blocks_stacks_fork");
+                    
+                    let mut epoch = builder.epoch_begin(&mut miner_chainstate, &tx_coinbase_signed).unwrap();
+                    let anchored_block = builder.mine_anchored_block(&mut epoch);
+                    builder.epoch_finish(epoch);
+
+                    anchored_block
+                };
+
+                test_debug!("Finished producing anchored stacks block 2");
+                stacks_block
+            });
+
+            // process burn chain
+            fork.append_block(burn_block);
+            let fork_snapshot = node.burn.mine_fork(&mut fork);
+
+            // "discover" the stacks blocks
+            let res_1 = preprocess_stacks_block(&mut node, &fork_snapshot, &stacks_block_1, &block_commit_op_1);
+            let res_2 = preprocess_stacks_block(&mut node, &fork_snapshot, &stacks_block_2, &block_commit_op_2);
+
+            // exactly one stacks block will have been queued up, since sortition picks only one.
+            match (res_1, res_2) {
+                (Some(res), None) => assert!(res),
+                (None, Some(res)) => assert!(res),
+                (_, _) => assert!(false)
+            }
+
+            // process all blocks
+            test_debug!("Process Stacks block {}", &fork_snapshot.winning_stacks_block_hash.to_hex());
+            let tip_info_list = node.chainstate.process_blocks(node.burn.burndb.conn(), 2).unwrap();
+
+            // processed exactly one block, but got back two tip-infos
+            assert_eq!(tip_info_list.len(), 1);
+            let (chain_tip_opt, poison_opt) = tip_info_list[0].clone();
+
+            assert!(chain_tip_opt.is_some());
+            assert!(poison_opt.is_none());
+
+            let chain_tip = chain_tip_opt.unwrap();
+
+            // selected block is the sortition-winning block
+            assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
+            assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
+
+            if fork_snapshot.winning_stacks_block_hash == stacks_block_1.block_hash() {
+                test_debug!("\n\nMiner 1 won sortition\n");
+            }
+            else {
+                test_debug!("\n\nMiner 2 won sortition\n");
+            }
         }
     }
    
     /// Mine 10 empty stacks blocks, but fork the underlying burn chain after the 5th block.
     #[test]
     fn mine_anchored_empty_blocks_burnchain_fork() {
-        let mut node = TestStacksNode::new(false, 0x80000000, "mine_anchored_empty_blocks");
+        let mut node = TestStacksNode::new(false, 0x80000000, "mine_anchored_empty_blocks_burnchain_fork");
         let mut miner_factory = TestMinerFactory::new();
         let mut miner_1 = miner_factory.next_miner(&node.burn.burnchain, 1, 1, AddressHashMode::SerializeP2PKH); 
         let mut miner_2 = miner_factory.next_miner(&node.burn.burnchain, 1, 1, AddressHashMode::SerializeP2PKH); 
@@ -490,7 +726,7 @@ pub mod test {
                 test_debug!("Produce anchored stacks block");
 
                 let stacks_block = {
-                    let mut miner_chainstate = open_chainstate(false, 0x80000000, "mine_anchored_empty_blocks");
+                    let mut miner_chainstate = open_chainstate(false, 0x80000000, "mine_anchored_empty_blocks_burnchain_fork");
                     
                     let mut epoch = builder.epoch_begin(&mut miner_chainstate, &tx_coinbase_signed).unwrap();
                     let anchored_block = builder.mine_anchored_block(&mut epoch);
@@ -520,6 +756,7 @@ pub mod test {
             assert!(poison_opt.is_none());
 
             let chain_tip = chain_tip_opt.unwrap();
+
             assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block.block_hash());
             assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
         }
@@ -568,7 +805,7 @@ pub mod test {
                 test_debug!("Produce anchored stacks block 1");
 
                 let stacks_block = {
-                    let mut miner_chainstate = open_chainstate(false, 0x80000000, "mine_anchored_empty_blocks");
+                    let mut miner_chainstate = open_chainstate(false, 0x80000000, "mine_anchored_empty_blocks_burnchain_fork");
                     
                     let mut epoch = builder.epoch_begin(&mut miner_chainstate, &tx_coinbase_signed).unwrap();
                     let anchored_block = builder.mine_anchored_block(&mut epoch);
@@ -592,7 +829,7 @@ pub mod test {
                 test_debug!("Produce anchored stacks block 2");
 
                 let stacks_block = {
-                    let mut miner_chainstate = open_chainstate(false, 0x80000000, "mine_anchored_empty_blocks");
+                    let mut miner_chainstate = open_chainstate(false, 0x80000000, "mine_anchored_empty_blocks_burnchain_fork");
                     
                     let mut epoch = builder.epoch_begin(&mut miner_chainstate, &tx_coinbase_signed).unwrap();
                     let anchored_block = builder.mine_anchored_block(&mut epoch);
