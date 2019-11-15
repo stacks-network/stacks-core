@@ -33,6 +33,8 @@ use vm::types::QualifiedContractIdentifier;
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
+pub use vm::contexts::MAX_CONTEXT_DEPTH;
+
 const MAX_CALL_STACK_DEPTH: usize = 128;
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {

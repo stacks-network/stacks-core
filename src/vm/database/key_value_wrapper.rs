@@ -41,7 +41,7 @@ pub struct RollbackContext {
 
 pub struct RollbackWrapper <'a> {
     // the underlying key-value storage.
-    store: Box<KeyValueStorage + 'a>,
+    store: Box<dyn KeyValueStorage + 'a>,
     // lookup_map is a history of edits for a given key.
     //   in order of least-recent to most-recent at the tail.
     //   this allows ~ O(1) lookups, and ~ O(1) commits, roll-backs (amortized by # of PUTs).
@@ -57,7 +57,7 @@ pub struct RollbackWrapper <'a> {
 }
 
 impl <'a> RollbackWrapper <'a> {
-    pub fn new(store: Box<KeyValueStorage + 'a>) -> RollbackWrapper {
+    pub fn new(store: Box<dyn KeyValueStorage + 'a>) -> RollbackWrapper {
         RollbackWrapper {
             store: store,
             lookup_map: HashMap::new(),
