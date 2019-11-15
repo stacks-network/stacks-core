@@ -652,7 +652,15 @@ pub mod test {
             txop
         }
 
-        pub fn add_leader_block_commit<'a>(&mut self, tx: &mut BurnDBTx<'a>, miner: &mut TestMiner, block_hash: &BlockHeaderHash, burn_fee: u64, leader_key: &LeaderKeyRegisterOp, fork_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp {
+        pub fn add_leader_block_commit<'a>(&mut self, 
+                                           tx: &mut BurnDBTx<'a>, 
+                                           miner: &mut TestMiner, 
+                                           block_hash: &BlockHeaderHash, 
+                                           burn_fee: u64, 
+                                           leader_key: &LeaderKeyRegisterOp, 
+                                           fork_snapshot: Option<&BlockSnapshot>, 
+                                           parent_block_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp 
+        {
             let pubks = miner.privks.iter().map(|ref pk| StacksPublicKey::from_private(pk)).collect();
             let input = BurnchainSigner {
                 hash_mode: miner.hash_mode.clone(),
@@ -665,8 +673,11 @@ pub mod test {
                 None => BurnDB::get_canonical_burn_chain_tip(tx).unwrap()
             };
 
-            let last_snapshot_with_sortition = BurnDB::get_last_snapshot_with_sortition(tx, self.block_height - 1, &self.parent_snapshot.burn_header_hash)
-                .expect("FATAL: failed to read last snapshot with sortition");
+            let last_snapshot_with_sortition = match parent_block_snapshot {
+                Some(sn) => sn.clone(),
+                None => BurnDB::get_last_snapshot_with_sortition(tx, self.block_height - 1, &self.parent_snapshot.burn_header_hash)
+                .expect("FATAL: failed to read last snapshot with sortition")
+            };
                     
             // prove on the last-ever sortition's hash to produce the new seed
             let proof = miner.make_proof(&leader_key.public_key, &last_snapshot.sortition_hash)
@@ -838,7 +849,7 @@ pub mod test {
                 let block_commit_op = {
                     let mut tx = node.burndb.tx_begin().unwrap();
                     let hash = block_hashes[j].clone();
-                    block.add_leader_block_commit(&mut tx, &mut miners[j], &hash, ((j + 1) as u64) * 1000, &prev_keys[j], None)
+                    block.add_leader_block_commit(&mut tx, &mut miners[j], &hash, ((j + 1) as u64) * 1000, &prev_keys[j], None, None)
                 };
                 next_commits.push(block_commit_op);
             }
