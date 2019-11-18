@@ -352,7 +352,7 @@ fn test_lists() {
         CheckErrors::TypeError(BoolType, buff_type(20)),
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(2, 3),
-        CheckErrors::IllegalOrUnknownFunctionApplication("ynot".to_string()),
+        CheckErrors::UnknownFunction("ynot".to_string()),
         CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
