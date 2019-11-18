@@ -249,6 +249,7 @@ fn test_asserts() {
 #[test]
 fn test_lists() {
     let good = [
+        "(map hash160 (list u1 u2 u3 u4 u5))",
         "(map hash160 (list 1 2 3 4 5))",
         "(list (list 1 2) (list 3 4) (list 5 1 7))",
         "(filter not (list 'false 'true 'false))",
@@ -259,6 +260,7 @@ fn test_lists() {
         "(len (list 1 2 3 4))"];
     let expected = [
         "(list 5 (buff 20))", 
+        "(list 5 (buff 20))", 
         "(list 3 (list 3 int))", 
         "(list 3 bool)", 
         "bool", 
@@ -266,6 +268,7 @@ fn test_lists() {
         "(list 4 int)", 
         "(list 4 int)", 
         "uint"];
+
     let bad = [
         "(fold and (list 'true 'false) 2)",
         "(fold hash160 (list u1 u2 u3 u4) u2)",
@@ -286,9 +289,11 @@ fn test_lists() {
     let bad_expected = [
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
+        CheckErrors::TypeError(BoolType, buff_type(20)),
         CheckErrors::TypeError(BoolType, buff_type(20)),
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(2, 3),
@@ -340,7 +345,6 @@ fn test_buff() {
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(BoolType, buff_type(20)),
         CheckErrors::TypeError(BoolType, buff_type(20)),
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(2, 3),
