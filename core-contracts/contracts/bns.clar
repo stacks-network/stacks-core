@@ -803,7 +803,7 @@
     (if (is-none? zonefile-content)
       (map-set! name-properties
         ((namespace namespace) (name name))
-        ((registered-at (some block-height))
+        ((registered-at (some block-height)) ;; todo(ludo): complying to the spec here, but feels weird.
          (imported-at none)
          (revoked-at none)
          (zonefile-hash (get zonefile-hash name-props))))
