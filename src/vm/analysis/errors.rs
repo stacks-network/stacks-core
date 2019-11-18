@@ -21,6 +21,7 @@ pub enum CheckErrors {
 
     // simple type expectation mismatch
     TypeError(TypeSignature, TypeSignature),
+    TypeLiteralError(TypeSignature, TypeSignature),
     TypeValueError(TypeSignature, Value),
 
     NoSuperType(TypeSignature, TypeSignature),
@@ -95,6 +96,7 @@ pub enum CheckErrors {
     NonFunctionApplication,
     ExpectedListApplication,
     ExpectedListOrBuffer(TypeSignature),
+    MaxLengthOverflow,
 
     // let syntax
     BadLetSyntax,
@@ -201,7 +203,7 @@ fn formatted_expected_types(expected_types: & Vec<TypeSignature>) -> String {
     expected_types_joined = format!("'{}'", expected_types[0]);
 
     if expected_types.len() > 2 {
-        for expected_type in expected_types[1..expected_types.len()-2].into_iter() {
+        for expected_type in expected_types[1..expected_types.len()-1].into_iter() {
             expected_types_joined.push_str(&format!(", '{}'", expected_type));
         }
     }
@@ -226,6 +228,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ListTypesMustMatch => format!("expecting elements of same type in a list"),
             CheckErrors::ConstructedListTooLarge => format!("reached limit of elements in a list"),
             CheckErrors::TypeError(expected_type, found_type) => format!("expecting expression of type '{}', found '{}'", expected_type, found_type),
+            CheckErrors::TypeLiteralError(expected_type, found_type) => format!("expecting a literal of type '{}', found '{}'", expected_type, found_type),
             CheckErrors::TypeValueError(expected_type, found_value) => format!("expecting expression of type '{}', found '{}'", expected_type, found_value),
             CheckErrors::UnionTypeError(expected_types, found_type) => format!("expecting expression of type {}, found '{}'", formatted_expected_types(expected_types), found_type),
             CheckErrors::UnionTypeValueError(expected_types, found_type) => format!("expecting expression of type {}, found '{}'", formatted_expected_types(expected_types), found_type),
@@ -262,6 +265,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
             CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),
             CheckErrors::ExpectedListOrBuffer(found_type) => format!("expecting expression of type 'list' or 'buff', found '{}'", found_type),
+            CheckErrors::MaxLengthOverflow => format!("expecting a value <= {}", u32::max_value()),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
             CheckErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),
             CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"),

@@ -22,7 +22,7 @@ pub fn special_mint_token(args: &[SymbolicExpression],
     let amount = eval(&args[1], env, context)?;
     let to =     eval(&args[2], env, context)?;
 
-    if let (Value::Int(amount),
+    if let (Value::UInt(amount),
             Value::Principal(ref to_principal)) = (amount, to) {
         if amount <= 0 {
             return Ok(Value::error(Value::Int(MintTokenErrorCodes::NON_POSITIVE_AMOUNT as i128)));
@@ -136,7 +136,7 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
     let from =   eval(&args[2], env, context)?;
     let to =     eval(&args[3], env, context)?;
 
-    if let (Value::Int(amount),
+    if let (Value::UInt(amount),
             Value::Principal(ref from_principal),
             Value::Principal(ref to_principal)) = (amount, from, to) {
         if amount <= 0 {
@@ -183,7 +183,7 @@ pub fn special_get_balance(args: &[SymbolicExpression],
 
     if let Value::Principal(ref principal) = owner {
         let balance = env.global_context.database.get_ft_balance(&env.contract_context.contract_identifier, token_name, principal)?;
-        Ok(Value::Int(balance))
+        Ok(Value::UInt(balance))
     } else {
         Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into())
     }

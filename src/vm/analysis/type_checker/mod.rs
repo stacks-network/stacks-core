@@ -113,13 +113,13 @@ impl FunctionType {
             FunctionType::ArithmeticComparison => {
                 check_argument_count(2, args)?;
                 let (first, second) = (&args[0], &args[1]);
+                if first != second {
+                    return Err(CheckErrors::TypeError(first.clone(), second.clone()).into())
+                }
                 if first != &TypeSignature::IntType && first != &TypeSignature::UIntType {
                     return Err(CheckErrors::UnionTypeError(
                         vec![TypeSignature::IntType, TypeSignature::UIntType],
                         first.clone()).into())
-                }
-                if first != second {
-                    return Err(CheckErrors::TypeError(first.clone(), second.clone()).into())
                 }
                 Ok(TypeSignature::BoolType)
             },
@@ -134,8 +134,8 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
         let var_type = match variable {
             TxSender => TypeSignature::PrincipalType,
             ContractCaller => TypeSignature::PrincipalType,
-            BlockHeight => TypeSignature::IntType,
-            BurnBlockHeight => TypeSignature::IntType,
+            BlockHeight => TypeSignature::UIntType,
+            BurnBlockHeight => TypeSignature::UIntType,
             NativeNone => TypeSignature::new_option(no_type()),
         };
         Some(var_type)
@@ -390,7 +390,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
     fn type_check_define_ft(&mut self, token_name: &ClarityName, bound: Option<&SymbolicExpression>, context: &mut TypingContext) -> CheckResult<ClarityName> {
         if let Some(bound) = bound {
-            self.type_check_expects(bound, context, &TypeSignature::IntType)?;
+            self.type_check_expects(bound, context, &TypeSignature::UIntType)?;
         }
 
         Ok(token_name.clone())
