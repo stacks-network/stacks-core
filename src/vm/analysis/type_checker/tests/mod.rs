@@ -102,6 +102,13 @@ fn test_destructuring_opts(){
         ("(match-opt (ok 1) ok-val (/ ok-val 0) (+ 3 7))",
          CheckErrors::ExpectedOptionalType(TypeSignature::new_response(
              TypeSignature::IntType, TypeSignature::NoType))),
+        ("(default-to 3 5)",
+         CheckErrors::ExpectedOptionalType(TypeSignature::IntType)),
+        ("(define-private (foo (x int))
+           (match-opt (some 3)
+             x (+ x 2)
+             5))",
+         CheckErrors::NameAlreadyUsed("x".to_string())),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
