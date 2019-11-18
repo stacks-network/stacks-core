@@ -825,4 +825,7 @@ pub mod test {
         assert!(var_res.is_some());
         assert_eq!(var_res, Some(Value::Int(3)));
     }
+
+    // TODO: test sponsored transactions
+    // TODO: test that you can't send to yourself
 }

@@ -920,6 +920,7 @@ mod test {
                     next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
                     next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
                     next_snapshot.total_burn += 1;
+                    next_snapshot.stacks_block_height += 1;
                     next_snapshot.sortition = true;
                     next_snapshot.sortition_hash = next_snapshot.sortition_hash.mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
 
@@ -1008,7 +1009,7 @@ mod test {
 
         pub fn add_empty_burnchain_block(&mut self) -> u64 {
             let empty_block = {
-                let mut burndb = self.burndb.take().unwrap();
+                let burndb = self.burndb.take().unwrap();
                 let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();
                 let empty_block = self.empty_burnchain_block(sn.block_height);
                 self.burndb = Some(burndb);

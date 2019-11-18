@@ -1369,7 +1369,7 @@ pub mod tests {
             // There should only be two -- the winning block at height 124, and the genesis
             // sentinel block hash.  This is because epochs 121, 122, and 123 don't have any block
             // commits.
-            let mut expected_winning_hashes = vec![
+            let expected_winning_hashes = vec![
                 BlockHeaderHash([0u8; 32]),
                 block_124_winners[scenario_idx].block_header_hash.clone()
             ];

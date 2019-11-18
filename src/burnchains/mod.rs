@@ -688,12 +688,12 @@ pub mod test {
             let mut txop = match BurnDB::get_block_commit(tx, &last_snapshot_with_sortition.winning_block_txid, &last_snapshot_with_sortition.burn_header_hash)
                 .expect("FATAL: failed to read block commit") {
                 Some(parent) => {
-                    let mut txop = LeaderBlockCommitOp::new(block_hash, self.block_height, &new_seed, &parent, leader_key.block_height as u32, leader_key.vtxindex as u16, burn_fee, &input);
+                    let txop = LeaderBlockCommitOp::new(block_hash, self.block_height, &new_seed, &parent, leader_key.block_height as u32, leader_key.vtxindex as u16, burn_fee, &input);
                     txop
                 },
                 None => {
                     // initial
-                    let mut txop = LeaderBlockCommitOp::initial(block_hash, self.block_height, &new_seed, leader_key, burn_fee, &input);
+                    let txop = LeaderBlockCommitOp::initial(block_hash, self.block_height, &new_seed, leader_key, burn_fee, &input);
                     txop
                 }
             };

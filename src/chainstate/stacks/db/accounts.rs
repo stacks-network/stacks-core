@@ -158,7 +158,7 @@ impl StacksChainState {
         tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,burns,stacks_block_height) \
                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
                     &[&block_reward.address.to_string(), &tip.block_hash().to_hex(), &tip_info.burn_header_hash.to_hex(), &format!("{}", block_reward.coinbase), &format!("{}", block_reward.tx_fees_anchored),
-                      &format!("{}", child_streamed_tx_fee), &format!("{}", block_reward.burns), &(tip_info.block_height as i64) as &ToSql])
+                      &format!("{}", child_streamed_tx_fee), &format!("{}", block_reward.burns), &(tip_info.block_height as i64) as &dyn ToSql])
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         /*

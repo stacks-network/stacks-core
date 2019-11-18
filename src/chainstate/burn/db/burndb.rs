@@ -2373,7 +2373,7 @@ mod tests {
 
         // make other forks
         for i in 0..9 { 
-            let mut parent_block_hash =
+            let parent_block_hash =
                 if i == 0 {
                     [0u8; 32]
                 }

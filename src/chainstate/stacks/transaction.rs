@@ -245,8 +245,8 @@ impl StacksMessageCodec for TransactionPayload {
                     return Err(net_error::DeserializeError);
                 }
 
-                // must have the same sequence number and block parent
-                if h1.sequence != h2.sequence || h1.prev_block != h2.prev_block {
+                // must have the same sequence number or same block parent
+                if h1.sequence != h2.sequence && h1.prev_block != h2.prev_block {
                     return Err(net_error::DeserializeError);
                 }
 
@@ -1374,7 +1374,11 @@ mod test {
             0x03
         ];
 
-        check_codec_and_corruption::<TransactionPayload>(&payload, &payload_bytes)
+        check_codec_and_corruption::<TransactionPayload>(&payload, &payload_bytes);
+
+        // TODO: test same sequence, different parent header hash
+        // TODO: test different sequence, same parent header hash
+        // TODO: test deserialization failure 
     }
 
     #[test]

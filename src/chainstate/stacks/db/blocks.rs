@@ -914,7 +914,7 @@ impl StacksChainState {
             return None;
         }
 
-        // sanity check -- in order by sequence and no duplicates
+        // sanity check -- in order by sequence and no sequence duplicates
         for i in 1..signed_microblocks.len() {
             if signed_microblocks[i-1].header.sequence > signed_microblocks[i].header.sequence {
                 panic!("BUG: out-of-sequence microblock stream");
@@ -925,6 +925,20 @@ impl StacksChainState {
                 debug!("Discontiguous stream -- {} < {}", cur_seq, signed_microblocks[i].header.sequence);
                 return None;
             }
+        }
+
+        // sanity check -- all parent block hashes are unique.  If there are duplicates, then the
+        // miner equivocated.
+        let mut parent_hashes : HashMap<BlockHeaderHash, StacksMicroblockHeader> = HashMap::new();
+        for i in 0..signed_microblocks.len() {
+            let signed_microblock = &signed_microblocks[i];
+            if parent_hashes.contains_key(&signed_microblock.header.prev_block) {
+                debug!("Deliberate microblock fork: duplicate parent {}", signed_microblock.header.prev_block.to_hex());
+                let conflicting_microblock_header = parent_hashes.get(&signed_microblock.header.prev_block).unwrap();
+
+                return Some((i - 1, Some(TransactionPayload::PoisonMicroblock(signed_microblock.header.clone(), conflicting_microblock_header.clone()))));
+            }
+            parent_hashes.insert(signed_microblock.header.prev_block.clone(), signed_microblock.header.clone());
         }
 
         // hashes are contiguous enough -- for each seqnum, there is a block with seqnum+1 with the
