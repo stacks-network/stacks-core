@@ -247,7 +247,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         },
         "eval" => {
             if args.len() < 3 {
-                eprintln!("Usage: {} {} [context-contract-name] (program.clar) [vm-state.db]", invoked_by, args[0]);
+                eprintln!("Usage: {} {} [contract-identifier] (program.clar) [vm-state.db]", invoked_by, args[0]);
                 panic_test!();
             }
 
@@ -273,9 +273,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             };
 
-            let contract_name = &args[1];
-            let contract_identifier = friendly_expect(QualifiedContractIdentifier::local(contract_name), 
-                                                      "Failed to get contract name");
+            let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[1]), "Failed to parse contract identifier.");
 
             let mut vm_env = OwnedEnvironment::new(db);
             
@@ -294,7 +292,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         },
         "launch" => {
             if args.len() < 4 {
-                eprintln!("Usage: {} {} [contract-name] [contract-definition.clar] [vm-state.db]", invoked_by, args[0]);
+                eprintln!("Usage: {} {} [contract-identifier] [contract-definition.clar] [vm-state.db]", invoked_by, args[0]);
                 panic_test!();
             }
             let vm_filename = &args[3];
@@ -480,6 +478,6 @@ mod test {
                                  "sample-programs/names.clar".to_string(), db_name.clone()]);
         invoke_command("test", &["execute".to_string(), db_name.clone(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
                                  "mint!".to_string(), "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR".to_string(),
-                                 "1000".to_string()]);
+                                 "u1000".to_string()]);
     }
 }

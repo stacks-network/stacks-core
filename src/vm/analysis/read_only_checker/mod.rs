@@ -161,8 +161,8 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater |
             Modulo | Power | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If |
             Sha512 | Sha512Trunc256 |
-            ConsSome | ConsOkay | ConsError | DefaultTo | Asserts | Expects | ExpectsErr | IsOkay | IsNone |
-            ToUInt | ToInt |
+            ConsSome | ConsOkay | ConsError | DefaultTo | Expects | ExpectsErr | IsOkay | IsNone | Asserts |
+            ToUInt | ToInt | Append | Concat | AssertsMaxLen |
             ListCons | GetBlockInfo | TupleGet | Len | Print | AsContract | Begin | FetchVar | GetTokenBalance | GetAssetOwner => {
                 self.check_all_read_only(args)
             },

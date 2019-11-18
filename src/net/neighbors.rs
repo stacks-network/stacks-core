@@ -627,7 +627,7 @@ impl NeighborWalk {
                         StacksMessageType::HandshakeAccept(ref data) => {
                             // success! do we know about this peer already?
                             let neighbor_from_handshake = Neighbor::from_handshake(tx, message.preamble.peer_version, message.preamble.network_id, &data.handshake)?;
-                            let mut neighbor_opt = Neighbor::from_neighbor_address(tx, message.preamble.peer_version, message.preamble.network_id, block_height, &naddr)?;
+                            let neighbor_opt = Neighbor::from_neighbor_address(tx, message.preamble.peer_version, message.preamble.network_id, block_height, &naddr)?;
                             match neighbor_opt {
                                 Some(neighbor) => {
                                     test_debug!("{:?}: already know about {:?}", &local_peer, &neighbor.addr);

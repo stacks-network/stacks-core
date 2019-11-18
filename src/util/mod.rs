@@ -70,7 +70,7 @@ impl fmt::Display for HexError {
 }
 
 impl error::Error for HexError {
-    fn cause(&self) -> Option<&error::Error> { None }
+    fn cause(&self) -> Option<&dyn error::Error> { None }
     fn description(&self) -> &str {
         match *self {
             HexError::BadLength(_) => "sha256d hex string non-64 length",

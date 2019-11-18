@@ -694,7 +694,7 @@ where
         let affected_tables = vec!["history", "snapshots"];
         for i in 0..affected_tables.len() {
             let sql = format!("UPDATE {} SET canonical = 0 WHERE block_height >= ?1", &affected_tables[i]);
-            tx.execute(&sql, &[&(reorg_height as i64) as &ToSql])
+            tx.execute(&sql, &[&(reorg_height as i64) as &dyn ToSql])
               .map_err(|e| db_error::SqliteError(e))?;
         }
 
@@ -732,7 +732,7 @@ where
         }
 
         tx.execute("INSERT OR REPLACE INTO history (txid, vtxindex, block_height, burn_header_hash, op, canonical) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    &[&history_row.txid.to_hex(), &history_row.vtxindex as &ToSql, &(history_row.block_height as i64), &history_row.burn_header_hash.to_hex(), &history_row.op, &true as &ToSql])
+                    &[&history_row.txid.to_hex(), &history_row.vtxindex as &dyn ToSql, &(history_row.block_height as i64), &history_row.burn_header_hash.to_hex(), &history_row.op, &true as &dyn ToSql])
             .map_err(|e| db_error::SqliteError(e))?;
 
         Ok(())
@@ -751,9 +751,9 @@ where
         tx.execute("INSERT OR REPLACE INTO snapshots \
                    (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition_burn, burn_quota, sortition, sortition_hash, winning_block_txid, winning_block_burn_hash, canonical) \
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-                   &[&(snapshot.block_height as i64) as &ToSql, &snapshot.burn_header_hash.to_hex(), &snapshot.parent_burn_header_hash.to_hex(), &snapshot.consensus_hash.to_hex(), &snapshot.ops_hash.to_hex(), &total_burn_str,
-                     &sortition_burn_str, &burn_quota_str, &snapshot.sortition as &ToSql, &snapshot.sortition_hash.to_hex(), &snapshot.winning_block_txid.to_hex(), &snapshot.winning_block_burn_hash.to_hex(),
-                     &snapshot.canonical as &ToSql])
+                   &[&(snapshot.block_height as i64) as &dyn ToSql, &snapshot.burn_header_hash.to_hex(), &snapshot.parent_burn_header_hash.to_hex(), &snapshot.consensus_hash.to_hex(), &snapshot.ops_hash.to_hex(), &total_burn_str,
+                     &sortition_burn_str, &burn_quota_str, &snapshot.sortition as &dyn ToSql, &snapshot.sortition_hash.to_hex(), &snapshot.winning_block_txid.to_hex(), &snapshot.winning_block_burn_hash.to_hex(),
+                     &snapshot.canonical as &dyn ToSql])
             .map_err(|e| db_error::SqliteError(e))?;
 
         Ok(())
@@ -767,7 +767,7 @@ where
         BurnDB::<A, K>::insert_history_row(tx, &hist_row)?;
 
         tx.execute("INSERT OR REPLACE INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, address) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                   &[&leader_key.txid.to_hex(), &leader_key.vtxindex as &ToSql, &(leader_key.block_number as i64) as &ToSql, &leader_key.burn_header_hash.to_hex(),
+                   &[&leader_key.txid.to_hex(), &leader_key.vtxindex as &dyn ToSql, &(leader_key.block_number as i64) as &dyn ToSql, &leader_key.burn_header_hash.to_hex(),
                    &leader_key.consensus_hash.to_hex(), &ECVRF_public_key_to_hex(&leader_key.public_key), &to_hex(&leader_key.memo), &leader_key.address.to_string()])
             .map_err(|e| db_error::SqliteError(e))?;
 
@@ -790,9 +790,9 @@ where
 
         tx.execute("INSERT OR REPLACE INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, epoch_num, memo, burn_fee, input) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-                    &[&block_commit.txid.to_hex(), &block_commit.vtxindex as &ToSql, &(block_commit.block_number as i64) as &ToSql, &block_commit.burn_header_hash.to_hex(), 
-                    &block_commit.block_header_hash.to_hex(), &block_commit.new_seed.to_hex(), &block_commit.parent_block_backptr as &ToSql, &block_commit.parent_vtxindex as &ToSql,
-                    &block_commit.key_block_backptr as &ToSql, &block_commit.key_vtxindex as &ToSql, &block_commit.epoch_num as &ToSql, &to_hex(&block_commit.memo[..]), 
+                    &[&block_commit.txid.to_hex(), &block_commit.vtxindex as &dyn ToSql, &(block_commit.block_number as i64) as &dyn ToSql, &block_commit.burn_header_hash.to_hex(), 
+                    &block_commit.block_header_hash.to_hex(), &block_commit.new_seed.to_hex(), &block_commit.parent_block_backptr as &dyn ToSql, &block_commit.parent_vtxindex as &dyn ToSql,
+                    &block_commit.key_block_backptr as &dyn ToSql, &block_commit.key_vtxindex as &dyn ToSql, &block_commit.epoch_num as &dyn ToSql, &to_hex(&block_commit.memo[..]), 
                     &burn_fee_str, &tx_input_str])
             .map_err(|e| db_error::SqliteError(e))?;
 
@@ -811,7 +811,7 @@ where
         let burn_fee_str = format!("{}", user_burn.burn_fee);
 
         tx.execute("INSERT OR REPLACE INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, block_header_hash_160, memo, burn_fee) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                   &[&user_burn.txid.to_hex(), &user_burn.vtxindex as &ToSql, &(user_burn.block_number as i64) as &ToSql, &user_burn.burn_header_hash.to_hex(), &user_burn.consensus_hash.to_hex(),
+                   &[&user_burn.txid.to_hex(), &user_burn.vtxindex as &dyn ToSql, &(user_burn.block_number as i64) as &dyn ToSql, &user_burn.burn_header_hash.to_hex(), &user_burn.consensus_hash.to_hex(),
                    &ECVRF_public_key_to_hex(&user_burn.public_key), &user_burn.block_header_hash_160.to_hex(), &to_hex(&user_burn.memo[..]), &burn_fee_str])
             .map_err(|e| db_error::SqliteError(e))?;
 
@@ -842,7 +842,7 @@ where
 
         let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND leader_keys.block_height = ?1 ORDER BY leader_keys.vtxindex ASC", row_order);
-        let args = [&(block_height as i64) as &ToSql];
+        let args = [&(block_height as i64) as &dyn ToSql];
         query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
 
@@ -861,7 +861,7 @@ where
 
         let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND leader_keys.block_height = ?1 AND leader_keys.vtxindex = ?2", row_order);
-        let args = [&(block_height as i64) as &ToSql, &vtxindex as &ToSql];
+        let args = [&(block_height as i64) as &dyn ToSql, &vtxindex as &dyn ToSql];
         let rows = query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)?;
 
         match rows.len() {
@@ -914,7 +914,7 @@ where
 
         let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND block_commits.block_height = ?1 ORDER BY block_commits.vtxindex ASC", row_order);
-        let args = [&(block_height as i64) as &ToSql];
+        let args = [&(block_height as i64) as &dyn ToSql];
 
         query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
@@ -934,7 +934,7 @@ where
 
         let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND block_commits.block_height = ?1 AND block_commits.vtxindex = ?2", row_order);
-        let args = [&(block_height as i64) as &ToSql, &vtxindex as &ToSql];
+        let args = [&(block_height as i64) as &dyn ToSql, &vtxindex as &dyn ToSql];
         let rows = query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)?;
 
         match rows.len() {
@@ -986,7 +986,7 @@ where
 
         let qry = format!("SELECT {} FROM user_burn_support JOIN history ON user_burn_support.txid = history.txid AND user_burn_support.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND user_burn_support.block_height = ?1 ORDER BY user_burn_support.vtxindex ASC", row_order);
-        let args = [&(block_height as i64) as &ToSql];
+        let args = [&(block_height as i64) as &dyn ToSql];
 
         query_rows::<UserBurnSupportOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
@@ -1013,7 +1013,7 @@ where
         }
 
         let qry = "SELECT COUNT(consensus_hash) FROM snapshots WHERE canonical = 1 AND consensus_hash = ?1 AND block_height >= ?2 AND block_height <= ?3";
-        let args = [&consensus_hash.to_hex(), &((current_block_height as u32) - consensus_hash_lifetime) as &ToSql, &(current_block_height as u32) as &ToSql];
+        let args = [&consensus_hash.to_hex(), &((current_block_height as u32) - consensus_hash_lifetime) as &dyn ToSql, &(current_block_height as u32) as &dyn ToSql];
         let count = query_count(conn, &qry.to_string(), &args)?;
         Ok(count != 0)
     }
@@ -1030,7 +1030,7 @@ where
 
         let qry = "SELECT COUNT(*) FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_header_hash = history.burn_header_hash \
                    WHERE history.canonical = 1 AND block_commits.block_height - block_commits.key_block_backptr = ?1 AND block_commits.key_vtxindex = ?2".to_string();
-        let args = [&(leader_key.block_number as i64) as &ToSql, &leader_key.vtxindex as &ToSql];
+        let args = [&(leader_key.block_number as i64) as &dyn ToSql, &leader_key.vtxindex as &dyn ToSql];
         let count = query_count(conn, &qry.to_string(), &args)?;
         Ok(count >= 1)
     }
@@ -1044,7 +1044,7 @@ where
 
         let row_order = BlockSnapshot::row_order().join(",");
         let qry = format!("SELECT {} FROM snapshots WHERE snapshots.canonical = 1 AND snapshots.sortition = 1 AND snapshots.block_height < ?1 ORDER BY snapshots.block_height DESC LIMIT 1", row_order);
-        let args = [&(block_height as i64) as &ToSql];
+        let args = [&(block_height as i64) as &dyn ToSql];
 
         let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
 
@@ -1068,7 +1068,7 @@ where
         }
 
         let qry = "SELECT txid FROM history WHERE canonical = 1 AND block_height = ?1 AND burn_header_hash = ?2 ORDER BY vtxindex ASC".to_string();
-        let args = [&(block_height as i64) as &ToSql, &block_hash.to_hex()];
+        let args = [&(block_height as i64) as &dyn ToSql, &block_hash.to_hex()];
 
         query_rows::<Txid, _>(conn, &qry.to_string(), &args)
     }
@@ -1093,7 +1093,7 @@ where
         let qry = format!("SELECT {} FROM block_commits JOIN snapshots ON block_commits.txid = snapshots.winning_block_txid AND block_commits.burn_header_hash = snapshots.winning_block_burn_hash \
                            WHERE snapshots.canonical = 1 AND block_commits.block_height >= ?1 AND block_commits.block_height < ?2 \
                            ORDER BY block_commits.block_height ASC, block_commits.vtxindex ASC", row_order);
-        let args = [&(block_height_start as i64) as &ToSql, &(block_height_end as i64) as &ToSql];
+        let args = [&(block_height_start as i64) as &dyn ToSql, &(block_height_end as i64) as &dyn ToSql];
 
         query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
@@ -1134,7 +1134,7 @@ pub fn get_consensus_at(conn: &Connection, block_height: u64) -> Result<Option<C
     }
 
     let qry = "SELECT consensus_hash FROM snapshots WHERE canonical = 1 AND block_height = ?1";
-    let args = [&(block_height as i64) as &ToSql];
+    let args = [&(block_height as i64) as &dyn ToSql];
 
     let mut stmt = conn.prepare(qry)
         .map_err(|e| db_error::SqliteError(e))?;
@@ -1158,7 +1158,7 @@ pub fn get_block_snapshot(conn: &Connection, block_height: u64) -> Result<Option
 
     let row_order = BlockSnapshot::row_order().join(",");
     let qry = format!("SELECT {} FROM snapshots WHERE canonical = 1 AND block_height = ?1", row_order);
-    let args = [&(block_height as i64) as &ToSql];
+    let args = [&(block_height as i64) as &dyn ToSql];
     let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
 
     match rows.len() {
@@ -1215,7 +1215,7 @@ pub fn get_burnchain_view(conn: &Connection, burnchain: &Burnchain) -> Result<Bu
     }
 
     let qry = "SELECT block_height,consensus_hash FROM snapshots WHERE canonical = 1 AND (block_height = ?1 OR block_height = ?2) ORDER BY block_height DESC";
-    let args = [&(height as i64) as &ToSql, &((height - (burnchain.stable_confirmations as u64)) as i64) as &ToSql];
+    let args = [&(height as i64) as &dyn ToSql, &((height - (burnchain.stable_confirmations as u64)) as i64) as &dyn ToSql];
 
     let mut stmt = conn.prepare(qry)
         .map_err(|e| db_error::SqliteError(e))?;

@@ -81,7 +81,7 @@ impl fmt::Display for CursorError {
 }
 
 impl error::Error for CursorError {
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         None
     }
 
@@ -1839,8 +1839,8 @@ mod test {
 
         let mut child_hashes = vec![];
         for i in 0..3 {
-            let mut child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
-            let mut child_hash = get_leaf_hash(&child);
+            let child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
+            let child_hash = get_leaf_hash(&child);
 
             child_hashes.push(child_hash.clone());
 
@@ -1871,8 +1871,8 @@ mod test {
 
         let mut child_hashes = vec![];
         for i in 0..15 {
-            let mut child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
-            let mut child_hash = get_leaf_hash(&child);
+            let child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
+            let child_hash = get_leaf_hash(&child);
 
             child_hashes.push(child_hash.clone());
 
@@ -1903,8 +1903,8 @@ mod test {
 
         let mut child_hashes = vec![];
         for i in 0..47 {
-            let mut child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
-            let mut child_hash = get_leaf_hash(&child);
+            let child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
+            let child_hash = get_leaf_hash(&child);
 
             child_hashes.push(child_hash.clone());
 
@@ -1935,8 +1935,8 @@ mod test {
 
         let mut child_hashes = vec![];
         for i in 0..255 {
-            let mut child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
-            let mut child_hash = get_leaf_hash(&child);
+            let child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
+            let child_hash = get_leaf_hash(&child);
 
             child_hashes.push(child_hash.clone());
 

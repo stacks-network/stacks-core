@@ -1,6 +1,6 @@
 pub mod define;
 pub mod tuples;
-mod lists;
+mod iterables;
 mod arithmetic;
 mod boolean;
 mod database;
@@ -38,6 +38,9 @@ define_named_enum!(NativeFunctions {
     Let("let"),
     Map("map"),
     Fold("fold"),
+    Append("append"),
+    Concat("concat"),
+    AssertsMaxLen("asserts-max-len!"),
     Len("len"),
     ListCons("list"),
     FetchVar("var-get"),
@@ -103,11 +106,14 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Let => CallableType::SpecialFunction("native_let", &special_let),
             FetchVar => CallableType::SpecialFunction("native_var-get", &database::special_fetch_variable),
             SetVar => CallableType::SpecialFunction("native_set-var", &database::special_set_variable),
-            Map => CallableType::SpecialFunction("native_map", &lists::list_map),
-            Filter => CallableType::SpecialFunction("native_filter", &lists::list_filter),
-            Fold => CallableType::SpecialFunction("native_fold", &lists::list_fold),
-            Len => CallableType::SpecialFunction("native_len", &lists::list_len),
-            ListCons => CallableType::NativeFunction("native_cons", &lists::list_cons),
+            Map => CallableType::SpecialFunction("native_map", &iterables::native_map),
+            Filter => CallableType::SpecialFunction("native_filter", &iterables::native_filter),
+            Fold => CallableType::SpecialFunction("native_fold", &iterables::native_fold),
+            Concat => CallableType::SpecialFunction("native_concat", &iterables::native_concat),
+            AssertsMaxLen => CallableType::SpecialFunction("native_asserts_max_len", &iterables::native_asserts_max_len),
+            Append => CallableType::SpecialFunction("native_append", &iterables::native_append),
+            Len => CallableType::SpecialFunction("native_len", &iterables::native_len),
+            ListCons => CallableType::NativeFunction("native_cons", &iterables::list_cons),
             FetchEntry => CallableType::SpecialFunction("native_map-get", &database::special_fetch_entry),
             FetchContractEntry => CallableType::SpecialFunction("native_contract-map-get", &database::special_fetch_contract_entry),
             SetEntry => CallableType::SpecialFunction("native_set-entry", &database::special_set_entry),
@@ -177,8 +183,9 @@ macro_rules! native_hash_func {
             let input = &args[0];
             let bytes = match input {
                 Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
+                Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::Buffer(value) => Ok(value.data.clone()),
-                _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], input.clone()))
+                _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], input.clone()))
             }?;
             let hash = <$module>::from_data(&bytes);
             Value::buff_from(hash.as_bytes().to_vec())
@@ -244,9 +251,10 @@ fn special_asserts(args: &[SymbolicExpression], env: &mut Environment, context: 
     }
 }
 
-fn parse_eval_bindings(bindings: &[SymbolicExpression],
-                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(ClarityName, Value)>> {
-    let mut result = Vec::new();
+pub fn handle_binding_list <F, E> (bindings: &[SymbolicExpression], mut handler: F) -> std::result::Result<(), E>
+where F: FnMut(&ClarityName, &SymbolicExpression) -> std::result::Result<(), E>,
+      E: From<CheckErrors>
+{
     for binding in bindings.iter() {
         let binding_expression = binding.match_list()
             .ok_or(CheckErrors::BadSyntaxBinding)?;
@@ -255,9 +263,22 @@ fn parse_eval_bindings(bindings: &[SymbolicExpression],
         }
         let var_name = binding_expression[0].match_atom()
             .ok_or(CheckErrors::BadSyntaxBinding)?;
-        let value = eval(&binding_expression[1], env, context)?;
-        result.push((var_name.clone(), value));
+        let var_sexp = &binding_expression[1];
+
+        handler(var_name, var_sexp)?;
     }
+    Ok(())
+}
+
+pub fn parse_eval_bindings(bindings: &[SymbolicExpression],
+                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(ClarityName, Value)>> {
+    let mut result = Vec::new();
+    handle_binding_list(bindings, |var_name, var_sexp| {
+        eval(var_sexp, env, context)
+            .and_then(|value| {
+                result.push((var_name.clone(), value));
+                Ok(()) })
+    })?;
 
     Ok(result)
 }

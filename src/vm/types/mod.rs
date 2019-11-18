@@ -1,5 +1,5 @@
 pub mod serialization;
-mod signatures;
+pub mod signatures;
 
 use std::{fmt, cmp};
 use std::convert::{TryInto, TryFrom};
@@ -158,7 +158,7 @@ impl BlockInfoProperty {
     pub fn type_result(&self) -> TypeSignature {
         use self::BlockInfoProperty::*;
         match self {
-            Time => TypeSignature::IntType,
+            Time => TypeSignature::UIntType,
             VrfSeed | HeaderHash | BurnchainHeaderHash => BUFF_32.clone(),
         }
     }
@@ -198,6 +198,10 @@ impl Value {
         Value::Response(ResponseData { 
             committed: false,
             data: Box::new(data) })
+    }
+
+    pub fn size(&self) -> u32 {
+        TypeSignature::type_of(self).size()
     }
 
     /// Invariant: the supplied Values have already been "checked", i.e., it's a valid Value object
@@ -240,6 +244,10 @@ impl Value {
         BufferLength::try_from(buff_data.len())?;
         // construct the buffer
         Ok(Value::Buffer(BuffData { data: buff_data }))
+    }
+
+    pub fn buff_from_byte(byte: u8) -> Value {
+        Value::Buffer(BuffData { data: vec![byte] })
     }
 }
 
@@ -391,9 +399,13 @@ impl TupleData {
         Self::new(expected.clone(), data_map)
     }
 
-    pub fn get(&self, name: &str) -> Result<Value> {
+    pub fn get(&self, name: &str) -> Result<&Value> {
         self.data_map.get(name)
-            .cloned()
+            .ok_or_else(|| CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into())
+    }
+
+    pub fn get_owned(mut self, name: &str) -> Result<Value> {
+        self.data_map.remove(name)
             .ok_or_else(|| CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into())
     }
 }
@@ -441,6 +453,20 @@ mod test {
                 Err(CheckErrors::ValueTooLarge.into()));
         }
     }
+
+    #[test]
+    fn simple_size_test() {
+        assert_eq!(Value::Int(10).size(), 16);
+    }
+
+    #[test]
+    fn simple_tuple_get_test() {
+        let t = TupleData::from_data(vec![("abc".into(), Value::Int(0))]).unwrap();
+        assert_eq!(t.get("abc"), Ok(&Value::Int(0)));
+        // should error!
+        t.get("abcd").unwrap_err();
+    }
+
     #[test]
     fn test_some_displays() {
         assert_eq!(&format!("{}", Value::list_from(vec![Value::Int(10), Value::Int(5)]).unwrap()),

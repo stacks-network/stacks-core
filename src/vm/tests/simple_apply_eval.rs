@@ -349,6 +349,8 @@ fn test_options_errors() {
         "(err 4 5)",
         "(default-to 4 5 7)",
         "(default-to 4 'true)",
+        "(get field-0 (some 1))",
+        "(get field-0 1)",
         ];
 
     let expectations: &[Error] = &[
@@ -361,6 +363,8 @@ fn test_options_errors() {
         CheckErrors::IncorrectArgumentCount(1,2).into(),
         CheckErrors::IncorrectArgumentCount(2,3).into(),
         CheckErrors::ExpectedOptionalValue(Value::Bool(true)).into(),
+        CheckErrors::ExpectedTuple(TypeSignature::IntType).into(),
+        CheckErrors::ExpectedTuple(TypeSignature::IntType).into()
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -412,12 +416,12 @@ fn test_hash_errors() {
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
     ];
 
