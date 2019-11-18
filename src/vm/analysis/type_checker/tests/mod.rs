@@ -17,15 +17,7 @@ mod assets;
 mod contracts;
 
 fn type_check_helper(exp: &str) -> TypeResult {
-    let mut db = AnalysisDatabase::memory();
-    let contract_id = QualifiedContractIdentifier::transient();
-    let exp = parse(&contract_id, exp).unwrap();
-    db.execute(|db| {
-        let mut type_checker = TypeChecker::new(db);
-        
-        let contract_context = TypingContext::new();
-        type_checker.type_check(&exp[0], &contract_context)
-    })
+    mem_type_check(exp).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
 
 fn buff_type(size: u32) -> TypeSignature {
@@ -56,6 +48,69 @@ fn test_get_block_info(){
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
     }
 }
+
+#[test]
+fn test_destructuring_opts(){
+    let good = [
+        "(expects! (some 1) 2)",
+        "(expects-err! (err 1) 2)",
+        "(expects! (ok 3) 2)",
+        "(unwrap (ok 3))",
+        "(unwrap (some 3))",
+        "(unwrap-err (err 3))",
+        "(match-opt (some 1) inner-value (+ 1 inner-value) (/ 1 0))",
+        "(define-private (foo) (if (> 1 0) (ok 1) (err 8)))
+         (match-resp (foo) ok-val (+ 1 ok-val) err-val (/ err-val 0))",
+    ];
+
+    let expected = [ 
+        "int", "int", "int", "int", "int",
+        "int", "int", "int", "int", "int", ];
+
+    let bad = [
+        ("(expects-err! (some 2) 2)",
+         CheckErrors::ExpectedResponseType(TypeSignature::from("(optional int)"))),
+        ("(expects! (err 3) 2)",
+         CheckErrors::CouldNotDetermineResponseOkType),
+        ("(unwrap-err (ok 3))",
+         CheckErrors::CouldNotDetermineResponseErrType),
+        ("(unwrap none)",
+         CheckErrors::CouldNotDetermineResponseOkType),
+        ("(define-private (foo) (if (> 1 0) none none)) (unwrap (foo))",
+         CheckErrors::CouldNotDetermineResponseOkType),
+        ("(unwrap (err 3))",
+         CheckErrors::CouldNotDetermineResponseOkType),
+        ("(match-opt none inner-value (/ 1 0) (+ 1 8))",
+         CheckErrors::CouldNotDetermineMatchTypes),
+        ("(match-resp (ok 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
+         CheckErrors::CouldNotDetermineMatchTypes),
+        ("(match-resp (err 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
+         CheckErrors::CouldNotDetermineMatchTypes),
+        ("(define-private (foo) (if (> 1 0) (ok 1) (err u8)))
+         (match-resp (foo) ok-val (+ 1 ok-val) err-val (/ err-val u0))",
+         CheckErrors::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::UIntType)),
+        ("(match-opt (some 1) inner-value (+ 1 inner-value) (> 1 28))",
+         CheckErrors::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::BoolType)),         
+        ("(match-opt (some 1) inner-value (+ 1 inner-value))",
+         CheckErrors::IncorrectArgumentCount(4, 3)),
+        ("(match-resp (some 1) inner-value (+ 1 inner-value))",
+         CheckErrors::IncorrectArgumentCount(5, 3)),
+        ("(match-resp (some 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
+         CheckErrors::ExpectedResponseType(TypeSignature::from("(optional int)"))),
+        ("(match-opt (ok 1) ok-val (/ ok-val 0) (+ 3 7))",
+         CheckErrors::ExpectedOptionalType(TypeSignature::new_response(
+             TypeSignature::IntType, TypeSignature::NoType))),
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+    
+    for (bad_test, expected) in bad.iter() {
+        assert_eq!(expected, &mem_type_check(&bad_test).unwrap_err().err);
+    }
+}
+
 
 #[test]
 fn test_at_block(){
@@ -278,7 +333,7 @@ fn test_lists() {
         CheckErrors::TypeError(BoolType, buff_type(20)),
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(2, 3),
-        CheckErrors::IllegalOrUnknownFunctionApplication("ynot".to_string()),
+        CheckErrors::UnknownFunction("ynot".to_string()),
         CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
@@ -950,7 +1005,7 @@ fn test_fetch_entry_matching_type_signatures() {
         "map-get kv-store (compatible-tuple)",
     ];
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (compatible-tuple) (tuple (key 1)))
@@ -969,7 +1024,7 @@ fn test_fetch_entry_mismatching_type_signatures() {
         "map-get kv-store (incompatible-tuple)",
     ];
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (incompatible-tuple) (tuple (k 1)))
@@ -989,7 +1044,7 @@ fn test_fetch_entry_unbound_variables() {
         "map-get kv-store ((key unknown-value))",
     ];
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (kv-get (key int))
@@ -1011,7 +1066,7 @@ fn test_insert_entry_matching_type_signatures() {
         "map-insert! kv-store (compatible-tuple) ((value 1))",
     ];
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (compatible-tuple) (tuple (key 1)))
@@ -1031,7 +1086,7 @@ fn test_insert_entry_mismatching_type_signatures() {
         "map-insert! kv-store (incompatible-tuple) ((value 1))",
     ];
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (incompatible-tuple) (tuple (k 1)))
@@ -1052,7 +1107,7 @@ fn test_insert_entry_unbound_variables() {
         "map-insert! kv-store ((key key)) ((value unknown-value))",
     ];
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (kv-add (key int))
@@ -1075,7 +1130,7 @@ fn test_delete_entry_matching_type_signatures() {
         "map-delete! kv-store (compatible-tuple)",
     ];
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (compatible-tuple) (tuple (key 1)))
@@ -1093,7 +1148,7 @@ fn test_delete_entry_mismatching_type_signatures() {
         "map-delete! kv-store (incompatible-tuple)",
     ];
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (incompatible-tuple) (tuple (k 1)))
@@ -1114,7 +1169,7 @@ fn test_delete_entry_unbound_variables() {
         "map-delete! kv-store ((key unknown-value))",
     ];
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (kv-del (key int))
@@ -1137,7 +1192,7 @@ fn test_set_entry_matching_type_signatures() {
         "map-set! kv-store (compatible-tuple) ((value 1))",
     ];
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (compatible-tuple) (tuple (key 1)))
@@ -1160,7 +1215,7 @@ fn test_set_entry_mismatching_type_signatures() {
         "map-set! kv-store (incompatible-tuple) ((value 1))",
     ];
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (incompatible-tuple) (tuple (k 1)))
@@ -1182,7 +1237,7 @@ fn test_set_entry_unbound_variables() {
         "map-set! kv-store ((key key)) ((value unknown-value))",
     ];
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (kv-set (key int) (value int))
@@ -1221,7 +1276,7 @@ fn test_fetch_contract_entry_matching_type_signatures() {
 
     let transient_contract_id = QualifiedContractIdentifier::transient();
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(r#"
             (define-private (compatible-tuple) (tuple (key 1)))
             (define-private (kv-get (key int)) ({}))"#, case);
@@ -1255,7 +1310,7 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
 
     let transient_contract_id = QualifiedContractIdentifier::transient();
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (incompatible-tuple) (tuple (k 1)))
@@ -1295,7 +1350,7 @@ fn test_fetch_contract_entry_unbound_variables() {
 
     let transient_contract_id = QualifiedContractIdentifier::transient();
 
-    for case in cases.into_iter() {
+    for case in cases.iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (kv-get (key int))

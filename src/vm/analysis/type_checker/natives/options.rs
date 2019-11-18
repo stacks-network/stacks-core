@@ -81,7 +81,13 @@ pub fn check_special_asserts(checker: &mut TypeChecker, args: &[SymbolicExpressi
 
 fn inner_unwrap(input: TypeSignature) -> TypeResult {
     match input {
-        TypeSignature::OptionalType(input_type) => Ok(*input_type),
+        TypeSignature::OptionalType(input_type) => {
+            if input_type.is_no_type() {
+                Err(CheckErrors::CouldNotDetermineResponseOkType.into())
+            } else {
+                Ok(*input_type)
+            }
+        }
         TypeSignature::ResponseType(response_type) => { 
             let ok_type = response_type.0;
             if ok_type.is_no_type() {
@@ -172,6 +178,10 @@ pub fn check_special_match_opt(checker: &mut TypeChecker, args: &[SymbolicExpres
     let none_branch = &args[3];
 
     if let TypeSignature::OptionalType(option_type) = input {
+        if option_type.is_no_type() {
+            return Err(CheckErrors::CouldNotDetermineMatchTypes.into())
+        }
+
         let some_branch_type = eval_with_new_binding(some_branch, bind_name, *option_type,
                                                      checker, context)?;
         let none_branch_type = checker.type_check(none_branch, context)?;
@@ -198,6 +208,10 @@ pub fn check_special_match_resp(checker: &mut TypeChecker, args: &[SymbolicExpre
 
     if let TypeSignature::ResponseType(resp_type) = input {
         let (ok_type, err_type) = *resp_type;
+
+        if ok_type.is_no_type() || err_type.is_no_type() {
+            return Err(CheckErrors::CouldNotDetermineMatchTypes.into())
+        }
 
         let ok_branch_type = eval_with_new_binding(ok_branch, ok_bind_name, ok_type, checker, context)?;
         let err_branch_type = eval_with_new_binding(err_branch, err_bind_name, err_type, checker, context)?;
