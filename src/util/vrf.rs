@@ -63,7 +63,7 @@ impl fmt::Display for ECVRF_Error {
 }
 
 impl error::Error for ECVRF_Error {
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             ECVRF_Error::InvalidPublicKey => None,
             ECVRF_Error::InvalidDataError => None,

@@ -9,50 +9,50 @@ use vm::analysis::type_check;
 use vm::types::QualifiedContractIdentifier;
 
 const SIMPLE_TOKENS: &str =
-        "(define-map tokens ((account principal)) ((balance int)))
+        "(define-map tokens ((account principal)) ((balance uint)))
          (define-read-only (my-get-token-balance (account principal))
             (let ((balance
                   (get balance (map-get tokens (tuple (account account))))))
-              (default-to 0 balance)))
+              (default-to u0 balance)))
 
-         (define-private (token-credit! (account principal) (amount int))
-            (if (<= amount 0)
+         (define-private (token-credit! (account principal) (amount uint))
+            (if (<= amount u0)
                 (err 1)
                 (let ((current-amount (my-get-token-balance account)))
                   (begin
                     (map-set! tokens (tuple (account account))
                                        (tuple (balance (+ amount current-amount))))
-                    (ok 0)))))
-         (define-public (token-transfer (to principal) (amount int))
+                    (ok u0)))))
+         (define-public (token-transfer (to principal) (amount uint))
           (let ((balance (my-get-token-balance tx-sender)))
-             (if (or (> amount balance) (<= amount 0))
+             (if (or (> amount balance) (<= amount u0))
                  (err 2)
                  (begin
                    (map-set! tokens (tuple (account tx-sender))
                                       (tuple (balance (- balance amount))))
                    (token-credit! to amount)))))                     
-         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
-                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 300))";
+         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
+                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u300))";
 
 const SIMPLE_NAMES: &str =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
-         (define-private (price-function (name int))
-           (if (< name 100000) 1000 100))
+         (define-private (price-function (name uint))
+           (if (< name u100000) u1000 u100))
          
          (define-map name-map 
-           ((name int)) ((owner principal)))
+           ((name uint)) ((owner principal)))
          (define-map preorder-map
            ((name-hash (buff 20)))
-           ((buyer principal) (paid int)))
+           ((buyer principal) (paid uint)))
 
          (define-private (check-balance)
-           (default-to 0 
+           (default-to u0 
              (get balance (contract-map-get
               .tokens tokens (tuple (account tx-sender))))))
 
          (define-public (preorder 
                         (name-hash (buff 20))
-                        (name-price int))
+                        (name-price uint))
            (let ((xfer-result (contract-call! .tokens token-transfer
                                   burn-address name-price)))
             (if (is-ok? xfer-result)
@@ -68,8 +68,8 @@ const SIMPLE_NAMES: &str =
 
          (define-public (register 
                         (recipient-principal principal)
-                        (name int)
-                        (salt int))
+                        (name uint)
+                        (salt uint))
            (let ((preorder-entry
                    ;; preorder entry must exist!
                    (expects! (map-get preorder-map
@@ -373,13 +373,13 @@ fn test_names_tokens_contracts() {
 #[test]
 fn test_names_tokens_contracts_bad() {
     let broken_public = "
-         (define-public (broken-cross-contract (name-hash (buff 20)) (name-price int))
+         (define-public (broken-cross-contract (name-hash (buff 20)) (name-price uint))
            (if (is-ok? (contract-call! .tokens token-transfer
                  burn-address 'true))
                (begin (map-insert! preorder-map
                  (tuple (name-hash name-hash))
                  (tuple (paid name-price)
-                        (buyer tx-sender))) (ok 1))
+                        (buyer tx-sender))) (ok u1))
                (err 1)))";
 
     let names_contract =
@@ -398,7 +398,7 @@ fn test_names_tokens_contracts_bad() {
     assert!(match &err.err {
             &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
                 eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
-                format!("{} {}", expected_type, actual_type) == "int bool"
+                format!("{} {}", expected_type, actual_type) == "uint bool"
             },
             _ => false
     });

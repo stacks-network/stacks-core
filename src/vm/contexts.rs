@@ -8,11 +8,11 @@ use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase, memory_db};
 use vm::representations::{SymbolicExpression, ClarityName, ContractName};
 use vm::contracts::Contract;
+use vm::ast::ContractAST;
 use vm::ast;
 use vm::eval;
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
-use burnchains::BurnchainHeaderHash;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -35,7 +35,7 @@ pub struct OwnedEnvironment <'a> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AssetMapEntry {
-    Token(i128),
+    Token(u128),
     Asset(Vec<Value>)
 }
 
@@ -45,7 +45,7 @@ pub enum AssetMapEntry {
  */
 #[derive(Debug)]
 pub struct AssetMap {
-    token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, i128>>,
+    token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, u128>>,
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>
 }
 
@@ -92,7 +92,7 @@ impl AssetMap {
     }
 
     // This will get the next amount for a (principal, asset) entry in the asset table.
-    fn get_next_amount(&self, principal: &PrincipalData, asset: &AssetIdentifier, amount: i128) -> Result<i128> {
+    fn get_next_amount(&self, principal: &PrincipalData, asset: &AssetIdentifier, amount: u128) -> Result<u128> {
         let current_amount = match self.token_map.get(principal) {
             Some(principal_map) => *principal_map.get(&asset).unwrap_or(&0),
             None => 0
@@ -117,11 +117,7 @@ impl AssetMap {
         }
     }
 
-    pub fn add_token_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, amount: i128) -> Result<()> {
-        if amount < 0 {
-            panic!("Should never attempt to log a negative transfer.");
-        }
-
+    pub fn add_token_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, amount: u128) -> Result<()> {
         let next_amount = self.get_next_amount(principal, &asset, amount)?;
 
         if !self.token_map.contains_key(principal) {
@@ -249,21 +245,42 @@ impl <'a> OwnedEnvironment <'a> {
                          sender.clone(), sender)
     }
 
-    pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
-        let mut exec_env = self.get_exec_environment(None);
-        exec_env.initialize_contract(contract_identifier, contract_content)
+    fn execute_in_env <F, A> (&mut self, sender: Value, f: F) -> Result<(A, AssetMap)>
+    where F: FnOnce(&mut Environment) -> Result<A> {
+        assert!(self.context.is_top_level());
+        self.begin();
+
+        let result = {
+            let mut exec_env = self.get_exec_environment(Some(sender));
+            f(&mut exec_env)
+        };
+
+        match result {
+            Ok(return_value) => {
+                let asset_map = self.commit()?;
+                Ok((return_value, asset_map))
+            },
+            Err(e) => {
+                self.context.roll_back();
+                Err(e)
+            },
+        }
+    }
+
+    pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<((), AssetMap)> {
+        self.execute_in_env(Value::from(contract_identifier.issuer.clone()),
+                            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content))
+    }
+
+    pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &ContractAST) -> Result<((), AssetMap)> {
+        self.execute_in_env(Value::from(contract_identifier.issuer.clone()),
+                            |exec_env| exec_env.initialize_contract_from_ast(contract_identifier, contract_content))
     }
 
     pub fn execute_transaction(&mut self, sender: Value, contract_identifier: QualifiedContractIdentifier, 
                                tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap)> {
-        assert!(self.context.is_top_level());
-        self.begin();
-        let return_value = {
-            let mut exec_env = self.get_exec_environment(Some(sender));
-            exec_env.execute_contract(&contract_identifier, tx_name, args)
-        }?;
-        let asset_map = self.commit()?;
-        Ok((return_value, asset_map))
+        self.execute_in_env(sender, 
+                            |exec_env| exec_env.execute_contract(&contract_identifier, tx_name, args))
     }
 
     pub fn begin(&mut self) {
@@ -273,6 +290,13 @@ impl <'a> OwnedEnvironment <'a> {
     pub fn commit(&mut self) -> Result<AssetMap> {
         self.context.commit()?
             .ok_or(InterpreterError::FailedToConstructAssetTable.into())
+    }
+
+    /// Destroys this environment, returning ownership of its database reference.
+    ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
+    ///   because the database is not guaranteed to be in a sane state.
+    pub fn destruct(self) -> Option<ClarityDatabase<'a>> {
+        self.context.destruct()
     }
 }
 
@@ -407,11 +431,33 @@ impl <'a,'b> Environment <'a,'b> {
         }
     }
 
+    pub fn evaluate_at_block(&mut self, bhh: BlockHeaderHash, closure: &SymbolicExpression, local: &LocalContext) -> Result<Value> {
+        self.global_context.begin_read_only();
+
+        let result = self.global_context.database.set_block_hash(bhh)
+            .and_then(|prior_bhh| {
+                let result = eval(closure, self, local);
+                self.global_context.database.set_block_hash(prior_bhh)
+                    .expect("ERROR: Failed to restore prior active block after time-shifted evaluation.");
+                result
+            });
+
+        self.global_context.roll_back();
+
+        result
+    }
+
     pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
+        let contract_ast = ast::build_ast(&contract_identifier, contract_content)
+            .map_err(RuntimeErrorType::ASTError)?;
+        self.initialize_contract_from_ast(contract_identifier, &contract_ast)
+    }
+
+    pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &ContractAST) -> Result<()> {
         self.global_context.begin();
-        let result = Contract::initialize(contract_identifier.clone(), 
-                                          contract_content,
-                                          &mut self.global_context);
+        let result = Contract::initialize_from_ast(contract_identifier.clone(), 
+                                                   contract_content,
+                                                   &mut self.global_context);
         match result {
             Ok(contract) => {
                 self.global_context.database.insert_contract(&contract_identifier, contract);
@@ -424,6 +470,7 @@ impl <'a,'b> Environment <'a,'b> {
             }
         }
     }
+
 }
 
 impl <'a> GlobalContext<'a> {
@@ -449,7 +496,7 @@ impl <'a> GlobalContext<'a> {
             .add_asset_transfer(sender, asset_identifier, transfered)
     }
 
-    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: i128) -> Result<()> {
+    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: u128) -> Result<()> {
         let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
                                                  asset_name: asset_name.clone() };
         self.asset_maps.last_mut()
@@ -532,6 +579,17 @@ impl <'a> GlobalContext<'a> {
         } else {
             self.roll_back();
             result
+        }
+    }
+
+    /// Destroys this context, returning ownership of its database reference.
+    ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
+    ///   because the database is not guaranteed to be in a sane state.
+    pub fn destruct(self) -> Option<ClarityDatabase<'a>> {
+        if self.is_top_level() {
+            Some(self.database)
+        } else {
+            None
         }
     }
 }
@@ -655,7 +713,7 @@ mod test {
         let mut am2 = AssetMap::new();
 
         am1.add_token_transfer(&p1, t1.clone(), 1).unwrap();
-        am1.add_token_transfer(&p2, t1.clone(), i128::max_value()).unwrap();
+        am1.add_token_transfer(&p2, t1.clone(), u128::max_value()).unwrap();
         am2.add_token_transfer(&p1, t1.clone(), 1).unwrap();
         am2.add_token_transfer(&p2, t1.clone(), 1).unwrap();
 
@@ -663,7 +721,7 @@ mod test {
 
         let table = am1.to_table();
 
-        assert_eq!(table[&p2][&t1], AssetMapEntry::Token(i128::max_value()));
+        assert_eq!(table[&p2][&t1], AssetMapEntry::Token(u128::max_value()));
         assert_eq!(table[&p1][&t1], AssetMapEntry::Token(1));
     }
 

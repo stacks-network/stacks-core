@@ -57,7 +57,7 @@ following limitations:
 5. Variables may only be created via `let` binding and there
    is no support for mutating functions like `set`.
 6. Defining of constants and functions are allowed for simplifying
-   code using `define` statement. However, these are purely
+   code using `define-private` statement. However, these are purely
    syntactic. If a definition cannot be inlined, the contract will be
    rejected as illegal. These definitions are also _private_, in that
    functions defined this way may only be called by other functions
@@ -98,7 +98,7 @@ any type.
 ## Inter-Contract Calls
 
 A smart contract may call functions from other smart contracts using a
-`(contract-call)` function. This function accepts a function name and
+`(contract-call!)` function. This function accepts a function name and
 the smart contract's _identifier_ as input.  A smart contract's
 identifier is a hash of the smart contract's definition, represented
 as a Stacks address with a specific "smart contract" version byte. The
@@ -108,7 +108,7 @@ For example, to call the function `register-name` in a smart contract,
 you would use:
 
 ```scheme
-(contract-call
+(contract-call!
     'SC3H92H297DX3YDPFHZGH90G8Z4NPH4VE8E83YWAQ
     'register-name
     name-to-register)
@@ -197,9 +197,9 @@ faucet" could be implemented as so:
 
 ```scheme
 (define-public (claim-from-faucet)
-  (if (is-none? (fetch-entry claimed-before (tuple (sender tx-sender))))
+  (if (is-none? (map-get claimed-before (tuple (sender tx-sender))))
       (let ((requester tx-sender)) ;; set a local variable requester = tx-sender
-        (insert-entry! claimed-before (tuple (sender requester)) (tuple (claimed 'true)))
+        (map-insert! claimed-before (tuple (sender requester)) (tuple (claimed 'true)))
         (as-contract (stacks-transfer! requester 1))))
       (err 1))
 ```
@@ -243,15 +243,15 @@ Data within a smart contract's data-space is stored within
 structure, a map will only associate a given key with exactly one
 value. Values in a given mapping are set or fetched using:
 
-1. `(fetch-entry map-name key-tuple)` - This fetches the value
+1. `(map-get map-name key-tuple)` - This fetches the value
   associated with a given key in the map, or returns `none` if there
   is no such value.
-2. `(set-entry! map-name key-tuple value-tuple)` - This will set the
+2. `(map-set! map-name key-tuple value-tuple)` - This will set the
   value of `key-tuple` in the data map
-3. `(insert-entry! map-name key-tuple value-tuple)` - This will set
+3. `(map-insert! map-name key-tuple value-tuple)` - This will set
   the value of `key-tuple` in the data map if and only if an entry
   does not already exist.
-4. `(delete-entry! map-name key-tuple)` - This will delete `key-tuple`
+4. `(map-delete! map-name key-tuple)` - This will delete `key-tuple`
    from the data map
 
 We chose to use data maps as opposed to other data structures for two
@@ -267,10 +267,10 @@ analysis of smart contracts' runtime, costs, and other properties.
 
 A smart contract defines the data schema of a data map with the
 `define-map` call. The `define-map` function may only be called in the
-top-level of the smart-contract (similar to `define`). This
+top-level of the smart-contract (similar to `define-private`). This
 function accepts a name for the map, and a definition of the structure
 of the key and value types. Each of these is a list of `(name, type)`
-pairs, and they specify the input and output type of `fetch-entry`.
+pairs, and they specify the input and output type of `map-get`.
 Types are either the values `'principal`, `'integer`, `'bool` or
 the output of a call to `(buffer n)`, which defines an n-byte
 fixed-length buffer. 
@@ -304,27 +304,50 @@ directly, it _can_ read data stored in those smart contracts' maps.
 contracting language. All data in the smart contracts is inherently
 public, and will be readable through querying the underlying database
 in any case.) In order to do so, a contract may use the
-`(fetch-contract-entry)` function, which behaves identically to
-`(fetch-entry)`, though it accepts a contract principal as an argument
+`(contract-map-get)` function, which behaves identically to
+`(map-get)`, though it accepts a contract principal as an argument
 in addition to the map name:
 
 ```
-(fetch-contract-entry
+(contract-map-get
   'contract-principal
   'map-name
   'key-tuple) -> value tuple or none
 
 Example:
 
-(fetch-contract-entry
+(contract-map-get
  'SC3H92H297DX3YDPFHZGH90G8Z4NPH4VE8E83YWAQ
  'name-map
  12234) -> returns owner principal of name represent by integer 12234
 ```
 
-Just as with the `(contract-call)` function, the map name and contract
+Just as with the `(contract-call!)` function, the map name and contract
 principal arguments must be constants, specified at the time of
 publishing.
+
+### Time-shifted Evaluations
+
+The Stacks language supports _historical_ data queries using the
+`(at-block)` function:
+
+```
+(at-block 0x0101010101010101010101010101010101010101010101010101010101010101
+  ; returns owner principal of name represented by integer 12013
+  ;  at the time of block 0x010101...
+  (map-get name-map 12013))
+```
+
+This function evaluates the supplied closure as if evaluated at the end of
+the supplied block, returning the resulting value. The supplied
+closure _must_ be read-only (is checked by the analysis).
+
+The supplied block hash must correspond to a known block in the same
+fork as the current block, otherwise a runtime error will occur and the
+containing transaction will _fail_. Note that if the supplied block
+pre-dates any of the data structures being read within the closure (i.e.,
+the block is before the block that constructed a data map), a runtime
+error will occur and the transaction will _fail_.
 
 ## Library Support and Syntactic Sugar
 
@@ -393,7 +416,7 @@ outputLen(fold f list<t> s)  := Len(s)
 Many functions within the language will output values larger than the
 function's input, _however_, these outputs will be bound by
 statically inferable constants. For example, the data function
-_fetch-entry_ will always return an object whose size is equal
+_map-get_ will always return an object whose size is equal
 to the specified value type of the map.
 
 A complete proof for the static runtime analysis of smart contracts
@@ -505,7 +528,7 @@ smart contract's public functions. To process such a transaction,
 ## Database Requirements and Transaction Accounting
 
 The smart contract VM needs to interact with a database somewhat
-directly: the effects of an `insert-entry!` or `set-entry!` call are
+directly: the effects of an `map-insert!` or `map-set!` call are
 realized later in the execution of the same transaction. The database
 will need to support fairly fine-grained rollbacks as some contract
 calls within a transaction's execution may fail, triggering a
@@ -513,10 +536,10 @@ rollback, while the transaction execution continues and successfully
 completes other database operations.
 
 The database API provided to the smart contract VM, therefore, must be
-capable of (1) quickly responding to `fetch-entry` queries, which are
+capable of (1) quickly responding to `map-get` queries, which are
 essentially simply key-value _gets_ on the materialized view of the
 operation log. The operation log itself is simply a log of the
-`insert-entry!` and `set-entry!` calls. In addition to these
+`map-insert!` and `map-set!` calls. In addition to these
 operations, the smart contract VM will be making token transfer calls.
 The databasse log should track those operations as well.
 
@@ -674,7 +697,7 @@ practice, a buffer would probably be used.
                (name-price integer))
   (if (and (is-ok? (stacks-transfer!
                     name-price burn-address))
-           (insert-entry! preorder-map
+           (map-insert! preorder-map
             (tuple (name-hash name-hash))
             (tuple (paid name-price)
                    (buyer tx-sender))))
@@ -686,10 +709,10 @@ practice, a buffer would probably be used.
                (name integer)
                (salt integer))
   (let ((preorder-entry
-          (fetch-entry preorder-map
+          (map-get preorder-map
                          (tuple (name-hash (hash160 name salt)))))
         (name-entry 
-          (fetch-entry name-map (tuple (name name)))))
+          (map-get name-map (tuple (name name)))))
     (if (and
          ;; must be preordered
          (not (is-none? preorder-entry))
@@ -701,7 +724,7 @@ practice, a buffer would probably be used.
          ;; preorder must have been the current principal
          (eq? tx-sender
               (expects! (get buyer preorder-entry) (err 1)))
-         (insert-entry! name-table
+         (map-insert! name-table
            (tuple (name name))
            (tuple (owner recipient))))
          (ok 0)

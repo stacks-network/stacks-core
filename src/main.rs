@@ -1,5 +1,5 @@
 /*
- copyright: (c) 2013-2018 by Blockstack PBC, a public benefit corporation.
+ copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
 
  This file is part of Blockstack.
 
@@ -50,19 +50,9 @@ extern crate libc;
 extern crate assert_json_diff;
 
 #[macro_use]
-mod util;
+extern crate blockstack_lib;
 
-#[macro_use]
-mod chainstate;
-
-mod address;
-mod burnchains;
-mod core;
-mod deps;
-mod net;
-mod vm;
-
-mod clarity;
+use blockstack_lib::*;
 
 use std::fs;
 use std::env;

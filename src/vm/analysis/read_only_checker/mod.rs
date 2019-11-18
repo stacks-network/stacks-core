@@ -2,7 +2,7 @@ use vm::representations::{SymbolicExpressionType, SymbolicExpression, ClarityNam
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
 use vm::types::{TypeSignature, TupleTypeSignature, Value, PrincipalData, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
-use vm::functions::define::DefineFunctions;
+use vm::functions::define::DefineFunctionsParsed;
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
@@ -54,61 +54,83 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         Ok(())
     }
 
-    fn check_define_function(&mut self, args: &[SymbolicExpression]) -> CheckResult<(ClarityName, bool)> {
-        check_argument_count(2, args)?;
-
-        let signature = args[0].match_list()
-            .ok_or(CheckErrors::DefineFunctionBadSignature)?;
-        let body = &args[1];
-
+    fn check_define_function(&mut self, signature: &[SymbolicExpression], body: &SymbolicExpression) -> CheckResult<(ClarityName, bool)> {
         let function_name = signature.get(0)
             .ok_or(CheckErrors::DefineFunctionBadSignature)?
             .match_atom().ok_or(CheckErrors::BadFunctionName)?;
 
-        let is_read_only = self.is_read_only(body)?;
+        let is_read_only = self.check_read_only(body)?;
 
         Ok((function_name.clone(), is_read_only))
     }
 
     fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
-        use vm::functions::define::DefineFunctions::*;
-        if let Some((define_type, args)) = DefineFunctions::try_parse(expr) {
+        use vm::functions::define::DefineFunctionsParsed::*;
+        if let Some(define_type) = DefineFunctionsParsed::try_parse(expr)? {
             match define_type {
-                Constant | Map | PersistedVariable | FungibleToken | NonFungibleToken => {
-                    // None of these define types ever need to be checked for their
-                    //  read-onliness, since they're never invoked outside of contract initialization.
-                    Ok(())
+                // The _arguments_ to Constant, PersistedVariable, FT defines must be checked to ensure that
+                //   any _evaluated arguments_ supplied to them are valid with respect to read-only requirements.
+                Constant { value, .. } => {
+                    self.check_read_only(value)?;
                 },
-                PrivateFunction => {
-                    let (f_name, is_read_only) = self.check_define_function(args)?;
+                PersistedVariable { initial, .. } => {
+                    self.check_read_only(initial)?;
+                },
+                BoundedFungibleToken { max_supply, .. } => {
+                    // only the *optional* total supply arg is eval'ed
+                    self.check_read_only(max_supply)?;
+                },
+                PrivateFunction { signature, body } | PublicFunction { signature, body } => {
+                    let (f_name, is_read_only) = self.check_define_function(signature, body)?;
                     self.defined_functions.insert(f_name, is_read_only);
-                    Ok(())
                 },
-                PublicFunction => {
-                    let (f_name, is_read_only) = self.check_define_function(args)?;
-                    self.defined_functions.insert(f_name, is_read_only);
-                    Ok(())
-                },
-                ReadOnlyFunction => {
-                    let (f_name, is_read_only) = self.check_define_function(args)?;
+                ReadOnlyFunction { signature, body } => {
+                    let (f_name, is_read_only) = self.check_define_function(signature, body)?;
                     if !is_read_only {
-                        Err(CheckErrors::WriteAttemptedInReadOnly.into())
+                        return Err(CheckErrors::WriteAttemptedInReadOnly.into())
                     } else {
                         self.defined_functions.insert(f_name, is_read_only);
-                        Ok(())
                     }
+                },
+                Map { .. } | NonFungibleToken { .. } | UnboundedFungibleToken { .. } => {
+                    // No arguments to (define-map ...) or (define-non-fungible-token) or fungible tokens without max supplies are eval'ed.
                 },
             }
         } else {
-            Ok(())
+            self.check_read_only(expr)?;
+        }
+        Ok(())
+    }
+
+    /// Checks the supplied symbolic expressions
+    ///   (1) for whether or not they are valid with respect to read-only requirements.
+    ///   (2) if valid, returns whether or not they are read only.
+    /// Note that because of (1), this function _cannot_ short-circuit on read-only.
+    fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
+        match expr.expr {
+            AtomValue(_) | LiteralValue(_) => {
+                Ok(true)
+            },
+            Atom(_) => {
+                Ok(true)
+            },
+            List(ref expression) => {
+                self.check_function_application_read_only(expression)
+            }
         }
     }
 
-    fn are_all_read_only(&mut self, initial: bool, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
-        expressions.iter()
-            .fold(Ok(initial),
-                  |acc, argument| {
-                      Ok(acc? && self.is_read_only(&argument)?) })
+    /// Checks all of the supplied symbolic expressions
+    ///   (1) for whether or not they are valid with respect to read-only requirements.
+    ///   (2) if valid, returns whether or not they are read only.
+    /// Note that because of (1), this function _cannot_ short-circuit on read-only.
+    fn check_all_read_only(&mut self, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
+        let mut result = true;
+        for expr in expressions.iter() {
+            let expr_read_only = self.check_read_only(expr)?;
+            result = result && expr_read_only;
+        }
+        Ok(result)
     }
 
     fn is_implicit_tuple_definition_read_only(&mut self, tuples: &[SymbolicExpression]) -> CheckResult<bool> {
@@ -119,7 +141,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 return Err(CheckErrors::TupleExpectsPairs.into())
             }
 
-            if !self.is_read_only(&pair[1])? {
+            if !self.check_read_only(&pair[1])? {
                 return Ok(false)
             }
         }
@@ -127,24 +149,30 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     }
 
     fn try_native_function_check(&mut self, function: &str, args: &[SymbolicExpression]) -> Option<CheckResult<bool>> {
-        if let Some(ref function) = NativeFunctions::lookup_by_name(function) {
-            Some(self.handle_native_function(function, args))
-        } else {
-            None
-        }
+        NativeFunctions::lookup_by_name(function).map(|function| {
+            self.check_native_function(&function, args)
+        })
     }
 
-    fn handle_native_function(&mut self, function: &NativeFunctions, args: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn check_native_function(&mut self, function: &NativeFunctions, args: &[SymbolicExpression]) -> CheckResult<bool> {
         use vm::functions::NativeFunctions::*;
 
         match function {
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater |
             Modulo | Power | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If |
             Sha512 | Sha512Trunc256 |
-            ConsSome | ConsOkay | ConsError | DefaultTo | Expects | ExpectsErr | IsOkay | IsNone |
-            ToUInt | ToInt |
-            ListCons | GetBlockInfo | TupleGet | Print | AsContract | Begin | FetchVar | GetTokenBalance | GetAssetOwner => {
-                self.are_all_read_only(true, args)
+            ConsSome | ConsOkay | ConsError | DefaultTo | Expects | ExpectsErr | IsOkay | IsNone | Asserts |
+            ToUInt | ToInt | Append | Concat | AssertsMaxLen |
+            ListCons | GetBlockInfo | TupleGet | Len | Print | AsContract | Begin | FetchVar | GetTokenBalance | GetAssetOwner => {
+                self.check_all_read_only(args)
+            },
+            AtBlock => {
+                let is_block_arg_read_only = self.check_read_only(&args[0])?;
+                let closure_read_only = self.check_read_only(&args[1])?;
+                if !closure_read_only {
+                    return Err(CheckErrors::AtBlockClosureMustBeReadOnly.into())
+                }
+                Ok(is_block_arg_read_only)
             },
             FetchEntry => {                
                 let res = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
@@ -152,7 +180,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                         self.is_implicit_tuple_definition_read_only(tuple_expr)
                     },
                     Explicit => {
-                        self.are_all_read_only(true, args)
+                        self.check_all_read_only(args)
                     }
                 };
                 res
@@ -163,7 +191,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                         self.is_implicit_tuple_definition_read_only(tuple_expr)
                     },
                     Explicit => {
-                        self.are_all_read_only(true, args)
+                        self.check_all_read_only(args)
                     }
                 };
                 res
@@ -184,12 +212,12 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                         return Err(CheckErrors::BadSyntaxBinding.into())
                     }
 
-                    if !self.is_read_only(&pair_expression[1])? {
+                    if !self.check_read_only(&pair_expression[1])? {
                         return Ok(false)
                     }
                 }
 
-                self.are_all_read_only(true, &args[1..args.len()])
+                self.check_all_read_only(&args[1..args.len()])
             },
             Map | Filter => {
                 check_argument_count(2, args)?;
@@ -200,7 +228,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 //   we're asking the read only checker to check whether a function application
                 //     of the _mapping function_ onto the rest of the supplied arguments would be
                 //     read-only or not.
-                self.is_function_application_read_only(args)
+                self.check_function_application_read_only(args)
             },
             Fold => {
                 check_argument_count(3, args)?;
@@ -211,7 +239,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 //   we're asking the read only checker to check whether a function application
                 //     of the _folding function_ onto the rest of the supplied arguments would be
                 //     read-only or not.
-                self.is_function_application_read_only(args)
+                self.check_function_application_read_only(args)
             },
             TupleCons => {
                 for pair in args.iter() {
@@ -221,7 +249,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                         return Err(CheckErrors::TupleExpectsPairs.into())
                     }
 
-                    if !self.is_read_only(&pair_expression[1])? {
+                    if !self.check_read_only(&pair_expression[1])? {
                         return Ok(false)
                     }
                 }
@@ -238,12 +266,13 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                     .ok_or(CheckErrors::ContractCallExpectName)?;
 
                 let is_function_read_only = self.db.get_read_only_function_type(&contract_identifier, function_name)?.is_some();
-                self.are_all_read_only(is_function_read_only, &args[2..])
+                self.check_all_read_only(&args[2..])
+                    .map(|args_read_only| args_read_only && is_function_read_only)
             }
         }
     }
 
-    fn is_function_application_read_only(&mut self, expression: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn check_function_application_read_only(&mut self, expression: &[SymbolicExpression]) -> CheckResult<bool> {
         let (function_name, args) = expression.split_first()
             .ok_or(CheckErrors::NonFunctionApplication)?;
 
@@ -256,22 +285,8 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             let is_function_read_only = self.defined_functions.get(function_name)
                 .ok_or(CheckErrors::UnknownFunction(function_name.to_string()))?
                 .clone();
-            self.are_all_read_only(is_function_read_only, args)
-        }
-    }
-
-
-    fn is_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
-        match expr.expr {
-            AtomValue(_) | LiteralValue(_) => {
-                Ok(true)
-            },
-            Atom(_) => {
-                Ok(true)
-            },
-            List(ref expression) => {
-                self.is_function_application_read_only(expression)
-            }
+            self.check_all_read_only(args)
+                .map(|args_read_only| args_read_only && is_function_read_only)
         }
     }
 }

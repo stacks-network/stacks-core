@@ -27,7 +27,7 @@ fn test_type_error() {
 fn test_union_type_error() {
     let snippet = "(hash160 'true)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type '(buff 1048576)' or 'int', found 'bool'"));
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type '(buff 1048576)', 'uint' or 'int', found 'bool'"));
 }
 
 #[test]
@@ -60,9 +60,20 @@ fn test_could_not_determine_response_err_type() {
 
 #[test]
 fn test_bad_tuple_field_name() {
-    let snippet = "(get 1 ((value 100)))";
+    let snippet = "(get 1 (tuple (value 100)))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("invalid tuple field name"));
+}
+
+#[test]
+fn test_bad_function_name_2() {
+    // outside of the legal "implicit" tuple structures,
+    //    things that look like ((value 100)) are evaluated as
+    //    _function applications_, so this should error, since (value 100) isn't a function.
+    let snippet = "(get 1 ((value 100)))";
+    let err = mem_type_check(snippet).unwrap_err();
+    println!("{}", err.diagnostic);
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type function"));
 }
 
 #[test]
@@ -104,7 +115,7 @@ fn test_no_such_variable() {
 fn test_bad_map_name() {
     let snippet = "(define-map 1 ((key int)) ((value int)))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid map name"));
+    assert!(format!("{}", err.diagnostic).contains("expected a name argument"));
 }
 
 #[test]
@@ -146,7 +157,7 @@ fn test_public_function_must_return_response() {
 fn test_define_variable_bad_signature() {
     let snippet = "(define-data-var 1 int 0)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid variable definition"));
+    assert!(format!("{}", err.diagnostic).contains("expected a name argument"));
 }
 
 #[test]
@@ -199,10 +210,10 @@ fn test_non_function_application() {
 }
 
 #[test]
-fn test_expected_list_application() {
+fn test_expected_list_or_buff() {
     let snippet = "(filter not 4)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type list"));
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'list' or 'buff'"));
 }
 
 #[test]

@@ -10,6 +10,7 @@ mod representations;
 pub mod ast;
 pub mod contexts;
 pub mod database;
+pub mod clarity;
 
 mod functions;
 mod variables;
@@ -31,6 +32,8 @@ use vm::database::{memory_db};
 use vm::types::QualifiedContractIdentifier;
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
+
+pub use vm::contexts::MAX_CONTEXT_DEPTH;
 
 const MAX_CALL_STACK_DEPTH: usize = 128;
 

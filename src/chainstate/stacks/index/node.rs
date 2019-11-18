@@ -28,6 +28,8 @@ use std::io::{
     Cursor
 };
 
+use sha2::Digest;
+
 use std::char::from_digit;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
@@ -35,22 +37,22 @@ use hashbrown::HashMap;
 use std::collections::VecDeque;
 use std::collections::HashSet;
 
-use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::{BlockHeaderHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
 
 use chainstate::stacks::index::bits::{
-    ptrs_to_bytes,
-    path_to_bytes,
-    ptrs_to_consensus_bytes,
     path_from_bytes,
     ptrs_from_bytes,
     get_ptrs_byte_len,
-    get_path_byte_len
+    get_path_byte_len,
+    write_path_to_bytes
 };
+
+use chainstate::stacks::index::storage::{BlockHashMap};
 
 use chainstate::stacks::index::{
     TrieHash,
+    TrieHasher,
     TRIEHASH_ENCODED_SIZE,
-    fast_extend_from_slice,
     slice_partialeq,
     MARFValue, 
     MARF_VALUE_ENCODED_SIZE,
@@ -79,7 +81,7 @@ impl fmt::Display for CursorError {
 }
 
 impl error::Error for CursorError {
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         None
     }
 
@@ -117,6 +119,23 @@ pub fn set_backptr(id: u8) -> u8 {
 /// Clear the back-pointer bit
 pub fn clear_backptr(id: u8) -> u8 {
     id & 0x7f
+}
+
+// Byte writing operations for pointer lists, paths.
+
+fn write_ptrs_to_bytes<W: Write>(ptrs: &[TriePtr], w: &mut W) -> Result<(), Error> {
+    for ptr in ptrs.iter() {
+        ptr.write_bytes(w)?;
+    }
+    Ok(())
+}
+
+
+fn ptrs_consensus_hash<W: Write>(ptrs: &[TriePtr], map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+    for ptr in ptrs.iter() {
+        ptr.write_consensus_bytes(map, w)?;
+    }
+    Ok(())
 }
 
 /// A path in the Trie is the SHA2-512/256 hash of its key.
@@ -159,25 +178,61 @@ pub trait TrieNode {
     fn from_bytes<R: Read>(r: &mut R) -> Result<Self, Error>
         where Self: std::marker::Sized;
 
-    /// Encode this node instance into a byte stream and write it to the given memory buffer.
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> ();
-
-    /// Encode the consensus-relevant bytes of this node and write it to the given memory buffer.
-    fn to_consensus_bytes(&self, &mut Vec<u8>) -> ();
-
-    /// Calculate how many bytes this node will take to encode.
-    fn byte_len(&self) -> usize;
-
     /// Get a reference to the children of this node.
     fn ptrs(&self) -> &[TriePtr];
 
-    // this is a way to construct a TrieNodeType from an object that implements this trait
-    // DO NOT USE DIRECTLY
-    fn try_as_node4(&self) -> Option<TrieNodeType>;
-    fn try_as_node16(&self) -> Option<TrieNodeType>;
-    fn try_as_node48(&self) -> Option<TrieNodeType>;
-    fn try_as_node256(&self) -> Option<TrieNodeType>;
-    fn try_as_leaf(&self) -> Option<TrieNodeType>;
+    /// Get a reference to the children of this node.
+    fn path(&self) -> &Vec<u8>;
+
+    /// Construct a TrieNodeType from a TrieNode
+    fn as_trie_node_type(&self) -> TrieNodeType;
+
+    /// Encode this node instance into a byte stream and write it to w.
+    fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id()])?;
+        write_ptrs_to_bytes(self.ptrs(), w)?;
+        write_path_to_bytes(self.path().as_slice(), w)
+    }
+
+    #[cfg(test)]
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut r = Vec::new();
+        self.write_bytes(&mut r)
+            .expect("Failed to write to byte buffer");
+        r
+    }
+
+    /// Calculate how many bytes this node will take to encode.
+    fn byte_len(&self) -> usize {
+        get_ptrs_byte_len(self.ptrs()) + get_path_byte_len(self.path())
+    }
+}
+
+/// Trait for types that can serialize to consensus bytes
+/// This is implemented by `TrieNode`s and `ProofTrieNode`s
+///  and allows hash calculation routines to be the same for
+///  both types.
+/// The type `M` is used for any additional data structures required
+///   (BlockHashMap for TrieNode and () for ProofTrieNode)
+pub trait ConsensusSerializable <M> {
+    /// Encode the consensus-relevant bytes of this node and write it to w.
+    fn write_consensus_bytes<W: Write>(&self, additional_data: &M, w: &mut W) -> Result<(), Error>;
+
+    #[cfg(test)]
+    fn to_consensus_bytes(&self, additional_data: &M) -> Vec<u8> {
+        let mut r = Vec::new();
+        self.write_consensus_bytes(additional_data, &mut r)
+            .expect("Failed to write to byte buffer");
+        r
+    }
+}
+
+impl <T: TrieNode> ConsensusSerializable<BlockHashMap> for T {
+    fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id()])?;
+        ptrs_consensus_hash(self.ptrs(), map, w)?;
+        write_path_to_bytes(self.path().as_slice(), w)        
+    }
 }
 
 /// Child pointer
@@ -251,44 +306,29 @@ impl TriePtr {
     }
 
     #[inline]
-    pub fn to_bytes(&self, buf: &mut Vec<u8>) -> () {
-        let ptr = self.ptr();
-        let back_block = self.back_block();
-
-        let ptr_bytes = [
-            self.id(),
-            self.chr(),
-            ((ptr & 0xff000000) >> 24) as u8,
-            ((ptr & 0x00ff0000) >> 16) as u8,
-            ((ptr & 0x0000ff00) >> 8) as u8,
-            ((ptr & 0x000000ff)) as u8,
-            ((back_block & 0xff000000) >> 24) as u8,
-            ((back_block & 0x00ff0000) >> 16) as u8,
-            ((back_block & 0x0000ff00) >> 8) as u8,
-            ((back_block & 0x000000ff)) as u8
-        ];
-
-        fast_extend_from_slice(buf, &ptr_bytes);
+    pub fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id(), self.chr()])?;
+        w.write_all(&self.ptr().to_be_bytes())?;
+        w.write_all(&self.back_block().to_be_bytes())?;
+        Ok(())
     }
 
+
     /// The parts of a child pointer that are relevant for consensus are only its ID, path
-    /// character, and back-block count.  The software doesn't care about the details of how/where
+    /// character, and referred-to block hash.  The software doesn't care about the details of how/where
     /// nodes are stored.
-    #[inline]
-    pub fn to_consensus_bytes(&self, buf: &mut Vec<u8>) -> () {
-        // like to_bytes(), but without insertion-order
-        let back_block = self.back_block();
+    pub fn write_consensus_bytes<W: Write>(&self, block_map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id(), self.chr()])?;
 
-        let consensus_ptr_bytes = [
-            self.id(),
-            self.chr(),
-            ((back_block & 0xff000000) >> 24) as u8,
-            ((back_block & 0x00ff0000) >> 16) as u8,
-            ((back_block & 0x0000ff00) >> 8) as u8,
-            ((back_block & 0x000000ff)) as u8
-        ];
-
-        fast_extend_from_slice(buf, &consensus_ptr_bytes);
+        if is_backptr(self.id()) {
+            w.write_all(
+                block_map.get_block_header_hash(self.back_block())
+                    .expect("Block identifier {} refered to an unknown block. Consensus failure.")
+                    .as_bytes())?;
+        } else {
+            w.write_all(&[0; BLOCK_HEADER_HASH_ENCODED_SIZE])?;
+        }
+        Ok(())
     }
 
     #[inline]
@@ -296,16 +336,8 @@ impl TriePtr {
         assert!(bytes.len() >= TRIEPTR_SIZE);
         let id = bytes[0];
         let chr = bytes[1];
-        let ptr =
-            (bytes[2] as u32) << 24 |
-            (bytes[3] as u32) << 16 |
-            (bytes[4] as u32) << 8 |
-            (bytes[5] as u32);
-        let back_block =
-            (bytes[6] as u32) << 24 |
-            (bytes[7] as u32) << 16 |
-            (bytes[8] as u32) << 8 |
-            (bytes[9] as u32);
+        let ptr = u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]);
+        let back_block = u32::from_be_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]);
 
         TriePtr {
             id: id,
@@ -419,15 +451,9 @@ impl TrieCursor {
             return Ok(None);
         }
 
-        let node_path = match node {
-            TrieNodeType::Leaf(ref data) => data.path.clone(),
-            TrieNodeType::Node4(ref data) => data.path.clone(),
-            TrieNodeType::Node16(ref data) => data.path.clone(),
-            TrieNodeType::Node48(ref data) => data.path.clone(),
-            TrieNodeType::Node256(ref data) => data.path.clone(),
-        };
+        let node_path = node.path_bytes();
 
-        let path_bytes = self.path.as_bytes().clone();
+        let path_bytes = self.path.as_bytes();
 
         assert!(self.index + node_path.len() <= self.path.len());
 
@@ -439,7 +465,7 @@ impl TrieCursor {
         for i in 0..node_path.len() {
             if node_path[i] != path_bytes[self.index] {
                 // diverged
-                trace!("cursor: diverged({:?} != {:?}): i = {}, self.index = {}, self.node_path_index = {}", &node_path, &path_bytes, i, self.index, self.node_path_index);
+                trace!("cursor: diverged({} != {}): i = {}, self.index = {}, self.node_path_index = {}", to_hex(&node_path), to_hex(path_bytes), i, self.index, self.node_path_index);
                 self.last_error = Some(CursorError::PathDiverged);
                 return Err(CursorError::PathDiverged);
             }
@@ -452,19 +478,13 @@ impl TrieCursor {
         if self.index < self.path.len() {
             let chr = path_bytes[self.index];
             self.index += 1;
-            let mut ptr_opt = match node {
-                TrieNodeType::Node4(ref node4) => node4.walk(chr),
-                TrieNodeType::Node16(ref node16) => node16.walk(chr),
-                TrieNodeType::Node48(ref node48) => node48.walk(chr),
-                TrieNodeType::Node256(ref node256) => node256.walk(chr),
-                _ => None
-            };
+            let mut ptr_opt = node.walk(chr);
             
             let do_walk = match ptr_opt {
-                Some(ref ptr) => {
+                Some(ptr) => {
                     if !is_backptr(ptr.id()) {
                         // not going to follow a back-pointer
-                        self.node_ptrs.push(ptr.clone());
+                        self.node_ptrs.push(ptr);
                         self.block_hashes.push(block_hash.clone());
                         true
                     }
@@ -472,7 +492,7 @@ impl TrieCursor {
                         // the caller will need to follow the backptr, and call
                         // repair_backptr_step_backptr() for each node visited, and then repair_backptr_finish()
                         // once the final ptr and block_hash are discovered.
-                        self.last_error = Some(CursorError::BackptrEncountered(ptr.clone()));
+                        self.last_error = Some(CursorError::BackptrEncountered(ptr));
                         false
                     }
                 },
@@ -527,7 +547,7 @@ impl TrieCursor {
     /// next_node should be the node walked to.
     /// ptr is the ptr we'll be walking from, off of next_node.
     /// block_hash is the block where next_node came from.
-    pub fn repair_backptr_step_backptr(&mut self, next_node: &TrieNodeType, ptr: &TriePtr, block_hash: &BlockHeaderHash) -> () {
+    pub fn repair_backptr_step_backptr(&mut self, next_node: &TrieNodeType, ptr: &TriePtr, block_hash: BlockHeaderHash) -> () {
         // this can only be called if we walked to a backptr.
         // If it's anything else, we're in trouble.
         if Some(CursorError::ChrNotFound) == self.last_error || Some(CursorError::PathDiverged) == self.last_error {
@@ -535,17 +555,18 @@ impl TrieCursor {
             panic!();
         }
 
+        trace!("Cursor: repair_backptr_step_backptr ptr={:?} block_hash={:?} next_node={:?}", ptr, &block_hash, next_node);
+
         let backptr = TriePtr::new(set_backptr(ptr.id()), ptr.chr(), ptr.ptr());        // set_backptr() informs update_root_hash() to skip this node
         self.node_ptrs.push(backptr);
-        self.block_hashes.push(block_hash.clone());
+        self.block_hashes.push(block_hash);
         
         self.nodes.push(next_node.clone());
-        trace!("Cursor: repair_backptr_step_backptr ptr={:?} block_hash={:?} next_node={:?}", ptr, block_hash, next_node);
     }
     
     /// Record that we landed on a non-backptr from a backptr.
     /// ptr is a non-backptr that refers to the node we landed on.
-    pub fn repair_backptr_finish(&mut self, ptr: &TriePtr, block_hash: &BlockHeaderHash) -> () {
+    pub fn repair_backptr_finish(&mut self, ptr: &TriePtr, block_hash: BlockHeaderHash) -> () {
         // this can only be called if we walked to a backptr.
         // If it's anything else, we're in trouble.
         if Some(CursorError::ChrNotFound) == self.last_error || Some(CursorError::PathDiverged) == self.last_error {
@@ -554,12 +575,13 @@ impl TrieCursor {
         }
         assert!(!is_backptr(ptr.id()));
 
+        trace!("Cursor: repair_backptr_finish ptr={:?} block_hash={:?}", &ptr, &block_hash);
+
         self.node_ptrs.push(ptr.clone());
-        self.block_hashes.push(block_hash.clone());
+        self.block_hashes.push(block_hash);
         
         self.last_error = None;
 
-        trace!("Cursor: repair_backptr_finish ptr={:?} block_hash={:?}", ptr, block_hash);
     }
 }
 
@@ -569,18 +591,17 @@ impl TrieCursor {
 pub struct TrieLeaf {
     pub path: Vec<u8>,      // path to be lazily expanded
     pub data: MARFValue,    // the actual data
-    backptr: TriePtr        // pointer back to the previous version of this leaf
 }
 
 impl fmt::Debug for TrieLeaf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "TrieLeaf(path={} data={} backptr={:?})", &to_hex(&self.path), &to_hex(&self.data.to_vec()), &self.backptr)
+        write!(f, "TrieLeaf(path={} data={})", &to_hex(&self.path), &to_hex(&self.data.to_vec()))
     }
 }
 
 impl PartialEq for TrieLeaf {
     fn eq(&self, other: &TrieLeaf) -> bool {
-        self.path == other.path && slice_partialeq(self.data.as_bytes(), other.data.as_bytes()) && self.backptr == other.backptr
+        self.path == other.path && slice_partialeq(self.data.as_bytes(), other.data.as_bytes())
     }
 }
 
@@ -593,7 +614,6 @@ impl TrieLeaf {
         TrieLeaf {
             path: path.clone(),
             data: MARFValue(bytes),
-            backptr: TriePtr::default()
         }
     }
 
@@ -601,7 +621,6 @@ impl TrieLeaf {
         TrieLeaf {
             path: path.clone(),
             data: value,
-            backptr: TriePtr::default()
         }
     }
 }
@@ -734,6 +753,18 @@ impl TrieNode256 {
         }
     }
 
+    pub fn from_node4(node4: &TrieNode4) -> TrieNode256 {
+        let mut ptrs = [TriePtr::default(); 256];
+        for i in 0..4 {
+            let c = node4.ptrs[i].chr();
+            ptrs[c as usize] = node4.ptrs[i].clone();
+        }
+        TrieNode256 {
+            path: node4.path.clone(),
+            ptrs: ptrs,
+        }
+    }
+
     /// Promote a node48 to a node256
     pub fn from_node48(node48: &TrieNode48) -> TrieNode256 {
         let mut ptrs = [TriePtr::default(); 256];
@@ -767,22 +798,6 @@ impl TrieNode for TrieNode4 {
             }
         }
         return None;
-    }
-
-    fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_bytes(id, &self.ptrs, ret);
-        path_to_bytes(&self.path, ret);
-    }
-
-    fn to_consensus_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_consensus_bytes(id, &self.ptrs, ret);
-        path_to_bytes(&self.path, ret);
-    }
-
-    fn byte_len(&self) -> usize {
-        get_ptrs_byte_len(&self.ptrs) + get_path_byte_len(&self.path)
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode4, Error> {
@@ -824,11 +839,13 @@ impl TrieNode for TrieNode4 {
         &self.ptrs
     }
 
-    fn try_as_node4(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node4(self.clone())) }
-    fn try_as_node16(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node16(TrieNode16::from_node4(&self))) }
-    fn try_as_node48(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node48(TrieNode48::from_node16(&TrieNode16::from_node4(&self)))) }
-    fn try_as_node256(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node256(TrieNode256::from_node48(&TrieNode48::from_node16(&TrieNode16::from_node4(&self))))) }
-    fn try_as_leaf(&self) -> Option<TrieNodeType> { None }
+    fn path(&self) -> &Vec<u8> {
+        &self.path
+    }
+
+    fn as_trie_node_type(&self) -> TrieNodeType {
+        TrieNodeType::Node4(self.clone())
+    }
 }
 
 impl TrieNode for TrieNode16 {
@@ -850,22 +867,6 @@ impl TrieNode for TrieNode16 {
             }
         }
         return None;
-    }
-
-    fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_bytes(id, &self.ptrs, ret);
-        path_to_bytes(&self.path, ret);
-    }
-
-    fn to_consensus_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_consensus_bytes(id, &self.ptrs, ret);
-        path_to_bytes(&self.path, ret);
-    }
-    
-    fn byte_len(&self) -> usize {
-        get_ptrs_byte_len(&self.ptrs) + get_path_byte_len(&self.path)
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode16, Error> {
@@ -907,12 +908,14 @@ impl TrieNode for TrieNode16 {
     fn ptrs(&self) -> &[TriePtr] {
         &self.ptrs
     }
-    
-    fn try_as_node4(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node16(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node16(self.clone())) }
-    fn try_as_node48(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node48(TrieNode48::from_node16(&self))) }
-    fn try_as_node256(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node256(TrieNode256::from_node48(&TrieNode48::from_node16(&self)))) }
-    fn try_as_leaf(&self) -> Option<TrieNodeType> { None }
+
+    fn path(&self) -> &Vec<u8> {
+        &self.path
+    }
+
+    fn as_trie_node_type(&self) -> TrieNodeType {
+        TrieNodeType::Node16(self.clone())
+    }
 }
 
 impl TrieNode for TrieNode48 {
@@ -936,20 +939,17 @@ impl TrieNode for TrieNode48 {
         return None;
     }
 
-    fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_bytes(id, &self.ptrs, ret);
-        ret.extend(&mut self.indexes.iter().map(|i| { let j = *i as u8; j } ));
-        path_to_bytes(&self.path, ret);
+    fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id()])?;
+        write_ptrs_to_bytes(self.ptrs(), w)?;
+
+        for i in self.indexes.iter() {
+            w.write_all(&[*i as u8])?;
+        }
+
+        write_path_to_bytes(self.path().as_slice(), w)
     }
-    
-    fn to_consensus_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_consensus_bytes(id, &self.ptrs, ret);
-        ret.extend(&mut self.indexes.iter().map(|i| { let j = *i as u8; j } ));
-        path_to_bytes(&self.path, ret);
-    }
-    
+
     fn byte_len(&self) -> usize {
         get_ptrs_byte_len(&self.ptrs) + 256 + get_path_byte_len(&self.path)
     }
@@ -1028,12 +1028,14 @@ impl TrieNode for TrieNode48 {
     fn ptrs(&self) -> &[TriePtr] {
         &self.ptrs
     }
+
+    fn path(&self) -> &Vec<u8> {
+        &self.path
+    }
     
-    fn try_as_node4(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node16(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node48(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node48(self.clone())) }
-    fn try_as_node256(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node256(TrieNode256::from_node48(self))) }
-    fn try_as_leaf(&self) -> Option<TrieNodeType> { None }
+    fn as_trie_node_type(&self) -> TrieNodeType {
+        TrieNodeType::Node48(self.clone())
+    }
 }
 
 impl TrieNode for TrieNode256 {
@@ -1053,22 +1055,6 @@ impl TrieNode for TrieNode256 {
             return Some(self.ptrs[chr as usize].clone());
         }
         return None;
-    }
-
-    fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_bytes(id, &self.ptrs, ret);
-        path_to_bytes(&self.path, ret);
-    }
-
-    fn to_consensus_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_consensus_bytes(id, &self.ptrs, ret);
-        path_to_bytes(&self.path, ret);
-    }
-    
-    fn byte_len(&self) -> usize {
-        get_ptrs_byte_len(&self.ptrs) + get_path_byte_len(&self.path)
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode256, Error> {
@@ -1106,12 +1092,27 @@ impl TrieNode for TrieNode256 {
     fn ptrs(&self) -> &[TriePtr] {
         &self.ptrs
     }
-    
-    fn try_as_node4(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node16(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node48(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node256(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node256(self.clone())) }
-    fn try_as_leaf(&self) -> Option<TrieNodeType> { None }
+
+    fn path(&self) -> &Vec<u8> {
+        &self.path
+    }
+
+    fn as_trie_node_type(&self) -> TrieNodeType {
+        TrieNodeType::Node256(self.clone())
+    }
+}
+
+impl TrieLeaf {
+    pub fn write_consensus_bytes_leaf<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        self.write_bytes(w)
+    }
+
+}
+
+impl ConsensusSerializable<()> for TrieLeaf {
+    fn write_consensus_bytes<W: Write>(&self, _unused_data: &(), w: &mut W) -> Result<(), Error> {
+        self.write_consensus_bytes_leaf(w)
+    }
 }
 
 impl TrieNode for TrieLeaf {
@@ -1127,20 +1128,15 @@ impl TrieNode for TrieLeaf {
         None
     }
 
-    fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ret.push(id);
-        path_to_bytes(&self.path, ret);
-        fast_extend_from_slice(ret, self.data.as_bytes());
-        ptrs_to_bytes(id, &[self.backptr], ret);
+    fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id()])?;
+        write_path_to_bytes(&self.path, w)?;
+        w.write_all(&self.data.0[..])?;
+        Ok(())
     }
 
-    fn to_consensus_bytes(&self, buf: &mut Vec<u8>) -> () {
-        self.to_bytes(buf)
-    }
-    
     fn byte_len(&self) -> usize {
-        1 + get_path_byte_len(&self.path) + self.data.len() + get_ptrs_byte_len(&[self.backptr])
+        1 + get_path_byte_len(&self.path) + self.data.len()
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieLeaf, Error> {
@@ -1165,13 +1161,9 @@ impl TrieNode for TrieLeaf {
             return Err(Error::CorruptionError(format!("Leaf: read only {} out of {} bytes", l_leaf_data, MARF_VALUE_ENCODED_SIZE)));
         }
         
-        let mut ptrs_slice = [TriePtr::default(); 1];
-        ptrs_from_bytes(TrieNodeID::Leaf, r, &mut ptrs_slice)?;
-
         Ok(TrieLeaf {
             path: path,
             data: MARFValue(leaf_data),
-            backptr: ptrs_slice[0]
         })
     }
 
@@ -1186,12 +1178,14 @@ impl TrieNode for TrieLeaf {
     fn ptrs(&self) -> &[TriePtr] {
         &[]
     }
-    
-    fn try_as_node4(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node16(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node48(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node256(&self) -> Option<TrieNodeType> { None }
-    fn try_as_leaf(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Leaf(self.clone())) }
+
+    fn path(&self) -> &Vec<u8> {
+        &self.path
+    }
+
+    fn as_trie_node_type(&self) -> TrieNodeType {
+        TrieNodeType::Leaf(self.clone())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1201,6 +1195,18 @@ pub enum TrieNodeType {
     Node48(TrieNode48),
     Node256(TrieNode256),
     Leaf(TrieLeaf),
+}
+
+macro_rules! with_node {
+    ($self: expr, $pat:pat, $s:expr) => {
+        match $self {
+            TrieNodeType::Node4($pat) => $s,
+            TrieNodeType::Node16($pat) => $s,
+            TrieNodeType::Node48($pat) => $s,
+            TrieNodeType::Node256($pat) => $s,
+            TrieNodeType::Leaf($pat) => $s,
+        }
+    }
 }
 
 impl TrieNodeType {
@@ -1240,83 +1246,35 @@ impl TrieNodeType {
     }
 
     pub fn id(&self) -> u8 {
-        match self {
-            TrieNodeType::Node4(ref data) => data.id(),
-            TrieNodeType::Node16(ref data) => data.id(),
-            TrieNodeType::Node48(ref data) => data.id(),
-            TrieNodeType::Node256(ref data) => data.id(),
-            TrieNodeType::Leaf(ref data) => data.id(),
-        }
+        with_node!(self, ref data, data.id())
     }
 
     pub fn walk(&self, chr: u8) -> Option<TriePtr> {
-        match self {
-            TrieNodeType::Node4(ref data) => data.walk(chr),
-            TrieNodeType::Node16(ref data) => data.walk(chr),
-            TrieNodeType::Node48(ref data) => data.walk(chr),
-            TrieNodeType::Node256(ref data) => data.walk(chr),
-            TrieNodeType::Leaf(ref data) => data.walk(chr)
-        }
+        with_node!(self, ref data, data.walk(chr))
     }
 
-    pub fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
-        match self {
-            TrieNodeType::Node4(ref data) => data.to_bytes(ret),
-            TrieNodeType::Node16(ref data) => data.to_bytes(ret),
-            TrieNodeType::Node48(ref data) => data.to_bytes(ret),
-            TrieNodeType::Node256(ref data) => data.to_bytes(ret),
-            TrieNodeType::Leaf(ref data) => data.to_bytes(ret),
-        }
+    pub fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        with_node!(self, ref data, data.write_bytes(w))
     }
 
-    pub fn to_consensus_bytes(&self, ret: &mut Vec<u8>) -> () {
-        match self {
-            TrieNodeType::Node4(ref data) => data.to_consensus_bytes(ret),
-            TrieNodeType::Node16(ref data) => data.to_consensus_bytes(ret),
-            TrieNodeType::Node48(ref data) => data.to_consensus_bytes(ret),
-            TrieNodeType::Node256(ref data) => data.to_consensus_bytes(ret),
-            TrieNodeType::Leaf(ref data) => data.to_consensus_bytes(ret),
-        }
+    pub fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+        with_node!(self, ref data, data.write_consensus_bytes(map, w))
     }
 
     pub fn byte_len(&self) -> usize {
-        match self {
-            TrieNodeType::Node4(ref data) => data.byte_len(),
-            TrieNodeType::Node16(ref data) => data.byte_len(),
-            TrieNodeType::Node48(ref data) => data.byte_len(),
-            TrieNodeType::Node256(ref data) => data.byte_len(),
-            TrieNodeType::Leaf(ref data) => data.byte_len()
-        }
+        with_node!(self, ref data, data.byte_len())
     }
 
     pub fn insert(&mut self, ptr: &TriePtr) -> bool {
-        match self {
-            TrieNodeType::Node4(ref mut data) => data.insert(ptr),
-            TrieNodeType::Node16(ref mut data) => data.insert(ptr),
-            TrieNodeType::Node48(ref mut data) => data.insert(ptr),
-            TrieNodeType::Node256(ref mut data) => data.insert(ptr),
-            TrieNodeType::Leaf(ref mut data) => data.insert(ptr)
-        }
+        with_node!(self, ref mut data, data.insert(ptr))
     }
 
     pub fn replace(&mut self, ptr: &TriePtr) -> bool {
-        match self {
-            TrieNodeType::Node4(ref mut data) => data.replace(ptr),
-            TrieNodeType::Node16(ref mut data) => data.replace(ptr),
-            TrieNodeType::Node48(ref mut data) => data.replace(ptr),
-            TrieNodeType::Node256(ref mut data) => data.replace(ptr),
-            TrieNodeType::Leaf(ref mut data) => data.replace(ptr)
-        }
+        with_node!(self, ref mut data, data.replace(ptr))
     }
 
     pub fn ptrs(&self) -> &[TriePtr] {
-        match self {
-            TrieNodeType::Node4(ref data) => data.ptrs(),
-            TrieNodeType::Node16(ref data) => data.ptrs(),
-            TrieNodeType::Node48(ref data) => data.ptrs(),
-            TrieNodeType::Node256(ref data) => data.ptrs(),
-            TrieNodeType::Leaf(ref data) => data.ptrs()
-        }
+        with_node!(self, ref data, data.ptrs())
     }
     
     pub fn ptrs_mut(&mut self) -> &mut [TriePtr] {
@@ -1340,23 +1298,11 @@ impl TrieNodeType {
     }
 
     pub fn path_bytes(&self) -> &Vec<u8> {
-        match self {
-            TrieNodeType::Node4(ref data) => &data.path,
-            TrieNodeType::Node16(ref data) => &data.path,
-            TrieNodeType::Node48(ref data) => &data.path,
-            TrieNodeType::Node256(ref data) => &data.path,
-            TrieNodeType::Leaf(ref data) => &data.path
-        }
+        with_node!(self, ref data, &data.path)
     }
 
     pub fn set_path(&mut self, new_path: Vec<u8>) -> () {
-        match self {
-            TrieNodeType::Node4(ref mut data) => data.path = new_path,
-            TrieNodeType::Node16(ref mut data) => data.path = new_path,
-            TrieNodeType::Node48(ref mut data) => data.path = new_path,
-            TrieNodeType::Node256(ref mut data) => data.path = new_path,
-            TrieNodeType::Leaf(ref mut data) => data.path = new_path
-        }
+        with_node!(self, ref mut data, data.path = new_path)
     }
 }
 
@@ -1373,7 +1319,6 @@ mod test {
     use chainstate::stacks::index::test::*;
     
     use chainstate::stacks::index::bits::*;
-    use chainstate::stacks::index::fork_table::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
     use chainstate::stacks::index::proofs::*;
@@ -1386,8 +1331,9 @@ mod test {
         t.back_block = 0x778899aa;
 
         let t_bytes = vec![0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa];
-        let mut buf = Vec::with_capacity(TRIEPTR_SIZE);
-        t.to_bytes(&mut buf);
+
+        let mut buf = Vec::new();
+        t.write_bytes(&mut buf).unwrap();
         assert_eq!(buf, t_bytes);
         assert_eq!(TriePtr::from_bytes(&t_bytes[..]), t);
     }
@@ -1412,8 +1358,7 @@ mod test {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
         let mut node4_stream = Cursor::new(node4_bytes.clone());
-        let mut buf = Vec::with_capacity(node4_bytes.len());
-        node4.to_bytes(&mut buf);
+        let buf = node4.to_bytes();
         assert_eq!(buf, node4_bytes);
         assert_eq!(node4.byte_len(), node4_bytes.len());
         assert_eq!(TrieNode4::from_bytes(&mut node4_stream).unwrap(), node4);
@@ -1428,21 +1373,19 @@ mod test {
         let node4_bytes = vec![
             // node ID
             TrieNodeID::Node4,
-            // ptrs (4)
-            TrieNodeID::Node16, 0x01, 0, 0, 0, 0, 
-            TrieNodeID::Node16, 0x02, 0, 0, 0, 0, 
-            TrieNodeID::Node16, 0x03, 0, 0, 0, 0, 
-            TrieNodeID::Empty, 0x00, 0, 0, 0, 0, 
+            // ptrs (4): ID, chr, block-header-hash
+            TrieNodeID::Node16, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node16, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node16, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Empty, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             // path length 
             0x14,
             // path 
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
-        let node4_stream = Cursor::new(node4_bytes.clone());
         
-        let mut buf = Vec::with_capacity(node4_bytes.len());
-        node4.to_consensus_bytes(&mut buf);
-        assert_eq!(buf, node4_bytes);
+        let buf = node4.to_consensus_bytes(&BlockHashMap::new(None));
+        assert_eq!(to_hex(buf.as_slice()), to_hex(node4_bytes.as_slice()));
     }
     
     #[test]
@@ -1477,8 +1420,7 @@ mod test {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
         let mut node16_stream = Cursor::new(node16_bytes.clone());
-        let mut buf = Vec::with_capacity(node16_bytes.len());
-        node16.to_bytes(&mut buf);
+        let buf = node16.to_bytes();
         assert_eq!(buf, node16_bytes);
         assert_eq!(node16.byte_len(), node16_bytes.len());
         assert_eq!(TrieNode16::from_bytes(&mut node16_stream).unwrap(), node16);
@@ -1493,32 +1435,29 @@ mod test {
         let node16_bytes = vec![
             // node ID
             TrieNodeID::Node16,
-            // ptrs (16)
-            TrieNodeID::Node48, 0x01, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x02, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x03, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x04, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x05, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x06, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x07, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x08, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x09, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x0a, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x0b, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x0c, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x0d, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x0e, 0, 0, 0, 0, 
-            TrieNodeID::Node48, 0x0f, 0, 0, 0, 0, 
-            TrieNodeID::Empty, 0x00, 0, 0, 0, 0, 
+            TrieNodeID::Node48, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x08, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x09, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x0a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x0b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x0d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x0e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48, 0x0f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Empty, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             // path length 
             0x14,
             // path 
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
-        let node16_stream = Cursor::new(node16_bytes.clone());
-        let mut buf = Vec::with_capacity(node16_bytes.len());
-        node16.to_consensus_bytes(&mut buf);
-        assert_eq!(buf, node16_bytes);
+        let buf = node16.to_consensus_bytes(&BlockHashMap::new(None));
+        assert_eq!(to_hex(buf.as_slice()), to_hex(node16_bytes.as_slice()));
     }
 
     #[test]
@@ -1620,8 +1559,7 @@ mod test {
         ];
         let mut node48_stream = Cursor::new(node48_bytes.clone());
 
-        let mut buf = Vec::with_capacity(node48_bytes.len());
-        node48.to_bytes(&mut buf);
+        let buf = node48.to_bytes();
         assert_eq!(buf, node48_bytes);
         assert_eq!(node48.byte_len(), node48_bytes.len());
         assert_eq!(TrieNode48::from_bytes(&mut node48_stream).unwrap(), node48);
@@ -1637,95 +1575,60 @@ mod test {
             // node ID
             TrieNodeID::Node48,
             // ptrs (48)
-            TrieNodeID::Node256, 0x01, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x02, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x03, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x04, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x05, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x06, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x07, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x08, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x09, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x0a, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x0b, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x0c, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x0d, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x0e, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x0f, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x10, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x11, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x12, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x13, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x14, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x15, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x16, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x17, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x18, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x19, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x1a, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x1b, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x1c, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x1d, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x1e, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x1f, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x20, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x21, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x22, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x23, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x24, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x25, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x26, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x27, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x28, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x29, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x2a, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x2b, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x2c, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x2d, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x2e, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x2f, 0, 0, 0, 0,
-            TrieNodeID::Empty, 0x00, 0, 0, 0, 0,
-            // indexes (256)
-            255,  0,  1,  2,  3,  4,  5,  6,
-             7,  8,  9, 10, 11, 12, 13, 14,
-            15, 16, 17, 18, 19, 20, 21, 22,
-            23, 24, 25, 26, 27, 28, 29, 30,
-            31, 32, 33, 34, 35, 36, 37, 38,
-            39, 40, 41, 42, 43, 44, 45, 46,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
+            TrieNodeID::Node256, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x08, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x09, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x0a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x0b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x0d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x0e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x0f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x1a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x1b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x1c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x1d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x1e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x1f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x22, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x26, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x29, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x2a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x2b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x2c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x2d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x2e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256, 0x2f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Empty, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             // path len
             0x14,
             // path 
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
-        let node48_stream = Cursor::new(node48_bytes.clone());
-        let mut buf = Vec::with_capacity(node48_bytes.len());
-        node48.to_consensus_bytes(&mut buf);
+        let buf = node48.to_consensus_bytes(&BlockHashMap::new(None));
         assert_eq!(buf, node48_bytes);
     }
     
@@ -1760,8 +1663,7 @@ mod test {
 
         let mut node256_stream = Cursor::new(node256_bytes.clone());
 
-        let mut buf = Vec::with_capacity(node256_bytes.len());
-        node256.to_bytes(&mut buf);
+        let buf = node256.to_bytes();
         assert_eq!(buf, node256_bytes);
         assert_eq!(node256.byte_len(), node256_bytes.len());
         assert_eq!(TrieNode256::from_bytes(&mut node256_stream).unwrap(), node256);
@@ -1779,15 +1681,18 @@ mod test {
             TrieNodeID::Node256
         ];
         // ptrs (256)
+
+        let pointer_back_block_bytes = [0; 32];
         for i in 0..255 {
             node256_bytes.append(&mut vec![
-                TrieNodeID::Node256, i as u8, 0, 0, 0, 0
+                TrieNodeID::Node256, i as u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
             ]);
         }
-        // last ptr is empty 
+        // last ptr is empty
         node256_bytes.append(&mut vec![
-            TrieNodeID::Empty, 0, 0, 0, 0, 0
+            TrieNodeID::Empty, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
         ]);
+
         // path 
         node256_bytes.append(&mut vec![
             // path len
@@ -1796,9 +1701,7 @@ mod test {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ]);
 
-        let node256_stream = Cursor::new(node256_bytes.clone());
-        let mut buf = Vec::with_capacity(node256_bytes.len());
-        node256.to_consensus_bytes(&mut buf);
+        let buf = node256.to_consensus_bytes(&BlockHashMap::new(None));
         assert_eq!(buf, node256_bytes);
     }
 
@@ -1817,12 +1720,9 @@ mod test {
                 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,
                 // data
                 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,
-                // backptr
-                TrieNodeID::Leaf,0,0,0,0,0,0,0,0,0,0
             ];
 
-        let mut buf = Vec::with_capacity(leaf_bytes.len());
-        leaf.to_bytes(&mut buf);
+        let buf = leaf.to_bytes();
 
         assert_eq!(buf, leaf_bytes);
         assert_eq!(leaf.byte_len(), buf.len());
@@ -1939,8 +1839,8 @@ mod test {
 
         let mut child_hashes = vec![];
         for i in 0..3 {
-            let mut child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
-            let mut child_hash = get_node_hash(&child, &vec![]);
+            let child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
+            let child_hash = get_leaf_hash(&child);
 
             child_hashes.push(child_hash.clone());
 
@@ -1953,7 +1853,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node4_ptr = trie_io.last_ptr().unwrap();
-        let node4_hash = get_node_hash(&node4, &child_hashes);
+        let node4_hash = get_node_hash(&node4, &child_hashes, &trie_io.block_map);
         trie_io.write_node(node4_ptr, &node4, node4_hash).unwrap();
         
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node4(node4)).unwrap();
@@ -1971,8 +1871,8 @@ mod test {
 
         let mut child_hashes = vec![];
         for i in 0..15 {
-            let mut child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
-            let mut child_hash = get_node_hash(&child, &vec![]);
+            let child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
+            let child_hash = get_leaf_hash(&child);
 
             child_hashes.push(child_hash.clone());
 
@@ -1985,7 +1885,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node16_ptr = trie_io.last_ptr().unwrap();
-        let node16_hash = get_node_hash(&node16, &child_hashes);
+        let node16_hash = get_node_hash(&node16, &child_hashes, &trie_io.block_map);
         trie_io.write_node(node16_ptr, &node16, node16_hash).unwrap();
 
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node16(node16)).unwrap();
@@ -2003,8 +1903,8 @@ mod test {
 
         let mut child_hashes = vec![];
         for i in 0..47 {
-            let mut child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
-            let mut child_hash = get_node_hash(&child, &vec![]);
+            let child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
+            let child_hash = get_leaf_hash(&child);
 
             child_hashes.push(child_hash.clone());
 
@@ -2017,7 +1917,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node48_ptr = trie_io.last_ptr().unwrap();
-        let node48_hash = get_node_hash(&node48, &child_hashes);
+        let node48_hash = get_node_hash(&node48, &child_hashes, &trie_io.block_map);
         trie_io.write_node(node48_ptr, &node48, node48_hash).unwrap();
 
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node48(node48)).unwrap();
@@ -2035,8 +1935,8 @@ mod test {
 
         let mut child_hashes = vec![];
         for i in 0..255 {
-            let mut child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
-            let mut child_hash = get_node_hash(&child, &vec![]);
+            let child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
+            let child_hash = get_leaf_hash(&child);
 
             child_hashes.push(child_hash.clone());
 
@@ -2049,7 +1949,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node256_ptr = trie_io.last_ptr().unwrap();
-        let node256_hash = get_node_hash(&node256, &child_hashes);
+        let node256_hash = get_node_hash(&node256, &child_hashes, &trie_io.block_map);
         trie_io.write_node(node256_ptr, &node256, node256_hash).unwrap();
 
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node256(node256)).unwrap();

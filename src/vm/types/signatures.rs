@@ -1,7 +1,7 @@
 // TypeSignatures
 use std::hash::{Hash, Hasher};
 use std::{fmt, cmp};
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::collections::BTreeMap;
 
 use address::c32;
@@ -305,6 +305,10 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
 }
 
 impl TupleTypeSignature {
+    pub fn len(&self) -> u64 {
+        self.type_map.len() as u64
+    }
+
     pub fn field_type(&self, field: &str) -> Option<&TypeSignature> {
         self.type_map.get(field)
     }
@@ -348,6 +352,15 @@ impl FunctionArg {
 }
 
 impl TypeSignature {
+
+    pub fn empty_buffer() -> TypeSignature {
+        BufferType(0_u32.try_into().unwrap())
+    }
+
+    pub fn min_buffer() -> TypeSignature {
+        BufferType(1_u32.try_into().unwrap())
+    }
+
     pub fn max_buffer() -> TypeSignature {
         BufferType(BufferLength(u32::try_from(MAX_VALUE_SIZE)
                                 .expect("FAIL: Max Clarity Value Size is no longer realizable in Buffer Type")))
