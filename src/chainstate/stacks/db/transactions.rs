@@ -152,7 +152,7 @@ impl StacksChainState {
             match postcond {
                 TransactionPostCondition::STX(ref condition_code, ref amount_sent_condition) => {
                     let amount_sent = asset_map.get_stx(&account.principal).unwrap_or(0);
-                    if !condition_code.check(*amount_sent_condition as i128, amount_sent) {
+                    if !condition_code.check(*amount_sent_condition as u128, amount_sent) {
                         debug!("Post-condition check failure on STX owned by {:?}: {:?} {:?} {}", account, amount_sent_condition, condition_code, amount_sent);
                         return false;
                     }
@@ -165,7 +165,7 @@ impl StacksChainState {
                     };
 
                     let amount_sent = asset_map.get_fungible_tokens(&account.principal, &asset_id).unwrap_or(0);
-                    if !condition_code.check(*amount_sent_condition as i128, amount_sent) {
+                    if !condition_code.check(*amount_sent_condition as u128, amount_sent) {
                         debug!("Post-condition check failure on fungible asset {:?} owned by {:?}: {:?} {:?} {}", &asset_id, account, amount_sent_condition, condition_code, amount_sent);
                         return false;
                     }
@@ -251,7 +251,7 @@ impl StacksChainState {
                             db.set_account_stx_balance(&recipient_principal, new_recipient_balance);
 
                             let mut asset_map = AssetMap::new();
-                            asset_map.add_stx_transfer(&origin_account.principal, *amount as i128)?;
+                            asset_map.add_stx_transfer(&origin_account.principal, *amount as u128)?;
 
                             if !StacksChainState::check_transaction_postconditions(db, tx, origin_account, &asset_map) {
                                 return Err(clarity_error::PostCondition(format!("Token transfer from {} to {} of {} microSTX failed post-condition checks",
@@ -284,19 +284,19 @@ impl StacksChainState {
                         clarity_tx.connection().with_clarity_db(|ref mut db| {
                             // does the sender have this asset and amount?
                             let cur_balance = db.get_ft_balance(&contract_id, &asset_info.asset_name, &origin_account.principal)?;
-                            if cur_balance < (*amount as i128) {
+                            if cur_balance < (*amount).into() {
                                 return Err(clarity_error::BadTransaction(format!("Address {:?} has {} {:?}.{:?}; needed at least {}", 
                                                                                  &origin_account.principal, cur_balance, &contract_id, &asset_info.asset_name, amount)));
                             }
 
                             let recipient_balance = db.get_ft_balance(&contract_id, &asset_info.asset_name, &recipient_principal)?;
-                            if recipient_balance.checked_add(*amount as i128).is_none() {
+                            if recipient_balance.checked_add(*amount as u128).is_none() {
                                 return Err(clarity_error::BadTransaction(format!("Address {:?} has {} {:?}.{:?}; cannot add {}", 
                                                                                  &origin_account.principal, cur_balance, &contract_id, &asset_info.asset_name, amount)));
                             }
 
-                            let new_balance = cur_balance - (*amount as i128);
-                            let new_recipient_balance = recipient_balance + (*amount as i128);
+                            let new_balance = cur_balance - (*amount as u128);
+                            let new_recipient_balance = recipient_balance + (*amount as u128);
 
                             db.set_ft_balance(&contract_id, &asset_info.asset_name, &origin_account.principal, new_balance)?;
                             db.set_ft_balance(&contract_id, &asset_info.asset_name, &recipient_principal, new_recipient_balance)?;
@@ -306,7 +306,7 @@ impl StacksChainState {
                                 contract_identifier: contract_id.clone(),
                                 asset_name: asset_info.asset_name.clone()
                             };
-                            asset_map.add_token_transfer(&origin_account.principal, asset_id, *amount as i128)?;
+                            asset_map.add_token_transfer(&origin_account.principal, asset_id, (*amount).into())?;
                             
                             if !StacksChainState::check_transaction_postconditions(db, tx, origin_account, &asset_map) {
                                 return Err(clarity_error::PostCondition(format!("Token transfer from {} to {} of fungible token {} {:?}.{:?} failed post-condition checks", 

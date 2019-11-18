@@ -93,7 +93,7 @@ impl StacksChainState {
         }).unwrap()
     }
 
-    pub fn get_account_ft<'a>(clarity_tx: &mut ClarityTx<'a>, contract_id: &QualifiedContractIdentifier, token_name: &str, principal: &PrincipalData) -> Result<i128, Error> {
+    pub fn get_account_ft<'a>(clarity_tx: &mut ClarityTx<'a>, contract_id: &QualifiedContractIdentifier, token_name: &str, principal: &PrincipalData) -> Result<u128, Error> {
         clarity_tx.connection().with_clarity_db_readonly(|ref mut db| {
             let ft_balance = db.get_ft_balance(contract_id, token_name, principal)?;
             Ok(ft_balance)
