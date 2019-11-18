@@ -576,7 +576,7 @@ pub struct StacksTransaction {
     pub chain_id: u32,
     pub auth: TransactionAuth,
     pub fee: u64,
-    pub anchor_mode: TransactionAnchorMode,                 // TODO; merge anchor mode and post condition mode into a single-byte field?
+    pub anchor_mode: TransactionAnchorMode,
     pub post_condition_mode: TransactionPostConditionMode,
     pub post_conditions: Vec<TransactionPostCondition>,
     pub payload: TransactionPayload

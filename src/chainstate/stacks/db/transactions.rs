@@ -143,7 +143,7 @@ impl StacksChainState {
     /// Apply a post-conditions check.
     /// Return true if they all pass.
     /// Return false if at least one fails.
-    fn check_transaction_postconditions<'a>(clarity_db: &mut ClarityDatabase<'a>, tx: &StacksTransaction, origin_account: &StacksAccount, asset_map: &AssetMap) -> bool {
+    fn check_transaction_postconditions<'a>(clarity_db: &mut ClarityDatabase<'a>, tx: &StacksTransaction, account: &StacksAccount, asset_map: &AssetMap) -> bool {
         let mut checked_stx = false;
         let mut checked_assets = HashSet::new();
         let allow_unchecked_assets = tx.post_condition_mode == TransactionPostConditionMode::Allow;
@@ -151,9 +151,9 @@ impl StacksChainState {
         for postcond in tx.post_conditions.iter() {
             match postcond {
                 TransactionPostCondition::STX(ref condition_code, ref amount_sent_condition) => {
-                    let amount_sent = asset_map.get_stx(&origin_account.principal).unwrap_or(0);
+                    let amount_sent = asset_map.get_stx(&account.principal).unwrap_or(0);
                     if !condition_code.check(*amount_sent_condition as i128, amount_sent) {
-                        debug!("Post-condition check failure on STX owned by {:?}: {:?} {:?} {}", origin_account, amount_sent_condition, condition_code, amount_sent);
+                        debug!("Post-condition check failure on STX owned by {:?}: {:?} {:?} {}", account, amount_sent_condition, condition_code, amount_sent);
                         return false;
                     }
                     checked_stx = true;
@@ -164,9 +164,9 @@ impl StacksChainState {
                         asset_name: asset_info.asset_name.clone()
                     };
 
-                    let amount_sent = asset_map.get_fungible_tokens(&origin_account.principal, &asset_id).unwrap_or(0);
+                    let amount_sent = asset_map.get_fungible_tokens(&account.principal, &asset_id).unwrap_or(0);
                     if !condition_code.check(*amount_sent_condition as i128, amount_sent) {
-                        debug!("Post-condition check failure on fungible asset {:?} owned by {:?}: {:?} {:?} {}", &asset_id, origin_account, amount_sent_condition, condition_code, amount_sent);
+                        debug!("Post-condition check failure on fungible asset {:?} owned by {:?}: {:?} {:?} {}", &asset_id, account, amount_sent_condition, condition_code, amount_sent);
                         return false;
                     }
                     checked_assets.insert(asset_id);
@@ -185,9 +185,9 @@ impl StacksChainState {
                     };
 
                     let empty_assets = vec![];
-                    let assets_sent = asset_map.get_nonfungible_tokens(&origin_account.principal, &asset_id).unwrap_or(&empty_assets);
+                    let assets_sent = asset_map.get_nonfungible_tokens(&account.principal, &asset_id).unwrap_or(&empty_assets);
                     if !condition_code.check(&asset_sent_condition, assets_sent) {
-                        debug!("Post-condition check failure on non-fungible asset {:?} owned by {:?}: {:?} {:?}", &asset_id, origin_account, &asset_sent_condition, condition_code);
+                        debug!("Post-condition check failure on non-fungible asset {:?} owned by {:?}: {:?} {:?}", &asset_id, account, &asset_sent_condition, condition_code);
                         return false;
                     }
 
@@ -198,20 +198,20 @@ impl StacksChainState {
 
         if !allow_unchecked_assets {
             // make sure every asset transferred is covered by a postcondition
-            let mut fungible_asset_ids = asset_map.get_fungible_token_ids(&origin_account.principal);
-            let mut nonfungible_asset_ids = asset_map.get_nonfungible_token_ids(&origin_account.principal);
-            let stx_transfer_opt = asset_map.get_stx(&origin_account.principal);
+            let mut fungible_asset_ids = asset_map.get_fungible_token_ids(&account.principal);
+            let mut nonfungible_asset_ids = asset_map.get_nonfungible_token_ids(&account.principal);
+            let stx_transfer_opt = asset_map.get_stx(&account.principal);
 
             for asset_id in fungible_asset_ids.drain(..) {
                 if !checked_assets.contains(&asset_id) {
-                    debug!("Post-condition check failure on fungible asset {:?} owned by {:?}: missing post-condition check", &asset_id, origin_account);
+                    debug!("Post-condition check failure on fungible asset {:?} owned by {:?}: missing post-condition check", &asset_id, account);
                     return false;
                 }
             }
 
             for asset_id in nonfungible_asset_ids.drain(..) {
                 if !checked_assets.contains(&asset_id) {
-                    debug!("Post-condition check failure on non-fungible asset {:?} owned by {:?}: missing post-condition check", &asset_id, origin_account);
+                    debug!("Post-condition check failure on non-fungible asset {:?} owned by {:?}: missing post-condition check", &asset_id, account);
                     return false;
                 }
             }
@@ -390,6 +390,14 @@ impl StacksChainState {
     fn process_transaction_payload<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction, origin_account: &StacksAccount) -> Result<u128, Error> {
         let stx_burned = match tx.payload {
             TransactionPayload::TokenTransfer(_) => {
+                // this only works for standard authorizations
+                if tx.auth.sponsor().is_some() {
+                    let msg = "Sponsored transactions cannot transfer tokens".to_string();
+                    warn!("{}", &msg);
+
+                    return Err(Error::InvalidStacksTransaction(msg));
+                }
+
                 StacksChainState::process_transaction_token_transfer(clarity_tx,tx, origin_account)?;
 
                 // no burns

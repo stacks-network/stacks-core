@@ -2152,8 +2152,8 @@ mod test {
             let poison = poison_opt.unwrap();
             match poison {
                 TransactionPayload::PoisonMicroblock(ref h1, ref h2) => {
-                    assert_eq!(*h1, forked_microblocks[num_mblocks/2].header);
-                    assert_eq!(*h2, conflicting_microblock.header);
+                    assert_eq!(*h2, forked_microblocks[num_mblocks/2].header);
+                    assert_eq!(*h1, conflicting_microblock.header);
                 }
                 _ => {
                     assert!(false);
