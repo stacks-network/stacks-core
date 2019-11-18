@@ -29,7 +29,7 @@ describe("BNS Test Suite - NAME_RENEWAL", async () => {
       noVoyelDiscount: 4,
       nonAlphaDiscount: 4,
     },
-    renewalRule: 4294967295,
+    renewalRule: 10,
     nameImporter: alice,
     zonefile: "0000",
   }, {
@@ -101,7 +101,7 @@ describe("BNS Test Suite - NAME_RENEWAL", async () => {
         expect(receipt.success).eq(true);
       });
   
-      describe("When Bob is renewing 'bob.blockstack' at block #28", async () => {
+      describe("When Bob is renewing 'bob.blockstack' at block #29", async () => {
 
         it("should succeed and set the new expiration date to #41", async () => {
           
@@ -111,7 +111,7 @@ describe("BNS Test Suite - NAME_RENEWAL", async () => {
             cases[0].namespace, 
             "bob", 
             2560000, 
-            cases[0].nameOwner, 
+            null, 
             cases[0].zonefile, { sender: cases[0].nameOwner });
           expect(receipt.result).eq('true');
           expect(receipt.success).eq(true);
@@ -119,10 +119,63 @@ describe("BNS Test Suite - NAME_RENEWAL", async () => {
           receipt = await bns.getNameZonefile(
             cases[0].namespace, 
             "bob", { sender: cases[0].nameOwner });
-          expect(receipt.result).eq('2014');
-          expect(receipt.success).eq(false);
+          expect(receipt.result).eq('0x30303030');
+          expect(receipt.success).eq(true);
         });
       });
+
+      describe("When Bob is renewing 'bob.blockstack' at block #44 (grace period)", async () => {
+
+        it("should succeed and set the new expiration date to #51", async () => {
+          
+          await provider.mineBlocks(15);
+
+          let receipt = await bns.getNameZonefile(
+            cases[0].namespace, 
+            "bob", { sender: cases[0].nameOwner });
+          expect(receipt.result).eq('2009');
+          expect(receipt.success).eq(false);
+
+          receipt = await bns.nameRenewal(
+            cases[0].namespace, 
+            "bob", 
+            2560000, 
+            null, 
+            cases[0].zonefile, { sender: cases[0].nameOwner });
+          expect(receipt.result).eq('true');
+          expect(receipt.success).eq(true);
+          
+          receipt = await bns.getNameZonefile(
+            cases[0].namespace, 
+            "bob", { sender: cases[0].nameOwner });
+          expect(receipt.result).eq('0x30303030');
+          expect(receipt.success).eq(true);
+        });
+      });
+
+      describe("When Bob is renewing 'bob.blockstack' at block #56 (expired)", async () => {
+
+        it("should fail renewing", async () => {
+          
+          await provider.mineBlocks(16);
+
+          let receipt = await bns.getNameZonefile(
+            cases[0].namespace, 
+            "bob", { sender: cases[0].nameOwner });
+          expect(receipt.result).eq('2008');
+          expect(receipt.success).eq(false);
+
+          receipt = await bns.nameRenewal(
+            cases[0].namespace, 
+            "bob", 
+            2560000, 
+            null, 
+            cases[0].zonefile, { sender: cases[0].nameOwner });
+          expect(receipt.result).eq('2008');
+          expect(receipt.success).eq(false);          
+        });
+      });
+
     });
   });
 });

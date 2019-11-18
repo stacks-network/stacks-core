@@ -149,8 +149,11 @@ export class BNSClient extends Client {
                      newOwner: string, 
                      zonefileContent: string, 
                      params: { sender: string }): Promise<Receipt> {
+    const args = [`"${namespace}"`, `"${name}"`, `'${newOwner}`];
+    args.push(zonefileContent === null ? "none" : `(some\ "${zonefileContent}")`);
+
     const tx = this.createTransaction({
-      method: { name: "name-transfer", args: [`"${namespace}"`, `"${name}"`, `'${newOwner}`, `"${zonefileContent}"`] }
+      method: { name: "name-transfer", args: args }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);
@@ -181,12 +184,15 @@ export class BNSClient extends Client {
                     newOwner: null|string, 
                     zonefileContent: null|string, 
                     params: { sender: string }): Promise<Receipt> {
+    const args = [`"${namespace}"`, `"${name}"`, `u${STX}`];
+    args.push(newOwner === null ? "none" : `(some\ '${newOwner})`);
+    args.push(zonefileContent === null ? "none" : `(some\ "${zonefileContent}")`);
+                  
     const tx = this.createTransaction({
-      method: { name: "name-renewal", args: [`"${namespace}"`, `"${name}"`, `${STX}`, `(some\ '${newOwner})`, `(some\ "${zonefileContent}")`] }
+      method: { name: "name-renewal", args: args }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);
-    console.log(res);
     return res;
   }
 

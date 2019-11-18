@@ -115,7 +115,7 @@ describe("BNS Test Suite - NAME_TRANSFER", async () => {
           receipt = await bns.getNameZonefile(
             cases[0].namespace, 
             "bob", { sender: cases[0].nameOwner });
-          expect(receipt.result).eq('0x31313131');
+          expect(receipt.result).eq('0x30303030');
           expect(receipt.success).eq(true);
         });
 
