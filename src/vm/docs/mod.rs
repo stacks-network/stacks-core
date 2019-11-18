@@ -54,7 +54,7 @@ struct DefineAPI {
 
 const BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
     name: "block-height",
-    output_type: "int",
+    output_type: "uint",
     description: "Returns the current block height of the Stacks blockchain as an int",
     example: "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks."
 };
@@ -485,7 +485,7 @@ the tuple. If the supplied option is a `(none)` option, get returns `(none)`.",
 };
 
 const HASH160_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|int",
+    input_type: "buff|uint|int",
     output_type: "(buff 20)",
     signature: "(hash160 value)",
     description: "The `hash160` function computes `RIPEMD160(SHA256(x))` of the inputted value.
@@ -495,7 +495,7 @@ integer.",
 };
 
 const SHA256_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|int",
+    input_type: "buff|uint|int",
     output_type: "(buff 32)",
     signature: "(sha256 value)",
     description: "The `sha256` function computes `SHA256(x)` of the inputted value.
@@ -505,7 +505,7 @@ integer.",
 };
 
 const SHA512_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|int",
+    input_type: "buff|uint|int",
     output_type: "(buff 64)",
     signature: "(sha512 value)",
     description: "The `sha512` function computes `SHA512(x)` of the inputted value.
@@ -515,7 +515,7 @@ integer.",
 };
 
 const SHA512T256_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|int",
+    input_type: "buff|uint|int",
     output_type: "(buff 32)",
     signature: "(sha512/256 value)",
     description: "The `sha512/256` function computes `SHA512/256(x)` (the SHA512 algorithm with the 512/256 initialization vector, truncated
@@ -526,7 +526,7 @@ integer.",
 };
 
 const KECCAK256_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|int",
+    input_type: "buff|uint|int",
     output_type: "(buff 32)",
     signature: "(keccak256 value)",
     description: "The `keccak256` function computes `KECCAK256(value)` of the inputted value.
@@ -556,7 +556,7 @@ block indicated by the _block-hash_ argument. The `expr` closure must be read-on
 The function returns the result of evaluating `expr`.
 ",
     example: "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 (var-get data))
-(at-block (get-block-info header-hash (- block-height 10)) (var-get data))"
+(at-block (get-block-info header-hash (- block-height u10)) (var-get data))"
 };
         
 
@@ -666,7 +666,7 @@ and `false` if it is a `(some ...)`.",
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "BlockInfoPropertyName, BlockHeightInt",
-    output_type: "buff | int",
+    output_type: "buff | uint",
     signature: "(get-block-info prop-name block-height-expr)",
     description: "The `get-block-info` function fetches data for a block of the given block height. The 
 value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `BlockHeightInt` does
@@ -679,14 +679,14 @@ and block times are accurate only to within two hours. See [BIP113](https://gith
 
 The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 32-byte buffer. 
 ",
-    example: "(get-block-info time 10) ;; Returns 1557860301
-(get-block-info header-hash 2) ;; Returns 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb
-(get-block-info vrf-seed 6) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4
+    example: "(get-block-info time u10) ;; Returns 1557860301
+(get-block-info header-hash u2) ;; Returns 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb
+(get-block-info vrf-seed u6) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4
 "
 };
 
 const DEFINE_TOKEN_API: DefineAPI = DefineAPI {
-    input_type: "TokenName, <int>",
+    input_type: "TokenName, <uint>",
     output_type: "Not Applicable",
     signature: "(define-fungible-token token-name <total-supply>)",
     description: "`define-fungible-token` is used to define a new fungible token class for use in the current contract.
@@ -847,25 +847,25 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 };
 
 const MINT_TOKEN: SpecialAPI = SpecialAPI {
-    input_type: "TokenName, int, principal",
-    output_type: "(response bool int)",
+    input_type: "TokenName, uint, principal",
+    output_type: "(response bool uint)",
     signature: "(ft-mint! token-name amount recipient)",
     description: "`ft-mint!` is used to increase the token balance for the `recipient` principal for a token
 type defined using `define-fungible-token`. The increased token balance is _not_ transfered from another principal, but
 rather minted.
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
-returns `(ok 'true)`.
+returns `(ok 'true 1)`.
 ",
     example: "
 (define-fungible-token stackaroo)
-(ft-mint! stackaroo 100 tx-sender)
+(ft-mint! stackaroo u100 tx-sender)
 "
 };
 
 const MINT_ASSET: SpecialAPI = SpecialAPI {
     input_type: "AssetName, A, principal",
-    output_type: "(response bool int)",
+    output_type: "(response bool uint)",
     signature: "(nft-mint! asset-class asset-identifier recipient)",
     description: "`nft-mint!` is used to instantiate an asset and set that asset's owner to the `recipient` principal.
 The asset must have been defined using `define-non-fungible-token`, and the supplied `asset-identifier` must be of the same type specified in
@@ -875,7 +875,7 @@ If an asset identified by `asset-identifier` _already exists_, this function wil
 
 `(err 1)`
 
-Otherwise, on successfuly mint, it returns `(ok 'true)`.
+Otherwise, on successfuly mint, it returns `(ok 'true 1)`.
 ",
     example: "
 (define-non-fungible-token stackaroo (buff 40))
@@ -899,7 +899,7 @@ that definition.",
 
 const GET_BALANCE: SpecialAPI = SpecialAPI {
     input_type: "TokenName, principal",
-    output_type: "int",
+    output_type: "uint",
     signature: "(ft-get-balance token-name principal)",
     description: "`ft-get-balance` returns `token-name` balance of the principal `principal`.
 The token type must have been defined using `define-fungible-token`.",
@@ -911,12 +911,12 @@ The token type must have been defined using `define-fungible-token`.",
 
 const TOKEN_TRANSFER: SpecialAPI = SpecialAPI {
     input_type: "TokenName, int, principal, principal",
-    output_type: "(response bool int)",
+    output_type: "(response bool uint)",
     signature: "(ft-transfer! token-name amount sender recipient)",
     description: "`ft-transfer!` is used to increase the token balance for the `recipient` principal for a token
 type defined using `define-fungible-token` by debiting the `sender` principal.
 
-This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
+This function returns (ok true 1) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
 
 `(err 1)` -- `sender` does not have enough balance to transfer
@@ -925,21 +925,21 @@ one of the following error codes:
 ",
     example: "
 (define-fungible-token stackaroo)
-(ft-mint! stackaroo 100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(ft-transfer! stackaroo 50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
-(ft-transfer! stackaroo 60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
+(ft-mint! stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(ft-transfer! stackaroo u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true 50)
+(ft-transfer! stackaroo u60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
 "
 };
 
 const ASSET_TRANSFER: SpecialAPI = SpecialAPI {
     input_type: "AssetName, A, principal, principal",
-    output_type: "(response bool int)",
+    output_type: "(response bool uint)",
     signature: "(nft-transfer! asset-class asset-identifier sender recipient)",
     description: "`nft-transfer!` is used to change the owner of an asset identified by `asset-identifier`
 from `sender` to `recipient`. The `asset-class` must have been defined by `define-non-fungible-token` and `asset-identifier`
 must be of the type specified in that definition.
 
-This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
+This function returns (ok true 1) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
 
 `(err 1)` -- `sender` does not own the asset
@@ -949,7 +949,7 @@ one of the following error codes:
     example: "
 (define-non-fungible-token stackaroo (buff 40))
 (nft-mint! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(nft-transfer! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
+(nft-transfer! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true 1)
 (nft-transfer! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
 (nft-transfer! stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 3)
 "
