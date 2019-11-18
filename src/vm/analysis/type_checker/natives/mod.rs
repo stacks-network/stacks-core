@@ -7,7 +7,7 @@ use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use std::convert::TryFrom;
 
 mod assets;
-mod lists;
+mod iterables;
 mod maps;
 mod options;
 
@@ -65,9 +65,7 @@ fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     
     let field_to_get = args[0].match_atom()
         .ok_or(CheckErrors::BadTupleFieldName)?;
-    
-    checker.type_map.set_type(&args[0], no_type())?;
-    
+        
     let argument_type = checker.type_check(&args[1], context)?;
     
     if let TypeSignature::TupleType(tuple_type_sig) = argument_type {
@@ -107,8 +105,6 @@ pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpre
 fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(2, args)?;
 
-    checker.type_map.set_type(&args[0], no_type())?;
-
     let binding_list = args[0].match_list()
         .ok_or(CheckError::new(CheckErrors::BadLetSyntax))?;
     
@@ -138,9 +134,7 @@ fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression
     
     let var_name = args[0].match_atom()
         .ok_or(CheckError::new(CheckErrors::BadMapName))?;
-    
-    checker.type_map.set_type(&args[0], no_type())?;
-        
+            
     let value_type = checker.contract_context.get_persisted_variable_type(var_name)
         .ok_or(CheckError::new(CheckErrors::NoSuchDataVariable(var_name.to_string())))?;
 
@@ -152,9 +146,7 @@ fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression],
     
     let var_name = args[0].match_atom()
         .ok_or(CheckErrors::BadMapName)?;
-    
-    checker.type_map.set_type(&args[0], no_type())?;
-    
+        
     let value_type = checker.type_check(&args[1], context)?;
     
     let expected_value_type = checker.contract_context.get_persisted_variable_type(var_name)
@@ -205,7 +197,6 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 
     let function_name = args[1].match_atom()
         .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
-    checker.type_map.set_type(&args[0], no_type())?;
     checker.type_map.set_type(&args[1], no_type())?;
 
     let contract_call_function_type = {
@@ -229,7 +220,6 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(2, args)?;
 
-    checker.type_map.set_type(&args[0], no_type())?;
     let block_info_prop_str = args[0].match_atom()
         .ok_or(CheckError::new(CheckErrors::GetBlockInfoExpectPropertyName))?;
 
@@ -321,10 +311,13 @@ impl TypedNativeFunction {
             Let => Special(SpecialNativeFunction(&check_special_let)),
             FetchVar => Special(SpecialNativeFunction(&check_special_fetch_var)),
             SetVar => Special(SpecialNativeFunction(&check_special_set_var)),
-            Map => Special(SpecialNativeFunction(&lists::check_special_map)),
-            Filter => Special(SpecialNativeFunction(&lists::check_special_filter)),
-            Fold => Special(SpecialNativeFunction(&lists::check_special_fold)),
-            Len => Special(SpecialNativeFunction(&lists::check_special_len)),
+            Map => Special(SpecialNativeFunction(&iterables::check_special_map)),
+            Filter => Special(SpecialNativeFunction(&iterables::check_special_filter)),
+            Fold => Special(SpecialNativeFunction(&iterables::check_special_fold)),
+            Append => Special(SpecialNativeFunction(&iterables::check_special_append)),
+            Concat => Special(SpecialNativeFunction(&iterables::check_special_concat)),
+            AssertsMaxLen => Special(SpecialNativeFunction(&iterables::check_special_asserts_max_len)),
+            Len => Special(SpecialNativeFunction(&iterables::check_special_len)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
             FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),
             FetchContractEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_contract_entry)),

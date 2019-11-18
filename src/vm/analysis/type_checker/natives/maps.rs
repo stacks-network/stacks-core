@@ -15,8 +15,6 @@ pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpr
 
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::BadMapName)?;
-        
-    checker.type_map.set_type(&args[0], no_type())?;
 
     let key_type = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
         Implicit(ref inner_expr) => check_special_tuple_cons(checker, inner_expr, context)?,
@@ -47,7 +45,6 @@ pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[Sym
     let map_name = args[1].match_atom()
         .ok_or(CheckErrors::BadMapName)?;
     
-    checker.type_map.set_type(&args[0], no_type())?;
     checker.type_map.set_type(&args[1], no_type())?;
     
     let key_type = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
@@ -72,8 +69,6 @@ pub fn check_special_delete_entry(checker: &mut TypeChecker, args: &[SymbolicExp
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::BadMapName)?;
 
-    checker.type_map.set_type(&args[0], no_type())?;
-
     let key_type = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
         Implicit(ref inner_expr) => check_special_tuple_cons(checker, inner_expr, context)?,
         Explicit => checker.type_check(&args[1], context)?
@@ -94,9 +89,7 @@ pub fn check_special_set_entry(checker: &mut TypeChecker, args: &[SymbolicExpres
     
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::BadMapName)?;
-    
-    checker.type_map.set_type(&args[0], no_type())?;
-    
+        
     let key_type = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
         Implicit(ref inner_expr) => check_special_tuple_cons(checker, inner_expr, context)?,
         Explicit => checker.type_check(&args[1], context)?
@@ -124,9 +117,7 @@ pub fn check_special_insert_entry(checker: &mut TypeChecker, args: &[SymbolicExp
     
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::BadMapName)?;
-    
-    checker.type_map.set_type(&args[0], no_type())?;
-    
+        
     let key_type = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
         Implicit(ref inner_expr) => check_special_tuple_cons(checker, inner_expr, context)?,
         Explicit => checker.type_check(&args[1], context)?

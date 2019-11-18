@@ -358,6 +358,34 @@ value return by the successive applications.",
 (fold * (list 2 2 2) 0) ;; Returns 0"
 };
 
+const CONCAT_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff, buff)|(list, list)",
+    output_type: "buff|list",
+    signature: "(concat buff-a buff-b)",
+    description: "The `concat` function takes two buffers or two lists with the same entry type, 
+and returns a concatenated buffer or list of the same entry type, with max_len = max_len_a + max_len_b.",
+    example: "(concat \"hello \" \"world\") ;; Returns \"hello world\""
+};
+
+const APPEND_API: SpecialAPI = SpecialAPI {
+    input_type: "list A, A",
+    output_type: "list",
+    signature: "(append (list 1 2 3 4) 5)",
+    description: "The `append` function takes a list and another value with the same entry type, 
+or a buffer and another buffer of length 1 and outputs a buffer or a list of the same type with max_len += 1.",
+    example: "(append (list 1 2 3 4) 5) ;; Returns (list 1 2 3 4 5)"
+};
+
+const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|list, uint",
+    output_type: "(optional buff|list)",
+    signature: "(asserts-max-len! buffer 10)",
+    description: "The `asserts-max-len!` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list 
+or buffer of length M and outputs that same list or buffer, but typed with max length N. 
+At runtime, a check is performed, which if it fails, returns a (none) option.",
+    example: "(asserts-max-len! (list 2 2 2) 3) ;; Returns (some (list 2 2 2))"
+};
+
 const LEN_API: SpecialAPI = SpecialAPI {
     input_type: "buff|list",
     output_type: "uint",
@@ -983,6 +1011,9 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Map => make_for_special(&MAP_API, name),
         Filter => make_for_special(&FILTER_API, name),
         Fold => make_for_special(&FOLD_API, name),
+        Append => make_for_special(&APPEND_API, name),
+        Concat => make_for_special(&CONCAT_API, name),
+        AssertsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, name),
         Len => make_for_special(&LEN_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),

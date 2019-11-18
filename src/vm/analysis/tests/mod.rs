@@ -210,10 +210,10 @@ fn test_non_function_application() {
 }
 
 #[test]
-fn test_expected_list_application() {
+fn test_expected_list_or_buff() {
     let snippet = "(filter not 4)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type list"));
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'list' or 'buff'"));
 }
 
 #[test]

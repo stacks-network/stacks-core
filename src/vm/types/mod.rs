@@ -1,5 +1,5 @@
 pub mod serialization;
-mod signatures;
+pub mod signatures;
 
 use std::{fmt, cmp};
 use std::convert::{TryInto, TryFrom};
@@ -244,6 +244,10 @@ impl Value {
         BufferLength::try_from(buff_data.len())?;
         // construct the buffer
         Ok(Value::Buffer(BuffData { data: buff_data }))
+    }
+
+    pub fn buff_from_byte(byte: u8) -> Value {
+        Value::Buffer(BuffData { data: vec![byte] })
     }
 }
 

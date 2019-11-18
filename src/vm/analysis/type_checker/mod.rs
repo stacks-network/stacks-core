@@ -113,13 +113,13 @@ impl FunctionType {
             FunctionType::ArithmeticComparison => {
                 check_argument_count(2, args)?;
                 let (first, second) = (&args[0], &args[1]);
+                if first != second {
+                    return Err(CheckErrors::TypeError(first.clone(), second.clone()).into())
+                }
                 if first != &TypeSignature::IntType && first != &TypeSignature::UIntType {
                     return Err(CheckErrors::UnionTypeError(
                         vec![TypeSignature::IntType, TypeSignature::UIntType],
                         first.clone()).into())
-                }
-                if first != second {
-                    return Err(CheckErrors::TypeError(first.clone(), second.clone()).into())
                 }
                 Ok(TypeSignature::BoolType)
             },
