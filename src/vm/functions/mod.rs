@@ -1,6 +1,6 @@
 pub mod define;
 pub mod tuples;
-mod lists;
+mod iterables;
 mod arithmetic;
 mod boolean;
 mod database;
@@ -38,6 +38,9 @@ define_named_enum!(NativeFunctions {
     Let("let"),
     Map("map"),
     Fold("fold"),
+    Append("append"),
+    Concat("concat"),
+    AssertsMaxLen("asserts-max-len!"),
     Len("len"),
     ListCons("list"),
     FetchVar("var-get"),
@@ -103,11 +106,14 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Let => CallableType::SpecialFunction("native_let", &special_let),
             FetchVar => CallableType::SpecialFunction("native_var-get", &database::special_fetch_variable),
             SetVar => CallableType::SpecialFunction("native_set-var", &database::special_set_variable),
-            Map => CallableType::SpecialFunction("native_map", &lists::list_map),
-            Filter => CallableType::SpecialFunction("native_filter", &lists::list_filter),
-            Fold => CallableType::SpecialFunction("native_fold", &lists::list_fold),
-            Len => CallableType::SpecialFunction("native_len", &lists::list_len),
-            ListCons => CallableType::NativeFunction("native_cons", &lists::list_cons),
+            Map => CallableType::SpecialFunction("native_map", &iterables::native_map),
+            Filter => CallableType::SpecialFunction("native_filter", &iterables::native_filter),
+            Fold => CallableType::SpecialFunction("native_fold", &iterables::native_fold),
+            Concat => CallableType::SpecialFunction("native_concat", &iterables::native_concat),
+            AssertsMaxLen => CallableType::SpecialFunction("native_asserts_max_len", &iterables::native_asserts_max_len),
+            Append => CallableType::SpecialFunction("native_append", &iterables::native_append),
+            Len => CallableType::SpecialFunction("native_len", &iterables::native_len),
+            ListCons => CallableType::NativeFunction("native_cons", &iterables::list_cons),
             FetchEntry => CallableType::SpecialFunction("native_map-get", &database::special_fetch_entry),
             FetchContractEntry => CallableType::SpecialFunction("native_contract-map-get", &database::special_fetch_contract_entry),
             SetEntry => CallableType::SpecialFunction("native_set-entry", &database::special_set_entry),
@@ -177,8 +183,9 @@ macro_rules! native_hash_func {
             let input = &args[0];
             let bytes = match input {
                 Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
+                Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::Buffer(value) => Ok(value.data.clone()),
-                _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], input.clone()))
+                _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], input.clone()))
             }?;
             let hash = <$module>::from_data(&bytes);
             Value::buff_from(hash.as_bytes().to_vec())

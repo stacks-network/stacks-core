@@ -31,7 +31,7 @@ macro_rules! clarity_serializable {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FungibleTokenMetadata {
-    pub total_supply: Option<i128>
+    pub total_supply: Option<u128>
 }
 
 clarity_serializable!(FungibleTokenMetadata);

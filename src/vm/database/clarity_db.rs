@@ -344,7 +344,7 @@ impl <'a> ClarityDatabase <'a> {
 // Asset Functions
 
 impl <'a> ClarityDatabase <'a> {
-    pub fn create_fungible_token(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, total_supply: &Option<i128>) {
+    pub fn create_fungible_token(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, total_supply: &Option<u128>) {
         let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::FungibleTokenMeta, token_name);
         let data = FungibleTokenMetadata { total_supply: total_supply.clone() };
 
@@ -352,7 +352,7 @@ impl <'a> ClarityDatabase <'a> {
 
         if total_supply.is_some() {
             let supply_key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::CirculatingSupply, token_name);
-            self.put(&supply_key, &(0 as i128));
+            self.put(&supply_key, &(0 as u128));
         }
 
         self.put(&key, &data);
@@ -385,15 +385,12 @@ impl <'a> ClarityDatabase <'a> {
         Ok(data)
     }
 
-    pub fn checked_increase_token_supply(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, amount: i128) -> Result<()> {
-        if amount < 0 {
-            panic!("ERROR: Clarity VM attempted to increase token supply by negative balance.");
-        }
+    pub fn checked_increase_token_supply(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, amount: u128) -> Result<()> {
         let descriptor = self.load_ft(contract_identifier, token_name)?;
 
         if let Some(total_supply) = descriptor.total_supply {
             let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::CirculatingSupply, token_name);
-            let current_supply: i128 = self.get(&key)
+            let current_supply: u128 = self.get(&key)
                 .expect("ERROR: Clarity VM failed to track token supply.");
  
             let new_supply = current_supply.checked_add(amount)
@@ -410,7 +407,7 @@ impl <'a> ClarityDatabase <'a> {
         }
     }
 
-    pub fn get_ft_balance(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, principal: &PrincipalData) -> Result<i128> {
+    pub fn get_ft_balance(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, principal: &PrincipalData) -> Result<u128> {
         let descriptor = self.load_ft(contract_identifier, token_name)?;
 
         let key =  ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::FungibleToken, token_name, principal.serialize());
@@ -422,11 +419,7 @@ impl <'a> ClarityDatabase <'a> {
         }
     }
 
-    pub fn set_ft_balance(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, principal: &PrincipalData, balance: i128) -> Result<()> {
-        if balance < 0 {
-            panic!("ERROR: Clarity VM attempted to set negative token balance.");
-        }
-
+    pub fn set_ft_balance(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, principal: &PrincipalData, balance: u128) -> Result<()> {
         let key =  ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::FungibleToken, token_name, principal.serialize());
         self.put(&key, &balance);
 

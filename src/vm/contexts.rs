@@ -35,9 +35,9 @@ pub struct OwnedEnvironment <'a> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AssetMapEntry {
-    STX(i128),
-    Burn(i128),
-    Token(i128),
+    STX(u128),
+    Burn(u128),
+    Token(u128),
     Asset(Vec<Value>)
 }
 
@@ -47,9 +47,9 @@ pub enum AssetMapEntry {
  */
 #[derive(Debug)]
 pub struct AssetMap {
-    stx_map: HashMap<PrincipalData, i128>,
-    burn_map: HashMap<PrincipalData, i128>,
-    token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, i128>>,
+    stx_map: HashMap<PrincipalData, u128>,
+    burn_map: HashMap<PrincipalData, u128>,
+    token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, u128>>,
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>
 }
 
@@ -98,21 +98,21 @@ impl AssetMap {
     }
     
     // This will get the next amount for a (principal, stx) entry in the stx table.
-    fn get_next_stx_amount(&self, principal: &PrincipalData, amount: i128) -> Result<i128> {
+    fn get_next_stx_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
         let current_amount = self.stx_map.get(principal).unwrap_or(&0);
         current_amount.checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
     }
     
     // This will get the next amount for a (principal, stx) entry in the burn table.
-    fn get_next_stx_burn_amount(&self, principal: &PrincipalData, amount: i128) -> Result<i128> {
+    fn get_next_stx_burn_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
         let current_amount = self.burn_map.get(principal).unwrap_or(&0);
         current_amount.checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
     }
 
     // This will get the next amount for a (principal, asset) entry in the asset table.
-    fn get_next_amount(&self, principal: &PrincipalData, asset: &AssetIdentifier, amount: i128) -> Result<i128> {
+    fn get_next_amount(&self, principal: &PrincipalData, asset: &AssetIdentifier, amount: u128) -> Result<u128> {
         let current_amount = match self.token_map.get(principal) {
             Some(principal_map) => *principal_map.get(&asset).unwrap_or(&0),
             None => 0
@@ -122,22 +122,14 @@ impl AssetMap {
             .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
     }
 
-    pub fn add_stx_transfer(&mut self, principal: &PrincipalData, amount: i128) -> Result<()> {
-        if amount < 0 {
-            panic!("Should never attempt to log a negative STX transfer.");
-        }
-
+    pub fn add_stx_transfer(&mut self, principal: &PrincipalData, amount: u128) -> Result<()> {
         let next_amount = self.get_next_stx_amount(principal, amount)?;
         self.stx_map.insert(principal.clone(), next_amount);
 
         Ok(())
     }
     
-    pub fn add_stx_burn(&mut self, principal: &PrincipalData, amount: i128) -> Result<()> {
-        if amount < 0 {
-            panic!("Should never attempt to log a negative STX burn.");
-        }
-
+    pub fn add_stx_burn(&mut self, principal: &PrincipalData, amount: u128) -> Result<()> {
         let next_amount = self.get_next_stx_burn_amount(principal, amount)?;
         self.burn_map.insert(principal.clone(), next_amount);
 
@@ -159,11 +151,7 @@ impl AssetMap {
         }
     }
 
-    pub fn add_token_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, amount: i128) -> Result<()> {
-        if amount < 0 {
-            panic!("Should never attempt to log a negative transfer.");
-        }
-
+    pub fn add_token_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, amount: u128) -> Result<()> {
         let next_amount = self.get_next_amount(principal, &asset, amount)?;
 
         if !self.token_map.contains_key(principal) {
@@ -259,7 +247,7 @@ impl AssetMap {
                 map.insert(principal.clone(), HashMap::new());
                 map.get_mut(&principal).unwrap()
             };
-            output_map.insert(AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: ClarityName::from("STX") }, AssetMapEntry::STX(stx_amount as i128));
+            output_map.insert(AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: ClarityName::from("STX") }, AssetMapEntry::STX(stx_amount as u128));
         }
         
         for (principal, stx_burned_amount) in self.burn_map.drain() {
@@ -269,7 +257,7 @@ impl AssetMap {
                 map.insert(principal.clone(), HashMap::new());
                 map.get_mut(&principal).unwrap()
             };
-            output_map.insert(AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: ClarityName::from("BURNED") }, AssetMapEntry::Burn(stx_burned_amount as i128));
+            output_map.insert(AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: ClarityName::from("BURNED") }, AssetMapEntry::Burn(stx_burned_amount as u128));
         }
 
         for (principal, mut principal_map) in self.asset_map.drain() {
@@ -288,29 +276,29 @@ impl AssetMap {
         return map
     }
 
-    pub fn get_stx(&self, principal: &PrincipalData) -> Option<i128> {
+    pub fn get_stx(&self, principal: &PrincipalData) -> Option<u128> {
         match self.stx_map.get(principal) {
             Some(value) => Some(*value),
             None => None
         }
     }
 
-    pub fn get_stx_burned(&self, principal: &PrincipalData) -> Option<i128> {
+    pub fn get_stx_burned(&self, principal: &PrincipalData) -> Option<u128> {
         match self.burn_map.get(principal) {
             Some(value) => Some(*value),
             None => None
         }
     }
 
-    pub fn get_stx_burned_total(&self) -> i128 {
-        let mut total : i128 = 0;
+    pub fn get_stx_burned_total(&self) -> u128 {
+        let mut total : u128 = 0;
         for principal in self.burn_map.keys() {
-            total = total.checked_add(*self.burn_map.get(principal).unwrap_or(&0i128)).expect("BURN OVERFLOW");
+            total = total.checked_add(*self.burn_map.get(principal).unwrap_or(&0u128)).expect("BURN OVERFLOW");
         }
         total
     }
 
-    pub fn get_fungible_tokens(&self, principal: &PrincipalData, asset_identifier: &AssetIdentifier) -> Option<i128> {
+    pub fn get_fungible_tokens(&self, principal: &PrincipalData, asset_identifier: &AssetIdentifier) -> Option<u128> {
         match self.token_map.get(principal) {
             Some(ref assets) => match assets.get(asset_identifier) {
                 Some(value) => Some(*value),
@@ -656,7 +644,7 @@ impl <'a> GlobalContext<'a> {
             .add_asset_transfer(sender, asset_identifier, transfered)
     }
 
-    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: i128) -> Result<()> {
+    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: u128) -> Result<()> {
         let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
                                                  asset_name: asset_name.clone() };
         self.asset_maps.last_mut()
@@ -873,7 +861,7 @@ mod test {
         let mut am2 = AssetMap::new();
 
         am1.add_token_transfer(&p1, t1.clone(), 1).unwrap();
-        am1.add_token_transfer(&p2, t1.clone(), i128::max_value()).unwrap();
+        am1.add_token_transfer(&p2, t1.clone(), u128::max_value()).unwrap();
         am2.add_token_transfer(&p1, t1.clone(), 1).unwrap();
         am2.add_token_transfer(&p2, t1.clone(), 1).unwrap();
 
@@ -881,7 +869,7 @@ mod test {
 
         let table = am1.to_table();
 
-        assert_eq!(table[&p2][&t1], AssetMapEntry::Token(i128::max_value()));
+        assert_eq!(table[&p2][&t1], AssetMapEntry::Token(u128::max_value()));
         assert_eq!(table[&p1][&t1], AssetMapEntry::Token(1));
     }
 
