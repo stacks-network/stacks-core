@@ -439,14 +439,13 @@ impl StacksMessageCodec for StacksTransaction {
         let post_conditions : Vec<TransactionPostCondition> = read_next(buf, &mut index, max_size)?;
         let payload : TransactionPayload = read_next(buf, &mut index, max_size)?;
 
-        let version = match version_u8 {
-            x if x == TransactionVersion::Mainnet as u8 => TransactionVersion::Mainnet,
-            x if x == TransactionVersion::Testnet as u8 => TransactionVersion::Testnet,
-            _ => {
-                warn!("Invalid tx: invalid version");
-                return Err(net_error::DeserializeError);
+        let version = 
+            if (version_u8 & 0x80) == 0 {
+                TransactionVersion::Mainnet
             }
-        };
+            else {
+                TransactionVersion::Testnet
+            };
 
         let anchor_mode = match anchor_mode_u8 {
             x if x == TransactionAnchorMode::OffChainOnly as u8 => {
@@ -796,6 +795,7 @@ impl StacksTransactionSigner {
 #[cfg(test)]
 mod test {
     // TODO: test with invalid StacksStrings
+    // TODO: test with different tx versions 
     use super::*;
     use chainstate::stacks::*;
     use net::*;
