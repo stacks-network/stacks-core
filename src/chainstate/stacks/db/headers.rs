@@ -144,9 +144,9 @@ impl StacksChainState {
         tx.execute("INSERT INTO block_headers \
                     (version, total_burn, total_work, proof, parent_block, parent_microblock, parent_microblock_sequence, tx_merkle_root, state_index_root, microblock_pubkey_hash, block_hash, index_block_hash, burn_header_hash, block_height, index_root) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-                    &[&header.version as &ToSql, &total_burn_str, &total_work_str, &header.proof.to_hex(), &header.parent_block.to_hex(), &header.parent_microblock.to_hex(), &header.parent_microblock_sequence, 
+                    &[&header.version as &dyn ToSql, &total_burn_str, &total_work_str, &header.proof.to_hex(), &header.parent_block.to_hex(), &header.parent_microblock.to_hex(), &header.parent_microblock_sequence, 
                       &header.tx_merkle_root.to_hex(), &header.state_index_root.to_hex(), &header.microblock_pubkey_hash.to_hex(),
-                      &block_hash.to_hex(), &tip_info.index_block_hash().to_hex(), &burn_header_hash.to_hex(), &(block_height as i64) as &ToSql, &index_root.to_hex()])
+                      &block_hash.to_hex(), &tip_info.index_block_hash().to_hex(), &burn_header_hash.to_hex(), &(block_height as i64) as &dyn ToSql, &index_root.to_hex()])
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
@@ -161,9 +161,9 @@ impl StacksChainState {
         tx.execute("INSERT OR REPLACE INTO microblock_headers \
                     (version, sequence, prev_block, tx_merkle_root, signature, microblock_hash, parent_block_hash, parent_burn_header_hash, block_height, index_root) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                    &[&microblock_header.version as &ToSql, &microblock_header.sequence as &ToSql, &microblock_header.prev_block.to_hex(),
+                    &[&microblock_header.version as &dyn ToSql, &microblock_header.sequence as &dyn ToSql, &microblock_header.prev_block.to_hex(),
                     &microblock_header.tx_merkle_root.to_hex(), &microblock_header.signature.to_hex(), &microblock_header.block_hash().to_hex(),
-                    &parent_block_hash.to_hex(), &parent_burn_header_hash.to_hex(), &(block_height as i64) as &ToSql, &index_root.to_hex()])
+                    &parent_block_hash.to_hex(), &parent_burn_header_hash.to_hex(), &(block_height as i64) as &dyn ToSql, &index_root.to_hex()])
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())

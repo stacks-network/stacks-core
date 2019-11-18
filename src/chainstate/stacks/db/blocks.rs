@@ -374,7 +374,7 @@ impl StacksChainState {
         let block_path = self.get_block_path(burn_header_hash, block_header_hash)?;
         match fs::metadata(&block_path) {
             Ok(_) => {
-                let mut f = fs::OpenOptions::new()
+                let f = fs::OpenOptions::new()
                             .read(false)
                             .write(true)
                             .truncate(true)
@@ -930,7 +930,6 @@ impl StacksChainState {
         // hashes are contiguous enough -- for each seqnum, there is a block with seqnum+1 with the
         // block at seqnum as its parent.  There may be more than one.
         for i in 1..signed_microblocks.len() {
-            let mut contiguous = false;
             if signed_microblocks[i - 1].header.sequence == signed_microblocks[i].header.sequence && signed_microblocks[i - 1].block_hash() != signed_microblocks[i].block_hash() {
                 // deliberate microblock fork
                 debug!("Deliberate microblock fork at sequence {}", signed_microblocks[i-1].header.sequence);
@@ -1349,7 +1348,7 @@ impl StacksChainState {
         debug!("Process staging block {}/{}", next_staging_block.burn_header_hash.to_hex(), next_staging_block.anchored_block_hash.to_hex());
 
         let parent_block_header_info = {
-            let mut header_tx = self.headers_tx_begin()?;
+            let header_tx = self.headers_tx_begin()?;
             
             let parent_block_header_info = match StacksChainState::get_anchored_block_header_info(&header_tx, &next_staging_block.parent_burn_header_hash, &next_staging_block.parent_anchored_block_hash)? {
                 Some(parent_info) => {

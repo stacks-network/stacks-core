@@ -325,7 +325,7 @@ impl StacksChainState {
             tx.execute(cmd, NO_PARAMS).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
         }
 
-        tx.execute("INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)", &[&STACKS_CHAINSTATE_VERSION, &(if mainnet { 1 } else { 0 }) as &ToSql, &chain_id as &ToSql])
+        tx.execute("INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)", &[&STACKS_CHAINSTATE_VERSION, &(if mainnet { 1 } else { 0 }) as &dyn ToSql, &chain_id as &dyn ToSql])
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         let mut marf = StacksChainState::open_index(marf_path)?;
@@ -496,6 +496,7 @@ impl StacksChainState {
         let parent_index_block = 
             if *parent_block == BlockHeaderHash([0u8; 32]) {
                 // begin first-ever block
+                test_debug!("First-ever block");
                 TrieFileStorage::block_sentinel()
             }
             else {

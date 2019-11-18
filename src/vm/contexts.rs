@@ -253,13 +253,23 @@ impl AssetMap {
         }
 
         for (principal, stx_amount) in self.stx_map.drain() {
-            let mut output_map = HashMap::new();
-            output_map.insert(AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: ClarityName::from("STX") }, stx_amount);
+            let output_map = if map.contains_key(&principal) {
+                map.get_mut(&principal).unwrap()
+            } else {
+                map.insert(principal.clone(), HashMap::new());
+                map.get_mut(&principal).unwrap()
+            };
+            output_map.insert(AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: ClarityName::from("STX") }, AssetMapEntry::STX(stx_amount as i128));
         }
         
         for (principal, stx_burned_amount) in self.burn_map.drain() {
-            let mut output_map = HashMap::new();
-            output_map.insert(AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: ClarityName::from("BURNED") }, stx_burned_amount);
+            let output_map = if map.contains_key(&principal) {
+                map.get_mut(&principal).unwrap()
+            } else {
+                map.insert(principal.clone(), HashMap::new());
+                map.get_mut(&principal).unwrap()
+            };
+            output_map.insert(AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: ClarityName::from("BURNED") }, AssetMapEntry::Burn(stx_burned_amount as i128));
         }
 
         for (principal, mut principal_map) in self.asset_map.drain() {
@@ -948,7 +958,7 @@ mod test {
 
         // 3 Principals
         assert_eq!(table.len(), 3);
-
+        
         assert_eq!(table[&p1][&t1], AssetMapEntry::Token(25));
         assert_eq!(table[&p1][&t4], AssetMapEntry::Token(1));
 
@@ -971,7 +981,6 @@ mod test {
         assert_eq!(table[&p1][&t7], AssetMapEntry::Burn(30 + 31));
         assert_eq!(table[&p2][&t7], AssetMapEntry::Burn(35 + 36));
     }
-
 }
 
 

@@ -515,7 +515,7 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
-        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &TrieFileStorage::block_sentinel(), &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([0u8; 32]));
+        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]));
 
         // give the spending account some stx
         let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -596,7 +596,7 @@ pub mod test {
 
         let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), contract_name.clone());
 
-        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &TrieFileStorage::block_sentinel(), &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([0u8; 32]));
+        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]));
 
         // instantiate the contract and its tokens
         {
@@ -719,7 +719,7 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
-        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &TrieFileStorage::block_sentinel(), &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([0u8; 32]));
+        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]));
 
         let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from("hello-world"));
         let contract_before_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
@@ -786,7 +786,7 @@ pub mod test {
         let signed_tx_2 = signer_2.get_tx().unwrap();
 
         // process both
-        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &TrieFileStorage::block_sentinel(), &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([0u8; 32]));
+        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]));
 
         let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account.nonce, 0);

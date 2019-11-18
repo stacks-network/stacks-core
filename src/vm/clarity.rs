@@ -81,7 +81,7 @@ impl fmt::Display for Error {
 }
 
 impl error::Error for Error {
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::Analysis(ref e) => Some(e),
             Error::Parse(ref e) => Some(e),
