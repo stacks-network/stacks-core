@@ -83,6 +83,11 @@ pub fn get_native_function_cost_spec(func: &NativeFunctions) -> CostSpecificatio
         IsOkay | IsNone => SimpleCostSpecification::new_diskless(Constant(constants::IS_OPTION_COST)),
         AsContract =>      SimpleCostSpecification::new_diskless(Constant(constants::AS_CONTRACT_COST)),
 
+        // assert max len is linear right now due to clone.
+        AssertsMaxLen => SimpleCostSpecification::new_diskless(Linear(constants::LEN_CHECK_A, constants::LEN_CHECK_B)),
+        Concat => SimpleCostSpecification::new_diskless(Linear(constants::CONCAT_A, constants::CONCAT_B)),
+        Append => SimpleCostSpecification::new_diskless(Linear(constants::APPEND_A, constants::APPEND_B)),
+
         // Fetches need to be handled specially.
         //    read runtime costs are linear (may be super-linear to parse) in the _stored type_, not the
         //      argument length

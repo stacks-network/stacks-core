@@ -23,6 +23,14 @@ pub const BEGIN_COST: u64 = 1;
 
 pub const LIST_CONS_A: u64 = 1;
 
+pub const LEN_CHECK_A: u64 = 1;
+pub const LEN_CHECK_B: u64 = 1;
+pub const CONCAT_A: u64 = 1;
+pub const CONCAT_B: u64 = 1;
+pub const APPEND_A: u64 = 1;
+pub const APPEND_B: u64 = 1;
+
+
 pub const SHA512T_A: u64 = 1;
 pub const SHA512T_B: u64 = 1;
 pub const SHA512_A: u64 = 1;
