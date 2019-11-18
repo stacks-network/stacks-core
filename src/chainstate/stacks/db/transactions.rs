@@ -559,10 +559,10 @@ pub mod test {
 
         // create a contract with a fungible and non-fungible token
         let contract = format!("
-        (define-fungible-token hello-asset 1000)
+        (define-fungible-token hello-asset u1000)
         (define-non-fungible-token hello-token (buff 20))
         (begin
-           (ft-mint! hello-asset 123 '{})
+           (ft-mint! hello-asset u123 '{})
            (nft-mint! hello-token \"abc\" '{})
         )", &addr_str, &addr_str);
 
