@@ -344,6 +344,10 @@ fn test_options_errors() {
         "(is-none? 'true)",
         "(is-ok? 2 1)",
         "(is-ok? 'true)",
+        "(is-err? 2 1)",
+        "(is-err? 'true)",
+        "(is-some? 2 1)",
+        "(is-some? 'true)",
         "(ok 2 3)",
         "(some 2 3)",
         "(err 4 5)",
@@ -358,6 +362,10 @@ fn test_options_errors() {
         CheckErrors::ExpectedOptionalValue(Value::Bool(true)).into(),
         CheckErrors::IncorrectArgumentCount(1,2).into(),
         CheckErrors::ExpectedResponseValue(Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::ExpectedResponseValue(Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::ExpectedOptionalValue(Value::Bool(true)).into(),
         CheckErrors::IncorrectArgumentCount(1,2).into(),
         CheckErrors::IncorrectArgumentCount(1,2).into(),
         CheckErrors::IncorrectArgumentCount(1,2).into(),
@@ -378,6 +386,9 @@ fn test_some() {
         "(eq? (some 1) (some 1))",
         "(eq? none none)",
         "(is-none? (some 1))",
+        "(is-some? (some 1))",
+        "(is-some? none)",
+        "(is-none? none)",
         "(eq? (some 1) none)",
         "(eq? none (some 1))",
         "(eq? (some 1) (some 2))",
@@ -387,6 +398,9 @@ fn test_some() {
         Value::Bool(true),
         Value::Bool(true),
         Value::Bool(false),
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Bool(true),
         Value::Bool(false),
         Value::Bool(false),
         Value::Bool(false),
@@ -396,6 +410,51 @@ fn test_some() {
         assert_eq!(*expectation, vm_execute(program).unwrap().unwrap());
     }
 }
+
+
+#[test]
+fn test_option_destructs() {
+    let tests = [
+        "(expects! (some 1) 2)",
+        "(expects-err! (err 1) 2)",
+        "(expects-err! (some 2) 2)",
+        "(expects! (ok 3) 2)",
+        "(expects! (err 3) 2)",
+        "(unwrap (ok 3))",
+        "(unwrap (some 3))",
+        "(unwrap-err (err 3))",
+        "(unwrap-err (ok 3))",
+        "(unwrap none)",
+        "(unwrap (err 3))",
+        "(match-opt (some 1) inner-value (+ 1 inner-value) (/ 1 0))",
+        "(match-opt none inner-value (/ 1 0) (+ 1 8))",
+        "(match-resp (ok 1) ok-val (+ 1 ok-val) err-val (/ err-val 0))",
+        "(match-resp (err 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
+        ];
+
+    let expectations: &[Result<Value, Error>] = &[
+        Ok(Value::Int(1)),
+        Ok(Value::Int(1)),
+        Err(CheckErrors::ExpectedResponseValue(Value::some(Value::Int(2))).into()),
+        Ok(Value::Int(3)),
+        Err(ShortReturnType::ExpectedValue(Value::Int(2)).into()),
+        Ok(Value::Int(3)),
+        Ok(Value::Int(3)),
+        Ok(Value::Int(3)),
+        Err(RuntimeErrorType::UnwrapFailure.into()),
+        Err(RuntimeErrorType::UnwrapFailure.into()),
+        Err(RuntimeErrorType::UnwrapFailure.into()),
+        Ok(Value::Int(2)),
+        Ok(Value::Int(9)),
+        Ok(Value::Int(2)),
+        Ok(Value::Int(8)),
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).map(|x| x.unwrap()));
+    }
+}
+
 
 #[test]
 fn test_hash_errors() {

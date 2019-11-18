@@ -1,4 +1,4 @@
-use vm::representations::{SymbolicExpression};
+use vm::representations::{SymbolicExpression, ClarityName};
 use vm::types::{TypeSignature};
 
 use vm::analysis::type_checker::{TypeResult, TypingContext, check_argument_count,
@@ -29,7 +29,7 @@ pub fn check_special_error(checker: &mut TypeChecker, args: &[SymbolicExpression
     Ok(resp_type)
 }
 
-pub fn check_special_is_okay(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_is_response(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
     
     let input = checker.type_check(&args[0], context)?;
@@ -41,7 +41,7 @@ pub fn check_special_is_okay(checker: &mut TypeChecker, args: &[SymbolicExpressi
     }
 }
 
-pub fn check_special_is_none(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_is_optional(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
     
     let input = checker.type_check(&args[0], context)?;
@@ -79,14 +79,7 @@ pub fn check_special_asserts(checker: &mut TypeChecker, args: &[SymbolicExpressi
     Ok(TypeSignature::BoolType)
 }
 
-pub fn check_special_expects(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    check_argument_count(2, args)?;
-    
-    let input = checker.type_check(&args[0], context)?;
-    let on_error = checker.type_check(&args[1], context)?;
-
-    checker.track_return_type(on_error)?;
-
+fn inner_unwrap(input: TypeSignature) -> TypeResult {
     match input {
         TypeSignature::OptionalType(input_type) => Ok(*input_type),
         TypeSignature::ResponseType(response_type) => { 
@@ -101,14 +94,7 @@ pub fn check_special_expects(checker: &mut TypeChecker, args: &[SymbolicExpressi
     }
 }
 
-pub fn check_special_expects_err(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    check_argument_count(2, args)?;
-    
-    let input = checker.type_check(&args[0], context)?;
-    let on_error = checker.type_check(&args[1], context)?;
-
-    checker.track_return_type(on_error)?;
-
+fn inner_unwrap_err(input: TypeSignature) -> TypeResult {
     if let TypeSignature::ResponseType(response_type) = input {
         let err_type = response_type.1;
         if err_type.is_no_type() {
@@ -118,5 +104,107 @@ pub fn check_special_expects_err(checker: &mut TypeChecker, args: &[SymbolicExpr
         }
     } else {
         Err(CheckErrors::ExpectedResponseType(input).into())
+    }
+}
+
+pub fn check_special_unwrap_or_ret(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(2, args)?;
+    
+    let input = checker.type_check(&args[0], context)?;
+    let on_error = checker.type_check(&args[1], context)?;
+
+    checker.track_return_type(on_error)?;
+
+    inner_unwrap(input)
+}
+
+pub fn check_special_unwrap_err_or_ret(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(2, args)?;
+    
+    let input = checker.type_check(&args[0], context)?;
+    let on_error = checker.type_check(&args[1], context)?;
+
+    checker.track_return_type(on_error)?;
+
+    inner_unwrap_err(input)
+}
+
+
+pub fn check_special_unwrap(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(1, args)?;
+    
+    let input = checker.type_check(&args[0], context)?;
+
+    inner_unwrap(input)
+}
+
+pub fn check_special_unwrap_err(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(1, args)?;
+    
+    let input = checker.type_check(&args[0], context)?;
+
+    inner_unwrap_err(input)
+}
+
+fn eval_with_new_binding(body: &SymbolicExpression, bind_name: ClarityName, bind_type: TypeSignature, 
+                         checker: &mut TypeChecker, context: &TypingContext) -> TypeResult {
+    let mut inner_context = context.extend()?;
+
+    checker.contract_context.check_name_used(&bind_name)?;
+
+    if inner_context.lookup_variable_type(&bind_name).is_some() {
+        return Err(CheckErrors::NameAlreadyUsed(bind_name.into()).into())
+    }
+
+    inner_context.variable_types.insert(bind_name, bind_type);
+
+    checker.type_check(body, &inner_context)
+}
+
+pub fn check_special_match_opt(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(4, args)?;
+    
+    let input = checker.type_check(&args[0], context)?;
+    let bind_name = args[1].match_atom()
+        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .clone();
+    let some_branch = &args[2];
+    let none_branch = &args[3];
+
+    if let TypeSignature::OptionalType(option_type) = input {
+        let some_branch_type = eval_with_new_binding(some_branch, bind_name, *option_type,
+                                                     checker, context)?;
+        let none_branch_type = checker.type_check(none_branch, context)?;
+
+        TypeSignature::least_supertype(&some_branch_type, &none_branch_type)
+            .map_err(|_| CheckErrors::MatchArmsMustMatch(some_branch_type, none_branch_type).into())
+    } else {
+        Err(CheckErrors::ExpectedOptionalType(input.clone()).into())
+    }
+}
+
+pub fn check_special_match_resp(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(5, args)?;
+    
+    let input = checker.type_check(&args[0], context)?;
+    let ok_bind_name = args[1].match_atom()
+        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .clone();
+    let ok_branch = &args[2];
+    let err_bind_name = args[3].match_atom()
+        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .clone();
+    let err_branch = &args[4];
+
+    if let TypeSignature::ResponseType(resp_type) = input {
+        let (ok_type, err_type) = *resp_type;
+
+        let ok_branch_type = eval_with_new_binding(ok_branch, ok_bind_name, ok_type, checker, context)?;
+        let err_branch_type = eval_with_new_binding(err_branch, err_bind_name, err_type, checker, context)?;
+
+        TypeSignature::least_supertype(&ok_branch_type, &err_branch_type)
+            .map_err(|_| CheckErrors::MatchArmsMustMatch(ok_branch_type, err_branch_type).into())
+    } else {
+        Err(CheckErrors::ExpectedResponseType(input.clone()).into())
     }
 }
