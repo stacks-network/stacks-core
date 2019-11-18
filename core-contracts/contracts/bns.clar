@@ -771,7 +771,7 @@
       'true)    
     ;; The amount burnt must be equal to or greater than the cost of the namespace
     (asserts!
-      (> stx-to-burn (compute-name-price name (get price-function namespace-props)))
+      (>= stx-to-burn (compute-name-price name (get price-function namespace-props)))
       (err err-name-stx-burnt-insufficient))
     ;; The name must not be revoked
     (asserts!
