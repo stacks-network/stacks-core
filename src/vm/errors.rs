@@ -54,7 +54,7 @@ pub enum RuntimeErrorType {
     Arithmetic(String),
     ArithmeticOverflow,
     ArithmeticUnderflow,
-    SupplyOverflow(i128, i128),
+    SupplyOverflow(u128, u128),
     DivisionByZero,
     // error in parsing types
     ParseError(String),

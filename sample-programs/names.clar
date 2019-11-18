@@ -1,29 +1,29 @@
 (define-constant burn-address 'SP000000000000000000002Q6VF78)
-(define-private (price-function (name int))
-  (if (< name 100000) 1000 100))
+(define-private (price-function (name uint))
+  (if (< name u100000) u1000 u100))
          
 (define-map name-map 
-  ((name int)) ((owner principal)))
+  ((name uint)) ((owner principal)))
 (define-map preorder-map
   ((name-hash (buff 20)))
-  ((buyer principal) (paid int)))
+  ((buyer principal) (paid uint)))
          
 (define-public (preorder 
                 (name-hash (buff 20))
-                (name-price int))
+                (name-price uint))
   (if (is-ok? (contract-call! .tokens token-transfer
                 burn-address name-price))
       (begin (map-insert! preorder-map
                      (tuple (name-hash name-hash))
                      (tuple (paid name-price)
                             (buyer tx-sender)))
-             (ok 0))
+             (ok u0))
       (err "token payment failed.")))
 
 (define-public (register 
                 (recipient-principal principal)
-                (name int)
-                (salt int))
+                (name uint)
+                (salt uint))
   (let ((preorder-entry
          (expects! ;; name _must_ have been preordered.
            (map-get preorder-map
@@ -46,6 +46,6 @@
                         (tuple (owner recipient-principal)))
               (map-delete! preorder-map
                         (tuple (name-hash (hash160 (xor name salt))))))
-            (ok 0)
+            (ok u0)
             (err "failed to insert new name entry"))
         (err "invalid name register"))))

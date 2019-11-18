@@ -26,18 +26,20 @@ fn buff_type(size: u32) -> TypeSignature {
 
 #[test]
 fn test_get_block_info(){
-    let good = ["(get-block-info time 1)",
-                "(get-block-info time (* 2 3))",
-                "(get-block-info vrf-seed 1)",
-                "(get-block-info header-hash 1)",
-                "(get-block-info burnchain-header-hash 1)"];
-    let expected = [ "int", "int", "(buff 32)", "(buff 32)", "(buff 32)" ];
+    let good = ["(get-block-info time u1)",
+                "(get-block-info time (* u2 u3))",
+                "(get-block-info vrf-seed u1)",
+                "(get-block-info header-hash u1)",
+                "(get-block-info burnchain-header-hash u1)"];
+    let expected = [ "uint", "uint", "(buff 32)", "(buff 32)", "(buff 32)" ];
 
-    let bad = ["(get-block-info none 1)",
+    let bad = ["(get-block-info none u1)",
                "(get-block-info time 'true)",
+               "(get-block-info time 1)",
                "(get-block-info time)"];
     let bad_expected = [ CheckErrors::NoSuchBlockInfoProperty("none".to_string()),
-                         CheckErrors::TypeError(IntType, BoolType),
+                         CheckErrors::TypeError(UIntType, BoolType),
+                         CheckErrors::TypeError(UIntType, IntType),
                          CheckErrors::RequiresAtLeastArguments(2, 1) ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -114,10 +116,10 @@ fn test_destructuring_opts(){
 
 #[test]
 fn test_at_block(){
-    let good = [("(at-block (sha256 0) 1)", "int")];
+    let good = [("(at-block (sha256 u0) u1)", "uint")];
 
-    let bad = [("(at-block (sha512 0) 1)", CheckErrors::TypeError(BUFF_32.clone(), BUFF_64.clone())),
-               ("(at-block (sha256 0) 1 2)", CheckErrors::IncorrectArgumentCount(2, 3))];
+    let bad = [("(at-block (sha512 u0) u1)", CheckErrors::TypeError(BUFF_32.clone(), BUFF_64.clone())),
+               ("(at-block (sha256 u0) u1 u2)", CheckErrors::IncorrectArgumentCount(2, 3))];
 
     for (good_test, expected) in good.iter() {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
@@ -159,18 +161,22 @@ fn test_simple_arithmetic_checks() {
 
 #[test]
 fn test_simple_hash_checks() {
-    let good = ["(hash160 1)",
+    let good = ["(hash160 u1)",
+                "(hash160 1)",
+                "(sha512 u10)",
                 "(sha512 10)",
+                "(sha512/256 u10)",
                 "(sha512/256 10)",
+                "(sha256 (keccak256 u1))",
                 "(sha256 (keccak256 1))"];
-    let expected = ["(buff 20)", "(buff 64)", "(buff 32)", "(buff 32)" ];
+    let expected = ["(buff 20)", "(buff 20)", "(buff 64)", "(buff 64)", "(buff 32)", "(buff 32)", "(buff 32)", "(buff 32)" ];
 
     let bad_types = ["(hash160 'true)",
                      "(sha256 'false)",
                      "(sha512 'false)",
                      "(sha512/256 'false)",
                      "(keccak256 (list 1 2 3))"];
-    let invalid_args = ["(sha256 1 2 3)", "(sha512 1 2 3)", "(sha512/256 1 2 3)"];
+    let invalid_args = ["(sha256 u1 u2 u3)", "(sha512 u1 u2 u3)", "(sha512/256 u1 u2 u3)"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
@@ -297,18 +303,82 @@ fn test_asserts() {
 
 #[test]
 fn test_lists() {
-    let good = ["(map hash160 (list 1 2 3 4 5))",
-                "(list (list 1 2) (list 3 4) (list 5 1 7))",
-                "(filter not (list 'false 'true 'false))",
-                "(fold and (list 'true 'true 'false 'false) 'true)",
-                "(map - (list (+ 1 2) 3 (+ 4 5) (* (+ 1 2) 3)))",
-                "(if 'true (list 1 2 3 4) (list))",
-                "(if 'true (list) (list 1 2 3 4))",
-                "(len (list 1 2 3 4))"
-                ];
-    let expected = [ "(list 5 (buff 20))", "(list 3 (list 3 int))", "(list 3 bool)", "bool", "(list 4 int)",
-                     "(list 4 int)", "(list 4 int)", "uint"];
+    let good = [
+        "(map hash160 (list u1 u2 u3 u4 u5))",
+        "(map hash160 (list 1 2 3 4 5))",
+        "(list (list 1 2) (list 3 4) (list 5 1 7))",
+        "(filter not (list 'false 'true 'false))",
+        "(fold and (list 'true 'true 'false 'false) 'true)",
+        "(map - (list (+ 1 2) 3 (+ 4 5) (* (+ 1 2) 3)))",
+        "(if 'true (list 1 2 3 4) (list))",
+        "(if 'true (list) (list 1 2 3 4))",
+        "(len (list 1 2 3 4))"];
+    let expected = [
+        "(list 5 (buff 20))", 
+        "(list 5 (buff 20))", 
+        "(list 3 (list 3 int))", 
+        "(list 3 bool)", 
+        "bool", 
+        "(list 4 int)",
+        "(list 4 int)", 
+        "(list 4 int)", 
+        "uint"];
 
+    let bad = [
+        "(fold and (list 'true 'false) 2)",
+        "(fold hash160 (list u1 u2 u3 u4) u2)",
+        "(fold hash160 (list 1 2 3 4) 2)",
+        "(fold >= (list 1 2 3 4) 2)",
+        "(list (list 1 2) (list 'true) (list 5 1 7))",
+        "(list 1 2 3 'true 'false 4 5 6)",
+        "(filter hash160 (list u1 u2 u3 u4))",
+        "(filter hash160 (list 1 2 3 4))",
+        "(filter not (list 1 2 3 4))",
+        "(filter not (list 1 2 3 4) 1)",
+        "(filter ynot (list 1 2 3 4))",
+        "(map if (list 1 2 3 4 5))",
+        "(map mod (list 1 2 3 4 5))",
+        "(map - (list 'true 'false 'true 'false))",
+        "(map hash160 (+ u1 u2))",
+        "(len 1)"];
+    let bad_expected = [
+        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::TypeError(IntType, BoolType),
+        CheckErrors::TypeError(IntType, BoolType),
+        CheckErrors::TypeError(IntType, BoolType),
+        CheckErrors::TypeError(BoolType, buff_type(20)),
+        CheckErrors::TypeError(BoolType, buff_type(20)),
+        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrors::IncorrectArgumentCount(2, 3),
+        CheckErrors::IllegalOrUnknownFunctionApplication("ynot".to_string()),
+        CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
+        CheckErrors::IncorrectArgumentCount(2, 1),
+        CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
+        CheckErrors::ExpectedListOrBuffer(UIntType),
+        CheckErrors::ExpectedListOrBuffer(IntType)];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+    
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+
+#[test]
+fn test_buff() {
+    let good = [
+        "(if 'true \"blockstack\" \"block\")",
+        "(if 'true \"block\" \"blockstack\")",
+        "(len \"blockstack\")"];
+    let expected = [
+        "(buff 10)",
+        "(buff 10)",
+        "uint"];
     let bad = [
         "(fold and (list 'true 'false) 2)",
         "(fold hash160 (list 1 2 3 4) 2)",
@@ -327,7 +397,7 @@ fn test_lists() {
     let bad_expected = [
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
+        CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(BoolType, buff_type(20)),
@@ -337,7 +407,7 @@ fn test_lists() {
         CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-        CheckErrors::ExpectedListApplication,
+        CheckErrors::ExpectedListOrBuffer(UIntType),
         CheckErrors::ExpectedListOrBuffer(IntType)];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -346,6 +416,138 @@ fn test_lists() {
     
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_buff_fold() {
+    let good = [
+        "(define-private (get-len (x (buff 1)) (acc uint)) (+ acc u1))
+        (fold get-len \"101010\" u0)",
+        "(define-private (slice (x (buff 1)) (acc (tuple (limit uint) (cursor uint) (data (buff 10)))))
+            (if (< (get cursor acc) (get limit acc))
+                (let ((data (default-to (get data acc) (asserts-max-len! (concat (get data acc) x) u10))))
+                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data))) 
+                acc))
+        (fold slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\")))"];
+    let expected = ["uint", "(tuple (cursor uint) (data (buff 10)) (limit uint))"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        assert_eq!(expected, &type_sig.to_string());
+    }
+}
+
+#[test]
+fn test_buff_map() {
+    let good = [
+        "(map hash160 \"12345\")"];
+    let expected = ["(list 5 (buff 20))"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+}
+
+#[test]
+fn test_native_asserts_max_len() {
+    let good = [
+        "(asserts-max-len! (list 1 2 3 4) u5)"];
+    let expected = ["(optional (list 5 int))"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+}
+
+#[test]
+fn test_buff_asserts_max_len() {
+    let tests = [
+        "(asserts-max-len! \"12345\" u5)",
+        "(asserts-max-len! \"12345\" u8)",
+        "(asserts-max-len! \"12345\" u4)"];
+    let expected = [
+        "(optional (buff 5))",
+        "(optional (buff 8))",
+        "(optional (buff 4))"];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&test).unwrap()));
+    }
+}
+
+#[test]
+fn test_native_append() {
+    let good = [
+        "(append (list 2 3) 4)",
+        "(append (list u0) u0)"];
+    let expected = ["(list 3 int)", "(list 2 uint)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+
+    let bad = [
+        "(append (list 2 3) u4)",
+        "(append (list u0) 1)",
+        "(append (list u0))"];
+
+    let bad_expected = [
+        CheckErrors::TypeError(IntType, UIntType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(2, 1),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_native_concat() {
+    let good = [
+        "(concat (list 2 3) (list 4 5))"];
+    let expected = ["(list 4 int)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+
+    let bad = [
+        "(concat (list 2 3) (list u4))",
+        "(concat (list u0) (list 1))",
+        "(concat (list u0))"];
+
+    let bad_expected = [
+        CheckErrors::TypeError(IntType, UIntType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(2, 1),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_buff_concat() {
+    let good = [
+        "(concat \"123\" \"58\")"];
+    let expected = ["(buff 5)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+}
+
+#[test]
+fn test_buff_filter() {
+    let good = [
+        "(define-private (f (e (buff 1))) (eq? e \"1\"))
+        (filter f \"101010\")"];
+    let expected = ["(buff 6)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        assert_eq!(expected, &type_sig.to_string());
     }
 }
 
@@ -464,7 +666,6 @@ fn test_simple_uints() {
         mem_type_check(bad_test).unwrap_err();
     }
 }
-
 
 #[test]
 fn test_response_inference() {
