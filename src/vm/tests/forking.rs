@@ -239,11 +239,11 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
          (define-fungible-token stackaroos)
          (define-read-only (get-balance (p principal))
            (ft-get-balance stackaroos p))
-         (define-public (destroy (x int))
+         (define-public (destroy (x uint))
            (if (< (ft-get-balance stackaroos tx-sender) x)
                (err -1)
                (ft-transfer! stackaroos x tx-sender burn-address)))
-         (ft-mint! stackaroos 10 {})", p1_str);
+         (ft-mint! stackaroos u10 {})", p1_str);
 
     eprintln!("Initializing contract...");
 
@@ -273,13 +273,13 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
         } else {
             0
         };
-        assert_eq!(balance, Value::Int(expected));
+        assert_eq!(balance, Value::UInt(expected));
     }
 
     let (result, _) = owned_env.execute_transaction(Value::Principal(PrincipalData::Standard(p1_address)),
                                                     contract_identifier, 
                                                     "destroy",
-                                                    &symbols_from_values(vec![Value::Int(10)])).unwrap();
+                                                    &symbols_from_values(vec![Value::UInt(10)])).unwrap();
 
     if expect_success {
         assert!(is_committed(&result))

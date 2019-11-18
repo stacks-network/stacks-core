@@ -183,8 +183,9 @@ macro_rules! native_hash_func {
             let input = &args[0];
             let bytes = match input {
                 Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
+                Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::Buffer(value) => Ok(value.data.clone()),
-                _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], input.clone()))
+                _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], input.clone()))
             }?;
             let hash = <$module>::from_data(&bytes);
             Value::buff_from(hash.as_bytes().to_vec())

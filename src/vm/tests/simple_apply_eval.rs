@@ -416,12 +416,12 @@ fn test_hash_errors() {
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
     ];
 

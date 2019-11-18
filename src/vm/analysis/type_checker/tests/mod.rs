@@ -34,18 +34,20 @@ fn buff_type(size: u32) -> TypeSignature {
 
 #[test]
 fn test_get_block_info(){
-    let good = ["(get-block-info time 1)",
-                "(get-block-info time (* 2 3))",
-                "(get-block-info vrf-seed 1)",
-                "(get-block-info header-hash 1)",
-                "(get-block-info burnchain-header-hash 1)"];
-    let expected = [ "int", "int", "(buff 32)", "(buff 32)", "(buff 32)" ];
+    let good = ["(get-block-info time u1)",
+                "(get-block-info time (* u2 u3))",
+                "(get-block-info vrf-seed u1)",
+                "(get-block-info header-hash u1)",
+                "(get-block-info burnchain-header-hash u1)"];
+    let expected = [ "uint", "uint", "(buff 32)", "(buff 32)", "(buff 32)" ];
 
-    let bad = ["(get-block-info none 1)",
+    let bad = ["(get-block-info none u1)",
                "(get-block-info time 'true)",
+               "(get-block-info time 1)",
                "(get-block-info time)"];
     let bad_expected = [ CheckErrors::NoSuchBlockInfoProperty("none".to_string()),
-                         CheckErrors::TypeError(IntType, BoolType),
+                         CheckErrors::TypeError(UIntType, BoolType),
+                         CheckErrors::TypeError(UIntType, IntType),
                          CheckErrors::RequiresAtLeastArguments(2, 1) ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -59,10 +61,10 @@ fn test_get_block_info(){
 
 #[test]
 fn test_at_block(){
-    let good = [("(at-block (sha256 0) 1)", "int")];
+    let good = [("(at-block (sha256 u0) u1)", "uint")];
 
-    let bad = [("(at-block (sha512 0) 1)", CheckErrors::TypeError(BUFF_32.clone(), BUFF_64.clone())),
-               ("(at-block (sha256 0) 1 2)", CheckErrors::IncorrectArgumentCount(2, 3))];
+    let bad = [("(at-block (sha512 u0) u1)", CheckErrors::TypeError(BUFF_32.clone(), BUFF_64.clone())),
+               ("(at-block (sha256 u0) u1 u2)", CheckErrors::IncorrectArgumentCount(2, 3))];
 
     for (good_test, expected) in good.iter() {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
@@ -104,18 +106,22 @@ fn test_simple_arithmetic_checks() {
 
 #[test]
 fn test_simple_hash_checks() {
-    let good = ["(hash160 1)",
+    let good = ["(hash160 u1)",
+                "(hash160 1)",
+                "(sha512 u10)",
                 "(sha512 10)",
+                "(sha512/256 u10)",
                 "(sha512/256 10)",
+                "(sha256 (keccak256 u1))",
                 "(sha256 (keccak256 1))"];
-    let expected = ["(buff 20)", "(buff 64)", "(buff 32)", "(buff 32)" ];
+    let expected = ["(buff 20)", "(buff 20)", "(buff 64)", "(buff 64)", "(buff 32)", "(buff 32)", "(buff 32)", "(buff 32)" ];
 
     let bad_types = ["(hash160 'true)",
                      "(sha256 'false)",
                      "(sha512 'false)",
                      "(sha512/256 'false)",
                      "(keccak256 (list 1 2 3))"];
-    let invalid_args = ["(sha256 1 2 3)", "(sha512 1 2 3)", "(sha512/256 1 2 3)"];
+    let invalid_args = ["(sha256 u1 u2 u3)", "(sha512 u1 u2 u3)", "(sha512/256 u1 u2 u3)"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
@@ -262,10 +268,12 @@ fn test_lists() {
         "uint"];
     let bad = [
         "(fold and (list 'true 'false) 2)",
+        "(fold hash160 (list u1 u2 u3 u4) u2)",
         "(fold hash160 (list 1 2 3 4) 2)",
         "(fold >= (list 1 2 3 4) 2)",
         "(list (list 1 2) (list 'true) (list 5 1 7))",
         "(list 1 2 3 'true 'false 4 5 6)",
+        "(filter hash160 (list u1 u2 u3 u4))",
         "(filter hash160 (list 1 2 3 4))",
         "(filter not (list 1 2 3 4))",
         "(filter not (list 1 2 3 4) 1)",
@@ -332,6 +340,7 @@ fn test_buff() {
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(IntType, BoolType),
+        CheckErrors::TypeError(BoolType, buff_type(20)),
         CheckErrors::TypeError(BoolType, buff_type(20)),
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(2, 3),

@@ -27,7 +27,7 @@ fn test_type_error() {
 fn test_union_type_error() {
     let snippet = "(hash160 'true)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type '(buff 1048576)' or 'int', found 'bool'"));
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type '(buff 1048576)', 'uint' or 'int', found 'bool'"));
 }
 
 #[test]

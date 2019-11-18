@@ -134,8 +134,8 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
         let var_type = match variable {
             TxSender => TypeSignature::PrincipalType,
             ContractCaller => TypeSignature::PrincipalType,
-            BlockHeight => TypeSignature::IntType,
-            BurnBlockHeight => TypeSignature::IntType,
+            BlockHeight => TypeSignature::UIntType,
+            BurnBlockHeight => TypeSignature::UIntType,
             NativeNone => TypeSignature::new_option(no_type()),
         };
         Some(var_type)
@@ -390,7 +390,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
     fn type_check_define_ft(&mut self, token_name: &ClarityName, bound: Option<&SymbolicExpression>, context: &mut TypingContext) -> CheckResult<ClarityName> {
         if let Some(bound) = bound {
-            self.type_check_expects(bound, context, &TypeSignature::IntType)?;
+            self.type_check_expects(bound, context, &TypeSignature::UIntType)?;
         }
 
         Ok(token_name.clone())
