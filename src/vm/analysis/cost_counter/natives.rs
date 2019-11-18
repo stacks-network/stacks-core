@@ -215,12 +215,15 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
 
             let function_name = args[0].match_atom()
                 .expect("Function argument should have been atom.");
-            let list_arg_type = match inst.type_map.get_type(&args[1]) {
-                Some(TypeSignature::ListType(l)) => l,
+            let (list_item_type, list_max_len) = match inst.type_map.get_type(&args[1]) {
+                Some(TypeSignature::ListType(l)) => {
+                    (l.get_list_item_type().clone(), l.get_max_len())
+                },
+                Some(TypeSignature::BufferType(buff_len)) => {
+                    (TypeSignature::min_buffer(), u32::from(buff_len))
+                },
                 x => panic!("Expected list type, but annotated type was: {:#?}", x)
             };
-            let list_item_type = list_arg_type.get_list_item_type();
-            let list_max_len = list_arg_type.get_max_len();
 
             let function_spec = inst.cost_context.get_defined_function_cost_spec(function_name)
                 .ok_or_else(|| CheckErrors::UnknownFunction(function_name.to_string()))?;
@@ -239,15 +242,20 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
 
             let function_name = args[0].match_atom()
                 .expect("Function argument should have been atom.");
-            let list_arg_type = match inst.type_map.get_type(&args[1]) {
-                Some(TypeSignature::ListType(l)) => l,
+
+            let (list_item_type, list_max_len) = match inst.type_map.get_type(&args[1]) {
+                Some(TypeSignature::ListType(l)) => {
+                    (l.get_list_item_type().clone(), l.get_max_len())
+                },
+                Some(TypeSignature::BufferType(buff_len)) => {
+                    (TypeSignature::min_buffer(), u32::from(buff_len))
+                },
                 x => panic!("Expected list type, but annotated type was: {:#?}", x)
             };
+
+
             let initial_value_type = inst.type_map.get_type(&args[2])
                 .expect("Expected a type annotation");
-
-            let list_item_type = list_arg_type.get_list_item_type();
-            let list_max_len = list_arg_type.get_max_len();
 
             let function_spec = inst.cost_context.get_defined_function_cost_spec(function_name)
                 .ok_or_else(|| CheckErrors::UnknownFunction(function_name.to_string()))?;

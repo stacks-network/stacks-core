@@ -219,7 +219,7 @@ impl <'a, 'b> CostCounter <'a, 'b> {
         let mut argument_len = 0;
         for arg in args {
             let arg_type = self.type_map.get_type(arg)
-                .ok_or(CheckErrors::TypeAnnotationExpectedFailure)?;
+                .expect(&format!("{}: {}", TYPE_ANNOTATED_FAIL, arg));
             argument_len = u64::from(arg_type.size()).cost_overflow_add(argument_len)?;
         }
 

@@ -176,10 +176,13 @@ pub fn check_special_asserts_max_len(checker: &mut TypeChecker, args: &[Symbolic
     let expected_len = match args[1].expr {
         SymbolicExpressionType::LiteralValue(Value::UInt(expected_len)) => expected_len,
         _ => {
-            let expexted_len_type = checker.type_check(&args[0], context)?;
-            return Err(CheckErrors::TypeError(TypeSignature::UIntType, expexted_len_type).into())
+            let expected_len_type = checker.type_check(&args[1], context)?;
+            return Err(CheckErrors::TypeError(TypeSignature::UIntType, expected_len_type).into())
         }
     };
+
+    checker.type_map.set_type(&args[1], TypeSignature::UIntType)?;
+
     let expected_len = u32::try_from(expected_len)
         .map_err(|_e| CheckErrors::MaxLengthOverflow)?;
 

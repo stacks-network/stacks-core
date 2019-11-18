@@ -52,7 +52,7 @@ fn tests_simple_fold() {
 
 #[test]
 fn test_bounded_ft() {
-    let mapped_func = "(define-fungible-token stackaroos (* 2 1 4))";
+    let mapped_func = "(define-fungible-token stackaroos (* u2 u1 u4))";
     cost_check_contract(mapped_func).unwrap();
 }
 
