@@ -66,8 +66,8 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
 
     let lex_matchers: &[LexMatcher] = &[
-        LexMatcher::new(r##""(?P<value>((\\")|([[:print:]&&[^"\n\r\t]]))*)""##, TokenType::StringLiteral),
-        LexMatcher::new(";;[[:print:]&&[^\n\r]]*", TokenType::Whitespace), // ;; comments.
+        LexMatcher::new(r##""(?P<value>((\\")|([[ -~]&&[^"]]))*)""##, TokenType::StringLiteral),
+        LexMatcher::new(";;[ -~]*", TokenType::Whitespace), // ;; comments.
         LexMatcher::new("[\n]+", TokenType::Whitespace),
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
         LexMatcher::new("[(]", TokenType::LParens),
@@ -357,7 +357,8 @@ r#"z (let ((x 1) (y 2))
         ;; this is also a comment!
         (let ((x 3)) ;; more commentary
         (+ x y))     
-        x)) x y"#;
+        x)) x y
+        ;; this is 'quoted comment!"#;
         let program = vec![
             make_atom("z", 1, 1, 1, 1),
             make_list(1, 3, 6, 11, Box::new([
