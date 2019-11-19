@@ -371,7 +371,7 @@ fn test_buff_fold() {
         (fold get-len \"101010\" u0)",
         "(define-private (slice (x (buff 1)) (acc (tuple (limit uint) (cursor uint) (data (buff 10)))))
             (if (< (get cursor acc) (get limit acc))
-                (let ((data (default-to (get data acc) (asserts-max-len! (concat (get data acc) x) u10))))
+                (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
                     (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data))) 
                 acc))
         (fold slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\")))"];
@@ -395,9 +395,9 @@ fn test_buff_map() {
 }
 
 #[test]
-fn test_native_asserts_max_len() {
+fn test_native_as_max_len() {
     let good = [
-        "(asserts-max-len! (list 1 2 3 4) u5)"];
+        "(as-max-len? (list 1 2 3 4) u5)"];
     let expected = ["(optional (list 5 int))"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -406,11 +406,11 @@ fn test_native_asserts_max_len() {
 }
 
 #[test]
-fn test_buff_asserts_max_len() {
+fn test_buff_as_max_len() {
     let tests = [
-        "(asserts-max-len! \"12345\" u5)",
-        "(asserts-max-len! \"12345\" u8)",
-        "(asserts-max-len! \"12345\" u4)"];
+        "(as-max-len? \"12345\" u5)",
+        "(as-max-len? \"12345\" u8)",
+        "(as-max-len? \"12345\" u4)"];
     let expected = [
         "(optional (buff 5))",
         "(optional (buff 8))",
