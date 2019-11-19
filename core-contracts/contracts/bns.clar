@@ -79,7 +79,7 @@
     (base uint) 
     (coeff uint) 
     (nonalpha-discount uint) 
-    (no-voyel-discount uint)))))
+    (no-vowel-discount uint)))))
 
 (define-map namespace-preorders
   ((hashed-salted-namespace (buff 20)) (buyer principal))
@@ -205,17 +205,17 @@
   (< (len (filter is-char-valid name)) (len name)))
 
 (define-private (compute-name-price (name (buff 16))
-                                    (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint))))
+                                    (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-vowel-discount uint))))
   (let (
     (exponent (get-exp-at-index (get buckets price-function) (min u15 (- (len name) u1))))
-    (no-voyel-discount (if (not (has-vowels-chars name)) (get no-voyel-discount price-function) u1))
+    (no-vowel-discount (if (not (has-vowels-chars name)) (get no-vowel-discount price-function) u1))
     (nonalpha-discount (if (has-nonalpha-chars name) (get nonalpha-discount price-function) u1)))
     (*
       (/
         (*
           (get coeff price-function)
           (pow (get base price-function) exponent))
-        (max nonalpha-discount no-voyel-discount))
+        (max nonalpha-discount no-vowel-discount))
       u10))) ;; 10 = name_cost (100) * "old_price_multiplier" (0.1) - todo(ludo): sort this out.
 
 (define-private (is-name-lease-expired (namespace (buff 19)) (name (buff 16)))
@@ -318,7 +318,7 @@
                                  (p-func-b15 uint)
                                  (p-func-b16 uint)
                                  (p-func-non-alpha-discount uint)
-                                 (p-func-no-voyel-discount uint)
+                                 (p-func-no-vowel-discount uint)
                                  (renewal-rule uint)
                                  (name-importer principal))
   ;; The salt and namespace must hash to a preorder entry in the `namespace_preorders` table.
@@ -346,7 +346,7 @@
       (base p-func-base)
       (coeff p-func-coeff)
       (nonalpha-discount p-func-non-alpha-discount)
-      (no-voyel-discount p-func-no-voyel-discount))))
+      (no-vowel-discount p-func-no-vowel-discount))))
     (let (
       (preorder (expects!
         (map-get namespace-preorders ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
