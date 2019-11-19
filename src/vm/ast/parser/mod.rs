@@ -68,7 +68,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     let lex_matchers: &[LexMatcher] = &[
         LexMatcher::new(r##""(?P<value>((\\")|([[:print:]&&[^"\n\r\t]]))*)""##, TokenType::StringLiteral),
         LexMatcher::new(";;[[:print:]&&[^\n\r]]*", TokenType::Whitespace), // ;; comments.
-        LexMatcher::new("[\n\r]+", TokenType::Whitespace),
+        LexMatcher::new("[\n]+", TokenType::Whitespace),
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
@@ -431,6 +431,9 @@ r#"z (let ((x 1) (y 2))
         let split_tokens = "(let ((023ab13 1)))";
         let name_with_dot = "(let ((ab.de 1)))";
 
+        let function_with_carriage_ret = "(define (foo (x y)) \n (+ 1 2 3) \n\r (- 1 2 3))";
+        let function_without_carriage_ret = "(define (foo (x y)) \n (+ 1 2 3) \n (- 1 2 3))";
+
         assert!(match ast::parser::parse(&split_tokens).unwrap_err().err { 
             ParseErrors::SeparatorExpected(_) => true, _ => false });
 
@@ -448,6 +451,10 @@ r#"z (let ((x 1) (y 2))
 
         assert!(match ast::parser::parse(&name_with_dot).unwrap_err().err { 
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
+
+        assert!(match ast::parser::parse(&function_with_carriage_ret).unwrap_err().err { 
+            ParseErrors::FailedParsingRemainder(_) => true, _ => false });
+        ast::parser::parse(&function_without_carriage_ret).unwrap();
     }
 
 }
