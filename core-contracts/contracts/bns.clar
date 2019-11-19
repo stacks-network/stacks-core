@@ -293,9 +293,6 @@
 ;; This second step reveals the salt and the namespace ID (pairing it with its NAMESPACE_PREORDER). It reveals how long
 ;; names last in this namespace before they expire or must be renewed, and it sets a price function for the namespace
 ;; that determines how cheap or expensive names its will be.
-;; Note (1): in the original implementation, the hash of the namespace is being salted so that 2 users preordering the same
-;; namespace wouldn't collide. In this implementation, the hashed-namespace is associated in a tuple, with the principal
-;; of the user.
 (define-public (namespace-reveal (namespace (buff 19))
                                  (namespace-version uint)
                                  (namespace-salt (buff 20))
@@ -503,7 +500,7 @@
         (namespace-props (expects!
           (map-get namespaces ((namespace namespace)))
           (err err-namespace-not-found)))
-        (current-owner (nft-get-owner names (tuple (name name) (namespace namespace)))) ;; todo(ludo): implicit tuple syntax not available here.
+        (current-owner (nft-get-owner names (tuple (name name) (namespace namespace))))
         (can-sender-register-name (if (is-none? name-currently-owned)
                                  'true
                                   (expects! 
@@ -515,7 +512,7 @@
       (asserts!
         (not (has-invalid-chars name))
         (err err-name-charset-invalid))
-      ;; The name must not exist yet, or be expired - todo(ludo): existing name transfers not handled
+      ;; The name must not exist yet, or be expired
       (if (is-none? current-owner)
         'true
         (asserts!
@@ -523,7 +520,7 @@
           (err err-name-unavailable)))
       ;; The name's namespace must be launched
       (asserts!
-        (eq? (is-none? (get launched-at namespace-props)) 'false) ;; todo(ludo): is-some? would be more readable.
+        (eq? (is-none? (get launched-at namespace-props)) 'false)
         (err err-namespace-not-launched))
       ;; The preorder must have been created after the launch of the namespace
       (asserts!
@@ -558,7 +555,7 @@
             names
             (tuple (name name) (namespace namespace))
             (expects! current-owner (err err-panic))
-            tx-sender) ;; tx-sender or contract-caller?
+            tx-sender) ;; todo(ludo): tx-sender or contract-caller?
           (err err-name-could-not-be-transfered)))
       ;; Update name's metadata / properties
       (map-set! name-properties
@@ -570,7 +567,7 @@
       (map-set! owner-name
         ((owner tx-sender))
         ((namespace namespace) (name name)))
-      ;; Import the zonefile - todo(ludo): keep a hash of the zonefile in name-properties
+      ;; Import the zonefile
       (map-set! zonefiles
         ((namespace namespace) (name name))
         ((updated-at block-height)
