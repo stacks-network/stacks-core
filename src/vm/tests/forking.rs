@@ -32,13 +32,13 @@ fn test_at_block_good() {
             "(define-data-var datum int 1)
              (define-public (reset)
                (begin
-                 (var-set! datum (+
+                 (var-set datum (+
                    (at-block 0x0202020202020202020202020202020202020202020202020202020202020202 (var-get datum))
                    (at-block 0x0101010101010101010101010101010101010101010101010101010101010101 (var-get datum))))
                  (ok (var-get datum))))
              (define-public (set-val)
                (begin
-                 (var-set! datum 10)
+                 (var-set datum 10)
                  (ok (var-get datum))))";
 
         eprintln!("Initializing contract...");
@@ -93,8 +93,8 @@ fn test_at_block_missing_defines() {
             "(define-map datum ((id bool)) ((value int)))
              
              (define-public (flip)
-               (let ((current (default-to (get value (map-get! datum ((id 'true)))) 0)))
-                 (map-set! datum ((id 'true)) (if (eq? 1 current) 0 1))
+               (let ((current (default-to (get value (map-get?! datum ((id 'true)))) 0)))
+                 (map-set datum ((id 'true)) (if (is-eq 1 current) 0 1))
                  (ok current)))";
 
         eprintln!("Initializing contract...");
@@ -108,7 +108,7 @@ fn test_at_block_missing_defines() {
         let contract =
             "(define-private (problematic-cc)
                (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
-                 (contract-call! .contract-a flip)))
+                 (contract-call? .contract-a flip)))
              (problematic-cc)
             ";
 
@@ -124,7 +124,7 @@ fn test_at_block_missing_defines() {
         let contract =
             "(define-private (problematic-fetch-entry)
                (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
-                 (contract-map-get .contract-a datum ((id 'true)))))
+                 (contract-map-get? .contract-a datum ((id 'true)))))
              (problematic-fetch-entry)
             ";
 
@@ -242,8 +242,8 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
          (define-public (destroy (x uint))
            (if (< (ft-get-balance stackaroos tx-sender) x)
                (err -1)
-               (ft-transfer! stackaroos x tx-sender burn-address)))
-         (ft-mint! stackaroos u10 {})", p1_str);
+               (ft-transfer? stackaroos x tx-sender burn-address)))
+         (ft-mint? stackaroos u10 {})", p1_str);
 
     eprintln!("Initializing contract...");
 

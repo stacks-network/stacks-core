@@ -229,7 +229,7 @@ fn test_simple_map_buffer() {
 
 #[test]
 fn test_simple_filter_list() {
-    let test1 = "(define-private (test (x int)) (eq? 0 (mod x 2)))
+    let test1 = "(define-private (test (x int)) (is-eq 0 (mod x 2)))
                  (filter test (list 1 2 3 4 5))";
 
     let bad_tests = [
@@ -253,7 +253,7 @@ fn test_simple_filter_list() {
 
 #[test]
 fn test_simple_filter_buffer() {
-    let test1 = "(define-private (test (x (buff 1))) (not (eq? x \"0\")))
+    let test1 = "(define-private (test (x (buff 1))) (not (is-eq x \"0\")))
                  (filter test \"000123\")";
 
     let expected = Value::buff_from(vec![49, 50, 51]).unwrap();
@@ -263,7 +263,7 @@ fn test_simple_filter_buffer() {
 #[test]
 fn test_list_tuple_admission() {
     let test = 
-        "(define-private (bufferize (x int)) (if (eq? x 1) \"abc\" \"ab\"))
+        "(define-private (bufferize (x int)) (if (is-eq x 1) \"abc\" \"ab\"))
          (define-private (tuplize (x int))
            (tuple (value (bufferize x))))
          (map tuplize (list 0 1 0 1 0 1))";
@@ -348,7 +348,7 @@ fn test_construct_bad_list() {
     assert_eq!(execute(test1).unwrap_err(), 
                CheckErrors::TypeError(IntType, BoolType).into());
 
-    let test2 = "(define-private (bad-function (x int)) (if (eq? x 1) 'true x))
+    let test2 = "(define-private (bad-function (x int)) (if (is-eq x 1) 'true x))
                  (map bad-function (list 0 1 2 3))";
     assert_eq!(execute(test2).unwrap_err(),
                CheckErrors::TypeError(IntType, BoolType).into());
