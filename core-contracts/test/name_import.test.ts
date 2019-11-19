@@ -18,21 +18,37 @@ describe("BNS Test Suite - NAME_IMPORT", async () => {
   const cases = [{
     namespace: "blockstack",
     version: 1,
-    salt: "salt-for-alice",
+    salt: "0000",
     value: 96,
-    importedName: "id",
     namespaceOwner: alice,
     nameOwner: bob,
     priceFunction: {
-      buckets: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-      base: 1,
-      coeff: 2,
-      noVoyelDiscount: 0,
-      nonAlphaDiscount: 0,
+      buckets: [7, 6, 5, 4, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      base: 4,
+      coeff: 250,
+      noVoyelDiscount: 4,
+      nonAlphaDiscount: 4,
     },
-    renewalRule: 1,
+    renewalRule: 10,
+    nameImporter: bob,
+    zonefile: "0000",
+  }, {
+    namespace: "id",
+    version: 1,
+    salt: "0000",
+    value: 9600,
+    namespaceOwner: alice,
+    nameOwner: bob,
+    priceFunction: {
+      buckets: [6, 5, 4, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      base: 4,
+      coeff: 250,
+      noVoyelDiscount: 20,
+      nonAlphaDiscount: 20,
+    },
+    renewalRule: 52595,
     nameImporter: alice,
-    zonefile: "LOREM IPSUM DOLOR SIT AMET",
+    zonefile: "1111",
   }];
 
   before(async () => {
@@ -41,17 +57,7 @@ describe("BNS Test Suite - NAME_IMPORT", async () => {
     await bns.deployContract();
   });
 
-  describe("Triggering this operation", () => {
-    it("should fail if 'salt' is blank");
-
-    it("should fail if 'namespace' is blank");
-
-    it("should fail if 'price-function' is invalid");
-
-    it("should fail if 'renewal-rule' is invalid");
-  });
-
-  describe("Given a revealed pre-order from Alice for the namespace 'blockstack' initiated at block #20", async () => {
+  describe("Given a launched namespace 'blockstack', owned by Alice, where Bob is nameImporter", async () => {
 
     before(async () => {
       let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
@@ -67,19 +73,92 @@ describe("BNS Test Suite - NAME_IMPORT", async () => {
         cases[0].nameImporter, { sender: cases[0].namespaceOwner });
       expect(receipt.success).eq(true);
       expect(receipt.result).eq('true');
+      await provider.mineBlocks(1);  
     });
 
-    describe("Importing the name 'id'", async () => {
+    it("Charlie trying to import 'alpha.blockstack' should fail", async () => {
+      let receipt = await bns.nameImport(cases[0].namespace, "alpha", cases[0].zonefile, { sender: charlie })
+      expect(receipt.success).eq(false);
+      expect(receipt.result).eq('1011');
+    });
 
-      it("should fail if TTL expired");
+    it("Bob trying to import 'alpha.blockstack' should succeed", async () => {
+      let receipt = await bns.nameImport(cases[0].namespace, "alpha", cases[0].zonefile, { sender: bob })
+      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('true');
+    });
 
-      it("should succeed if the namespace has already been revealed less than a year ago (todo: fix TTL)", async () => {
-        let receipt = await bns.nameImport(cases[0].namespace, cases[0].importedName, cases[0].zonefile, { sender: cases[0].namespaceOwner });
-        expect(receipt.success).eq(true);
-        expect(receipt.result).eq('true');
-      });
+    it("Resolving an imported name should fail if the namespace is not ready", async () => {
+      let receipt = await bns.getNameZonefile(
+        cases[0].namespace, 
+        "alpha", { sender: cases[0].nameOwner });
+      expect(receipt.result).eq('0x30303030');
+      expect(receipt.success).eq(true);
+    });
 
-      it("should fail if the namespace has already been launched");
+    it("Bob trying to import 'beta.blockstack' should fail after the launch of the domain", async () => {
+      let receipt = await bns.namespaceReady(cases[0].namespace, { sender: bob });
+      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('true');
+      await provider.mineBlocks(1);  
+
+      receipt = await bns.nameImport(cases[0].namespace, "beta", cases[0].zonefile, { sender: bob })
+      expect(receipt.success).eq(false);
+      expect(receipt.result).eq('1014');
+    });
+
+    it("Resolving an imported name should fail if the namespace is ready", async () => {
+      let receipt = await bns.getNameZonefile(
+        cases[0].namespace, 
+        "alpha", { sender: bob });
+      expect(receipt.result).eq('0x30303030');
+      expect(receipt.success).eq(true);
+    });
+
+    it("Charlie trying to register 'alpha.blockstack' should fail", async () => {
+      let receipt = await bns.namePreorder(
+        cases[0].namespace,
+        "alpha",
+        cases[0].salt, 
+        160000, { sender: charlie });
+      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('u32');
+
+      receipt = await bns.nameRegister(
+        cases[0].namespace, 
+        "alpha", 
+        cases[0].salt, 
+        cases[0].zonefile, { sender: charlie });
+      // todo(ludo): the contract is returning a err-panic at this point because we don't have a nice way to cascade errors:
+      // the statement (expects! (is-name-lease-expired namespace name) (err err-panic)) is shallowing the errors.
+      // https://github.com/blockstack/blockstack-core/issues/1138 should improve this limitation.
+      expect(receipt.result).eq('0');
+      expect(receipt.success).eq(false);
+    });
+
+    it("Charlie trying to renew 'alpha.blockstack' should fail", async () => {
+      let receipt = await bns.nameRenewal(cases[0].namespace, "alpha", 160000, charlie, cases[0].zonefile, { sender: charlie })
+      expect(receipt.success).eq(false);
+      expect(receipt.result).eq('2006');
+    });
+  
+    it("Bob trying to renew 'alpha.blockstack' should fail", async () => {
+      let receipt = await bns.nameRenewal(cases[0].namespace, "alpha", 160000, charlie, cases[0].zonefile, { sender: bob })
+      expect(receipt.success).eq(false);
+      // todo(ludo): the contract is returning a err-panic at this point because we don't have a nice way to cascade errors:
+      // the statement (expects! (is-name-lease-expired namespace name) (err err-panic)) is shallowing the errors.
+      // https://github.com/blockstack/blockstack-core/issues/1138 should improve this limitation.
+      expect(receipt.result).eq('0');
+    });
+
+    it("Resolve an imported name should not be affected by the renewal rule expiration", async () => {
+      await provider.mineBlocks(20);  
+
+      let receipt = await bns.getNameZonefile(
+        cases[0].namespace, 
+        "alpha", { sender: cases[0].nameOwner });
+      expect(receipt.result).eq('0x30303030');
+      expect(receipt.success).eq(true);
     });
   });
 });

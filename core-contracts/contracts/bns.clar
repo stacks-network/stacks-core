@@ -861,14 +861,18 @@
     (zonefile-content (expects!
       (get content (map-get zonefiles ((namespace namespace) (name name))))
       (err err-zonefile-not-found))))
-    ;; The name must not be in the renewal grace period
-    (asserts!
-      (eq? (expects! (is-name-in-grace-period namespace name) (err err-panic)) 'false)
-      (err err-name-grace-period))
-    ;; The name must not be expired
-    (if (is-ok? is-lease-expired)
-      (asserts! (not (expects! is-lease-expired (err err-panic))) (err err-name-expired))
-      'true)
+    ;; Is the name subject to renewal constraints
+    (if (is-none? (get registered-at name-props))
+      'true
+      (begin
+        ;; The name must not be in the renewal grace period
+        (asserts!
+          (eq? (expects! (is-name-in-grace-period namespace name) (err 1)) 'false)
+          (err err-name-grace-period))
+        ;; The name must not be expired
+        (if (is-ok? is-lease-expired)
+          (asserts! (not (expects! is-lease-expired (err 2))) (err err-name-expired))
+          'true)))
     ;; The name must not be revoked
     (asserts!
       (is-none? (get revoked-at name-props))
