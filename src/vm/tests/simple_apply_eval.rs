@@ -432,6 +432,12 @@ fn test_option_destructs() {
         "(match-resp (err 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
         "(match-resp (some 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
         "(match-opt (err 1) ok-val (/ ok-val 0) (+ 3 7))",
+        "(try! (err u1))",
+        "(try! (ok 3))",
+        "(try! none)",
+        "(try! (some 'true))",
+        "(try! none 1)",
+        "(try! 1)",
         ];
 
     let expectations: &[Result<Value, Error>] = &[
@@ -454,6 +460,13 @@ fn test_option_destructs() {
             Value::some(Value::Int(1))).into()),
         Err(CheckErrors::ExpectedOptionalValue(
             Value::error(Value::Int(1))).into()),
+        Err(ShortReturnType::ExpectedValue(Value::UInt(1)).into()),
+        Ok(Value::Int(3)),
+        Err(ShortReturnType::ExpectedValue(Value::none()).into()),
+        Ok(Value::Bool(true)),
+        Err(CheckErrors::IncorrectArgumentCount(1, 2).into()),
+        Err(CheckErrors::ExpectedResponseValue(
+            Value::Int(1)).into()),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {

@@ -63,11 +63,35 @@ fn test_destructuring_opts(){
         "(match-opt (some 1) inner-value (+ 1 inner-value) (/ 1 0))",
         "(define-private (foo) (if (> 1 0) (ok 1) (err 8)))
          (match-resp (foo) ok-val (+ 1 ok-val) err-val (/ err-val 0))",
+        "(define-private (t1 (x uint)) (if (> x u1) (ok x) (err 'false)))
+         (define-private (t2 (x uint))
+           (if (> x u4)
+               (err 'true)
+               (ok (+ u2 (try! (t1 x))))))
+         (t2 u3)",
+        "(define-private (t1 (x uint)) (if (> x u1) (ok x) (err 'false)))
+         (define-private (t2 (x uint))
+           (if (> x u4)
+               (err 'true)
+               (ok (> u2 (try! (t1 x))))))
+         (t2 u3)",
+        "(define-private (t1 (x uint)) (if (> x u1) (some x) none))
+         (define-private (t2 (x uint))
+           (if (> x u4)
+               (some 'false)
+               (some (> u2 (try! (t1 x))))))
+         (t2 u3)",
     ];
 
     let expected = [ 
         "int", "int", "int", "int", "int",
-        "int", "int", "int", "int", "int", ];
+        "int", "int", "int",
+        "(response uint bool)",
+        "(response bool bool)",
+        "(optional bool)",
+    ];
+    
+    assert_eq!(expected.len(), good.len());
 
     let bad = [
         ("(unwrap-err! (some 2) 2)",
@@ -109,6 +133,30 @@ fn test_destructuring_opts(){
              x (+ x 2)
              5))",
          CheckErrors::NameAlreadyUsed("x".to_string())),
+        ("(define-private (t1 (x uint)) (if (> x u1) (ok x) (err 'false)))
+         (define-private (t2 (x uint))
+           (if (> x u4)
+               (err u3)
+               (ok (+ u2 (try! (t1 x))))))",
+         CheckErrors::ReturnTypesMustMatch(
+             TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType),
+             TypeSignature::new_response(TypeSignature::UIntType, TypeSignature::UIntType))),
+        ("(define-private (t1 (x uint)) (if (> x u1) (ok x) (err 'false)))
+         (define-private (t2 (x uint))
+           (> u2 (try! (t1 x))))",
+         CheckErrors::ReturnTypesMustMatch(
+             TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType),
+             TypeSignature::BoolType)),
+        ("(try! (ok 3))",
+         CheckErrors::CouldNotDetermineResponseErrType),
+        ("(try! none)",
+         CheckErrors::CouldNotDetermineResponseOkType),
+        ("(try! (err 3))",
+         CheckErrors::CouldNotDetermineResponseOkType),
+        ("(try! 3)",
+         CheckErrors::ExpectedOptionalOrResponseType(TypeSignature::IntType)),        
+        ("(try! (ok 3) 4)",
+         CheckErrors::IncorrectArgumentCount(1, 2)),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {

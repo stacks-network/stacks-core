@@ -96,7 +96,7 @@ fn inner_unwrap(input: TypeSignature) -> TypeResult {
                 Ok(ok_type)
             }
         },
-        _ => Err(CheckErrors::ExpectedOptionalType(input).into())
+        _ => Err(CheckErrors::ExpectedOptionalOrResponseType(input).into())
     }
 }
 
@@ -161,7 +161,7 @@ pub fn check_special_try_ret(checker: &mut TypeChecker, args: &[SymbolicExpressi
                 Ok(ok_type)
             }
         },
-        _ => Err(CheckErrors::ExpectedOptionalType(input).into())
+        _ => Err(CheckErrors::ExpectedOptionalOrResponseType(input).into())
     }
 }
 

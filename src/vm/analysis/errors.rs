@@ -34,6 +34,7 @@ pub enum CheckErrors {
 
     ExpectedOptionalType(TypeSignature),
     ExpectedResponseType(TypeSignature),
+    ExpectedOptionalOrResponseType(TypeSignature),
     ExpectedOptionalValue(Value),
     ExpectedResponseValue(Value),
     CouldNotDetermineResponseOkType,
@@ -236,6 +237,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::UnionTypeError(expected_types, found_type) => format!("expecting expression of type {}, found '{}'", formatted_expected_types(expected_types), found_type),
             CheckErrors::UnionTypeValueError(expected_types, found_type) => format!("expecting expression of type {}, found '{}'", formatted_expected_types(expected_types), found_type),
             CheckErrors::ExpectedOptionalType(found_type) => format!("expecting expression of type 'optional', found '{}'", found_type),
+            CheckErrors::ExpectedOptionalOrResponseType(found_type) => format!("expecting expression of type 'optional' or 'response', found '{}'", found_type),
             CheckErrors::ExpectedResponseType(found_type) => format!("expecting expression of type 'response', found '{}'", found_type),
             CheckErrors::ExpectedOptionalValue(found_type) => format!("expecting expression of type 'optional', found '{}'", found_type),
             CheckErrors::ExpectedResponseValue(found_type) => format!("expecting expression of type 'response', found '{}'", found_type),
