@@ -81,9 +81,6 @@ pub const STORE_CONTRACT_READ_LENGTH: u64 = 1;
 pub const PARSE_TYPE_A: u64 = 1;
 pub const PARSE_TYPE_B: u64 = 1;
 
-pub const LOOKUP_RUNTIME_COST_A: u64 = 1;
-pub const LOOKUP_RUNTIME_COST_B: u64 = 1;
-
 pub const DB_HASH_COST_A: u64 = 1;
 pub const DB_HASH_COST_B: u64 = 1;
 
@@ -94,9 +91,15 @@ pub const TUPLE_CONS_B: u64 = 1;
 
 pub const TUPLE_LOOKUP_A: u64 = 1;
 pub const TUPLE_LOOKUP_B: u64 = 1;
+pub const TUPLE_EQ_CHECK: u64 = 1;
 
 pub const DB_WRITE_RUNTIME_COST_A: u64 = 1;
 pub const DB_WRITE_RUNTIME_COST_B: u64 = 1;
+
+pub const DB_READ_RUNTIME_COST_A: u64 = 1;
+pub const DB_READ_RUNTIME_COST_B: u64 = 1;
+
+pub const ASSET_MAP_TRACK_COST: u64 = 1;
 
 pub const TRANSFER_TOKEN_READ_LEN: u64 = 1;
 pub const TRANSFER_TOKEN_WRITE_LEN: u64 = 1;

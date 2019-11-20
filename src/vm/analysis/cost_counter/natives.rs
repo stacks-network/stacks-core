@@ -329,7 +329,11 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
                 CostFunctions::NLogN(constants::TUPLE_LOOKUP_A, constants::TUPLE_LOOKUP_B))
                 .compute_cost(tuple_length)?;
             // you always do a O(n) equality check on names in lookups.
-            lookup_cost.add_runtime(var_name.len() as u64)?;
+            let eq_cost = SimpleCostSpecification::new_diskless(
+                CostFunctions::Linear(constants::TUPLE_EQ_CHECK, 0))
+                .compute_cost(var_name.len() as u64)?;
+
+            lookup_cost.add(&eq_cost)?;
 
             Ok(lookup_cost)
         },
@@ -352,7 +356,7 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
                 read_count: Constant(1),
                 read_length: Constant(value_tuple_size as u64),
                 write_length: Constant(0), write_count: Constant(0),
-                runtime: Linear(constants::LOOKUP_RUNTIME_COST_A, constants::LOOKUP_RUNTIME_COST_B),
+                runtime: Linear(constants::DB_READ_RUNTIME_COST_A, constants::DB_READ_RUNTIME_COST_B),
             }.compute_cost(value_tuple_size)?;
 
             hash_cost.add(&read_cost)?;
@@ -375,7 +379,7 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
                 read_count: Constant(1),
                 read_length: Constant(value_size as u64),
                 write_length: Constant(0), write_count: Constant(0),
-                runtime: Linear(constants::LOOKUP_RUNTIME_COST_A, constants::LOOKUP_RUNTIME_COST_B),
+                runtime: Linear(constants::DB_READ_RUNTIME_COST_A, constants::DB_READ_RUNTIME_COST_B),
             }.compute_cost(value_size)?;
 
             hash_cost.add(&read_cost)?;
@@ -405,7 +409,7 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
                 read_count: Constant(1),
                 read_length: Constant(value_tuple_size as u64),
                 write_length: Constant(0), write_count: Constant(0),
-                runtime: Linear(constants::LOOKUP_RUNTIME_COST_A, constants::LOOKUP_RUNTIME_COST_B),
+                runtime: Linear(constants::DB_READ_RUNTIME_COST_A, constants::DB_READ_RUNTIME_COST_B),
             }.compute_cost(value_tuple_size)?;
 
             hash_cost.add(&handle_tuple_argument(inst, key_tuple)?)?;
@@ -439,7 +443,7 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
 
             Ok(hash_cost)
         },
-        SetEntry => {
+        SetEntry | InsertEntry => {
             assert!(args.len() == 3);
             let map_name = args[0].match_atom().expect("Argument should be atomic name.");
             let key_tuple = &args[1];
@@ -458,37 +462,6 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
             // the cost of the database op...
             let write_cost = SimpleCostSpecification {
                 read_count: Constant(0), read_length: Constant(0),
-                write_length: Constant(value_size), write_count: Constant(1),
-                runtime: Linear(constants::DB_WRITE_RUNTIME_COST_A, constants::DB_WRITE_RUNTIME_COST_B),
-            }.compute_cost(value_size)?;
-
-            hash_cost.add(&write_cost)?;
-
-            // the cost of computing the key, value args
-            hash_cost.add(&handle_tuple_argument(inst, key_tuple)?)?;
-            hash_cost.add(&handle_tuple_argument(inst, value_tuple)?)?;
-
-            Ok(hash_cost)
-        },
-        InsertEntry => {
-            assert!(args.len() == 3);
-            let map_name = args[0].match_atom().expect("Argument should be atomic name.");
-            let key_tuple = &args[1];
-            let value_tuple = &args[2];
-
-            let value_size =  u64::from(inst.type_map.get_type(value_tuple)
-                                        .expect(TYPE_ANNOTATED_FAIL)
-                                        .size());
-
-            let key_size =  u64::from(inst.type_map.get_type(key_tuple)
-                                      .expect(TYPE_ANNOTATED_FAIL)
-                                      .size());
-            // the cost of the hash lookup...
-            let mut hash_cost = get_hash_cost(map_name.len() as u64, key_size)?;
-
-            // the cost of the database op...
-            let write_cost = SimpleCostSpecification {
-                read_count: Constant(1), read_length: Constant(0),
                 write_length: Constant(value_size), write_count: Constant(1),
                 runtime: Linear(constants::DB_WRITE_RUNTIME_COST_A, constants::DB_WRITE_RUNTIME_COST_B),
             }.compute_cost(value_size)?;
@@ -542,7 +515,8 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
             let write_cost = SimpleCostSpecification {
                 read_count: Constant(1), read_length: Linear(1, 0),
                 write_count: Constant(1), write_length: Linear(1, 0),
-                runtime: Linear(constants::DB_WRITE_RUNTIME_COST_A, constants::DB_WRITE_RUNTIME_COST_B),
+                runtime: Linear(constants::DB_WRITE_RUNTIME_COST_A, constants::DB_WRITE_RUNTIME_COST_B +
+                                constants::ASSET_MAP_TRACK_COST),
             }.compute_cost(constants::ASSET_OWNER_LENGTH)?;
 
             hash_cost.add(&write_cost)?;
@@ -572,7 +546,9 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
             let write_cost = SimpleCostSpecification {
                 read_count: Constant(1), read_length: Linear(1, 0),
                 write_count: Constant(1), write_length: Linear(1, 0),
-                runtime: Linear(2*constants::DB_WRITE_RUNTIME_COST_A, 2*constants::DB_WRITE_RUNTIME_COST_B),
+                runtime: Linear(constants::DB_READ_RUNTIME_COST_A+constants::DB_WRITE_RUNTIME_COST_A,
+                                constants::DB_READ_RUNTIME_COST_B+constants::DB_WRITE_RUNTIME_COST_B+
+                                constants::ASSET_MAP_TRACK_COST),
             }.compute_cost(constants::ASSET_OWNER_LENGTH)?;
 
             hash_cost.add(&write_cost)?;
@@ -599,7 +575,7 @@ pub fn handle_special_function<'a, 'b>(inst: &mut CostCounter<'a, 'b>, function:
             let write_cost = SimpleCostSpecification {
                 read_count: Constant(1), read_length: Linear(1, 0),
                 write_count: Constant(0), write_length: Constant(0),
-                runtime: Linear(constants::LOOKUP_RUNTIME_COST_A, constants::LOOKUP_RUNTIME_COST_B),
+                runtime: Linear(constants::DB_READ_RUNTIME_COST_A, constants::DB_READ_RUNTIME_COST_B),
             }.compute_cost(constants::ASSET_OWNER_LENGTH)?;
 
             hash_cost.add(&write_cost)?;
