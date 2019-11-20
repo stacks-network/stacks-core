@@ -431,8 +431,8 @@ const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
 it returns `(some value)`.",
-    example: "(expects! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
-(expects! (map-get names-map ((name \"blockstack\"))) (err 1)) ;; Same command, using a shorthand for constructing the tuple
+    example: "(unwrap (map-get names-map (tuple (name \"blockstack\")))) ;; Returns (tuple (id 1337))
+(unwrap (map-get names-map ((name \"blockstack\")))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -483,8 +483,8 @@ const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
 it returns `(some value)`.",
-    example: "(expects! (contract-map-get .names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
-(expects! (contract-map-get .names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
+    example: "(unwrap (contract-map-get .names-contract names-map (tuple (name \"blockstack\")))) ;; Returns (tuple (id 1337))
+(unwrap (contract-map-get .names-contract names-map ((name \"blockstack\"))));; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -611,13 +611,13 @@ control-flow.",
 const EXPECTS_API: SpecialAPI = SpecialAPI {
     input_type: "(optional A) | (response A B), C",
     output_type: "A",
-    signature: "(expects! option-input thrown-value)",
-    description: "The `expects!` function attempts to 'unpack' the first argument: if the argument is
-an option type, and the argument is a `(some ...)` option, `expects!` returns the inner value of the
-option. If the argument is a response type, and the argument is an `(ok ...)` response, `expects!` returns
+    signature: "(unwrap! option-input thrown-value)",
+    description: "The `unwrap!` function attempts to 'unpack' the first argument: if the argument is
+an option type, and the argument is a `(some ...)` option, `unwrap!` returns the inner value of the
+option. If the argument is a response type, and the argument is an `(ok ...)` response, `unwrap!` returns
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
-`expects!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
-    example: "(expects! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
+`unwrap!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
+    example: "(unwrap! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
 };
 
 const TRY_API: SpecialAPI = SpecialAPI {
@@ -667,12 +667,12 @@ If the supplied argument is an `(ok ...)` value,
 const EXPECTS_ERR_API: SpecialAPI = SpecialAPI {
     input_type: "(response A B), C",
     output_type: "B",
-    signature: "(expects-err! response-input thrown-value)",
-    description: "The `expects-err!` function attempts to 'unpack' the first argument: if the argument
-is an `(err ...)` response, `expects-err!` returns the inner value of the `err`.
+    signature: "(unwrap-err! response-input thrown-value)",
+    description: "The `unwrap-err!` function attempts to 'unpack' the first argument: if the argument
+is an `(err ...)` response, `unwrap-err!` returns the inner value of the `err`.
 If the supplied argument is an `(ok ...)` value,
-`expects-err!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
-    example: "(expects-err! (err 1) 'false) ;; Returns 1",
+`unwrap-err!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
+    example: "(unwrap-err! (err 1) 'false) ;; Returns 1",
 };
 
 const MATCH_OPT_API: SpecialAPI = SpecialAPI {
@@ -1149,13 +1149,13 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ConsSome =>  make_for_special(&CONS_SOME_API, name),
         DefaultTo => make_for_special(&DEFAULT_TO_API, name),
         Asserts => make_for_special(&ASSERTS_API, name),
-        Expects => make_for_special(&EXPECTS_API, name),
-        ExpectsErr => make_for_special(&EXPECTS_ERR_API, name),
+        UnwrapRet => make_for_special(&EXPECTS_API, name),
+        UnwrapErrRet => make_for_special(&EXPECTS_ERR_API, name),
         Unwrap => make_for_special(&UNWRAP_API, name),
         UnwrapErr => make_for_special(&UNWRAP_ERR_API, name),
         MatchOpt => make_for_special(&MATCH_OPT_API, name),
         MatchResp =>  make_for_special(&MATCH_RESP_API, name),
-        TryBang =>  make_for_special(&TRY_API, name),
+        TryRet =>  make_for_special(&TRY_API, name),
         IsOkay => make_for_special(&IS_OK_API, name),
         IsNone => make_for_special(&IS_NONE_API, name),
         IsErr => make_for_special(&IS_ERR_API, name),

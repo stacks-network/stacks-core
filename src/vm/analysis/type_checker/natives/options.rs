@@ -135,7 +135,7 @@ pub fn check_special_unwrap_err_or_ret(checker: &mut TypeChecker, args: &[Symbol
     inner_unwrap_err(input)
 }
 
-pub fn check_special_try_bang(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_try_ret(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
     
     let input = checker.type_check(&args[0], context)?;

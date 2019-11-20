@@ -94,7 +94,7 @@ pub fn native_unwrap_err_or_ret(args: &[Value]) -> Result<Value> {
         })
 }
 
-pub fn native_try_bang(args: &[Value]) -> Result<Value> {
+pub fn native_try_ret(args: &[Value]) -> Result<Value> {
     check_argument_count(1, args)?;
 
     let input = &args[0];
