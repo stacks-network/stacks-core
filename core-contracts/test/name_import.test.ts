@@ -129,10 +129,7 @@ describe("BNS Test Suite - NAME_IMPORT", async () => {
         "alpha", 
         cases[0].salt, 
         cases[0].zonefile, { sender: charlie });
-      // todo(ludo): the contract is returning a err-panic at this point because we don't have a nice way to cascade errors:
-      // the statement (expects! (is-name-lease-expired namespace name) (err err-panic)) is shallowing the errors.
-      // https://github.com/blockstack/blockstack-core/issues/1138 should improve this limitation.
-      expect(receipt.result).eq('0');
+      expect(receipt.result).eq('2004');
       expect(receipt.success).eq(false);
     });
 
@@ -145,10 +142,7 @@ describe("BNS Test Suite - NAME_IMPORT", async () => {
     it("Bob trying to renew 'alpha.blockstack' should fail", async () => {
       let receipt = await bns.nameRenewal(cases[0].namespace, "alpha", 160000, charlie, cases[0].zonefile, { sender: bob })
       expect(receipt.success).eq(false);
-      // todo(ludo): the contract is returning a err-panic at this point because we don't have a nice way to cascade errors:
-      // the statement (expects! (is-name-lease-expired namespace name) (err err-panic)) is shallowing the errors.
-      // https://github.com/blockstack/blockstack-core/issues/1138 should improve this limitation.
-      expect(receipt.result).eq('0');
+      expect(receipt.result).eq('2006');
     });
 
     it("Resolve an imported name should not be affected by the renewal rule expiration", async () => {

@@ -1,5 +1,4 @@
 ;;;; Errors
-;; todo(ludo): should err be returning strings instead?
 (define-constant err-panic 0)
 (define-constant err-namespace-preorder-not-found 1001)
 (define-constant err-namespace-preorder-expired 1002)
@@ -56,7 +55,6 @@
 (define-constant name-grace-period-duration u5)
 
 ;; Price tables
-;; todo(ludo): should we have some kind of oracle, for stabilizing name's prices?
 (define-constant namespace-prices-tiers (list
   u96000 
   u9600 u9600 
@@ -69,7 +67,7 @@
 ;;;; Data
 (define-map namespaces
   ((namespace (buff 19)))
-  ((name-importer principal)
+  ((namespace-import principal)
    (revealed-at uint)
    (launched-at (optional uint))
    (namespace-version uint)
@@ -110,7 +108,7 @@
 (define-private (max (a uint) (b uint))
   (if (> a b) a b))
 
-(define-private (compute-namespace-price (namespace (buff 19)))
+(define-private (compute-namespace-price? (namespace (buff 19)))
   (let ((namespace-len (len namespace)))
     (asserts!
       (> namespace-len u0)
@@ -218,7 +216,7 @@
         (max nonalpha-discount no-vowel-discount))
       u10))) ;; 10 = name_cost (100) * "old_price_multiplier" (0.1) - todo(ludo): sort this out.
 
-(define-private (is-name-lease-expired (namespace (buff 19)) (name (buff 16)))
+(define-private (is-name-lease-expired? (namespace (buff 19)) (name (buff 16)))
   (let (
     (namespace-props (expects! 
       (map-get namespaces ((namespace namespace))) 
@@ -226,18 +224,19 @@
     (name-props (expects! 
       (map-get name-properties ((namespace namespace) (name name))) 
       (err err-name-not-found))))
-    (let (
-      (registered-at (expects! 
-        (get registered-at name-props) 
-        (err err-name-was-not-registered)))
-      (lifetime 
-        (get renewal-rule namespace-props)))
-      (if (eq? lifetime u0)
-        (ok 'false)
-        (ok (> block-height (+ lifetime registered-at)))))))
+    (if (is-none? (get registered-at name-props))
+      (ok 'false) ;; The name was imported - not subject to expiration
+      (let (      ;; The name was registered
+        (registered-at (expects! 
+          (get registered-at name-props) (err err-panic)))
+        (lifetime 
+          (get renewal-rule namespace-props)))
+        (if (eq? lifetime u0)
+          (ok 'false)
+          (ok (> block-height (+ lifetime registered-at))))))))
 
-;; todo(ludo): should be refactored - based on (is-name-lease-expired)
-(define-private (is-name-in-grace-period (namespace (buff 19)) (name (buff 16)))
+;; todo(ludo): should be refactored - based on (is-name-lease-expired?)
+(define-private (is-name-in-grace-period? (namespace (buff 19)) (name (buff 16)))
   (let (
     (namespace-props (expects! 
       (map-get namespaces ((namespace namespace))) 
@@ -245,17 +244,18 @@
     (name-props (expects! 
       (map-get name-properties ((namespace namespace) (name name))) 
       (err err-name-not-found))))
-    (let (
-      (registered-at (expects! 
-        (get registered-at name-props) 
-        (err err-name-was-not-registered)))
-      (lifetime 
-        (get renewal-rule namespace-props)))
-      (if (eq? lifetime u0)
-        (ok 'false)
-        (ok (and 
-          (> block-height (+ lifetime registered-at)) 
-          (<= block-height (+ (+ lifetime registered-at) name-grace-period-duration))))))))
+    (if (is-none? (get registered-at name-props))
+      (ok 'false) ;; The name was imported - not subject to expiration
+      (let (      ;; The name was registered
+        (registered-at (expects! 
+          (get registered-at name-props) (err err-panic)))
+        (lifetime 
+          (get renewal-rule namespace-props)))
+        (if (eq? lifetime u0)
+          (ok 'false)
+          (ok (and 
+            (> block-height (+ lifetime registered-at)) 
+            (<= block-height (+ (+ lifetime registered-at) name-grace-period-duration)))))))))
 
 ;;;; NAMESPACES
 ;; NAMESPACE_PREORDER
@@ -272,7 +272,7 @@
     (asserts! 
       (if (is-none? former-preorder)
         'true
-        (>= block-height (+ namespace-preorder-claimability-ttl ;; todo(ludo): settle on [created-at created-at+ttl[ or [created-at created-at+ttl]
+        (>= block-height (+ namespace-preorder-claimability-ttl
                             (expects! (get created-at former-preorder) (err err-panic)))))
       (err err-namespace-preorder-already-exists))
           (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))
@@ -286,7 +286,6 @@
     (map-set! namespace-preorders
       ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller))
       ((created-at block-height) (claimed 'false) (stx-burned stx-to-burn)))
-    ;; todo(ludo): don't improvise, look at the returned values in the codebase
     (ok (+ block-height namespace-preorder-claimability-ttl))))
 
 ;; NAMESPACE_REVEAL
@@ -317,7 +316,7 @@
                                  (p-func-non-alpha-discount uint)
                                  (p-func-no-vowel-discount uint)
                                  (renewal-rule uint)
-                                 (name-importer principal))
+                                 (namespace-import principal))
   ;; The salt and namespace must hash to a preorder entry in the `namespace_preorders` table.
   ;; The sender must match the principal in the preorder entry (implied)
   (let (
@@ -349,7 +348,7 @@
         (map-get namespace-preorders ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller)))
         (err err-namespace-preorder-not-found)))
       (namespace-price (expects! 
-        (compute-namespace-price namespace)
+        (compute-namespace-price? namespace)
         (err err-namespace-blank))))
     ;; The namespace must only have valid chars
     (asserts!
@@ -363,7 +362,6 @@
     (asserts!
       (>= (get stx-burned preorder) namespace-price)
       (err err-namespace-stx-burnt-insufficient))
-    ;; todo(ludo): validate the price function inputs
     ;; This transaction must arrive within 24 hours of its `NAMESPACE_PREORDER`
     (asserts!
       (< block-height (+ (get created-at preorder) namespace-preorder-claimability-ttl))
@@ -374,15 +372,15 @@
       ((created-at (get created-at preorder)) (claimed 'true) (stx-burned (get stx-burned preorder))))
     ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version,
     ;; and its import principal will be written to the  `namespaces` table.
-    ;; Name should be lowercased.
-    (ok (map-set! namespaces
+    (map-set! namespaces
       ((namespace namespace))
-      ((name-importer name-importer)
+      ((namespace-import namespace-import)
        (revealed-at block-height)
        (launched-at none)
        (namespace-version namespace-version)
        (renewal-rule renewal-rule)
-       (price-function price-function)))))))
+       (price-function price-function)))
+    (ok 'true))))
 
 ;; NAME_IMPORT
 ;; Once a namespace is revealed, the user has the option to populate it with a set of names. Each imported name is given
@@ -404,11 +402,12 @@
       (err err-namespace-launchability-expired))
     ;; The sender principal must match the namespace's import principal
     (asserts!
-      (eq? (get name-importer namespace-props) contract-caller)
+      (eq? (get namespace-import namespace-props) contract-caller)
       (err err-namespace-operation-unauthorized))
     ;; Mint the new name
-    (nft-mint! names (tuple (namespace namespace) (name name)) contract-caller)
-    ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version, and its import principal will be written to the  `namespaces` table
+    (expects! 
+      (nft-mint! names (tuple (namespace namespace) (name name)) contract-caller)
+      (err err-name-unavailable))
     (map-set! name-properties
       ((namespace namespace) (name name))
       ((registered-at none)
@@ -430,6 +429,10 @@
         (expects!
           (map-get namespaces ((namespace namespace)))
           (err err-namespace-not-found))))
+    ;; The sender principal must match the namespace's import principal
+    (asserts!
+      (eq? (get namespace-import namespace-props) contract-caller)
+      (err err-namespace-operation-unauthorized))
     ;; The name's namespace must not be launched
     (asserts!
       (is-none? (get launched-at namespace-props))
@@ -439,19 +442,16 @@
       (< block-height (+ (get revealed-at namespace-props) namespace-launchability-ttl))
       (err err-namespace-launchability-expired))
     ;; todo(ludo): Check owner-name
-    ;; The sender principal must match the namespace's import principal
-    (asserts!
-      (eq? (get name-importer namespace-props) contract-caller)
-      (err err-namespace-operation-unauthorized))
-    ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version, and its import principal will be written to the  `namespaces` table
-    (ok (map-set! namespaces
+    ;; The namespace will be set to "launched"
+    (map-set! namespaces
       ((namespace namespace))
       ((launched-at (some block-height))
-       (name-importer (get name-importer namespace-props))
+       (namespace-import (get namespace-import namespace-props))
        (revealed-at (get revealed-at namespace-props))
        (namespace-version (get namespace-version namespace-props))
        (renewal-rule (get renewal-rule namespace-props))
-       (price-function (get price-function namespace-props)))))))
+       (price-function (get price-function namespace-props))))
+    (ok 'true)))
 
 ;;;; NAMES
 
@@ -504,7 +504,7 @@
         (can-sender-register-name (if (is-none? name-currently-owned)
                                  'true
                                   (expects! 
-                                    (is-name-lease-expired
+                                    (is-name-lease-expired?
                                       (expects! (get namespace name-currently-owned) (err err-panic))
                                       (expects! (get name name-currently-owned) (err err-panic)))
                                     (err err-panic)))))
@@ -516,7 +516,7 @@
       (if (is-none? current-owner)
         'true
         (asserts!
-          (expects! (is-name-lease-expired namespace name) (err err-panic))
+          (expects! (is-name-lease-expired? namespace name) (err err-panic))
           (err err-name-unavailable)))
       ;; The name's namespace must be launched
       (asserts!
@@ -542,7 +542,7 @@
       (asserts!
         can-sender-register-name
         (err err-principal-already-associated))
-      ;; Mint / Transfer the name
+      ;; Mint the name if new, transfer the name otherwise.
       (if (is-none? current-owner)
         (expects! 
           (nft-mint! 
@@ -594,11 +594,11 @@
       (err err-name-operation-unauthorized))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eq? (expects! (is-name-in-grace-period namespace name) (err err-panic)) 'false)
+      (eq? (expects! (is-name-in-grace-period? namespace name) (err err-panic)) 'false)
       (err err-name-grace-period))
     ;; The name must not be expired 
     (asserts!
-      (eq? (expects! (is-name-lease-expired namespace name) (err err-panic)) 'false)
+      (eq? (expects! (is-name-lease-expired? namespace name) (err err-panic)) 'false)
       (err err-name-expired))
     ;; The name must not be revoked
     (asserts!
@@ -638,7 +638,7 @@
       (can-new-owner-get-name (if (is-none? current-owned-name)
                                   'true
                                   (expects! 
-                                    (is-name-lease-expired
+                                    (is-name-lease-expired?
                                       (expects! (get namespace current-owned-name) (err err-panic))
                                       (expects! (get name current-owned-name) (err err-panic)))
                                     (err err-panic)))))
@@ -648,11 +648,11 @@
         (err err-name-operation-unauthorized))
       ;; The name must not be in the renewal grace period
       (asserts!
-        (eq? (expects! (is-name-in-grace-period namespace name) (err err-panic)) 'false)
+        (eq? (expects! (is-name-in-grace-period? namespace name) (err err-panic)) 'false)
         (err err-name-grace-period))
       ;; The name must not be expired
       (asserts!
-        (eq? (expects! (is-name-lease-expired namespace name) (err err-panic)) 'false)
+        (eq? (expects! (is-name-lease-expired? namespace name) (err err-panic)) 'false)
         (err err-name-expired))
       ;; The name must not be revoked
       (asserts!
@@ -672,7 +672,6 @@
       (map-set! owner-name
         ((owner new-owner))
         ((namespace namespace) (name name)))
-      ;; todo(ludo): can you transfer an imported name? what is the expected behavior?
       (if (is-none? zonefile-content)
         (map-set! name-properties
           ((namespace namespace) (name name))
@@ -713,11 +712,11 @@
       (err err-name-operation-unauthorized))
     ;; The name must not be expired
     (asserts!
-      (eq? (expects! (is-name-lease-expired namespace name) (err err-panic)) 'false)
+      (eq? (expects! (is-name-lease-expired? namespace name) (err err-panic)) 'false)
       (err err-name-expired))
     ;; The name must not be in the renewal grace period
     (asserts!
-      (eq? (expects! (is-name-in-grace-period namespace name) (err err-panic)) 'false)
+      (eq? (expects! (is-name-in-grace-period? namespace name) (err err-panic)) 'false)
       (err err-name-grace-period))
     ;; The name must not be revoked
     (asserts!
@@ -760,10 +759,14 @@
     (asserts!
       (eq? owner contract-caller)
       (err err-name-operation-unauthorized))
+    ;; The name must have been registered (vs imported)
+    (expects!
+      (get registered-at name-props)
+      (err err-name-operation-unauthorized))
     ;; If expired, the name must not be in the renewal grace period.
-    (if (expects! (is-name-lease-expired namespace name) (err err-panic))
+    (if (expects! (is-name-lease-expired? namespace name) (err err-panic))
       (asserts!
-        (eq? (expects! (is-name-in-grace-period namespace name) (err err-panic)) 'true)
+        (eq? (expects! (is-name-in-grace-period? namespace name) (err err-panic)) 'true)
         (err err-name-expired))
       'true)    
     ;; The amount burnt must be equal to or greater than the cost of the namespace
@@ -782,7 +785,7 @@
           (let ((can-new-owner-get-name (if (is-none? current-owned-name)
                                   'true
                                   (expects! 
-                                    (is-name-lease-expired
+                                    (is-name-lease-expired?
                                       (expects! (get namespace current-owned-name) (err err-panic))
                                       (expects! (get name current-owned-name) (err err-panic)))
                                     (err err-panic)))))
@@ -844,7 +847,7 @@
           (and (not (is-none? (get imported-at name-props))) (is-none? (get registered-at name-props))))
         (err err-panic))
       ;; Is lease expired?
-      (is-name-lease-expired namespace name))))
+      (is-name-lease-expired? namespace name))))
 
 (define-public (name-resolve (namespace (buff 19)) (name (buff 16)))
   (let (
@@ -854,22 +857,18 @@
     (name-props (expects!
       (map-get name-properties ((name name) (namespace namespace)))
       (err err-name-not-found)))
-    (is-lease-expired (is-name-lease-expired namespace name))
+    (is-lease-expired (is-name-lease-expired? namespace name))
     (zonefile-content (expects!
       (get content (map-get zonefiles ((namespace namespace) (name name))))
       (err err-zonefile-not-found))))
-    ;; Is the name subject to renewal constraints
-    (if (is-none? (get registered-at name-props))
-      'true
-      (begin
-        ;; The name must not be in the renewal grace period
-        (asserts!
-          (eq? (expects! (is-name-in-grace-period namespace name) (err 1)) 'false)
-          (err err-name-grace-period))
-        ;; The name must not be expired
-        (if (is-ok? is-lease-expired)
-          (asserts! (not (expects! is-lease-expired (err 2))) (err err-name-expired))
-          'true)))
+    ;; The name must not be in the renewal grace period
+    (asserts!
+      (eq? (expects! (is-name-in-grace-period? namespace name) (err err-panic)) 'false)
+      (err err-name-grace-period))
+    ;; The name must not be expired
+    (if (is-ok? is-lease-expired)
+      (asserts! (not (expects! is-lease-expired (err err-panic))) (err err-name-expired))
+      'true)
     ;; The name must not be revoked
     (asserts!
       (is-none? (get revoked-at name-props))
