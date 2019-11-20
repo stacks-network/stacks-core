@@ -231,8 +231,8 @@ describe("BNS Test Suite - NAME_TRANSFER", async () => {
             cases[0].namespace, 
             "charlie", 
             "4444", { sender: bob });
-          expect(receipt.result).eq('true');
-          expect(receipt.success).eq(true);
+          expect(receipt.result).eq('2006');
+          expect(receipt.success).eq(false);
         });  
 
         it("Charlie should be able to update 'charlie.blockstack'", async () => {
