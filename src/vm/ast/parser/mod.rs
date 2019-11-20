@@ -432,8 +432,13 @@ r#"z (let ((x 1) (y 2))
         let split_tokens = "(let ((023ab13 1)))";
         let name_with_dot = "(let ((ab.de 1)))";
 
-        let function_with_carriage_ret = "(define (foo (x y)) \n (+ 1 2 3) \n\r (- 1 2 3))";
-        let function_without_carriage_ret = "(define (foo (x y)) \n (+ 1 2 3) \n (- 1 2 3))";
+        let function_with_CR = "(define (foo (x y)) \n (+ 1 2 3) \r (- 1 2 3))";
+        let function_with_CRLF = "(define (foo (x y)) \n (+ 1 2 3) \n\r (- 1 2 3))";
+        let function_with_NEL = "(define (foo (x y)) \u{0085} (+ 1 2 3) \u{0085} (- 1 2 3))";
+        let function_with_LS = "(define (foo (x y)) \u{2028} (+ 1 2 3) \u{2028} (- 1 2 3))";
+        let function_with_PS = "(define (foo (x y)) \u{2029} (+ 1 2 3) \u{2029} (- 1 2 3))";
+        // good case
+        let function_with_LF = "(define (foo (x y)) \n (+ 1 2 3) \n (- 1 2 3))";
 
         assert!(match ast::parser::parse(&split_tokens).unwrap_err().err { 
             ParseErrors::SeparatorExpected(_) => true, _ => false });
@@ -453,9 +458,18 @@ r#"z (let ((x 1) (y 2))
         assert!(match ast::parser::parse(&name_with_dot).unwrap_err().err { 
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
-        assert!(match ast::parser::parse(&function_with_carriage_ret).unwrap_err().err { 
+        assert!(match ast::parser::parse(&function_with_CR).unwrap_err().err { 
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
-        ast::parser::parse(&function_without_carriage_ret).unwrap();
+        assert!(match ast::parser::parse(&function_with_CRLF).unwrap_err().err { 
+            ParseErrors::FailedParsingRemainder(_) => true, _ => false });
+        assert!(match ast::parser::parse(&function_with_NEL).unwrap_err().err { 
+            ParseErrors::FailedParsingRemainder(_) => true, _ => false });
+        assert!(match ast::parser::parse(&function_with_LS).unwrap_err().err { 
+            ParseErrors::FailedParsingRemainder(_) => true, _ => false });
+        assert!(match ast::parser::parse(&function_with_PS).unwrap_err().err { 
+            ParseErrors::FailedParsingRemainder(_) => true, _ => false });
+
+        ast::parser::parse(&function_with_LF).unwrap();
     }
 
 }
