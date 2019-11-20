@@ -94,6 +94,29 @@ pub fn native_unwrap_err_or_ret(args: &[Value]) -> Result<Value> {
         })
 }
 
+pub fn native_try_bang(args: &[Value]) -> Result<Value> {
+    check_argument_count(1, args)?;
+
+    let input = &args[0];
+
+    match input {
+        Value::Optional(data) => {
+            match data.data {
+                Some(ref data) => Ok((**data).clone()),
+                None => Err(ShortReturnType::ExpectedValue(Value::none()).into())
+            }
+        },
+        Value::Response(data) => {
+            if data.committed {
+                Ok((*data.data).clone())
+            } else {
+                Err(ShortReturnType::ExpectedValue((*data.data).clone()).into())
+            }
+        },
+        _ => Err(CheckErrors::ExpectedResponseValue(input.clone()).into())
+    }
+}
+
 fn eval_with_new_binding(body: &SymbolicExpression, bind_name: ClarityName, bind_value: Value, 
                          env: &mut Environment, context: &LocalContext) -> Result<Value> {
     let mut inner_context = context.extend()?;

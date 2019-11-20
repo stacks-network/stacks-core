@@ -620,6 +620,27 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
     example: "(expects! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
 };
 
+const TRY_API: SpecialAPI = SpecialAPI {
+    input_type: "(optional A) | (response A B)",
+    output_type: "A",
+    signature: "(try! option-input)",
+    description: "The `try!` function attempts to 'unpack' the first argument: if the argument is
+an option type, and the argument is a `(some ...)` option, `try!` returns the inner value of the
+option. If the argument is a response type, and the argument is an `(ok ...)` response, `try!` returns
+ the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `none` value,
+`try!` _returns_ either `none` or the `(err ...)` value from the current function and exits the current control-flow.",
+    example: "(try! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
+(define-private (checked-even (x int))
+  (if (eq? (mod x 2) 0) 
+      (ok x)
+      (err 'false)))
+(define-private (double-if-even (x int))
+  (ok (* 2 (try! (checked-even x)))))
+(double-if-even 10) ;; Returns (ok 20)
+(double-if-even 3) ;; Returns (err 'false)
+",
+};
+
 const UNWRAP_API: SpecialAPI = SpecialAPI {
     input_type: "(optional A) | (response A B)",
     output_type: "A",
@@ -1134,6 +1155,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         UnwrapErr => make_for_special(&UNWRAP_ERR_API, name),
         MatchOpt => make_for_special(&MATCH_OPT_API, name),
         MatchResp =>  make_for_special(&MATCH_RESP_API, name),
+        TryBang =>  make_for_special(&TRY_API, name),
         IsOkay => make_for_special(&IS_OK_API, name),
         IsNone => make_for_special(&IS_NONE_API, name),
         IsErr => make_for_special(&IS_ERR_API, name),

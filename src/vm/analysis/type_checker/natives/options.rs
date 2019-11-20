@@ -135,6 +135,35 @@ pub fn check_special_unwrap_err_or_ret(checker: &mut TypeChecker, args: &[Symbol
     inner_unwrap_err(input)
 }
 
+pub fn check_special_try_bang(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(1, args)?;
+    
+    let input = checker.type_check(&args[0], context)?;
+
+    match input {
+        TypeSignature::OptionalType(input_type) => {
+            if input_type.is_no_type() {
+                Err(CheckErrors::CouldNotDetermineResponseOkType.into())
+            } else {
+                checker.track_return_type(TypeSignature::new_option(TypeSignature::NoType))?;
+                Ok(*input_type)
+            }
+        }
+        TypeSignature::ResponseType(response_type) => { 
+            let (ok_type, err_type) = *response_type;
+            if ok_type.is_no_type() {
+                Err(CheckErrors::CouldNotDetermineResponseOkType.into())
+            } else if err_type.is_no_type() {
+                Err(CheckErrors::CouldNotDetermineResponseErrType.into())
+            } else {
+                checker.track_return_type(TypeSignature::new_response(TypeSignature::NoType,
+                                                                      err_type))?;
+                Ok(ok_type)
+            }
+        },
+        _ => Err(CheckErrors::ExpectedOptionalType(input).into())
+    }
+}
 
 pub fn check_special_unwrap(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;

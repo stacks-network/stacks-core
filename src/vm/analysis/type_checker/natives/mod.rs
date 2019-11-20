@@ -340,6 +340,7 @@ impl TypedNativeFunction {
             ExpectsErr => Special(SpecialNativeFunction(&options::check_special_unwrap_err_or_ret)),
             Unwrap => Special(SpecialNativeFunction(&options::check_special_unwrap)),
             UnwrapErr => Special(SpecialNativeFunction(&options::check_special_unwrap_err)),
+            TryBang => Special(SpecialNativeFunction(&options::check_special_try_bang)),
             MatchOpt => Special(SpecialNativeFunction(&options::check_special_match_opt)),
             MatchResp => Special(SpecialNativeFunction(&options::check_special_match_resp)),
             IsOkay => Special(SpecialNativeFunction(&options::check_special_is_response)),
