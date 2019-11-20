@@ -97,7 +97,7 @@
    (zonefile-hash (buff 20))))
 
 (define-map name-preorders
-  ((hashed-fqn (buff 20)) (buyer principal))
+  ((hashed-salted-fqn (buff 20)) (buyer principal))
   ((created-at uint) (claimed bool) (stx-burned uint)))
 
 (define-map zonefiles
@@ -458,11 +458,11 @@
 ;; NAME_PREORDER
 ;; This is the first transaction to be sent. It tells all BNS nodes the salted hash of the BNS name,
 ;; and it pays the registration fee to the namespace owner's designated address
-(define-public (name-preorder (hashed-fqn (buff 20))
+(define-public (name-preorder (hashed-salted-fqn (buff 20))
                               (stx-to-burn uint))
   (let 
     ((former-preorder 
-      (map-get name-preorders ((hashed-fqn hashed-fqn) (buyer contract-caller)))))
+      (map-get name-preorders ((hashed-salted-fqn hashed-salted-fqn) (buyer contract-caller)))))
     ;; Ensure eventual former pre-order expired 
     (asserts! 
       (if (is-none? former-preorder)
@@ -472,30 +472,30 @@
       (err err-name-preorder-already-exists))
           (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))    
     ;; Ensure that the hashed fqn is 20 bytes long
-    (asserts! (eq? (len hashed-fqn) u20) (err err-name-hash-malformed))
+    (asserts! (eq? (len hashed-salted-fqn) u20) (err err-name-hash-malformed))
     ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err err-name-stx-burnt-insufficient))
     ;; Burn the tokens - todo(ludo): switch to native STX once available
     (expects! (ft-transfer! stx stx-to-burn contract-caller burn-address) (err err-insufficient-funds))
     ;; Register the pre-order
     (map-set! name-preorders
-      ((hashed-fqn hashed-fqn) (buyer contract-caller))
+      ((hashed-salted-fqn hashed-salted-fqn) (buyer contract-caller))
       ((created-at block-height) (stx-burned stx-to-burn) (claimed 'false)))
     (ok (+ block-height name-preorder-claimability-ttl))))
 
 ;; NAME_REGISTRATION
 ;; This is the second transaction to be sent. It reveals the salt and the name to all BNS nodes,
 ;; and assigns the name an initial public key hash and zone file hash
-;; todo(ludo): should we clean / expire the pre-order if something wrong happened? 
 (define-public (name-register (namespace (buff 19))
                               (name (buff 16))
+                              (salt (buff 20))
                               (zonefile-content (buff 40960)))
   (let (
-    (hashed-fqn (hash160 (concat (concat name ".") namespace)))
+    (hashed-salted-fqn (hash160 (concat (concat (concat name ".") namespace) salt)))
     (name-currently-owned (map-get owner-name ((owner contract-caller)))))
     (let ( 
         (preorder (expects!
-          (map-get name-preorders ((hashed-fqn hashed-fqn) (buyer contract-caller)))
+          (map-get name-preorders ((hashed-salted-fqn hashed-salted-fqn) (buyer contract-caller)))
           (err err-name-preorder-not-found)))
         (namespace-props (expects!
           (map-get namespaces ((namespace namespace)))

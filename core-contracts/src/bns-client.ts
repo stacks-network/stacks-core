@@ -97,7 +97,7 @@ export class BNSClient extends Client {
                      salt: string,
                      STX: number, 
                      params: { sender: string }): Promise<Receipt> {
-    let fqn = `${name}.${namespace}`;
+    let fqn = `${name}.${namespace}${salt}`;
     let sha256 = new shajs.sha256().update(fqn).digest();
     let hash160 = new ripemd160().update(sha256).digest('hex');
     let hashedFqn = `0x${hash160}`;
@@ -111,6 +111,7 @@ export class BNSClient extends Client {
 
   // (name-register (namespace (buff 20))
   //                (name (buff 16))
+  //                (salt (buff 20))
   //                (zonefile-content (buff 40960)))
   async nameRegister(namespace: string, 
                      name: string, 
@@ -118,7 +119,7 @@ export class BNSClient extends Client {
                      zonefileContent: string,
                      params: { sender: string }): Promise<Receipt> {
     const tx = this.createTransaction({
-      method: { name: "name-register", args: [`"${namespace}"`, `"${name}"`, `"${zonefileContent}"`] }
+      method: { name: "name-register", args: [`"${namespace}"`, `"${name}"`, `"${salt}"`, `"${zonefileContent}"`] }
     });
     await tx.sign(params.sender);
     const res = await this.submitTransaction(tx);
