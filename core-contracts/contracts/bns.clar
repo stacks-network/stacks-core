@@ -281,7 +281,7 @@
     ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))
     ;; Burn the tokens - todo(ludo): switch to native STX once available
-    (expects! (ft-transfer! stx stx-to-burn tx-sender burn-address) (err err-insufficient-funds))
+    (expects! (ft-transfer! stx stx-to-burn contract-caller burn-address) (err err-insufficient-funds))
     ;; Register the preorder
     (map-set! namespace-preorders
       ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller))
@@ -346,7 +346,7 @@
       (no-vowel-discount p-func-no-vowel-discount))))
     (let (
       (preorder (expects!
-        (map-get namespace-preorders ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
+        (map-get namespace-preorders ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller)))
         (err err-namespace-preorder-not-found)))
       (namespace-price (expects! 
         (compute-namespace-price namespace)
@@ -370,7 +370,7 @@
       (err err-namespace-preorder-claimability-expired))
     ;; The preorder record for this namespace will be marked as "claimed"
     (map-set! namespace-preorders
-      ((hashed-salted-namespace hashed-salted-namespace) (buyer tx-sender))
+      ((hashed-salted-namespace hashed-salted-namespace) (buyer contract-caller))
       ((created-at (get created-at preorder)) (claimed 'true) (stx-burned (get stx-burned preorder))))
     ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version,
     ;; and its import principal will be written to the  `namespaces` table.
@@ -404,10 +404,10 @@
       (err err-namespace-launchability-expired))
     ;; The sender principal must match the namespace's import principal
     (asserts!
-      (eq? (get name-importer namespace-props) tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+      (eq? (get name-importer namespace-props) contract-caller)
       (err err-namespace-operation-unauthorized))
     ;; Mint the new name
-    (nft-mint! names (tuple (namespace namespace) (name name)) tx-sender) ;; todo(ludo): tx-sender or contract-caller? nft-mint! or nft-mint? ?
+    (nft-mint! names (tuple (namespace namespace) (name name)) contract-caller)
     ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version, and its import principal will be written to the  `namespaces` table
     (map-set! name-properties
       ((namespace namespace) (name name))
@@ -441,7 +441,7 @@
     ;; todo(ludo): Check owner-name
     ;; The sender principal must match the namespace's import principal
     (asserts!
-      (eq? (get name-importer namespace-props) tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+      (eq? (get name-importer namespace-props) contract-caller)
       (err err-namespace-operation-unauthorized))
     ;; The namespace will be set as "revealed" but not "launched", its price function, its renewal rules, its version, and its import principal will be written to the  `namespaces` table
     (ok (map-set! namespaces
@@ -462,7 +462,7 @@
                               (stx-to-burn uint))
   (let 
     ((former-preorder 
-      (map-get name-preorders ((hashed-fqn hashed-fqn) (buyer tx-sender)))))
+      (map-get name-preorders ((hashed-fqn hashed-fqn) (buyer contract-caller)))))
     ;; Ensure eventual former pre-order expired 
     (asserts! 
       (if (is-none? former-preorder)
@@ -476,10 +476,10 @@
     ;; Ensure that user will be burning a positive amount of tokens
     (asserts! (> stx-to-burn u0) (err err-name-stx-burnt-insufficient))
     ;; Burn the tokens - todo(ludo): switch to native STX once available
-    (expects! (ft-transfer! stx stx-to-burn tx-sender burn-address) (err err-insufficient-funds)) ;; todo(ludo): tx-sender or contract-caller?
+    (expects! (ft-transfer! stx stx-to-burn contract-caller burn-address) (err err-insufficient-funds))
     ;; Register the pre-order
     (map-set! name-preorders
-      ((hashed-fqn hashed-fqn) (buyer tx-sender))
+      ((hashed-fqn hashed-fqn) (buyer contract-caller))
       ((created-at block-height) (stx-burned stx-to-burn) (claimed 'false)))
     (ok (+ block-height name-preorder-claimability-ttl))))
 
@@ -492,10 +492,10 @@
                               (zonefile-content (buff 40960)))
   (let (
     (hashed-fqn (hash160 (concat (concat name ".") namespace)))
-    (name-currently-owned (map-get owner-name ((owner tx-sender)))))
+    (name-currently-owned (map-get owner-name ((owner contract-caller)))))
     (let ( 
         (preorder (expects!
-          (map-get name-preorders ((hashed-fqn hashed-fqn) (buyer tx-sender))) ;; todo(ludo): tx-sender or contract-caller?
+          (map-get name-preorders ((hashed-fqn hashed-fqn) (buyer contract-caller)))
           (err err-name-preorder-not-found)))
         (namespace-props (expects!
           (map-get namespaces ((namespace namespace)))
@@ -548,14 +548,14 @@
           (nft-mint! 
             names 
             (tuple (namespace namespace) (name name)) 
-            tx-sender)  ;; todo(ludo): tx-sender or contract-caller?
+            contract-caller)
           (err err-name-could-not-be-minted))
         (expects!
           (nft-transfer!
             names
             (tuple (name name) (namespace namespace))
             (expects! current-owner (err err-panic))
-            tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+            contract-caller)
           (err err-name-could-not-be-transfered)))
       ;; Update name's metadata / properties
       (map-set! name-properties
@@ -565,7 +565,7 @@
         (revoked-at none)
         (zonefile-hash (hash160 zonefile-content))))
       (map-set! owner-name
-        ((owner tx-sender))
+        ((owner contract-caller))
         ((namespace namespace) (name name)))
       ;; Import the zonefile
       (map-set! zonefiles
@@ -590,7 +590,7 @@
       (err err-name-not-found)))) ;; The name must exist
     ;; The sender must match the name's current owner
     (asserts!
-      (eq? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+      (eq? owner contract-caller)
       (err err-name-operation-unauthorized))
     ;; The name must not be in the renewal grace period
     (asserts!
@@ -644,7 +644,7 @@
                                     (err err-panic)))))
       ;; The sender must match the name's current owner
       (asserts!
-        (eq? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+        (eq? owner contract-caller)
         (err err-name-operation-unauthorized))
       ;; The name must not be in the renewal grace period
       (asserts!
@@ -666,8 +666,8 @@
       (expects!
         (nft-transfer! names
                       (tuple (name name) (namespace namespace))
-                      tx-sender
-                      new-owner) ;; tx-sender or contract-caller?
+                      contract-caller
+                      new-owner)
         (err err-name-transfer-failed))
       (map-set! owner-name
         ((owner new-owner))
@@ -709,7 +709,7 @@
       (err err-name-not-found)))) ;; The name must exist
     ;; The sender must match the name's current owner
     (asserts!
-      (eq? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+      (eq? owner contract-caller)
       (err err-name-operation-unauthorized))
     ;; The name must not be expired
     (asserts!
@@ -758,7 +758,7 @@
       (err err-name-not-found)))) ;; The name must exist
     ;; The sender must match the name's current owner
     (asserts!
-      (eq? owner tx-sender) ;; todo(ludo): tx-sender or contract-caller?
+      (eq? owner contract-caller)
       (err err-name-operation-unauthorized))
     ;; If expired, the name must not be in the renewal grace period.
     (if (expects! (is-name-lease-expired namespace name) (err err-panic))
@@ -792,15 +792,15 @@
             (expects!
               (nft-transfer! names
                             (tuple (name name) (namespace namespace))
-                            tx-sender
-                            owner-unwrapped) ;; todo(ludo): tx-sender or contract-caller?. Unwrap new-owner
+                            contract-caller
+                            owner-unwrapped)
               (err err-name-transfer-failed))
             (ok 'true)))))
         ;; Update the zonefile, if any.
     (if (is-none? zonefile-content)
       (map-set! name-properties
         ((namespace namespace) (name name))
-        ((registered-at (some block-height)) ;; todo(ludo): complying to the spec here, but feels weird.
+        ((registered-at (some block-height))
          (imported-at none)
          (revoked-at none)
          (zonefile-hash (get zonefile-hash name-props))))
@@ -822,7 +822,7 @@
 (define-public (can-name-be-registered (namespace (buff 19)) (name (buff 16)))
   (let (
       (wrapped-name-props (map-get name-properties ((namespace namespace) (name name))))
-      (current-owner (map-get owner-name ((owner tx-sender))))
+      (current-owner (map-get owner-name ((owner contract-caller))))
       (namespace-props (expects! (map-get namespaces ((namespace namespace))) (ok 'false))))
     ;; Ensure that namespace has been launched 
     (expects! (get launched-at namespace-props) (ok 'false))
