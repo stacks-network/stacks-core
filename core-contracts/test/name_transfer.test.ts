@@ -205,16 +205,81 @@ describe("BNS Test Suite - NAME_TRANSFER", async () => {
           expect(receipt.result).eq('0x34343434');
           expect(receipt.success).eq(true);
         });
+      });
 
+      describe("Bob transfering 'charlie.blockstack' back to Charlie", async () => {
+        it("should succeed", async () => {
+          let receipt = await bns.nameTransfer(
+            cases[0].namespace, 
+            "charlie", 
+            charlie,
+            null, { sender: bob });
+          expect(receipt.result).eq('true');
+          expect(receipt.success).eq(true);
+        });
+
+        it("should resolve as expected", async () => {
+          let receipt = await bns.getNameZonefile(
+            cases[0].namespace, 
+            "charlie", { sender: cases[0].nameOwner });
+          expect(receipt.result).eq('0x00');
+          expect(receipt.success).eq(true);
+        });
+
+        it("Bob should not be able to update 'charlie.blockstack'", async () => {
+          let receipt = await bns.nameUpdate(
+            cases[0].namespace, 
+            "charlie", 
+            "4444", { sender: bob });
+          expect(receipt.result).eq('true');
+          expect(receipt.success).eq(true);
+        });  
+
+        it("Charlie should be able to update 'charlie.blockstack'", async () => {
+          let receipt = await bns.nameUpdate(
+            cases[0].namespace, 
+            "charlie", 
+            "2222", { sender: charlie });
+          expect(receipt.result).eq('true');
+          expect(receipt.success).eq(true);
+        });  
+      });
+
+      describe("Dave transfering 'bob.blockstack' back to Bob", async () => {
+        it("should succeed", async () => {
+          let receipt = await bns.nameTransfer(
+            cases[0].namespace, 
+            "bob", 
+            bob,
+            null, { sender: dave });
+          expect(receipt.result).eq('true');
+          expect(receipt.success).eq(true);
+        });
+
+        it("should resolve as expected", async () => {
+          let receipt = await bns.getNameZonefile(
+            cases[0].namespace, 
+            "bob", { sender: cases[0].nameOwner });
+          expect(receipt.result).eq('0x00');
+          expect(receipt.success).eq(true);
+        });
+
+        it("Bob should be able to update its zonefile", async () => {
+          let receipt = await bns.nameUpdate(
+            cases[0].namespace, 
+            "bob", 
+            "3333", { sender: bob });
+          expect(receipt.result).eq('true');
+          expect(receipt.success).eq(true);
+        });  
       });
 
       describe("Alice trying to transfer 'alice.blockstack'", async () => {
-
-        it("should fail", async () => {
+        it("should fail, since 'alice.blockstack' was imported", async () => {
           let receipt = await bns.nameTransfer(
             cases[0].namespace, 
             "alice", 
-            charlie,
+            bob,
             "4444", { sender: cases[0].nameImporter });
           expect(receipt.result).eq('2006');
           expect(receipt.success).eq(false);

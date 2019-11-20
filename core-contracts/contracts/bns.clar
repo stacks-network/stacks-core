@@ -678,12 +678,17 @@
         ((owner new-owner))
         ((namespace namespace) (name name)))
       (if (is-none? zonefile-content)
-        (map-set! name-properties
-          ((namespace namespace) (name name))
-          ((registered-at (get registered-at name-props))
-          (imported-at (get imported-at name-props))
-          (revoked-at (get revoked-at name-props))
-          (zonefile-hash 0x00)))
+        (begin
+          (map-set! name-properties
+            ((namespace namespace) (name name))
+            ((registered-at (get registered-at name-props))
+            (imported-at (get imported-at name-props))
+            (revoked-at (get revoked-at name-props))
+            (zonefile-hash (hash160 0x00))))
+          (map-set! zonefiles
+            ((namespace namespace) (name name))
+            ((updated-at block-height)
+            (content 0x00))))
         (let ((new-zonefile-content (expects! zonefile-content (err err-panic))))
           (map-set! zonefiles
             ((namespace namespace) (name name))
