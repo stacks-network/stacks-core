@@ -646,6 +646,10 @@
       (asserts!
         (eq? owner contract-caller)
         (err err-name-operation-unauthorized))
+      ;; The name must have been registered (vs imported)
+      (expects!
+        (get registered-at name-props)
+        (err err-name-operation-unauthorized))
       ;; The name must not be in the renewal grace period
       (asserts!
         (eq? (expects! (is-name-in-grace-period? namespace name) (err err-panic)) 'false)
@@ -669,6 +673,7 @@
                       contract-caller
                       new-owner)
         (err err-name-transfer-failed))
+      (map-delete! owner-name ((owner contract-caller)))
       (map-set! owner-name
         ((owner new-owner))
         ((namespace namespace) (name name)))
