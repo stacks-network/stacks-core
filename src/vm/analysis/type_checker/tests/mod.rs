@@ -54,9 +54,9 @@ fn test_get_block_info(){
 #[test]
 fn test_destructuring_opts(){
     let good = [
-        "(expects! (some 1) 2)",
-        "(expects-err! (err 1) 2)",
-        "(expects! (ok 3) 2)",
+        "(unwrap! (some 1) 2)",
+        "(unwrap-err! (err 1) 2)",
+        "(unwrap! (ok 3) 2)",
         "(unwrap (ok 3))",
         "(unwrap (some 3))",
         "(unwrap-err (err 3))",
@@ -70,9 +70,9 @@ fn test_destructuring_opts(){
         "int", "int", "int", "int", "int", ];
 
     let bad = [
-        ("(expects-err! (some 2) 2)",
+        ("(unwrap-err! (some 2) 2)",
          CheckErrors::ExpectedResponseType(TypeSignature::from("(optional int)"))),
-        ("(expects! (err 3) 2)",
+        ("(unwrap! (err 3) 2)",
          CheckErrors::CouldNotDetermineResponseOkType),
         ("(unwrap-err (ok 3))",
          CheckErrors::CouldNotDetermineResponseErrType),
@@ -686,13 +686,13 @@ fn test_response_inference() {
                 "(define-private (check (x (response bool int))) (is-ok? x))
                  (check (if 'true (err 1) (ok 'false)))",
                 "(define-private (check (x (response int bool)))
-                   (if (> 10 (expects! x 10)) 
+                   (if (> 10 (unwrap! x 10)) 
                        2
-                       (let ((z (expects! x 1))) z)))
+                       (let ((z (unwrap! x 1))) z)))
                  (check (ok 1))",
-                // tests top-level `expects!` type-check behavior
+                // tests top-level `unwrap!` type-check behavior
                 // (i.e., let it default to anything, since it will always cause a tx abort if the expectation is unmet.)
-                "(expects! (ok 2) 'true)" 
+                "(unwrap! (ok 2) 'true)" 
     ];
     
     let expected = [
@@ -707,11 +707,11 @@ fn test_response_inference() {
     let bad = ["(define-private (check (x (response bool int))) (is-ok? x))
                 (check 'true)",
                 "(define-private (check (x (response int bool)))
-                   (if (> 10 (expects! x 10)) 
+                   (if (> 10 (unwrap! x 10)) 
                        2
-                       (let ((z (expects! x 'true))) z)))
+                       (let ((z (unwrap! x 'true))) z)))
                  (check (ok 1))",
-               "(expects! (err 2) 'true)"
+               "(unwrap! (err 2) 'true)"
     ];
 
     let bad_expected = [ CheckErrors::TypeError(TypeSignature::new_response(BoolType, IntType),
@@ -785,7 +785,7 @@ fn test_factorial() {
          (define-private (init-factorial (id int) (factorial int))
            (print (map-insert! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
          (define-public (compute (id int))
-           (let ((entry (expects! (map-get factorials (tuple (id id)))
+           (let ((entry (unwrap! (map-get factorials (tuple (id id)))
                                  (err 'false))))
                     (let ((current (get current entry))
                           (index   (get index entry)))
@@ -1030,7 +1030,7 @@ fn test_mutating_unknown_data_var_should_fail() {
 fn test_accessing_unknown_data_var_should_fail() {
     let contract_src = r#"
         (define-private (get-cursor)
-            (expects! (var-get cursor) 0))
+            (unwrap! (var-get cursor) 0))
     "#;
 
     let res = mem_type_check(contract_src).unwrap_err();
@@ -1134,7 +1134,7 @@ fn test_explicit_tuple_map() {
                                      (tuple (value value)))
              value))
           (define-private (kv-get (key int))
-             (expects! (get value (map-get kv-store (tuple (key key)))) 0))
+             (unwrap! (get value (map-get kv-store (tuple (key key)))) 0))
           (define-private (kv-set (key int) (value int))
              (begin
                  (map-set! kv-store (tuple (key key))
@@ -1159,7 +1159,7 @@ fn test_implicit_tuple_map() {
                                      ((value value)))
              value))
           (define-private (kv-get (key int))
-             (expects! (get value (map-get kv-store ((key key)))) 0))
+             (unwrap! (get value (map-get kv-store ((key key)))) 0))
           (define-private (kv-set (key int) (value int))
              (begin
                  (map-set! kv-store ((key key))
@@ -1187,7 +1187,7 @@ fn test_bound_tuple_map() {
             value))
          (define-private (kv-get (key int))
             (let ((my-tuple (tuple (key key))))
-            (expects! (get value (map-get kv-store my-tuple)) 0)))
+            (unwrap! (get value (map-get kv-store my-tuple)) 0)))
          (define-private (kv-set (key int) (value int))
             (begin
                 (let ((my-tuple (tuple (key key))))
@@ -1463,7 +1463,7 @@ fn test_fetch_contract_entry_matching_type_signatures() {
     let kv_store_contract_src = r#"
         (define-map kv-store ((key int)) ((value int)))
         (define-read-only (kv-get (key int))
-            (expects! (get value (map-get kv-store ((key key)))) 0))
+            (unwrap! (get value (map-get kv-store ((key key)))) 0))
         (begin (map-insert! kv-store ((key 42)) ((value 42))))"#;
 
     let mut analysis_db = AnalysisDatabase::memory();
@@ -1500,7 +1500,7 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
     let kv_store_contract_src = r#"
         (define-map kv-store ((key int)) ((value int)))
         (define-read-only (kv-get (key int))
-            (expects! (get value (map-get kv-store ((key key)))) 0))
+            (unwrap! (get value (map-get kv-store ((key key)))) 0))
         (begin (map-insert! kv-store ((key 42)) ((value 42))))"#;
 
     let contract_id = QualifiedContractIdentifier::local("kv-store-contract").unwrap();
@@ -1542,7 +1542,7 @@ fn test_fetch_contract_entry_unbound_variables() {
     let kv_store_contract_src = r#"
         (define-map kv-store ((key int)) ((value int)))
         (define-read-only (kv-get (key int))
-            (expects! (get value (map-get kv-store ((key key)))) 0))
+            (unwrap! (get value (map-get kv-store ((key key)))) 0))
         (begin (map-insert! kv-store ((key 42)) ((value 42))))"#;
 
     let contract_id = QualifiedContractIdentifier::local("kv-store-contract").unwrap();

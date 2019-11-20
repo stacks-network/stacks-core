@@ -62,7 +62,7 @@ const SIMPLE_NAMES: &str =
                    (tuple (paid name-price)
                           (buyer tx-sender)))
                  (ok 0) (err 2))
-               (if (eq? (expects-err! xfer-result (err (- 1)))
+               (if (eq? (unwrap-err! xfer-result (err (- 1)))
                         2)
                    (err 1) (err 3)))))
 
@@ -72,7 +72,7 @@ const SIMPLE_NAMES: &str =
                         (salt uint))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (expects! (map-get preorder-map
+                   (unwrap! (map-get preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 2)))
                  (name-entry 
                    (map-get name-map (tuple (name name)))))
@@ -499,40 +499,40 @@ fn test_expects() {
     let okay = 
         "(define-map tokens ((id int)) ((balance int)))
          (define-private (my-get-token-balance)
-            (let ((balance (expects! 
+            (let ((balance (unwrap! 
                               (get balance (map-get tokens (tuple (id 0)))) 
                               0)))
               (+ 0 balance)))
          (define-private (my-get-token-balance-2)
             (let ((balance 
-                    (get balance (expects! (map-get tokens (tuple (id 0))) 0)) 
+                    (get balance (unwrap! (map-get tokens (tuple (id 0))) 0)) 
                               ))
               (+ 0 balance)))
           (define-private (my-get-token-balance-3)
              (let ((balance
-                     (expects! (get balance (map-get tokens (tuple (id 0))))
+                     (unwrap! (get balance (map-get tokens (tuple (id 0))))
                                (err 'false))))
                (ok balance)))
           (define-private (my-get-token-balance-4)
-             (expects! (my-get-token-balance-3) 0))
+             (unwrap! (my-get-token-balance-3) 0))
 
           (define-private (t-1)
              (err 3))
           (define-private (my-get-token-balance-5)
-             (expects-err! (t-1) 0))
+             (unwrap-err! (t-1) 0))
 
           (+ (my-get-token-balance) (my-get-token-balance-2) (my-get-token-balance-5))";
 
     let bad_return_types_tests = [
         "(define-map tokens ((id int)) ((balance int)))
          (define-private (my-get-token-balance)
-            (let ((balance (expects! 
+            (let ((balance (unwrap! 
                               (get balance (map-get tokens (tuple (id 0)))) 
                               'false)))
               (+ 0 balance)))",
         "(define-map tokens ((id int)) ((balance int)))
          (define-private (my-get-token-balance)
-            (let ((balance (expects! 
+            (let ((balance (unwrap! 
                               (get balance (map-get tokens (tuple (id 0)))) 
                               (err 1))))
               (err 'false)))"];
@@ -542,12 +542,12 @@ fn test_expects() {
 
     let notype_response_type = "
          (define-private (t1) (ok 3))
-         (define-private (t2) (expects-err! (t1) 0))
+         (define-private (t2) (unwrap-err! (t1) 0))
     ";
 
     let notype_response_type_2 = "
          (define-private (t1) (err 3))
-         (define-private (t2) (expects! (t1) 0))
+         (define-private (t2) (unwrap! (t1) 0))
     ";
 
     mem_type_check(okay).unwrap();

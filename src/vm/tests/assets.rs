@@ -67,9 +67,9 @@ const ASSET_NAMES: &str =
            (let ((transfer-name-result (nft-transfer! names name tx-sender recipient))
                  (token-to-contract-result (contract-call! .tokens my-token-transfer .names u1))
                  (contract-to-burn-result (as-contract (contract-call! .tokens my-token-transfer burn-address u1))))
-             (begin (expects! transfer-name-result transfer-name-result)
-                    (expects! token-to-contract-result token-to-contract-result)
-                    (expects! contract-to-burn-result contract-to-burn-result)
+             (begin (unwrap! transfer-name-result transfer-name-result)
+                    (unwrap! token-to-contract-result token-to-contract-result)
+                    (unwrap! contract-to-burn-result contract-to-burn-result)
                     (ok 0))))
          (define-public (register 
                         (recipient-principal principal)
@@ -77,7 +77,7 @@ const ASSET_NAMES: &str =
                         (salt int))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (expects! (map-get preorder-map
+                   (unwrap! (map-get preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
                  (name-entry 
                    (nft-get-owner names name)))

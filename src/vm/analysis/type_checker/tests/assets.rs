@@ -41,7 +41,7 @@ const ASSET_NAMES: &str =
                         (name-price uint))
            (let ((xfer-result (contract-call! .tokens my-token-transfer
                                 burn-address name-price)))
-            (expects! xfer-result (err 'false))
+            (unwrap! xfer-result (err 'false))
             (if (map-insert! preorder-map
                   (tuple (name-hash name-hash))
                   (tuple (paid name-price) (buyer tx-sender)))
@@ -54,7 +54,7 @@ const ASSET_NAMES: &str =
                         (salt uint))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (expects! (map-get preorder-map
+                   (unwrap! (map-get preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err u5)))
                  (name-entry 
                    (nft-get-owner names name)))

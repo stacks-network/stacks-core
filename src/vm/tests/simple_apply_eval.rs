@@ -415,11 +415,11 @@ fn test_some() {
 #[test]
 fn test_option_destructs() {
     let tests = [
-        "(expects! (some 1) 2)",
-        "(expects-err! (err 1) 2)",
-        "(expects-err! (some 2) 2)",
-        "(expects! (ok 3) 2)",
-        "(expects! (err 3) 2)",
+        "(unwrap! (some 1) 2)",
+        "(unwrap-err! (err 1) 2)",
+        "(unwrap-err! (some 2) 2)",
+        "(unwrap! (ok 3) 2)",
+        "(unwrap! (err 3) 2)",
         "(unwrap (ok 3))",
         "(unwrap (some 3))",
         "(unwrap-err (err 3))",

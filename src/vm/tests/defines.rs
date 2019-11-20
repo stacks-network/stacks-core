@@ -74,17 +74,17 @@ fn test_bad_define_names() {
 #[test]
 fn test_expects() {
     let test0 =
-        "(define-private (foo) (expects! (ok 1) 2)) (foo)";
+        "(define-private (foo) (unwrap! (ok 1) 2)) (foo)";
     let test1 =
-        "(define-private (foo) (expects! (ok 1))) (foo)";
+        "(define-private (foo) (unwrap! (ok 1))) (foo)";
     let test2 =
-        "(define-private (foo) (expects! 1 2)) (foo)";
+        "(define-private (foo) (unwrap! 1 2)) (foo)";
     let test3 =
-        "(define-private (foo) (expects-err! 1 2)) (foo)";
+        "(define-private (foo) (unwrap-err! 1 2)) (foo)";
     let test4 =
-        "(define-private (foo) (expects-err! (err 1) 2)) (foo)";
+        "(define-private (foo) (unwrap-err! (err 1) 2)) (foo)";
     let test5 =
-        "(define-private (foo) (expects-err! (err 1))) (foo)";
+        "(define-private (foo) (unwrap-err! (err 1))) (foo)";
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
     assert_eq_err(CheckErrors::IncorrectArgumentCount(2,1),

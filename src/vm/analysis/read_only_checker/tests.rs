@@ -129,7 +129,7 @@ fn test_contract_call_read_only_violations() {
             (contract-call! .contract1 mint))";
     let ok_caller =
         "(define-read-only (is-reading-only)
-            (eq? 0 (expects! (contract-call! .contract1 get-token-balance) 'false)))";
+            (eq? 0 (unwrap! (contract-call! .contract1 get-token-balance) 'false)))";
 
     let contract_1_id = QualifiedContractIdentifier::local("contract1").unwrap();
     let contract_bad_caller_id = QualifiedContractIdentifier::local("bad_caller").unwrap();

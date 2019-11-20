@@ -15,7 +15,7 @@ fn test_simple_tea_shop() {
          (define-private (stock (tea int) (amount int))
            (map-set! proper-tea (tuple (tea-type tea)) (tuple (amount amount))))
          (define-private (consume (tea int))
-           (let ((current (expects! 
+           (let ((current (unwrap! 
                             (get amount (map-get proper-tea (tuple (tea-type tea)))) 3)))
               (if (and (>= current 1))
                   (begin
@@ -68,7 +68,7 @@ fn test_bound_tuple() {
             value))
          (define-private (kv-get (key int))
             (let ((my-tuple (tuple (key key))))
-            (expects! (get value (map-get kv-store my-tuple)) 0)))
+            (unwrap! (get value (map-get kv-store my-tuple)) 0)))
          (define-private (kv-set (key int) (value int))
             (begin
                 (let ((my-tuple (tuple (key key))))
@@ -108,7 +108,7 @@ fn test_explicit_syntax_tuple() {
                                     (tuple (value value)))
             value))
          (define-private (kv-get (key int))
-            (expects! (get value (map-get kv-store (tuple (key key)))) 0))
+            (unwrap! (get value (map-get kv-store (tuple (key key)))) 0))
          (define-private (kv-set (key int) (value int))
             (begin
                 (map-set! kv-store (tuple (key key))
@@ -146,7 +146,7 @@ fn test_implicit_syntax_tuple() {
                                     ((value value)))
             value))
          (define-private (kv-get (key int))
-            (expects! (get value (map-get kv-store ((key key)))) 0))
+            (unwrap! (get value (map-get kv-store ((key key)))) 0))
          (define-private (kv-set (key int) (value int))
             (begin
                 (map-set! kv-store ((key key))
@@ -180,19 +180,19 @@ fn test_fetch_contract_entry() {
     let kv_store_contract_src = r#"
         (define-map kv-store ((key int)) ((value int)))
         (define-read-only (kv-get (key int))
-            (expects! (get value (map-get kv-store ((key key)))) 0))
+            (unwrap! (get value (map-get kv-store ((key key)))) 0))
         (begin (map-insert! kv-store ((key 42)) ((value 42))))"#;
 
     let proxy_src = r#"
         (define-private (fetch-via-conntract-call)
             (contract-call! .kv-store-contract kv-get 42))
         (define-private (fetch-via-contract-map-get-using-explicit-tuple)
-            (expects! (get value (contract-map-get .kv-store-contract kv-store (tuple (key 42)))) 0))
+            (unwrap! (get value (contract-map-get .kv-store-contract kv-store (tuple (key 42)))) 0))
         (define-private (fetch-via-contract-map-get-using-implicit-tuple)
-            (expects! (get value (contract-map-get .kv-store-contract kv-store ((key 42)))) 0))
+            (unwrap! (get value (contract-map-get .kv-store-contract kv-store ((key 42)))) 0))
         (define-private (fetch-via-contract-map-get-using-bound-tuple)
             (let ((t (tuple (key 42))))
-            (expects! (get value (contract-map-get .kv-store-contract kv-store t)) 0)))"#;
+            (unwrap! (get value (contract-map-get .kv-store-contract kv-store t)) 0)))"#;
 
     let mut owned_env = OwnedEnvironment::memory();
 
@@ -288,7 +288,7 @@ fn test_set_response_variable() {
         (define-data-var keys (response int bool) (ok 1))
         (var-set! keys (err 'true))
         (var-set! keys (ok 3))
-        (expects! (var-get keys) 5)
+        (unwrap! (var-get keys) 5)
     "#;
     let contract_src = contract_src.to_string();
     let expected = Value::Int(3);
@@ -297,7 +297,7 @@ fn test_set_response_variable() {
     let contract_src = r#"
         (define-data-var keys (response int bool) (ok 1))
         (var-set! keys (err 'true))
-        (expects! (var-get keys) 5)
+        (unwrap! (var-get keys) 5)
     "#;
     let contract_src = contract_src.to_string();
     let expected = Value::Int(3);
@@ -381,7 +381,7 @@ fn test_factorial_contract() {
          (define-private (init-factorial (id int) (factorial int))
            (map-insert! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
          (define-private (compute (id int))
-           (let ((entry (expects! (map-get factorials (tuple (id id))) 0)))
+           (let ((entry (unwrap! (map-get factorials (tuple (id id))) 0)))
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)

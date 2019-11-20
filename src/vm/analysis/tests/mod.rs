@@ -46,14 +46,14 @@ fn test_expected_response_type() {
 
 #[test]
 fn test_could_not_determine_response_ok_type() {
-    let snippet = "(expects! (err \"error\") 0)";
+    let snippet = "(unwrap! (err \"error\") 0)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"));
 }
 
 #[test]
 fn test_could_not_determine_response_err_type() {
-    let snippet = "(expects-err! (ok 1) 0)";
+    let snippet = "(unwrap-err! (ok 1) 0)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("attempted to obtain 'err' value from response, but 'err' type is indeterminate"));
 }
@@ -162,7 +162,7 @@ fn test_define_variable_bad_signature() {
 
 #[test]
 fn test_return_types_must_match() {
-    let snippet = "(define-private (mismatched) (begin (expects! (ok 1) 'false) 1))";
+    let snippet = "(define-private (mismatched) (begin (unwrap! (ok 1) 'false) 1))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("detected two execution paths, returning two different expression types"));
 }
