@@ -14,7 +14,7 @@ Created: 10/19/2019
 
 License: BSD 2-Clause
 
-## Abstract
+# Abstract
 
 This document describes the measured costs and asymptotic costs
 assessed for the execution of Clarity code. This will not specify the
@@ -22,6 +22,44 @@ _constants_ associated with those asymptotic cost functions. Those
 constants will necessarily be measured via benchmark harnesses and
 regression analyses. Furthermore, the _analysis_ cost associated with
 this code will not be covered by this proposal.
+
+# Measurements for Execution Cost
+
+Execution cost of a block of Clarity code is broken into 5 categories:
+
+1. Runtime cost: captures the number of cycles that a single
+   processor would require to process the Clarity block. This is a
+   _unitless_ metric, so it will not correspond directly to cycles,
+   but rather is meant to provide a basis for comparison between
+   different Clarity code blocks.
+2. Data write count: captures the number of independent writes
+   performed on the underlying data store (see SIP-004).
+3. Data read count: captures the number of independent reads
+   performed on the underlying data store.
+4. Data write length: the number of bytes written to the underlying
+   data store.
+5. Data read length: the number of bytes read from the underlying
+   data store.
+
+Importantly, these costs are used to set a _block limit_ for each
+block.  When it comes to selecting transactions for inclusion in a
+block, miners are free to make their own choices based on transaction
+fees, however, blocks may not exceed the _block limit_ (if they do so,
+the leader forfeits all rewards from the block).
+
+# Static versus Dynamic Cost Assessment
+
+Tracking the execution cost of a contract may be done either dynamically
+or statically. Dynamic cost assessment involves tracking, at the VM level,
+the various metrics as a contract is executed. Static cost assessment is
+performed via analysis of the contract source code, and is inherently
+a more pessimistic accounting of the execution cost: list operations
+are charged according to the _maximum_ size of the list (per the type
+annotations and inferences from the source code) and branching statements
+are charged according to the _maximum_ branch cost (per metric tracked, i.e.,
+if one branch performs 1 write and has a runtime cost of 1, and another
+branch performs 0 writes and has a runtime cost of 2, the whole statement
+will be assessed as having a maximum of 1 write and runtime cost of 2).
 
 # Costs of Common Operations
 
