@@ -227,8 +227,8 @@ fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], 
         .ok_or(CheckError::new(CheckErrors::NoSuchBlockInfoProperty(block_info_prop_str.to_string())))?;
 
     checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
-        
-    Ok(block_info_prop.type_result())
+
+    Ok(TypeSignature::new_option(block_info_prop.type_result()))
 }
 
 impl TypedNativeFunction {

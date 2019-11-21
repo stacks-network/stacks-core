@@ -1,7 +1,8 @@
 use vm::execute as vm_execute;
 use chainstate::burn::BlockHeaderHash;
 use vm::errors::{Error, CheckErrors, RuntimeErrorType};
-use vm::types::{Value, StandardPrincipalData, ResponseData, PrincipalData, QualifiedContractIdentifier};
+use vm::types::{Value, OptionalData, StandardPrincipalData, ResponseData,
+                TypeSignature, PrincipalData, QualifiedContractIdentifier};
 use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
@@ -71,6 +72,7 @@ fn test_get_block_info_eval() {
 
     let contracts = [
         "(define-private (test-func) (get-block-info time u1))",
+        "(define-private (test-func) (get-block-info time block-height))",
         "(define-private (test-func) (get-block-info time u100000))",
         "(define-private (test-func) (get-block-info time (- 1)))",
         "(define-private (test-func) (get-block-info time 'true))",
@@ -81,31 +83,42 @@ fn test_get_block_info_eval() {
 
     let expected = [
         Ok(Value::UInt(0)),
-        Err(true),
-        Err(true),
-        Err(true),
-        Ok(Value::buff_from(hex_bytes("0200000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap()),
-        Ok(Value::buff_from(hex_bytes("0300000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap()),
-        Ok(Value::buff_from(hex_bytes("0100000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap()),
+        Ok(Value::none()),
+        Ok(Value::none()),
+        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(-1)).into()),
+        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Bool(true)).into()),
+        Ok(Value::some(
+            Value::buff_from(hex_bytes("0200000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap())),
+        Ok(Value::some(
+            Value::buff_from(hex_bytes("0300000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap())),
+        Ok(Value::some(
+            Value::buff_from(hex_bytes("0100000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap())),
     ];
 
     for i in 0..contracts.len() {
         let mut owned_env = OwnedEnvironment::memory();
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
-        owned_env.initialize_contract(contract_identifier, contracts[i]).unwrap();
+        owned_env.initialize_contract(contract_identifier.clone(), contracts[i]).unwrap();
 
         let mut env = owned_env.get_exec_environment(None);
 
-        let eval_result = env.eval_read_only(&QualifiedContractIdentifier::local("test-contract").unwrap(), 
-                                             "(test-func)");
-        match &expected[i] {
-            Ok(val) => {
-                match (val, &eval_result.unwrap()) {
-                    (Value::UInt(_), Value::UInt(_)) => {},
-                    (x, y) => assert_eq!(x, y)
-                }
+        let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+        match expected[i] {
+            // any (some UINT) is okay for checking get-block-info time
+            Ok(Value::UInt(0)) => {
+                assert!(
+                    if let Ok(Value::Optional(OptionalData { data: Some(x) })) = eval_result {
+                        if let Value::UInt(_) = *x {
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                );
             },
-            Err(_) => assert!(eval_result.is_err()),
+            _ => assert_eq!(expected[i], eval_result)
         }
     }
 }
