@@ -422,47 +422,62 @@
 (define-public (name-import (namespace (buff 19))
                             (name (buff 16))
                             (zonefile-content (buff 40960)))
-  (let ((namespace-props
-        (expects!
-          (map-get namespaces ((namespace namespace)))
-          (err err-namespace-not-found))))
-    ;; The name's namespace must not be launched
-    (asserts!
-      (is-none? (get launched-at namespace-props))
-      (err err-namespace-already-launched))
-    ;; Less than 1 year must have passed since the namespace was "revealed"
-    (asserts!
-      (< block-height (+ (get revealed-at namespace-props) namespace-launchability-ttl))
-      (err err-namespace-launchability-expired))
-    ;; The sender principal must match the namespace's import principal
-    (asserts!
-      (eq? (get namespace-import namespace-props) contract-caller)
-      (err err-namespace-operation-unauthorized))
-    ;; Mint the new name
-    (expects! 
-      (nft-mint! names (tuple (namespace namespace) (name name)) contract-caller)
-      (err err-name-unavailable))
-    (map-set! name-properties
-      ((namespace namespace) (name name))
-      ((registered-at none)
-       (imported-at (some block-height))
-       (revoked-at none)
-       (zonefile-hash (hash160 zonefile-content))))
-    ;; Import the zonefile
-    (map-set! zonefiles
-      ((namespace namespace) (name name))
-      ((updated-at block-height)
-       (content zonefile-content)))
-    (ok 'true)))
+  (let (
+    (namespace-props (expects!
+      (map-get namespaces ((namespace namespace)))
+      (err err-namespace-not-found)))
+    (name-currently-owned (map-get owner-name ((owner contract-caller)))))
+    (let ( 
+        (can-sender-register-name (if (is-none? name-currently-owned)
+                                 'true
+                                  (expects! 
+                                    (is-name-lease-expired?
+                                      (expects! (get namespace name-currently-owned) (err err-panic))
+                                      (expects! (get name name-currently-owned) (err err-panic)))
+                                    (err err-panic)))))
+      ;; The sender principal must match the namespace's import principal
+      (asserts!
+        (eq? (get namespace-import namespace-props) contract-caller)
+        (err err-namespace-operation-unauthorized))
+      ;; The name's namespace must not be launched
+      (asserts!
+        (is-none? (get launched-at namespace-props))
+        (err err-namespace-already-launched))
+      ;; The principal can register a name
+      (asserts!
+        can-sender-register-name
+        (err err-principal-already-associated))
+      ;; Less than 1 year must have passed since the namespace was "revealed"
+      (asserts!
+        (< block-height (+ (get revealed-at namespace-props) namespace-launchability-ttl))
+        (err err-namespace-launchability-expired))
+      ;; Mint the new name
+      (expects! 
+        (nft-mint! names (tuple (namespace namespace) (name name)) contract-caller)
+        (err err-name-unavailable))
+      ;; Attach the new name
+      (map-set! owner-name
+        ((owner contract-caller))
+        ((namespace namespace) (name name)))
+      ;; Update zonefile and props
+      (update-zonefile-and-props
+        namespace 
+        name  
+        none
+        (some block-height)
+        none
+        zonefile-content)
+      (ok 'true))))
 
 ;; NAMESPACE_READY
 ;; The final step of the process launches the namespace and makes the namespace available to the public. Once a namespace
 ;; is launched, anyone can register a name in it if they pay the appropriate amount of cryptocurrency.
 (define-public (namespace-ready (namespace (buff 19)))
-  (let ((namespace-props
-        (expects!
-          (map-get namespaces ((namespace namespace)))
-          (err err-namespace-not-found))))
+  (let (
+      (namespace-props (expects!
+        (map-get namespaces ((namespace namespace)))
+        (err err-namespace-not-found)))
+      (owned-name (map-get owner-name ((owner contract-caller)))))
     ;; The sender principal must match the namespace's import principal
     (asserts!
       (eq? (get namespace-import namespace-props) contract-caller)
@@ -475,7 +490,17 @@
     (asserts!
       (< block-height (+ (get revealed-at namespace-props) namespace-launchability-ttl))
       (err err-namespace-launchability-expired))
-    ;; todo(ludo): Check owner-name
+    ;; Update eventual name-props
+    (if (is-none? owned-name)
+      'true
+      (let ((name (expects! (get name owned-name) (err err-panic))))
+        (let ((name-props (expects! (map-get name-properties ((name name) (namespace namespace))) (err err-panic))))
+          (map-set! name-properties
+            ((name name) (namespace namespace))
+            ((registered-at (some block-height))
+            (imported-at none)
+            (revoked-at none)
+            (zonefile-hash (get zonefile-hash name-props)))))))
     ;; The namespace will be set to "launched"
     (map-set! namespaces
       ((namespace namespace))
