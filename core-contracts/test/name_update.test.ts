@@ -57,7 +57,7 @@ describe("BNS Test Suite - NAME_UPDATE", async () => {
     await bns.deployContract();
   });
 
-  describe("Given a launched namespace 'blockstack', owned by Alice", async () => {
+  describe("Given an unlaunched namespace 'blockstack', owned by Alice", async () => {
 
     before(async () => {
       let receipt = await bns.namespacePreorder(cases[0].namespace, cases[0].salt, cases[0].value, { sender: cases[0].namespaceOwner });
@@ -73,17 +73,83 @@ describe("BNS Test Suite - NAME_UPDATE", async () => {
         cases[0].nameImporter, { sender: cases[0].namespaceOwner });
       expect(receipt.success).eq(true);
       expect(receipt.result).eq('true');
+    });
 
-      receipt = await bns.namespaceReady(cases[0].namespace, { sender: cases[0].namespaceOwner });
+    it("should be possible for Alice to import a name", async () => {
+      let receipt = await bns.nameImport(cases[0].namespace, "alice", "4444", { sender: alice });
       expect(receipt.success).eq(true);
       expect(receipt.result).eq('true');
+    })
 
-      await provider.mineBlocks(1);  
+    it("should be possible for Alice to update her domain", async () => {
+      let receipt = await bns.nameUpdate(
+        cases[0].namespace, 
+        "alice", 
+        "4444", { sender: alice });
+      expect(receipt.result).eq('true');
+      expect(receipt.success).eq(true);
     });
-  
-    describe("Given a registered name 'bob.blockstack', initiated by Bob at block #21", async () => {
+
+    it("should not be possible for Bob to import a name", async () => {
+      let receipt = await bns.nameImport(cases[0].namespace, "bob", "4444", { sender: bob });
+      expect(receipt.success).eq(false);
+      expect(receipt.result).eq('1011');
+    })
+
+    it("should not resolve (namespace not launched yet)", async () => {
+      let receipt = await bns.getNameZonefile(
+        cases[0].namespace, 
+        "alice", { sender: cases[0].nameOwner });
+      expect(receipt.result).eq('1007');
+      expect(receipt.success).eq(false);
+    });
+
+    describe("When Alice is launching the namespace 'blockstack' at block #20", async () => {
 
       before(async () => {
+        let receipt = await bns.namespaceReady(cases[0].namespace, { sender: alice });
+        expect(receipt.success).eq(true);
+        expect(receipt.result).eq('true');  
+      });
+
+      it("Resolving 'alice.blockstack' should succeed", async () => {
+        let receipt = await bns.getNameZonefile(
+          cases[0].namespace, 
+          "alice", { sender: cases[0].nameOwner });
+        expect(receipt.result).eq('0x34343434');
+        expect(receipt.success).eq(true);
+      });  
+
+      it("Charlie preordering 'charlie.blockstack' without waiting for the namespace to be launched should fail", async () => {
+        let receipt = await bns.namePreorder(
+          cases[0].namespace,
+          "charlie",
+          cases[0].salt, 
+          2560000, { sender: charlie });
+        expect(receipt.success).eq(true);
+        expect(receipt.result).eq('u30');
+
+        await provider.mineBlocks(1);  
+
+        receipt = await bns.nameRegister(
+          cases[0].namespace, 
+          "charlie", 
+          cases[0].salt, 
+          cases[0].zonefile, { sender: charlie });
+        expect(receipt.result).eq('2018');
+        expect(receipt.success).eq(false);
+      });
+
+      it("should not resolve as expected", async () => {
+        let receipt = await bns.getNameZonefile(
+          cases[0].namespace, 
+          "charlie", { sender: cases[0].nameOwner });
+        expect(receipt.result).eq('2013');
+        expect(receipt.success).eq(false);
+      });
+
+      it("Bob preordering 'bob.blockstack' waiting for the namespace to be launched should fail", async () => {
+
         let receipt = await bns.namePreorder(
           cases[0].namespace,
           "bob",
@@ -91,7 +157,7 @@ describe("BNS Test Suite - NAME_UPDATE", async () => {
           2560000, { sender: cases[0].nameOwner });
         expect(receipt.success).eq(true);
         expect(receipt.result).eq('u31');
-
+  
         receipt = await bns.nameRegister(
           cases[0].namespace, 
           "bob", 
@@ -100,7 +166,7 @@ describe("BNS Test Suite - NAME_UPDATE", async () => {
         expect(receipt.result).eq('true');
         expect(receipt.success).eq(true);
       });
-  
+
       describe("Bob updating his zonefile - from 1111 to 2222", async () => {
 
         it("should succeed", async () => {
@@ -111,8 +177,10 @@ describe("BNS Test Suite - NAME_UPDATE", async () => {
             "2222", { sender: cases[0].nameOwner });
           expect(receipt.result).eq('true');
           expect(receipt.success).eq(true);
-          
-          receipt = await bns.getNameZonefile(
+        });
+
+        it("should resolve as expected", async () => {
+          let receipt = await bns.getNameZonefile(
             cases[0].namespace, 
             "bob", { sender: cases[0].nameOwner });
           expect(receipt.result).eq('0x32323232');
@@ -130,8 +198,10 @@ describe("BNS Test Suite - NAME_UPDATE", async () => {
             "3333", { sender: charlie });
           expect(receipt.result).eq('2006');
           expect(receipt.success).eq(false);
-          
-          receipt = await bns.getNameZonefile(
+        });
+
+        it("should resolve as expected", async () => {
+          let receipt = await bns.getNameZonefile(
             cases[0].namespace, 
             "bob", { sender: cases[0].nameOwner });
           expect(receipt.result).eq('0x32323232');

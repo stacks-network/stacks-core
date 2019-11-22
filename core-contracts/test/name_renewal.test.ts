@@ -250,8 +250,10 @@ describe("BNS Test Suite - NAME_RENEWAL", async () => {
             "4444", { sender: dave });
           expect(receipt.result).eq('true');
           expect(receipt.success).eq(true);
+        });
 
-          receipt = await bns.getNameZonefile(
+        it("should resolve as expected", async () => {
+          let receipt = await bns.getNameZonefile(
             cases[0].namespace, 
             "bob", { sender: cases[0].nameOwner });
           expect(receipt.result).eq('0x34343434');
