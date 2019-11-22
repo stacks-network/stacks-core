@@ -34,11 +34,10 @@
 (define-constant err-name-preorder-already-exists 2016)
 (define-constant err-name-hash-malformed 2017)
 (define-constant err-name-preordered-before-namespace-launch 2018)
-(define-constant err-name-was-not-registered 2019)
+(define-constant err-name-not-resolvable 2019)
 (define-constant err-name-could-not-be-minted 2020)
 (define-constant err-name-could-not-be-transfered 2021)
 (define-constant err-name-charset-invalid 2022)
-(define-constant err-name-not-resolvable 2023)
 
 (define-constant err-principal-already-associated 3001)
 (define-constant err-insufficient-funds 4001)
@@ -224,8 +223,8 @@
     (name-props (expects! 
       (map-get name-properties ((namespace namespace) (name name))) 
       (err err-name-not-found))))
-    (if (is-none? (get registered-at name-props))
-      (ok 'false) ;; The name was imported - not subject to expiration
+    (if (and (is-none? (get registered-at name-props)) (not (is-none? (get imported-at name-props))))
+      (ok 'false) ;; The name was imported and not launched - not subject to expiration
       (let (      ;; The name was registered
         (registered-at (expects! 
           (get registered-at name-props) (err err-panic)))
@@ -626,9 +625,6 @@
         (imported-at none)
         (revoked-at none)
         (zonefile-hash (hash160 zonefile-content))))
-      (map-set! owner-name
-        ((owner contract-caller))
-        ((namespace namespace) (name name)))
       ;; Import the zonefile
       (map-set! zonefiles
         ((namespace namespace) (name name))
@@ -804,6 +800,10 @@
     (name-props (expects!
       (map-get name-properties ((name name) (namespace namespace)))
       (err err-name-not-found)))) ;; The name must exist
+    ;; The namespace should require renewals
+    (asserts!
+      (> (get renewal-rule namespace-props) u0)
+      (err err-name-operation-unauthorized))
     ;; The sender must match the name's current owner
     (asserts!
       (eq? owner contract-caller)
@@ -828,7 +828,7 @@
       (err err-name-revoked))
     ;; Transfer the name, if any new-owner
     (if (is-none? new-owner)
-      (ok 'false) 
+      (ok 'true) 
       (let ((owner-unwrapped (expects! new-owner (err err-panic))))
         (let ((current-owned-name (map-get owner-name ((owner owner-unwrapped)))))
           (let ((can-new-owner-get-name (if (is-none? current-owned-name)
@@ -927,5 +927,5 @@
   (ft-mint! stx u10000000000 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7)
   (ft-mint! stx u10000000 'S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE)
   (ft-mint! stx u10000000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-  (ft-mint! stx u1000 'SPMQEKN07D1VHAB8XQV835E3PTY3QWZRZ5H0DM36))
+  (ft-mint! stx u10000000 'SPMQEKN07D1VHAB8XQV835E3PTY3QWZRZ5H0DM36))
 

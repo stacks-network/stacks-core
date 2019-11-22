@@ -274,18 +274,17 @@ describe("BNS Test Suite - NAME_TRANSFER", async () => {
         });  
       });
 
-      describe("Alice trying to transfer 'alice.blockstack'", async () => {
+      describe("Alice trying to transfer 'alice.blockstack' to Dave", async () => {
         it("should fail, since 'alice.blockstack' was imported", async () => {
           let receipt = await bns.nameTransfer(
             cases[0].namespace, 
             "alice", 
-            bob,
+            dave,
             "4444", { sender: cases[0].nameImporter });
-          expect(receipt.result).eq('2006');
-          expect(receipt.success).eq(false);
+          expect(receipt.result).eq('true');
+          expect(receipt.success).eq(true);
         });
       });
-
     });
   });
 });

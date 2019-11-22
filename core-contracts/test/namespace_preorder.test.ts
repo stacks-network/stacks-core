@@ -115,12 +115,6 @@ describe("BNS Test Suite - NAMESPACE_PREORDER", async () => {
       expect(receipt.result).eq('u30');
     });
 
-    it("should fail when Dave pre-orders 'id', 'stx-to-burn' = 9600 (balance insufficient)", async () => {
-      let receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: dave });
-      expect(receipt.success).eq(false);
-      expect(receipt.result).eq('4001');
-    });
-
     it("should succeed when Alice pre-orders 'id', 'stx-to-burn' = 9600 (balance ok)", async () => {
       let receipt = await bns.namespacePreorder(cases[1].namespace, cases[1].salt, cases[1].value, { sender: cases[1].namespaceOwner });
       expect(receipt.success).eq(true);

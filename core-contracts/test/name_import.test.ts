@@ -107,7 +107,7 @@ describe("BNS Test Suite - NAME_IMPORT", async () => {
       expect(receipt.result).eq('1014');
     });
 
-    it("Resolving an imported name should fail if the namespace is ready", async () => {
+    it("Resolving an imported name should succeed if the namespace is ready", async () => {
       let receipt = await bns.getNameZonefile(
         cases[0].namespace, 
         "alpha", { sender: bob });
@@ -139,20 +139,20 @@ describe("BNS Test Suite - NAME_IMPORT", async () => {
       expect(receipt.result).eq('2006');
     });
   
-    it("Bob trying to renew 'alpha.blockstack' should fail", async () => {
-      let receipt = await bns.nameRenewal(cases[0].namespace, "alpha", 160000, charlie, cases[0].zonefile, { sender: bob })
-      expect(receipt.success).eq(false);
-      expect(receipt.result).eq('2006');
+    it("Bob trying to renew 'alpha.blockstack' should succeed", async () => {
+      let receipt = await bns.nameRenewal(cases[0].namespace, "alpha", 160000, charlie, "6666", { sender: bob })
+      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('true');
     });
 
-    it("Resolve an imported name should not be affected by the renewal rule expiration", async () => {
+    it("Resolving an imported name should fail after expiration", async () => {
       await provider.mineBlocks(20);  
 
       let receipt = await bns.getNameZonefile(
         cases[0].namespace, 
         "alpha", { sender: cases[0].nameOwner });
-      expect(receipt.result).eq('0x30303030');
-      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('2008');
+      expect(receipt.success).eq(false);
     });
   });
 });
