@@ -135,7 +135,7 @@ describe("BNS Test Suite - NAME_REVOKE", async () => {
           expect(receipt.success).eq(true);
         });
 
-        it("should resolve as expected", async () => {
+        it("should not be able to resolve", async () => {
           let receipt = await bns.getNameZonefile(
             cases[0].namespace, 
             "bob", { sender: cases[0].nameOwner });

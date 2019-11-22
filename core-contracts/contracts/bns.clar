@@ -463,7 +463,7 @@
         namespace 
         name  
         none
-        (some block-height)
+        (some block-height) ;; Set imported-at
         none
         zonefile-content)
       (ok 'true))))
@@ -494,6 +494,7 @@
       'true
       (let ((name (expects! (get name owned-name) (err err-panic))))
         (let ((name-props (expects! (map-get name-properties ((name name) (namespace namespace))) (err err-panic))))
+          ;; Unset imported-at, Set registered-at
           (map-set! name-properties
             ((name name) (namespace namespace))
             ((registered-at (some block-height))
@@ -525,7 +526,7 @@
     (asserts! 
       (if (is-none? former-preorder)
         'true
-        (>= block-height (+ name-preorder-claimability-ttl ;; todo(ludo): settle on [created-at created-at+ttl[ or [created-at created-at+ttl]
+        (>= block-height (+ name-preorder-claimability-ttl
                             (expects! (get created-at former-preorder) (err err-panic)))))
       (err err-name-preorder-already-exists))
           (asserts! (> stx-to-burn u0) (err err-namespace-stx-burnt-insufficient))    
