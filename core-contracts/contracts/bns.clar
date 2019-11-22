@@ -683,7 +683,11 @@
                               (name (buff 16))
                               (new-owner principal)
                               (zonefile-content (optional (buff 40960))))
-  (let ((current-owned-name (map-get owner-name ((owner new-owner)))))
+  (let (
+    (current-owned-name (map-get owner-name ((owner new-owner))))
+    (namespace-props (expects!
+      (map-get namespaces ((namespace namespace)))
+      (err err-namespace-not-found))))
     (let (
       (owner (expects!
         (nft-get-owner names (tuple (name name) (namespace namespace)))
@@ -698,6 +702,10 @@
                                       (expects! (get namespace current-owned-name) (err err-panic))
                                       (expects! (get name current-owned-name) (err err-panic)))
                                     (err err-panic)))))
+      ;; The namespace must be launched
+      (asserts!
+        (eq? (is-none? (get launched-at namespace-props)) 'false)
+        (err err-namespace-not-launched))
       ;; The sender must match the name's current owner
       (asserts!
         (eq? owner contract-caller)
@@ -749,9 +757,16 @@
     (owner (expects!
       (nft-get-owner names (tuple (name name) (namespace namespace)))
       (err err-name-not-found))) ;; The name must exist
+    (namespace-props (expects!
+      (map-get namespaces ((namespace namespace)))
+      (err err-namespace-not-found)))
     (name-props (expects!
       (map-get name-properties ((name name) (namespace namespace)))
       (err err-name-not-found)))) ;; The name must exist
+    ;; The namespace must be launched
+    (asserts!
+      (eq? (is-none? (get launched-at namespace-props)) 'false)
+      (err err-namespace-not-launched))
     ;; The sender must match the name's current owner
     (asserts!
       (eq? owner contract-caller)
@@ -801,6 +816,10 @@
     (name-props (expects!
       (map-get name-properties ((name name) (namespace namespace)))
       (err err-name-not-found)))) ;; The name must exist
+    ;; The namespace must be launched
+    (asserts!
+      (eq? (is-none? (get launched-at namespace-props)) 'false)
+      (err err-namespace-not-launched))
     ;; The namespace should require renewals
     (asserts!
       (> (get renewal-rule namespace-props) u0)
@@ -900,10 +919,17 @@
     (name-props (expects!
       (map-get name-properties ((name name) (namespace namespace)))
       (err err-name-not-found)))
+    (namespace-props (expects! 
+      (map-get namespaces ((namespace namespace))) 
+      (err err-namespace-not-found)))
     (is-lease-expired (is-name-lease-expired? namespace name))
     (zonefile-content (expects!
       (get content (map-get zonefiles ((namespace namespace) (name name))))
       (err err-zonefile-not-found))))
+    ;; The namespace must be launched
+    (asserts!
+      (eq? (is-none? (get launched-at namespace-props)) 'false)
+      (err err-namespace-not-launched))
     ;; The name must not be in the renewal grace period
     (asserts!
       (eq? (expects! (is-name-in-grace-period? namespace name) (err err-panic)) 'false)

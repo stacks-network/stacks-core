@@ -92,8 +92,8 @@ describe("BNS Test Suite - NAME_IMPORT", async () => {
       let receipt = await bns.getNameZonefile(
         cases[0].namespace, 
         "alpha", { sender: cases[0].nameOwner });
-      expect(receipt.result).eq('0x30303030');
-      expect(receipt.success).eq(true);
+      expect(receipt.result).eq('1007');
+      expect(receipt.success).eq(false);
     });
 
     it("Bob trying to import 'beta.blockstack' should fail after the launch of the domain", async () => {
