@@ -257,6 +257,22 @@
             (> block-height (+ lifetime registered-at)) 
             (<= block-height (+ (+ lifetime registered-at) name-grace-period-duration)))))))))
 
+(define-private (update-name-ownership? (namespace (buff 19)) 
+                                        (name (buff 16)) 
+                                        (from principal) 
+                                        (to principal))
+  (if (eq? from to)
+    (ok 'true)
+    (begin
+      (expects!
+        (nft-transfer! names (tuple (name name) (namespace namespace)) from to)
+        (err err-name-could-not-be-transfered))
+      (map-delete! owner-name ((owner from)))
+      (map-set! owner-name
+        ((owner to))
+        ((namespace namespace) (name name)))
+      (ok 'true))))
+
 (define-private (update-zonefile-and-props (namespace (buff 19))
                                            (name (buff 16))
                                            (registered-at (optional uint)) 
@@ -562,19 +578,22 @@
         (err err-principal-already-associated))
       ;; Mint the name if new, transfer the name otherwise.
       (if (is-none? current-owner)
-        (expects! 
-          (nft-mint! 
-            names 
-            (tuple (namespace namespace) (name name)) 
-            contract-caller)
-          (err err-name-could-not-be-minted))
-        (expects!
-          (nft-transfer!
-            names
-            (tuple (name name) (namespace namespace))
-            (expects! current-owner (err err-panic))
-            contract-caller)
-          (err err-name-could-not-be-transfered)))
+        (begin
+          (expects! 
+            (nft-mint! 
+              names 
+              (tuple (namespace namespace) (name name)) 
+              contract-caller)
+            (err err-name-could-not-be-minted))
+          (map-set! owner-name
+            ((owner contract-caller))
+            ((namespace namespace) (name name))))
+        (if (eq? contract-caller (expects! current-owner (err err-panic)))
+          'true
+          (let ((previous-owner (expects! current-owner (err err-panic)))) 
+            (expects!
+              (update-name-ownership? namespace name previous-owner contract-caller)
+              (err err-name-could-not-be-transfered)))))
       ;; Update name's metadata / properties
       (map-set! name-properties
         ((namespace namespace) (name name))
@@ -683,15 +702,8 @@
         (err err-principal-already-associated))
       ;; Transfer the name
       (expects!
-        (nft-transfer! names
-                      (tuple (name name) (namespace namespace))
-                      contract-caller
-                      new-owner)
+        (update-name-ownership? namespace name contract-caller new-owner)
         (err err-name-transfer-failed))
-      (map-delete! owner-name ((owner contract-caller)))
-      (map-set! owner-name
-        ((owner new-owner))
-        ((namespace namespace) (name name)))
       ;; Update or clear the zonefile
       (update-zonefile-and-props
           namespace 
@@ -805,13 +817,10 @@
               can-new-owner-get-name
               (err err-principal-already-associated))
             (expects!
-              (nft-transfer! names
-                            (tuple (name name) (namespace namespace))
-                            contract-caller
-                            owner-unwrapped)
-              (err err-name-transfer-failed))
+              (update-name-ownership? namespace name contract-caller owner-unwrapped)
+              (err err-name-could-not-be-transfered))
             (ok 'true)))))
-        ;; Update the zonefile, if any.
+    ;; Update the zonefile, if any.
     (if (is-none? zonefile-content)
       (map-set! name-properties
         ((namespace namespace) (name name))
