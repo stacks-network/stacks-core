@@ -179,6 +179,7 @@ pub struct LeaderKeyRegisterOp {
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub struct UserBurnSupportOp {
+    pub address: StacksAddress,
     pub consensus_hash: ConsensusHash,
     pub public_key: VRFPublicKey,
     pub key_block_ptr: u32,
