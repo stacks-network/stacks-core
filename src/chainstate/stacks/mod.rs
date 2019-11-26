@@ -51,6 +51,8 @@ use chainstate::burn::operations::LeaderBlockCommitOp;
 
 use chainstate::stacks::index::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use chainstate::stacks::index::Error as marf_error;
+use chainstate::stacks::db::StacksHeaderInfo;
+use chainstate::stacks::db::accounts::MinerReward;
 
 use net::StacksMessageCodec;
 use net::codec::{read_next, write_next};
@@ -107,6 +109,7 @@ impl AddressHashMode {
 pub enum Error {
     InvalidFee,
     InvalidStacksBlock(String),
+    InvalidStacksMicroblock(String, BlockHeaderHash),
     InvalidStacksTransaction(String),
     PostConditionFailed(String),
     NoSuchBlockError,
@@ -125,6 +128,7 @@ impl fmt::Display for Error {
         match *self {
             Error::InvalidFee => f.write_str(error::Error::description(self)),
             Error::InvalidStacksBlock(ref s) => fmt::Display::fmt(s, f),
+            Error::InvalidStacksMicroblock(ref s, ref h) => fmt::Display::fmt(s, f),
             Error::InvalidStacksTransaction(ref s) => fmt::Display::fmt(s, f),
             Error::PostConditionFailed(ref s) => fmt::Display::fmt(s, f),
             Error::NoSuchBlockError => f.write_str(error::Error::description(self)),
@@ -145,6 +149,7 @@ impl error::Error for Error {
         match *self {
             Error::InvalidFee => None,
             Error::InvalidStacksBlock(ref _s) => None,
+            Error::InvalidStacksMicroblock(ref _s, ref _h) => None,
             Error::InvalidStacksTransaction(ref _s) => None,
             Error::PostConditionFailed(ref _s) => None,
             Error::NoSuchBlockError => None,
@@ -163,6 +168,7 @@ impl error::Error for Error {
         match *self {
             Error::InvalidFee => "Invalid fee",
             Error::InvalidStacksBlock(ref s) => s.as_str(),
+            Error::InvalidStacksMicroblock(ref s, ref h) => s.as_str(),
             Error::InvalidStacksTransaction(ref s) => s.as_str(),
             Error::PostConditionFailed(ref s) => s.as_str(),
             Error::NoSuchBlockError => "No such Stacks block",
@@ -593,7 +599,7 @@ pub struct StacksTransactionSigner {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksWorkScore {
     pub burn: u64,      // number of burn tokens destroyed
-    pub work: u64       // amount of PoW so far (TBD)
+    pub work: u64       // TODO: make this the block height
 }
 
 /// The header for an on-chain-anchored Stacks block
@@ -638,14 +644,15 @@ pub struct StacksMicroblock {
 
 /// A structure for incrementially building up a block
 pub struct StacksBlockBuilder {
+    pub chain_tip: StacksHeaderInfo,
     pub header: StacksBlockHeader,
     pub txs: Vec<StacksTransaction>,
     pub micro_txs: Vec<StacksTransaction>,
-    parent_commit_burn_header_hash: BurnchainHeaderHash,
     anchored_done: bool,
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
-    miner_privkey: StacksPrivateKey
+    miner_privkey: StacksPrivateKey,
+    miner_payouts: Option<Vec<MinerReward>>
 }
 
 // maximum amount of data a leader can send during its epoch (2MB)
@@ -832,6 +839,27 @@ pub mod test {
                 for tx_fee in tx_fees.iter() {
                     for tx_post_condition in tx_post_conditions.iter() {
                         for tx_payload in tx_payloads.iter() {
+                            match tx_payload {
+                                // doesn't support sponsored token-transfers
+                                TransactionPayload::TokenTransfer(ref _payload) => {
+                                    if tx_auth.is_sponsored() {
+                                        continue;
+                                    }
+                                },
+                                // poison microblock and coinbase must be on-chain
+                                TransactionPayload::Coinbase(ref _buf) => {
+                                    if *anchor_mode != TransactionAnchorMode::OnChainOnly {
+                                        continue;
+                                    }
+                                },
+                                TransactionPayload::PoisonMicroblock(ref _mb1, ref _mb2) => {
+                                    if *anchor_mode != TransactionAnchorMode::OnChainOnly {
+                                        continue;
+                                    }
+                                },
+                                _ => {}
+                            }
+
                             let tx = StacksTransaction {
                                 version: (*version).clone(),
                                 chain_id: chain_id,
