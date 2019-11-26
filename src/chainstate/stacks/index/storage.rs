@@ -522,6 +522,7 @@ impl TrieFileStorage {
         }
 
         let (block_map, chain_tips) = TrieFileStorage::read_block_hash_map(&dir_path, &TrieFileStorage::block_sentinel())?;
+        test_debug!("Opened TrieFileStorage {}; {} blocks", dir_path, block_map.len());
 
         let ret = TrieFileStorage {
             dir_path,
@@ -1044,7 +1045,7 @@ impl TrieFileStorage {
     pub fn get_block_from_local_id(&self, local_id: u32) -> Result<&BlockHeaderHash, Error> {
         self.block_map.get_block_header_hash(local_id)
             .ok_or_else(|| {
-                error!("Failed to get block header hash of local ID {}", local_id);
+                error!("Failed to get block header hash of local ID {} (only {} present)", local_id, self.block_map.len());
                 Error::NotFoundError
             })
     }
@@ -1070,6 +1071,8 @@ impl TrieFileStorage {
     }
 
     pub fn format(&mut self) -> Result<(), Error> {
+        debug!("Format TrieFileStorage {}", &self.dir_path);
+
         // blow away and recreate the Trie directory
         fs::remove_dir_all(self.dir_path.clone())
             .map_err(Error::IOError)?;
@@ -1267,7 +1270,9 @@ impl TrieFileStorage {
         let block_id_opt = self.block_map.find_id(cur_bhh);
         match block_id_opt {
             Some(id) => self.block_map.set_block(new_bhh.clone(), id),
-            None => {}
+            None => {
+                panic!("Block {} was never in the block map", cur_bhh);
+            }
         }
 
         let trie_ancestor_hash_bytes_cache = self.trie_ancestor_hash_bytes_cache.take();
@@ -1295,14 +1300,15 @@ impl TrieFileStorage {
         // fails).
         if let Some((ref bhh, ref mut trie_ram)) = self.last_extended.take() {
             let block_path_tmp = TrieFileStorage::block_path_tmp(&self.dir_path, bhh);
-            let block_path = match final_bhh {
+            let (block_path, real_bhh) = match final_bhh {
                 Some(real_bhh) => {
                     if *real_bhh != *bhh {
                         self.block_retarget(bhh, real_bhh)?;
+                        assert_eq!(self.block_map.find_id(real_bhh), Some(trie_ram.identifier));
                     }
-                    self.cached_block_path(real_bhh)
+                    (self.cached_block_path(real_bhh), real_bhh.clone())
                 }
-                None => self.cached_block_path(bhh)
+                None => (self.cached_block_path(bhh), bhh.clone())
             };
             
             debug!("Flush {:?} to {:?}", bhh, block_path);
@@ -1326,7 +1332,7 @@ impl TrieFileStorage {
                                 }
                             })?);
 
-                debug!("Flush: identifier of {:?} is {:?}", bhh, trie_ram.identifier);
+                debug!("Flush: identifier of {:?} is {:?}", real_bhh, trie_ram.identifier);
                 trie_ram.dump(&mut writer, bhh)?;
 
                 // this OS-generic fsync's.
