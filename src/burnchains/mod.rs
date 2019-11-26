@@ -461,7 +461,8 @@ pub mod test {
         pub microblock_privks: Vec<StacksPrivateKey>,
         pub vrf_keys: Vec<VRFPrivateKey>,
         pub vrf_key_map: HashMap<VRFPublicKey, VRFPrivateKey>,
-        pub block_commits: Vec<LeaderBlockCommitOp>
+        pub block_commits: Vec<LeaderBlockCommitOp>,
+        pub expected_mining_rewards: u128
     }
 
     pub struct TestMinerFactory {
@@ -478,7 +479,8 @@ pub mod test {
                 microblock_privks: vec![],
                 vrf_keys: vec![],
                 vrf_key_map: HashMap::new(),
-                block_commits: vec![]
+                block_commits: vec![],
+                expected_mining_rewards: 0
             }
         }
 
@@ -572,6 +574,13 @@ pub mod test {
             }
         }
 
+        pub fn origin_address(&self) -> Option<StacksAddress> {
+            match self.as_transaction_auth() {
+                Some(auth) => Some(auth.origin().address_testnet()),
+                None => None
+            }
+        }
+
         pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) -> () {
             let num_keys = 
                 if self.privks.len() < self.num_sigs as usize {
@@ -598,6 +607,11 @@ pub mod test {
             for i in 0..num_keys {
                 tx_signer.sign_sponsor(&self.privks[i]).unwrap();
             }
+        }
+
+        pub fn expect_mining_reward(&mut self, next_reward: u128) -> u128 {
+            self.expected_mining_rewards += next_reward;
+            self.expected_mining_rewards
         }
     }
 
