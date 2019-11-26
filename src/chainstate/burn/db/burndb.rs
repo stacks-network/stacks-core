@@ -262,7 +262,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 
 impl RowOrder for UserBurnSupportOp {
     fn row_order() -> Vec<&'static str> {
-        vec!["txid","vtxindex","block_height","burn_header_hash","consensus_hash","public_key","key_block_ptr","key_vtxindex","block_header_hash_160","burn_fee"]
+        vec!["txid","vtxindex","block_height","burn_header_hash","address","consensus_hash","public_key","key_block_ptr","key_vtxindex","block_header_hash_160","burn_fee"]
     }
 }
 
@@ -273,13 +273,14 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
         let block_height : i64 = row.get(2 + index);
         let burn_header_hash = BurnchainHeaderHash::from_row(row, 3 + index)?;
 
-        let consensus_hash = ConsensusHash::from_row(row, 4 + index)?;
-        let public_key = VRFPublicKey::from_row(row, 5 + index)?;
-        let key_block_ptr: u32 = row.get(6 + index);
-        let key_vtxindex : u16 = row.get(7 + index);
-        let block_header_hash_160 = Hash160::from_row(row, 8 + index)?;
+        let address = StacksAddress::from_row(row, 4 + index)?;
+        let consensus_hash = ConsensusHash::from_row(row, 5 + index)?;
+        let public_key = VRFPublicKey::from_row(row, 6 + index)?;
+        let key_block_ptr: u32 = row.get(7 + index);
+        let key_vtxindex : u16 = row.get(8 + index);
+        let block_header_hash_160 = Hash160::from_row(row, 9 + index)?;
 
-        let burn_fee_str : String = row.get(9 + index);
+        let burn_fee_str : String = row.get(10 + index);
 
         let burn_fee = burn_fee_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
@@ -289,6 +290,7 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
         }
 
         let user_burn = UserBurnSupportOp {
+            address: address,
             consensus_hash: consensus_hash,
             public_key: public_key,
             key_block_ptr: key_block_ptr,
@@ -378,6 +380,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
 
+        address TEXT NOT NULL,
         consensus_hash TEXT NOT NULL,
         public_key TEXT NOT NULL,
         key_block_ptr INTEGER NOT NULL,
@@ -901,10 +904,11 @@ impl BurnDB {
         // represent burn fee as TEXT 
         let burn_fee_str = format!("{}", user_burn.burn_fee);
 
-        tx.execute("INSERT INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, key_block_ptr, key_vtxindex, block_header_hash_160, burn_fee) \
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                   &[&user_burn.txid.to_hex(), &user_burn.vtxindex as &dyn ToSql, &(user_burn.block_height as i64) as &dyn ToSql, &user_burn.burn_header_hash.to_hex(), &user_burn.consensus_hash.to_hex(),
-                   &user_burn.public_key.to_hex(), &user_burn.key_block_ptr as &dyn ToSql, &user_burn.key_vtxindex as &dyn ToSql, &user_burn.block_header_hash_160.to_hex(), &burn_fee_str])
+        tx.execute("INSERT INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, address, consensus_hash, public_key, key_block_ptr, key_vtxindex, block_header_hash_160, burn_fee) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                   &[&user_burn.txid.to_hex(), &user_burn.vtxindex as &dyn ToSql, &(user_burn.block_height as i64) as &dyn ToSql, &user_burn.burn_header_hash.to_hex(), 
+                   &user_burn.address.to_string(), &user_burn.consensus_hash.to_hex(), &user_burn.public_key.to_hex(), &user_burn.key_block_ptr as &dyn ToSql, &user_burn.key_vtxindex as &dyn ToSql,
+                   &user_burn.block_header_hash_160.to_hex(), &burn_fee_str])
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -1103,20 +1107,45 @@ impl BurnDB {
 
         query_rows::<UserBurnSupportOp, _>(tx, &qry.to_string(), &args)
     }
+    
+    /// Get all user burns that burned for a particular block in a fork.
+    /// Returns list of user burns in order by vtxindex.
+    pub fn get_winning_user_burns_by_block(conn: &Connection, burn_header_hash: &BurnchainHeaderHash) -> Result<Vec<UserBurnSupportOp>, db_error> {
+        let ancestor_snapshot = match BurnDB::get_block_snapshot(conn, burn_header_hash)? {
+            Some(sn) => sn,
+            None => {
+                // no such snapshot, so no such users
+                return Ok(vec![]);
+            }
+        };
+
+        if !ancestor_snapshot.sortition {
+            // no winner
+            return Ok(vec![]);
+        }
+
+        let winning_block_hash160 = Hash160::from_sha256(ancestor_snapshot.winning_stacks_block_hash.as_bytes());
+        let row_order = UserBurnSupportOp::row_order().join(",");
+
+        let qry = format!("SELECT {} FROM user_burn_support WHERE burn_header_hash = ?1 AND block_header_hash_160 = ?2 ORDER BY vtxindex ASC", row_order);
+        let args = [&ancestor_snapshot.burn_header_hash.to_hex() as &dyn ToSql, &winning_block_hash160.to_hex() as &dyn ToSql];
+
+        query_rows::<UserBurnSupportOp, _>(conn, &qry.to_string(), &args)
+    }
 
     /// Find out how any burn tokens were destroyed in a given block on a given fork.
-    pub fn get_block_burn_amount<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<u128, db_error> {
+    pub fn get_block_burn_amount<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<u64, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
 
         let user_burns = BurnDB::get_user_burns_by_block(tx, block_height, tip_block_hash)?;
         let block_commits = BurnDB::get_block_commits_by_block(tx, block_height, tip_block_hash)?;
-        let mut burn_total : u128 = 0;
+        let mut burn_total : u64 = 0;
         
         for i in 0..user_burns.len() {
-            burn_total = burn_total.checked_add(user_burns[i].burn_fee as u128).expect("Way too many tokens burned");
+            burn_total = burn_total.checked_add(user_burns[i].burn_fee).expect("Way too many tokens burned");
         }
         for i in 0..block_commits.len() {
-            burn_total = burn_total.checked_add(block_commits[i].burn_fee as u128).expect("Way too many tokens burned");
+            burn_total = burn_total.checked_add(block_commits[i].burn_fee).expect("Way too many tokens burned");
         }
         Ok(burn_total)
     }
@@ -1841,6 +1870,7 @@ mod tests {
         };
 
         let user_burn = UserBurnSupportOp {
+            address: StacksAddress::new(1, Hash160([1u8; 20])),
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
@@ -2126,6 +2156,7 @@ mod tests {
         };
 
         let user_burn = UserBurnSupportOp {
+            address: StacksAddress::new(2, Hash160([2u8; 20])),
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
@@ -2178,7 +2209,7 @@ mod tests {
         {
             let mut tx = db.tx_begin().unwrap();
             let burn_amt = BurnDB::get_block_burn_amount(&mut tx, block_height + 2, &commit_snapshot.burn_header_hash).unwrap();
-            assert_eq!(burn_amt, (block_commit.burn_fee + user_burn.burn_fee) as u128);
+            assert_eq!(burn_amt, block_commit.burn_fee + user_burn.burn_fee);
 
             let no_burn_amt = BurnDB::get_block_burn_amount(&mut tx, block_height + 1, &commit_snapshot.burn_header_hash).unwrap();
             assert_eq!(no_burn_amt, 0);
