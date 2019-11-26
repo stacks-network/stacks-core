@@ -49,6 +49,7 @@ use burnchains::PrivateKey;
 use burnchains::PublicKey;
 
 use util::hash::Sha512Trunc256Sum;
+use util::hash::to_hex;
 use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
@@ -264,7 +265,7 @@ impl MultisigSpendingCondition {
         };
 
         if addr_bytes != self.signer {
-            return Err(net_error::VerifyingError("Signer hash does not equal hash of public keys".to_string()));
+            return Err(net_error::VerifyingError(format!("Signer hash {} does not equal hash of public keys {}", addr_bytes.to_hex(), self.signer.to_hex())));
         }
 
         Ok(cur_sighash)
@@ -359,7 +360,7 @@ impl SinglesigSpendingCondition {
         };
         
         if addr_bytes != self.signer {
-            return Err(net_error::VerifyingError("Public key hash does not match signer hash".to_string()));
+            return Err(net_error::VerifyingError(format!("Public key hash {} does not match signer hash {}", &addr_bytes.to_hex(), &self.signer.to_hex())));
         }
 
         Ok(next_sighash)
