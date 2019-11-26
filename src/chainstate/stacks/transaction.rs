@@ -514,12 +514,18 @@ impl StacksMessageCodec for StacksTransaction {
 impl StacksTransaction {
     /// Create a new, unsigned transaction and an empty STX fee with no post-conditions.
     pub fn new(version: TransactionVersion, auth: TransactionAuth, payload: TransactionPayload) -> StacksTransaction {
+        let anchor_mode = match payload {
+            TransactionPayload::Coinbase(_) => TransactionAnchorMode::OnChainOnly,
+            TransactionPayload::PoisonMicroblock(_, _) => TransactionAnchorMode::OnChainOnly,
+            _ => TransactionAnchorMode::Any
+        };
+
         StacksTransaction {
             version: version,
             chain_id: 0,
             auth: auth,
             fee: 0,
-            anchor_mode: TransactionAnchorMode::Any,
+            anchor_mode: anchor_mode,
             post_condition_mode: TransactionPostConditionMode::Deny,
             post_conditions: vec![],
             payload: payload
@@ -580,9 +586,7 @@ impl StacksTransaction {
     /// Sign a sighash and append the signature and public key to the given spending condition.
     /// Returns the next sighash
     fn sign_and_append(condition: &mut TransactionSpendingCondition, cur_sighash: &Txid, auth_flag: &TransactionAuthFlags, privk: &StacksPrivateKey) -> Result<Txid, net_error> {
-        let pubk = StacksPublicKey::from_private(privk);
         let (next_sig, next_sighash) = TransactionSpendingCondition::next_signature(cur_sighash, auth_flag, privk)?;
-
         match condition {
             TransactionSpendingCondition::Multisig(ref mut cond) => {
                 cond.push_signature(if privk.compress_public() { TransactionPublicKeyEncoding::Compressed } else { TransactionPublicKeyEncoding::Uncompressed }, next_sig);
@@ -617,7 +621,7 @@ impl StacksTransaction {
                 StacksTransaction::sign_and_append(origin_condition, cur_sighash, &TransactionAuthFlags::AuthStandard, privk)?
             },
             TransactionAuth::Sponsored(ref mut origin_condition, _) => {
-                StacksTransaction::sign_and_append(origin_condition, cur_sighash, &TransactionAuthFlags::AuthSponsored, privk)?
+                StacksTransaction::sign_and_append(origin_condition, cur_sighash, &TransactionAuthFlags::AuthStandard, privk)?
             }
         };
         Ok(next_sighash)
@@ -814,6 +818,9 @@ mod test {
     // corruption tests should obviously fail -- the initial sighash changes if any of the
     // serialized data changes.
     fn test_signature_and_corruption(signed_tx: &StacksTransaction, corrupt_origin: bool, corrupt_sponsor: bool) -> () {
+        // signature is well-formed otherwise
+        assert!(signed_tx.verify().unwrap());
+
         // mess with the auth hash code
         let mut corrupt_tx_hash_mode = signed_tx.clone();
         let mut corrupt_auth_hash_mode = corrupt_tx_hash_mode.auth().clone();
@@ -1697,8 +1704,13 @@ mod test {
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
             let mut tx_signer = StacksTransactionSigner::new(&tx);
+
+            test_debug!("Sign origin");
             tx_signer.sign_origin(&privk).unwrap();
+
+            test_debug!("Sign sponsor");
             tx_signer.sign_sponsor(&privk_sponsor).unwrap();
+
             let signed_tx = tx_signer.get_tx().unwrap();
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
