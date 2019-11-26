@@ -24,8 +24,11 @@ use std::fs;
 use hashbrown::HashMap;
 use hashbrown::HashSet;
 
+use chainstate::burn::operations::*;
+
 use chainstate::stacks::Error;
 use chainstate::stacks::db::StacksChainState;
+use chainstate::stacks::db::accounts::MinerReward;
 use chainstate::stacks::*;
 use chainstate::stacks::db::*;
 
@@ -50,6 +53,9 @@ use chainstate::burn::db::burndb::*;
 use net::Error as net_error;
 
 use vm::types::{
+    Value,
+    AssetIdentifier,
+    TupleData,
     PrincipalData,
     StandardPrincipalData,
     QualifiedContractIdentifier
@@ -61,10 +67,6 @@ use vm::contexts::{
 
 use vm::ast::build_ast;
 use vm::analysis::run_analysis;
-use vm::types::{
-    Value,
-    AssetIdentifier
-};
 
 use vm::clarity::{
     ClarityBlockConnection,
@@ -99,7 +101,18 @@ pub struct StagingBlock {
     pub parent_anchored_block_hash: BlockHeaderHash,
     pub microblock_pubkey_hash: Hash160,
     pub processed: bool,
+    pub commit_burn: u64,
+    pub sortition_burn: u64,
     pub block_data: Vec<u8>
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StagingUserBurnSupport {
+    pub burn_header_hash: BurnchainHeaderHash,
+    pub anchored_block_hash: BlockHeaderHash,
+    pub address: StacksAddress,
+    pub burn_amount: u64,
+    pub vtxindex: u32,
 }
 
 impl StagingBlock {
@@ -128,8 +141,8 @@ impl FromRow<StagingMicroblock> for StagingMicroblock {
         }
 
         let processed = if processed_i64 != 0 { true } else { false };
-
         let sequence = sequence_i64 as u8;
+
         Ok(StagingMicroblock {
             burn_header_hash,
             anchored_block_hash,
@@ -143,7 +156,7 @@ impl FromRow<StagingMicroblock> for StagingMicroblock {
 
 impl RowOrder for StagingBlock {
     fn row_order() -> Vec<&'static str> {
-        vec!["anchored_block_hash", "parent_anchored_block_hash", "burn_header_hash", "parent_burn_header_hash", "microblock_pubkey_hash", "processed", "block_data"]
+        vec!["anchored_block_hash", "parent_anchored_block_hash", "burn_header_hash", "parent_burn_header_hash", "microblock_pubkey_hash", "processed", "commit_burn", "sortition_burn", "block_data"]
     }
 }
 
@@ -155,9 +168,13 @@ impl FromRow<StagingBlock> for StagingBlock {
         let parent_burn_header_hash: BurnchainHeaderHash = BurnchainHeaderHash::from_row(row, index + 3)?;
         let microblock_pubkey_hash : Hash160 = Hash160::from_row(row, index + 4)?;
         let processed_i64 : i64 = row.get(index + 5);
-        let block_data : Vec<u8> = row.get(index + 6);
+        let commit_burn_i64 : i64 = row.get(index + 6);
+        let sortition_burn_i64 : i64 = row.get(index + 7);
+        let block_data : Vec<u8> = row.get(index + 8);
 
         let processed = if processed_i64 != 0 { true } else { false };
+        let commit_burn = commit_burn_i64 as u64;
+        let sortition_burn = sortition_burn_i64 as u64;
 
         Ok(StagingBlock {
             anchored_block_hash,
@@ -166,7 +183,39 @@ impl FromRow<StagingBlock> for StagingBlock {
             parent_burn_header_hash,
             microblock_pubkey_hash,
             processed,
+            commit_burn,
+            sortition_burn,
             block_data
+        })
+    }
+}
+
+impl RowOrder for StagingUserBurnSupport {
+    fn row_order() -> Vec<&'static str> {
+        vec!["anchored_block_hash", "burn_header_hash", "address", "burn_amount", "vtxindex"]
+    }
+}
+
+impl FromRow<StagingUserBurnSupport> for StagingUserBurnSupport {
+    fn from_row<'a>(row: &'a Row, index: usize) -> Result<StagingUserBurnSupport, db_error> {
+        let anchored_block_hash : BlockHeaderHash = BlockHeaderHash::from_row(row, index + 0)?;
+        let burn_header_hash : BurnchainHeaderHash = BurnchainHeaderHash::from_row(row, index + 1)?;
+        let address : StacksAddress = StacksAddress::from_row(row, index + 2)?;
+        let burn_amount_i64 : i64 = row.get(index + 3);
+        let vtxindex : u32 = row.get(index + 4);
+
+        if burn_amount_i64 < 0 {
+            return Err(db_error::ParseError);
+        }
+
+        let burn_amount = burn_amount_i64 as u64;
+
+        Ok(StagingUserBurnSupport {
+            anchored_block_hash,
+            burn_header_hash,
+            address,
+            burn_amount,
+            vtxindex
         })
     }
 }
@@ -191,8 +240,19 @@ const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
                                 parent_burn_header_hash TEXT NOT NULL,
                                 microblock_pubkey_hash TEXT NOT NULL,
                                 processed INT NOT NULL,
+                                commit_burn INT NOT NULL,
+                                sortition_burn INT NOT NULL,
                                 block_data BLOB NOT NULL,           -- cannot exceed 1 billion bytes, per sqlite3 defaults
                                 PRIMARY KEY(anchored_block_hash,burn_header_hash)
+    );
+    "#,
+    r#"
+    -- users who burned in support of a block
+    CREATE TABLE staging_user_burn_support(anchored_block_hash TEXT NOT NULL,
+                                           burn_header_hash TEXT NOT NULL,
+                                           address TEXT NOT NULL,
+                                           burn_amount INT NOT NULL,
+                                           vtxindex INT NOT NULL
     );
     "#,
 ];
@@ -370,42 +430,28 @@ impl StacksChainState {
 
     /// Truncate an (invalid) block.  Frees up space while marking the block as processed so we
     /// don't process it again.
-    fn free_block(&self, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash) -> Result<(), Error> {
-        let block_path = self.get_block_path(burn_header_hash, block_header_hash)?;
-        match fs::metadata(&block_path) {
-            Ok(_) => {
-                let f = fs::OpenOptions::new()
-                            .read(false)
-                            .write(true)
-                            .truncate(true)
-                            .open(&block_path)
-                            .map_err(|e| {
-                                if e.kind() == io::ErrorKind::NotFound {
-                                    error!("File not found: {:?}", &block_path);
-                                    Error::DBError(db_error::NotFoundError)
-                                }
-                                else {
-                                    Error::DBError(db_error::IOError(e))
-                                }
-                            })?;
-                Ok(())
-            },
-            Err(e) => {
-                if e.kind() == io::ErrorKind::NotFound {
-                    // didn't exist anyway
-                    Ok(())
-                }
-                else {
-                    Err(Error::DBError(db_error::IOError(e)))
-                }
-            }
-        }
+    fn free_block(&self, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash) -> () {
+        let block_path = self.make_block_dir(burn_header_hash, &block_header_hash)
+            .expect("FATAL: failed to create block directory");
+        let _ = fs::OpenOptions::new()
+                    .read(false)
+                    .write(true)
+                    .truncate(true)
+                    .open(&block_path)
+                    .map_err(|e| {
+                        if e.kind() == io::ErrorKind::NotFound {
+                            error!("File not found: {:?}", &block_path);
+                            Error::DBError(db_error::NotFoundError)
+                        }
+                        else {
+                            Error::DBError(db_error::IOError(e))
+                        }
+                    });
     }
 
     /// Free up all state for an invalid block
-    pub fn free_block_state(&mut self, burn_header_hash: &BurnchainHeaderHash, block_header: &StacksBlockHeader) -> Result<(), Error> {
-        self.free_block(burn_header_hash, &block_header.block_hash())?;
-        Ok(())
+    pub fn free_block_state(&mut self, burn_header_hash: &BurnchainHeaderHash, block_header: &StacksBlockHeader) -> () {
+        self.free_block(burn_header_hash, &block_header.block_hash())
     }
 
     /// Load up a block from the chunk store.
@@ -516,6 +562,15 @@ impl StacksChainState {
             }
         }
     }
+
+    /// Load up the list of users who burned for an unprocessed block.
+    fn load_staging_block_user_supports(&self, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Vec<StagingUserBurnSupport>, Error> {
+        let row_order = StagingUserBurnSupport::row_order().join(",");
+        let sql = format!("SELECT {} FROM staging_user_burn_support WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2", row_order);
+        let args = [&block_hash.to_hex() as &dyn ToSql, &burn_header_hash.to_hex() as &dyn ToSql];
+        let rows = query_rows::<StagingUserBurnSupport, _>(&self.blocks_db, &sql, &args).map_err(Error::DBError)?;
+        Ok(rows)
+    }
     
     /// Load up a queued block's queued pubkey hash
     fn load_staging_block_pubkey_hash(&self, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<Hash160>, Error> {
@@ -607,13 +662,16 @@ impl StacksChainState {
     /// Store a preprocessed block, queuing it up for subsequent processing.
     /// The caller should at least verify that the block is attached to some fork in the burn
     /// chain.
-    fn store_staging_block(&mut self, burn_hash: &BurnchainHeaderHash, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<(), Error> {
+    fn store_staging_block(&mut self, burn_hash: &BurnchainHeaderHash, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash, commit_burn: u64, sortition_burn: u64) -> Result<(), Error> {
+        assert!(commit_burn < i64::max_value() as u64);
+        assert!(sortition_burn < i64::max_value() as u64);
+
         let block_hash = block.block_hash();
         let block_bytes = block.serialize();
 
-        let sql = "INSERT OR REPLACE INTO staging_blocks (anchored_block_hash, parent_anchored_block_hash, burn_header_hash, parent_burn_header_hash, microblock_pubkey_hash, processed, block_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+        let sql = "INSERT OR REPLACE INTO staging_blocks (anchored_block_hash, parent_anchored_block_hash, burn_header_hash, parent_burn_header_hash, microblock_pubkey_hash, processed, commit_burn, sortition_burn, block_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
         let args = [&block_hash.to_hex() as &dyn ToSql, &block.header.parent_block.to_hex() as &dyn ToSql, &burn_hash.to_hex() as &dyn ToSql, &parent_burn_header_hash.to_hex() as &dyn ToSql,
-                    &block.header.microblock_pubkey_hash.to_hex() as &dyn ToSql, &0 as &dyn ToSql, &block_bytes as &dyn ToSql];
+                    &block.header.microblock_pubkey_hash.to_hex() as &dyn ToSql, &0 as &dyn ToSql, &(commit_burn as i64) as &dyn ToSql, &(sortition_burn as i64) as &dyn ToSql, &block_bytes as &dyn ToSql];
 
         let tx = self.blocks_tx_begin()?;
         tx.execute(&sql, &args)
@@ -637,6 +695,26 @@ impl StacksChainState {
         tx.execute(&sql, &args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
         
+        tx.commit().map_err(Error::DBError)?;
+        Ok(())
+    }
+
+    /// Store users who burned in support of a block
+    fn store_staging_block_user_burn_supports(&mut self, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, burn_supports: &Vec<UserBurnSupportOp>) -> Result<(), Error> {
+        for burn_support in burn_supports.iter() {
+            assert!(burn_support.burn_fee < i64::max_value() as u64);
+        }
+
+        let tx = self.blocks_tx_begin()?;
+
+        for burn_support in burn_supports.iter() {
+            let sql = "INSERT OR REPLACE INTO staging_user_burn_support (anchored_block_hash, burn_header_hash, address, burn_amount, vtxindex) VALUES (?1, ?2, ?3, ?4, ?5)";
+            let args = [&burn_hash.to_hex() as &dyn ToSql, &block_hash.to_hex() as &dyn ToSql, &burn_support.address.to_string() as &dyn ToSql, &(burn_support.burn_fee as i64) as &dyn ToSql, &burn_support.vtxindex as &dyn ToSql];
+
+            tx.execute(&sql, &args)
+                .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        }
+
         tx.commit().map_err(Error::DBError)?;
         Ok(())
     }
@@ -985,15 +1063,17 @@ impl StacksChainState {
     }
 
     /// Validate an anchored block against the burn chain state.
+    /// Returns Some(commit burn, total burn) if valid
+    /// Returns None if not valid
     /// * burn_header_hash is the burnchain block header hash of the burnchain block whose sortition
     /// (ostensibly) selected this block for inclusion.
-    pub fn validate_anchored_block_burnchain<'a>(tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<bool, Error> {
+    pub fn validate_anchored_block_burnchain<'a>(tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<Option<(u64, u64)>, Error> {
         // sortition-winning block commit for this block?
         let block_commit = match BurnDB::get_block_commit_for_stacks_block(tx, burn_header_hash, &block.block_hash()).map_err(Error::DBError)? {
             Some(bc) => bc,
             None => {
                 // unsoliciated
-                return Ok(false);
+                return Ok(None);
             }
         };
 
@@ -1023,7 +1103,7 @@ impl StacksChainState {
                     Some(commit) => commit,
                     None => {
                         // unsolicited -- orphaned
-                        return Ok(false);
+                        return Ok(None);
                     }
                 };
 
@@ -1033,7 +1113,14 @@ impl StacksChainState {
             };
 
         let valid = block.header.validate_burnchain(&burn_chain_tip, &sortition_snapshot, &leader_key, &block_commit, &stacks_chain_tip);
-        Ok(valid)
+        if !valid {
+            return Ok(None);
+        }
+
+        let sortition_burns = BurnDB::get_block_burn_amount(tx, block_commit.block_height - 1, &block_commit.burn_header_hash)
+            .expect("FATAL: have block commit but no total burns in its sortition");
+
+        Ok(Some((block_commit.burn_fee, sortition_burns)))
     }
 
     /// Pre-process and store an anchored block to staging, queuing it up for
@@ -1042,23 +1129,36 @@ impl StacksChainState {
     /// Caller must have called BurnDB::expects_stacks_block() to determine if this block belongs
     /// to the blockchain.  The burn_header_hash is the hash of the burnchain block whose sortition
     /// elected the given Stacks block.
+    /// 
+    /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
+    /// deciding whether or not it can be processed.  If it's not full enough, and there were
+    /// pending transactions at the time it was relayed, then drop it.  Requires a working mempool.
     pub fn preprocess_anchored_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<bool, Error> {
         // already in queue or already processed?
         if self.has_stored_block(burn_header_hash, &block.block_hash())? || self.has_staging_block(burn_header_hash, &block.block_hash())? {
             return Ok(false);
         }
         
-        // does this block match the burnchain state? skip if so
-        let valid_burnchain = StacksChainState::validate_anchored_block_burnchain(burn_tx, burn_header_hash, block)?;
-        if !valid_burnchain {
-            let msg = format!("Invalid block {}: does not correspond to burn chain state", block.block_hash());
-            warn!("{}", &msg);
+        // does this block match the burnchain state? skip if not
+        let (commit_burn, sortition_burn) = match StacksChainState::validate_anchored_block_burnchain(burn_tx, burn_header_hash, block)? {
+            Some((commit_burn, sortition_burn)) => (commit_burn, sortition_burn),
+            None => { 
+                let msg = format!("Invalid block {}: does not correspond to burn chain state", block.block_hash());
+                warn!("{}", &msg);
 
-            return Err(Error::InvalidStacksBlock(msg));
-        }
+                return Err(Error::InvalidStacksBlock(msg));
+            }
+        };
+    
+        // find all user burns that supported this block 
+        let user_burns = BurnDB::get_winning_user_burns_by_block(burn_tx, burn_header_hash)
+            .map_err(Error::DBError)?;
      
         // queue block up for processing
-        self.store_staging_block(burn_header_hash, &block, parent_burn_header_hash)?;
+        self.store_staging_block(burn_header_hash, &block, parent_burn_header_hash, commit_burn, sortition_burn)?;
+
+        // store users who burned for this block so they'll get rewarded if we process it
+        self.store_staging_block_user_burn_supports(burn_header_hash, &block.block_hash(), &user_burns)?;
 
         // ready to go
         Ok(true)
@@ -1106,7 +1206,7 @@ impl StacksChainState {
         Ok(true)
     }
 
-    /// Get the coinbase at this block height
+    /// Get the coinbase at this block height, in microSTX
     fn get_coinbase_reward(block_height: u64) -> u128 {
         /*
         From the token whitepaper:
@@ -1123,18 +1223,33 @@ impl StacksChainState {
         */
         let blocks_per_year = 52596;
         if block_height < blocks_per_year * 5 {
-            500
+            500000000
         }
         else if block_height < blocks_per_year * 10 {
-            400
+            400000000
         }
         else {
-            300
+            300000000
         }
     }
 
-    /// Create the block reward
-    fn make_miner_reward(mainnet: bool, block: &StacksBlock, block_height: u64, tx_fees: u128, streamed_fees: u128, burns: u128) -> Result<MinerPaymentSchedule, Error> {
+    /// Create the block reward.
+    /// TODO: calculate how full the block was.
+    /// TODO: tx_fees needs to be normalized _a priori_ to be equal to the block-determined fee
+    /// rate, times the fraction of the block's total utilization.
+    fn make_scheduled_miner_reward(mainnet: bool, 
+                                   parent_block_hash: &BlockHeaderHash, 
+                                   parent_burn_header_hash: &BurnchainHeaderHash, 
+                                   block: &StacksBlock, 
+                                   block_burn_header_hash: &BurnchainHeaderHash, 
+                                   block_height: u64, 
+                                   tx_fees: u128, 
+                                   streamed_fees: u128, 
+                                   stx_burns: u128,
+                                   burnchain_commit_burn: u64,
+                                   burnchain_sortition_burn: u64,
+                                   fill: u64) -> Result<MinerPaymentSchedule, Error> 
+    {
         let coinbase_tx = block.get_coinbase_tx().ok_or(Error::InvalidStacksBlock("No coinbase transaction".to_string()))?;
         let miner_auth = coinbase_tx.get_origin();
         let miner_addr = 
@@ -1148,10 +1263,19 @@ impl StacksChainState {
         let miner_reward = MinerPaymentSchedule {
             address: miner_addr,
             block_hash: block.block_hash(),
+            burn_header_hash: block_burn_header_hash.clone(),
+            parent_block_hash: parent_block_hash.clone(),
+            parent_burn_header_hash: parent_burn_header_hash.clone(),
             coinbase: StacksChainState::get_coinbase_reward(block_height),
             tx_fees_anchored: tx_fees,
             tx_fees_streamed: streamed_fees,
-            burns: burns
+            stx_burns: stx_burns,
+            burnchain_commit_burn: burnchain_commit_burn,
+            burnchain_sortition_burn: burnchain_sortition_burn,
+            fill: fill,
+            miner: true,
+            stacks_block_height: block_height,
+            vtxindex: 0 
         };
         
         Ok(miner_reward)
@@ -1222,12 +1346,15 @@ impl StacksChainState {
 
     /// Process a stream of microblocks
     /// Return the fees and burns.
-    fn process_microblocks_transactions<'a>(clarity_tx: &mut ClarityTx<'a>, microblocks: &Vec<StacksMicroblock>) -> Result<(u128, u128), Error> {
+    /// TODO: if we find an invalid Stacks microblock, then punish the miner who produced it
+    fn process_microblocks_transactions<'a>(clarity_tx: &mut ClarityTx<'a>, microblocks: &Vec<StacksMicroblock>) -> Result<(u128, u128), (Error, BlockHeaderHash)> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         for microblock in microblocks.iter() {
             for tx in microblock.txs.iter() {
-                let (tx_fee, tx_burns) = StacksChainState::process_transaction(clarity_tx, tx)?;
+                let (tx_fee, tx_burns) = StacksChainState::process_transaction(clarity_tx, tx)
+                    .map_err(|e| (e, microblock.block_hash()))?;
+
                 fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
                 burns = burns.checked_add(tx_burns as u128).expect("Burns overflow");
             }
@@ -1248,12 +1375,102 @@ impl StacksChainState {
         Ok((fees, burns))
     }
 
+    /// Process a single matured miner reward.
+    /// Grant it STX tokens in the miner trust fund contract from the chain's boot code.
+    fn process_matured_miner_reward<'a>(clarity_tx: &mut ClarityTx<'a>, miner_reward: &MinerReward) -> Result<(), Error> {
+        let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
+        let miner_contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(boot_code_address.clone()), ContractName::try_from(BOOT_CODE_MINER_CONTRACT_NAME.to_string()).unwrap());
+        
+        let miner_participant_principal = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_PARTICIPANT.to_string()).unwrap();
+        let miner_available_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AVAILABLE.to_string()).unwrap();
+        let miner_authorized_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AUTHORIZED.to_string()).unwrap();
+        
+        let miner_principal = Value::Tuple(TupleData::from_data(vec![
+                (miner_participant_principal, Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(miner_reward.address.clone()))))])
+            .expect("FATAL: failed to construct miner principal key"));
+
+        let miner_reward_total = miner_reward.total();
+       
+        clarity_tx.connection().with_clarity_db(|ref mut db| {
+            // (+ reward (get available (default-to (tuple (available 0) (authorized 'false)) (map-get rewards ((miner))))))
+            let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)?;
+            let new_miner_status = 
+                match miner_status_opt {
+                    Value::Optional(ref optional_data) => {
+                        match optional_data.data {
+                            None => {
+                                // this miner doesn't have an entry in the contract yet
+                                Value::Tuple(TupleData::from_data(vec![
+                                    (miner_available_name, Value::UInt(miner_reward_total)),
+                                    (miner_authorized_name, Value::Bool(false)),
+                                ]).expect("FATAL: failed to construct miner reward tuple"))
+                            },
+                            Some(ref miner_status) => {
+                                match **miner_status {
+                                    Value::Tuple(ref tuple) => {
+                                        let new_available = match tuple.get(&miner_available_name).expect("FATAL: no miner name in tuple") {
+                                            Value::UInt(ref available) => {
+                                                let new_available = available.checked_add(miner_reward_total).expect("FATAL: STX reward overflow");
+                                                Value::UInt(new_available)
+                                            },
+                                            _ => {
+                                                panic!("FATAL: miner reward data map is malformed");
+                                            }
+                                        };
+                                        
+                                        let mut new_tuple = tuple.clone();
+                                        new_tuple.data_map.insert(miner_available_name.clone(), new_available);
+                                        Value::Tuple(new_tuple)
+                                    },
+                                    ref x => {
+                                        panic!("FATAL: miner status is not a tuple: {:?}", &x);
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    ref x => {
+                        panic!("FATAL: fetched miner status it not an optional: {:?}", &x);
+                    }
+                };
+
+            debug!("Grant miner {} {} STX", miner_reward.address.to_string(), miner_reward_total);
+            db.set_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, miner_principal, new_miner_status)?;
+            Ok(())
+        }).map_err(Error::ClarityError)?;
+        Ok(())
+    }
+
+    /// Process matured miner rewards for this block
+    pub fn process_matured_miner_rewards<'a>(clarity_tx: &mut ClarityTx<'a>, miner_rewards: &Vec<MinerReward>) -> Result<(), Error> {
+        // must all be in order by vtxindex, and the first reward (the miner's) must have vtxindex 0
+        assert!(miner_rewards.len() > 0);
+        assert!(miner_rewards[0].vtxindex == 0);
+        for i in 0..miner_rewards.len()-1 {
+            assert!(miner_rewards[i].vtxindex < miner_rewards[i+1].vtxindex);
+        }
+
+        // store each reward into the miner trust fund contract in the chain boot code
+        for reward in miner_rewards.iter() {
+            StacksChainState::process_matured_miner_reward(clarity_tx, reward)?;
+        }
+        Ok(())
+    }
+
     /// Process the next pre-processed staging block.
     /// We've already processed parent_chain_tip.  chain_tip refers to a block we have _not_
     /// processed yet.
     /// Returns a StacksHeaderInfo with the microblock stream and chain state index root hash filled in, corresponding to the next block to process.
     /// Returns None if we're out of blocks to process.
-    fn append_block(&mut self, parent_chain_tip: &StacksHeaderInfo, chain_tip_burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> Result<StacksHeaderInfo, Error> {
+    fn append_block(&mut self, 
+                    parent_chain_tip: &StacksHeaderInfo, 
+                    chain_tip_burn_header_hash: &BurnchainHeaderHash, 
+                    block: &StacksBlock, 
+                    microblocks: &Vec<StacksMicroblock>, 
+                    burnchain_commit_burn: u64, 
+                    burnchain_sortition_burn: u64, 
+                    user_burns: &Vec<StagingUserBurnSupport>) -> Result<StacksHeaderInfo, Error>
+    {
         let mainnet = self.mainnet;
         let block_hash = block.block_hash();
         let next_block_height = parent_chain_tip.block_height.checked_add(1).expect("Blockchain overflow");
@@ -1261,8 +1478,8 @@ impl StacksChainState {
             panic!("Blockchain overflow!");
         }
 
-        // this looks awkward, but it keeps the borrow checker happy
-        let inner_process_block = |state: &mut StacksChainState| {
+        // this looks awkward, but it keeps the borrow checker happy since `self` isn't in scope
+        let inner_process_block = |state: &mut StacksChainState, matured_miner_rewards_opt: Option<&Vec<MinerReward>>| {
             let (parent_burn_header_hash, parent_block_hash) = 
                 if block.header.is_genesis() {
                     // has to be all 0's if this block has no parent
@@ -1276,20 +1493,23 @@ impl StacksChainState {
             
             // NOTE: need to insert the child block's hashes as all 0's, since this is what the
             // miner would have done when they mined the block.
-            let mut clarity_tx = state.block_begin(&parent_burn_header_hash, &parent_block_hash, &BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]));
+            let mut clarity_tx = state.block_begin(&parent_burn_header_hash, &parent_block_hash, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+
+            // process microblock stream
             let (microblock_fees, microblock_burns) = match StacksChainState::process_microblocks_transactions(&mut clarity_tx, &microblocks) {
-                Err(e) => {
-                    let msg = format!("Invalid Stacks microblocks {},{}: {:?}", block.header.parent_microblock.to_hex(), block.header.parent_microblock_sequence, &e);
+                Err((e, offending_mblock_header_hash)) => {
+                    let msg = format!("Invalid Stacks microblocks {},{} (offender {}): {:?}", block.header.parent_microblock.to_hex(), block.header.parent_microblock_sequence, offending_mblock_header_hash.to_hex(), &e);
                     warn!("{}", &msg);
 
                     clarity_tx.rollback_block();
-                    return Err(Error::InvalidStacksBlock(msg));
+                    return Err(Error::InvalidStacksMicroblock(msg, offending_mblock_header_hash));
                 },
                 Ok((fees, burns)) => {
                     (fees, burns)
                 }
             };
 
+            // process anchored block
             let (block_fees, block_burns) = match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {
                 Err(e) => {
                     let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash().to_hex(), &e);
@@ -1301,6 +1521,12 @@ impl StacksChainState {
                 Ok((block_fees, block_burns)) => (block_fees, block_burns)
             };
 
+            // grant matured miner rewards
+            if let Some(mature_miner_rewards) = matured_miner_rewards_opt {
+                // grant in order by miner, then users
+                StacksChainState::process_matured_miner_rewards(&mut clarity_tx, &mature_miner_rewards)?;
+            }
+
             let root_hash = clarity_tx.get_root_hash();
             if root_hash != block.header.state_index_root {
                 let msg = format!("Block {} state root mismatch: expected {}, got {}", block.block_hash(), root_hash, block.header.state_index_root);
@@ -1311,32 +1537,40 @@ impl StacksChainState {
             }
 
             debug!("Reached state root {}", root_hash.to_hex());
-
-            let miner_reward = match StacksChainState::make_miner_reward(mainnet, &block, next_block_height, block_fees, microblock_fees, block_burns) {
-                Err(e) => {
-                    let msg = format!("Invalid Stacks block {}: failed to find coinbase", block.block_hash().to_hex());
-                    warn!("{}", &msg);
-
-                    clarity_tx.rollback_block();
-                    return Err(Error::InvalidStacksBlock(msg));
-                },
-                Ok(reward) => reward
-            };
-
+            
             // good to go!
             clarity_tx.commit_to_block(next_block_height as u32, chain_tip_burn_header_hash, &block.block_hash());
-            Ok(miner_reward)
+
+            // calculate reward for this block's miner
+            let scheduled_miner_reward = StacksChainState::make_scheduled_miner_reward(mainnet, 
+                                                                                       &parent_block_hash, 
+                                                                                       &parent_burn_header_hash, 
+                                                                                       &block, 
+                                                                                       chain_tip_burn_header_hash, 
+                                                                                       next_block_height, 
+                                                                                       block_fees,                // TODO: calculate (STX/compute unit) * (compute used) 
+                                                                                       microblock_fees, 
+                                                                                       block_burns,
+                                                                                       burnchain_commit_burn,
+                                                                                       burnchain_sortition_burn,
+                                                                                       0xffffffffffffffff)        // TODO: calculate total compute budget and scale up
+                .expect("FATAL: parsed and processed a block without a coinbase");
+
+            Ok(scheduled_miner_reward)
         };
 
-        let miner_reward = match inner_process_block(self) {
-            Err(e) => {
-                self.free_block_state(chain_tip_burn_header_hash, &block.header).expect("Failed to free block state");
-                return Err(e);
-            },
-            Ok(reward) => reward
+
+        // find matured miner rewards, so we can grant them within the Clarity DB tx.
+        let matured_miner_rewards_opt = {
+            let mut tx = self.headers_tx_begin()?;
+            StacksChainState::find_mature_miner_rewards(&mut tx, parent_chain_tip)?
         };
+
+        let scheduled_miner_reward = inner_process_block(self, matured_miner_rewards_opt.as_ref())?;
         
-        let mut new_tip = self.advance_tip(&parent_chain_tip.anchored_header, &parent_chain_tip.burn_header_hash, parent_chain_tip.block_height, &block.header, chain_tip_burn_header_hash, &miner_reward)?;
+        let mut new_tip = self.advance_tip(&parent_chain_tip.anchored_header, &parent_chain_tip.burn_header_hash, parent_chain_tip.block_height, &block.header, chain_tip_burn_header_hash, &scheduled_miner_reward, user_burns)
+            .expect("FATAL: failed to advance chain tip");
+
         new_tip.microblock_tail = match microblocks.len() {
             0 => None,
             x => Some(microblocks[x - 1].header.clone())
@@ -1430,8 +1664,36 @@ impl StacksChainState {
             next_microblocks.truncate(microblock_terminus);
         }
 
+        // find users that burned in support of this block, so we can calculate the miner reward
+        let user_supports = self.load_staging_block_user_supports(&next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash)?;
+
         // find the corresponding stacks chain tip
-        let next_chain_tip = self.append_block(&parent_block_header_info, &next_staging_block.burn_header_hash, &block, &next_microblocks)?;
+        let next_chain_tip = match self.append_block(&parent_block_header_info, &next_staging_block.burn_header_hash, &block, &next_microblocks, next_staging_block.commit_burn, next_staging_block.sortition_burn, &user_supports) {
+            Ok(next_chain_tip) => next_chain_tip,
+            Err(e) => {
+                self.free_block_state(&next_staging_block.burn_header_hash, &block.header);
+                self.set_block_processed(&next_staging_block.burn_header_hash, &block.header.block_hash(), false)
+                    .expect(&format!("FATAL: failed to clear invalid block {}/{}", next_staging_block.burn_header_hash.to_hex(), &block.header.block_hash().to_hex()));
+
+                match e {
+                    Error::InvalidStacksMicroblock(ref msg, ref header_hash) => {
+                        if next_microblocks.len() == 0 || *header_hash == next_microblocks[0].block_hash() {
+                            // entire stream is invalid
+                            self.set_microblocks_processed(&next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, false)
+                                .expect(&format!("FATAL: failed to clear invalid microblocks off of {}/{}", next_staging_block.burn_header_hash.to_hex(), next_staging_block.anchored_block_hash.to_hex()));
+                        }
+                        // otherwise, there exists a valid microblock in this stream that someone
+                        // else can later build on.
+                    },
+                    _ => {
+                        // block was invalid, but this means the microblocks were valid
+                    }
+                }
+                
+                return Err(e);
+            }
+        };
+
         assert_eq!(next_chain_tip.anchored_header.block_hash(), block.block_hash());
         assert_eq!(next_chain_tip.burn_header_hash, next_staging_block.burn_header_hash);
 
@@ -1693,7 +1955,7 @@ mod test {
         assert_eq!(chainstate.load_block(&BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap().unwrap(), block);
         assert_eq!(chainstate.load_block_header(&BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap().unwrap(), block.header);
 
-        chainstate.free_block_state(&BurnchainHeaderHash([1u8; 32]), &block.header).unwrap();
+        chainstate.free_block_state(&BurnchainHeaderHash([1u8; 32]), &block.header);
 
         assert!(chainstate.has_stored_block(&BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap());
         assert!(chainstate.load_block(&BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap().is_none());
@@ -1709,7 +1971,7 @@ mod test {
         
         assert!(chainstate.load_staging_block(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
 
-        chainstate.store_staging_block(&BurnchainHeaderHash([2u8; 32]), &block, &BurnchainHeaderHash([1u8; 32])).unwrap();
+        chainstate.store_staging_block(&BurnchainHeaderHash([2u8; 32]), &block, &BurnchainHeaderHash([1u8; 32]), 1, 2).unwrap();
 
         assert!(chainstate.load_staging_block(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_some());
         assert_eq!(chainstate.load_staging_block(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().unwrap(), block);
@@ -1741,7 +2003,7 @@ mod test {
         
         assert!(chainstate.load_staging_block(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
 
-        chainstate.store_staging_block(&BurnchainHeaderHash([2u8; 32]), &block, &BurnchainHeaderHash([1u8; 32])).unwrap();
+        chainstate.store_staging_block(&BurnchainHeaderHash([2u8; 32]), &block, &BurnchainHeaderHash([1u8; 32]), 1, 2).unwrap();
 
         assert!(chainstate.load_staging_block(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_some());
         assert_eq!(chainstate.load_staging_block(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().unwrap(), block);
@@ -1784,7 +2046,7 @@ mod test {
         assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap().is_some());
         assert_eq!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap().unwrap(), microblocks);
 
-        chainstate.free_block(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap();
+        chainstate.free_block(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash());
 
         assert!(chainstate.has_stored_block(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap());
         assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap().is_none());
@@ -1802,7 +2064,7 @@ mod test {
         assert!(chainstate.load_staging_microblock(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_none());
         assert!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
 
-        chainstate.store_staging_block(&BurnchainHeaderHash([2u8; 32]), &block, &BurnchainHeaderHash([1u8; 32])).unwrap();
+        chainstate.store_staging_block(&BurnchainHeaderHash([2u8; 32]), &block, &BurnchainHeaderHash([1u8; 32]), 1, 2).unwrap();
         for mb in microblocks.iter() {
             chainstate.store_staging_microblock(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), mb).unwrap();
         }
@@ -1866,7 +2128,7 @@ mod test {
         assert!(chainstate.load_staging_microblock(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_none());
         assert!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
 
-        chainstate.store_staging_block(&BurnchainHeaderHash([2u8; 32]), &block, &BurnchainHeaderHash([1u8; 32])).unwrap();
+        chainstate.store_staging_block(&BurnchainHeaderHash([2u8; 32]), &block, &BurnchainHeaderHash([1u8; 32]), 1, 2).unwrap();
         for mb in microblocks.iter() {
             chainstate.store_staging_microblock(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), mb).unwrap();
         }
