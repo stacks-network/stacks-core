@@ -1967,7 +1967,7 @@ mod test {
         let target_block = BlockHeaderHash([1u8; 32]);
         let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
-        marf.begin(&TrieFileStorage::block_sentinel(), &target_block).unwrap();
+        marf.begin_with_miner_tip(&TrieFileStorage::block_sentinel(), &target_block, Some(&target_block)).unwrap();
 
         let mut root_table_cache = None;
 
@@ -1991,7 +1991,7 @@ mod test {
 
             if let Some(next_block_header) = next_block_header {
                 marf.commit_to(&block_header).unwrap();
-                marf.begin(&block_header, &target_block).unwrap();
+                marf.begin_with_miner_tip(&block_header, &target_block, Some(&target_block)).unwrap();
                 blocks.push(block_header.clone());
                 block_header = next_block_header;
             }
