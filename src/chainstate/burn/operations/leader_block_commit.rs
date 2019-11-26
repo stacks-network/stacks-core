@@ -81,7 +81,7 @@ impl LeaderBlockCommitOp {
             key_vtxindex: paired_key.vtxindex as u16,
             parent_block_ptr: 0,
             parent_vtxindex: 0,
-            memo: vec![0x00],       // informs mined_at not to touch parent backkptrs
+            memo: vec![0x00],
             burn_fee: burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
@@ -277,7 +277,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         }
 
         /////////////////////////////////////////////////////////////////////////////////////
-        // Block must be unique
+        // Block must be unique in this burnchain fork
         /////////////////////////////////////////////////////////////////////////////////////
         
         let is_already_committed = BurnDB::expects_stacks_block_in_fork(tx, &self.block_header_hash, &chain_tip.burn_header_hash)
