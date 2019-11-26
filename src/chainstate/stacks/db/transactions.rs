@@ -92,6 +92,8 @@ impl StacksChainState {
 
     /// Pay the transaction fee (but don't credit it to the miner yet).
     /// Does not touch the account nonce
+    /// TODO: the fee paid here isn't the bare fee in the transaction, but is instead the
+    /// block-wide STX/compute-unit rate, times the compute units used by this tx.
     fn pay_transaction_fee<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction, payer_account: &StacksAccount) -> Result<u64, Error> {
         if payer_account.stx_balance < tx.fee as u128 {
             return Err(Error::InvalidFee);
@@ -387,7 +389,7 @@ impl StacksChainState {
 
     /// Process the transaction's payload, and run the post-conditions against the resulting state.
     /// Returns the number of STX burned.
-    fn process_transaction_payload<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction, origin_account: &StacksAccount) -> Result<u128, Error> {
+    pub fn process_transaction_payload<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction, origin_account: &StacksAccount) -> Result<u128, Error> {
         let stx_burned = match tx.payload {
             TransactionPayload::TokenTransfer(_) => {
                 // this only works for standard authorizations
@@ -523,7 +525,7 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
-        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]));
+        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
 
         // give the spending account some stx
         let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -604,7 +606,7 @@ pub mod test {
 
         let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), contract_name.clone());
 
-        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]));
+        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
 
         // instantiate the contract and its tokens
         {
@@ -727,7 +729,7 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
-        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]));
+        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
 
         let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from("hello-world"));
         let contract_before_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
@@ -740,6 +742,68 @@ pub mod test {
 
         let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account.nonce, 1);
+
+        let contract_res = StacksChainState::get_contract(&mut conn, &contract_id);
+        
+        conn.commit_block();
+
+        assert_eq!(fee, 0);
+        assert!(contract_res.is_ok());
+    }
+
+    #[test]
+    fn process_smart_contract_sponsored_transaction() {
+        let contract = "
+        (define-data-var bar int 0)
+        (define-public (get-bar) (ok (var-get bar)))
+        (define-public (set-bar (x int) (y int))
+          (begin (var-set! bar (/ x y)) (ok (var-get bar))))";
+
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-transaction");
+
+        let privk_origin = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
+        let privk_sponsor = StacksPrivateKey::from_hex("7e3af4db6af6b3c67e2c6c6d7d5983b519f4d9b3a6e00580ae96dcace3bde8bc01").unwrap();
+
+        let auth_origin = TransactionAuth::from_p2pkh(&privk_origin).unwrap();
+        let auth_sponsor = TransactionAuth::from_p2pkh(&privk_sponsor).unwrap();
+
+        let auth = auth_origin.into_sponsored(auth_sponsor).unwrap();
+
+        let addr = auth.origin().address_testnet();
+        let addr_sponsor = auth.sponsor().unwrap().address_testnet();
+        
+        let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
+                                                          auth.clone(),
+                                                          TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
+
+        tx_contract_call.chain_id = 0x80000000;
+        tx_contract_call.set_fee(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_contract_call);
+        signer.sign_origin(&privk_origin).unwrap();
+        signer.sign_sponsor(&privk_sponsor).unwrap();
+
+        let signed_tx = signer.get_tx().unwrap();
+
+        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+
+        let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from("hello-world"));
+        let contract_before_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
+        assert!(contract_before_res.is_none());
+
+        let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+        assert_eq!(account.nonce, 0);
+        
+        let account_sponsor = StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
+        assert_eq!(account.nonce, 0);
+
+        let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
+
+        let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+        assert_eq!(account.nonce, 1);
+        
+        let account_sponsor = StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
+        assert_eq!(account_sponsor.nonce, 1);
 
         let contract_res = StacksChainState::get_contract(&mut conn, &contract_id);
         
@@ -794,7 +858,7 @@ pub mod test {
         let signed_tx_2 = signer_2.get_tx().unwrap();
 
         // process both
-        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]));
+        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
 
         let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account.nonce, 0);
@@ -833,7 +897,105 @@ pub mod test {
         assert!(var_res.is_some());
         assert_eq!(var_res, Some(Value::Int(3)));
     }
+    
+    #[test]
+    fn process_smart_contract_contract_call_sponsored_transaction() {
+        let contract = "
+        (define-data-var bar int 0)
+        (define-public (get-bar) (ok (var-get bar)))
+        (define-public (set-bar (x int) (y int))
+          (begin (var-set! bar (/ x y)) (ok (var-get bar))))";
 
-    // TODO: test sponsored transactions
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-transaction");
+
+        // contract instantiation
+        let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr_publisher = auth.origin().address_testnet();
+        
+        let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
+                                                     auth.clone(),
+                                                     TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
+
+        tx_contract.chain_id = 0x80000000;
+        tx_contract.set_fee(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_contract);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_tx = signer.get_tx().unwrap();
+
+        // sponsored contract-call
+        let privk_origin = StacksPrivateKey::from_hex("027682d2f7b05c3801fe4467883ab4cff0568b5e36412b5289e83ea5b519de8a01").unwrap();
+        let privk_sponsor = StacksPrivateKey::from_hex("7e3af4db6af6b3c67e2c6c6d7d5983b519f4d9b3a6e00580ae96dcace3bde8bc01").unwrap();
+
+        let auth_origin = TransactionAuth::from_p2pkh(&privk_origin).unwrap();
+        let auth_sponsor = TransactionAuth::from_p2pkh(&privk_sponsor).unwrap();
+
+        let auth_contract_call = auth_origin.into_sponsored(auth_sponsor).unwrap();
+
+        let addr_origin = auth_contract_call.origin().address_testnet();
+        let addr_sponsor = auth_contract_call.sponsor().unwrap().address_testnet();
+
+        let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
+                                                          auth_contract_call.clone(),
+                                                          TransactionPayload::new_contract_call(&addr_publisher, "hello-world", "set-bar", &vec!["6", "2"]).unwrap());
+
+        tx_contract_call.chain_id = 0x80000000;
+        tx_contract_call.set_fee(0);
+
+        let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
+        signer_2.sign_origin(&privk_origin).unwrap();
+        signer_2.sign_sponsor(&privk_sponsor).unwrap();
+       
+        let signed_tx_2 = signer_2.get_tx().unwrap();
+
+        // process both
+        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+
+        let account_publisher = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
+        assert_eq!(account_publisher.nonce, 0);
+
+        let account_origin = StacksChainState::get_account(&mut conn, &addr_origin.to_account_principal());
+        assert_eq!(account_origin.nonce, 0);
+        
+        let account_sponsor = StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
+        assert_eq!(account_sponsor.nonce, 0);
+        
+        let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr_publisher.clone()), ContractName::from("hello-world"));
+        let contract_before_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
+        assert!(contract_before_res.is_none());
+
+        let var_before_res = StacksChainState::get_data_var(&mut conn, &contract_id, "bar").unwrap();
+        assert!(var_before_res.is_none());
+
+        let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
+        
+        let account_publisher = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
+        assert_eq!(account_publisher.nonce, 1);
+
+        let var_before_set_res = StacksChainState::get_data_var(&mut conn, &contract_id, "bar").unwrap();
+        assert_eq!(var_before_set_res, Some(Value::Int(0)));
+
+        let (fee_2, _) = StacksChainState::process_transaction(&mut conn, &signed_tx_2).unwrap();
+        
+        let account_origin = StacksChainState::get_account(&mut conn, &addr_origin.to_account_principal());
+        assert_eq!(account_origin.nonce, 1);
+        
+        let account_sponsor = StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
+        assert_eq!(account_sponsor.nonce, 1);
+
+        let contract_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
+        let var_res = StacksChainState::get_data_var(&mut conn, &contract_id, "bar").unwrap();
+        
+        conn.commit_block();
+
+        assert_eq!(fee, 0);
+        assert_eq!(fee_2, 0);
+        assert!(contract_res.is_some());
+        assert!(var_res.is_some());
+        assert_eq!(var_res, Some(Value::Int(3)));
+    }
+
     // TODO: test that you can't send to yourself
 }
