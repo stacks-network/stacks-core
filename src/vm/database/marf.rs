@@ -94,13 +94,16 @@ pub fn sqlite_marf(path_str: &str, chain_tip: Option<BlockHeaderHash>) -> Result
 }
 
 impl <S> MarfedKV <S> where S: KeyValueStorage {
-    pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
-        self.marf.begin(current, next)
-            .expect(&format!("ERROR: Failed to begin new MARF block {} - {}", current.to_hex(), next.to_hex()));
+    pub fn begin_with_miner_tip(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash, miner_tip: Option<&BlockHeaderHash>) {
+        self.marf.begin_with_miner_tip(current, next, miner_tip)
+            .expect(&format!("ERROR: Failed to begin new MARF block {} - {} (miner tip {:?})", current.to_hex(), next.to_hex(), miner_tip));
         self.chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Failed to get open MARF")
             .clone();
         self.side_store.begin(&self.chain_tip);
+    }
+    pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
+        self.begin_with_miner_tip(current, next, None)
     }
     pub fn rollback(&mut self) {
         self.marf.drop_current();
