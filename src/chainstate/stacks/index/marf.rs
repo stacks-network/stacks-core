@@ -635,10 +635,20 @@ impl MARF {
     }
 
     /// Begin writing the next trie in the MARF, given the block header hash that will contain the
-    /// associated block's new state.  Call commit() to persist the changes.
+    /// associated block's new state.  Call commit() or commit_to() to persist the changes.
     /// Fails if the block already exists.
     /// Storage will point to new chain tip on success.
-    pub fn begin(&mut self, chain_tip: &BlockHeaderHash, next_chain_tip: &BlockHeaderHash) -> Result<(), Error> {
+    ///
+    /// When using this method to mine and validate Stacks blocks, the caller will 
+    /// be using a sentinel value for next_chain_tip.  This is because this method is
+    /// used to begin processing a block whose hash was not known to the miner.  Therefore,
+    /// in order to calculate the same Trie root hash that the miner put into the block, the peer
+    /// will need to pass the same value for next_chain_tip that the miner did (which was _not_ the
+    /// block hash).  In addition, to properly map the block height to the block hash when setting
+    /// up the new chain tip, the caller may need to supply the sentinel value used by the miner
+    /// for the _previous_ block in order to find the block height for this next block.  This
+    /// should be passed as an the optional miner_tip, if it is different than in chain_tip.
+    pub fn begin_with_miner_tip(&mut self, chain_tip: &BlockHeaderHash, next_chain_tip: &BlockHeaderHash, miner_tip: Option<&BlockHeaderHash>) -> Result<(), Error> {
         if self.open_chain_tip.is_some() {
             return Err(Error::InProgressError);
         }
@@ -661,10 +671,27 @@ impl MARF {
 
         let block_height = 
             if !is_parent_sentinel {
-                MARF::get_block_height(&mut self.storage, chain_tip, chain_tip)?
-                    .ok_or_else(|| Error::CorruptionError(format!("Failed to find block height for `{:?}`", chain_tip)))?
-                    .checked_add(1)
-                    .expect("FAIL: Block height overflow!")
+                // try looking in this chain tip, and if not present, try the tips the miner would
+                // have used when building the block.
+                let height = match MARF::get_block_height(&mut self.storage, chain_tip, chain_tip)? {
+                    Some(h) => h,
+                    None => match miner_tip {
+                        Some(ref miner_tip) => {
+                            match MARF::get_block_height(&mut self.storage, miner_tip, chain_tip)? {
+                                Some(h) => h,
+                                None => {
+                                    return Err(Error::CorruptionError(format!("Failed to find block height for `{:?}` (tried `{:?}`)", chain_tip, miner_tip)));
+                                }
+                            }
+                        }
+                        None => {
+                            return Err(Error::CorruptionError(format!("Failed to find block height for `{:?}`", chain_tip)));
+                        }
+                    }
+                };
+
+                height.checked_add(1).expect("FATAL: block height overflow!")
+
             } else {
                 0
             };
@@ -677,7 +704,25 @@ impl MARF {
             .map_err(|e| {
                 self.open_chain_tip = None;
                 e
-            })
+            })?;
+
+        if block_height > 0 {
+            // When the last block was processed, we didn't yet know the block hash, so we'll store
+            // it in this block instead.
+            self.set_block_height(chain_tip, block_height - 1)
+                .map_err(|e| {
+                    self.open_chain_tip = None;
+                    e
+                })?;
+        }
+
+        test_debug!("Opened {:?}", chain_tip);
+        Ok(())
+    }
+    
+    /// Convenience wrapper for begin_with_miner_tip
+    pub fn begin(&mut self, chain_tip: &BlockHeaderHash, next_chain_tip: &BlockHeaderHash) -> Result<(), Error> {
+        self.begin_with_miner_tip(chain_tip, next_chain_tip, None)
     }
 
     /// Drop the current trie from the MARF. This rolls back all
@@ -708,7 +753,7 @@ impl MARF {
                 Some(ref tip) => tip.height,
                 None => unreachable!()
             };
-            self.set_block_height(real_bhh, height)?;
+            // self.set_block_height(real_bhh, height)?;
         }
 
         match self.open_chain_tip.take() {
