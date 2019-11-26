@@ -21,12 +21,22 @@ use vm::database::{
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
 
+#[repr(u8)]
 pub enum StoreType {
-    DataMap, Variable, FungibleToken, CirculatingSupply, NonFungibleToken,
-    DataMapMeta, VariableMeta, FungibleTokenMeta, NonFungibleTokenMeta,
-    Contract,
-    SimmedBlock, SimmedBlockHeight,
-    Nonce, STXBalance
+    DataMap = 0x00,
+    Variable = 0x01,
+    FungibleToken = 0x02,
+    CirculatingSupply = 0x03,
+    NonFungibleToken = 0x04,
+    DataMapMeta = 0x05,
+    VariableMeta = 0x06,
+    FungibleTokenMeta = 0x07,
+    NonFungibleTokenMeta = 0x08,
+    Contract = 0x09,
+    SimmedBlock = 0x10,
+    SimmedBlockHeight = 0x11,
+    Nonce = 0x12,
+    STXBalance = 0x13
 }
 
 pub struct ClarityDatabase<'a> {
