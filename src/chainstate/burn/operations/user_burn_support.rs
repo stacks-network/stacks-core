@@ -61,24 +61,6 @@ struct ParsedData {
 }
 
 impl UserBurnSupportOp {
-    #[cfg(test)]
-    pub fn new(public_key: &VRFPublicKey, key_block_height: u32, key_vtxindex: u16, block_hash: &BlockHeaderHash, burn_fee: u64) -> UserBurnSupportOp {
-        UserBurnSupportOp {
-            public_key: public_key.clone(),
-            block_header_hash_160: Hash160::from_sha256(block_hash.as_bytes()),
-            burn_fee: burn_fee,
-            key_vtxindex: key_vtxindex,
-            key_block_ptr: key_block_height,
-            
-            // to be filled in 
-            consensus_hash: ConsensusHash([0u8; 20]),
-            txid: Txid([0u8; 32]),
-            vtxindex: 0,
-            block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-        }
-    }
-
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
@@ -133,6 +115,11 @@ impl UserBurnSupportOp {
             return Err(op_error::InvalidInput);
         }
 
+        if outputs.len() < 2 {
+            test_debug!("Invalid tx: inputs: {}, outputs: {}", inputs.len(), outputs.len());
+            return Err(op_error::InvalidInput);
+        }
+
         if tx.opcode() != Opcodes::UserBurnSupport as u8 {
             test_debug!("Invalid tx: invalid opcode {}", tx.opcode());
             return Err(op_error::InvalidInput);
@@ -167,6 +154,7 @@ impl UserBurnSupportOp {
         }
 
         Ok(UserBurnSupportOp {
+            address: outputs[1].address.clone(),
             consensus_hash: data.consensus_hash,
             public_key: data.public_key,
             block_header_hash_160: data.block_header_hash_160,
@@ -307,6 +295,7 @@ mod tests {
             OpFixture {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402204c51707ac34b6dcbfc518ba40c5fc4ef737bf69cc21a9f8a8e6f621f511f78e002200caca0f102d5df509c045c4fe229d957aa7ef833dc8103dc2fe4db15a22bab9e012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000030000000000000000536a4c5069645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a3333333333333333333333333333333333333333010203040539300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
                 result: Some(UserBurnSupportOp {
+                    address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_string(&"mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()).unwrap()),
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222200").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("22a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7a33333333333333333333333333333333333333").unwrap()).unwrap(),
@@ -499,6 +488,7 @@ mod tests {
             CheckFixture {
                 // reject -- bad consensus hash
                 op: UserBurnSupportOp {
+                    address: StacksAddress::new(1, Hash160([1u8; 20])),
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("1000000000000000000000000000000000000000").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
@@ -516,6 +506,7 @@ mod tests {
             CheckFixture {
                 // reject -- no leader key
                 op: UserBurnSupportOp {
+                    address: StacksAddress::new(1, Hash160([1u8; 20])),
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
@@ -533,6 +524,7 @@ mod tests {
             CheckFixture {
                 // accept 
                 op: UserBurnSupportOp {
+                    address: StacksAddress::new(1, Hash160([1u8; 20])),
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
