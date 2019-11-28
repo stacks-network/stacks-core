@@ -478,7 +478,7 @@ impl MARF {
     /// Instantiate the MARF using a TrieFileStorage instance, from the given path on disk.
     /// This will have the side-effect of instantiating a new fork table from the tries encoded on
     /// disk. Performant code should call this method sparingly.
-    pub fn from_path(path: &str) -> Result<MARF, Error> {
+    pub fn from_path(path: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MARF, Error> {
         let mut file_storage = TrieFileStorage::new(path)?;
         match fs::metadata(path) {
             Ok(_) => {},
@@ -490,6 +490,10 @@ impl MARF {
                 MARF::format(&mut file_storage, &TrieFileStorage::block_sentinel())?;
             }
         };
+
+        if let Some(ref miner_tip) = miner_tip {
+            file_storage.set_miner_tip(*miner_tip.clone());
+        }
 
         Ok(MARF::from_storage(file_storage))
     }
@@ -516,7 +520,7 @@ impl MARF {
         result.map(|option_result| option_result.map(|leaf| leaf.data))        
     }
 
-    pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
+    pub fn get_block_height_miner_tip(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash, miner_tip: Option<&BlockHeaderHash>) -> Result<Option<u32>, Error> {
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
         #[cfg(test)] {
             // used in testing in order to short-circuit block-height lookups
@@ -526,10 +530,40 @@ impl MARF {
             }
         }
 
-        MARF::get_by_key(storage, current_block_hash, &hash_key)
-            .map(|option_result| {
-                option_result.map( |marf_value| { u32::from(marf_value) } )
-            })
+        match MARF::get_by_key(storage, current_block_hash, &hash_key)? {
+            Some(marf_value) => {
+                let height = u32::from(marf_value);
+                Ok(Some(height))
+            },
+            None => {
+                if *block_hash == *current_block_hash {
+                    if let Some(miner_tip) = miner_tip {
+                        // the miner cannot have inserted the hash of this block, so use the miner
+                        // sentinel value instead
+                        let miner_hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, miner_tip);
+                        match MARF::get_by_key(storage, current_block_hash, &miner_hash_key)? {
+                            Some(marf_value) => {
+                                let height = u32::from(marf_value);
+                                Ok(Some(height))
+                            },
+                            None => {
+                                Ok(None)
+                            }
+                        }
+                    }
+                    else {
+                        Ok(None)
+                    }
+                }
+                else {
+                    Ok(None)
+                }
+            }
+        }
+    }
+    
+    pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
+        MARF::get_block_height_miner_tip(storage, block_hash, current_block_hash, None)
     }
 
     pub fn get_block_at_height(storage: &mut TrieFileStorage, height: u32, current_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
@@ -548,19 +582,45 @@ impl MARF {
 
         MARF::get_by_key(storage, current_block_hash, &height_key)
             .map(|option_result| {
-                option_result.map( |marf_value| { BlockHeaderHash::from(marf_value) } )
+                option_result.map( |marf_value| { 
+                    let block_hash = BlockHeaderHash::from(marf_value);
+                    block_hash
+                })
             })
     }
 
-    pub fn set_block_height(&mut self, block_hash: &BlockHeaderHash, height: u32) -> Result<(), Error> {
+    pub fn set_block_heights(&mut self, block_hash: &BlockHeaderHash, next_block_hash: &BlockHeaderHash, height: u32) -> Result<(), Error> {
+        let mut keys = vec![];
+        let mut values = vec![];
+
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
-        let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
+        let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash);
 
-        test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, block_hash.to_hex());
-        test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash.to_hex(), height);
+        test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, next_block_hash.to_hex());
+        test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash.to_hex(), height);
 
-        self.insert(&hash_key, MARFValue::from(height))?;
-        self.insert(&height_key, MARFValue::from(block_hash.clone()))
+        keys.push(height_key);
+        values.push(MARFValue::from(next_block_hash.clone()));
+
+        keys.push(hash_key);
+        values.push(MARFValue::from(height));
+
+        if height > 0 {
+            let prev_height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1);
+            let prev_hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash.to_hex());
+
+            test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1, block_hash.to_hex());
+            test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash.to_hex(), height - 1);
+
+            keys.push(prev_height_key);
+            values.push(MARFValue::from(block_hash.clone()));
+
+            keys.push(prev_hash_key);
+            values.push(MARFValue::from(height - 1));
+        }
+
+        self.insert_batch(&keys, values)?;
+        Ok(())
     }
 
     pub fn insert(&mut self, key: &str, value: MARFValue) -> Result<(), Error> {
@@ -611,7 +671,6 @@ impl MARF {
         let cur_block_hash = self.storage.get_cur_block();
                 
         let last = keys.len() - 1;
-
         
         let mut result = keys[0..last].iter().zip(values[0..last].iter())
             .try_for_each(|(key, value)| {
@@ -628,7 +687,7 @@ impl MARF {
             result = MARF::insert_leaf(&mut self.storage, &block_hash, &path, &marf_leaf);
         }
 
-                // restore
+        // restore
         self.storage.open_block(&cur_block_hash)?;
 
         result
@@ -638,17 +697,7 @@ impl MARF {
     /// associated block's new state.  Call commit() or commit_to() to persist the changes.
     /// Fails if the block already exists.
     /// Storage will point to new chain tip on success.
-    ///
-    /// When using this method to mine and validate Stacks blocks, the caller will 
-    /// be using a sentinel value for next_chain_tip.  This is because this method is
-    /// used to begin processing a block whose hash was not known to the miner.  Therefore,
-    /// in order to calculate the same Trie root hash that the miner put into the block, the peer
-    /// will need to pass the same value for next_chain_tip that the miner did (which was _not_ the
-    /// block hash).  In addition, to properly map the block height to the block hash when setting
-    /// up the new chain tip, the caller may need to supply the sentinel value used by the miner
-    /// for the _previous_ block in order to find the block height for this next block.  This
-    /// should be passed as an the optional miner_tip, if it is different than in chain_tip.
-    pub fn begin_with_miner_tip(&mut self, chain_tip: &BlockHeaderHash, next_chain_tip: &BlockHeaderHash, miner_tip: Option<&BlockHeaderHash>) -> Result<(), Error> {
+    pub fn begin(&mut self, chain_tip: &BlockHeaderHash, next_chain_tip: &BlockHeaderHash) -> Result<(), Error> {
         if self.open_chain_tip.is_some() {
             return Err(Error::InProgressError);
         }
@@ -671,25 +720,9 @@ impl MARF {
 
         let block_height = 
             if !is_parent_sentinel {
-                // try looking in this chain tip, and if not present, try the tips the miner would
-                // have used when building the block.
-                let height = match MARF::get_block_height(&mut self.storage, chain_tip, chain_tip)? {
-                    Some(h) => h,
-                    None => match miner_tip {
-                        Some(ref miner_tip) => {
-                            match MARF::get_block_height(&mut self.storage, miner_tip, chain_tip)? {
-                                Some(h) => h,
-                                None => {
-                                    return Err(Error::CorruptionError(format!("Failed to find block height for `{:?}` (tried `{:?}`)", chain_tip, miner_tip)));
-                                }
-                            }
-                        }
-                        None => {
-                            return Err(Error::CorruptionError(format!("Failed to find block height for `{:?}`", chain_tip)));
-                        }
-                    }
-                };
-
+                let miner_tip = self.storage.get_miner_tip();
+                let height = MARF::get_block_height_miner_tip(&mut self.storage, chain_tip, chain_tip, miner_tip.as_ref())?
+                    .ok_or(Error::CorruptionError(format!("Failed to find block height for `{:?}`", chain_tip)))?;
                 height.checked_add(1).expect("FATAL: block height overflow!")
 
             } else {
@@ -700,31 +733,16 @@ impl MARF {
         self.open_chain_tip = Some(WriteChainTip{ block_hash: next_chain_tip.clone(),
                                                   height: block_height });
 
-        self.set_block_height(next_chain_tip, block_height)
+        self.set_block_heights(chain_tip, next_chain_tip, block_height)
             .map_err(|e| {
                 self.open_chain_tip = None;
                 e
             })?;
 
-        if block_height > 0 {
-            // When the last block was processed, we didn't yet know the block hash, so we'll store
-            // it in this block instead.
-            self.set_block_height(chain_tip, block_height - 1)
-                .map_err(|e| {
-                    self.open_chain_tip = None;
-                    e
-                })?;
-        }
-
         test_debug!("Opened {:?}", chain_tip);
         Ok(())
     }
     
-    /// Convenience wrapper for begin_with_miner_tip
-    pub fn begin(&mut self, chain_tip: &BlockHeaderHash, next_chain_tip: &BlockHeaderHash) -> Result<(), Error> {
-        self.begin_with_miner_tip(chain_tip, next_chain_tip, None)
-    }
-
     /// Drop the current trie from the MARF. This rolls back all
     ///   changes in the block, and closes the current chain tip.
     pub fn drop_current(&mut self) {
@@ -753,7 +771,6 @@ impl MARF {
                 Some(ref tip) => tip.height,
                 None => unreachable!()
             };
-            // self.set_block_height(real_bhh, height)?;
         }
 
         match self.open_chain_tip.take() {
@@ -782,6 +799,10 @@ impl MARF {
     /// The MARF _must_ be open to a valid block for this check to be evaluated.
     pub fn check_ancestor_block_hash(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
         let cur_block_hash = self.storage.get_cur_block();
+        if cur_block_hash == *bhh {
+            // a block is in its own fork
+            return Ok(());
+        }
 
         let bhh_height = MARF::get_block_height(&mut self.storage, bhh, &cur_block_hash)?
             .ok_or_else(|| Error::NonMatchingForks(bhh.clone(), cur_block_hash.clone()))?;
@@ -1885,7 +1906,7 @@ mod test {
             Err(_) => {}
         };
 
-        let mut m = MARF::from_path(&path).unwrap();
+        let mut m = MARF::from_path(&path, None).unwrap();
         let mut fork_headers = vec![];
         
         let mut pattern = 0u8;
@@ -1963,16 +1984,21 @@ mod test {
     #[test]
     fn marf_insert_flush_to_different_block() {
         let path = "/tmp/marf_insert_flush_to_different_block".to_string();
-        let f = TrieFileStorage::new_overwrite(&path).unwrap();
+        let mut f = TrieFileStorage::new_overwrite(&path).unwrap();
+
         let target_block = BlockHeaderHash([1u8; 32]);
+
+        f.set_miner_tip(target_block.clone());
+
         let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
-        marf.begin_with_miner_tip(&TrieFileStorage::block_sentinel(), &target_block, Some(&target_block)).unwrap();
+        marf.begin(&TrieFileStorage::block_sentinel(), &target_block).unwrap();
 
         let mut root_table_cache = None;
 
         let mut blocks = vec![];
-        let count = 256 * 8;
+        let num_blocks_created = 8;
+        let count = 256 * num_blocks_created;
 
         for i in 0..count {
             let i0 = i / 256;
@@ -1991,7 +2017,7 @@ mod test {
 
             if let Some(next_block_header) = next_block_header {
                 marf.commit_to(&block_header).unwrap();
-                marf.begin_with_miner_tip(&block_header, &target_block, Some(&target_block)).unwrap();
+                marf.begin(&block_header, &target_block).unwrap();
                 blocks.push(block_header.clone());
                 block_header = next_block_header;
             }
@@ -2009,21 +2035,34 @@ mod test {
             root_table_cache = Some(
                 merkle_test_marf(marf.borrow_storage_backend(), &target_block, &path.to_vec(), &value.data.to_vec(), root_table_cache));
         }
-
+        
+        // would have been the next block
+        let final_block_header = BlockHeaderHash::from_bytes(&[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,(num_blocks_created - 1) as u8,0xff]).unwrap();
+        marf.commit_to(&final_block_header).unwrap();
+         
         let num_blocks = blocks.len();
-        block_header = blocks[num_blocks - 1].clone();
+
+        block_header = final_block_header.clone();
+        blocks.push(block_header.clone());
 
         for (i, block) in blocks.iter().enumerate() {
-            test_debug!("Verify block height and hash at {} {}", i, block);
-            assert_eq!(MARF::get_block_height(marf.borrow_storage_backend(), block, &block_header).unwrap(),
+            debug!("Verify block height and hash at {} {} from {}", i, block, block_header.to_hex());
+            assert_eq!(MARF::get_block_height_miner_tip(marf.borrow_storage_backend(), block, &block_header, Some(&target_block)).unwrap(),
                        Some(i as u32));
-            assert_eq!(MARF::get_block_at_height(marf.borrow_storage_backend(), i as u32, &block_header).unwrap(),
-                       Some(block.clone()));
+
+            if i == num_blocks_created {
+                assert_eq!(MARF::get_block_at_height(marf.borrow_storage_backend(), i as u32, &block_header).unwrap(),
+                           Some(target_block.clone()));
+            }
+            else {
+                assert_eq!(MARF::get_block_at_height(marf.borrow_storage_backend(), i as u32, &block_header).unwrap(),
+                           Some(block.clone()));
+            }
         }
 
         root_table_cache = None;
 
-        for i in 0..count {
+        for i in (0..count).rev() {
             let i0 = i / 256;
             let i1 = i % 256;
             let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
@@ -2033,23 +2072,22 @@ mod test {
 
             // all but the final value are dangling off of block_header.
             // the last value is dangling off of target_block.
-
-            let read_from_block = 
-                if i == count - 1 {
-                    target_block.clone()
-                }
-                else {
-                    block_header.clone()
-                };
+            
+            let read_from_block = final_block_header.clone();
 
             // all I/O happens off the final block header
-            test_debug!("{}: Get {} off of {}", i, &triepath.to_hex(), &read_from_block.to_hex());
+            debug!("{}: Get {} off of {}", i, &triepath.to_hex(), &read_from_block.to_hex());
             let read_value = MARF::get_path(marf.borrow_storage_backend(), &read_from_block,
                                             &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
 
             assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            
+          
+
+            if i == 2046 {
+            //    std::env::set_var("BLOCKSTACK_TRACE", "1");
+            }
             // can make a merkle proof to each one using the final committed block header
+            debug!("{}: Check proof for {} off of {}", i, &triepath.to_hex(), &read_from_block.to_hex());
             root_table_cache = Some(
                 merkle_test_marf(marf.borrow_storage_backend(), &read_from_block, &path.to_vec(), &value.data.to_vec(), root_table_cache));
         }
