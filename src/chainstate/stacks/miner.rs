@@ -195,8 +195,8 @@ impl StacksBlockBuilder {
 
         // there's no way the miner can learn either the burn block hash or the stacks block hash,
         // so use a sentinel hash value for each that will never occur in practice.
-        let new_burn_hash = BurnchainHeaderHash([1u8; 32]);
-        let new_block_hash = BlockHeaderHash([1u8; 32]);
+        let new_burn_hash = MINER_BLOCK_BURN_HEADER_HASH.clone();
+        let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
         debug!("Miner epoch begin off of {}/{}", self.chain_tip.burn_header_hash.to_hex(), self.header.parent_block.to_hex());
         let tx = chainstate.block_begin(&self.chain_tip.burn_header_hash, &self.header.parent_block, &new_burn_hash, &new_block_hash);
@@ -211,8 +211,9 @@ impl StacksBlockBuilder {
 
     /// Finish up mining an epoch's transactions
     pub fn epoch_finish<'a>(&self, mut tx: ClarityTx<'a>) {
-        let new_burn_hash = BurnchainHeaderHash([1u8; 32]);
-        let new_block_hash = BlockHeaderHash([1u8; 32]);
+        let new_burn_hash = MINER_BLOCK_BURN_HEADER_HASH.clone();
+        let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
+        
         let index_block_hash = StacksBlockHeader::make_index_block_hash(&new_burn_hash, &new_block_hash);
 
         // clear out the block trie we just created, so the block validator logic doesn't step all
@@ -513,6 +514,111 @@ pub mod test {
             }
         }
     }
+
+    /*
+    /// Simplest end-to-end test: create 1 fork of N Stacks epochs, mined on 1 burn chain fork,
+    /// all from the same miner.
+    fn mine_stacks_blocks_1_fork_1_miner_1_burnchain<'a, F>(test_name: &String, rounds: usize, block_builder: mut F) -> () 
+    where
+        F: FnMut<'a>(&mut ClarityTx<'a>, &mut StacksBlockBuilder, &mut TestMiner, usize, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>)
+    {
+        let full_test_name = format!("{}-1_fork_1_miner_1_burnchain", test_name);
+        let mut node = TestStacksNode::new(false, 0x80000000, &full_test_name);
+        let mut miner_factory = TestMinerFactory::new();
+        let mut miner = miner_factory.next_miner(&node.burn.burnchain, 1, 1, AddressHashMode::SerializeP2PKH); 
+
+        let first_snapshot = BurnDB::get_first_block_snapshot(node.burn.burndb.conn()).unwrap();
+        let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
+        
+        let mut first_burn_block = node.next_burn_block(&mut fork);
+
+        let mut miner_keys_1 = vec![];
+
+        // first, register a VRF key
+        let k1 = node.add_key_register(&mut first_burn_block, &mut miner);
+        miner_keys_1.push(k1);
+
+        test_debug!("Mine {} initial transactions", first_burn_block.txs.len());
+
+        fork.append_block(first_burn_block);
+        node.burn.mine_fork(&mut fork);
+
+        let last_microblocks = vec![];
+
+        // next, build up some stacks blocks
+        for i in 0..rounds {
+            let mut burn_block = {
+                let mut tx = node.burn.burndb.tx_begin().unwrap();
+                fork.next_block(&mut tx)
+            };
+            
+            let last_key = node.get_last_key(&miner);
+            let parent_block_opt = node.get_last_anchored_block(&miner);
+
+            // send next key (key for block i+1)
+            let k = node.add_key_register(&mut burn_block, &mut miner);
+            miner_keys_1.push(k);
+
+            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |ref mut builder, ref mut miner| {
+                let last_microblock_header = 
+                    if last_microblocks.len() == 0 {
+                        None
+                    }
+                    else {
+                        let l = last_microblocks.len() - 1;
+                        Some(last_microblocks[l].header.clone())
+                    };
+
+                let (stacks_block, microblocks) = {
+                    let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                    test_debug!("Produce anchored stacks block");
+
+                    let mut epoch = builder.epoch_begin_empty(&mut miner_chainstate).unwrap();
+                    let (stacks_block, microblocks) = block_builder(&mut epoch, builder, miner, i, last_microblock_header.as_ref());
+
+                    // make sure the coinbase is right
+                    if i <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
+                        assert!(check_mining_reward(&mut epoch, miner, 0));
+                    }
+                    else {
+                        // matured!
+                        assert!(check_mining_reward(&mut epoch, miner, 500000000));
+                    }
+
+                    builder.epoch_finish(epoch);
+                }
+
+                (stacks_block, microblocks)
+            });
+
+            // process burn chain
+            fork.append_block(burn_block);
+            let fork_snapshot = node.burn.mine_fork(&mut fork);
+
+            // "discover" the stacks block and its microblocks
+            preprocess_stacks_block_data(&mut node, &fork_snapshot, &stacks_block, &microblocks, &block_commit_op);
+
+            // process all blocks
+            test_debug!("Process Stacks block {} and {} microblocks", &stacks_block.block_hash().to_hex(), microblocks.len());
+            let tip_info_list = node.chainstate.process_blocks(node.burn.burndb.conn(), 1).unwrap();
+
+            // processed _this_ block
+            assert_eq!(tip_info_list.len(), 1);
+            let (chain_tip_opt, poison_opt) = tip_info_list[0].clone();
+
+            assert!(chain_tip_opt.is_some());
+            assert!(poison_opt.is_none());
+
+            let chain_tip = chain_tip_opt.unwrap();
+
+            assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block.block_hash());
+            assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
+
+            // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+            assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &chain_tip.anchored_header));
+        }
+    }
+    */
 
     /// Simplest end-to-end test: create 1 fork of 10 Stacks blocks, mined on 1 burn chain fork,
     /// all comprising of empty blocks (i.e. just a coinbase) and no streamed blocks.
