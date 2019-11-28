@@ -431,7 +431,7 @@ impl StacksChainState {
         tx.execute("INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)", &[&STACKS_CHAINSTATE_VERSION, &(if mainnet { 1 } else { 0 }) as &dyn ToSql, &chain_id as &dyn ToSql])
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        let mut marf = StacksChainState::open_index(marf_path)?;
+        let mut marf = StacksChainState::open_index(marf_path, None)?;
         let mut dbtx = StacksDBTx::new(tx, &mut marf, ());
         
         dbtx.instantiate_index().map_err(Error::DBError)?;
@@ -484,9 +484,9 @@ impl StacksChainState {
         Ok(conn)
     }
     
-    fn open_index(marf_path: &str) -> Result<MARF, Error> {
-        test_debug!("Open MARF index at {}", marf_path);
-        let marf = MARF::from_path(marf_path).map_err(|e| Error::DBError(db_error::IndexError(e)))?;
+    fn open_index(marf_path: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MARF, Error> {
+        test_debug!("Open MARF index at {}, set miner tip = {:?}", marf_path, miner_tip);
+        let marf = MARF::from_path(marf_path, miner_tip).map_err(|e| Error::DBError(db_error::IndexError(e)))?;
         Ok(marf)
     }
     
@@ -627,10 +627,12 @@ impl StacksChainState {
         let headers_db = StacksChainState::open_headers_db(mainnet, chain_id, &headers_db_path, &clarity_state_index_marf)?;
         let blocks_db = StacksChainState::open_blocks_db(&blocks_db_path)?;
 
-        let clarity_state_index = StacksChainState::open_index(&clarity_state_index_marf)?;
-        let headers_state_index = StacksChainState::open_index(&header_index_root)?;
+        let clarity_state_index = StacksChainState::open_index(&clarity_state_index_marf, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH)))?;
+        let headers_state_index = StacksChainState::open_index(&header_index_root, None)?;
 
-        let vm_state = sqlite_marf(&clarity_state_index_root, None).map_err(Error::ClarityInterpreterError)?;
+        let vm_state = sqlite_marf(&clarity_state_index_root, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH)))
+            .map_err(Error::ClarityInterpreterError)?;
+
         let clarity_state = ClarityInstance::new(vm_state);
         
         let mut chainstate = StacksChainState {
@@ -699,11 +701,7 @@ impl StacksChainState {
         test_debug!("Child MARF index root:  {} = {} + {}", new_index_block.to_hex(), new_burn_hash.to_hex(), new_block.to_hex());
         test_debug!("Parent MARF index root: {} = {} + {}", parent_index_block.to_hex(), parent_burn_hash.to_hex(), parent_block.to_hex());
 
-        // NOTE: the miner uses the index hash block calculated from a burn header hash and
-        // stacks header hash of all 0x01's for its next-block chain tip, so we'll need to do so as
-        // well when validating this block.
-        let miner_tip = StacksBlockHeader::make_index_block_hash(&BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
-        let clarity_tx = self.clarity_state.begin_block(&parent_index_block, &new_index_block, &miner_tip);
+        let clarity_tx = self.clarity_state.begin_block(&parent_index_block, &new_index_block);
 
         test_debug!("Got clarity TX!");
         ClarityTx {
