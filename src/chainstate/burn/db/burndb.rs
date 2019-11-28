@@ -601,7 +601,7 @@ impl BurnDB {
 
     pub fn open_index(index_path: &str) -> Result<MARF, db_error> {
         test_debug!("Open index at {}", index_path);
-        let marf = MARF::from_path(index_path).map_err(|_e| db_error::Corruption)?;
+        let marf = MARF::from_path(index_path, None).map_err(|_e| db_error::Corruption)?;
         Ok(marf)
     }
 
