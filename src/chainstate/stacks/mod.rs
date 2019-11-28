@@ -642,6 +642,10 @@ pub struct StacksMicroblock {
     pub txs: Vec<StacksTransaction>
 }
 
+// values a miner uses to produce the next block
+pub const MINER_BLOCK_BURN_HEADER_HASH : BurnchainHeaderHash = BurnchainHeaderHash([1u8; 32]);
+pub const MINER_BLOCK_HEADER_HASH : BlockHeaderHash = BlockHeaderHash([1u8; 32]);
+
 /// A structure for incrementially building up a block
 pub struct StacksBlockBuilder {
     pub chain_tip: StacksHeaderInfo,
