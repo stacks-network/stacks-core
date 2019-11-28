@@ -33,7 +33,7 @@ pub fn temporary_marf() -> MarfedKV<std::collections::HashMap<String, String>> {
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
     path.push(to_hex(&random_bytes));
 
-    let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"))
+    let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"), None)
         .unwrap();
     let side_store = HashMap::new();
 
@@ -53,7 +53,7 @@ pub fn in_memory_marf() -> MarfedKV<SqliteConnection> {
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
     path.push(to_hex(&random_bytes));
 
-    let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"))
+    let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"), None)
         .unwrap();
     let side_store = SqliteConnection::memory().unwrap();
 
@@ -62,10 +62,7 @@ pub fn in_memory_marf() -> MarfedKV<SqliteConnection> {
     MarfedKV { chain_tip, marf, side_store }
 }
 
-/// If chain_tip is None, this will try to figure out a reasonable value for a starting
-///   chain_tip. If the MARF already has some chain_tips, then it selects ordinal 0.
-///   Otherwise, it uses the block_sentinel.
-pub fn sqlite_marf(path_str: &str, chain_tip: Option<BlockHeaderHash>) -> Result<MarfedKV<SqliteConnection>> {
+pub fn sqlite_marf(path_str: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MarfedKV<SqliteConnection>> {
     let mut path = PathBuf::from(path_str);
     std::fs::create_dir_all(&path)
         .map_err(|err| InterpreterError::FailedToCreateDataDirectory)?;
@@ -82,28 +79,25 @@ pub fn sqlite_marf(path_str: &str, chain_tip: Option<BlockHeaderHash>) -> Result
         .to_string();
 
     let side_store = SqliteConnection::initialize(&data_path)?;
-    let mut marf = MARF::from_path(&marf_path)
+    let marf = MARF::from_path(&marf_path, miner_tip)
         .map_err(|err| InterpreterError::MarfFailure(IncomparableError{ err }))?;
 
-    let chain_tip = chain_tip
-        .or_else(|| marf.chain_tips().get(0).cloned())
-        .unwrap_or_else(|| TrieFileStorage::block_sentinel());
-
+    let chain_tip = match miner_tip {
+        Some(ref miner_tip) => *miner_tip.clone(),
+        None => TrieFileStorage::block_sentinel()
+    };
 
     Ok( MarfedKV { chain_tip, marf, side_store } )
 }
 
 impl <S> MarfedKV <S> where S: KeyValueStorage {
-    pub fn begin_with_miner_tip(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash, miner_tip: Option<&BlockHeaderHash>) {
-        self.marf.begin_with_miner_tip(current, next, miner_tip)
-            .expect(&format!("ERROR: Failed to begin new MARF block {} - {} (miner tip {:?})", current.to_hex(), next.to_hex(), miner_tip));
+    pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
+        self.marf.begin(current, next)
+            .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current.to_hex(), next.to_hex()));
         self.chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Failed to get open MARF")
             .clone();
         self.side_store.begin(&self.chain_tip);
-    }
-    pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
-        self.begin_with_miner_tip(current, next, None)
     }
     pub fn rollback(&mut self) {
         self.marf.drop_current();

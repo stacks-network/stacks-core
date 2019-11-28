@@ -107,13 +107,13 @@ impl ClarityInstance {
         ClarityInstance { datastore: Some(datastore) }
     }
 
-    pub fn begin_block(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash, miner_tip: &BlockHeaderHash) -> ClarityBlockConnection {
+    pub fn begin_block(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) -> ClarityBlockConnection {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
             //   doesn't restore it's parent's datastore
             .expect("FAIL: use of begin_block while prior block neither committed nor rolled back.");
 
-        datastore.begin_with_miner_tip(current, next, Some(miner_tip));
+        datastore.begin(current, next);
 
         ClarityBlockConnection {
             datastore: datastore,
@@ -314,7 +314,6 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
                                                         &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
             
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
@@ -343,7 +342,6 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
                                                         &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
@@ -375,7 +373,6 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
                                                         &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
 
             let contract = "
