@@ -491,6 +491,8 @@ pub struct TrieFileStorage {
 
     pub trie_ancestor_hash_bytes_cache: Option<(BlockHeaderHash, Vec<TrieHash>)>,
 
+    miner_tip: Option<BlockHeaderHash>,
+
     // used in testing in order to short-circuit block-height lookups
     //   when the trie struct is tested outside of marf.rs usage
     #[cfg(test)]
@@ -547,7 +549,8 @@ impl TrieFileStorage {
             block_path_cache: HashMap::new(),
             trie_ancestor_hash_bytes_cache: None,
   
-
+            miner_tip: None,
+            
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
             #[cfg(test)]
@@ -555,6 +558,14 @@ impl TrieFileStorage {
         };
 
         Ok(ret)
+    }
+
+    pub fn set_miner_tip(&mut self, miner_tip: BlockHeaderHash) {
+        self.miner_tip = Some(miner_tip)
+    }
+
+    pub fn get_miner_tip(&self) -> Option<BlockHeaderHash> {
+        self.miner_tip.clone()
     }
 
     pub fn set_cached_ancestor_hashes_bytes(&mut self, bhh: &BlockHeaderHash, bytes: Vec<TrieHash>) {
@@ -985,6 +996,11 @@ impl TrieFileStorage {
     }
 
     pub fn open_block(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+        if *bhh == self.cur_block && self.cur_block_fd.is_some() {
+            // no-op
+            return Ok(())
+        }
+
         let sentinel = TrieFileStorage::block_sentinel();
         if *bhh == sentinel {
             // just reset to newly opened state
@@ -1275,6 +1291,7 @@ impl TrieFileStorage {
             }
         }
 
+        /*
         let trie_ancestor_hash_bytes_cache = self.trie_ancestor_hash_bytes_cache.take();
         match trie_ancestor_hash_bytes_cache {
             Some((trie_bhh, triehash_list)) => {
@@ -1289,6 +1306,10 @@ impl TrieFileStorage {
             },
             None => {}
         }
+        */
+        self.trie_ancestor_hash_bytes_cache = None;
+
+        self.cur_block = new_bhh.clone();
         Ok(())
     }
     
