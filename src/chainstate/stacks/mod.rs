@@ -599,7 +599,7 @@ pub struct StacksTransactionSigner {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksWorkScore {
     pub burn: u64,      // number of burn tokens destroyed
-    pub work: u64       // TODO: make this the block height
+    pub work: u64       // in Stacks, "work" == the length of the fork
 }
 
 /// The header for an on-chain-anchored Stacks block
@@ -647,6 +647,7 @@ pub const MINER_BLOCK_BURN_HEADER_HASH : BurnchainHeaderHash = BurnchainHeaderHa
 pub const MINER_BLOCK_HEADER_HASH : BlockHeaderHash = BlockHeaderHash([1u8; 32]);
 
 /// A structure for incrementially building up a block
+#[derive(Clone)]
 pub struct StacksBlockBuilder {
     pub chain_tip: StacksHeaderInfo,
     pub header: StacksBlockHeader,
