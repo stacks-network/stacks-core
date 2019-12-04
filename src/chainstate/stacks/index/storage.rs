@@ -1037,6 +1037,7 @@ impl TrieFileStorage {
 
         self.cur_block = bhh.clone();
         self.cur_block_fd = Some(fd);
+
         Ok(())
     }
 
@@ -1291,22 +1292,6 @@ impl TrieFileStorage {
             }
         }
 
-        /*
-        let trie_ancestor_hash_bytes_cache = self.trie_ancestor_hash_bytes_cache.take();
-        match trie_ancestor_hash_bytes_cache {
-            Some((trie_bhh, triehash_list)) => {
-                if trie_bhh == *cur_bhh {
-                    // replace
-                    self.trie_ancestor_hash_bytes_cache = Some((new_bhh.clone(), triehash_list));
-                }
-                else {
-                    // restore
-                    self.trie_ancestor_hash_bytes_cache = Some((trie_bhh, triehash_list));
-                }
-            },
-            None => {}
-        }
-        */
         self.trie_ancestor_hash_bytes_cache = None;
 
         self.cur_block = new_bhh.clone();
@@ -1319,6 +1304,9 @@ impl TrieFileStorage {
         // Runs once -- subsequent calls are no-ops.
         // Panics on a failure to rename the Trie file into place (i.e. if the the actual commitment
         // fails).
+        // TODO: this needs to be more robust.  Also fsync the parent directory itself, before and
+        // after.  Turns out rename(2) isn't crash-consistent, and turns out syscalls can get
+        // reordered.
         if let Some((ref bhh, ref mut trie_ram)) = self.last_extended.take() {
             let block_path_tmp = TrieFileStorage::block_path_tmp(&self.dir_path, bhh);
             let (block_path, real_bhh) = match final_bhh {
@@ -1376,6 +1364,22 @@ impl TrieFileStorage {
     }
 
     pub fn drop_extending_trie(&mut self) {
+        if let Some((ref bhh, ref mut trie_ram)) = self.last_extended.take() {
+            let block_path_tmp = TrieFileStorage::block_path_tmp(&self.dir_path, bhh);
+            match fs::metadata(&block_path_tmp) {
+                Ok(_md) => {
+                    let res = fs::remove_file(&block_path_tmp);
+                    match res {
+                        Ok(_) => {},
+                        Err(e) => {
+                            warn!("Failed to remove '{:?}': {:?}", &block_path_tmp, &e);
+                        }
+                    };
+                },
+                Err(e) => {}
+            }
+        }
+
         self.last_extended = None;
     }
 
