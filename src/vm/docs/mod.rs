@@ -63,7 +63,7 @@ const CONTRACT_CALLER_KEYWORD: KeywordAPI = KeywordAPI {
     name: "contract-caller",
     output_type: "principal",
     description: "Returns the caller of the current contract context. If this contract is the first one called by a signed transaction, 
-the caller will be equal to the signing principal. If `contract-call!` was used to invoke a function from a new contract, `contract-caller`
+the caller will be equal to the signing principal. If `contract-call?` was used to invoke a function from a new contract, `contract-caller`
 changes to the _calling_ contract's principal. If `as-contract` is used to change the `tx-sender` context, `contract-caller` _also_ changes
 to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
@@ -175,8 +175,8 @@ const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(and b1 b2 ...)",
     description: "Returns `true` if all boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
     example: "(and 'true 'false) ;; Returns 'false
-(and (eq? (+ 1 2) 1) (eq? 4 4)) ;; Returns 'false
-(and (eq? (+ 1 2) 3) (eq? 4 4)) ;; Returns 'true
+(and (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns 'false
+(and (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns 'true
 "
 };
 
@@ -185,9 +185,9 @@ const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(or b1 b2 ...)",
     description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
     example: "(or 'true 'false) ;; Returns 'true
-(or (eq? (+ 1 2) 1) (eq? 4 4)) ;; Returns 'true
-(or (eq? (+ 1 2) 1) (eq? 3 4)) ;; Returns 'false
-(or (eq? (+ 1 2) 3) (eq? 4 4)) ;; Returns 'true
+(or (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns 'true
+(or (is-eq (+ 1 2) 1) (is-eq 3 4)) ;; Returns 'false
+(or (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns 'true
 "
 };
 
@@ -196,7 +196,7 @@ const NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(not b1)",
     description: "Returns the inverse of the boolean input.",
     example: "(not 'true) ;; Returns 'false
-(not (eq? 1 2)) ;; Returns 'true
+(not (is-eq 1 2)) ;; Returns 'true
 "
 };
 
@@ -280,11 +280,11 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions, n
 const EQUALS_API: SpecialAPI = SpecialAPI {
     input_type: "A, A, ...",
     output_type: "bool",
-    signature: "(eq? v1 v2...)",
-    description: "Compares the inputted values, returning `true` if they are all equal. Note that _unlike_ the `(and ...)` function, `(eq? ...)` will _not_ short-circuit.",
-    example: "(eq? 1 1) ;; Returns 'true
-(eq? 1 'false) ;; Returns 'false
-(eq? \"abc\" 234 234) ;; Returns 'false
+    signature: "(is-eq v1 v2...)",
+    description: "Compares the inputted values, returning `true` if they are all equal. Note that _unlike_ the `(and ...)` function, `(is-eq ...)` will _not_ short-circuit.",
+    example: "(is-eq 1 1) ;; Returns 'true
+(is-eq 1 'false) ;; Returns 'false
+(is-eq \"abc\" 234 234) ;; Returns 'false
 "
 };
 
@@ -322,10 +322,10 @@ The value is looked up using `var-name`.",
 const SET_VAR_API: SpecialAPI = SpecialAPI { 
     input_type: "VarName, AnyType",
     output_type: "bool",
-    signature: "(var-set! var-name expr1)",
-    description: "The `var-set!` function sets the value associated with the input variable to the 
+    signature: "(var-set var-name expr1)",
+    description: "The `var-set` function sets the value associated with the input variable to the 
 inputted value.",
-    example: "(var-set! cursor (+ cursor 1)) ;; Returns 'true"
+    example: "(var-set cursor (+ cursor 1)) ;; Returns 'true"
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
@@ -379,11 +379,11 @@ or a buffer and another buffer of length 1 and outputs a buffer or a list of the
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     input_type: "buff|list, uint",
     output_type: "(optional buff|list)",
-    signature: "(asserts-max-len! buffer 10)",
-    description: "The `asserts-max-len!` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list 
+    signature: "(as-max-len? buffer 10)",
+    description: "The `as-max-len?` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list 
 or buffer of length M and outputs that same list or buffer, but typed with max length N. 
 At runtime, a check is performed, which if it fails, returns a (none) option.",
-    example: "(asserts-max-len! (list 2 2 2) 3) ;; Returns (some (list 2 2 2))"
+    example: "(as-max-len? (list 2 2 2) 3) ;; Returns (some (list 2 2 2))"
 };
 
 const LEN_API: SpecialAPI = SpecialAPI {
@@ -426,65 +426,65 @@ nodes configured for development (as opposed to production mining nodes), this f
 const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
     input_type: "MapName, tuple",
     output_type: "(optional (tuple))",
-    signature: "(map-get map-name key-tuple)",
-    description: "The `map-get` function looks up and returns an entry from a contract's data map.
+    signature: "(map-get? map-name key-tuple)",
+    description: "The `map-get?` function looks up and returns an entry from a contract's data map.
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
 it returns `(some value)`.",
-    example: "(expects! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
-(expects! (map-get names-map ((name \"blockstack\"))) (err 1)) ;; Same command, using a shorthand for constructing the tuple
+    example: "(expects! (map-get? names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
+(expects! (map-get? names-map ((name \"blockstack\"))) (err 1)) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
 const SET_ENTRY_API: SpecialAPI = SpecialAPI {
     input_type: "MapName, tuple_A, tuple_B",
     output_type: "bool",
-    signature: "(map-set! map-name key-tuple value-tuple)",
-    description: "The `map-set!` function sets the value associated with the input key to the 
+    signature: "(map-set map-name key-tuple value-tuple)",
+    description: "The `map-set` function sets the value associated with the input key to the 
 inputted value. This function performs a _blind_ update; whether or not a value is already associated
 with the key, the function overwrites that existing association.",
-    example: "(map-set! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
-(map-set! names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
+    example: "(map-set names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
+(map-set names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
 const INSERT_ENTRY_API: SpecialAPI = SpecialAPI {
     input_type: "MapName, tuple_A, tuple_B",
     output_type: "bool",
-    signature: "(map-insert! map-name key-tuple value-tuple)",
-    description: "The `map-insert!` function sets the value associated with the input key to the 
+    signature: "(map-insert map-name key-tuple value-tuple)",
+    description: "The `map-insert` function sets the value associated with the input key to the 
 inputted value if and only if there is not already a value associated with the key in the map.
 If an insert occurs, the function returns `true`. If a value already existed for
 this key in the data map, the function returns `false`.",
-    example: "(map-insert! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
-(map-insert! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'false
-(map-insert! names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
+    example: "(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
+(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'false
+(map-insert names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
 const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
     input_type: "MapName, tuple",
     output_type: "bool",
-    signature: "(map-delete! map-name key-tuple)",
-    description: "The `map-delete!` function removes the value associated with the input key for
+    signature: "(map-delete map-name key-tuple)",
+    description: "The `map-delete` function removes the value associated with the input key for
 the given map. If an item exists and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
-    example: "(map-delete! names-map (tuple (name \"blockstack\"))) ;; Returns 'true
-(map-delete! names-map (tuple (name \"blockstack\"))) ;; Returns 'false
-(map-delete! names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
+    example: "(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns 'true
+(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns 'false
+(map-delete names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
 const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, MapName, tuple",
     output_type: "(optional (tuple))",
-    signature: "(contract-map-get .contract-name map-name key-tuple)",
-    description: "The `contract-map-get` function looks up and returns an entry from a
+    signature: "(contract-map-get? .contract-name map-name key-tuple)",
+    description: "The `contract-map-get?` function looks up and returns an entry from a
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
 it returns `(some value)`.",
-    example: "(expects! (contract-map-get .names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
-(expects! (contract-map-get .names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
+    example: "(expects! (contract-map-get? .names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
+(expects! (contract-map-get? .names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -507,8 +507,8 @@ const TUPLE_GET_API: SpecialAPI = SpecialAPI {
 If an `Optional` value is supplied as the inputted tuple, `get` returns an `Optional` type of the specified key in
 the tuple. If the supplied option is a `(none)` option, get returns `(none)`.",
     example: "(get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
-(get id (map-get names-map (tuple (name \"blockstack\")))) ;; Returns (some 1337)
-(get id (map-get names-map (tuple (name \"non-existent\")))) ;; Returns (none)
+(get id (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (some 1337)
+(get id (map-get? names-map (tuple (name \"non-existent\")))) ;; Returns (none)
 "
 };
 
@@ -566,12 +566,12 @@ is supplied the hash is computed over the little-endian representation of the in
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     output_type: "(response A B)",
-    signature: "(contract-call! .contract-name function-name arg0 arg1 ...)",
-    description: "The `contract-call!` function executes the given public function of the given contract.
+    signature: "(contract-call? .contract-name function-name arg0 arg1 ...)",
+    description: "The `contract-call?` function executes the given public function of the given contract.
 You _may not_ this function to call a public function defined in the current contract. If the public
-function returns _err_, any database changes resulting from calling `contract-call!` are aborted.
+function returns _err_, any database changes resulting from calling `contract-call?` are aborted.
 If the function returns _ok_, database changes occurred.",
-    example: "(contract-call! .tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) ;; Returns (ok 1)"
+    example: "(contract-call? .tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) ;; Returns (ok 1)"
 };
 
 const AT_BLOCK: SpecialAPI = SpecialAPI {
@@ -605,7 +605,7 @@ const ASSERTS_API: SpecialAPI = SpecialAPI {
 if bool-expr is `true`, `asserts!` returns `true` and proceeds in the program execution. 
 If the supplied argument is returning a 'false value, `asserts!` _returns_ `thrown-value` and exits the current 
 control-flow.",
-    example: "(asserts! (eq? 1 1) (err 1)) ;; Returns 'true",
+    example: "(asserts! (is-eq 1 1) (err 1)) ;; Returns 'true",
 };
 
 const EXPECTS_API: SpecialAPI = SpecialAPI {
@@ -617,7 +617,7 @@ an option type, and the argument is a `(some ...)` option, `expects!` returns th
 option. If the argument is a response type, and the argument is an `(ok ...)` response, `expects!` returns
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `expects!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
-    example: "(expects! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
+    example: "(expects! (map-get? names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
 };
 
 const EXPECTS_ERR_API: SpecialAPI = SpecialAPI {
@@ -638,8 +638,8 @@ const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
     description: "The `default-to` function attempts to 'unpack' the second argument: if the argument is
 a `(some ...)` option, it returns the inner value of the option. If the second argument is a `(none)` value,
 `default-to` it returns the value of `default-value`.",
-    example: "(default-to 0 (get id (map-get names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
-(default-to 0 (get id (map-get names-map (tuple (name \"non-existant\"))))) ;; Returns 0
+    example: "(default-to 0 (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
+(default-to 0 (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 0
 ",
 };
 
@@ -669,27 +669,27 @@ const CONS_SOME_API: SpecialAPI = SpecialAPI {
     signature: "(some value)",
     description: "The `some` function constructs a `optional` type from the input value.",
     example: "(some 1) ;; Returns (some 1)
-(is-none? (some 2)) ;; Returns 'false",
+(is-none (some 2)) ;; Returns 'false",
 };
 
 const IS_OK_API: SpecialAPI = SpecialAPI {
     input_type: "(response A B)",
     output_type: "bool",
-    signature: "(is-ok? value)",
-    description: "`is-ok?` tests a supplied response value, returning `true` if the response was `ok`,
+    signature: "(is-ok value)",
+    description: "`is-ok` tests a supplied response value, returning `true` if the response was `ok`,
 and `false` if it was an `err`.",
-    example: "(is-ok? (ok 1)) ;; Returns 'true
-(is-ok? (err 1)) ;; Returns 'false",
+    example: "(is-ok (ok 1)) ;; Returns 'true
+(is-ok (err 1)) ;; Returns 'false",
 };
 
 const IS_NONE_API: SpecialAPI = SpecialAPI {
     input_type: "(optional A)",
     output_type: "bool",
-    signature: "(is-none? value)",
-    description: "`is-none?` tests a supplied option value, returning `true` if the option value is `(none)`,
+    signature: "(is-none value)",
+    description: "`is-none` tests a supplied option value, returning `true` if the option value is `(none)`,
 and `false` if it is a `(some ...)`.",
-    example: "(is-none? (get id (map-get names-map (tuple (name \"blockstack\"))))) ;; Returns 'false
-(is-none? (get id (map-get names-map (tuple (name \"non-existant\"))))) ;; Returns 'true"
+    example: "(is-none (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 'false
+(is-none (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 'true"
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
@@ -719,14 +719,14 @@ const DEFINE_TOKEN_API: DefineAPI = DefineAPI {
     signature: "(define-fungible-token token-name <total-supply>)",
     description: "`define-fungible-token` is used to define a new fungible token class for use in the current contract.
 
-The second argument, if supplied, defines the total supply of the fungible token. This ensures that all calls to the `ft-mint!`
+The second argument, if supplied, defines the total supply of the fungible token. This ensures that all calls to the `ft-mint?`
 function will never be able to create more than `total-supply` tokens. If any such call were to increase the total supply
-of tokens passed that amount, that invocation of `ft-mint!` will result in a runtime error and abort.
+of tokens passed that amount, that invocation of `ft-mint?` will result in a runtime error and abort.
 
 Like other kinds of definition statements, `define-fungible-token` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).
 
-Tokens defined using `define-fungible-token` may be used in `ft-transfer!`, `ft-mint!`, and `ft-get-balance` functions",
+Tokens defined using `define-fungible-token` may be used in `ft-transfer?`, `ft-mint?`, and `ft-get-balance` functions",
     example: "
 (define-fungible-token stacks)
 "
@@ -743,7 +743,7 @@ identifiers are _unique_ identifiers.
 Like other kinds of definition statements, `define-non-fungible-token` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).
 
-Assets defined using `define-non-fungible-token` may be used in `nft-transfer!`, `nft-mint!`, and `nft-get-owner` functions",
+Assets defined using `define-non-fungible-token` may be used in `nft-transfer?`, `nft-mint?`, and `nft-get-owner?` functions",
     example: "
 (define-non-fungible-token names (buff 50))
 "
@@ -762,7 +762,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 
 Public functions _must_ return a ResponseType (using either `ok` or `err`). Any datamap modifications performed by
 a public function is aborted if the function returns an `err` type. Public functions may be invoked by other
-contracts via `contract-call!`.",
+contracts via `contract-call?`.",
     example: "
 (define-public (hello-world (input int))
   (begin (print (+ 2 input))
@@ -823,7 +823,7 @@ Read-only functions may return any type. However, read-only functions
 may not perform any datamap modifications, or call any functions which
 perform such modifications. This is enforced both during type checks and during
 the execution of the function. Public read-only functions may
-be invoked by other contracts via `contract-call!`.",
+be invoked by other contracts via `contract-call?`.",
     example: "
 (define-read-only (just-return-one-hundred) 
   (* 10 10))"
@@ -845,7 +845,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
     example: "
 (define-map squares ((x int)) ((square int)))
 (define (add-entry (x int))
-  (map-insert! squares ((x 2)) ((square (* x x)))))
+  (map-insert squares ((x 2)) ((square (* x x)))))
 (add-entry 1)
 (add-entry 2)
 (add-entry 3)
@@ -868,7 +868,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
     example: "
 (define-data-var size int 0)
 (define (set-size (value int))
-  (var-set! size value))
+  (var-set size value))
 (set-size 1)
 (set-size 2)
 "
@@ -877,8 +877,8 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 const MINT_TOKEN: SpecialAPI = SpecialAPI {
     input_type: "TokenName, uint, principal",
     output_type: "(response bool uint)",
-    signature: "(ft-mint! token-name amount recipient)",
-    description: "`ft-mint!` is used to increase the token balance for the `recipient` principal for a token
+    signature: "(ft-mint? token-name amount recipient)",
+    description: "`ft-mint?` is used to increase the token balance for the `recipient` principal for a token
 type defined using `define-fungible-token`. The increased token balance is _not_ transfered from another principal, but
 rather minted.
 
@@ -887,15 +887,15 @@ returns `(ok 'true 1)`.
 ",
     example: "
 (define-fungible-token stackaroo)
-(ft-mint! stackaroo u100 tx-sender)
+(ft-mint? stackaroo u100 tx-sender)
 "
 };
 
 const MINT_ASSET: SpecialAPI = SpecialAPI {
     input_type: "AssetName, A, principal",
     output_type: "(response bool uint)",
-    signature: "(nft-mint! asset-class asset-identifier recipient)",
-    description: "`nft-mint!` is used to instantiate an asset and set that asset's owner to the `recipient` principal.
+    signature: "(nft-mint? asset-class asset-identifier recipient)",
+    description: "`nft-mint?` is used to instantiate an asset and set that asset's owner to the `recipient` principal.
 The asset must have been defined using `define-non-fungible-token`, and the supplied `asset-identifier` must be of the same type specified in
 that definition.
 
@@ -907,20 +907,20 @@ Otherwise, on successfuly mint, it returns `(ok 'true 1)`.
 ",
     example: "
 (define-non-fungible-token stackaroo (buff 40))
-(nft-mint! stackaroo \"Roo\" tx-sender)
+(nft-mint? stackaroo \"Roo\" tx-sender)
 "
 };
 
 const GET_OWNER: SpecialAPI = SpecialAPI {
     input_type: "AssetName, A",
     output_type: "(optional principal)",
-    signature: "(nft-get-owner asset-class asset-identifier)",
-    description: "`nft-get-owner` returns the owner of an asset, identified by `asset-identifier`, or `none` if the asset does not exist.
+    signature: "(nft-get-owner? asset-class asset-identifier)",
+    description: "`nft-get-owner?` returns the owner of an asset, identified by `asset-identifier`, or `none` if the asset does not exist.
 The asset type must have been defined using `define-non-fungible-token`, and the supplied `asset-identifier` must be of the same type specified in
 that definition.",
     example: "
 (define-non-fungible-token stackaroo (buff 40))
-(nft-get-owner stackaroo \"Roo\")
+(nft-get-owner? stackaroo \"Roo\")
 "
 };
 
@@ -940,8 +940,8 @@ The token type must have been defined using `define-fungible-token`.",
 const TOKEN_TRANSFER: SpecialAPI = SpecialAPI {
     input_type: "TokenName, int, principal, principal",
     output_type: "(response bool uint)",
-    signature: "(ft-transfer! token-name amount sender recipient)",
-    description: "`ft-transfer!` is used to increase the token balance for the `recipient` principal for a token
+    signature: "(ft-transfer? token-name amount sender recipient)",
+    description: "`ft-transfer?` is used to increase the token balance for the `recipient` principal for a token
 type defined using `define-fungible-token` by debiting the `sender` principal.
 
 This function returns (ok true 1) if the transfer is successful. In the event of an unsuccessful transfer it returns
@@ -953,17 +953,17 @@ one of the following error codes:
 ",
     example: "
 (define-fungible-token stackaroo)
-(ft-mint! stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(ft-transfer! stackaroo u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true 50)
-(ft-transfer! stackaroo u60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
+(ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(ft-transfer? stackaroo u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true 50)
+(ft-transfer? stackaroo u60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
 "
 };
 
 const ASSET_TRANSFER: SpecialAPI = SpecialAPI {
     input_type: "AssetName, A, principal, principal",
     output_type: "(response bool uint)",
-    signature: "(nft-transfer! asset-class asset-identifier sender recipient)",
-    description: "`nft-transfer!` is used to change the owner of an asset identified by `asset-identifier`
+    signature: "(nft-transfer? asset-class asset-identifier sender recipient)",
+    description: "`nft-transfer?` is used to change the owner of an asset identified by `asset-identifier`
 from `sender` to `recipient`. The `asset-class` must have been defined by `define-non-fungible-token` and `asset-identifier`
 must be of the type specified in that definition.
 
@@ -976,10 +976,10 @@ one of the following error codes:
 ",
     example: "
 (define-non-fungible-token stackaroo (buff 40))
-(nft-mint! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(nft-transfer! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true 1)
-(nft-transfer! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
-(nft-transfer! stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 3)
+(nft-mint? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true 1)
+(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
+(nft-transfer? stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 3)
 "
 };
 
@@ -1013,7 +1013,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Fold => make_for_special(&FOLD_API, name),
         Append => make_for_special(&APPEND_API, name),
         Concat => make_for_special(&CONCAT_API, name),
-        AssertsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, name),
+        AsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, name),
         Len => make_for_special(&LEN_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),

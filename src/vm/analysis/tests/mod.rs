@@ -32,14 +32,14 @@ fn test_union_type_error() {
 
 #[test]
 fn test_expected_optional_type() {
-    let snippet = "(is-none? 1)";
+    let snippet = "(is-none 1)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'optional', found 'int'"));
 }
 
 #[test]
 fn test_expected_response_type() {
-    let snippet = "(is-ok? 1)";
+    let snippet = "(is-ok 1)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'response', found 'int'"));
 }
@@ -120,7 +120,7 @@ fn test_bad_map_name() {
 
 #[test]
 fn test_no_such_map() {
-    let snippet = "(map-get unicorn ((key 1)))";
+    let snippet = "(map-get? unicorn ((key 1)))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("use of unresolved map 'unicorn'"));
 }
@@ -169,14 +169,14 @@ fn test_return_types_must_match() {
 
 #[test]
 fn test_no_such_contract() {
-    let snippet = "(contract-map-get .unicorn map ((value 0)))";
+    let snippet = "(contract-map-get? .unicorn map ((value 0)))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("use of unresolved contract"));
 }
 
 #[test]
 fn test_contract_call_expect_name() {
-    let snippet = "(contract-call! 1 fn)";
+    let snippet = "(contract-call? 1 fn)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("missing contract name for call"));
 }
@@ -267,7 +267,7 @@ fn test_default_types_must_match() {
 
 #[test]
 fn test_write_attempt_in_readonly() {
-    let snippet = "(define-data-var x int 0) (define-read-only (fn) (var-set! x 1))";
+    let snippet = "(define-data-var x int 0) (define-read-only (fn) (var-set x 1))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expecting read-only statements, detected a writing operation"));
 }

@@ -165,9 +165,9 @@ fn test_simple_buff_concat() {
 #[test]
 fn test_simple_buff_assert_max_len() {
     let tests = [
-        "(asserts-max-len! \"123\" u3)",
-        "(asserts-max-len! \"123\" u2)",
-        "(asserts-max-len! \"123\" u5)"];
+        "(as-max-len? \"123\" u3)",
+        "(as-max-len? \"123\" u2)",
+        "(as-max-len? \"123\" u5)"];
 
     let expected = [
         Value::some(Value::buff_from(vec![49, 50, 51]).unwrap()),
@@ -179,28 +179,28 @@ fn test_simple_buff_assert_max_len() {
     }
 
     assert_eq!(
-        execute("(asserts-max-len! \"123\")").unwrap_err(),
+        execute("(as-max-len? \"123\")").unwrap_err(),
         CheckErrors::IncorrectArgumentCount(2, 1).into());
 
     assert_eq!(
-        execute("(asserts-max-len! \"123\" 3)").unwrap_err(),
+        execute("(as-max-len? \"123\" 3)").unwrap_err(),
         CheckErrors::TypeError(UIntType, IntType).into());
 
     assert_eq!(
-        execute("(asserts-max-len! 1 u3)").unwrap_err(),
+        execute("(as-max-len? 1 u3)").unwrap_err(),
         CheckErrors::ExpectedListOrBuffer(IntType).into());
 
     assert_eq!(
-        execute("(asserts-max-len! \"123\" \"1\")").unwrap_err(),
+        execute("(as-max-len? \"123\" \"1\")").unwrap_err(),
         CheckErrors::TypeError(UIntType, BufferType(1_u32.try_into().unwrap())).into());
 }
 
 #[test]
 fn test_simple_list_assert_max_len() {
     let tests = [
-    "(asserts-max-len! (list 1 2 3) u3)",
-    "(asserts-max-len! (list 1 2 3) u2)",
-    "(asserts-max-len! (list 1 2 3) u5)"];
+    "(as-max-len? (list 1 2 3) u3)",
+    "(as-max-len? (list 1 2 3) u2)",
+    "(as-max-len? (list 1 2 3) u5)"];
 
     let expected = [
         Value::some(Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap()),
@@ -229,7 +229,7 @@ fn test_simple_map_buffer() {
 
 #[test]
 fn test_simple_filter_list() {
-    let test1 = "(define-private (test (x int)) (eq? 0 (mod x 2)))
+    let test1 = "(define-private (test (x int)) (is-eq 0 (mod x 2)))
                  (filter test (list 1 2 3 4 5))";
 
     let bad_tests = [
@@ -253,7 +253,7 @@ fn test_simple_filter_list() {
 
 #[test]
 fn test_simple_filter_buffer() {
-    let test1 = "(define-private (test (x (buff 1))) (not (eq? x \"0\")))
+    let test1 = "(define-private (test (x (buff 1))) (not (is-eq x \"0\")))
                  (filter test \"000123\")";
 
     let expected = Value::buff_from(vec![49, 50, 51]).unwrap();
@@ -263,7 +263,7 @@ fn test_simple_filter_buffer() {
 #[test]
 fn test_list_tuple_admission() {
     let test = 
-        "(define-private (bufferize (x int)) (if (eq? x 1) \"abc\" \"ab\"))
+        "(define-private (bufferize (x int)) (if (is-eq x 1) \"abc\" \"ab\"))
          (define-private (tuplize (x int))
            (tuple (value (bufferize x))))
          (map tuplize (list 0 1 0 1 0 1))";
@@ -313,7 +313,7 @@ fn test_simple_folds_buffer() {
          (fold get-len \"blockstack\" 0)",
         "(define-private (slice (x (buff 1)) (acc (tuple (limit uint) (cursor uint) (data (buff 10)))))
             (if (< (get cursor acc) (get limit acc))
-                (let ((data (default-to (get data acc) (asserts-max-len! (concat (get data acc) x) u10))))
+                (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
                     (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data))) 
                 acc))
         (get data (fold slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\"))))"];
@@ -348,7 +348,7 @@ fn test_construct_bad_list() {
     assert_eq!(execute(test1).unwrap_err(), 
                CheckErrors::TypeError(IntType, BoolType).into());
 
-    let test2 = "(define-private (bad-function (x int)) (if (eq? x 1) 'true x))
+    let test2 = "(define-private (bad-function (x int)) (if (is-eq x 1) 'true x))
                  (map bad-function (list 0 1 2 3))";
     assert_eq!(execute(test2).unwrap_err(),
                CheckErrors::TypeError(IntType, BoolType).into());

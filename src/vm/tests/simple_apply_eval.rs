@@ -135,10 +135,10 @@ fn test_keccak256() {
 #[test]
 fn test_buffer_equality() {
     let tests = [
-        "(eq? \"a b c\" \"a b c\")",
-        "(eq? \"\\\" a b d\"
+        "(is-eq \"a b c\" \"a b c\")",
+        "(is-eq \"\\\" a b d\"
                \"\\\" a b d\")",
-        "(not (eq? \"\\\" a b d\"
+        "(not (is-eq \"\\\" a b d\"
                     \" a b d\"))"];
     let expectations = [
         Value::Bool(true),
@@ -152,8 +152,8 @@ fn test_buffer_equality() {
 #[test]
 fn test_principal_equality() {
     let tests = [
-        "(eq? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        "(not (eq? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR
+        "(is-eq 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(not (is-eq 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR
                    'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G))"];
     let expectations = [
         Value::Bool(true),
@@ -167,8 +167,8 @@ fn test_principal_equality() {
 fn test_simple_if_functions() {
     //
     //  test program:
-    //  (define (with_else x) (if (eq? 5 x) 1 0)
-    //  (define (without_else x) (if (eq? 5 x) 1)
+    //  (define (with_else x) (if (is-eq 5 x) 1 0)
+    //  (define (without_else x) (if (is-eq 5 x) 1)
     //  (with_else 5)
     //  (with_else 3)
     //  (without_else 3)
@@ -184,8 +184,8 @@ fn test_simple_if_functions() {
 
     let contract_id = QualifiedContractIdentifier::transient();
 
-    let function_bodies = parse(&contract_id, &"(if (eq? 5 x) 1 0)
-                                  (if (eq? 5 x) 1 3)");
+    let function_bodies = parse(&contract_id, &"(if (is-eq 5 x) 1 0)
+                                  (if (is-eq 5 x) 1 3)");
 
     if let Ok(parsed_bodies) = function_bodies {
         let func_args1 = vec![("x".into(), TypeSignature::IntType)];
@@ -228,7 +228,7 @@ fn test_simple_arithmetic_functions() {
          "(mod 51 2)",
          "(- 5 4 1)",
          "(+ 5 4 1)",
-         "(eq? (* 2 3)
+         "(is-eq (* 2 3)
               (+ 2 2 2))",
          "(> 1 2)",
          "(< 1 2)",
@@ -286,7 +286,7 @@ fn test_arithmetic_errors() {
         "(xor 1)",
         "(pow 2 (pow 2 32))",
         "(pow 2 (- 1))",
-        "(eq? (some 1) (some 'true))"];
+        "(is-eq (some 1) (some 'true))"];
 
     let expectations: &[Error] = &[
         CheckErrors::IncorrectArgumentCount(2,1).into(),
@@ -340,10 +340,10 @@ fn test_unsigned_arithmetic() {
 #[test]
 fn test_options_errors() {
     let tests = [
-        "(is-none? 2 1)",
-        "(is-none? 'true)",
-        "(is-ok? 2 1)",
-        "(is-ok? 'true)",
+        "(is-none 2 1)",
+        "(is-none 'true)",
+        "(is-ok 2 1)",
+        "(is-ok 'true)",
         "(ok 2 3)",
         "(some 2 3)",
         "(err 4 5)",
@@ -375,12 +375,12 @@ fn test_options_errors() {
 #[test]
 fn test_some() {
     let tests = [
-        "(eq? (some 1) (some 1))",
-        "(eq? none none)",
-        "(is-none? (some 1))",
-        "(eq? (some 1) none)",
-        "(eq? none (some 1))",
-        "(eq? (some 1) (some 2))",
+        "(is-eq (some 1) (some 1))",
+        "(is-eq none none)",
+        "(is-none (some 1))",
+        "(is-eq (some 1) none)",
+        "(is-eq none (some 1))",
+        "(is-eq (some 1) (some 2))",
         ];
 
     let expectations = [
@@ -460,7 +460,7 @@ fn test_bad_lets() {
         "(let ((tx-sender 1)) (+ tx-sender tx-sender))",
         "(let ((* 1)) (+ * *))",
         "(let ((a 1) (a 2)) (+ a a))",
-        "(let ((a 1) (b 2)) (var-set! cursor a) (var-set! cursor (+ b (var-get cursor))) (+ a b))"];
+        "(let ((a 1) (b 2)) (var-set cursor a) (var-set cursor (+ b (var-get cursor))) (+ a b))"];
 
     let expectations: &[Error] = &[
         CheckErrors::NameAlreadyUsed("tx-sender".to_string()).into(),
@@ -476,7 +476,7 @@ fn test_bad_lets() {
 fn test_lets() {
     let tests = [
         "(let ((a 1) (b 2)) (+ a b))",
-        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (var-set! cursor a) (var-set! cursor (+ b (var-get cursor))) (var-get cursor))"];
+        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (var-set cursor a) (var-set cursor (+ b (var-get cursor))) (var-get cursor))"];
 
     let expectations = [
         Value::Int(3),
@@ -489,8 +489,8 @@ fn test_lets() {
 #[test]
 fn test_asserts() {
     let tests = [
-        "(begin (asserts! (eq? 1 1) (err 0)) (ok 1))",
-        "(begin (asserts! (eq? 1 1) (err 0)) (asserts! (eq? 2 2) (err 1)) (ok 2))"];
+        "(begin (asserts! (is-eq 1 1) (err 0)) (ok 1))",
+        "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 2) (err 1)) (ok 2))"];
 
     let expectations = [
         Value::okay(Value::Int(1)),
@@ -503,8 +503,8 @@ fn test_asserts() {
 #[test]
 fn test_asserts_short_circuit() {
     let tests = [
-        "(begin (asserts! (eq? 1 0) (err 0)) (ok 1))",
-        "(begin (asserts! (eq? 1 1) (err 0)) (asserts! (eq? 2 1) (err 1)) (ok 2))"];
+        "(begin (asserts! (is-eq 1 0) (err 0)) (ok 1))",
+        "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 1) (err 1)) (ok 2))"];
 
     let expectations: &[Error] = &[
         Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(0)))),

@@ -14,16 +14,16 @@ use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbo
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current int) (index int)))
          (define-private (init-factorial (id int) (factorial int))
-           (print (map-insert! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
+           (print (map-insert factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
          (define-public (compute (id int))
-           (let ((entry (expects! (map-get factorials (tuple (id id)))
+           (let ((entry (expects! (map-get? factorials (tuple (id id)))
                                  (err 'false))))
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)
                              (ok 'true)
                              (begin
-                               (map-set! factorials (tuple (id id))
+                               (map-set factorials (tuple (id id))
                                                       (tuple (current (* current index))
                                                              (index (- index 1))))
                                (ok 'false))))))
@@ -32,15 +32,15 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current in
 
 const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance uint)))
          (define-read-only (my-get-token-balance (account principal))
-            (default-to u0 (get balance (map-get tokens (tuple (account account))))))
+            (default-to u0 (get balance (map-get? tokens (tuple (account account))))))
          (define-read-only (explode (account principal))
-             (map-delete! tokens (tuple (account account))))
+             (map-delete tokens (tuple (account account))))
          (define-private (token-credit! (account principal) (amount uint))
             (if (<= amount u0)
                 (err \"must be positive\")
                 (let ((current-amount (my-get-token-balance account)))
                   (begin
-                    (map-set! tokens (tuple (account account))
+                    (map-set tokens (tuple (account account))
                                        (tuple (balance (+ amount current-amount))))
                     (ok 0)))))
          (define-public (token-transfer (to principal) (amount uint))
@@ -48,7 +48,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
              (if (or (> amount balance) (<= amount u0))
                  (err \"not enough balance\")
                  (begin
-                   (map-set! tokens (tuple (account tx-sender))
+                   (map-set tokens (tuple (account tx-sender))
                                       (tuple (balance (- balance amount))))
                    (token-credit! to amount)))))
          (define-public (faucet)
@@ -232,9 +232,9 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
          (define-read-only (as-contract-get-caller)
            (as-contract (get-caller)))
          (define-read-only (cc-get-caller)
-           (contract-call! .contract-a get-caller))
+           (contract-call? .contract-a get-caller))
          (define-read-only (as-contract-cc-get-caller)
-           (as-contract (contract-call! .contract-a get-caller)))";
+           (as-contract (contract-call? .contract-a get-caller)))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -272,9 +272,9 @@ fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
          (define-read-only (as-contract-get-caller)
            (as-contract (get-caller)))
          (define-read-only (cc-get-caller)
-           (contract-call! 'S1G2081040G2081040G2081040G208105NK8PE5.contract-a get-caller))
+           (contract-call? 'S1G2081040G2081040G2081040G208105NK8PE5.contract-a get-caller))
          (define-read-only (as-contract-cc-get-caller)
-           (as-contract (contract-call! .contract-a get-caller)))";
+           (as-contract (contract-call? .contract-a get-caller)))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -319,16 +319,16 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price uint))
-           (let ((xfer-result (contract-call! .tokens token-transfer
+           (let ((xfer-result (contract-call? .tokens token-transfer
                                   burn-address name-price)))
-            (if (is-ok? xfer-result)
+            (if (is-ok xfer-result)
                (if
-                 (map-insert! preorder-map
+                 (map-insert preorder-map
                    (tuple (name-hash name-hash))
                    (tuple (paid name-price)
                           (buyer tx-sender)))
                  (ok 0) (err 2))
-               (if (eq? (expects-err! xfer-result (err (- 1)))
+               (if (is-eq (expects-err! xfer-result (err (- 1)))
                         \"not enough balance\")
                    (err 1) (err 3)))))
 
@@ -338,23 +338,23 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
                         (salt int))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (expects! (map-get preorder-map
+                   (expects! (map-get? preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
                  (name-entry 
-                   (map-get name-map (tuple (name name)))))
+                   (map-get? name-map (tuple (name name)))))
              (if (and
-                  (is-none? name-entry)
+                  (is-none name-entry)
                   ;; preorder must have paid enough
                   (<= (price-function name) 
                       (get paid preorder-entry))
                   ;; preorder must have been the current principal
-                  (eq? tx-sender
+                  (is-eq tx-sender
                        (get buyer preorder-entry)))
                   (if (and
-                    (map-insert! name-map
+                    (map-insert name-map
                       (tuple (name name))
                       (tuple (owner recipient-principal)))
-                    (map-delete! preorder-map
+                    (map-delete preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
                     (ok 0)
                     (err 3))
@@ -441,7 +441,7 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
     let contract_1 = FACTORIAL_CONTRACT;
     let contract_2 =
         "(define-public (proxy-compute)
-            (contract-call! .factorial-contract compute 8008))
+            (contract-call? .factorial-contract compute 8008))
         ";
 
     let mut env = owned_env.get_exec_environment(Some(get_principal()));
@@ -464,7 +464,7 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
         env.execute_contract(&QualifiedContractIdentifier::local("proxy-compute").unwrap(), "proxy-compute", &args).unwrap();
         assert_eq!(
             env.eval_read_only(&QualifiedContractIdentifier::local("factorial-contract").unwrap(),
-                               "(get current (expects! (map-get factorials (tuple (id 8008))) 'false))").unwrap(),
+                               "(get current (expects! (map-get? factorials (tuple (id 8008))) 'false))").unwrap(),
             *expected_result);
     }
 }
@@ -480,9 +480,9 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
                  (id int)
                  (value int))
    (begin
-     (map-set! data (tuple (id id))
+     (map-set data (tuple (id id))
                       (tuple (value value)))
-     (if (eq? id value)
+     (if (is-eq id value)
          (ok 1)
          (err 1))))
 
@@ -490,18 +490,18 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
 (define-private (get-data (id int))
   (default-to 0
     (get value 
-     (map-get data (tuple (id id))))))
+     (map-get? data (tuple (id id))))))
 ";
 
     let contract_2 ="
 (define-public (fail-in-other)
   (begin
-    (contract-call! .contract-1 modify-data 100 101)
+    (contract-call? .contract-1 modify-data 100 101)
     (ok 1)))
 
 (define-public (fail-in-self)
   (begin
-    (contract-call! .contract-1 modify-data 105 105)
+    (contract-call? .contract-1 modify-data 105 105)
     (err 1)))
 ";
     let mut env = owned_env.get_exec_environment(None);
@@ -599,7 +599,7 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
 
         assert_eq!(*expectation,
                    env.eval_read_only(&QualifiedContractIdentifier::local("factorial").unwrap(),
-                                      &format!("(expects! (get current (map-get factorials (tuple (id {})))) 'false)", arguments[0]))
+                                      &format!("(expects! (get current (map-get? factorials (tuple (id {})))) 'false)", arguments[0]))
                    .unwrap());
     }
 
