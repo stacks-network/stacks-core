@@ -813,6 +813,178 @@ mod test {
 
     use vm::representations::{ClarityName, ContractName};
 
+    fn corrupt_auth_field(corrupt_auth_fields: &TransactionAuth, i: usize, corrupt_origin: bool, corrupt_sponsor: bool) -> TransactionAuth {
+        let mut new_corrupt_auth_fields = corrupt_auth_fields.clone();
+        match new_corrupt_auth_fields {
+            TransactionAuth::Standard(ref mut origin_condition) => {
+                if corrupt_origin {
+                    match origin_condition {
+                        TransactionSpendingCondition::Singlesig(ref mut data) => {
+                            let mut sig_bytes = data.signature.as_bytes().to_vec();
+                            sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
+                            data.signature = MessageSignature::from_raw(&sig_bytes);
+                        },
+                        TransactionSpendingCondition::Multisig(ref mut data) => {
+                            let corrupt_field = match data.fields[i] {
+                                TransactionAuthField::PublicKey(ref pubkey) => {
+                                    TransactionAuthField::PublicKey(StacksPublicKey::from_hex("0270790e675116a63a75008832d82ad93e4332882ab0797b0f156de9d739160a0b").unwrap())
+                                },
+                                TransactionAuthField::Signature(ref key_encoding, ref sig) => {
+                                    let mut sig_bytes = sig.as_bytes().to_vec();
+                                    sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
+                                    let corrupt_sig = MessageSignature::from_raw(&sig_bytes);
+                                    TransactionAuthField::Signature(*key_encoding, corrupt_sig)
+                                }
+                            };
+                            data.fields[i] = corrupt_field
+                        }
+                    }
+                }
+            },
+            TransactionAuth::Sponsored(ref mut origin_condition, ref mut sponsor_condition) => {
+                if corrupt_origin {
+                    match origin_condition {
+                        TransactionSpendingCondition::Singlesig(ref mut data) => {
+                            let mut sig_bytes = data.signature.as_bytes().to_vec();
+                            sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
+                            data.signature = MessageSignature::from_raw(&sig_bytes);
+                        },
+                        TransactionSpendingCondition::Multisig(ref mut data) => {
+                            let corrupt_field = match data.fields[i] {
+                                TransactionAuthField::PublicKey(ref pubkey) => {
+                                    TransactionAuthField::PublicKey(StacksPublicKey::from_hex("0270790e675116a63a75008832d82ad93e4332882ab0797b0f156de9d739160a0b").unwrap())
+                                },
+                                TransactionAuthField::Signature(ref key_encoding, ref sig) => {
+                                    let mut sig_bytes = sig.as_bytes().to_vec();
+                                    sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
+                                    let corrupt_sig = MessageSignature::from_raw(&sig_bytes);
+                                    TransactionAuthField::Signature(*key_encoding, corrupt_sig)
+                                }
+                            };
+                            data.fields[i] = corrupt_field
+                        }
+                    }
+                }
+                if corrupt_sponsor {
+                    match sponsor_condition {
+                        TransactionSpendingCondition::Singlesig(ref mut data) => {
+                            let mut sig_bytes = data.signature.as_bytes().to_vec();
+                            sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
+                            data.signature = MessageSignature::from_raw(&sig_bytes);
+                        },
+                        TransactionSpendingCondition::Multisig(ref mut data) => {
+                            let corrupt_field = match data.fields[i] {
+                                TransactionAuthField::PublicKey(ref pubkey) => {
+                                    TransactionAuthField::PublicKey(StacksPublicKey::from_hex("0270790e675116a63a75008832d82ad93e4332882ab0797b0f156de9d739160a0b").unwrap())
+                                },
+                                TransactionAuthField::Signature(ref key_encoding, ref sig) => {
+                                    let mut sig_bytes = sig.as_bytes().to_vec();
+                                    sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
+                                    let corrupt_sig = MessageSignature::from_raw(&sig_bytes);
+                                    TransactionAuthField::Signature(*key_encoding, corrupt_sig)
+                                }
+                            };
+                            data.fields[i] = corrupt_field
+                        }
+                    }
+                }
+            }
+        };
+        new_corrupt_auth_fields
+    }
+
+    fn find_signature(spend: &TransactionSpendingCondition) -> usize {
+        match spend {
+            TransactionSpendingCondition::Singlesig(_) => 0,
+            TransactionSpendingCondition::Multisig(ref data) => {
+                let mut j = 0;
+                for f in 0..data.fields.len() {
+                    match data.fields[f] {
+                        TransactionAuthField::Signature(_, _) => {
+                            j = f;
+                            break;
+                        },
+                        _ => {
+                            continue;
+                        }
+                    }
+                }
+                j
+            }
+        }
+    }
+    
+    fn find_public_key(spend: &TransactionSpendingCondition) -> usize {
+        match spend {
+            TransactionSpendingCondition::Singlesig(_) => 0,
+            TransactionSpendingCondition::Multisig(ref data) => {
+                let mut j = 0;
+                for f in 0..data.fields.len() {
+                    match data.fields[f] {
+                        TransactionAuthField::PublicKey(_) => {
+                            j = f;
+                            break;
+                        },
+                        _ => {
+                            continue;
+                        }
+                    }
+                }
+                j
+            }
+        }
+    }
+
+    fn corrupt_auth_field_signature(corrupt_auth_fields: &TransactionAuth, corrupt_origin: bool, corrupt_sponsor: bool) -> TransactionAuth {
+        let i = match corrupt_auth_fields {
+            TransactionAuth::Standard(ref spend) => {
+                if corrupt_origin {
+                    find_signature(spend)
+                }
+                else {
+                    0
+                }
+            },
+            TransactionAuth::Sponsored(ref origin_spend, ref sponsor_spend) => {
+                if corrupt_sponsor {
+                    find_signature(sponsor_spend)
+                }
+                else if corrupt_origin {
+                    find_signature(origin_spend)
+                }
+                else {
+                    0
+                }
+            }
+        };
+        corrupt_auth_field(corrupt_auth_fields, i, corrupt_origin, corrupt_sponsor)
+    }
+
+    fn corrupt_auth_field_public_key(corrupt_auth_fields: &TransactionAuth, corrupt_origin: bool, corrupt_sponsor: bool) -> TransactionAuth {
+        let i = match corrupt_auth_fields {
+            TransactionAuth::Standard(ref spend) => {
+                if corrupt_origin {
+                    find_public_key(spend)
+                }
+                else {
+                    0
+                }
+            },
+            TransactionAuth::Sponsored(ref origin_spend, ref sponsor_spend) => {
+                if corrupt_sponsor {
+                    find_public_key(sponsor_spend)
+                }
+                else if corrupt_origin {
+                    find_public_key(origin_spend)
+                }
+                else {
+                    0
+                }
+            }
+        };
+        corrupt_auth_field(corrupt_auth_fields, i, corrupt_origin, corrupt_sponsor)
+    }
+
     // verify that we can verify signatures over a transaction.
     // also verify that we can corrupt any field and fail to verify the transaction.
     // corruption tests should obviously fail -- the initial sighash changes if any of the
@@ -940,89 +1112,22 @@ mod test {
         };
         corrupt_tx_nonce.auth = corrupt_auth_nonce;
         assert!(corrupt_tx_nonce.txid() != signed_tx.txid());
+       
+        // corrupt a signature
+        let mut corrupt_tx_signature = signed_tx.clone();
+        let corrupt_auth_signature = corrupt_tx_signature.auth.clone();
+        corrupt_tx_signature.auth = corrupt_auth_field_signature(&corrupt_auth_signature, corrupt_origin, corrupt_sponsor);
         
-        // mess with fields
-        let mut corrupt_tx_fields = signed_tx.clone();
-        let mut corrupt_auth_fields = corrupt_tx_fields.auth().clone();
-        match corrupt_auth_fields {
-            TransactionAuth::Standard(ref mut origin_condition) => {
-                if corrupt_origin {
-                    match origin_condition {
-                        TransactionSpendingCondition::Singlesig(ref mut data) => {
-                            let mut sig_bytes = data.signature.as_bytes().to_vec();
-                            sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
-                            data.signature = MessageSignature::from_raw(&sig_bytes);
-                        },
-                        TransactionSpendingCondition::Multisig(ref mut data) => {
-                            let corrupt_field = match data.fields[0] {
-                                TransactionAuthField::PublicKey(ref pubkey) => {
-                                    TransactionAuthField::PublicKey(StacksPublicKey::from_hex("0270790e675116a63a75008832d82ad93e4332882ab0797b0f156de9d739160a0b").unwrap())
-                                },
-                                TransactionAuthField::Signature(ref key_encoding, ref sig) => {
-                                    let mut sig_bytes = sig.as_bytes().to_vec();
-                                    sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
-                                    let corrupt_sig = MessageSignature::from_raw(&sig_bytes);
-                                    TransactionAuthField::Signature(*key_encoding, corrupt_sig)
-                                }
-                            };
-                            data.fields[0] = corrupt_field
-                        }
-                    }
-                }
-            },
-            TransactionAuth::Sponsored(ref mut origin_condition, ref mut sponsor_condition) => {
-                if corrupt_origin {
-                    match origin_condition {
-                        TransactionSpendingCondition::Singlesig(ref mut data) => {
-                            let mut sig_bytes = data.signature.as_bytes().to_vec();
-                            sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
-                            data.signature = MessageSignature::from_raw(&sig_bytes);
-                        },
-                        TransactionSpendingCondition::Multisig(ref mut data) => {
-                            let corrupt_field = match data.fields[0] {
-                                TransactionAuthField::PublicKey(ref pubkey) => {
-                                    TransactionAuthField::PublicKey(StacksPublicKey::from_hex("0270790e675116a63a75008832d82ad93e4332882ab0797b0f156de9d739160a0b").unwrap())
-                                },
-                                TransactionAuthField::Signature(ref key_encoding, ref sig) => {
-                                    let mut sig_bytes = sig.as_bytes().to_vec();
-                                    sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
-                                    let corrupt_sig = MessageSignature::from_raw(&sig_bytes);
-                                    TransactionAuthField::Signature(*key_encoding, corrupt_sig)
-                                }
-                            };
-                            data.fields[0] = corrupt_field
-                        }
-                    }
-                }
-                if corrupt_sponsor {
-                    match sponsor_condition {
-                        TransactionSpendingCondition::Singlesig(ref mut data) => {
-                            let mut sig_bytes = data.signature.as_bytes().to_vec();
-                            sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
-                            data.signature = MessageSignature::from_raw(&sig_bytes);
-                        },
-                        TransactionSpendingCondition::Multisig(ref mut data) => {
-                            let corrupt_field = match data.fields[0] {
-                                TransactionAuthField::PublicKey(ref pubkey) => {
-                                    TransactionAuthField::PublicKey(StacksPublicKey::from_hex("0270790e675116a63a75008832d82ad93e4332882ab0797b0f156de9d739160a0b").unwrap())
-                                },
-                                TransactionAuthField::Signature(ref key_encoding, ref sig) => {
-                                    let mut sig_bytes = sig.as_bytes().to_vec();
-                                    sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
-                                    let corrupt_sig = MessageSignature::from_raw(&sig_bytes);
-                                    TransactionAuthField::Signature(*key_encoding, corrupt_sig)
-                                }
-                            };
-                            data.fields[0] = corrupt_field
-                        }
-                    }
-                }
-            }
-        }
-        corrupt_tx_fields.auth = corrupt_auth_fields;
-        assert!(corrupt_tx_fields.txid() != signed_tx.txid());
+        assert!(corrupt_tx_signature.txid() != signed_tx.txid());
 
-        // mess with the auth signatures required, if applicable
+        // corrupt a public key
+        let mut corrupt_tx_public_key = signed_tx.clone();
+        let corrupt_auth_public_key = corrupt_tx_public_key.auth.clone();
+        corrupt_tx_public_key.auth = corrupt_auth_field_public_key(&corrupt_auth_public_key, corrupt_origin, corrupt_sponsor);
+
+        assert!(corrupt_tx_public_key.txid() != signed_tx.txid());
+
+        // mess with the auth num-signatures required, if applicable
         let mut corrupt_tx_signatures_required = signed_tx.clone();
         let mut corrupt_auth_signatures_required = corrupt_tx_signatures_required.auth().clone();
         let mut is_multisig_origin = false;
@@ -1099,6 +1204,7 @@ mod test {
             else {
                 TransactionAnchorMode::OffChainOnly
             };
+
         assert!(corrupt_tx_anchor_mode.txid() != signed_tx.txid());
 
         // mess with post conditions
@@ -1163,7 +1269,8 @@ mod test {
         let mut corrupt_transactions = vec![
             corrupt_tx_hash_mode,
             corrupt_tx_nonce,
-            corrupt_tx_fields,
+            corrupt_tx_signature,
+            corrupt_tx_public_key,
             corrupt_tx_version,
             corrupt_tx_chain_id,
             corrupt_tx_fee,
@@ -1747,6 +1854,7 @@ mod test {
             };
 
             test_signature_and_corruption(&signed_tx, true, false);
+            test_signature_and_corruption(&signed_tx, false, true);
         }
     } 
     
@@ -1856,6 +1964,7 @@ mod test {
             };
 
             test_signature_and_corruption(&signed_tx, true, false);
+            test_signature_and_corruption(&signed_tx, false, true);
         }
     } 
     
@@ -2002,6 +2111,7 @@ mod test {
             };
 
             test_signature_and_corruption(&signed_tx, true, false);
+            test_signature_and_corruption(&signed_tx, false, true);
         }
     } 
     
@@ -2151,6 +2261,7 @@ mod test {
             };
 
             test_signature_and_corruption(&signed_tx, true, false);
+            test_signature_and_corruption(&signed_tx, false, true);
         }
     } 
     
@@ -2297,6 +2408,7 @@ mod test {
             };
 
             test_signature_and_corruption(&signed_tx, true, false);
+            test_signature_and_corruption(&signed_tx, false, true);
         }
     } 
      
@@ -2406,6 +2518,7 @@ mod test {
             };
 
             test_signature_and_corruption(&signed_tx, true, false);
+            test_signature_and_corruption(&signed_tx, false, true);
         }
     }
 
@@ -2552,6 +2665,7 @@ mod test {
             };
 
             test_signature_and_corruption(&signed_tx, true, false);
+            test_signature_and_corruption(&signed_tx, false, true);
         }
     } 
 }
