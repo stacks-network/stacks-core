@@ -94,14 +94,13 @@ impl StacksWorkScore {
     pub fn initial() -> StacksWorkScore {
         StacksWorkScore {
             burn: 0,
-            work: 0
+            work: 1
         }
     }
 
     pub fn add(&self, work_delta: &StacksWorkScore) -> StacksWorkScore {
         let mut ret = self.clone();
         ret.burn = self.burn.checked_add(work_delta.burn).expect("FATAL: numeric overflow on calculating new total burn");
-        ret.work = self.work.checked_add(work_delta.work).expect("FATAL: numeric overflow on calculating new total work");
         ret
     }
 }
@@ -267,8 +266,6 @@ impl StacksBlockHeader {
             return false;
         }
 
-        // TODO: work score?
-
         // this header's VRF proof must have been generated from the last sortition's sortition
         // hash (which includes the last commit's VRF seed)
         let valid = match VRF::verify(&leader_key.public_key, &self.proof, &sortition_chain_tip.sortition_hash.as_bytes().to_vec()) {
@@ -287,6 +284,7 @@ impl StacksBlockHeader {
 
         // not verified by this method:
         // * parent_microblock and parent_microblock_sequence
+        // * total_work.work (need the parent block header for that)
         // use validate_parent() for that.
         //
         // also not verified:
@@ -300,6 +298,12 @@ impl StacksBlockHeader {
     pub fn validate_parent(&self, parent: &StacksBlockHeader, microblock_parent_opt: Option<&StacksMicroblockHeader>) -> bool {
         if parent.block_hash() != self.parent_block {
             debug!("Invalid Stacks block header {}: parent {} != {}", self.block_hash().to_hex(), parent.block_hash().to_hex(), self.parent_block.to_hex());
+            return false;
+        }
+        
+        // this header must commit to the chain height
+        if self.total_work.work != parent.total_work.work.checked_add(1).expect("FATAL: stacks block height overflow") {
+            debug!("Invalid Stacks block header {}: invalid total work: {} != {}", self.block_hash().to_hex(), self.total_work.work, parent.total_work.work.checked_add(1).expect("FATAL: stacks block height overflow"));
             return false;
         }
 
