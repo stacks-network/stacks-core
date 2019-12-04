@@ -462,11 +462,13 @@ pub mod test {
         pub vrf_keys: Vec<VRFPrivateKey>,
         pub vrf_key_map: HashMap<VRFPublicKey, VRFPrivateKey>,
         pub block_commits: Vec<LeaderBlockCommitOp>,
-        pub expected_mining_rewards: u128
+        pub expected_mining_rewards: u128,
+        pub id: usize
     }
 
     pub struct TestMinerFactory {
-        pub key_seed: [u8; 32]
+        pub key_seed: [u8; 32],
+        pub next_miner_id: usize
     }
 
     impl TestMiner {
@@ -480,7 +482,8 @@ pub mod test {
                 vrf_keys: vec![],
                 vrf_key_map: HashMap::new(),
                 block_commits: vec![],
-                expected_mining_rewards: 0
+                expected_mining_rewards: 0,
+                id: 0
             }
         }
 
@@ -619,7 +622,8 @@ pub mod test {
     impl TestMinerFactory {
         pub fn new() -> TestMinerFactory {
             TestMinerFactory {
-                key_seed: [0u8; 32]
+                key_seed: [0u8; 32],
+                next_miner_id: 0
             }
         }
 
@@ -637,7 +641,10 @@ pub mod test {
             }
 
             test_debug!("New miner: {:?} {}:{:?}", &hash_mode, num_sigs, &keys);
-            TestMiner::new(burnchain, &keys, num_sigs, &hash_mode)
+            let mut m = TestMiner::new(burnchain, &keys, num_sigs, &hash_mode);
+            m.id = self.next_miner_id;
+            self.next_miner_id += 1;
+            m
         }
     }
 

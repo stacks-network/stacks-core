@@ -1155,7 +1155,7 @@ pub mod tests {
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             index_root: TrieHash::from_empty_data(),        // TBD
-            stacks_block_height: 0,
+            num_sortitions: 0,
         };
 
         let block_ops_122 = vec![
@@ -1180,7 +1180,7 @@ pub mod tests {
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             index_root: TrieHash::from_empty_data(),        // TBD
-            stacks_block_height: 0,
+            num_sortitions: 0,
         };
 
         let block_ops_123 = vec![
@@ -1211,7 +1211,7 @@ pub mod tests {
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             index_root: TrieHash::from_empty_data(),        // TBD
-            stacks_block_height: 0,
+            num_sortitions: 0,
         };
 
         // multiple possibilities for block 124 -- we'll reorg the chain each time back to 123 and
@@ -1349,7 +1349,7 @@ pub mod tests {
                 winning_block_txid: block_124_winners[scenario_idx].txid.clone(),
                 winning_stacks_block_hash: block_124_winners[scenario_idx].block_header_hash.clone(),
                 index_root: TrieHash::from_empty_data(),        // TDB
-                stacks_block_height: if next_sortition { 1 } else { 0 }
+                num_sortitions: if next_sortition { 1 } else { 0 }
             };
 
             if next_sortition {
