@@ -80,7 +80,7 @@ impl BlockSnapshot {
             winning_block_txid: Txid([0u8; 32]),
             winning_stacks_block_hash: BlockHeaderHash([0u8; 32]),
             index_root: TrieHash::from_empty_data(),
-            stacks_block_height: 0
+            num_sortitions: 0
         }
     }
 
@@ -190,7 +190,7 @@ impl BlockSnapshot {
             winning_block_txid: non_winning_block_txid,
             winning_stacks_block_hash: non_winning_block_hash,
             index_root: TrieHash::from_empty_data(),     // will be overwritten
-            stacks_block_height: parent_snapshot.stacks_block_height
+            num_sortitions: parent_snapshot.num_sortitions
         })
     }
     
@@ -293,7 +293,7 @@ impl BlockSnapshot {
             winning_block_txid: winning_txid,
             winning_stacks_block_hash: winning_block_hash,
             index_root: TrieHash::from_empty_data(),     // will be overwritten,
-            stacks_block_height: parent_snapshot.stacks_block_height + 1
+            num_sortitions: parent_snapshot.num_sortitions + 1
         })
     }
 }

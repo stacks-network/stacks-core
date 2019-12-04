@@ -126,7 +126,7 @@ pub struct BlockSnapshot {
     pub winning_block_txid: Txid,       // txid of the leader block commit that won sortition.  Will all 0's if sortition is false. 
     pub winning_stacks_block_hash: BlockHeaderHash,     // hash of Stacks block that won sortition (will be all 0's if sortition is false)
     pub index_root: TrieHash,           // root hash of the index over the materialized view of all inserted data
-    pub stacks_block_height: u64,       // length of the stacks chain
+    pub num_sortitions: u64,       // how many stacks blocks exist
 }
 
 impl BlockHeaderHash {
@@ -356,7 +356,7 @@ mod tests {
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     index_root: TrieHash::from_empty_data(),     // will be overwritten
-                    stacks_block_height: i,
+                    num_sortitions: i,
                 };
                 let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
                 burn_block_hashes.push(snapshot_row.burn_header_hash.clone());

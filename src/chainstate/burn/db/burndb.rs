@@ -110,7 +110,7 @@ impl From<BlockHeaderHash> for BurnchainHeaderHash {
 
 impl RowOrder for BlockSnapshot {
     fn row_order() -> Vec<&'static str> {
-        vec!["block_height","burn_header_hash","parent_burn_header_hash","consensus_hash","ops_hash","total_burn","sortition","sortition_hash","winning_block_txid","winning_stacks_block_hash","index_root","stacks_block_height"]
+        vec!["block_height","burn_header_hash","parent_burn_header_hash","consensus_hash","ops_hash","total_burn","sortition","sortition_hash","winning_block_txid","winning_stacks_block_hash","index_root","num_sortitions"]
     }
 }
 
@@ -127,13 +127,13 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let winning_block_txid = Txid::from_row(row, 8 + index)?;
         let winning_stacks_block_hash = BlockHeaderHash::from_row(row, 9 + index)?;
         let index_root = TrieHash::from_row(row, 10 + index)?;
-        let stacks_block_height_i64 : i64 = row.get(11);
+        let num_sortitions_i64 : i64 = row.get(11);
 
         if block_height_i64 < 0 {
             return Err(db_error::ParseError);
         }
 
-        if stacks_block_height_i64 < 0 {
+        if num_sortitions_i64 < 0 {
             return Err(db_error::ParseError);
         }
 
@@ -152,7 +152,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
             winning_block_txid: winning_block_txid,
             winning_stacks_block_hash: winning_stacks_block_hash,
             index_root: index_root,
-            stacks_block_height: stacks_block_height_i64 as u64,
+            num_sortitions: num_sortitions_i64 as u64,
         };
         Ok(snapshot)
     }
@@ -327,13 +327,13 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         winning_stacks_block_hash TEXT NOT NULL,
         index_root TEXT UNIQUE NOT NULL,
 
-        stacks_block_height INTEGER NOT NULL,
+        num_sortitions INTEGER NOT NULL,
 
         PRIMARY KEY(burn_header_hash)
     );"#,
     r#"
     CREATE UNIQUE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);
-    CREATE UNIQUE INDEX snapshots_block_stacks_hashes ON snapshots(stacks_block_height,index_root,winning_stacks_block_hash);
+    CREATE UNIQUE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);
     "#,
     r#"
     -- all leader keys registered in the blockchain.
@@ -468,11 +468,11 @@ impl BurnDB {
         first_snapshot.index_root = index_root;
 
         burndbtx.tx.execute("INSERT INTO snapshots \
-                   (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, stacks_block_height) \
+                   (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions) \
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                    &[&(first_snapshot.block_height as i64) as &dyn ToSql, &first_snapshot.burn_header_hash.to_hex(), &first_snapshot.parent_burn_header_hash.to_hex(), &first_snapshot.consensus_hash.to_hex(), &first_snapshot.ops_hash.to_hex(), &"0".to_string(),
                      &first_snapshot.sortition as &dyn ToSql, &first_snapshot.sortition_hash.to_hex(), &first_snapshot.winning_block_txid.to_hex(), &first_snapshot.winning_stacks_block_hash.to_hex(), &first_snapshot.index_root.to_hex(), 
-                     &(first_snapshot.stacks_block_height as i64) as &dyn ToSql])
+                     &(first_snapshot.num_sortitions as i64) as &dyn ToSql])
             .map_err(db_error::SqliteError)?;
        
         burndbtx.commit()?;
@@ -483,18 +483,23 @@ impl BurnDB {
     /// If opened for read/write and it doesn't exist, instantiate it.
     pub fn connect(path: &String, first_block_height: u64, first_burn_hash: &BurnchainHeaderHash, readwrite: bool) -> Result<BurnDB, db_error> {
         let mut create_flag = false;
-        let open_flags =
-            if fs::metadata(path).is_err() {
-                // need to create 
-                if readwrite {
-                    create_flag = true;
-                    OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+        let open_flags = match fs::metadata(path) {
+            Err(e) => {
+                if e.kind() == io::ErrorKind::NotFound {
+                    // need to create 
+                    if readwrite {
+                        create_flag = true;
+                        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+                    }
+                    else {
+                        return Err(db_error::NoDBError);
+                    }
                 }
                 else {
-                    return Err(db_error::NoDBError);
+                    return Err(db_error::IOError(e));
                 }
-            }
-            else {
+            },
+            Ok(_md) => {
                 // can just open 
                 if readwrite {
                     OpenFlags::SQLITE_OPEN_READ_WRITE
@@ -502,7 +507,8 @@ impl BurnDB {
                 else {
                     OpenFlags::SQLITE_OPEN_READ_ONLY
                 }
-            };
+            }
+        };
 
         let (db_path, index_path) = db_mkdirs(path)?;
         let mut conn = Connection::open_with_flags(&db_path, open_flags).map_err(db_error::SqliteError)?;
@@ -611,19 +617,19 @@ impl BurnDB {
     /// Do not call directly -- use append_chain_tip_snapshot to preserve the fork table structure.
     fn insert_block_snapshot<'a>(tx: &mut BurnDBTx<'a>, snapshot: &BlockSnapshot) -> Result<(), db_error> {
         assert!(snapshot.block_height < BLOCK_HEIGHT_MAX);
-        assert!(snapshot.stacks_block_height < BLOCK_HEIGHT_MAX);
+        assert!(snapshot.num_sortitions < BLOCK_HEIGHT_MAX);
 
         test_debug!("Insert block snapshot state {} for block {} ({},{}) {}", snapshot.index_root.to_hex(), snapshot.block_height,
-                    snapshot.burn_header_hash.to_hex(), snapshot.parent_burn_header_hash.to_hex(), snapshot.stacks_block_height);
+                    snapshot.burn_header_hash.to_hex(), snapshot.parent_burn_header_hash.to_hex(), snapshot.num_sortitions);
 
         let total_burn_str = format!("{}", snapshot.total_burn);
 
         tx.execute("INSERT INTO snapshots \
-                   (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, stacks_block_height) \
+                   (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions) \
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                    &[&(snapshot.block_height as i64) as &dyn ToSql, &snapshot.burn_header_hash.to_hex(), &snapshot.parent_burn_header_hash.to_hex(), &snapshot.consensus_hash.to_hex(), &snapshot.ops_hash.to_hex(), &total_burn_str,
                      &snapshot.sortition as &dyn ToSql, &snapshot.sortition_hash.to_hex(), &snapshot.winning_block_txid.to_hex(), &snapshot.winning_stacks_block_hash.to_hex(), &snapshot.index_root.to_hex(),
-                     &(snapshot.stacks_block_height as i64) as &dyn ToSql])
+                     &(snapshot.num_sortitions as i64) as &dyn ToSql])
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -771,10 +777,10 @@ impl BurnDB {
         assert_eq!(snapshot.parent_burn_header_hash, parent_snapshot.burn_header_hash);
         assert_eq!(parent_snapshot.block_height + 1, snapshot.block_height);
         if snapshot.sortition {
-            assert_eq!(parent_snapshot.stacks_block_height + 1, snapshot.stacks_block_height);
+            assert_eq!(parent_snapshot.num_sortitions + 1, snapshot.num_sortitions);
         }
         else {
-            assert_eq!(parent_snapshot.stacks_block_height, snapshot.stacks_block_height);
+            assert_eq!(parent_snapshot.num_sortitions, snapshot.num_sortitions);
         }
 
         let root_hash = BurnDB::index_add_fork_info(tx, parent_snapshot, snapshot, block_ops, consumed_leader_keys)?;
@@ -805,7 +811,7 @@ impl BurnDB {
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_stacks_chain_tip(conn: &Connection) -> Result<Option<BlockSnapshot>, db_error> {
         let row_order = BlockSnapshot::row_order().join(",");
-        let qry = format!("SELECT {} FROM snapshots ORDER BY stacks_block_height DESC, burn_header_hash ASC LIMIT 1", row_order);
+        let qry = format!("SELECT {} FROM snapshots ORDER BY num_sortitions DESC, burn_header_hash ASC LIMIT 1", row_order);
         let rows = query_rows::<BlockSnapshot, _>(conn, &qry, NO_PARAMS)?;
         match rows.len() {
             0 => {
@@ -939,7 +945,10 @@ impl BurnDB {
         let args = [&burn_hash.to_hex()];
         let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
         match rows.len() {
-            0 => Ok(None),
+            0 => {
+                test_debug!("No snapshot with burn hash {}", burn_hash.to_hex());
+                Ok(None)
+            },
             1 => Ok(Some(rows[0].clone())),
             _ => {
                 // should never happen 
@@ -1604,7 +1613,7 @@ mod tests {
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
             sn.block_height += 1;
-            sn.stacks_block_height += 1;
+            sn.num_sortitions += 1;
 
             let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
             sn.index_root = index_root;
@@ -1629,7 +1638,7 @@ mod tests {
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.burn_header_hash = BurnchainHeaderHash([0x02; 32]);
             sn.block_height += 1;
-            sn.stacks_block_height += 1;
+            sn.num_sortitions += 1;
 
             let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![], &vec![]).unwrap();
             sn.index_root = index_root;
@@ -1701,7 +1710,7 @@ mod tests {
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
             sn.block_height += 1;
-            sn.stacks_block_height += 1;
+            sn.num_sortitions += 1;
 
             let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
             sn.index_root = index_root;
@@ -1732,7 +1741,7 @@ mod tests {
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.burn_header_hash = BurnchainHeaderHash([0x03; 32]);
             sn.block_height += 1;
-            sn.stacks_block_height += 1;
+            sn.num_sortitions += 1;
 
             let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone())], &vec![leader_key.clone()]).unwrap();
             sn.index_root = index_root;
@@ -1768,7 +1777,7 @@ mod tests {
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.burn_header_hash = BurnchainHeaderHash([0x05; 32]);
             sn.block_height += 1;
-            sn.stacks_block_height += 1;
+            sn.num_sortitions += 1;
 
             let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![], &vec![]).unwrap();
             sn.index_root = index_root;
@@ -1830,7 +1839,7 @@ mod tests {
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.burn_header_hash = BurnchainHeaderHash([0x13; 32]);
             sn.block_height += 1;
-            sn.stacks_block_height += 1;
+            sn.num_sortitions += 1;
 
             let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![], &vec![]).unwrap();
             sn.index_root = index_root;
@@ -1894,7 +1903,7 @@ mod tests {
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
             sn.block_height += 1;
-            sn.stacks_block_height += 1;
+            sn.num_sortitions += 1;
 
             let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
             sn.index_root = index_root;
@@ -1911,7 +1920,7 @@ mod tests {
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.burn_header_hash = BurnchainHeaderHash([0x03; 32]);
             sn.block_height += 1;
-            sn.stacks_block_height += 1;
+            sn.num_sortitions += 1;
 
             let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::UserBurnSupport(user_burn.clone())], &vec![]).unwrap();
             sn.index_root = index_root;
@@ -1960,7 +1969,7 @@ mod tests {
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
             sn.block_height += 1;
-            sn.stacks_block_height += 1;
+            sn.num_sortitions += 1;
 
             let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![], &vec![]).unwrap();
             sn.index_root = index_root;
@@ -1984,7 +1993,7 @@ mod tests {
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.burn_header_hash = BurnchainHeaderHash([0x03; 32]);
             sn.block_height += 1;
-            sn.stacks_block_height += 1;
+            sn.num_sortitions += 1;
 
             let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
             sn.index_root = index_root;
@@ -2022,7 +2031,7 @@ mod tests {
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     index_root: TrieHash::from_empty_data(),
-                    stacks_block_height: i+1,
+                    num_sortitions: i+1,
                 };
                 let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
                 last_snapshot = snapshot_row;
@@ -2088,7 +2097,7 @@ mod tests {
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     index_root: TrieHash::from_empty_data(), 
-                    stacks_block_height: i+1,
+                    num_sortitions: i+1,
                 };
                 let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
                 last_snapshot = snapshot_row;
@@ -2180,7 +2189,7 @@ mod tests {
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
             sn.block_height += 1;
-            sn.stacks_block_height += 1;
+            sn.num_sortitions += 1;
 
             let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
             sn.index_root = index_root;
@@ -2197,7 +2206,7 @@ mod tests {
             sn.parent_burn_header_hash = sn.burn_header_hash.clone();
             sn.burn_header_hash = BurnchainHeaderHash([0x03; 32]);
             sn.block_height += 1;
-            sn.stacks_block_height += 1;
+            sn.num_sortitions += 1;
 
             let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone()), BlockstackOperationType::UserBurnSupport(user_burn.clone())], &vec![leader_key.clone()]).unwrap();
             sn.index_root = index_root;
@@ -2235,7 +2244,7 @@ mod tests {
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             index_root: TrieHash([0u8; 32]),
-            stacks_block_height: 0,
+            num_sortitions: 0,
         };
 
         let mut snapshot_with_sortition = BlockSnapshot {
@@ -2250,7 +2259,7 @@ mod tests {
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
             index_root: TrieHash([1u8; 32]),
-            stacks_block_height: 1,
+            num_sortitions: 1,
         };
 
         let snapshot_without_sortition = BlockSnapshot {
@@ -2265,7 +2274,7 @@ mod tests {
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap(),
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap(),
             index_root: TrieHash([2u8; 32]),
-            stacks_block_height: 0
+            num_sortitions: 0
         };
 
         let mut db = BurnDB::connect_memory(block_height - 2, &first_burn_hash).unwrap();
@@ -2388,7 +2397,7 @@ mod tests {
             let mut next_snapshot = last_snapshot.clone();
 
             next_snapshot.block_height += 1;
-            next_snapshot.stacks_block_height += 1;
+            next_snapshot.num_sortitions += 1;
             next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
             next_snapshot.burn_header_hash = BurnchainHeaderHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
             next_snapshot.consensus_hash = ConsensusHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
@@ -2420,7 +2429,7 @@ mod tests {
             let mut last_snapshot = BurnDB::get_block_snapshot(db.conn(), &parent_block).unwrap().unwrap();
 
             let initial_block_height = last_snapshot.block_height;
-            let initial_stacks_block_height = last_snapshot.stacks_block_height;
+            let initial_num_sortitions = last_snapshot.num_sortitions;
 
             let mut next_snapshot = last_snapshot.clone();
 
@@ -2430,7 +2439,7 @@ mod tests {
                 block_hash[i] = (j - i) as u8;
 
                 next_snapshot.block_height = initial_block_height + (j - i) as u64;
-                next_snapshot.stacks_block_height = initial_stacks_block_height + (j - i) as u64;
+                next_snapshot.num_sortitions = initial_num_sortitions + (j - i) as u64;
                 next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
                 next_snapshot.burn_header_hash = BurnchainHeaderHash(block_hash);
                 next_snapshot.consensus_hash = ConsensusHash([1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
@@ -2473,7 +2482,7 @@ mod tests {
                 next_block_hash.copy_from_slice(&next_block_hash_vec[..]);
 
                 next_snapshot.block_height = last_snapshot.block_height + 1;
-                next_snapshot.stacks_block_height = last_snapshot.stacks_block_height + 1;
+                next_snapshot.num_sortitions = last_snapshot.num_sortitions + 1;
                 next_snapshot.parent_burn_header_hash = last_snapshot.burn_header_hash.clone();
                 next_snapshot.burn_header_hash = BurnchainHeaderHash(next_block_hash);
                 next_snapshot.consensus_hash = ConsensusHash([2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
@@ -2497,7 +2506,7 @@ mod tests {
             next_block_hash.copy_from_slice(&next_block_hash_vec[..]);
 
             next_snapshot.block_height += 1;
-            next_snapshot.stacks_block_height += 1;
+            next_snapshot.num_sortitions += 1;
             next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
             next_snapshot.burn_header_hash = BurnchainHeaderHash(next_block_hash);
 
