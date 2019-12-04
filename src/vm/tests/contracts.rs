@@ -71,14 +71,14 @@ fn get_principal() -> Value {
 fn test_get_block_info_eval() {
 
     let contracts = [
-        "(define-private (test-func) (get-block-info time u1))",
-        "(define-private (test-func) (get-block-info time block-height))",
-        "(define-private (test-func) (get-block-info time u100000))",
-        "(define-private (test-func) (get-block-info time (- 1)))",
-        "(define-private (test-func) (get-block-info time 'true))",
-        "(define-private (test-func) (get-block-info header-hash u1))",
-        "(define-private (test-func) (get-block-info burnchain-header-hash u1))",
-        "(define-private (test-func) (get-block-info vrf-seed u1))",
+        "(define-private (test-func) (get-block-info? time u1))",
+        "(define-private (test-func) (get-block-info? time block-height))",
+        "(define-private (test-func) (get-block-info? time u100000))",
+        "(define-private (test-func) (get-block-info? time (- 1)))",
+        "(define-private (test-func) (get-block-info? time 'true))",
+        "(define-private (test-func) (get-block-info? header-hash u1))",
+        "(define-private (test-func) (get-block-info? burnchain-header-hash u1))",
+        "(define-private (test-func) (get-block-info? vrf-seed u1))",
     ];
 
     let expected = [
@@ -104,7 +104,7 @@ fn test_get_block_info_eval() {
 
         let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
         match expected[i] {
-            // any (some UINT) is okay for checking get-block-info time
+            // any (some UINT) is okay for checking get-block-info? time
             Ok(Value::UInt(0)) => {
                 assert!(
                     if let Ok(Value::Optional(OptionalData { data: Some(x) })) = eval_result {

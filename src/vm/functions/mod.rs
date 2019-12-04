@@ -62,7 +62,7 @@ define_named_enum!(NativeFunctions {
     ContractCall("contract-call?"),
     AsContract("as-contract"),
     AtBlock("at-block"),
-    GetBlockInfo("get-block-info"),
+    GetBlockInfo("get-block-info?"),
     ConsError("err"),
     ConsOkay("ok"),
     ConsSome("some"),

@@ -196,7 +196,7 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
                               env: &mut Environment, 
                               context: &LocalContext) -> Result<Value> {
 
-    // (get-block-info property-name block-height-int)
+    // (get-block-info? property-name block-height-int)
 
     check_argument_count(2, args)?;
 

@@ -584,7 +584,7 @@ block indicated by the _block-hash_ argument. The `expr` closure must be read-on
 The function returns the result of evaluating `expr`.
 ",
     example: "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 (var-get data))
-(at-block (get-block-info header-hash (- block-height u10)) (var-get data))"
+(at-block (get-block-info? header-hash (- block-height u10)) (var-get data))"
 };
         
 
@@ -695,8 +695,8 @@ and `false` if it is a `(some ...)`.",
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "BlockInfoPropertyName, BlockHeightInt",
     output_type: "(optional buff) | (optional uint)",
-    signature: "(get-block-info prop-name block-height-expr)",
-    description: "The `get-block-info` function fetches data for a block of the given block height. The 
+    signature: "(get-block-info? prop-name block-height-expr)",
+    description: "The `get-block-info?` function fetches data for a block of the given block height. The 
 value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `BlockHeightInt` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names 
 are `time`, `header-hash`, `burnchain-header-hash`, and `vrf-seed`. 
@@ -707,9 +707,9 @@ and block times are accurate only to within two hours. See [BIP113](https://gith
 
 The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 32-byte buffer. 
 ",
-    example: "(get-block-info time u10) ;; Returns (some 1557860301)
-(get-block-info header-hash u2) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
-(get-block-info vrf-seed u6) ;; Returns (some 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4)
+    example: "(get-block-info? time u10) ;; Returns (some 1557860301)
+(get-block-info? header-hash u2) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
+(get-block-info? vrf-seed u6) ;; Returns (some 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4)
 "
 };
 

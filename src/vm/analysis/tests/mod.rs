@@ -183,14 +183,14 @@ fn test_contract_call_expect_name() {
 
 #[test]
 fn test_no_such_block_info_property() {
-    let snippet = "(get-block-info unicorn 1)";
+    let snippet = "(get-block-info? unicorn 1)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("use of block unknown property 'unicorn'"));
 }
 
 #[test]
 fn test_get_block_info_expect_property_name() {
-    let snippet = "(get-block-info 0 1)";
+    let snippet = "(get-block-info? 0 1)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("missing property name for block info introspection"));
 }
