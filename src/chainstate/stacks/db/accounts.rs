@@ -300,7 +300,7 @@ impl StacksChainState {
         }
 
         ////////////////////// coinbase reward total /////////////////////////////////
-        test_debug!("Coinbase reward = {} * ({}/{})", miner.coinbase, miner.burnchain_commit_burn, miner.burnchain_sortition_burn);
+        test_debug!("{}: Coinbase reward = {} * ({}/{})", miner.address.to_string(), miner.coinbase, miner.burnchain_commit_burn, miner.burnchain_sortition_burn);
         coinbase_reward = miner.coinbase.checked_mul(miner.burnchain_commit_burn as u128).expect("FATAL: STX coinbase reward overflow") / (miner.burnchain_sortition_burn as u128);
 
         ////////////////////// anchored tx fees (miner only) //////////////////////////
@@ -329,7 +329,7 @@ impl StacksChainState {
                         assert!((block_miner.tx_fees_anchored << 64) >= shared_fees);
                         let exclusive_fees = (block_miner.tx_fees_anchored << 64) - shared_fees;
                         
-                        test_debug!("Anchored tx fees exclusive: {} = {} + {}", (fees_total + exclusive_fees) >> 64, fees_total >> 64, exclusive_fees >> 64);
+                        test_debug!("{}: Anchored tx fees exclusive: {} = {} + {}", miner.address.to_string(), (fees_total + exclusive_fees) >> 64, fees_total >> 64, exclusive_fees >> 64);
                         fees_total = fees_total.checked_add((block_miner.tx_fees_anchored << 64) - shared_fees).expect("FATAL: STX exclusive total anchored fee calculation overflow");
                     }
                 }
@@ -358,7 +358,7 @@ impl StacksChainState {
                     fees_total >> 64
                 };
             
-            test_debug!("Anchored tx fees shared = {} * ({}/{})", anchored_tx_fee_shared_total, num_mined, sample.len());
+            test_debug!("{}: Anchored tx fees shared = {} * ({}/{})", miner.address.to_string(), anchored_tx_fee_shared_total, num_mined, sample.len());
             anchored_tx_fee_shared = anchored_tx_fee_shared_total.checked_mul(num_mined).expect("FATAL: STX shared anchored tx fee overflow") / (sample.len() as u128);
         }
 
@@ -369,7 +369,7 @@ impl StacksChainState {
                 let prev_block_miner = &sample[i-1].0;
                 let block_miner = &sample[i].0;
                 if block_miner.address == miner.address {
-                    test_debug!("Confirmed streamd tx fees: 3/5 * {} = 3/5 * ({} + {})", fees_confirmed + prev_block_miner.tx_fees_streamed, fees_confirmed, prev_block_miner.tx_fees_streamed);
+                    test_debug!("{}: Confirmed streamd tx fees: 3/5 * {} = 3/5 * ({} + {})", miner.address.to_string(), fees_confirmed + prev_block_miner.tx_fees_streamed, fees_confirmed, prev_block_miner.tx_fees_streamed);
                     fees_confirmed = fees_confirmed.checked_add(prev_block_miner.tx_fees_streamed).expect("FATAL: STX tx fees streamed confirmation overflow");
                 }
             }
@@ -384,7 +384,7 @@ impl StacksChainState {
             for i in 0..sample.len() {
                 let block_miner = &sample[i].0;
                 if block_miner.address == miner.address {
-                    test_debug!("Produced streamd tx fees: 2/5 * {} = 2/5 * ({} + {})", fees_produced + block_miner.tx_fees_streamed, fees_produced, block_miner.tx_fees_streamed);
+                    test_debug!("{}: Produced streamd tx fees: 2/5 * {} = 2/5 * ({} + {})", miner.address.to_string(), fees_produced + block_miner.tx_fees_streamed, fees_produced, block_miner.tx_fees_streamed);
                     fees_produced = fees_produced.checked_add(block_miner.tx_fees_streamed).expect("FATAL: STX tx fees streamed production overflow");
                 }
             }
