@@ -920,7 +920,7 @@ mod test {
                     next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
                     next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
                     next_snapshot.total_burn += 1;
-                    next_snapshot.stacks_block_height += 1;
+                    next_snapshot.num_sortitions += 1;
                     next_snapshot.sortition = true;
                     next_snapshot.sortition_hash = next_snapshot.sortition_hash.mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
 
