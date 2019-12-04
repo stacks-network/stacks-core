@@ -196,7 +196,7 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
                               env: &mut Environment, 
                               context: &LocalContext) -> Result<Value> {
 
-    // (get-block-info property-name block-height-int)
+    // (get-block-info? property-name block-height-int)
 
     check_argument_count(2, args)?;
 
@@ -216,31 +216,32 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
 
     let height_value = match u64::try_from(height_value) {
         Ok(result) => result,
-        _ => return Err(RuntimeErrorType::BadBlockHeight(height_value.to_string()).into())
+        _ => return Ok(Value::none())
     };
 
     let current_block_height = env.global_context.database.get_simmed_block_height();
-    if height_value > current_block_height {
-        return Err(RuntimeErrorType::BadBlockHeight(height_value.to_string()).into());
+    if height_value >= current_block_height {
+        return Ok(Value::none())
     }
 
-    use self::BlockInfoProperty::*;
-    match block_info_prop {
-        Time => {
+    let result = match block_info_prop {
+        BlockInfoProperty::Time => {
             let block_time = env.global_context.database.get_simmed_block_time(height_value);
-            Ok(Value::UInt(block_time as u128))
+            Value::UInt(block_time as u128)
         },
-        VrfSeed => {
+        BlockInfoProperty::VrfSeed => {
             let vrf_seed = env.global_context.database.get_simmed_block_vrf_seed(height_value);
-            Ok(Value::Buffer(BuffData { data: vrf_seed.to_bytes().to_vec() }))
+            Value::Buffer(BuffData { data: vrf_seed.as_bytes().to_vec() })
         },
-        HeaderHash => {
+        BlockInfoProperty::HeaderHash => {
             let header_hash = env.global_context.database.get_simmed_block_header_hash(height_value);
-            Ok(Value::Buffer(BuffData { data: header_hash.to_bytes().to_vec() }))
+            Value::Buffer(BuffData { data: header_hash.as_bytes().to_vec() })
         },
-        BurnchainHeaderHash => {
+        BlockInfoProperty::BurnchainHeaderHash => {
             let burnchain_header_hash = env.global_context.database.get_simmed_burnchain_block_header_hash(height_value);
-            Ok(Value::Buffer(BuffData { data: burnchain_header_hash.to_bytes().to_vec() }))
+            Value::Buffer(BuffData { data: burnchain_header_hash.as_bytes().to_vec() })
         },
-    }
+    };
+
+    Ok(Value::some(result))
 }

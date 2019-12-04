@@ -34,17 +34,18 @@ fn buff_type(size: u32) -> TypeSignature {
 
 #[test]
 fn test_get_block_info(){
-    let good = ["(get-block-info time u1)",
-                "(get-block-info time (* u2 u3))",
-                "(get-block-info vrf-seed u1)",
-                "(get-block-info header-hash u1)",
-                "(get-block-info burnchain-header-hash u1)"];
-    let expected = [ "uint", "uint", "(buff 32)", "(buff 32)", "(buff 32)" ];
+    let good = ["(get-block-info? time u1)",
+                "(get-block-info? time (* u2 u3))",
+                "(get-block-info? vrf-seed u1)",
+                "(get-block-info? header-hash u1)",
+                "(get-block-info? burnchain-header-hash u1)"];
+    let expected = [ "(optional uint)", "(optional uint)", "(optional (buff 32))",
+                       "(optional (buff 32))", "(optional (buff 32))" ];
 
-    let bad = ["(get-block-info none u1)",
-               "(get-block-info time 'true)",
-               "(get-block-info time 1)",
-               "(get-block-info time)"];
+    let bad = ["(get-block-info? none u1)",
+               "(get-block-info? time 'true)",
+               "(get-block-info? time 1)",
+               "(get-block-info? time)"];
     let bad_expected = [ CheckErrors::NoSuchBlockInfoProperty("none".to_string()),
                          CheckErrors::TypeError(UIntType, BoolType),
                          CheckErrors::TypeError(UIntType, IntType),
