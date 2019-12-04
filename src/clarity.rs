@@ -5,11 +5,19 @@ use std::fs;
 use std::env;
 use std::process;
 use std::convert::TryInto;
+use std::path::PathBuf;
+
 use util::log;
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::storage::{TrieFileStorage};
 
+use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::types::ToSql;
+use rusqlite::Row;
+use rusqlite::Transaction;
+
+use util::db::FromRow;
 
 use vm::ast::parse;
 use vm::contexts::OwnedEnvironment;
@@ -75,19 +83,115 @@ fn clarity_db<S: KeyValueStorage>(marf_kv: &mut MarfedKV<S>) -> ClarityDatabase 
     ClarityDatabase::new(Box::new(marf_kv))
 }
 
+fn create_or_open_db(path: &String) -> Connection {
+    let mut create_flag = false;
+    let open_flags = match fs::metadata(path) {
+        Err(e) => {
+            if e.kind() == io::ErrorKind::NotFound {
+                // need to create 
+                create_flag = true;
+                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+            }
+            else {
+                panic!("FATAL: could not stat {}", path);
+            }
+        },
+        Ok(_md) => {
+            // can just open 
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+        }
+    };
+
+    let conn = friendly_expect(Connection::open_with_flags(path, open_flags), &format!("FATAL: failed to open '{}'", path));
+    conn
+}
+
+fn get_cli_chain_tip(conn: &Connection) -> BlockHeaderHash {
+    let mut stmt = friendly_expect(conn.prepare("SELECT block_hash FROM cli_chain_tips ORDER BY id DESC LIMIT 1"), "FATAL: could not prepare query");
+    let mut rows = friendly_expect(stmt.query(NO_PARAMS), "FATAL: could not fetch rows");
+    let mut hash_opt = None;
+    while let Some(row_res) = rows.next() {
+        match row_res {
+            Ok(row) => {
+                let bhh = friendly_expect(BlockHeaderHash::from_row(&row, 0), "FATAL: could not parse block hash");
+                hash_opt = Some(bhh);
+                break;
+            },
+            Err(e) => {
+                panic!("FATAL: could not read block hash");
+            }
+        }
+    }
+    match hash_opt {
+        Some(bhh) => bhh,
+        None => TrieFileStorage::block_sentinel()
+    }
+}
+
+fn advance_cli_chain_tip(path: &String) -> (BlockHeaderHash, BlockHeaderHash) {
+    let mut conn = create_or_open_db(path);
+    let tx = friendly_expect(conn.transaction(), &format!("FATAL: failed to begin transaction on '{}'", path));
+
+    friendly_expect(tx.execute("CREATE TABLE IF NOT EXISTS cli_chain_tips(id INTEGER PRIMARY KEY AUTOINCREMENT, block_hash TEXT UNIQUE NOT NULL);", NO_PARAMS),
+                    &format!("FATAL: failed to create 'cli_chain_tips' table"));
+   
+    let parent_block_hash = get_cli_chain_tip(&tx);
+    
+    let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+    let next_block_hash  = friendly_expect_opt(BlockHeaderHash::from_bytes(&random_bytes),
+                                              "Failed to generate random block header.");
+
+    friendly_expect(tx.execute("INSERT INTO cli_chain_tips (block_hash) VALUES (?1)", &[&next_block_hash.to_hex() as &dyn ToSql]), 
+                    &format!("FATAL: failed to store next block hash in '{}'", path));
+
+    friendly_expect(tx.commit(), &format!("FATAL: failed to commit new chain tip to '{}'", path));
+
+    (parent_block_hash, next_block_hash)
+}
 
 // This function is pretty weird! But it helps cut down on
 //   repeating a lot of block initialization for the simulation commands.
-fn in_block<F,R,S>(mut marf_kv: MarfedKV<S>, f: F) -> R
+fn in_block<F,R,S>(db_path: &String, mut marf_kv: MarfedKV<S>, f: F) -> R
 where F: FnOnce(MarfedKV<S>) -> (MarfedKV<S>, R),
       S: KeyValueStorage {
-    let from = marf_kv.get_chain_tip().clone();
-    let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
-    let to = friendly_expect_opt(BlockHeaderHash::from_bytes(&random_bytes),
-                                 "Failed to generate random block header.");
+
+    // store CLI data alongside the MARF database state
+    let mut cli_db_path_buf = PathBuf::from(db_path);
+    cli_db_path_buf.push("cli.sqlite");
+    let cli_db_path = cli_db_path_buf
+        .to_str()
+        .expect(&format!("FATAL: failed to convert '{}' to a string", db_path))
+        .to_string();
+
+    // need to load the last block 
+    let (from, to) = advance_cli_chain_tip(&cli_db_path);
     marf_kv.begin(&from, &to);
     let (mut marf_return, result) = f(marf_kv);
     marf_return.commit();
+    result
+}
+
+// like in_block, but does _not_ advance the chain tip.  Used for read-only queries against the
+// chain tip itself.
+fn at_chaintip<F,R,S>(db_path: &String, mut marf_kv: MarfedKV<S>, f: F) -> R
+where F: FnOnce(MarfedKV<S>) -> (MarfedKV<S>, R),
+      S: KeyValueStorage {
+
+    // store CLI data alongside the MARF database state
+    let mut cli_db_path_buf = PathBuf::from(db_path);
+    cli_db_path_buf.push("cli.sqlite");
+    let cli_db_path = cli_db_path_buf
+        .to_str()
+        .expect(&format!("FATAL: failed to convert '{}' to a string", db_path))
+        .to_string();
+
+    let cli_db_conn = create_or_open_db(&cli_db_path);
+    let from = get_cli_chain_tip(&cli_db_conn);
+    let to = BlockHeaderHash([2u8; 32]);        // 0x0202020202 ... (pattern not used anywhere else) 
+
+    marf_kv.begin(&from, &to);
+    let (mut marf_return, result) = f(marf_kv);
+    marf_return.rollback();
     result
 }
 
@@ -104,7 +208,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
 
             let marf_kv = friendly_expect(sqlite_marf(&args[1], None), "Failed to open VM database.");
-            in_block(marf_kv, |mut kv| {
+            in_block(&args[1], marf_kv, |mut kv| {
                 { let mut db = clarity_db(&mut kv);
                   db.initialize() };
                 (kv, ())
@@ -134,9 +238,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let contract_analysis = {
                 if args.len() >= 3 {
                     // use a persisted marf
-                    let mut marf = friendly_expect(sqlite_marf(&args[2], None), "Failed to open VM database.");
-                    let result = { let mut db = AnalysisDatabase::new(Box::new(&mut marf));
-                                   run_analysis(&contract_id, &mut ast, &mut db, false) };
+                    let mut marf_kv = friendly_expect(sqlite_marf(&args[2], None), "Failed to open VM database.");
+                    let result = at_chaintip(
+                        &args[2],
+                        marf_kv,
+                        |mut marf| {
+                            let result = { let mut db = AnalysisDatabase::new(Box::new(&mut marf));
+                                           run_analysis(&contract_id, &mut ast, &mut db, false) };
+                            (marf, result)
+                        });
                     result
                 } else {
                     let memory = friendly_expect(SqliteConnection::memory(), "Could not open in-memory analysis DB");
@@ -305,6 +415,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let mut ast = friendly_expect(parse(&contract_identifier, &contract_content), "Failed to parse program.");
             let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
             let result = in_block(
+                vm_filename,
                 marf_kv,
                 |mut marf| {
                     let analysis_result = { 
@@ -385,7 +496,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 })
                 .collect();
 
-            let result = in_block(marf_kv, |mut marf| {
+            let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = ClarityDatabase::new(Box::new(&mut marf));
                     let mut vm_env = OwnedEnvironment::new(db);
@@ -468,13 +579,25 @@ mod test {
     #[test]
     fn test_samples() {
         let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        
+        eprintln!("initialize");
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
+        
+        eprintln!("check tokens");
         invoke_command("test", &["check".to_string(), "sample-programs/tokens.clar".to_string(), db_name.clone()]);
+        
+        eprintln!("launch tokens");
         invoke_command("test", &["launch".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
                                  "sample-programs/tokens.clar".to_string(), db_name.clone()]);
+
+        eprintln!("check names");
         invoke_command("test", &["check".to_string(), "sample-programs/names.clar".to_string(), db_name.clone()]);
+
+        eprintln!("launch names");
         invoke_command("test", &["launch".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.names".to_string(),
                                  "sample-programs/names.clar".to_string(), db_name.clone()]);
+
+        eprintln!("execute tokens");
         invoke_command("test", &["execute".to_string(), db_name.clone(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
                                  "mint!".to_string(), "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR".to_string(),
                                  "u1000".to_string()]);
