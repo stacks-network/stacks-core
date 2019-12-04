@@ -1,13 +1,13 @@
 (define-map tokens ((account principal)) ((balance uint)))
 (define-private (get-balance (account principal))
-  (default-to u0 (get balance (map-get tokens (tuple (account account))))))
+  (default-to u0 (get balance (map-get? tokens (tuple (account account))))))
 
 (define-private (token-credit! (account principal) (amount uint))
   (if (<= amount u0)
       (err "must move positive balance")
       (let ((current-amount (get-balance account)))
         (begin
-          (map-set! tokens (tuple (account account))
+          (map-set tokens (tuple (account account))
                       (tuple (balance (+ amount current-amount))))
           (ok amount)))))
 
@@ -16,7 +16,7 @@
     (if (or (> amount balance) (<= amount u0))
         (err "must transfer positive balance and possess funds")
         (begin
-          (map-set! tokens (tuple (account tx-sender))
+          (map-set tokens (tuple (account tx-sender))
                       (tuple (balance (- balance amount))))
           (token-credit! to amount)))))
 

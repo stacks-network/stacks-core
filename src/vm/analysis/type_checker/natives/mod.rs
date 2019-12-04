@@ -316,7 +316,7 @@ impl TypedNativeFunction {
             Fold => Special(SpecialNativeFunction(&iterables::check_special_fold)),
             Append => Special(SpecialNativeFunction(&iterables::check_special_append)),
             Concat => Special(SpecialNativeFunction(&iterables::check_special_concat)),
-            AssertsMaxLen => Special(SpecialNativeFunction(&iterables::check_special_asserts_max_len)),
+            AsMaxLen => Special(SpecialNativeFunction(&iterables::check_special_as_max_len)),
             Len => Special(SpecialNativeFunction(&iterables::check_special_len)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
             FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),
