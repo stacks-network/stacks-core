@@ -84,7 +84,7 @@ impl <'a> ClarityDatabase <'a> {
         self.store.set_block_hash(bhh)
     }
 
-    fn put <T: ClaritySerializable> (&mut self, key: &str, value: &T) {
+    pub fn put <T: ClaritySerializable> (&mut self, key: &str, value: &T) {
         self.store.put(&key, &value.serialize());
     }
 
@@ -93,7 +93,7 @@ impl <'a> ClarityDatabase <'a> {
             .map(|x| T::deserialize(&x))
     }
 
-    fn get_value (&mut self, key: &str, expected: &TypeSignature) -> Option<Value> {
+    pub fn get_value (&mut self, key: &str, expected: &TypeSignature) -> Option<Value> {
         self.store.get(&key)
             .map(|json| Value::deserialize(&json, expected))
     }
