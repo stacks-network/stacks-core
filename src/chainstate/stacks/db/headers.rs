@@ -130,6 +130,8 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
 impl StacksChainState {
     /// Insert a block header that is paired with an already-existing block commit and snapshot
     pub fn insert_stacks_block_header<'a>(tx: &mut StacksDBTx<'a>, tip_info: &StacksHeaderInfo) -> Result<(), Error> {
+        assert_eq!(tip_info.block_height, tip_info.anchored_header.total_work.work);
+
         let header = &tip_info.anchored_header;
         let index_root = &tip_info.index_root;
         let burn_header_hash = &tip_info.burn_header_hash;

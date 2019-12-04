@@ -94,9 +94,9 @@ pub struct StacksChainState {
     clarity_state: ClarityInstance,
     pub headers_db: DBConn,
     pub blocks_db: DBConn,
-    pub clarity_state_index: MARF,
     pub headers_state_index: MARF,
     pub blocks_path: String,
+    pub clarity_state_index_path: String
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -149,7 +149,7 @@ impl StacksHeaderInfo {
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis(),
             microblock_tail: None,
-            block_height: 0,
+            block_height: StacksBlockHeader::genesis().total_work.work,
             index_root: TrieHash([0u8; 32]),
             burn_header_hash: BurnchainHeaderHash([0u8; 32])
         }
@@ -198,6 +198,10 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let stacks_header = StacksBlockHeader::from_row(row, index+3)?;
         
         if block_height_i64 < 0 {
+            return Err(db_error::ParseError);
+        }
+
+        if block_height_i64 as u64 != stacks_header.total_work.work {
             return Err(db_error::ParseError);
         }
 
@@ -484,7 +488,7 @@ impl StacksChainState {
         Ok(conn)
     }
     
-    fn open_index(marf_path: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MARF, Error> {
+    pub fn open_index(marf_path: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MARF, Error> {
         test_debug!("Open MARF index at {}, set miner tip = {:?}", marf_path, miner_tip);
         let marf = MARF::from_path(marf_path, miner_tip).map_err(|e| Error::DBError(db_error::IndexError(e)))?;
         Ok(marf)
@@ -624,10 +628,9 @@ impl StacksChainState {
             Err(_) => false
         };
 
-        let headers_db = StacksChainState::open_headers_db(mainnet, chain_id, &headers_db_path, &clarity_state_index_marf)?;
+        let headers_db = StacksChainState::open_headers_db(mainnet, chain_id, &headers_db_path, &header_index_root)?;
         let blocks_db = StacksChainState::open_blocks_db(&blocks_db_path)?;
 
-        let clarity_state_index = StacksChainState::open_index(&clarity_state_index_marf, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH)))?;
         let headers_state_index = StacksChainState::open_index(&header_index_root, None)?;
 
         let vm_state = sqlite_marf(&clarity_state_index_root, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH)))
@@ -641,9 +644,9 @@ impl StacksChainState {
             clarity_state: clarity_state,
             headers_db: headers_db,
             blocks_db: blocks_db,
-            clarity_state_index: clarity_state_index,
             headers_state_index: headers_state_index,
             blocks_path: blocks_path_root,
+            clarity_state_index_path: clarity_state_index_marf
         };
 
         if !index_exists {
@@ -715,7 +718,6 @@ impl StacksChainState {
     pub fn advance_tip(&mut self, 
                        parent_tip: &StacksBlockHeader, 
                        parent_burn_block: &BurnchainHeaderHash, 
-                       parent_block_height: u64, 
                        new_tip: &StacksBlockHeader, 
                        new_burn_block: &BurnchainHeaderHash, 
                        block_reward: &MinerPaymentSchedule,
@@ -724,8 +726,9 @@ impl StacksChainState {
         if new_tip.parent_block != BlockHeaderHash([0u8; 32]) {
             // not the first-ever block, so linkage must occur
             assert_eq!(new_tip.parent_block, parent_tip.block_hash());
+            assert_eq!(parent_tip.total_work.work.checked_add(1).expect("Block height overflow"),
+                       new_tip.total_work.work);
         }
-        let new_tip_block_height = parent_block_height.checked_add(1).expect("Block height overflow");
 
         let mut tx = self.headers_tx_begin()?;
 
@@ -749,7 +752,7 @@ impl StacksChainState {
             anchored_header: new_tip.clone(),
             microblock_tail: None,
             index_root: root_hash,
-            block_height: new_tip_block_height,
+            block_height: new_tip.total_work.work,
             burn_header_hash: new_burn_block.clone()
         };
 

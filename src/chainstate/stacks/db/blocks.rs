@@ -343,6 +343,7 @@ impl StacksChainState {
         fd.sync_all().map_err(|e| Error::DBError(db_error::IOError(e)))?;
 
         // atomically put this trie file in place
+        // TODO: this is atomic but not crash-consistent!  need to fsync the dir as well
         trace!("Rename {:?} to {:?}", &path_tmp, &path);
         fs::rename(&path_tmp, &path).map_err(|e| Error::DBError(db_error::IOError(e)))?;
 
@@ -1568,7 +1569,7 @@ impl StacksChainState {
 
         let scheduled_miner_reward = inner_process_block(self, matured_miner_rewards_opt.as_ref())?;
         
-        let mut new_tip = self.advance_tip(&parent_chain_tip.anchored_header, &parent_chain_tip.burn_header_hash, parent_chain_tip.block_height, &block.header, chain_tip_burn_header_hash, &scheduled_miner_reward, user_burns)
+        let mut new_tip = self.advance_tip(&parent_chain_tip.anchored_header, &parent_chain_tip.burn_header_hash, &block.header, chain_tip_burn_header_hash, &scheduled_miner_reward, user_burns)
             .expect("FATAL: failed to advance chain tip");
 
         new_tip.microblock_tail = match microblocks.len() {
