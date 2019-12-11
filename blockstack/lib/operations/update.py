@@ -21,6 +21,7 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import os
 from ..b40 import *
 from ..config import *
 from ..hashing import *
@@ -99,7 +100,7 @@ def check(state_engine, nameop, block_id, checked_ops ):
         return False
 
     namespace_id = get_namespace_from_name( name )
-    name_rec = state_engine.get_name( name )
+    name_rec = state_engine.get_name( name, include_history=False )
 
     if name_rec is None:
         log.warning("Name '%s' does not exist" % name)
@@ -116,15 +117,23 @@ def check(state_engine, nameop, block_id, checked_ops ):
         log.warning("Name '%s' is revoked" % name)
         return False
 
-    # name must not be expired as of the *last block processed*
-    if state_engine.is_name_expired( name, state_engine.lastblock ):
-        log.warning("Name '%s' is expired" % name)
-        return False
+    # optimization -- don't check for expiration if we don't need to
+    namespace = state_engine.get_namespace(namespace_id)
+    if namespace is None:
+        # really shouldn't happen if we reached this
+        log.error("FATAL: no such namespace {}".format(namespace_id))
+        os.abort()
 
-    # name must not be in grace period in *this* block 
-    if state_engine.is_name_in_grace_period(name, block_id):
-        log.warning("Name '{}' is in the renewal grace period.  It can only be renewed at this time.".format(name))
-        return False
+    if namespace['lifetime'] != NAMESPACE_LIFETIME_INFINITE:
+        # name must not be expired as of the *last block processed*
+        if state_engine.is_name_expired( name, state_engine.lastblock ):
+            log.warning("Name '%s' is expired" % name)
+            return False
+
+        # name must not be in grace period in *this* block 
+        if state_engine.is_name_in_grace_period(name, block_id):
+            log.warning("Name '{}' is in the renewal grace period.  It can only be renewed at this time.".format(name))
+            return False
 
     # the name must be registered
     if not state_engine.is_name_registered( name ):
