@@ -112,6 +112,21 @@ class BlockstackDB(virtualchain.StateEngine):
         # map block_id --> history_id_key --> list of history ID values
         self.collisions = {}
 
+        # rejected logging
+        # map block_id --> vtxindex --> [{'txid': ..., 'opcode': ...}]
+        self.rejected = {}
+        self.save_rejected = blockstack_opts['save_rejected']
+
+        self.db_metadata = None
+        if self.save_rejected:
+            db_metadata_dirname = os.path.dirname(db_filename)
+            db_metadata_basename = os.path.basename(db_filename).replace('.db', '.metadata.db')
+            db_metadata_path = os.path.join(db_metadata_dirname, db_metadata_basename)
+            if not os.path.exists(db_metadata_path):
+                self.db_metadata = namedb_metadata_create(db_metadata_path)
+            else:
+                self.db_metadata = namedb_metadata_open(db_metadata_path)
+        
         # vesting flags for blocks
         self.vesting = {}
 
@@ -467,6 +482,7 @@ class BlockstackDB(virtualchain.StateEngine):
         assert block_id+1 in self.vesting, 'BUG: failed to vest at {}'.format(block_id)
 
         self.clear_collisions( block_id )
+        self.clear_rejected(block_id)
         self.clear_vesting(block_id+1)
 
     
@@ -501,18 +517,46 @@ class BlockstackDB(virtualchain.StateEngine):
         return
 
 
-    def log_reject( self, block_id, vtxindex, op, op_data ):
+    def log_reject( self, block_id, vtxindex, op, op_data, do_print=True):
         """
-        Log a rejected operation
+        Log a rejected operation.
+        Idempotently updates self.rejected table.
         """
 
         debug_op = self.sanitize_op( op_data )
         if 'history' in debug_op:
             del debug_op['history']
 
-        log.debug("REJECT %s at (%s, %s) data: %s", op_get_opcode_name( op ), block_id, vtxindex,
-                ", ".join( ["%s='%s'" % (k, debug_op[k]) for k in sorted(debug_op.keys())] ))
+        if do_print:
+            log.debug("REJECT %s at (%s, %s) data: %s", op_get_opcode_name( op ), block_id, vtxindex,
+                    ", ".join( ["%s='%s'" % (k, debug_op[k]) for k in sorted(debug_op.keys())] ))
 
+        if block_id not in self.rejected:
+            self.rejected[block_id] = {vtxindex: {}}
+
+        if vtxindex not in self.rejected[block_id]:
+            self.rejected[block_id][vtxindex] = {}
+
+        self.rejected[block_id][vtxindex]['op'] = op
+        self.rejected[block_id][vtxindex]['txid'] = op_data['txid']
+        
+        return
+
+
+    def log_reject_reason(self, block_id, vtxindex, op, txid, reason):
+        """
+        Add a reason as to why a transaction was rejected
+        """
+        if block_id not in self.rejected:
+            self.rejected[block_id] = {}
+
+        self.rejected[block_id][vtxindex] = {
+            'op': op,
+            'txid': txid,
+            'reason': reason
+        }
+        
+        log.warning(reason)
         return
 
 
@@ -645,6 +689,14 @@ class BlockstackDB(virtualchain.StateEngine):
         """
         if block_id in self.vesting:
             del self.vesting[block_id]
+
+
+    def clear_rejected(self, block_id):
+        """
+        Clear out all rejected state for a given block number
+        """
+        if block_id in self.rejected:
+            del self.rejected[block_id]
 
 
     def check_collision( self, history_id_key, history_id, block_id, checked_ops, affected_opcodes ):
@@ -2043,3 +2095,72 @@ class BlockstackDB(virtualchain.StateEngine):
         """
         return self.get_ops_hash_at(block_id)
 
+
+    def store_rejected(self, block_id):
+        """
+        Log rejected transactions to our DB
+        """
+        if not self.save_rejected:
+            return
+
+        assert self.db_metadata is not None
+
+        rejected = self.rejected.get(block_id, {})
+        if len(rejected) == 0:
+            return
+
+        namedb_query_execute(self.db_metadata, "BEGIN", ())
+        
+        for vtxindex in rejected.keys():
+            txid = '{}'.format(rejected[vtxindex]['txid'])
+            op = '{}'.format(rejected[vtxindex]['op'])
+            reason = rejected[vtxindex].get('reason', None)
+            if reason is not None:
+                reason = '{}'.format(reason)
+
+            sql = "INSERT OR REPLACE INTO rejected (block_id,vtxindex,op,txid,reason) VALUES (?,?,?,?,?)"
+            args = ('{}'.format(block_id), '{}'.format(vtxindex), op, txid, reason)
+            namedb_query_execute(self.db_metadata, sql, args)
+
+        namedb_query_execute(self.db_metadata, "END", ())
+
+
+    def get_transaction_status(self, txid):
+        """
+        Get the status of a transaction -- did
+        Return {'status': 'accepted', 'block_height': ..., 'vtxindex': ..., 'op': ...} if the transaction was accepted
+        Return {'status': 'rejected', 'block_height': ..., 'vtxindex': ..., 'op': ...} if the transaction was rejected
+        Return {'status': 'ignored'} if we did not track it
+        """
+        cur = self.db.cursor()
+        hist_row = namedb_get_history_by_txid(cur, txid)
+        if hist_row is not None:
+            ret = {
+                'status': 'accepted',
+                'block_height': hist_row['block_id'],
+                'vtxindex': hist_row['vtxindex'],
+                'op': hist_row['op'],
+            }
+            return ret
+
+        # maybe rejected?
+        if self.db_metadata is not None:
+            sql = 'SELECT * FROM rejected WHERE txid = ?'
+            args = (txid,)
+            rows = namedb_query_execute(self.db_metadata, sql, args)
+            row = rows.fetchone()
+            if row is None:
+                # not tracked
+                return {'status': 'ignored'}
+                
+            rejected_row = {
+                'status': 'rejected',
+                'block_height': row['block_id'],
+                'vtxindex': row['vtxindex'],
+                'op': row['op'],
+                'reason': row.get('reason', '(not recorded)')
+            }
+            return rejected_row
+
+        # unknown
+        return {'status': 'ignored'}

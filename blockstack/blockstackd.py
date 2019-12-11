@@ -1023,6 +1023,28 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         return self.success_response( {'ops_hash': ops_hash} )
 
 
+    def rpc_get_transaction_status(self, txid, **con_info):
+        """
+        Get the status of a transaction.
+        Return {'status': 'accepted', 'block_height': ..., 'vtxindex': ..., 'op': ...} if the transaction was accepted
+        Return {'status': 'rejected', 'block_height': ..., 'vtxindex': ..., 'op': ...} if the transaction was rejected
+        Return {'status': 'ignored'} if we did not track it
+        """
+        if not check_string(txid, min_length=64, max_length=64, pattern='^[0-9a-fA-F]{64}$'):
+            return {'error': 'Not a valid txid', 'http_status': 400}
+
+        db = get_db_state(self.working_dir)
+        tx_status = db.get_transaction_status(txid)
+        db.close()
+
+        if 'op' in tx_status:
+            # make human-readable
+            opcode = op_get_opcode_name(tx_status['op'])
+            tx_status['op'] = opcode
+
+        return self.success_response({'tx': tx_status})
+        
+
     def get_cached_bitcoind_info(self):
         """
         Get cached bitcoind info.

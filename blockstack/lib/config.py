@@ -44,6 +44,11 @@ VERSION = __version__
 ATLAS_SEEDS_ENV_VAR = 'BLOCKSTACK_ATLAS_SEEDS'
 ATLAS_HOSTNAME_ENV_VAR = 'BLOCKSTACK_ATLAS_HOSTNAME'
 
+BACKUP_FREQUENCY_ENV_VAR = 'BLOCKSTACK_DB_BACKUP_FREQUENCY'
+BACKUP_MAX_AGE_ENV_VAR = 'BLOCKSTACK_DB_MAX_AGE'
+
+SAVE_REJECTED_ENV_VAR = 'BLOCKSTACK_DB_SAVE_REJECTED'
+
 # namespace version bits
 NAMESPACE_VERSION_PAY_TO_BURN = 0x1     # in epoch 4, this means "burn either bitcoin or stacks"
 NAMESPACE_VERSION_PAY_TO_CREATOR = 0x2
@@ -1586,7 +1591,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
    or from sane defaults.
    """
 
-   global RPC_SERVER_IP, RPC_SERVER_PORT
+   global RPC_SERVER_IP, RPC_SERVER_PORT, BACKUP_FREQUENCY_ENV_VAR, BACKUP_MAX_AGE_ENV_VAR, SAVE_REJECTED_ENV_VAR
 
    from .util import url_to_host_port
    from .scripts import is_name_valid
@@ -1599,11 +1604,36 @@ def default_blockstack_opts( working_dir, config_file=None ):
    parser = SafeConfigParser()
    parser.read( config_file )
 
+   backup_frequency = 144       # about once per day
+   backup_max_age = 10008       # about 1 week
+   save_rejected = False        # save rejected transactions?
+
+   backup_frequency_environ = False
+   backup_max_age_environ = False
+   save_rejected_environ = False
+
+   try:
+       backup_frequency = int(os.environ.get(BACKUP_FREQUENCY_ENV_VAR, None))
+       backup_frequency_environ = True
+   except:
+       pass
+
+   try:
+       backup_max_age = int(os.environ.get(BACKUP_MAX_AGE_ENV_VAR, None))
+       backup_max_age_environ = True
+   except:
+       pass
+
+   try:
+       save_rejected_value = int(os.environ.get(SAVE_REJECTED_ENV_VAR, None))
+       save_rejected = save_rejected_value != 0
+       save_rejected_environ = True
+   except:
+       pass
+
    blockstack_opts = {}
    announcers = "judecn.id,muneeb.id,shea256.id"
    announcements = None
-   backup_frequency = 144   # once a day; 10 minute block time
-   backup_max_age = 1008    # one week
    rpc_port = RPC_SERVER_PORT 
    zonefile_dir = os.path.join( os.path.dirname(config_file), "zonefiles")
    server_version = VERSION
@@ -1621,10 +1651,10 @@ def default_blockstack_opts( working_dir, config_file=None ):
       if parser.has_option('blockstack', 'enabled'):
          run_indexer = parser.get('blockstack', 'enabled').lower() in ['1', 'true', 'on']
 
-      if parser.has_option('blockstack', 'backup_frequency'):
+      if parser.has_option('blockstack', 'backup_frequency') and not backup_frequency_environ:
          backup_frequency = int( parser.get('blockstack', 'backup_frequency'))
 
-      if parser.has_option('blockstack', 'backup_max_age'):
+      if parser.has_option('blockstack', 'backup_max_age') and not backup_max_age_environ:
          backup_max_age = int( parser.get('blockstack', 'backup_max_age') )
 
       if parser.has_option('blockstack', 'rpc_port'):
@@ -1653,7 +1683,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
 
       if parser.has_option('blockstack', 'atlas'):
          atlas_enabled = parser.get('blockstack', 'atlas')
-         if atlas_enabled.lower() in ['true', '1', 'enabled', 'enabled', 'on']:
+         if atlas_enabled.lower() in ['true', '1', 'enabled', 'on']:
             atlas_enabled = True
          else:
             atlas_enabled = False
@@ -1684,6 +1714,13 @@ def default_blockstack_opts( working_dir, config_file=None ):
 
       if parser.has_option('blockstack', 'subdomaindb_path'):
          subdomaindb_path = parser.get('blockstack', 'subdomaindb_path')
+
+      if parser.has_option('blockstack', 'save_rejected') and not save_rejected_environ:
+          save_rejected = parser.get('blockstack', 'save_rejected')
+          if save_rejected.lower() in ['true', '1', 'enabled', 'on']:
+              save_rejected = True
+          else:
+              save_rejected = False
 
    if os.environ.get(ATLAS_SEEDS_ENV_VAR, False):
        atlas_seed_peers = os.environ[ATLAS_SEEDS_ENV_VAR]
@@ -1756,6 +1793,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
        'atlas_port': atlas_port,
        'zonefiles': zonefile_dir,
        'subdomaindb_path': subdomaindb_path,
+       'save_rejected': save_rejected,
        'enabled': run_indexer
    }
 

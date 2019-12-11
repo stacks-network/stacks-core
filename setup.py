@@ -38,7 +38,7 @@ setup(
     author='Blockstack.org',
     author_email='support@blockstack.org',
     description='Name registrations on the Bitcoin blockchain with external storage',
-    long_description=README,
+    # long_description=README,
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
     scripts=['bin/blockstack-server', 'bin/blockstack-core', 'bin/blockstack-snapshots'],

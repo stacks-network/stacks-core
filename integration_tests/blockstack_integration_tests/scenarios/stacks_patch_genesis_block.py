@@ -43,6 +43,10 @@ new_wallet = '50c0724cacee81d00b3e84858c9aa30c75d2fe7a6fbdb6c8786ad3befb82659001
 new_addr = 'ST1T9RNPG57B2Y9YZDX9S7452N1VQXT5S5T8N9RDK'
 new_addr_b58 = 'mr9XxwP5FhY7DMw94pwfmxU2YLgUWqVmJm'
 
+new_unlocked_wallet = "adc8b9e7cb04d57fc38e7c1bd3cddbc684bbf676f258223c7293b823fed2c20701"
+new_unlocked_addr = "ST10J3CSXT63J5WMW5BCWRQQASBT2E7R7EPGWWZ2G"
+new_unlocked_addr_b58 = "mmTLb3vqzJbqYGgQz5C6KKJKuBJ4JkqaeS"
+
 new_grant_addr = 'ST2G61YBH4GTWD6FRR5BA760J2ETS8F96182M3YT4'
 new_grant_addr_b58 = 'mv8xaeNRwVGTiGY4Gyqr8VP2aWJ37KCrZT'
 
@@ -179,6 +183,28 @@ genesis_patches = {
                 "vesting_total": 100045
             },
             {
+                # add unlocked allocation
+                "address": new_unlocked_addr,
+                "lock_send": 0,
+                "metadata": "bb" * 32,
+                "receive_whitelisted": False,
+                "type": STACKS,
+                "value": 123456,
+                "vesting": {
+                    "685": 22000,
+                    "686": 22001,
+                    "687": 22002,
+                    "688": 22003,
+                    "689": 22004,
+                    "690": 22005,
+                    "691": 22006,
+                    "692": 22007,
+                    "693": 22008,
+                    "694": 22009
+                },
+                "vesting_total": 220045
+            },
+            {
                 # add unspendable allocation
                 "address": "unspendable-allocation-1",
                 "lock_send": 0,
@@ -220,19 +246,42 @@ def scenario( wallets, **kw ):
 
     # send some tokens to a brand-new address
     testlib.blockstack_send_tokens(new_addr, "STACKS", 600000, wallets[0].privkey)
+    testlib.blockstack_send_tokens(new_unlocked_addr, "STACKS", 100, wallets[0].privkey)
     testlib.next_block(**kw) # end of 689, triggers vesting of block 690
     
-    assert virtualchain.lib.indexer.StateEngine.get_block_statistics(testlib.get_current_block(**kw))['num_processed_ops'] == 1
+    assert virtualchain.lib.indexer.StateEngine.get_block_statistics(testlib.get_current_block(**kw))['num_processed_ops'] == 2
 
     # new balances should reflect patch
-    balances = testlib.get_addr_balances([w.addr for w in wallets] + [new_addr_b58, new_grant_addr_b58])
+    balances = testlib.get_addr_balances([w.addr for w in wallets] + [new_addr_b58, new_grant_addr_b58, new_unlocked_addr_b58])
     print balances
 
-    assert balances[wallets[0].addr][STACKS] == 100 + 200 + 600000 + 600001 + 10000 + 10001 + 10002 + 10003 + 10004 + 10005 - 600000         # += new value + retroactive vesting
+    assert balances[wallets[0].addr][STACKS] == 100 + 200 + 600000 + 600001 + 10000 + 10001 + 10002 + 10003 + 10004 + 10005 - 600000 - 100         # += new value + retroactive vesting
     assert balances[wallets[1].addr][STACKS] == 123 + 1000 + (10000000 * 10)
     assert balances[wallets[2].addr][STACKS] == 123456
     assert balances[new_addr_b58][STACKS] == 600000 + 222222 + 66
     assert balances[new_grant_addr_b58][STACKS] == 567 + (10000000 * 10)
+    assert balances[new_unlocked_addr_b58][STACKS] == 100 + 123456 + 22000 + 22001 + 22002 + 22003 + 22004 + 22005
+
+    # send some tokens to a brand-new address
+    # should be transfer-locked
+    testlib.blockstack_send_tokens(new_addr_b58, "STACKS", 600000, wallets[0].privkey, safety_checks=False, expect_fail=True)
+    testlib.blockstack_send_tokens(new_grant_addr_b58, "STACKS", 1, new_wallet, safety_checks=False, expect_fail=True)
+    testlib.blockstack_send_tokens(new_grant_addr_b58, "STACKS", 10000000, wallets[1].privkey, safety_checks=False)
+    testlib.blockstack_send_tokens(new_addr_b58, "STACKS", 10000000, wallets[1].privkey, safety_checks=False)
+    testlib.blockstack_send_tokens(new_grant_addr_b58, "STACKS", 3, new_unlocked_wallet, safety_checks=False)
+    testlib.next_block(**kw)
+
+    assert virtualchain.lib.indexer.StateEngine.get_block_statistics(testlib.get_current_block(**kw))['num_processed_ops'] == 3
+    
+    balances = testlib.get_addr_balances([w.addr for w in wallets] + [new_addr_b58, new_grant_addr_b58, new_unlocked_addr_b58])
+    print balances
+
+    assert balances[wallets[0].addr][STACKS] == 100 + 200 + 600000 + 600001 + 600010 + 10000 + 10001 + 10002 + 10003 + 10004 + 10005 + 10006 - 600000 - 100         # += new value + retroactive vesting
+    assert balances[wallets[1].addr][STACKS] == 123 + 1000 + (10000000 * 10) - 10000000 - 10000000
+    assert balances[wallets[2].addr][STACKS] == 123456
+    assert balances[new_addr_b58][STACKS] == 600000 + 222222 + 66 + 10000000
+    assert balances[new_grant_addr_b58][STACKS] == 567 + (10000000 * 10) + 10000000 + 3
+    assert balances[new_unlocked_addr_b58][STACKS] == 100 + 123456 + 22000 + 22001 + 22002 + 22003 + 22004 + 22005 + 22006 - 3
 
     # TODO history of each address should be changed to reflect vesting
     # TODO try different lock heights -- can we retroactively grant tokens to an address that has received or spent tokens already?
@@ -242,8 +291,6 @@ def scenario( wallets, **kw ):
     for addr in [wallets[0].addr, wallets[1].addr, wallets[2].addr, new_addr_b58, new_grant_addr_b58]:
         vesting = blockstack.lib.db.namedb.namedb_get_account_vesting(
     """
-
-    cur_vesting = namedb_get_account_vesting(con, address, 'STACKS')
 
 
 def check( state_engine ):

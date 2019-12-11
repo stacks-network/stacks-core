@@ -2912,7 +2912,7 @@ def get_consensus_hashes(block_heights, hostport=None, proxy=None):
 def get_block_from_consensus(consensus_hash, hostport=None, proxy=None):
     """
     Get a block height from a consensus hash
-    Returns the block height on success
+    Returns the block height on success (null if there's no block for this consensus hash)
     Returns {'error': ...} on failure
     """
     assert hostport or proxy, 'Need hostport or proxy'
@@ -3399,6 +3399,91 @@ def get_blockstack_ops_hash_at(block_id, hostport=None, proxy=None):
         return resp
 
     return resp['ops_hash']
+
+
+def get_transaction_status(txid, hostport=None, proxy=None):
+    """
+    Get the status of a transaction
+    Return {'status': 'accepted', 'block_height': ..., 'vtxindex': ..., 'op': ...} if the transaction was accepted
+    Return {'status': 'rejected', 'block_height': ..., 'vtxindex': ..., 'op': ...} if the transaction was rejected
+    Return {'status': 'ignored'} if we did not track it
+    """
+    assert hostport or proxy, 'Need hostport or proxy'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    get_transaction_schema = {
+        'type': 'object',
+        'properties': {
+            'tx': {
+                'type': 'object',
+                'properties': {
+                    'status': {
+                        'type': 'string',
+                        'pattern': '^accepted$|^rejected$|^ignored',
+                    },
+                    'block_height': {
+                        'type': 'integer',
+                        'minimum': 0,
+                    },
+                    'vtxindex': {
+                        'type': 'integer',
+                        'minimum': 0,
+                    },
+                    'op': {
+                        'type': 'string'
+                    },
+                    'reason': {
+                        'anyOf': [
+                            {
+                                'type': 'string',
+                            },
+                            {
+                                'type': 'null'
+                            }
+                        ]
+                    }
+                        
+                },
+                'required': ['status']
+            },
+        },
+        'required': [ 'tx' ]
+    }
+    schema = json_response_schema(get_transaction_schema)
+    resp = {}
+    try:
+        resp = proxy.get_transaction_status(txid)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
+        return resp
+
+    return resp
 
 
 def is_name_zonefile_hash(name, zonefile_hash, hostport=None, proxy=None):
