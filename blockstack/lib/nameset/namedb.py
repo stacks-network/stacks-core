@@ -1227,7 +1227,7 @@ class BlockstackDB(virtualchain.StateEngine):
         from re-sending the same preorder with the same preorder hash).
         """
         # name registered and not expired?
-        name_rec = self.get_name( name )
+        name_rec = self.get_name( name, include_history=False)
         if name_rec is not None and not include_failed:
             return None
 
@@ -1276,7 +1276,7 @@ class BlockstackDB(virtualchain.StateEngine):
         Return the string on success
         Return None if the name doesn't exist.
         """
-        name_rec = self.get_name( name )
+        name_rec = self.get_name( name, include_history=False )
         if name_rec is None:
             return None
 
@@ -1446,7 +1446,7 @@ class BlockstackDB(virtualchain.StateEngine):
         Given the fully-qualified name, is it registered, not revoked, and not expired
         at the current block?
         """
-        name_rec = self.get_name( name )    # won't return the name if expired
+        name_rec = self.get_name( name, include_history=False )    # won't return the name if expired
         if name_rec is None:
             return False 
 
@@ -1543,7 +1543,7 @@ class BlockstackDB(virtualchain.StateEngine):
         """
         Determine if a name is revoked at this block.
         """
-        name = self.get_name( name )
+        name = self.get_name( name, include_history=False )
         if name is None:
             return False 
 
