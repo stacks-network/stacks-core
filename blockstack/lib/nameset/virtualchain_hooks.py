@@ -501,8 +501,7 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
             db_state.store_rejected(block_height)
         except Exception as e:
             log.exception(e)
-            log.fatal("Failed to log rejected txs")
-            os.abort()
+            log.error("Failed to log rejected txs for block {}".format(block_height))
 
         try:
             # flush the database
