@@ -124,7 +124,7 @@ def check(state_engine, nameop, block_id, checked_ops ):
         log.error("FATAL: no such namespace {}".format(namespace_id))
         os.abort()
 
-    if namespace['lifetime'] != NAMESPACE_LIFETIME_INFINITE:
+    if namespace['lifetime'] != NAMESPACE_LIFE_INFINITE:
         # name must not be expired as of the *last block processed*
         if state_engine.is_name_expired( name, state_engine.lastblock ):
             log.warning("Name '%s' is expired" % name)
