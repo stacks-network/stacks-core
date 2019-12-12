@@ -174,6 +174,35 @@ fn main() {
         return
     }
 
+    if argv[1] == "testnet" {
+        use testnet::*;
+        use rand::RngCore;
+        use util::hash::{to_hex};
+        
+        // Testnet's name
+        let name = "testnet".to_string();
+
+        // Testnet's dir
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path = format!("/tmp/stacks-{}-{}", name, to_hex(&buf));
+        
+        let mem_pool_path = "./mempool";
+
+        let config = testnet::Config {
+            name,
+            db_path,
+        };
+
+        let keychain = testnet::Keychain::default();
+
+        let mem_pool = testnet::MemPoolFS::new(mem_pool_path.to_string());
+        let mut run_loop = testnet::RunLoop::new(config, keychain, &mem_pool);
+        run_loop.start();
+        return
+    }
+
     if argv[1] == "docgen" {
         println!("{}", vm::docs::make_json_api_reference());
         return
@@ -212,3 +241,6 @@ fn main() {
         }
     };
 }
+
+
+

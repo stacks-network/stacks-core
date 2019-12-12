@@ -431,7 +431,7 @@ pub struct TransactionSmartContract {
 }
 
 /// A coinbase commits to 32 bytes of control-plane information
-pub struct CoinbasePayload([u8; 32]);
+pub struct CoinbasePayload(pub [u8; 32]);
 impl_byte_array_message_codec!(CoinbasePayload, 32);
 impl_array_newtype!(CoinbasePayload, u8, 32);
 impl_array_hexstring_fmt!(CoinbasePayload);
