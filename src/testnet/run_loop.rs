@@ -15,7 +15,7 @@ use burnchains::{Burnchain, BurnchainHeaderHash, Txid, PrivateKey, BurnchainBloc
 use burnchains::bitcoin::BitcoinBlock;
 use chainstate::stacks::{StacksPrivateKey};
 use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
-use chainstate::burn::{SortitionHash, BlockSnapshot};
+use chainstate::burn::{SortitionHash, BlockSnapshot, VRFSeed};
 use util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
 use util::hash::Sha256Sum;
 use std::collections::HashMap;
@@ -24,9 +24,47 @@ use rand::RngCore;
 use util::hash::{to_hex};
 use std::{thread, time};
 
+// struct Miner {
+//     previous_tenures: Vec<LeaderTenure>,
+//     ongoing_tenure: Option<LeaderTenure>,
+//     ongoing_registered_key: Option<RegisteredKey>,
+//     keychain: Keychain,
+// }
+
+// impl Miner {
+
+//     // todo(ludo): revisit constructor
+//     pub fn new(keychain: Keychain) -> Self {
+//         Self {
+//             previous_tenures: vec![],
+//             ongoing_tenure: None,
+//             ongoing_registered_key: None,
+//             keychain
+//         }
+//     }
+
+//     pub fn tear_up(burnchain_tip: ) {
+
+//     }
+
+//     pub fn start_new_tenure() -> Tenure {
+//         // Should check if there's something ongoing.
+
+//     }
+// }
+
+
+// struct RegisteredKey {
+//     vrf_proof: VRFProof,
+//     block_height: u64,
+//     vtxindex: u32
+// }
+
 struct LeaderTenure {
     started_at: std::time::Instant,
     block_builder: StacksBlockBuilder,
+    vrf_seed: VRFSeed,
+    // registered_key: RegisteredKey,
 }
 
 impl LeaderTenure {
@@ -43,7 +81,8 @@ impl LeaderTenure {
 
         Self {
             started_at: now,
-            block_builder
+            block_builder,
+            vrf_seed: VRFSeed::from_proof(&vrf_proof),
         }
     }
 
@@ -51,36 +90,6 @@ impl LeaderTenure {
 
     }
 }
-
-
-
-    //                     // building off an existing stacks block
-    //                     let parent_stacks_block_snapshot = {
-    //                         let mut tx = self.burn.burndb.tx_begin().unwrap();
-    //                         let parent_stacks_block_snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &burn_block.parent_snapshot.burn_header_hash, &parent_stacks_block.block_hash()).unwrap().unwrap();
-    //                         let burned_last = BurnDB::get_block_burn_amount(&mut tx, burn_block.parent_snapshot.block_height, &burn_block.parent_snapshot.burn_header_hash).unwrap();
-    //                         parent_stacks_block_snapshot
-    //                     };
-    
-    //                     let parent_chain_tip = StacksChainState::get_anchored_block_header_info(&self.chainstate.headers_db, &parent_stacks_block_snapshot.burn_header_hash, &parent_stacks_block.header.block_hash()).unwrap().unwrap();
-    
-    //                     let new_work = StacksWorkScore {
-    //                         burn: parent_stacks_block_snapshot.total_burn,
-    //                         work: 0
-    //                     };
-    
-    //                     test_debug!("Burned in {} {}: {}", burn_block.block_height, burn_block.parent_snapshot.burn_header_hash.to_hex(), new_work.burn);
-    //                     let builder = StacksBlockBuilder::from_parent(&parent_chain_tip, &new_work, &proof, &miner.next_microblock_privkey());
-    //                     (builder, Some(parent_stacks_block_snapshot))
-    
-    // pub fn from_parent(parent_header: &StacksBlockHeader,
-    //                    parent_microblock_header: Option<&StacksMicroblockHeader>,
-    //                    total_work: &StacksWorkScore,
-    //                    proof: &VRFProof,
-    //                    tx_merkle_root: &Sha512Trunc256Sum,
-    //                    state_index_root: &TrieHash,
-    //                    microblock_pubkey_hash: &Hash160) -> StacksBlockHeader {
-
 
 pub struct RunLoop<'a> {
     burn_db: BurnDB,
@@ -92,6 +101,11 @@ pub struct RunLoop<'a> {
     keychain: Keychain,
     mem_pool: &'a MemPool<'a>,
     previous_tenures: Vec<LeaderTenure>,
+    vtxindex: u16,
+    key_block_height: u16,
+    key_vtxindex: u16,
+    commit_block_height: u16,
+    commit_vtxindex: u16
 }
 
 impl <'a> RunLoop <'a> {
@@ -118,6 +132,11 @@ impl <'a> RunLoop <'a> {
             burnchain_tip: None,
             chain_tip: None,
             keychain,
+            vtxindex: 0,
+            key_block_height: 0,
+            key_vtxindex: 0,
+            commit_block_height: 0,
+            commit_vtxindex: 0,
         }
     }
 
@@ -130,6 +149,12 @@ impl <'a> RunLoop <'a> {
 
         let key_reg_op = self.generate_leader_key_register_op(vrf_public_key);
 
+        self.key_block_height = 0;
+        self.key_vtxindex = self.vtxindex;        
+
+        self.commit_block_height = 0;
+        self.commit_vtxindex = 0;
+    
         let ops = vec![key_reg_op];
 
         let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap();
@@ -159,11 +184,16 @@ impl <'a> RunLoop <'a> {
     pub fn tear_down(&self) {
     }
 
-    fn generate_leader_key_register_op(&self, vrf_public_key: VRFPublicKey) -> BlockstackOperationType {
-        let (consensus_hash, burn_header_hash) = match self.burnchain_tip {
-            Some(ref s) => (s.consensus_hash.clone(), s.burn_header_hash),
+    fn generate_leader_key_register_op(&mut self, vrf_public_key: VRFPublicKey) -> BlockstackOperationType {
+        self.vtxindex += 1;
+
+        let (consensus_hash, burn_header_hash, block_height) = match self.burnchain_tip {
+            Some(ref b) => (b.consensus_hash.clone(), b.burn_header_hash, b.block_height),
             _ => panic!()
         };
+
+        println!("KEY REGISTRATION: {:?}, {:?}. {:?}", block_height, self.vtxindex, burn_header_hash);
+        let txid_preimage = format!("{}", self.vtxindex).into_bytes();
 
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
@@ -171,9 +201,41 @@ impl <'a> RunLoop <'a> {
             address: self.keychain.get_address(),
             consensus_hash,
             burn_header_hash,
-            txid: Txid([0u8; 32]),
-            vtxindex: 0,
-            block_height: 0,
+
+            // to be filled in 
+            txid: Txid(Sha256Sum::from_data(&txid_preimage).into_bytes()),
+            vtxindex: self.vtxindex as u32,
+            block_height,
+        })
+    }
+
+    fn generate_block_commitment_op(&mut self, tenure: LeaderTenure, burn_fee: u64) -> BlockstackOperationType {
+        self.vtxindex += 1;
+
+        let (block_height, burn_header_hash) = match self.burnchain_tip {
+            Some(ref b) => (b.block_height, b.burn_header_hash),
+            _ => panic!()
+        };
+
+        println!("KEY RETRIEVAL: {:?}, {:?}. {:?}", self.key_block_height, self.key_vtxindex, burn_header_hash);
+        let txid_preimage = format!("{}", self.vtxindex).into_bytes();
+
+        BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            block_height: block_height,
+            new_seed: tenure.vrf_seed,
+            key_block_ptr: self.key_block_height as u32,
+            key_vtxindex: self.key_vtxindex as u16,
+            parent_block_ptr: self.commit_block_height as u32, //block_height as u32 - 1,
+            parent_vtxindex: self.commit_vtxindex as u16,
+            memo: vec![],
+            burn_fee,
+            input: self.keychain.get_burnchain_signer(),
+            block_header_hash: tenure.block_builder.header.block_hash(),
+
+            // to be filled in 
+            txid: Txid(Sha256Sum::from_data(&txid_preimage).into_bytes()),
+            vtxindex: self.vtxindex as u32,
+            burn_header_hash,
         })
     }
 
@@ -190,6 +252,7 @@ impl <'a> RunLoop <'a> {
             _ => panic!()
         };
 
+        println!("GENERATING NEW PROOF USING {:?}", sortition_hash);
         let vrf_proof = self.keychain.generate_proof(vrf_public_key, sortition_hash.as_bytes()).unwrap();
 
         let microblock_secret_key = self.keychain.rotate_microblock_keypair();
@@ -215,39 +278,12 @@ impl <'a> RunLoop <'a> {
         tenure
     }
 
-    fn generate_block_commitment_op(&mut self) {
-        let burnchain_tip = self.burnchain_tip.take().unwrap();
-
-        let vrf_pk = self.keychain.rotate_vrf_keypair();
-        let key_reg_op = self.generate_leader_key_register_op(vrf_pk);
-        
-        let ops = vec![key_reg_op];
-
-        let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap();
-
-        let next_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
-            burnchain_tip.block_height + 1,
-            &burnchain_tip.burn_header_hash, 
-            &burn_header_hash, 
-            &vec![]));
-        let next_block_header = next_block.header(&burnchain_tip);
-
-        let mut burn_tx = self.burn_db.tx_begin().unwrap();
-        let new_snapshot = Burnchain::process_block_ops(
-            &mut burn_tx, 
-            &self.burnchain, 
-            &burnchain_tip, 
-            &next_block_header, 
-            &ops).unwrap();
-        burn_tx.commit().unwrap();
-
-        self.burnchain_tip = Some(new_snapshot);
-    }
-
     pub fn start(&mut self) {
+        println!("Tick");
 
         let mut vrf_pk = self.keychain.rotate_vrf_keypair();
         self.tear_up(vrf_pk.clone());
+        let mut burn_fee = 1;
 
         loop {
             let mut tenure = self.initiate_new_tenure(vrf_pk);
@@ -256,28 +292,42 @@ impl <'a> RunLoop <'a> {
             // 1 - blocktime is about to expire
 
             let mut ops = vec![];
+
+            let burnchain_tip = self.burnchain_tip.clone().unwrap();
+
             // Prepare commit block operation
-            // let commit_block_op = self.generate_block_commitment_op(tenure);
-            // ops.push(commit_block_op);
+            let commit_block_op = self.generate_block_commitment_op(tenure, burn_fee);
+            ops.push(commit_block_op);
+            
+            self.commit_block_height = burnchain_tip.block_height as u16;
+            self.commit_vtxindex = self.vtxindex;        
+            
             // Register a new vrf
             vrf_pk = self.keychain.rotate_vrf_keypair();
             let reg_key_op = self.generate_leader_key_register_op(vrf_pk.clone());
             ops.push(reg_key_op);
+
+            self.key_block_height = burnchain_tip.block_height as u16;
+            self.key_vtxindex = self.vtxindex;        
             
-            let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap();
-
-            let burnchain_tip = self.burnchain_tip.take().unwrap();
-
+            // Simulate a new block on the burnchain
+            let sim_block_hash = {
+                let curr_hash = &burnchain_tip.burn_header_hash.to_bytes()[..];
+                let next_hash = Sha256Sum::from_data(&curr_hash);
+                BurnchainHeaderHash::from_bytes(next_hash.as_bytes()).unwrap()
+            };
             let next_block_header = {
                 let block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
                     burnchain_tip.block_height + 1,
-                    &burn_header_hash, 
+                    &sim_block_hash, 
                     &burnchain_tip.burn_header_hash, 
                     &vec![]));
                 block.header(&burnchain_tip)
             };
 
             let mut burn_tx = self.burn_db.tx_begin().unwrap();
+            println!("1");
+
             let burnchain_tip = Burnchain::process_block_ops(
                 &mut burn_tx, 
                 &self.burnchain, 
@@ -286,129 +336,17 @@ impl <'a> RunLoop <'a> {
                 &ops).unwrap();
             burn_tx.commit().unwrap();
             self.burnchain_tip = Some(burnchain_tip);
-    
+            println!("2");
+
             self.chain_tip = Some(StacksHeaderInfo::genesis());
 
-            let block_time = time::Duration::from_millis(5000);
+            let block_time = time::Duration::from_millis(20000);
             let now = time::Instant::now();
+
+            burn_fee += 1;
+
             thread::sleep(block_time);
-            println!("Tick");
         }
-
-        // self.current_tenure = Some(tenure);
-
-        // let block_time = time::Duration::from_millis(10000);
-        // loop {
-        //     self.tick();
-        //     thread::sleep(block_time);
-        // }
-        // self.commit_tenure();
-
-
-
-        // let mut node = TestnetNode::new();
-        // let mut miner = TestnetMiner::new(&node.burnchain_node.chain, 1, 1, AddressHashMode::SerializeP2PKH);
-
-        // let (vrf_sk, vrf_pk) = miner.first_VRF_keypair();
-        // let snapshot_1 = BurnDB::get_first_block_snapshot(node.burnchain_node.db.conn()).unwrap();    
-
-        // let key_register_op = LeaderKeyRegisterOp {
-        //     public_key: vrf_pk.clone(),
-        //     memo: vec![],
-        //     address: miner.get_address(),
-
-        //     consensus_hash: snapshot_1.consensus_hash.clone(),
-        //     burn_header_hash: snapshot_1.burn_header_hash,
-        //     txid: Txid([0u8; 32]),
-        //     vtxindex: 0,
-        //     block_height: 0,
-        // };
-
-        // let burnchain_tip = self.burnchain_tip.take().unwrap();
-
-        // let proof = miner.make_proof(&vrf_pk, &burnchain_tip.sortition_hash).unwrap();
-
-        // let mut builder = StacksBlockBuilder::first(&snapshot_1.burn_header_hash, &proof, &miner.first_microblock_secret_key());
-
-        // let mut tx_coinbase = StacksTransaction::new(
-        //     TransactionVersion::Testnet, 
-        //     TransactionAuth::from_p2pkh(&miner.privks[0]).unwrap(), 
-        //     TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
-        // tx_coinbase.chain_id = 0x80000000;
-        // tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
-        // let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
-
-        // miner.sign_as_origin(&mut tx_signer);
-        // let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-
-        // let (stacks_block) = {            
-        //     let mut epoch = builder.epoch_begin(&mut node.chainstate, &tx_coinbase_signed).unwrap();
-        //     let anchored_block = builder.mine_anchored_block(&mut epoch);
-        //     builder.epoch_finish(epoch);
-
-        //     (anchored_block)
-        // };
-
-            //////////
-            //////////
-            
-        // let proof = miner.make_proof(&miner_key.public_key, &burn_block.parent_snapshot.sortition_hash).unwrap();
-        // let (mut builder, parent_block_snapshot_opt) = match parent_stacks_block {
-        //     None => {
-        //         // first stacks block
-        //         let builder = StacksBlockBuilder::first(&burn_block.parent_snapshot.burn_header_hash, &proof, &miner.next_microblock_privkey());
-        //         (builder, None)
-        //     },
-        //     Some(parent_stacks_block) => {
-        //         // building off an existing stacks block
-        //         let parent_stacks_block_snapshot = {
-        //             let mut tx = self.burn.burndb.tx_begin().unwrap();
-        //             let parent_stacks_block_snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &burn_block.parent_snapshot.burn_header_hash, &parent_stacks_block.block_hash()).unwrap().unwrap();
-        //             let burned_last = BurnDB::get_block_burn_amount(&mut tx, burn_block.parent_snapshot.block_height, &burn_block.parent_snapshot.burn_header_hash).unwrap();
-        //             parent_stacks_block_snapshot
-        //         };
-
-        //         let parent_chain_tip = StacksChainState::get_anchored_block_header_info(&self.chainstate.headers_db, &parent_stacks_block_snapshot.burn_header_hash, &parent_stacks_block.header.block_hash()).unwrap().unwrap();
-
-        //         let new_work = StacksWorkScore {
-        //             burn: parent_stacks_block_snapshot.total_burn,
-        //             work: 0
-        //         };
-
-        //         test_debug!("Burned in {} {}: {}", burn_block.block_height, burn_block.parent_snapshot.burn_header_hash.to_hex(), new_work.burn);
-        //         let builder = StacksBlockBuilder::from_parent(&parent_chain_tip, &new_work, &proof, &miner.next_microblock_privkey());
-        //         (builder, Some(parent_stacks_block_snapshot))
-        //     }
-        // };
-
-        // test_debug!("Assemble stacks block");
-
-        // let (stacks_block, microblocks) = block_assembler(&mut builder, miner);
-        // self.anchored_blocks.push(stacks_block.clone());
-        // self.microblocks.push(microblocks.clone());
-        
-        // test_debug!("Commit to stacks block {}", stacks_block.block_hash());
-
-        // // send block commit for this block (block i)
-        // let block_commit_op = self.add_block_commit(burn_block, miner, &stacks_block.block_hash(), burn_amount, miner_key, parent_block_snapshot_opt.as_ref());
-        // self.commit_ops.insert(block_commit_op.block_header_hash.clone(), self.anchored_blocks.len()-1);
-
-        // (stacks_block, microblocks, block_commit_op)
-        
-            //////////
-            //////////
-
-        // loop {
-        //     let block_time = time::Duration::from_millis(10000);
-        //     let now = time::Instant::now();
-        //     thread::sleep(block_time);
-        //     println!("Tick");
-
-        //     let mempool = fs::read_dir("./mempool").unwrap();
-        //     for tx in mempool {
-        //         println!("Name: {}", tx.unwrap().path().display())
-        //     }
-        // }
     }
 }
 

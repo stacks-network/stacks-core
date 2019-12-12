@@ -3,7 +3,7 @@ use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::{StacksBlock, StacksTransactionSigner, StacksMicroblock, CoinbasePayload, TransactionAuth};
 use chainstate::burn::db::burndb::{BurnDB};
 use address::AddressHashMode;
-use burnchains::{Burnchain, BurnchainHeaderHash, Txid, PrivateKey};
+use burnchains::{Burnchain, BurnchainSigner, BurnchainHeaderHash, Txid, PrivateKey};
 use chainstate::burn::operations::{LeaderKeyRegisterOp, LeaderBlockCommitOp};
 use chainstate::burn::SortitionHash;
 use util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
@@ -130,6 +130,15 @@ impl Keychain {
             AddressHashMode::SerializeP2SH => TransactionAuth::from_p2sh(&self.secret_keys, self.threshold),
             AddressHashMode::SerializeP2WPKH => TransactionAuth::from_p2wpkh(&self.secret_keys[0]),
             AddressHashMode::SerializeP2WSH => TransactionAuth::from_p2wsh(&self.secret_keys, self.threshold),
+        }
+    }
+
+    pub fn get_burnchain_signer(&self) -> BurnchainSigner {
+        let public_keys = self.secret_keys.iter().map(|ref pk| StacksPublicKey::from_private(pk)).collect();
+        BurnchainSigner {
+            hash_mode: self.hash_mode,
+            num_sigs: self.threshold as usize,
+            public_keys
         }
     }
 
