@@ -13,7 +13,7 @@ use address::AddressHashMode;
 use burnchains::{Burnchain, BurnchainHeaderHash, Txid, PrivateKey, BurnchainBlock};
 use chainstate::stacks::{StacksPrivateKey};
 use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
-use chainstate::burn::{SortitionHash, BlockSnapshot, VRFSeed};
+use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed};
 use util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
 use util::hash::Sha256Sum;
 use std::collections::HashMap;
@@ -90,7 +90,6 @@ impl LeaderTenure {
 }
 
 pub struct RunLoop<'a> {
-    burnchain: BurnchainSimulator,
     chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
     config: Config,
@@ -106,19 +105,18 @@ pub struct RunLoop<'a> {
 
 impl <'a> RunLoop <'a> {
 
-    pub fn new(config: Config, keychain: Keychain, mem_pool: &'a MemPool<'a>) -> RunLoop<'a> {
-
-        let burnchain = BurnchainSimulator::new(config.db_path.to_string(), config.name);
+    pub fn new(config: Config, keychain: Keychain, mem_pool: &'a MemPool<'a>) -> RunLoop {
 
         let chain_state = StacksChainState::open(false, 0x80000000, &config.name).unwrap();
+
+        // todo(ludo): Genesis should probably attached to a block in the burnchain.
 
         Self {
             config,
             mem_pool,
             previous_tenures: vec![],
             chain_state,
-            burnchain,
-            chain_tip: None,
+            chain_tip: Some(StacksHeaderInfo::genesis()),
             keychain,
             vtxindex: 0,
             key_block_height: 0,
@@ -128,34 +126,11 @@ impl <'a> RunLoop <'a> {
         }
     }
 
-    pub fn tear_up(&mut self, vrf_public_key: VRFPublicKey) {
-
-        // On a local "testnet", a miner constantly registers a new vrf and start its tenure immediately,
-        // since there's only one miner. 
-
-        let key_reg_op = self.generate_leader_key_register_op(vrf_public_key);
-
-        self.key_block_height = 0;
-        self.key_vtxindex = self.vtxindex;        
-
-        self.commit_block_height = 0;
-        self.commit_vtxindex = 0;
-    
-        let ops = vec![key_reg_op];
-
-        self.burnchain.submit_ops(&mut ops);
-
-        // todo(ludo): Genesis should probably attached to a block in the burnchain.
-        self.chain_tip = Some(StacksHeaderInfo::genesis());
-    }
-
     pub fn tear_down(&self) {
     }
 
-    fn generate_leader_key_register_op(&mut self, vrf_public_key: VRFPublicKey) -> BlockstackOperationType {
+    fn generate_leader_key_register_op(&mut self, vrf_public_key: VRFPublicKey, consensus_hash: ConsensusHash) -> BlockstackOperationType {
         self.vtxindex += 1;
-
-        let consensus_hash = self.burnchain.chain_tip.consensus_hash;
 
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
@@ -193,10 +168,10 @@ impl <'a> RunLoop <'a> {
         })
     }
 
-    fn initiate_new_tenure(&mut self, vrf_public_key: VRFPublicKey) -> LeaderTenure {
+    fn initiate_new_tenure(&mut self, vrf_public_key: VRFPublicKey, burnchain_chain_tip: BlockSnapshot) -> LeaderTenure {
 
         // todo(ludo): chain tip does not necessarly have a sortition hash
-        let sortition_hash = self.burnchain.chain_tip.sortition_hash;
+        let sortition_hash = burnchain_chain_tip.sortition_hash;
 
         let chain_tip = match self.chain_tip {
             Some(ref b) => b.clone(),
@@ -228,68 +203,84 @@ impl <'a> RunLoop <'a> {
         tenure
     }
 
-    pub fn start<'static>(&mut self) {
+    pub fn start(&mut self) {
         let mut vrf_pk = self.keychain.rotate_vrf_keypair();
-        self.tear_up(vrf_pk.clone());
         let mut burn_fee = 1;
 
-        let rx = self.burnchain.start();
+        let mut burnchain = BurnchainSimulator::new();
+    
+        let block_time = time::Duration::from_millis(5000);
+
+        let burnchain_rx = burnchain.start(
+            block_time, 
+            self.config.db_path.to_string(), 
+            self.config.name.to_string());
+
+        let key_reg_op = self.generate_leader_key_register_op(vrf_pk);
+        let ops = vec![key_reg_op];
+        burnchain.submit_ops(&mut ops);
 
         // The goal of this run loop is too: 
         // 1) Handle incoming blocks from the burnchain 
         // 2) Pump and exaust the mempool
 
-        thread::spawn(move|| {
-            loop {
-                // Handling incoming blocks
-                let j = rx.recv().unwrap();
-            }
-        });
-    
         loop {
-            // Pump and exaust the mempool
-            let j = rx.recv().unwrap();
-            println!("====================================================");
-            println!("====================================================");
-            println!("{:?}", self.burnchain.chain_tip);
-            println!("====================================================");
-            println!("====================================================");
+            // Handling incoming blocks
+            let burnchain_block = burnchain_rx.recv().unwrap();
 
-            let mut tenure = self.initiate_new_tenure(vrf_pk);
-
-            // A tenure should end when
-            // 1 - blocktime is about to expire
-
-            let mut ops = vec![];
-
-            let burnchain_tip = self.burnchain.chain_tip.clone();
-
-            // Prepare commit block operation
-            let commit_block_op = self.generate_block_commitment_op(tenure, burn_fee);
-            ops.push(commit_block_op);
-            
-            self.commit_block_height = burnchain_tip.block_height as u16;
-            self.commit_vtxindex = self.vtxindex;        
-            
-            // Register a new vrf
-            vrf_pk = self.keychain.rotate_vrf_keypair();
-            let reg_key_op = self.generate_leader_key_register_op(vrf_pk.clone());
-            ops.push(reg_key_op);
-
-            self.key_block_height = burnchain_tip.block_height as u16;
-            self.key_vtxindex = self.vtxindex;        
-
-            self.burnchain.submit_ops(&mut ops);
-
-            self.chain_tip = Some(StacksHeaderInfo::genesis());
-
-            let block_time = time::Duration::from_millis(20000);
-            let now = time::Instant::now();
-
-            burn_fee += 1;
-
-            thread::sleep(block_time);
+            println!("Incoming block - {:?}", burnchain_block);
+            // When receiving a new block from the burnchain,
+            // We should be:
+            // 2) Start a new tenure.
+            let _handle = thread::spawn(move|| {
+                // Tenure protocol
+            });
         }
+
+        // loop {
+        //     // Pump and exaust the mempool
+        //     let j = rx.recv().unwrap();
+        //     println!("====================================================");
+        //     println!("====================================================");
+        //     println!("{:?}", self.burnchain.chain_tip);
+        //     println!("====================================================");
+        //     println!("====================================================");
+
+        //     let mut tenure = self.initiate_new_tenure(vrf_pk);
+
+        //     // A tenure should end when
+        //     // 1 - blocktime is about to expire
+
+        //     let mut ops = vec![];
+
+        //     let burnchain_tip = self.burnchain.chain_tip.clone();
+
+        //     // Prepare commit block operation
+        //     let commit_block_op = self.generate_block_commitment_op(tenure, burn_fee);
+        //     ops.push(commit_block_op);
+            
+        //     self.commit_block_height = burnchain_tip.block_height as u16;
+        //     self.commit_vtxindex = self.vtxindex;        
+            
+        //     // Register a new vrf
+        //     vrf_pk = self.keychain.rotate_vrf_keypair();
+        //     let reg_key_op = self.generate_leader_key_register_op(vrf_pk.clone());
+        //     ops.push(reg_key_op);
+
+        //     self.key_block_height = burnchain_tip.block_height as u16;
+        //     self.key_vtxindex = self.vtxindex;        
+
+        //     self.burnchain.submit_ops(&mut ops);
+
+        //     self.chain_tip = Some(StacksHeaderInfo::genesis());
+
+        //     let block_time = time::Duration::from_millis(20000);
+        //     let now = time::Instant::now();
+
+        //     burn_fee += 1;
+
+        //     thread::sleep(block_time);
+        // }
     }
 }
 
