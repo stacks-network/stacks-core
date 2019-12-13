@@ -1,4 +1,4 @@
-use super::{MemPool, MemPoolFS, Config, Keychain, TestnetNode, TestnetBurnchainNode, TestnetMiner, BurnchainSimulator, MemPoolObserver};
+use super::{MemPool, Config, Keychain, TestnetNode, TestnetBurnchainNode, TestnetMiner, BurnchainSimulator, MemPoolObserver};
 
 use std::fs;
 use std::env;
@@ -89,13 +89,13 @@ impl LeaderTenure {
     }
 }
 
-pub struct RunLoop {
+pub struct RunLoop<'a> {
     burnchain: BurnchainSimulator,
     chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
     config: Config,
     keychain: Keychain,
-    mem_pool: MemPoolFS,
+    mem_pool: &'a MemPool<'a>,
     previous_tenures: Vec<LeaderTenure>,
     vtxindex: u16,
     key_block_height: u16,
@@ -104,9 +104,9 @@ pub struct RunLoop {
     commit_vtxindex: u16
 }
 
-impl RunLoop {
+impl <'a> RunLoop <'a> {
 
-    pub fn new(config: Config, keychain: Keychain, mem_pool: MemPoolFS) -> RunLoop {
+    pub fn new(config: Config, keychain: Keychain, mem_pool: &'a MemPool<'a>) -> RunLoop<'a> {
 
         let burnchain = BurnchainSimulator::new(config.db_path.to_string(), config.name);
 
@@ -228,21 +228,17 @@ impl RunLoop {
         tenure
     }
 
-    pub fn start(&mut self) {
+    pub fn start<'static>(&mut self) {
         let mut vrf_pk = self.keychain.rotate_vrf_keypair();
         self.tear_up(vrf_pk.clone());
         let mut burn_fee = 1;
 
-        let rx = self.burnchain.tear_up();
+        let rx = self.burnchain.start();
 
         // The goal of this run loop is too: 
         // 1) Handle incoming blocks from the burnchain 
         // 2) Pump and exaust the mempool
 
-        thread::spawn(move|| {
-            self.burnchain.start();
-        });
-    
         thread::spawn(move|| {
             loop {
                 // Handling incoming blocks
@@ -294,5 +290,17 @@ impl RunLoop {
 
             thread::sleep(block_time);
         }
+    }
+}
+
+impl <'a> MemPoolObserver for RunLoop <'a> {
+    /// todo(ludo): define fn
+    fn handle_received_tx(&mut self, tx: Txid) {
+
+    }
+
+    /// todo(ludo): define fn
+    fn handle_archived_tx(&mut self, tx: Txid) {
+
     }
 }
