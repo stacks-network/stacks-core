@@ -23,25 +23,23 @@ use util::hash::{to_hex};
 use std::{thread, time};
 
 
-pub struct MemPoolFS <'a> {
+pub struct MemPoolFS {
     path: String,
     pending_txs: Vec<Txid>,
     archived_txs: Vec<Txid>,
-    observers: Vec<&'a mut MemPoolObserver>
 }
 
-impl <'a> MemPoolFS <'a> {
+impl MemPoolFS {
     pub fn new(path: String) -> Self {
         Self {
             path,
             pending_txs: vec![],
             archived_txs: vec![],
-            observers: vec![],
         }
     }
 }
 
-impl <'a> MemPool <'a> for MemPoolFS <'a> {
+impl MemPoolFS {
     fn start(&mut self) {
         loop {
             let block_time = time::Duration::from_millis(10000);
@@ -67,21 +65,10 @@ impl <'a> MemPool <'a> for MemPoolFS <'a> {
     }
 
     fn handle_incoming_tx(&mut self, tx: Txid) {
-        for observer in self.observers.iter_mut() {
-            observer.handle_received_tx(tx);
-        }
     }
 
     fn archive_tx(&mut self, tx: Txid) {
         // Remove tx from pending_txs
         // Add tx to archived_txs
-    }
-
-    fn register_observer(&mut self, observer: &'a mut MemPoolObserver) {
-        self.observers.push(observer);
-    }
-
-    fn unregister_observer(&mut self, observer: &'a mut MemPoolObserver) {
-        // Remove observer from observers
     }
 }

@@ -1,10 +1,12 @@
 pub mod run_loop; 
 pub mod mem_pool;
 pub mod keychain;
+pub mod burnchain;
 
 pub use self::run_loop::{RunLoop};
 pub use self::mem_pool::{MemPoolFS};
 pub use self::keychain::{Keychain};
+pub use self::burnchain::{BurnchainSimulator};
 
 use std::fs;
 use std::env;
