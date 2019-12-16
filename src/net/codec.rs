@@ -76,13 +76,13 @@ pub fn read_next<T: StacksMessageCodec>(buf: &Vec<u8>, index: &mut u32, max_size
 fn read_next_vec<T: StacksMessageCodec + Sized>(buf: &Vec<u8>, index_ptr: &mut u32, max_size_bytes: u32, num_items: u32, max_items: u32) -> Result<Vec<T>, net_error> {
     let index = *index_ptr;
     if index > u32::max_value() - 4 {
-        return Err(net_error::OverflowError);
+        return Err(net_error::OverflowError(format!("Would overflow u32 when parsing array length (index {})", index)));
     }
     if index + 4 > max_size_bytes {
-        return Err(net_error::OverflowError);
+        return Err(net_error::OverflowError(format!("Would read beyond end of buffer when parsing array length (index {}, len {})", index, buf.len())));
     }
     if (buf.len() as u32) < index + 4 {
-        return Err(net_error::UnderflowError);
+        return Err(net_error::UnderflowError(format!("Not enough bytes to read array length (index {}, len {})", index, buf.len())));
     }
 
     let mut len_index : u32 = 0;
@@ -94,13 +94,13 @@ fn read_next_vec<T: StacksMessageCodec + Sized>(buf: &Vec<u8>, index_ptr: &mut u
     if max_items > 0 {
         if len > max_items {
             // too many items
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError(format!("Array has too many items ({} > {}", len, max_items)));
         }
     }
     else {
         if len != num_items {
             // inexact item count
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError(format!("Array has incorrect number of items ({} != {})", len, num_items)));
         }
     }
     
@@ -131,13 +131,13 @@ impl StacksMessageCodec for u8 {
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<u8, net_error> {
         let index = *index_ptr;
         if index > u32::max_value() - 1 {
-            return Err(net_error::OverflowError);
+            return Err(net_error::OverflowError("Would overflow u32 to read 1 byte".to_string()));
         }
         if index + 1 > max_size {
-            return Err(net_error::OverflowError);
+            return Err(net_error::OverflowError("Would read beyond end of buffer to read 1 byte".to_string()));
         }
         if (buf.len() as u32) < index + 1 {
-            return Err(net_error::UnderflowError);
+            return Err(net_error::UnderflowError("Not enough bytes remaining to read 1 byte".to_string()));
         }
 
         let next = buf[index as usize];
@@ -151,117 +151,83 @@ impl StacksMessageCodec for u8 {
 impl StacksMessageCodec for u16 {
     fn serialize(&self) -> Vec<u8> {
         // big-endian 
-        let be = u16::to_be(*self);
-        vec![(be & 0x00ff) as u8, ((be & 0xff00) >> 8) as u8]
+        self.to_be_bytes().to_vec()
     }
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<u16, net_error> {
         let index = *index_ptr;
         if index > u32::max_value() - 2 {
-            return Err(net_error::OverflowError);
+            return Err(net_error::OverflowError("Would overflow u32 to read 2 bytes".to_string()));
         }
         if index + 2 > max_size {
-            return Err(net_error::OverflowError);
+            return Err(net_error::OverflowError("Would read beyond end of buffer to read 2 bytes".to_string()));
         }
         if (buf.len() as u32) < index + 2 {
-            return Err(net_error::UnderflowError);
+            return Err(net_error::UnderflowError("Not enough bytes remaining to read 2 bytes".to_string()));
         }
 
-        let lower : u16 = buf[index as usize] as u16;
-        let upper : u16 = buf[(index+1) as usize] as u16;
+        let mut bytes = [0u8; 2];
+        bytes.copy_from_slice(&buf[(index as usize)..((index + 2) as usize)]);
 
+        let ret = u16::from_be_bytes(bytes);
         *index_ptr += 2;
 
-        Ok(u16::from_be(lower | (upper << 8)))
+        Ok(ret)
     }
 }
 
 impl StacksMessageCodec for u32 {
     fn serialize(&self) -> Vec<u8> {
         // big-endian 
-        let be = u32::to_be(*self);
-        vec![
-            ((be & 0x000000ff) as u8),
-            ((be & 0x0000ff00) >> 8) as u8,
-            ((be & 0x00ff0000) >> 16) as u8,
-            ((be & 0xff000000) >> 24) as u8
-        ]
+        self.to_be_bytes().to_vec()
     }
+
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<u32, net_error> {
         let index = *index_ptr;
         if index > u32::max_value() - 4 {
-            return Err(net_error::OverflowError);
+            return Err(net_error::OverflowError("Would overflow u32 to read 4 bytes".to_string()));
         }
         if index + 4 > max_size {
-            return Err(net_error::OverflowError);
+            return Err(net_error::OverflowError("Would read beyond end of buffer to read 4 bytes".to_string()));
         }
         if (buf.len() as u32) < index + 4 {
-            return Err(net_error::UnderflowError);
+            return Err(net_error::UnderflowError("Not enough bytes remaining to read 4 bytes".to_string()));
         }
-
-        let i1 : u32 = buf[index as usize] as u32;
-        let i2 : u32 = buf[(index+1) as usize] as u32;
-        let i3 : u32 = buf[(index+2) as usize] as u32;
-        let i4 : u32 = buf[(index+3) as usize] as u32;
-
+        
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(&buf[(index as usize)..((index + 4) as usize)]);
+       
+        let ret = u32::from_be_bytes(bytes);
         *index_ptr += 4;
 
-        Ok(u32::from_be(
-            i1 |
-            (i2 << 8) |
-            (i3 << 16) |
-            (i4 << 24)
-        ))
+        Ok(ret)
     }
 }
 
 impl StacksMessageCodec for u64 {
     fn serialize(&self) -> Vec<u8> {
-        // big-endian 
-        let be = u64::to_be(*self);
-        vec![
-            ((be & 0x00000000000000ff) as u8),
-            ((be & 0x000000000000ff00) >> 8) as u8,
-            ((be & 0x0000000000ff0000) >> 16) as u8,
-            ((be & 0x00000000ff000000) >> 24) as u8,
-            ((be & 0x000000ff00000000) >> 32) as u8,
-            ((be & 0x0000ff0000000000) >> 40) as u8,
-            ((be & 0x00ff000000000000) >> 48) as u8,
-            ((be & 0xff00000000000000) >> 56) as u8
-        ]
+        // big-endian
+        self.to_be_bytes().to_vec()
     }
+
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<u64, net_error> {
         let index = *index_ptr;
         if index > u32::max_value() - 8 {
-            return Err(net_error::OverflowError);
+            return Err(net_error::OverflowError("Would overflow u32 to read 8 bytes".to_string()));
         }
         if index + 8 > max_size {
-            return Err(net_error::OverflowError);
+            return Err(net_error::OverflowError("Would read beyond end of buffer to read 8 bytes".to_string()));
         }
         if (buf.len() as u32) < index + 8 {
-            return Err(net_error::UnderflowError);
+            return Err(net_error::UnderflowError("Not enough bytes remaining to read 8 bytes".to_string()));
         }
 
-        let i0 : u64 = buf[(index) as usize] as u64;
-        let i1 : u64 = buf[(index+1) as usize] as u64;
-        let i2 : u64 = buf[(index+2) as usize] as u64;
-        let i3 : u64 = buf[(index+3) as usize] as u64;
-        let i4 : u64 = buf[(index+4) as usize] as u64;
-        let i5 : u64 = buf[(index+5) as usize] as u64;
-        let i6 : u64 = buf[(index+6) as usize] as u64;
-        let i7 : u64 = buf[(index+7) as usize] as u64;
-        
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(&buf[(index as usize)..((index + 8) as usize)]);
+       
+        let ret = u64::from_be_bytes(bytes);
         *index_ptr += 8;
 
-        Ok(u64::from_be(
-            i0 |
-            (i1 << 8) |
-            (i2 << 16) |
-            (i3 << 24) |
-            (i4 << 32) |
-            (i5 << 40) |
-            (i6 << 48) |
-            (i7 << 56)
-        ))
+        Ok(ret)
     }
 }
 
@@ -275,7 +241,7 @@ impl StacksPublicKeyBuffer {
     
     pub fn to_public_key(&self) -> Result<Secp256k1PublicKey, net_error> {
         Secp256k1PublicKey::from_slice(&self.0)
-            .map_err(|_e_str| net_error::DeserializeError)
+            .map_err(|_e_str| net_error::DeserializeError("Failed to decode Stacks public key".to_string()))
     }
 }
 
@@ -415,17 +381,17 @@ impl StacksMessageCodec for Preamble {
         // minimum is 5 bytes -- a zero-length vector (4 bytes of 0) plus a type identifier (1 byte)
         if payload_len < 5 {
             test_debug!("Payload len is too small: {}", payload_len);
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError(format!("Payload len is too small: {}", payload_len)));
         }
 
         if payload_len >= MAX_MESSAGE_LEN {
             test_debug!("Payload len is too big: {}", payload_len);
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError(format!("Payload len is too big: {}", payload_len)));
         }
 
         if burn_block_height <= burn_stable_block_height {
             test_debug!("burn block height {} <= burn stable block height {}", burn_block_height, burn_stable_block_height);
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError(format!("Burn block height {} <= burn stable block height {}", burn_block_height, burn_stable_block_height)));
         }
 
         *index_ptr = index;
@@ -464,7 +430,7 @@ impl StacksMessageCodec for GetBlocksData {
 
         if burn_height_end - burn_height_start > BLOCKS_INV_DATA_MAX_BITLEN as u64 {
             // requested too long of a range 
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError(format!("Block diff is too big for inv ({} - {})", burn_height_start, burn_height_end)));
         }
 
         *index_ptr = index;
@@ -490,7 +456,7 @@ impl StacksMessageCodec for MicroblocksInvData {
         let mut index = *index_ptr;
 
         let last_microblock_hash : BlockHeaderHash = read_next(buf, &mut index, max_size)?;
-        let last_sequence : u8 = read_next(buf, &mut index, max_size)?;
+        let last_sequence : u16 = read_next(buf, &mut index, max_size)?;
 
         *index_ptr = index;
 
@@ -515,7 +481,7 @@ impl StacksMessageCodec for BlocksInvData {
 
         let bitlen : u16                                     = read_next(buf, &mut index, max_size)?;
         if bitlen > BLOCKS_INV_DATA_MAX_BITLEN as u16 {
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError(format!("bitlen is bigger than max bitlen inv ({})", bitlen)));
         }
 
         let bitvec : Vec<u8>                                = read_next_exact::<u8>(buf, &mut index, max_size, BITVEC_LEN!(bitlen))?;
@@ -1025,16 +991,16 @@ impl StacksMessage {
 
         // don't numeric overflow
         if index > u32::max_value() - preamble.payload_len {
-            return Err(net_error::OverflowError);
+            return Err(net_error::OverflowError(format!("Would overflow u32 to read {} bytes of Preamble", preamble.payload_len)));
         }
 
         if index + preamble.payload_len > max_size {
-            return Err(net_error::OverflowError);
+            return Err(net_error::OverflowError(format!("Would read beyond end of buffer to read {} bytes of Preamble", preamble.payload_len)));
         }
 
         // don't read over the buffer 
         if index + preamble.payload_len > (buf.len() as u32) {
-            return Err(net_error::UnderflowError);
+            return Err(net_error::UnderflowError(format!("Not enough bytes to read a Preamble (need {}, have {})", index + preamble.payload_len, buf.len())));
         }
 
         // verify signature
@@ -1092,6 +1058,36 @@ pub mod test {
     use util::hash::hex_bytes;
     use util::secp256k1::*;
 
+    fn check_overflow<T>(r: Result<T, net_error>) -> bool {
+        match r {
+            Ok(_) => false,
+            Err(e) => match e {
+                net_error::OverflowError(_) => true,
+                _ => false
+            }
+        }
+    }
+
+    fn check_underflow<T>(r: Result<T, net_error>)  -> bool {
+        match r {
+            Ok(_) => false,
+            Err(e) => match e {
+                net_error::UnderflowError(_) => true,
+                _ => false
+            }
+        }
+    }
+
+    fn check_deserialize<T>(r: Result<T, net_error>) -> bool {
+        match r {
+            Ok(_) => false,
+            Err(e) => match e {
+                net_error::DeserializeError(_) => true,
+                _ => false
+            }
+        }
+    }
+
     #[test]
     fn codec_primitive_types() {
         let a : u8 = 0x01;
@@ -1128,46 +1124,46 @@ pub mod test {
         index = 0;
 
         // overflowing maximum allowed size
-        assert!(u8::deserialize(&a_bits, &mut index, 0) == Err(net_error::OverflowError));
+        assert!(check_overflow(u8::deserialize(&a_bits, &mut index, 0)));
         assert_eq!(index, 0);
 
-        assert!(u16::deserialize(&b_bits, &mut index, 1) == Err(net_error::OverflowError));
+        assert!(check_overflow(u16::deserialize(&b_bits, &mut index, 1)));
         assert_eq!(index, 0);
 
-        assert!(u32::deserialize(&c_bits, &mut index, 3) == Err(net_error::OverflowError));
+        assert!(check_overflow(u32::deserialize(&c_bits, &mut index, 3)));
         assert_eq!(index, 0);
 
-        assert!(u64::deserialize(&d_bits, &mut index, 7) == Err(net_error::OverflowError));
+        assert!(check_overflow(u64::deserialize(&d_bits, &mut index, 7)));
         assert_eq!(index, 0);
 
         // buffer is too short
-        assert!(u8::deserialize(&vec![], &mut index, 1) == Err(net_error::UnderflowError));
+        assert!(check_underflow(u8::deserialize(&vec![], &mut index, 1)));
         assert_eq!(index, 0);
 
-        assert!(u16::deserialize(&b_bits[0..1].to_vec(), &mut index, 2) == Err(net_error::UnderflowError));
+        assert!(check_underflow(u16::deserialize(&b_bits[0..1].to_vec(), &mut index, 2)));
         assert_eq!(index, 0);
 
-        assert!(u32::deserialize(&c_bits[0..3].to_vec(), &mut index, 4) == Err(net_error::UnderflowError));
+        assert!(check_underflow(u32::deserialize(&c_bits[0..3].to_vec(), &mut index, 4)));
         assert_eq!(index, 0);
 
-        assert!(u64::deserialize(&d_bits[0..6].to_vec(), &mut index, 8) == Err(net_error::UnderflowError));
+        assert!(check_underflow(u64::deserialize(&d_bits[0..6].to_vec(), &mut index, 8)));
         assert_eq!(index, 0);
 
         // index would overflow 
         index = u32::max_value();
-        assert!(u8::deserialize(&a_bits, &mut index, 1) == Err(net_error::OverflowError));
+        assert!(check_overflow(u8::deserialize(&a_bits, &mut index, 1)));
         assert_eq!(index, u32::max_value());
 
         index = u32::max_value() - 1;
-        assert!(u16::deserialize(&b_bits, &mut index, 2) == Err(net_error::OverflowError));
+        assert!(check_overflow(u16::deserialize(&b_bits, &mut index, 2)));
         assert_eq!(index, u32::max_value() - 1);
 
         index = u32::max_value() - 3;
-        assert!(u32::deserialize(&c_bits, &mut index, 4) == Err(net_error::OverflowError));
+        assert!(check_overflow(u32::deserialize(&c_bits, &mut index, 4)));
         assert_eq!(index, u32::max_value() - 3);
 
         index = u32::max_value() - 7;
-        assert!(u64::deserialize(&d_bits, &mut index, 8) == Err(net_error::OverflowError));
+        assert!(check_overflow(u64::deserialize(&d_bits, &mut index, 8)));
         assert_eq!(index, u32::max_value() - 7);
     }
 
@@ -1282,86 +1278,86 @@ pub mod test {
         index = 0;
 
         // overflow maximum allowed size
-        assert_eq!(Vec::<u8>::deserialize(&r1, &mut index, 3), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u8>::deserialize(&r1, &mut index, 3)));
         assert_eq!(index, 0);
 
-        assert_eq!(Vec::<u8>::deserialize(&r2, &mut index, (4 + v2.len() - 1) as u32), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u8>::deserialize(&r2, &mut index, (4 + v2.len() - 1) as u32)));
         assert_eq!(index, 0);
 
-        assert_eq!(Vec::<u16>::deserialize(&r3, &mut index, 3), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u16>::deserialize(&r3, &mut index, 3)));
         assert_eq!(index, 0);
 
-        assert_eq!(Vec::<u16>::deserialize(&r4, &mut index, (4 + v4.len() * 2 - 1) as u32), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u16>::deserialize(&r4, &mut index, (4 + v4.len() * 2 - 1) as u32)));
         assert_eq!(index, 0);
 
-        assert_eq!(Vec::<u32>::deserialize(&r5, &mut index, 3), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u32>::deserialize(&r5, &mut index, 3)));
         assert_eq!(index, 0);
 
-        assert_eq!(Vec::<u32>::deserialize(&r6, &mut index, (4 + v6.len() * 4 - 1) as u32), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u32>::deserialize(&r6, &mut index, (4 + v6.len() * 4 - 1) as u32)));
         assert_eq!(index, 0);
 
-        assert_eq!(Vec::<u64>::deserialize(&r7, &mut index, 3), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u64>::deserialize(&r7, &mut index, 3)));
         assert_eq!(index, 0);
         
-        assert_eq!(Vec::<u64>::deserialize(&r8, &mut index, (4 + v8.len() * 8 - 1) as u32), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u64>::deserialize(&r8, &mut index, (4 + v8.len() * 8 - 1) as u32)));
         assert_eq!(index, 0);
 
         // underflow the input buffer
-        assert_eq!(Vec::<u8>::deserialize(&r1[0..2].to_vec(), &mut index, 4), Err(net_error::UnderflowError));
+        assert!(check_underflow(Vec::<u8>::deserialize(&r1[0..2].to_vec(), &mut index, 4)));
         assert_eq!(index, 0);
 
-        assert_eq!(Vec::<u8>::deserialize(&r2[0..r2.len()-1].to_vec(), &mut index, (4 + v2.len()) as u32), Err(net_error::UnderflowError));
+        assert!(check_underflow(Vec::<u8>::deserialize(&r2[0..r2.len()-1].to_vec(), &mut index, (4 + v2.len()) as u32)));
         assert_eq!(index, 0);
 
-        assert_eq!(Vec::<u16>::deserialize(&r3[0..2].to_vec(), &mut index, 4), Err(net_error::UnderflowError));
+        assert!(check_underflow(Vec::<u16>::deserialize(&r3[0..2].to_vec(), &mut index, 4)));
         assert_eq!(index, 0);
 
-        assert_eq!(Vec::<u16>::deserialize(&r4[0..r4.len()-1].to_vec(), &mut index, (4 + v4.len() * 2) as u32), Err(net_error::UnderflowError));
+        assert!(check_underflow(Vec::<u16>::deserialize(&r4[0..r4.len()-1].to_vec(), &mut index, (4 + v4.len() * 2) as u32)));
         assert_eq!(index, 0);
 
-        assert_eq!(Vec::<u32>::deserialize(&r5[0..2].to_vec(), &mut index, 4), Err(net_error::UnderflowError));
+        assert!(check_underflow(Vec::<u32>::deserialize(&r5[0..2].to_vec(), &mut index, 4)));
         assert_eq!(index, 0);
 
-        assert_eq!(Vec::<u32>::deserialize(&r6[0..r6.len()-1].to_vec(), &mut index, (4 + v6.len() * 4) as u32), Err(net_error::UnderflowError));
+        assert!(check_underflow(Vec::<u32>::deserialize(&r6[0..r6.len()-1].to_vec(), &mut index, (4 + v6.len() * 4) as u32)));
         assert_eq!(index, 0);
 
-        assert_eq!(Vec::<u64>::deserialize(&r7[0..2].to_vec(), &mut index, 4), Err(net_error::UnderflowError));
+        assert!(check_underflow(Vec::<u64>::deserialize(&r7[0..2].to_vec(), &mut index, 4)));
         assert_eq!(index, 0);
         
-        assert_eq!(Vec::<u64>::deserialize(&r8[0..r8.len()-1].to_vec(), &mut index, (4 + v8.len() * 8) as u32), Err(net_error::UnderflowError));
+        assert!(check_underflow(Vec::<u64>::deserialize(&r8[0..r8.len()-1].to_vec(), &mut index, (4 + v8.len() * 8) as u32)));
         assert_eq!(index, 0);
 
         // index would overflow
         index = u32::max_value() - 3;
-        assert_eq!(Vec::<u8>::deserialize(&r1, &mut index, 4), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u8>::deserialize(&r1, &mut index, 4)));
         assert_eq!(index, u32::max_value() - 3);
 
         index = u32::max_value() - ((4 + v2.len() - 1) as u32);
-        assert_eq!(Vec::<u8>::deserialize(&r2, &mut index, (4 + v2.len()) as u32), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u8>::deserialize(&r2, &mut index, (4 + v2.len()) as u32)));
         assert_eq!(index, u32::max_value() - ((4 + v2.len() - 1) as u32));
 
         index = u32::max_value() - 3;
-        assert_eq!(Vec::<u16>::deserialize(&r3, &mut index, 4), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u16>::deserialize(&r3, &mut index, 4)));
         assert_eq!(index, u32::max_value() - 3);
 
         index = u32::max_value() - ((4 + v2.len()*2 - 1) as u32);
-        assert_eq!(Vec::<u16>::deserialize(&r4, &mut index, (4 + v4.len() * 2) as u32), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u16>::deserialize(&r4, &mut index, (4 + v4.len() * 2) as u32)));
         assert_eq!(index, u32::max_value() - ((4 + v2.len()*2 - 1) as u32));
 
         index = u32::max_value() - 3;
-        assert_eq!(Vec::<u32>::deserialize(&r5, &mut index, 4), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u32>::deserialize(&r5, &mut index, 4)));
         assert_eq!(index, u32::max_value() - 3);
 
         index = u32::max_value() - ((4 + v2.len()*4 - 1) as u32);
-        assert_eq!(Vec::<u32>::deserialize(&r6, &mut index, (4 + v6.len() * 4) as u32), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u32>::deserialize(&r6, &mut index, (4 + v6.len() * 4) as u32)));
         assert_eq!(index, u32::max_value() - ((4 + v2.len()*4 - 1) as u32));
 
         index = u32::max_value() - 3;
-        assert_eq!(Vec::<u64>::deserialize(&r7, &mut index, 4), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u64>::deserialize(&r7, &mut index, 4)));
         assert_eq!(index, u32::max_value() - 3);
         
         index = u32::max_value() - ((4 + v2.len()*8 - 1) as u32);
-        assert_eq!(Vec::<u64>::deserialize(&r8, &mut index, (4 + v8.len() * 8) as u32), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u64>::deserialize(&r8, &mut index, (4 + v8.len() * 8) as u32)));
         assert_eq!(index, u32::max_value() - ((4 + v2.len()*8 - 1) as u32));
     }
 
@@ -1418,27 +1414,27 @@ pub mod test {
         index = 0;
 
         // overflow -- tried to read past max_size
-        assert_eq!(Vec::<u32>::deserialize(&r_length_too_long, &mut index, 20), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u32>::deserialize(&r_length_too_long, &mut index, 20)));
         assert_eq!(index, 0);
         
         // underflow -- ran out of bytes to read
-        assert_eq!(Vec::<u32>::deserialize(&r_length_too_long, &mut index, 24), Err(net_error::UnderflowError));
+        assert!(check_underflow(Vec::<u32>::deserialize(&r_length_too_long, &mut index, 24)));
         assert_eq!(index, 0);
 
         // overflow -- tried to read past max size
-        assert_eq!(Vec::<u32>::deserialize(&r_bytes_not_aligned, &mut index, 19), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u32>::deserialize(&r_bytes_not_aligned, &mut index, 19)));
         assert_eq!(index, 0);
         
         // underflow -- ran out of bytes to read
-        assert_eq!(Vec::<u32>::deserialize(&r_bytes_not_aligned, &mut index, 20), Err(net_error::UnderflowError));
+        assert!(check_underflow(Vec::<u32>::deserialize(&r_bytes_not_aligned, &mut index, 20)));
         assert_eq!(index, 0);
 
         // overflow -- tried to read past max size
-        assert_eq!(Vec::<u32>::deserialize(&r_huge_length, &mut index, 20), Err(net_error::OverflowError));
+        assert!(check_overflow(Vec::<u32>::deserialize(&r_huge_length, &mut index, 20)));
         assert_eq!(index, 0);
         
         // underflow -- ran out of bytes to read
-        assert_eq!(Vec::<u32>::deserialize(&r_huge_length, &mut index, 0xffffffff), Err(net_error::UnderflowError));
+        assert!(check_underflow(Vec::<u32>::deserialize(&r_huge_length, &mut index, 0xffffffff)));
         assert_eq!(index, 0);
     }
 
@@ -1458,7 +1454,7 @@ pub mod test {
         
         index = 0;
         let underflow_cmp = T::deserialize(&bytes[0..((bytes.len()-1) as usize)].to_vec(), &mut index, bytes.len() as u32);
-        assert_eq!(underflow_cmp, Err(net_error::UnderflowError));
+        assert!(check_underflow(underflow_cmp));
         assert_eq!(index, 0);
 
         let overflow_res = T::deserialize(bytes, &mut index, (bytes.len() - 1) as u32);
@@ -1468,7 +1464,7 @@ pub mod test {
 
         index = 0;
         let overflow_cmp = T::deserialize(bytes, &mut index, (bytes.len() - 1) as u32);
-        assert_eq!(overflow_cmp, Err(net_error::OverflowError));
+        assert!(check_overflow(overflow_cmp));
         assert_eq!(index, 0);
     }
 
@@ -1521,10 +1517,10 @@ pub mod test {
 
         // corrupt 
         index = 0;
-        assert_eq!(Preamble::deserialize(&preamble_bytes[0..((PREAMBLE_ENCODED_SIZE-1) as usize)].to_vec(), &mut index, PREAMBLE_ENCODED_SIZE), Err(net_error::UnderflowError));
+        assert!(check_underflow(Preamble::deserialize(&preamble_bytes[0..((PREAMBLE_ENCODED_SIZE-1) as usize)].to_vec(), &mut index, PREAMBLE_ENCODED_SIZE)));
         assert_eq!(index, 0);
 
-        assert_eq!(Preamble::deserialize(&preamble_bytes, &mut index, PREAMBLE_ENCODED_SIZE - 1), Err(net_error::OverflowError));
+        assert!(check_overflow(Preamble::deserialize(&preamble_bytes, &mut index, PREAMBLE_ENCODED_SIZE - 1)));
         assert_eq!(index, 0);
     }
 
@@ -1561,7 +1557,7 @@ pub mod test {
         let bytes = getblocksdata_range_too_big.serialize();
 
         let mut index = 0;
-        assert_eq!(GetBlocksData::deserialize(&bytes, &mut index, bytes.len() as u32), Err(net_error::DeserializeError));
+        assert!(check_deserialize(GetBlocksData::deserialize(&bytes, &mut index, bytes.len() as u32)));
     }
 
     #[test]
@@ -1574,7 +1570,7 @@ pub mod test {
             // hash
             0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
             // seq
-            0x01
+            0x00, 0x01
         ];
         check_codec_and_corruption::<MicroblocksInvData>(&data, &bytes);
     }
@@ -1636,7 +1632,7 @@ pub mod test {
         };
         let too_big_blocksinvdata_bytes = too_big_blocksinvdata.serialize();
 
-        assert_eq!(BlocksInvData::deserialize(&too_big_blocksinvdata_bytes, &mut index, too_big_blocksinvdata_bytes.len() as u32).unwrap_err(), net_error::DeserializeError);
+        assert!(check_deserialize(BlocksInvData::deserialize(&too_big_blocksinvdata_bytes, &mut index, too_big_blocksinvdata_bytes.len() as u32)));
         assert_eq!(index, 0);
 
         // should fail to decode if the bitlen doesn't match the bitvec
@@ -1656,7 +1652,7 @@ pub mod test {
         };
         let long_bitlen_bytes = long_bitlen.serialize();
 
-        assert_eq!(BlocksInvData::deserialize(&long_bitlen_bytes, &mut index, long_bitlen_bytes.len() as u32), Err(net_error::DeserializeError));
+        assert!(check_deserialize(BlocksInvData::deserialize(&long_bitlen_bytes, &mut index, long_bitlen_bytes.len() as u32)));
         assert_eq!(index, 0);
 
         let short_bitlen = BlocksInvData {
@@ -1703,7 +1699,7 @@ pub mod test {
         };
         let short_bitlen_bytes = short_bitlen.serialize();
         
-        assert_eq!(BlocksInvData::deserialize(&short_bitlen_bytes, &mut index, short_bitlen_bytes.len() as u32), Err(net_error::DeserializeError));
+        assert!(check_deserialize(BlocksInvData::deserialize(&short_bitlen_bytes, &mut index, short_bitlen_bytes.len() as u32)));
         assert_eq!(index, 0);
 
         // should fail if microblocks inventory doesn't match bitlen 
@@ -1719,7 +1715,7 @@ pub mod test {
         };
         let wrong_microblocks_inv_bytes = wrong_microblocks_inv.serialize();
 
-        assert_eq!(BlocksInvData::deserialize(&wrong_microblocks_inv_bytes, &mut index, wrong_microblocks_inv_bytes.len() as u32), Err(net_error::DeserializeError));
+        assert!(check_deserialize(BlocksInvData::deserialize(&wrong_microblocks_inv_bytes, &mut index, wrong_microblocks_inv_bytes.len() as u32)));
         assert_eq!(index, 0);
 
         // empty 
@@ -2073,7 +2069,7 @@ pub mod test {
             let stacks_message_short_len_bytes = stacks_message_short_len.serialize();
 
             // expect overflow error, since index will exceed the expected maximum size
-            assert_eq!(StacksMessage::deserialize(&stacks_message_short_len_bytes, &mut index, stacks_message_short_len_bytes.len() as u32).unwrap_err(), net_error::OverflowError);
+            assert!(check_overflow(StacksMessage::deserialize(&stacks_message_short_len_bytes, &mut index, stacks_message_short_len_bytes.len() as u32)));
             assert_eq!(index, 0);
 
             // can't have too many relayers 
@@ -2087,7 +2083,7 @@ pub mod test {
             };
             let stacks_message_too_many_relayers_bytes = stacks_message_too_many_relayers.serialize();
 
-            assert_eq!(StacksMessage::deserialize(&stacks_message_too_many_relayers_bytes, &mut index, stacks_message_too_many_relayers_bytes.len() as u32).unwrap_err(), net_error::DeserializeError);
+            assert!(check_deserialize(StacksMessage::deserialize(&stacks_message_too_many_relayers_bytes, &mut index, stacks_message_too_many_relayers_bytes.len() as u32)));
             assert_eq!(index, 0);
         }
     }
