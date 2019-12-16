@@ -52,6 +52,8 @@ use self::bitcoin::indexer::{
     BITCOIN_REGTEST as BITCOIN_NETWORK_ID_REGTEST
 };
 
+use core::*;
+
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 
@@ -114,7 +116,7 @@ impl BurnchainParameters {
             network_name: BITCOIN_MAINNET_NAME.to_string(),
             network_id: BITCOIN_NETWORK_ID_MAINNET,
             first_block_height: BITCOIN_FIRST_BLOCK_MAINNET,
-            first_block_hash: BurnchainHeaderHash([0u8; 32]),       // TODO
+            first_block_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
         }
@@ -126,7 +128,7 @@ impl BurnchainParameters {
             network_name: BITCOIN_TESTNET_NAME.to_string(),
             network_id: BITCOIN_NETWORK_ID_TESTNET,
             first_block_height: BITCOIN_FIRST_BLOCK_TESTNET,
-            first_block_hash: BurnchainHeaderHash([0u8; 32]),       // TODO
+            first_block_hash: FIRST_BURNCHAIN_BLOCK_HASH_TESTNET.clone(),
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
         }
@@ -138,7 +140,7 @@ impl BurnchainParameters {
             network_name: BITCOIN_REGTEST_NAME.to_string(),
             network_id: BITCOIN_NETWORK_ID_REGTEST,
             first_block_height: BITCOIN_FIRST_BLOCK_REGTEST,
-            first_block_hash: BurnchainHeaderHash([0u8; 32]),       // TODO
+            first_block_hash: FIRST_BURNCHAIN_BLOCK_HASH_REGTEST.clone(),
             stable_confirmations: 1,
             consensus_hash_lifetime: 24
         }
@@ -463,7 +465,8 @@ pub mod test {
         pub vrf_key_map: HashMap<VRFPublicKey, VRFPrivateKey>,
         pub block_commits: Vec<LeaderBlockCommitOp>,
         pub expected_mining_rewards: u128,
-        pub id: usize
+        pub id: usize,
+        pub nonce: u64
     }
 
     pub struct TestMinerFactory {
@@ -483,7 +486,8 @@ pub mod test {
                 vrf_key_map: HashMap::new(),
                 block_commits: vec![],
                 expected_mining_rewards: 0,
-                id: 0
+                id: 0,
+                nonce: 0
             }
         }
 
@@ -583,8 +587,16 @@ pub mod test {
                 None => None
             }
         }
+        
+        pub fn get_nonce(&self) -> u64 {
+            self.nonce
+        }
 
-        pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) -> () {
+        pub fn set_nonce(&mut self, n: u64) -> () {
+            self.nonce = n;
+        }
+
+        pub fn sign_as_origin(&mut self, tx_signer: &mut StacksTransactionSigner) -> () {
             let num_keys = 
                 if self.privks.len() < self.num_sigs as usize {
                     self.privks.len() 
@@ -596,9 +608,11 @@ pub mod test {
             for i in 0..num_keys {
                 tx_signer.sign_origin(&self.privks[i]).unwrap();
             }
+
+            self.nonce += 1
         }
 
-        pub fn sign_as_sposnor(&self, tx_signer: &mut StacksTransactionSigner) -> () {
+        pub fn sign_as_sponsor(&mut self, tx_signer: &mut StacksTransactionSigner) -> () {
             let num_keys = 
                 if self.privks.len() < self.num_sigs as usize {
                     self.privks.len()
@@ -610,6 +624,8 @@ pub mod test {
             for i in 0..num_keys {
                 tx_signer.sign_sponsor(&self.privks[i]).unwrap();
             }
+
+            self.nonce += 1
         }
 
         pub fn expect_mining_reward(&mut self, next_reward: u128) -> u128 {
@@ -623,7 +639,7 @@ pub mod test {
         pub fn new() -> TestMinerFactory {
             TestMinerFactory {
                 key_seed: [0u8; 32],
-                next_miner_id: 0
+                next_miner_id: 1
             }
         }
 
@@ -832,7 +848,7 @@ pub mod test {
     impl TestBurnchainNode {
         pub fn new() -> TestBurnchainNode {
             let first_block_height = 100;
-            let first_block_hash = BurnchainHeaderHash([0u8; 32]);
+            let first_block_hash = FIRST_BURNCHAIN_BLOCK_HASH.clone();
             let db = BurnDB::connect_memory(first_block_height, &first_block_hash).unwrap();
             TestBurnchainNode {
                 burndb: db,
