@@ -684,6 +684,8 @@ impl Trie {
                 trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?} (fixed root)", &node, &child_ptr, &cur_hash, &node_hash, &hs[1..].to_vec(), &h);
             }
 
+            test_debug!("Next root hash is {} (update_skiplist={})", h.to_hex(), update_skiplist);
+
             storage.write_nodetype(child_ptr.ptr(), &node, h)?;
         }
         else {
@@ -712,35 +714,39 @@ impl Trie {
                 // however, since we're going to update the hash in the next write anyways, just write an empty buff 
                 storage.write_nodetype(ptr.ptr(), &node, TrieHash([0; 32]))?;
 
-                if !node.is_node256() {
-                    let h = content_hash;
-                    trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?}", node, &child_ptr, &cur_hash, &h);
-                    storage.write_nodetype(ptr.ptr(), &node, h)?;
-                }
-                else {
-                    let root_ptr = storage.root_trieptr();
-                    let node_hash = 
-                        if ptr == root_ptr {
-                            let h = 
-                                if update_skiplist {
-                                    Trie::get_trie_root_hash(storage, &content_hash)?
-                                }
-                                else {
-                                    content_hash.clone()
-                                };
+                let h = 
+                    if !node.is_node256() {
+                        trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?}", node, &child_ptr, &cur_hash, &content_hash);
+                        content_hash.clone()
+                    }
+                    else {
+                        let root_ptr = storage.root_trieptr();
+                        let node_hash = 
+                            if ptr == root_ptr {
+                                let h = 
+                                    if update_skiplist {
+                                        Trie::get_trie_root_hash(storage, &content_hash)?
+                                    }
+                                    else {
+                                        content_hash.clone()
+                                    };
 
-                            if is_trace() {
-                                let hs = Trie::get_trie_root_ancestor_hashes_bytes(storage, &content_hash)?;
-                                trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &cur_hash, &content_hash, &hs[1..].to_vec(), &h);
+                                if is_trace() {
+                                    let hs = Trie::get_trie_root_ancestor_hashes_bytes(storage, &content_hash)?;
+                                    trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &cur_hash, &content_hash, &hs[1..].to_vec(), &h);
+                                }
+            
+                                test_debug!("Next root hash is {} (update_skiplist={})", h.to_hex(), update_skiplist);
+                                h
                             }
-                            h
-                        }
-                        else {
-                            trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?}", &node, &child_ptr, &cur_hash, &content_hash);
-                            content_hash
-                        };
-                    storage.write_nodetype(ptr.ptr(), &node, node_hash)?;
-                };
+                            else {
+                                trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?}", &node, &child_ptr, &cur_hash, &content_hash);
+                                content_hash
+                            };
+                        node_hash
+                    };
+                
+                storage.write_nodetype(ptr.ptr(), &node, h)?;
                 
                 child_ptr = ptr;
                 child_ptr.id = clear_backptr(child_ptr.id);
