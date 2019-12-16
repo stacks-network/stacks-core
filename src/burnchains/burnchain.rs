@@ -477,22 +477,7 @@ impl Burnchain {
     /// Return the ordered list of blockstack operations by vtxindex
     fn get_blockstack_transactions(burnchain: &Burnchain, block: &BurnchainBlock, block_header: &BurnchainBlockHeader) -> Vec<BlockstackOperationType> {
         debug!("Extract Blockstack transactions from block {} {}", block.block_height(), &block.block_hash().to_hex());
-        let mut ret = vec![];
-        let txs = block.txs();
-        
-        // classify each transaction
-        for i in 0..txs.len() {
-            match Burnchain::classify_transaction(&block_header, &txs[i]) {
-                None => {
-                    // not a burnchain transaction
-                    continue;
-                },
-                Some(ref blockstack_op) => {
-                    ret.push((*blockstack_op).clone());
-                }
-            }
-        }
-        ret
+        block.txs().iter().filter_map(|tx| Burnchain::classify_transaction(block_header, &tx)).collect()
     }
 
     /// Sanity check -- a list of checked ops is sorted and all vtxindexes are unique
@@ -894,7 +879,8 @@ pub mod tests {
      
     use sha2::Sha512;
 
-    use rand::rngs::OsRng;
+    use rand::thread_rng;
+    use rand::rngs::ThreadRng;
 
     use util::hash::Hash160;
     use util::hash::to_hex;
@@ -1419,7 +1405,7 @@ pub mod tests {
         let mut leader_bitcoin_addresses = vec![];
 
         for i in 0..32 {
-            let mut csprng: OsRng = OsRng::new().unwrap();
+            let mut csprng: ThreadRng = thread_rng();
             let keypair: VRFKeypair = VRFKeypair::generate(&mut csprng);
 
             let privkey_hex = to_hex(&keypair.secret.to_bytes());
