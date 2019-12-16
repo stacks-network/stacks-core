@@ -27,6 +27,8 @@ use burnchains::Txid;
 
 use chainstate::stacks::*;
 
+use core::*;
+
 use net::StacksPublicKeyBuffer;
 
 use util::hash::Sha512Trunc256Sum;
@@ -44,59 +46,26 @@ use vm::representations::{
     ClarityName
 };
 
-impl StacksMessageCodec for TransactionTokenTransfer {
+impl StacksMessageCodec for Value {
     fn serialize(&self) -> Vec<u8> {
+        use vm::database::ClaritySerializable;
         let mut res = vec![];
-        match *self {
-            TransactionTokenTransfer::STX(ref address, ref amount) => {
-                write_next(&mut res, &(AssetInfoID::STX as u8));
-                write_next(&mut res, address);
-                write_next(&mut res, amount);
-            },
-            TransactionTokenTransfer::Fungible(ref asset_info, ref address, ref amount) => {
-                write_next(&mut res, &(AssetInfoID::FungibleAsset as u8));
-                write_next(&mut res, asset_info);
-                write_next(&mut res, address);
-                write_next(&mut res, amount);
-            },
-            TransactionTokenTransfer::Nonfungible(ref asset_info, ref asset_name, ref address) => {
-                write_next(&mut res, &(AssetInfoID::NonfungibleAsset as u8));
-                write_next(&mut res, asset_info);
-                write_next(&mut res, asset_name);
-                write_next(&mut res, address);
-            }
-        }
+        let value_str : String = ClaritySerializable::serialize(self);
+        write_next(&mut res, &value_str.as_bytes().to_vec());
         res
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<TransactionTokenTransfer, net_error> {
+    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<Value, net_error> {
         let mut index = *index_ptr;
-        let asset_id : u8 = read_next(buf, &mut index, max_size)?;
-        let payload = match asset_id {
-            x if x == AssetInfoID::STX as u8 => {
-                let addr : StacksAddress = read_next(buf, &mut index, max_size)?;
-                let amount : u64 = read_next(buf, &mut index, max_size)?;
-                TransactionTokenTransfer::STX(addr, amount)
-            },
-            x if x == AssetInfoID::FungibleAsset as u8 => {
-                let asset_info : AssetInfo = read_next(buf, &mut index, max_size)?;
-                let addr : StacksAddress = read_next(buf, &mut index, max_size)?;
-                let amount : u64 = read_next(buf, &mut index, max_size)?;
-                TransactionTokenTransfer::Fungible(asset_info, addr, amount)
-            },
-            x if x == AssetInfoID::NonfungibleAsset as u8 => {
-                let asset_info : AssetInfo = read_next(buf, &mut index, max_size)?;
-                let asset_name : StacksString = read_next(buf, &mut index, max_size)?;
-                let addr : StacksAddress = read_next(buf, &mut index, max_size)?;
-                TransactionTokenTransfer::Nonfungible(asset_info, asset_name, addr)
-            },
-            _ => {
-                return Err(net_error::DeserializeError);
-            }
-        };
+        let bytes : Vec<u8> = read_next(buf, &mut index, max_size)?;
+        let bytes_json = String::from_utf8(bytes[..].to_vec())
+            .map_err(|_e| net_error::DeserializeError("Value byte sequence does not decode to utf8 string".to_string()))?;
 
+        let value = Value::try_deserialize_untyped(&bytes_json)
+            .map_err(|e| net_error::DeserializeError(format!("Failed to decode Value from '{}': {:?}", &bytes_json, &e)))?;
+       
         *index_ptr = index;
-        Ok(payload)
+        Ok(value)
     }
 }
 
@@ -116,22 +85,14 @@ impl StacksMessageCodec for TransactionContractCall {
         let address : StacksAddress = read_next(buf, &mut index, max_size)?;
         let contract_name : ContractName = read_next(buf, &mut index, max_size)?;
         let function_name: ClarityName = read_next(buf, &mut index, max_size)?;
-        let function_args: Vec<StacksString> = read_next(buf, &mut index, max_size)?;        // TODO: maximum number of arguments?
+        let function_args: Vec<Value> = read_next(buf, &mut index, max_size)?;        // TODO: maximum number of arguments?
 
         // function name must be valid Clarity variable
         if !StacksString::from(function_name.clone()).is_clarity_variable() {
             warn!("Invalid function name -- not a clarity variable");
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError("Failed to parse transaction: invalid function name -- not a Clarity variable".to_string()));
         }
 
-        // the function arguments must all be literals
-        for arg in function_args.iter() {
-            if !StacksString::from(arg.clone()).is_clarity_literal() {
-                warn!("Invalid function argument -- not a clarity literal");
-                return Err(net_error::DeserializeError);
-            }
-        }
-        
         *index_ptr = index;
         Ok(TransactionContractCall {
             address,
@@ -145,20 +106,6 @@ impl StacksMessageCodec for TransactionContractCall {
 impl TransactionContractCall {
     pub fn to_clarity_contract_id(&self) -> QualifiedContractIdentifier {
         QualifiedContractIdentifier::new(StandardPrincipalData::from(self.address.clone()), self.contract_name.clone())
-    }
-
-    pub fn try_as_clarity_args(&self) -> Result<Vec<Value>, Error> {
-        let mut arguments = vec![];
-        for arg in self.function_args.iter() {
-            let value = match arg.try_as_clarity_literal() {
-                Some(v) => v,
-                None => {
-                    return Err(Error::InvalidStacksTransaction(format!("String '{:?}' does not encode a Clarity literal", arg)));
-                }
-            };
-            arguments.push(value);
-        }
-        Ok(arguments)
     }
 }
 
@@ -189,10 +136,11 @@ impl StacksMessageCodec for TransactionPayload {
     fn serialize(&self) -> Vec<u8> {
         let mut res = vec![];
         match *self {
-            TransactionPayload::TokenTransfer(ref tt) => {
+            TransactionPayload::TokenTransfer(ref address, ref amount, ref memo) => {
                 write_next(&mut res, &(TransactionPayloadID::TokenTransfer as u8));
-                let mut body = tt.serialize();
-                res.append(&mut body);
+                write_next(&mut res, address);
+                write_next(&mut res, amount);
+                write_next(&mut res, memo);
             },
             TransactionPayload::ContractCall(ref cc) => {
                 write_next(&mut res, &(TransactionPayloadID::ContractCall as u8));
@@ -225,8 +173,10 @@ impl StacksMessageCodec for TransactionPayload {
         let type_id : u8 = read_next(buf, &mut index, max_size)?;
         let payload = match type_id {
             x if x == TransactionPayloadID::TokenTransfer as u8 => {
-                let payload = TransactionTokenTransfer::deserialize(buf, &mut index, max_size)?;
-                TransactionPayload::TokenTransfer(payload)
+                let addr : StacksAddress = read_next(buf, &mut index, max_size)?;
+                let amount : u64 = read_next(buf, &mut index, max_size)?;
+                let memo : TokenTransferMemo = read_next(buf, &mut index, max_size)?;
+                TransactionPayload::TokenTransfer(addr, amount, memo)
             },
             x if x == TransactionPayloadID::ContractCall as u8 => {
                 let payload = TransactionContractCall::deserialize(buf, &mut index, max_size)?;
@@ -242,12 +192,12 @@ impl StacksMessageCodec for TransactionPayload {
 
                 // must differ in some field
                 if h1 == h2 {
-                    return Err(net_error::DeserializeError);
+                    return Err(net_error::DeserializeError("Failed to parse transaction -- microblock headers match".to_string()));
                 }
 
                 // must have the same sequence number or same block parent
                 if h1.sequence != h2.sequence && h1.prev_block != h2.prev_block {
-                    return Err(net_error::DeserializeError);
+                    return Err(net_error::DeserializeError("Failed to parse transaction -- microblock headers do not identify a fork".to_string()));
                 }
 
                 TransactionPayload::PoisonMicroblock(h1, h2)
@@ -257,7 +207,7 @@ impl StacksMessageCodec for TransactionPayload {
                 TransactionPayload::Coinbase(payload)
             },
             _ => {
-                return Err(net_error::DeserializeError);
+                return Err(net_error::DeserializeError(format!("Failed to parse transaction -- unknown payload ID {}", type_id)));
             }
         };
 
@@ -267,7 +217,7 @@ impl StacksMessageCodec for TransactionPayload {
 }
 
 impl TransactionPayload {
-    pub fn new_contract_call(contract_address: &StacksAddress, contract_name: &str, function_name: &str, args: &Vec<&str>) -> Option<TransactionPayload> {
+    pub fn new_contract_call(contract_address: StacksAddress, contract_name: &str, function_name: &str, args: Vec<Value>) -> Option<TransactionPayload> {
         let contract_name_str = match ContractName::try_from(contract_name.to_string()) {
             Ok(s) => s,
             Err(_) => {
@@ -283,24 +233,12 @@ impl TransactionPayload {
                 return None;
             }
         };
-
-        let mut arg_strs = Vec::with_capacity(args.len());
-        for arg in args {
-            let a = match StacksString::from_str(arg) {
-                Some(s) => s,
-                None => {
-                    test_debug!("Not a Stacks string: '{}'", arg);
-                    return None;
-                }
-            };
-            arg_strs.push(a);
-        }
         
         Some(TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_address.clone(),
+            address: contract_address,
             contract_name: contract_name_str, 
             function_name: function_name_str,
-            function_args: arg_strs
+            function_args: args
         }))
     }
 
@@ -338,23 +276,72 @@ impl StacksMessageCodec for AssetInfo {
     }
 }
 
+impl StacksMessageCodec for PostConditionPrincipal {
+    fn serialize(&self) -> Vec<u8> {
+        let mut res = vec![];
+        match *self {
+            PostConditionPrincipal::Origin => {
+                write_next(&mut res, &(PostConditionPrincipalID::Origin as u8));
+            },
+            PostConditionPrincipal::Standard(ref address) => {
+                write_next(&mut res, &(PostConditionPrincipalID::Standard as u8));
+                write_next(&mut res, address);
+            },
+            PostConditionPrincipal::Contract(ref address, ref contract_name) => {
+                write_next(&mut res, &(PostConditionPrincipalID::Contract as u8));
+                write_next(&mut res, address);
+                write_next(&mut res, contract_name);
+            }
+        }
+        res
+    }
+
+    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<PostConditionPrincipal, net_error> {
+        let mut index = *index_ptr;
+        let principal_id : u8 = read_next(buf, &mut index, max_size)?;
+        let principal = match principal_id {
+            x if x == PostConditionPrincipalID::Origin as u8 => {
+                PostConditionPrincipal::Origin
+            },
+            x if x == PostConditionPrincipalID::Standard as u8 => {
+                let addr : StacksAddress = read_next(buf, &mut index, max_size)?;
+                PostConditionPrincipal::Standard(addr)
+            },
+            x if x == PostConditionPrincipalID::Contract as u8 => {
+                let addr : StacksAddress = read_next(buf, &mut index, max_size)?;
+                let contract_name : ContractName = read_next(buf, &mut index, max_size)?;
+                PostConditionPrincipal::Contract(addr, contract_name)
+            },
+            _ => {
+                return Err(net_error::DeserializeError(format!("Failed to parse transaction: unknown post condition principal ID {}", principal_id)));
+            }
+        };
+
+        *index_ptr = index;
+        Ok(principal)
+    }
+}
+
 impl StacksMessageCodec for TransactionPostCondition {
     fn serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         match *self {
-            TransactionPostCondition::STX(ref fungible_condition, ref amount) => {
+            TransactionPostCondition::STX(ref principal, ref fungible_condition, ref amount) => {
                 write_next(&mut ret, &(AssetInfoID::STX as u8));
+                write_next(&mut ret, principal);
                 write_next(&mut ret, &(*fungible_condition as u8));
                 write_next(&mut ret, amount);
             },
-            TransactionPostCondition::Fungible(ref asset_info, ref fungible_condition, ref amount) => {
+            TransactionPostCondition::Fungible(ref principal, ref asset_info, ref fungible_condition, ref amount) => {
                 write_next(&mut ret, &(AssetInfoID::FungibleAsset as u8));
+                write_next(&mut ret, principal);
                 write_next(&mut ret, asset_info);
                 write_next(&mut ret, &(*fungible_condition as u8));
                 write_next(&mut ret, amount);
             }
-            TransactionPostCondition::Nonfungible(ref asset_info, ref asset_value, ref nonfungible_condition) => {
+            TransactionPostCondition::Nonfungible(ref principal, ref asset_info, ref asset_value, ref nonfungible_condition) => {
                 write_next(&mut ret, &(AssetInfoID::NonfungibleAsset as u8));
+                write_next(&mut ret, principal);
                 write_next(&mut ret, asset_info);
                 write_next(&mut ret, asset_value);
                 write_next(&mut ret, &(*nonfungible_condition as u8));
@@ -368,40 +355,39 @@ impl StacksMessageCodec for TransactionPostCondition {
         let asset_info_id : u8 = read_next(buf, &mut index, max_size)?;
         let postcond = match asset_info_id {
             x if x == AssetInfoID::STX as u8 => {
+                let principal : PostConditionPrincipal = read_next(buf, &mut index, max_size)?;
                 let condition_u8 : u8 = read_next(buf, &mut index, max_size)?;
                 let amount : u64 = read_next(buf, &mut index, max_size)?;
 
                 let condition_code = FungibleConditionCode::from_u8(condition_u8)
-                    .ok_or(net_error::DeserializeError)?;
+                    .ok_or(net_error::DeserializeError(format!("Failed to parse transaction: Failed to parse STX fungible condition code {}", condition_u8)))?;
 
-                TransactionPostCondition::STX(condition_code, amount)
+                TransactionPostCondition::STX(principal, condition_code, amount)
             },
             x if x == AssetInfoID::FungibleAsset as u8 => {
+                let principal : PostConditionPrincipal = read_next(buf, &mut index, max_size)?;
                 let asset : AssetInfo = read_next(buf, &mut index, max_size)?;
                 let condition_u8 : u8 = read_next(buf, &mut index, max_size)?;
                 let amount : u64 = read_next(buf, &mut index, max_size)?;
 
                 let condition_code = FungibleConditionCode::from_u8(condition_u8)
-                    .ok_or(net_error::DeserializeError)?;
+                    .ok_or(net_error::DeserializeError(format!("Failed to parse transaction: Failed to parse FungibleAsset condition code {}", condition_u8)))?;
 
-                TransactionPostCondition::Fungible(asset, condition_code, amount)
+                TransactionPostCondition::Fungible(principal, asset, condition_code, amount)
             },
             x if x == AssetInfoID::NonfungibleAsset as u8 => {
+                let principal : PostConditionPrincipal = read_next(buf, &mut index, max_size)?;
                 let asset : AssetInfo = read_next(buf, &mut index, max_size)?;
-                let asset_value : StacksString = read_next(buf, &mut index, max_size)?;
+                let asset_value : Value = read_next(buf, &mut index, max_size)?;
                 let condition_u8 : u8 = read_next(buf, &mut index, max_size)?;
 
                 let condition_code = NonfungibleConditionCode::from_u8(condition_u8)
-                    .ok_or(net_error::DeserializeError)?;
+                    .ok_or(net_error::DeserializeError(format!("Failed to parse transaction: Failed to parse NonfungibleAsset condition code {}", condition_u8)))?;
 
-                if !asset_value.is_clarity_literal() {
-                    return Err(net_error::DeserializeError);
-                }
-
-                TransactionPostCondition::Nonfungible(asset, asset_value, condition_code)
+                TransactionPostCondition::Nonfungible(principal, asset, asset_value, condition_code)
             },
             _ => {
-                return Err(net_error::DeserializeError);
+                return Err(net_error::DeserializeError(format!("Failed to aprse transaction: unknown asset info ID {}", asset_info_id)));
             }
         };
         
@@ -418,7 +404,6 @@ impl StacksMessageCodec for StacksTransaction {
         write_next(&mut ret, &(self.version as u8));
         write_next(&mut ret, &self.chain_id);
         write_next(&mut ret, &self.auth);
-        write_next(&mut ret, &self.fee);
         write_next(&mut ret, &(self.anchor_mode as u8));
         write_next(&mut ret, &(self.post_condition_mode as u8));
         write_next(&mut ret, &self.post_conditions);
@@ -433,7 +418,6 @@ impl StacksMessageCodec for StacksTransaction {
         let version_u8 : u8             = read_next(buf, &mut index, max_size)?;
         let chain_id : u32              = read_next(buf, &mut index, max_size)?;
         let auth : TransactionAuth      = read_next(buf, &mut index, max_size)?;
-        let fee : u64                   = read_next(buf, &mut index, max_size)?;
         let anchor_mode_u8 : u8         = read_next(buf, &mut index, max_size)?;
         let post_condition_mode_u8 : u8 = read_next(buf, &mut index, max_size)?;
         let post_conditions : Vec<TransactionPostCondition> = read_next(buf, &mut index, max_size)?;
@@ -459,7 +443,7 @@ impl StacksMessageCodec for StacksTransaction {
             },
             _ => {
                 warn!("Invalid tx: invalid anchor mode");
-                return Err(net_error::DeserializeError);
+                return Err(net_error::DeserializeError(format!("Failed to parse transaction: invalid anchor mode {}", anchor_mode_u8)));
             }
         };
 
@@ -470,13 +454,13 @@ impl StacksMessageCodec for StacksTransaction {
             TransactionPayload::PoisonMicroblock(_, _) => {
                 if anchor_mode != TransactionAnchorMode::OnChainOnly {
                     warn!("Invalid tx: invalid anchor mode for poison microblock");
-                    return Err(net_error::DeserializeError);
+                    return Err(net_error::DeserializeError("Failed to parse transaction: invalid anchor mode for PoisonMicroblock".to_string()));
                 }
             },
             TransactionPayload::Coinbase(_) => {
                 if anchor_mode != TransactionAnchorMode::OnChainOnly {
                     warn!("Invalid tx: invalid anchor mode for coinbase");
-                    return Err(net_error::DeserializeError);
+                    return Err(net_error::DeserializeError("Failed to parse transaction: invalid anchor mode for Coinbase".to_string()));
                 }
             },
             _ => {}
@@ -491,7 +475,7 @@ impl StacksMessageCodec for StacksTransaction {
             },
             _ => {
                 warn!("Invalid tx: invalid post condition mode");
-                return Err(net_error::DeserializeError);
+                return Err(net_error::DeserializeError(format!("Failed to parse transaction: invalid post-condition mode {}", post_condition_mode_u8)));
             }
         };
 
@@ -500,7 +484,6 @@ impl StacksMessageCodec for StacksTransaction {
             version,
             chain_id,
             auth,
-            fee,
             anchor_mode,
             post_condition_mode,
             post_conditions,
@@ -524,7 +507,6 @@ impl StacksTransaction {
             version: version,
             chain_id: 0,
             auth: auth,
-            fee: 0,
             anchor_mode: anchor_mode,
             post_condition_mode: TransactionPostConditionMode::Deny,
             post_conditions: vec![],
@@ -532,11 +514,36 @@ impl StacksTransaction {
         }
     }
 
-    /// Set the transaction fee in STX
-    pub fn set_fee(&mut self, tx_fee: u64) -> () {
-        self.fee = tx_fee;
+    /// Get fee rate
+    pub fn get_fee_rate(&self) -> u64 {
+        self.auth.get_fee_rate()
     }
 
+    /// Set fee rate
+    pub fn set_fee_rate(&mut self, fee_rate: u64) -> () {
+        self.auth.set_fee_rate(fee_rate);
+    }
+
+    /// Get origin nonce
+    pub fn get_origin_nonce(&self) -> u64 {
+        self.auth.get_origin_nonce()
+    }
+
+    /// get sponsor nonce
+    pub fn get_sponsor_nonce(&self) -> Option<u64> {
+        self.auth.get_sponsor_nonce()
+    }
+
+    /// set origin nonce
+    pub fn set_origin_nonce(&mut self, n: u64) -> () {
+        self.auth.set_origin_nonce(n);
+    }
+
+    /// set sponsor nonce
+    pub fn set_sponsor_nonce(&mut self, n: u64) -> () {
+        self.auth.set_sponsor_nonce(n);
+    }
+    
     /// Set anchor mode
     pub fn set_anchor_mode(&mut self, anchor_mode: TransactionAnchorMode) -> () {
         self.anchor_mode = anchor_mode;
@@ -568,25 +575,28 @@ impl StacksTransaction {
     }
 
     /// begin signing the transaction.
+    /// If this is a sponsored transaction, then the origin only commits to knowing that it is
+    /// sponsored.  It does _not_ commit to the sponsored fields, so set them all to sentinel
+    /// values.
     /// Return the initial sighash.
     fn sign_begin(&self) -> Txid {
         let mut tx = self.clone();
-        tx.auth.clear();
+        tx.auth = tx.auth.into_initial_sighash_auth();
         tx.txid()
     }
 
-    /// begin verifying a transaction
+    /// begin verifying a transaction.
     /// return the initial sighash
     fn verify_begin(&self) -> Txid {
         let mut tx = self.clone();
-        tx.auth.clear();
+        tx.auth = tx.auth.into_initial_sighash_auth();
         tx.txid()
     }
 
     /// Sign a sighash and append the signature and public key to the given spending condition.
     /// Returns the next sighash
     fn sign_and_append(condition: &mut TransactionSpendingCondition, cur_sighash: &Txid, auth_flag: &TransactionAuthFlags, privk: &StacksPrivateKey) -> Result<Txid, net_error> {
-        let (next_sig, next_sighash) = TransactionSpendingCondition::next_signature(cur_sighash, auth_flag, privk)?;
+        let (next_sig, next_sighash) = TransactionSpendingCondition::next_signature(cur_sighash, auth_flag, condition.fee_rate(), condition.nonce(), privk)?;
         match condition {
             TransactionSpendingCondition::Multisig(ref mut cond) => {
                 cond.push_signature(if privk.compress_public() { TransactionPublicKeyEncoding::Compressed } else { TransactionPublicKeyEncoding::Uncompressed }, next_sig);
@@ -599,6 +609,18 @@ impl StacksTransaction {
         }
     }
 
+    /// Pop the last auth field
+    fn pop_auth_field(condition: &mut TransactionSpendingCondition) -> Option<TransactionAuthField> {
+        match condition {
+            TransactionSpendingCondition::Multisig(ref mut cond) => {
+                cond.pop_auth_field()
+            },
+            TransactionSpendingCondition::Singlesig(ref mut cond) => {
+                cond.pop_signature()
+            }
+        }
+    }
+    
     /// Append a public key to a multisig condition
     fn append_pubkey(condition: &mut TransactionSpendingCondition, pubkey: &StacksPublicKey) -> Result<(), net_error> {
         match condition {
@@ -672,6 +694,12 @@ impl StacksTransaction {
         self.auth.verify(&self.verify_begin())
     }
 
+    /// Verify the transaction's origin signatures only.
+    /// Used by sponsors to get the next sig-hash to sign.
+    pub fn verify_origin(&self) -> Result<Txid, net_error> {
+        self.auth.verify_origin(&self.verify_begin())
+    }
+
     /// Get the origin account's address
     pub fn origin_address(&self) -> StacksAddress {
         match (&self.version, &self.auth) {
@@ -704,6 +732,14 @@ impl StacksTransaction {
             None => self.auth.origin().clone()
         }
     }
+
+    /// Is this a mainnet transaction?  false means 'testnet'
+    pub fn is_mainnet(&self) -> bool {
+        match self.version {
+            TransactionVersion::Mainnet => true,
+            _ => false
+        }
+    }
 }
 
 impl StacksTransactionSigner {
@@ -711,24 +747,35 @@ impl StacksTransactionSigner {
         StacksTransactionSigner {
             tx: tx.clone(),
             sighash: tx.sign_begin(),
-            origin_done: false
+            origin_done: false,
+            check_oversign: true, 
+            check_overlap: true
         }
     }
 
+    pub fn resume(&mut self, tx: &StacksTransaction) -> () {
+        self.tx = tx.clone()
+    }
+
+    pub fn disable_checks(&mut self) -> () {
+        self.check_oversign = false;
+        self.check_overlap = false;
+    }
+
     pub fn sign_origin(&mut self, privk: &StacksPrivateKey) -> Result<(), net_error> {
-        if self.origin_done {
+        if self.check_overlap && self.origin_done {
             // can't sign another origin private key since we started signing sponsors
             return Err(net_error::SigningError("Cannot sign origin after sponsor key".to_string()));
         }
 
         match self.tx.auth {
             TransactionAuth::Standard(ref origin_condition) => {
-                if origin_condition.num_signatures() >= origin_condition.signatures_required() {
+                if self.check_oversign && origin_condition.num_signatures() >= origin_condition.signatures_required() {
                     return Err(net_error::SigningError("Origin would have too many signatures".to_string()));
                 }
             },
             TransactionAuth::Sponsored(ref origin_condition, _) => {
-                if origin_condition.num_signatures() >= origin_condition.signatures_required() {
+                if self.check_oversign && origin_condition.num_signatures() >= origin_condition.signatures_required() {
                     return Err(net_error::SigningError("Origin would have too many signatures".to_string()));
                 }
             }
@@ -740,7 +787,7 @@ impl StacksTransactionSigner {
     }
 
     pub fn append_origin(&mut self, pubk: &StacksPublicKey) -> Result<(), net_error> {
-        if self.origin_done {
+        if self.check_overlap && self.origin_done {
             // can't append another origin key
             return Err(net_error::SigningError("Cannot append public key to origin after sponsor key".to_string()));
         }
@@ -751,7 +798,7 @@ impl StacksTransactionSigner {
     pub fn sign_sponsor(&mut self, privk: &StacksPrivateKey) -> Result<(), net_error> {
         match self.tx.auth {
             TransactionAuth::Sponsored(_, ref sponsor_condition) => {
-                if sponsor_condition.num_signatures() >= sponsor_condition.signatures_required() {
+                if self.check_oversign && sponsor_condition.num_signatures() >= sponsor_condition.signatures_required() {
                     return Err(net_error::SigningError("Sponsor would have too many signatures".to_string()));
                 }
             },
@@ -768,6 +815,20 @@ impl StacksTransactionSigner {
         self.tx.append_next_sponsor(pubk)
     }
 
+    pub fn pop_origin_auth_field(&mut self) -> Option<TransactionAuthField> {
+        match self.tx.auth {
+            TransactionAuth::Standard(ref mut origin_condition) => StacksTransaction::pop_auth_field(origin_condition),
+            TransactionAuth::Sponsored(ref mut origin_condition, _) => StacksTransaction::pop_auth_field(origin_condition)
+        }
+    }
+
+    pub fn pop_sponsor_auth_field(&mut self) -> Option<TransactionAuthField> {
+        match self.tx.auth {
+            TransactionAuth::Sponsored(_, ref mut sponsor_condition) => StacksTransaction::pop_auth_field(sponsor_condition),
+            _ => None
+        }
+    }
+
     pub fn complete(&self) -> bool {
         match self.tx.auth {
             TransactionAuth::Standard(ref origin_condition) => {
@@ -776,9 +837,13 @@ impl StacksTransactionSigner {
             TransactionAuth::Sponsored(ref origin_condition, ref sponsored_condition) => {
                 origin_condition.num_signatures() >= origin_condition.signatures_required() &&
                 sponsored_condition.num_signatures() >= sponsored_condition.signatures_required() &&
-                self.origin_done
+                (self.origin_done || !self.check_overlap)
             }
         }
+    }
+
+    pub fn get_tx_incomplete(&self) -> StacksTransaction {
+        self.tx.clone()
     }
 
     pub fn get_tx(&self) -> Option<StacksTransaction> {
@@ -800,6 +865,7 @@ impl StacksTransactionSigner {
 mod test {
     // TODO: test with invalid StacksStrings
     // TODO: test with different tx versions 
+    // TODO: test error values for signing and verifying
     use super::*;
     use chainstate::stacks::*;
     use net::*;
@@ -810,6 +876,7 @@ mod test {
     use chainstate::stacks::StacksPublicKey as PubKey;
 
     use util::log;
+    use util::hash::*;
 
     use vm::representations::{ClarityName, ContractName};
 
@@ -821,7 +888,7 @@ mod test {
                     match origin_condition {
                         TransactionSpendingCondition::Singlesig(ref mut data) => {
                             let mut sig_bytes = data.signature.as_bytes().to_vec();
-                            sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
+                            sig_bytes[1] ^= 1u8;        // this breaks the `r` parameter
                             data.signature = MessageSignature::from_raw(&sig_bytes);
                         },
                         TransactionSpendingCondition::Multisig(ref mut data) => {
@@ -831,7 +898,7 @@ mod test {
                                 },
                                 TransactionAuthField::Signature(ref key_encoding, ref sig) => {
                                     let mut sig_bytes = sig.as_bytes().to_vec();
-                                    sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
+                                    sig_bytes[1] ^= 1u8;    // this breaks the `r` paramter
                                     let corrupt_sig = MessageSignature::from_raw(&sig_bytes);
                                     TransactionAuthField::Signature(*key_encoding, corrupt_sig)
                                 }
@@ -846,7 +913,7 @@ mod test {
                     match origin_condition {
                         TransactionSpendingCondition::Singlesig(ref mut data) => {
                             let mut sig_bytes = data.signature.as_bytes().to_vec();
-                            sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
+                            sig_bytes[1] ^= 1u8;        // this breaks the `r` parameter
                             data.signature = MessageSignature::from_raw(&sig_bytes);
                         },
                         TransactionSpendingCondition::Multisig(ref mut data) => {
@@ -856,7 +923,7 @@ mod test {
                                 },
                                 TransactionAuthField::Signature(ref key_encoding, ref sig) => {
                                     let mut sig_bytes = sig.as_bytes().to_vec();
-                                    sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
+                                    sig_bytes[1] ^= 1u8;    // this breaks the `r` paramter
                                     let corrupt_sig = MessageSignature::from_raw(&sig_bytes);
                                     TransactionAuthField::Signature(*key_encoding, corrupt_sig)
                                 }
@@ -869,7 +936,7 @@ mod test {
                     match sponsor_condition {
                         TransactionSpendingCondition::Singlesig(ref mut data) => {
                             let mut sig_bytes = data.signature.as_bytes().to_vec();
-                            sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
+                            sig_bytes[1] ^= 1u8;    // this breaks the `r` parameter
                             data.signature = MessageSignature::from_raw(&sig_bytes);
                         },
                         TransactionSpendingCondition::Multisig(ref mut data) => {
@@ -879,7 +946,7 @@ mod test {
                                 },
                                 TransactionAuthField::Signature(ref key_encoding, ref sig) => {
                                     let mut sig_bytes = sig.as_bytes().to_vec();
-                                    sig_bytes[0] = (((sig_bytes[0] as u16) + 1) % 0xff) as u8;
+                                    sig_bytes[1] ^= 1u8;    // this breaks the `r` paramter
                                     let corrupt_sig = MessageSignature::from_raw(&sig_bytes);
                                     TransactionAuthField::Signature(*key_encoding, corrupt_sig)
                                 }
@@ -1189,7 +1256,7 @@ mod test {
 
         // mess with transaction fee 
         let mut corrupt_tx_fee = signed_tx.clone();
-        corrupt_tx_fee.fee += 1;
+        corrupt_tx_fee.set_fee_rate(corrupt_tx_fee.get_fee_rate() + 1);
         assert!(corrupt_tx_fee.txid() != signed_tx.txid());
 
         // mess with anchor mode
@@ -1209,7 +1276,7 @@ mod test {
 
         // mess with post conditions
         let mut corrupt_tx_post_conditions = signed_tx.clone();
-        corrupt_tx_post_conditions.post_conditions.push(TransactionPostCondition::STX(FungibleConditionCode::SentGt, 0));
+        corrupt_tx_post_conditions.post_conditions.push(TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentGt, 0));
 
         let mut corrupt_tx_post_condition_mode = signed_tx.clone();
         corrupt_tx_post_condition_mode.post_condition_mode =
@@ -1223,19 +1290,8 @@ mod test {
         // mess with payload
         let mut corrupt_tx_payload = signed_tx.clone();
         corrupt_tx_payload.payload = match corrupt_tx_payload.payload {
-            TransactionPayload::TokenTransfer(ref tt) => {
-                let corrupt_tt = match *tt {
-                    TransactionTokenTransfer::STX(ref addr, ref amount) => {
-                        TransactionTokenTransfer::STX(addr.clone(), amount + 1)
-                    },
-                    TransactionTokenTransfer::Fungible(ref asset_info, ref addr, ref amount) => {
-                        TransactionTokenTransfer::Fungible(asset_info.clone(), addr.clone(), amount + 1)
-                    },
-                    TransactionTokenTransfer::Nonfungible(ref asset_info, ref token_name, ref addr) => {
-                        TransactionTokenTransfer::Nonfungible(asset_info.clone(), StacksString::from_str("corrupt").unwrap(), addr.clone())
-                    }
-                };
-                TransactionPayload::TokenTransfer(corrupt_tt)
+            TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
+                TransactionPayload::TokenTransfer(addr.clone(), amount + 1, memo.clone())
             },
             TransactionPayload::ContractCall(_) => {
                 TransactionPayload::SmartContract(TransactionSmartContract { name: ContractName::try_from("corrupt-name").unwrap(), code_body: StacksString::from_str("corrupt body").unwrap() })
@@ -1245,7 +1301,7 @@ mod test {
                     address: StacksAddress { version: 1, bytes: Hash160([0xff; 20]) },
                     contract_name: ContractName::try_from("hello-world").unwrap(),
                     function_name: ClarityName::try_from("hello-function").unwrap(),
-                    function_args: vec![StacksString::from_str("0").unwrap()]
+                    function_args: vec![Value::Int(0)],
                 })
             },
             TransactionPayload::PoisonMicroblock(ref h1, ref h2) => {
@@ -1269,7 +1325,7 @@ mod test {
         let mut corrupt_transactions = vec![
             corrupt_tx_hash_mode,
             corrupt_tx_nonce,
-            corrupt_tx_signature,
+            corrupt_tx_signature.clone(),       // needed below
             corrupt_tx_public_key,
             corrupt_tx_version,
             corrupt_tx_chain_id,
@@ -1280,12 +1336,23 @@ mod test {
             corrupt_tx_payload
         ];
         if is_multisig_origin || is_multisig_sponsor {
-            corrupt_transactions.push(corrupt_tx_signatures_required);
+            corrupt_transactions.push(corrupt_tx_signatures_required.clone());
         }
 
         // make sure all corrupted transactions fail
         for corrupt_tx in corrupt_transactions.iter() {
-            assert!(corrupt_tx.verify().is_err());
+            match corrupt_tx.verify() {
+                Ok(_) => {
+                    eprintln!("{:?}", &corrupt_tx);
+                    assert!(false);
+                }
+                Err(e) => {
+                    match e {
+                        net_error::VerifyingError(msg) => {},
+                        _ => assert!(false)
+                    }
+                }
+            }
         }
         
         // exhaustive test -- mutate each byte
@@ -1319,62 +1386,21 @@ mod test {
 
     #[test]
     fn tx_stacks_transaction_payload_tokens() {
-        let hello_contract_name = "hello-contract-name";
-        let hello_asset_name = "hello-asset";
-        let hello_token_name = "hello-token";
-
-        let contract_name = ContractName::try_from(hello_contract_name).unwrap();
-        let asset_name = ClarityName::try_from(hello_asset_name).unwrap();
-        let token_name = StacksString::from_str(hello_token_name).unwrap();
-
         let addr = StacksAddress {
             version: 1,
             bytes: Hash160([0xff; 20])
         };
         
-        let contract_addr = StacksAddress {
-            version: 2,
-            bytes: Hash160([0xfe; 20])
-        };
-
-        let asset_info = AssetInfo {
-            contract_address: contract_addr.clone(),
-            contract_name: contract_name.clone(),
-            asset_name: asset_name.clone()
-        };
-
-        let tt_stx_payload = TransactionTokenTransfer::STX(addr.clone(), 123);
-        let tt_fungible_payload = TransactionTokenTransfer::Fungible(asset_info.clone(), addr.clone(), 456);
-        let tt_nonfungible_payload = TransactionTokenTransfer::Nonfungible(asset_info.clone(), token_name.clone(), addr.clone());
-
-        let tt_stx = TransactionPayload::TokenTransfer(tt_stx_payload);
-        let tt_fungible = TransactionPayload::TokenTransfer(tt_fungible_payload);
-        let tt_nonfungible = TransactionPayload::TokenTransfer(tt_nonfungible_payload);
+        let tt_stx = TransactionPayload::TokenTransfer(addr.clone(), 123, TokenTransferMemo([1u8; 34]));
         
         // wire encodings of the same
         let mut tt_stx_bytes = vec![];
         tt_stx_bytes.push(TransactionPayloadID::TokenTransfer as u8);
-        tt_stx_bytes.push(AssetInfoID::STX as u8);
         tt_stx_bytes.append(&mut addr.serialize());
         tt_stx_bytes.append(&mut vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 123]);
-
-        let mut tt_fungible_bytes = vec![];
-        tt_fungible_bytes.push(TransactionPayloadID::TokenTransfer as u8);
-        tt_fungible_bytes.push(AssetInfoID::FungibleAsset as u8);
-        tt_fungible_bytes.append(&mut asset_info.serialize());
-        tt_fungible_bytes.append(&mut addr.serialize());
-        tt_fungible_bytes.append(&mut vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xc8]);
-
-        let mut tt_nonfungible_bytes = vec![];
-        tt_nonfungible_bytes.push(TransactionPayloadID::TokenTransfer as u8);
-        tt_nonfungible_bytes.push(AssetInfoID::NonfungibleAsset as u8);
-        tt_nonfungible_bytes.append(&mut asset_info.serialize());
-        tt_nonfungible_bytes.append(&mut token_name.serialize());
-        tt_nonfungible_bytes.append(&mut addr.serialize());
+        tt_stx_bytes.append(&mut vec![1u8; 34]);
 
         check_codec_and_corruption::<TransactionPayload>(&tt_stx, &tt_stx_bytes);
-        check_codec_and_corruption::<TransactionPayload>(&tt_fungible, &tt_fungible_bytes);
-        check_codec_and_corruption::<TransactionPayload>(&tt_nonfungible, &tt_nonfungible_bytes);
     }
 
     #[test]
@@ -1388,7 +1414,7 @@ mod test {
             address: StacksAddress { version: 1, bytes: Hash160([0xff; 20]) },
             contract_name: ContractName::try_from(hello_contract_name).unwrap(),
             function_name: ClarityName::try_from(hello_function_name).unwrap(),
-            function_args: vec![StacksString::from_str("0").unwrap()]
+            function_args: vec![Value::Int(0)]
         };
 
         let smart_contract = TransactionSmartContract {
@@ -1440,7 +1466,7 @@ mod test {
         let header_1 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: BlockHeaderHash([0u8; 32]),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
             signature: MessageSignature([2u8; 65]),
         };
@@ -1448,7 +1474,7 @@ mod test {
         let header_2 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: BlockHeaderHash([0u8; 32]),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
             signature: MessageSignature([3u8; 65]),
         };
@@ -1463,7 +1489,7 @@ mod test {
             // version
             0x12,
             // sequence
-            0x34,
+            0x00, 0x34,
             // prev block
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             // tx merkle root
@@ -1477,7 +1503,7 @@ mod test {
             // version
             0x12,
             // sequence
-            0x34,
+            0x00, 0x34,
             // prev block
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             // tx merkle root
@@ -1561,50 +1587,63 @@ mod test {
 
     #[test]
     fn tx_stacks_postcondition() {
-        let addr = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
-        let asset_name = ClarityName::try_from("hello-asset").unwrap();
-        let contract_name = ContractName::try_from("contract-name").unwrap();
+        let tx_post_condition_principals = vec![
+            PostConditionPrincipal::Origin,
+            PostConditionPrincipal::Standard(StacksAddress { version: 1, bytes: Hash160([1u8; 20]) }),
+            PostConditionPrincipal::Contract(StacksAddress { version: 2, bytes: Hash160([2u8; 20]) }, ContractName::try_from("hello-world").unwrap())
+        ];
 
-        let stx_pc = TransactionPostCondition::STX(FungibleConditionCode::SentGt, 12345);
-        let fungible_pc = TransactionPostCondition::Fungible(
-            AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() },
-            FungibleConditionCode::SentGt,
-            23456);
+        for tx_pcp in tx_post_condition_principals {
+            let addr = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
+            let asset_name = ClarityName::try_from("hello-asset").unwrap();
+            let contract_name = ContractName::try_from("contract-name").unwrap();
 
-        let nonfungible_pc = TransactionPostCondition::Nonfungible(
-            AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() },
-            StacksString::from_str(&"0x01020304").unwrap(),
-            NonfungibleConditionCode::Present);
+            let stx_pc = TransactionPostCondition::STX(tx_pcp.clone(), FungibleConditionCode::SentGt, 12345);
+            let fungible_pc = TransactionPostCondition::Fungible(
+                tx_pcp.clone(),
+                AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() },
+                FungibleConditionCode::SentGt,
+                23456);
 
-        let mut stx_pc_bytes = (AssetInfoID::STX as u8).serialize();
-        stx_pc_bytes.append(&mut vec![
-            // condition code
-            FungibleConditionCode::SentGt as u8,
-            // amount 
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x39
-        ]);
+            let nonfungible_pc = TransactionPostCondition::Nonfungible(
+                tx_pcp.clone(),
+                AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() },
+                Value::buff_from(vec![0, 1, 2, 3]).unwrap(),
+                NonfungibleConditionCode::Present);
 
-        let mut fungible_pc_bytes = (AssetInfoID::FungibleAsset as u8).serialize();
-        fungible_pc_bytes.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
-        fungible_pc_bytes.append(&mut vec![
-            // condition code 
-            FungibleConditionCode::SentGt as u8,
-            // amount
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5b, 0xa0
-        ]);
+            let mut stx_pc_bytes = (AssetInfoID::STX as u8).serialize();
+            stx_pc_bytes.append(&mut tx_pcp.serialize());
+            stx_pc_bytes.append(&mut vec![
+                // condition code
+                FungibleConditionCode::SentGt as u8,
+                // amount 
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x39
+            ]);
 
-        let mut nonfungible_pc_bytes = (AssetInfoID::NonfungibleAsset as u8).serialize();
-        nonfungible_pc_bytes.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
-        nonfungible_pc_bytes.append(&mut StacksString::from_str(&"0x01020304").unwrap().serialize());
-        nonfungible_pc_bytes.append(&mut vec![
-            // condition code
-            NonfungibleConditionCode::Present as u8
-        ]);
+            let mut fungible_pc_bytes = (AssetInfoID::FungibleAsset as u8).serialize();
+            fungible_pc_bytes.append(&mut tx_pcp.serialize());
+            fungible_pc_bytes.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
+            fungible_pc_bytes.append(&mut vec![
+                // condition code 
+                FungibleConditionCode::SentGt as u8,
+                // amount
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5b, 0xa0
+            ]);
 
-        let pcs = vec![stx_pc, fungible_pc, nonfungible_pc];
-        let pc_bytes = vec![stx_pc_bytes, fungible_pc_bytes, nonfungible_pc_bytes];
-        for i in 0..3 {
-            check_codec_and_corruption::<TransactionPostCondition>(&pcs[i], &pc_bytes[i]);
+            let mut nonfungible_pc_bytes = (AssetInfoID::NonfungibleAsset as u8).serialize();
+            nonfungible_pc_bytes.append(&mut tx_pcp.serialize());
+            nonfungible_pc_bytes.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
+            nonfungible_pc_bytes.append(&mut Value::buff_from(vec![0, 1, 2, 3]).unwrap().serialize());
+            nonfungible_pc_bytes.append(&mut vec![
+                // condition code
+                NonfungibleConditionCode::Present as u8
+            ]);
+
+            let pcs = vec![stx_pc, fungible_pc, nonfungible_pc];
+            let pc_bytes = vec![stx_pc_bytes, fungible_pc_bytes, nonfungible_pc_bytes];
+            for i in 0..3 {
+                check_codec_and_corruption::<TransactionPostCondition>(&pcs[i], &pc_bytes[i]);
+            }
         }
     }
 
@@ -1615,8 +1654,11 @@ mod test {
         let contract_name = ContractName::try_from("hello-world").unwrap();
 
         // can't parse a postcondition with an invalid condition code
+
         let mut stx_pc_bytes_bad_condition = (AssetInfoID::STX as u8).serialize();
         stx_pc_bytes_bad_condition.append(&mut vec![
+            // principal
+            PostConditionPrincipalID::Origin as u8,
             // condition code
             NonfungibleConditionCode::Present as u8,
             // amount 
@@ -1624,6 +1666,7 @@ mod test {
         ]);
 
         let mut fungible_pc_bytes_bad_condition = (AssetInfoID::FungibleAsset as u8).serialize();
+        fungible_pc_bytes_bad_condition.append(&mut vec![PostConditionPrincipalID::Origin as u8]);
         fungible_pc_bytes_bad_condition.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
         fungible_pc_bytes_bad_condition.append(&mut vec![
             // condition code 
@@ -1633,14 +1676,53 @@ mod test {
         ]);
         
         let mut nonfungible_pc_bytes_bad_condition = (AssetInfoID::NonfungibleAsset as u8).serialize();
+        nonfungible_pc_bytes_bad_condition.append(&mut vec![PostConditionPrincipalID::Origin as u8]);
         nonfungible_pc_bytes_bad_condition.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
-        nonfungible_pc_bytes_bad_condition.append(&mut StacksString::from_str(&"0xacdf").unwrap().serialize());
+        nonfungible_pc_bytes_bad_condition.append(&mut Value::buff_from(vec![0, 1, 2, 3]).unwrap().serialize());
         nonfungible_pc_bytes_bad_condition.append(&mut vec![
             // condition code
             FungibleConditionCode::SentGt as u8
         ]);
 
         let bad_pc_bytes = vec![stx_pc_bytes_bad_condition, fungible_pc_bytes_bad_condition, nonfungible_pc_bytes_bad_condition];
+        for i in 0..3 {
+            let mut idx = 0;
+            assert!(TransactionPostCondition::deserialize(&bad_pc_bytes[i], &mut idx, bad_pc_bytes[i].len() as u32).is_err());
+            assert_eq!(idx, 0);
+        }
+        
+        // can't parse a postcondition with an invalid principal
+
+        let mut stx_pc_bytes_bad_principal = (AssetInfoID::STX as u8).serialize();
+        stx_pc_bytes_bad_principal.append(&mut vec![
+            // principal
+            0xff,
+            // condition code
+            NonfungibleConditionCode::Present as u8,
+            // amount 
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x39
+        ]);
+
+        let mut fungible_pc_bytes_bad_principal = (AssetInfoID::FungibleAsset as u8).serialize();
+        fungible_pc_bytes_bad_principal.append(&mut vec![0xff]);
+        fungible_pc_bytes_bad_principal.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
+        fungible_pc_bytes_bad_principal.append(&mut vec![
+            // condition code 
+            NonfungibleConditionCode::Absent as u8,
+            // amount
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5b, 0xa0
+        ]);
+        
+        let mut nonfungible_pc_bytes_bad_principal = (AssetInfoID::NonfungibleAsset as u8).serialize();
+        nonfungible_pc_bytes_bad_principal.append(&mut vec![0xff]);
+        nonfungible_pc_bytes_bad_principal.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
+        nonfungible_pc_bytes_bad_principal.append(&mut Value::buff_from(vec![0, 1, 2, 3]).unwrap().serialize());
+        nonfungible_pc_bytes_bad_principal.append(&mut vec![
+            // condition code
+            FungibleConditionCode::SentGt as u8
+        ]);
+
+        let bad_pc_bytes = vec![stx_pc_bytes_bad_principal, fungible_pc_bytes_bad_principal, nonfungible_pc_bytes_bad_principal];
         for i in 0..3 {
             let mut idx = 0;
             assert!(TransactionPostCondition::deserialize(&bad_pc_bytes[i], &mut idx, bad_pc_bytes[i].len() as u32).is_err());
@@ -1660,7 +1742,6 @@ mod test {
             ];
             
             tx_bytes.append(&mut (tx.auth.serialize()));
-            tx_bytes.append(&mut (tx.fee.serialize()));
             tx_bytes.append(&mut vec![TransactionAnchorMode::OnChainOnly as u8]);
             tx_bytes.append(&mut vec![TransactionPostConditionMode::Deny as u8]);
             tx_bytes.append(&mut (tx.post_conditions.serialize()));
@@ -1677,7 +1758,7 @@ mod test {
         let header_1 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: BlockHeaderHash([0u8; 32]),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
             signature: MessageSignature([2u8; 65]),
         };
@@ -1685,7 +1766,7 @@ mod test {
         let header_2 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: BlockHeaderHash([0u8; 32]),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
             signature: MessageSignature([3u8; 65]),
         };
@@ -1713,7 +1794,7 @@ mod test {
 
         let tx_contract_call = StacksTransaction::new(TransactionVersion::Mainnet,
                                                       auth.clone(),
-                                                      TransactionPayload::new_contract_call(&StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, "hello", "world", &vec!["1"]).unwrap());
+                                                      TransactionPayload::new_contract_call(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, "hello", "world", vec![Value::Int(1)]).unwrap());
 
         let tx_smart_contract = StacksTransaction::new(TransactionVersion::Mainnet,
                                                        auth.clone(),
@@ -1725,22 +1806,156 @@ mod test {
 
         let tx_stx = StacksTransaction::new(TransactionVersion::Mainnet,
                                             auth.clone(),
-                                            TransactionPayload::TokenTransfer(TransactionTokenTransfer::STX(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, 123)));
-
-        let tx_fungible = StacksTransaction::new(TransactionVersion::Mainnet,
-                                                 auth.clone(),
-                                                 TransactionPayload::TokenTransfer(TransactionTokenTransfer::Fungible(asset_info.clone(), StacksAddress { version: 2, bytes: Hash160([0xfe; 20]) }, 456)));
-
-        let tx_nonfungible = StacksTransaction::new(TransactionVersion::Mainnet,
-                                                    auth.clone(),
-                                                    TransactionPayload::TokenTransfer(TransactionTokenTransfer::Nonfungible(asset_info.clone(), asset_value.clone(), StacksAddress { version: 3, bytes: Hash160([0xfd; 20]) })));
+                                            TransactionPayload::TokenTransfer(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, 123, TokenTransferMemo([0u8; 34])));
 
         let tx_poison = StacksTransaction::new(TransactionVersion::Mainnet,
                                                auth.clone(),
                                                TransactionPayload::PoisonMicroblock(header_1, header_2));
 
-        let txs = vec![tx_contract_call, tx_smart_contract, tx_coinbase, tx_stx, tx_fungible, tx_nonfungible, tx_poison];
+        let txs = vec![tx_contract_call, tx_smart_contract, tx_coinbase, tx_stx, tx_poison];
         txs
+    }
+
+    fn check_oversign_origin_singlesig(signed_tx: &mut StacksTransaction) -> () {
+        let txid_before = signed_tx.txid();
+        match signed_tx.append_next_origin(&StacksPublicKey::from_hex("03442a63b6d312710b1d6b24d803120dc6f5714352ba57907863b78de55974123c").unwrap()) {
+            Ok(_) => assert!(false),
+            Err(e) => match e {
+                net_error::SigningError(msg) => {
+                    assert_eq!(&msg, "Not a multisig condition");
+                },
+                _ => assert!(false)
+            }
+        };
+
+        // no change affected
+        assert_eq!(txid_before, signed_tx.txid());
+    }
+    
+    fn check_sign_no_sponsor(signed_tx: &mut StacksTransaction) -> () {
+        let txid_before = signed_tx.txid();
+        match signed_tx.append_next_sponsor(&StacksPublicKey::from_hex("03442a63b6d312710b1d6b24d803120dc6f5714352ba57907863b78de55974123c").unwrap()) {
+            Ok(_) => assert!(false),
+            Err(e) => match e {
+                net_error::SigningError(msg) => {
+                    assert_eq!(&msg, "Cannot appned a public key to the sponsor of a standard auth condition")
+                },
+                _ => assert!(false)
+            }
+        }
+        assert_eq!(txid_before, signed_tx.txid());
+    }
+
+    fn check_oversign_sponsor_singlesig(signed_tx: &mut StacksTransaction) -> () {
+        let txid_before = signed_tx.txid();
+        match signed_tx.append_next_sponsor(&StacksPublicKey::from_hex("03442a63b6d312710b1d6b24d803120dc6f5714352ba57907863b78de55974123c").unwrap()) {
+            Ok(_) => assert!(false),
+            Err(e) => match e {
+                net_error::SigningError(msg) => {
+                    assert_eq!(&msg, "Not a multisig condition")
+                },
+                _ => assert!(false)
+            }
+        }
+        assert_eq!(txid_before, signed_tx.txid());
+    }
+
+    fn check_oversign_origin_multisig(signed_tx: &StacksTransaction) -> () {
+        let tx = signed_tx.clone();
+        let privk = StacksPrivateKey::from_hex("c6ebf45dabca8cac9a25ae39ab690743b96eb2b0960066e98ba6df50d6f9293b01").unwrap();
+
+        let mut tx_signer = StacksTransactionSigner::new(&tx);
+        tx_signer.disable_checks();
+        tx_signer.sign_origin(&privk).unwrap();
+        let oversigned_tx = tx_signer.get_tx().unwrap();
+        
+        match oversigned_tx.verify() {
+            Ok(_) => assert!(false),
+            Err(e) => match e {
+                net_error::VerifyingError(msg) => {
+                    assert_eq!(&msg, "Incorrect number of signatures")
+                },
+                _ => assert!(false)
+            }
+        }
+    }
+    
+    fn check_oversign_origin_multisig_uncompressed(signed_tx: &StacksTransaction) -> () {
+        let tx = signed_tx.clone();
+        let privk = StacksPrivateKey::from_hex("c6ebf45dabca8cac9a25ae39ab690743b96eb2b0960066e98ba6df50d6f9293b").unwrap();
+
+        let mut tx_signer = StacksTransactionSigner::new(&tx);
+        tx_signer.disable_checks();
+
+        match tx_signer.pop_origin_auth_field().unwrap() {
+            TransactionAuthField::Signature(_, _) => {
+                tx_signer.sign_origin(&privk).unwrap();
+            },
+            TransactionAuthField::PublicKey(_) => {
+                tx_signer.append_origin(&StacksPublicKey::from_private(&privk)).unwrap();
+            }
+        };
+
+        let oversigned_tx = tx_signer.get_tx().unwrap();
+
+        match oversigned_tx.verify() {
+            Ok(_) => assert!(false),
+            Err(e) => match e {
+                net_error::VerifyingError(msg) => {
+                    assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");
+                },
+                _ => assert!(false)
+            }
+        }
+    }
+
+    fn check_oversign_sponsor_multisig(signed_tx: &StacksTransaction) -> () {
+        let tx = signed_tx.clone();
+        let privk = StacksPrivateKey::from_hex("c6ebf45dabca8cac9a25ae39ab690743b96eb2b0960066e98ba6df50d6f9293b01").unwrap();
+
+        let mut tx_signer = StacksTransactionSigner::new(&tx);
+        tx_signer.disable_checks();
+        tx_signer.sign_sponsor(&privk).unwrap();
+        let oversigned_tx = tx_signer.get_tx().unwrap();
+
+        match oversigned_tx.verify() {
+            Ok(_) => assert!(false),
+            Err(e) => match e {
+                net_error::VerifyingError(msg) => {
+                    assert_eq!(&msg, "Incorrect number of signatures")
+                },
+                _ => assert!(false)
+            }
+        }
+    }
+    
+    fn check_oversign_sponsor_multisig_uncompressed(signed_tx: &StacksTransaction) -> () {
+        let tx = signed_tx.clone();
+        let privk = StacksPrivateKey::from_hex("c6ebf45dabca8cac9a25ae39ab690743b96eb2b0960066e98ba6df50d6f9293b").unwrap();
+
+        let mut tx_signer = StacksTransactionSigner::new(&tx);
+        tx_signer.disable_checks();
+
+        match tx_signer.pop_sponsor_auth_field().unwrap() {
+            TransactionAuthField::Signature(_, _) => {
+                tx_signer.sign_sponsor(&privk).unwrap();
+            },
+            TransactionAuthField::PublicKey(_) => {
+                tx_signer.append_sponsor(&StacksPublicKey::from_private(&privk)).unwrap();
+            }
+        };
+
+        let oversigned_tx = tx_signer.get_tx().unwrap();
+        
+        match oversigned_tx.verify() {
+            Ok(_) => assert!(false),
+            Err(e) => match e {
+                net_error::VerifyingError(msg) => {
+                    assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");
+                },
+                _ => assert!(false)
+            }
+        }
     }
 
     #[test]
@@ -1758,13 +1973,19 @@ mod test {
 
             let mut tx_signer = StacksTransactionSigner::new(&tx);
             tx_signer.sign_origin(&privk).unwrap();
-            let signed_tx = tx_signer.get_tx().unwrap();
+            let mut signed_tx = tx_signer.get_tx().unwrap();
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
 
+            // try to over-sign
+            check_oversign_origin_singlesig(&mut signed_tx);
+            check_sign_no_sponsor(&mut signed_tx);
+
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
@@ -1792,10 +2013,11 @@ mod test {
     fn tx_stacks_transaction_sign_verify_sponsored_p2pkh() {
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
         let privk_sponsor = StacksPrivateKey::from_hex("807bbe9e471ac976592cc35e3056592ecc0f778ee653fced3b491a122dd8d59701").unwrap();
+        let privk_diff_sponsor = StacksPrivateKey::from_hex("d5200dee706ee53ae98a03fba6cf4fdcc5084c30cfa9e1b3462dcdeaa3e0f1d2").unwrap();
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk)).unwrap(),
-            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk_sponsor)).unwrap()
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk_sponsor)).unwrap()       // will be replaced once the origin finishes signing
         );
 
         let origin_address = auth.origin().address_mainnet();
@@ -1804,35 +2026,56 @@ mod test {
         let sponsor_address = auth.sponsor().unwrap().address_mainnet();
         assert_eq!(sponsor_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG, bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap() });
         
+        let diff_sponsor_address = StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG, bytes: Hash160::from_hex("a139de6733cef9e4663c4a093c1a7390a1dcc297").unwrap() };
+        
         let txs = tx_stacks_transaction_test_txs(&auth);
 
-        for tx in txs {
+        for mut tx in txs {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
+            tx.set_fee_rate(123);
+            tx.set_sponsor_nonce(456);
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
             test_debug!("Sign origin");
             tx_signer.sign_origin(&privk).unwrap();
 
-            test_debug!("Sign sponsor");
-            tx_signer.sign_sponsor(&privk_sponsor).unwrap();
+            // sponsor sets keys, nonce, and fee after origin signs
+            let mut origin_tx = tx_signer.get_tx_incomplete();
+            origin_tx.auth.set_sponsor(TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk_diff_sponsor)).unwrap());
+            origin_tx.set_fee_rate(456);
+            origin_tx.set_sponsor_nonce(789);
+            tx_signer.resume(&origin_tx);
 
-            let signed_tx = tx_signer.get_tx().unwrap();
+            test_debug!("Sign sponsor");
+            tx_signer.sign_sponsor(&privk_diff_sponsor).unwrap();
+
+            // make comparable
+            tx.set_fee_rate(456);
+            tx.set_sponsor_nonce(789);
+            let mut signed_tx = tx_signer.get_tx().unwrap();
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 1);
+            
+            // try to over-sign
+            check_oversign_origin_singlesig(&mut signed_tx);
+            check_oversign_sponsor_singlesig(&mut signed_tx);
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.chain_id, signed_tx.chain_id);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), 456);
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is a sponsor and public key is compressed
+            // auth is a sponsor and public key is compressed.
+            // auth sponsor is privk_diff_sponsor
             match signed_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -1844,8 +2087,8 @@ mod test {
                     }
                     match sponsor {
                         TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, sponsor_address.bytes);
+                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Uncompressed);   // not what the origin would have seen
+                            assert_eq!(data.signer, diff_sponsor_address.bytes);                         // not what the origin would have seen
                         },
                         _ => assert!(false)
                     }
@@ -1873,13 +2116,19 @@ mod test {
 
             let mut tx_signer = StacksTransactionSigner::new(&tx);
             tx_signer.sign_origin(&privk).unwrap();
-            let signed_tx = tx_signer.get_tx().unwrap();
+            let mut signed_tx = tx_signer.get_tx().unwrap();
+            
+            // try to over-sign
+            check_oversign_origin_singlesig(&mut signed_tx);
+            check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
@@ -1908,27 +2157,50 @@ mod test {
         let privk = StacksPrivateKey::from_hex("807bbe9e471ac976592cc35e3056592ecc0f778ee653fced3b491a122dd8d59701").unwrap();
         let privk_sponsored = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e0").unwrap();
 
+        let mut random_sponsor = StacksPrivateKey::new();       // what the origin sees
+        random_sponsor.set_compress_public(true);
+        
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk)).unwrap(),
-            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk_sponsored)).unwrap(),
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&random_sponsor)).unwrap(),
         );
+        
+        let real_sponsor = TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk_sponsored)).unwrap();
 
         let origin_address = auth.origin().address_mainnet();
-        let sponsor_address = auth.sponsor().unwrap().address_mainnet();
+        let sponsor_address = real_sponsor.address_mainnet();
         
         assert_eq!(origin_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG, bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap() });
         assert_eq!(sponsor_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG, bytes: Hash160::from_hex("693cd53eb47d4749762d7cfaf46902bda5be5f97").unwrap() });
         
         let txs = tx_stacks_transaction_test_txs(&auth);
 
-        for tx in txs {
+        for mut tx in txs {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
+            tx.set_fee_rate(123);
+            tx.set_sponsor_nonce(456);
+
             let mut tx_signer = StacksTransactionSigner::new(&tx);
             tx_signer.sign_origin(&privk).unwrap();
+
+            // sponsor sets and pays fee after origin signs
+            let mut origin_tx = tx_signer.get_tx_incomplete();
+            origin_tx.auth.set_sponsor(real_sponsor.clone());
+            origin_tx.set_fee_rate(456);
+            origin_tx.set_sponsor_nonce(789);
+            tx_signer.resume(&origin_tx);
+
             tx_signer.sign_sponsor(&privk_sponsored).unwrap();
-            let signed_tx = tx_signer.get_tx().unwrap();
+
+            tx.set_fee_rate(456);
+            tx.set_sponsor_nonce(789);
+            let mut signed_tx = tx_signer.get_tx().unwrap();
+            
+            // try to over-sign
+            check_oversign_origin_singlesig(&mut signed_tx);
+            check_oversign_sponsor_singlesig(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 1);
@@ -1936,7 +2208,9 @@ mod test {
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.chain_id, signed_tx.chain_id);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
@@ -1992,13 +2266,18 @@ mod test {
             tx_signer.sign_origin(&privk_1).unwrap();
             tx_signer.sign_origin(&privk_2).unwrap();
             tx_signer.append_origin(&pubk_3).unwrap();
-            let signed_tx = tx_signer.get_tx().unwrap();
+            let mut signed_tx = tx_signer.get_tx().unwrap();
+            
+            check_oversign_origin_multisig(&mut signed_tx);
+            check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
@@ -2042,32 +2321,50 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
+        let random_sponsor = StacksPrivateKey::new();       // what the origin sees
+
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&origin_privk)).unwrap(),
-            TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()]).unwrap()
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&random_sponsor)).unwrap(),
         );
+        
+        let real_sponsor = TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()]).unwrap();
 
         let origin_address = auth.origin().address_mainnet();
-        let sponsor_address = auth.sponsor().unwrap().address_mainnet();
+        let sponsor_address = real_sponsor.address_mainnet();
         
         assert_eq!(origin_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG, bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap() });
         assert_eq!(sponsor_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_MULTISIG, bytes: Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap() });
 
         let txs = tx_stacks_transaction_test_txs(&auth);
 
-        for tx in txs {
+        for mut tx in txs {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
+            tx.set_fee_rate(123);
+            tx.set_sponsor_nonce(456);
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
             tx_signer.sign_origin(&origin_privk).unwrap();
+
+            // sponsor sets and pays fee after origin signs
+            let mut origin_tx = tx_signer.get_tx_incomplete();
+            origin_tx.auth.set_sponsor(real_sponsor.clone());
+            origin_tx.set_fee_rate(456);
+            origin_tx.set_sponsor_nonce(789);
+            tx_signer.resume(&origin_tx);
 
             tx_signer.sign_sponsor(&privk_1).unwrap();
             tx_signer.sign_sponsor(&privk_2).unwrap();
             tx_signer.append_sponsor(&pubk_3).unwrap();
             
-            let signed_tx = tx_signer.get_tx().unwrap();
+            tx.set_fee_rate(456);
+            tx.set_sponsor_nonce(789);
+            let mut signed_tx = tx_signer.get_tx().unwrap();
+
+            check_oversign_origin_singlesig(&mut signed_tx);
+            check_oversign_sponsor_multisig(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -2075,7 +2372,9 @@ mod test {
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.chain_id, signed_tx.chain_id);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
@@ -2142,14 +2441,19 @@ mod test {
             tx_signer.sign_origin(&privk_2).unwrap();
             tx_signer.append_origin(&pubk_3).unwrap();
             
-            let signed_tx = tx_signer.get_tx().unwrap();
+            let mut signed_tx = tx_signer.get_tx().unwrap(); 
+            
+            check_oversign_origin_multisig(&mut signed_tx);
+            check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.chain_id, signed_tx.chain_id);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
@@ -2192,40 +2496,60 @@ mod test {
         let pubk_1 = StacksPublicKey::from_private(&privk_1);
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
+        
+        let random_sponsor = StacksPrivateKey::new();       // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&origin_privk)).unwrap(),
-            TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()]).unwrap()
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&random_sponsor)).unwrap(),
         );
+        
+        let real_sponsor = TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()]).unwrap();
 
         let origin_address = auth.origin().address_mainnet();
-        let sponsor_address = auth.sponsor().unwrap().address_mainnet();
+        let sponsor_address = real_sponsor.address_mainnet();
         
         assert_eq!(origin_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG, bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap() });
         assert_eq!(sponsor_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_MULTISIG, bytes: Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap() });
         
         let txs = tx_stacks_transaction_test_txs(&auth);
 
-        for tx in txs {
+        for mut tx in txs {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
+            tx.set_fee_rate(123);
+            tx.set_sponsor_nonce(456);
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
             tx_signer.sign_origin(&origin_privk).unwrap();
+            
+            // sponsor sets and pays fee after origin signs
+            let mut origin_tx = tx_signer.get_tx_incomplete();
+            origin_tx.auth.set_sponsor(real_sponsor.clone());
+            origin_tx.set_fee_rate(456);
+            origin_tx.set_sponsor_nonce(789);
+            tx_signer.resume(&origin_tx);
 
             tx_signer.sign_sponsor(&privk_1).unwrap();
             tx_signer.sign_sponsor(&privk_2).unwrap();
             tx_signer.append_sponsor(&pubk_3).unwrap();
             
-            let signed_tx = tx_signer.get_tx().unwrap();
+            tx.set_fee_rate(456);
+            tx.set_sponsor_nonce(789);
+            let mut signed_tx = tx_signer.get_tx().unwrap(); 
+            
+            check_oversign_origin_singlesig(&mut signed_tx);
+            check_oversign_sponsor_multisig(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
@@ -2289,13 +2613,18 @@ mod test {
             tx_signer.sign_origin(&privk_1).unwrap();
             tx_signer.append_origin(&pubk_2).unwrap();
             tx_signer.sign_origin(&privk_3).unwrap();
-            let signed_tx = tx_signer.get_tx().unwrap();
+            let mut signed_tx = tx_signer.get_tx().unwrap();
+
+            check_oversign_origin_multisig(&mut signed_tx);
+            check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
@@ -2338,33 +2667,51 @@ mod test {
         let pubk_1 = StacksPublicKey::from_private(&privk_1);
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
+        
+        let random_sponsor = StacksPrivateKey::new();       // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&origin_privk)).unwrap(),
-            TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()]).unwrap()
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&random_sponsor)).unwrap(),
         );
+        
+        let real_sponsor = TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()]).unwrap();
 
         let origin_address = auth.origin().address_mainnet();
-        let sponsor_address = auth.sponsor().unwrap().address_mainnet();
+        let sponsor_address = real_sponsor.address_mainnet();
 
         assert_eq!(origin_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG, bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap() });
         assert_eq!(sponsor_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_MULTISIG, bytes: Hash160::from_hex("2136367c9c740e7dbed8795afdf8a6d273096718").unwrap() });
         
         let txs = tx_stacks_transaction_test_txs(&auth);
 
-        for tx in txs {
+        for mut tx in txs {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
+            tx.set_fee_rate(123);
+            tx.set_sponsor_nonce(456);
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
             tx_signer.sign_origin(&origin_privk).unwrap();
+
+            // sponsor sets and pays fee after origin signs
+            let mut origin_tx = tx_signer.get_tx_incomplete();
+            origin_tx.auth.set_sponsor(real_sponsor.clone());
+            origin_tx.set_fee_rate(456);
+            origin_tx.set_sponsor_nonce(789);
+            tx_signer.resume(&origin_tx);
 
             tx_signer.sign_sponsor(&privk_1).unwrap();
             tx_signer.append_sponsor(&pubk_2).unwrap();
             tx_signer.sign_sponsor(&privk_3).unwrap();
             
-            let signed_tx = tx_signer.get_tx().unwrap();
+            tx.set_fee_rate(456);
+            tx.set_sponsor_nonce(789);
+            let mut signed_tx = tx_signer.get_tx().unwrap();
+            
+            check_oversign_origin_singlesig(&mut signed_tx);
+            check_oversign_sponsor_multisig(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -2372,7 +2719,9 @@ mod test {
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.chain_id, signed_tx.chain_id);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
@@ -2427,13 +2776,19 @@ mod test {
 
             let mut tx_signer = StacksTransactionSigner::new(&tx);
             tx_signer.sign_origin(&privk).unwrap();
-            let signed_tx = tx_signer.get_tx().unwrap();
+            let mut signed_tx = tx_signer.get_tx().unwrap();
+
+            // try to over-sign
+            check_oversign_origin_singlesig(&mut signed_tx);
+            check_sign_no_sponsor(&mut signed_tx);
             
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
@@ -2462,35 +2817,58 @@ mod test {
         let origin_privk = StacksPrivateKey::from_hex("807bbe9e471ac976592cc35e3056592ecc0f778ee653fced3b491a122dd8d59701").unwrap();
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
 
+        let random_sponsor = StacksPrivateKey::new();
+
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&origin_privk)).unwrap(),
-            TransactionSpendingCondition::new_singlesig_p2wpkh(StacksPublicKey::from_private(&privk)).unwrap()
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&random_sponsor)).unwrap()
         );
 
+        let real_sponsor = TransactionSpendingCondition::new_singlesig_p2wpkh(StacksPublicKey::from_private(&privk)).unwrap();
+
         let origin_address = auth.origin().address_mainnet();
-        let sponsor_address = auth.sponsor().unwrap().address_mainnet();
+        let sponsor_address = real_sponsor.address_mainnet();
 
         assert_eq!(origin_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG, bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap() });
         assert_eq!(sponsor_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_MULTISIG, bytes: Hash160::from_hex("f15fa5c59d14ffcb615fa6153851cd802bb312d2").unwrap() });
         
         let txs = tx_stacks_transaction_test_txs(&auth);
 
-        for tx in txs {
+        for mut tx in txs {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
+            tx.set_fee_rate(123);
+            tx.set_sponsor_nonce(456);
             let mut tx_signer = StacksTransactionSigner::new(&tx);
             
             tx_signer.sign_origin(&origin_privk).unwrap();
+
+            // sponsor sets and pays fee after origin signs
+            let mut origin_tx = tx_signer.get_tx_incomplete();
+            origin_tx.auth.set_sponsor(real_sponsor.clone());
+            origin_tx.set_fee_rate(456);
+            origin_tx.set_sponsor_nonce(789);
+            tx_signer.resume(&origin_tx);
+
             tx_signer.sign_sponsor(&privk).unwrap();
-            let signed_tx = tx_signer.get_tx().unwrap();
+
+            tx.set_fee_rate(456);
+            tx.set_sponsor_nonce(789);
+            let mut signed_tx = tx_signer.get_tx().unwrap();
+
+            // try to over-sign
+            check_oversign_origin_singlesig(&mut signed_tx);
+            check_oversign_sponsor_singlesig(&mut signed_tx);
             
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 1);
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
@@ -2546,13 +2924,19 @@ mod test {
             tx_signer.sign_origin(&privk_1).unwrap();
             tx_signer.sign_origin(&privk_2).unwrap();
             tx_signer.append_origin(&pubk_3).unwrap();
-            let signed_tx = tx_signer.get_tx().unwrap();
+            let mut signed_tx = tx_signer.get_tx().unwrap();
+
+            check_oversign_origin_multisig(&mut signed_tx);
+            check_oversign_origin_multisig_uncompressed(&mut signed_tx);
+            check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
 
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
@@ -2596,32 +2980,51 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
+        let random_sponsor = StacksPrivateKey::new();
+
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&origin_privk)).unwrap(),
-            TransactionSpendingCondition::new_multisig_p2wsh(2, vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()]).unwrap()
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&random_sponsor)).unwrap()
         );
+        
+        let real_sponsor = TransactionSpendingCondition::new_multisig_p2wsh(2, vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()]).unwrap();
 
         let origin_address = auth.origin().address_mainnet();
-        let sponsor_address = auth.sponsor().unwrap().address_mainnet();
+        let sponsor_address = real_sponsor.address_mainnet();
 
         assert_eq!(origin_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG, bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap() });
         assert_eq!(sponsor_address, StacksAddress { version: C32_ADDRESS_VERSION_MAINNET_MULTISIG, bytes: Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap() });
         
         let txs = tx_stacks_transaction_test_txs(&auth);
 
-        for tx in txs {
+        for mut tx in txs {
             assert_eq!(tx.auth().origin().num_signatures(), 0);
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
+            tx.set_fee_rate(123);
+            tx.set_sponsor_nonce(456);
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
             tx_signer.sign_origin(&origin_privk).unwrap();
+            
+            // sponsor sets and pays fee after origin signs
+            let mut origin_tx = tx_signer.get_tx_incomplete();
+            origin_tx.auth.set_sponsor(real_sponsor.clone());
+            origin_tx.set_fee_rate(456);
+            origin_tx.set_sponsor_nonce(789);
+            tx_signer.resume(&origin_tx);
 
             tx_signer.sign_sponsor(&privk_1).unwrap();
             tx_signer.sign_sponsor(&privk_2).unwrap();
             tx_signer.append_sponsor(&pubk_3).unwrap();
 
-            let signed_tx = tx_signer.get_tx().unwrap();
+            tx.set_fee_rate(456);
+            tx.set_sponsor_nonce(789);
+            let mut signed_tx = tx_signer.get_tx().unwrap();
+
+            check_oversign_origin_singlesig(&mut signed_tx);
+            check_oversign_sponsor_multisig(&mut signed_tx);
+            check_oversign_sponsor_multisig_uncompressed(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -2629,7 +3032,9 @@ mod test {
             // tx and signed_tx are otherwise equal
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.chain_id, signed_tx.chain_id);
-            assert_eq!(tx.fee, signed_tx.fee);
+            assert_eq!(tx.get_fee_rate(), signed_tx.get_fee_rate());
+            assert_eq!(tx.get_origin_nonce(), signed_tx.get_origin_nonce());
+            assert_eq!(tx.get_sponsor_nonce(), signed_tx.get_sponsor_nonce());
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
             assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
