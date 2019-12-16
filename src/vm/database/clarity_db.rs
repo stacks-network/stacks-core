@@ -470,7 +470,7 @@ impl <'a> ClarityDatabase <'a> {
 // load/store STX token state and account nonces
 impl<'a> ClarityDatabase<'a> {
     fn make_key_for_account(principal: &PrincipalData, data: StoreType) -> String {
-        format!("vm::{}::{}", principal, data as u8)
+        format!("vm-account::{}::{}", principal, data as u8)
     }
 
     pub fn make_key_for_account_balance(principal: &PrincipalData) -> String {
