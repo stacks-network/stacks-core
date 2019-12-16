@@ -24,7 +24,6 @@ pub mod distribution;
 pub mod operations;
 pub mod sortition;
 
-pub const CHAINSTATE_VERSION: &'static str = "22.0.0.0";
 pub const CONSENSUS_HASH_LIFETIME : u32 = 24;
 
 use std::fmt;
@@ -82,9 +81,7 @@ impl VRFSeed {
 
     pub fn from_proof(proof: &VRFProof) -> VRFSeed {
         let h = Sha512Trunc256Sum::from_data(&proof.to_bytes());
-        let mut b = [0u8; 32];
-        b.copy_from_slice(h.as_bytes());
-        VRFSeed(b)
+        VRFSeed(h.0)
     }
 
     pub fn is_from_proof(&self, proof: &VRFProof) -> bool {
