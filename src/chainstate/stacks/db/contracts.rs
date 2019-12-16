@@ -21,8 +21,7 @@ use std::io;
 use std::io::prelude::*;
 use std::fmt;
 use std::fs;
-use hashbrown::HashMap;
-use hashbrown::HashSet;
+use std::collections::{HashSet, HashMap};
 
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
