@@ -327,7 +327,7 @@ mod test {
     use chainstate::stacks::index::storage::*;
     use chainstate::stacks::index::trie::*;
 
-    use hashbrown::HashMap;
+    use std::collections::HashMap;
     use std::io::{
         Cursor,
         Seek,
