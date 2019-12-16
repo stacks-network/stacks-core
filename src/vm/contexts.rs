@@ -911,8 +911,8 @@ mod test {
         let t3 = AssetIdentifier { contract_identifier: c_contract_id.clone(), asset_name: "a".into() };
         let t4 = AssetIdentifier { contract_identifier: d_contract_id.clone(), asset_name: "a".into() };
         let t5 = AssetIdentifier { contract_identifier: e_contract_id.clone(), asset_name: "a".into() };
-        let t6 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: "STX".into() };
-        let t7 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: "BURNED".into() };
+        let t6 = AssetIdentifier::STX();
+        let t7 = AssetIdentifier::STX_burned();
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();

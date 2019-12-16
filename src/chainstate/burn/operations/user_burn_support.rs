@@ -299,13 +299,13 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222200").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("22a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7a33333333333333333333333333333333333333").unwrap()).unwrap(),
-                    key_block_ptr: 0x03020133,
-                    key_vtxindex: 0x0504,
+                    key_block_ptr: 0x33010203,
+                    key_vtxindex: 0x0405,
                     burn_fee: 12345,
 
                     txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
                     vtxindex: vtxindex,
-                    block_height: 0x03020133 + 1,
+                    block_height: 0x33010203 + 1,
                     burn_header_hash: burn_header_hash,
                 })
             },
