@@ -248,7 +248,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Save a contract analysis output to the AnalysisDatabase
     /// An error here would indicate that something has gone terribly wrong in the processing of a contract insert.
     ///   the caller should likely abort the whole block or panic
-    pub fn save_analysis(&mut self, identifier: &QualifiedContractIdentifier, contract_analysis: &ContractAnalysis) -> Result<(), Error> {
+    pub fn save_analysis(&mut self, identifier: &QualifiedContractIdentifier, contract_analysis: &ContractAnalysis) -> Result<(), CheckError> {
         let mut db = AnalysisDatabase::new(Box::new(&mut self.datastore));
         db.begin();
         let result = db.insert_contract(identifier, contract_analysis);
@@ -259,7 +259,7 @@ impl <'a> ClarityBlockConnection <'a> {
             },
             Err(e) => {
                 db.roll_back();
-                Err(Error::from(e))
+                Err(e)
             }
         }
     }
