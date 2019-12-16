@@ -1,18 +1,19 @@
 use super::{Config, Leader, BurnchainSimulator};
 
 use std::time;
+use std::thread;
 
-use chainstate::burn::{ConsensusHash};
+use chainstate::burn::{ConsensusHash, SortitionHash};
 
-pub struct RunLoop<'a> {
+pub struct RunLoop {
     config: Config,
     vtxindex: u16,
-    leaders: Vec<Leader<'a>>,
+    leaders: Vec<Leader>,
 }
 
-impl <'a> RunLoop <'a> {
+impl RunLoop {
 
-    pub fn new(config: Config) -> RunLoop<'a> {
+    pub fn new(config: Config) -> RunLoop {
         
         let mut leaders = vec![]; 
         let mut confs = config.leader_config.clone();
@@ -28,6 +29,7 @@ impl <'a> RunLoop <'a> {
     }
 
     pub fn tear_down(&self) {
+        // Clean files
     }
 
     pub fn start(&mut self) {
@@ -43,32 +45,35 @@ impl <'a> RunLoop <'a> {
             leader.tear_up(op_tx.clone(), ConsensusHash::empty());
         }
 
-        // The goal of this run loop is too: 
-        // 1) Handle incoming blocks from the burnchain 
-        // 2) Pump and exaust the mempool (detached thread)
+        let mut bootstrap_chain = true;
 
         loop {
             // Handling incoming blocks
             let (burnchain_block, ops) = block_rx.recv().unwrap();
 
-            println!("Incoming block - {:?}", burnchain_block);
-            println!("Incoming ops - {:?}", ops);
-
-            if burnchain_block.sortition == false {
-                continue;
-            }
-            
-            let sortition_hash = burnchain_block.sortition_hash;
-
-            // Mark registered keys as approved, if any.
-
-            // When receiving a new block from the burnchain, if there's a block commit op,
-            // we should be:
-            // 1) Get the sortition hash
-            // 2) Start a new tenure
-
             for leader in self.leaders.iter_mut() {
-                // leader.handle_burnchain_block();
+
+                let mut tenure = leader.handle_burnchain_block(&burnchain_block, &ops);
+
+                // Bootstrap chain
+                if bootstrap_chain == false {
+                    if tenure.is_none() {
+                        continue;
+                    }
+                    
+                    let mut tenure = tenure.unwrap();
+                    thread::spawn(move || {
+                        tenure.run();
+                        // leader.generate_block_commitment_op(&tenure);
+                    });                    
+                } else {
+                    bootstrap_chain = false;
+                    let mut tenure = leader.initiate_new_tenure(SortitionHash::initial());
+                    thread::spawn(move || {
+                        tenure.run();
+                        // leader.generate_block_commitment_op(&tenure);
+                    });
+                }
             }
         }
     }

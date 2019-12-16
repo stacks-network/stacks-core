@@ -4,40 +4,31 @@ use std::fs;
 
 use burnchains::{Txid};
 
-pub trait MemPool <'a> {
+pub trait MemPool {
     fn start(&mut self);
     fn stop(&mut self);
     fn reset(&mut self);
     fn handle_incoming_tx(&mut self, tx: Txid);
     fn archive_tx(&mut self, tx: Txid);
-    fn register_observer(&mut self, observer: &'a mut MemPoolObserver);
-    fn unregister_observer(&mut self, observer: &'a mut MemPoolObserver);
 }
 
-pub trait MemPoolObserver {
-    fn handle_received_tx(&mut self, tx: Txid);
-    fn handle_archived_tx(&mut self, tx: Txid);
-}
-
-pub struct MemPoolFS <'a> {
+pub struct MemPoolFS {
     path: String,
     pending_txs: Vec<Txid>,
     archived_txs: Vec<Txid>,
-    observers: Vec<&'a mut MemPoolObserver>
 }
 
-impl <'a> MemPoolFS <'a> {
+impl MemPoolFS {
     pub fn new(path: &str) -> Self {
         Self {
             path: path.to_string(),
             pending_txs: vec![],
-            archived_txs: vec![],
-            observers: vec![],
+            archived_txs: vec![]
         }
     }
 }
 
-impl <'a> MemPool <'a> for MemPoolFS <'a> {
+impl MemPool for MemPoolFS {
     fn start(&mut self) {
         loop {
             let block_time = time::Duration::from_millis(10000);
@@ -63,21 +54,10 @@ impl <'a> MemPool <'a> for MemPoolFS <'a> {
     }
 
     fn handle_incoming_tx(&mut self, tx: Txid) {
-        for observer in self.observers.iter_mut() {
-            observer.handle_received_tx(tx);
-        }
     }
 
     fn archive_tx(&mut self, tx: Txid) {
         // Remove tx from pending_txs
         // Add tx to archived_txs
-    }
-
-    fn register_observer(&mut self, observer: &'a mut MemPoolObserver) {
-        self.observers.push(observer);
-    }
-
-    fn unregister_observer(&mut self, observer: &'a mut MemPoolObserver) {
-        // Remove observer from observers
     }
 }

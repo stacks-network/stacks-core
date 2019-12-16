@@ -23,11 +23,12 @@ struct RegisteredKey {
     key_vtxindex: u16,
 }
 
-pub struct Leader <'a> {
+pub struct Leader {
     active_registered_key: Option<RegisteredKey>,
     chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
-    mem_pool: MemPoolFS<'a>,
+    last_sortitioned_block: Option<BlockSnapshot>,
+    mem_pool: MemPoolFS,
     keychain: Keychain,
     commit_block_height: u16,
     commit_vtxindex: u16,
@@ -35,9 +36,9 @@ pub struct Leader <'a> {
     burchain_ops_tx: Option<Sender<BlockstackOperationType>>,
 }
 
-impl <'a> Leader <'a> {
+impl Leader {
 
-    pub fn new(config: LeaderConfig, block_time: u64) -> Leader<'a> {
+    pub fn new(config: LeaderConfig, block_time: u64) -> Leader {
         
         let keychain = Keychain::default();
 
@@ -50,6 +51,7 @@ impl <'a> Leader <'a> {
             chain_state,
             chain_tip: Some(StacksHeaderInfo::genesis()),
             keychain,
+            last_sortitioned_block: None,
             mem_pool,
             commit_block_height: 0,
             commit_vtxindex: 0,
@@ -87,7 +89,7 @@ impl <'a> Leader <'a> {
         })
     }
 
-    fn generate_block_commitment_op(&mut self, tenure: LeaderTenure, burn_fee: u64) -> BlockstackOperationType {
+    pub fn generate_block_commitment_op(&self, tenure: &LeaderTenure) -> BlockstackOperationType {
 
         let active_key = self.active_registered_key.clone().unwrap();
 
@@ -98,7 +100,7 @@ impl <'a> Leader <'a> {
             parent_block_ptr: self.commit_block_height as u32,
             parent_vtxindex: self.commit_vtxindex as u16,
             memo: vec![],
-            burn_fee,
+            burn_fee: tenure.burn_fee,
             input: self.keychain.get_burnchain_signer(),
             block_header_hash: tenure.block_builder.header.block_hash(),
 
@@ -114,24 +116,63 @@ impl <'a> Leader <'a> {
         self.active_registered_key = Some(RegisteredKey { vrf_public_key, key_block_height, key_vtxindex });
     }
 
-    // pub fn notify_key_invalidation(&mut self, vrf_public_key: VRFPublicKey, key_block_height: u16, key_vtxindex: u16) {
-    //     self.active_registered_key = Some(RegisteredKey { vrf_public_key, key_block_height, key_vtxindex });
-    // }
+    pub fn handle_burnchain_block(&mut self, block: &BlockSnapshot, ops: &Vec<BlockstackOperationType>) -> Option<LeaderTenure> {
 
-    pub fn handle_burnchain_block(&mut self, block: BlockSnapshot) {
+        let mut new_key = None;
+        for op in ops {
+            match op {
+                BlockstackOperationType::LeaderKeyRegister(ref op) => {
+                    if op.address == self.keychain.get_address() {
+                        // Update active key
+                        new_key = Some(RegisteredKey {
+                            vrf_public_key: op.public_key.clone(),
+                            key_block_height: op.block_height as u16,
+                            key_vtxindex: op.vtxindex as u16,
+                        });
+                    }
+                },
+                BlockstackOperationType::LeaderBlockCommit(ref op) => {
+                    if op.input == self.keychain.get_burnchain_signer() {
+                        // Expire active key
+                        self.active_registered_key = None;
+                    }
+                },
+                _ => {
+                    // todo(ludo): ¯\_(ツ)_/¯
+                }
+            }
+        }
 
-        // has key?
-        // Y: start new tenure
-        // let mut tenure = leader.start_new_tenure(sortition_hash.clone());
-        // thread::spawn(move || {
-        //     tenure.start();
-        // });
+        if new_key.is_some() {
+            self.active_registered_key = new_key;
+        }
 
+        if self.active_registered_key.is_none() {                                    
+            // Register a new key
+            let vrf_pk = self.keychain.rotate_vrf_keypair();
+            let key_reg_op = self.generate_leader_key_register_op(vrf_pk, block.consensus_hash);
+            let ops_tx = self.burchain_ops_tx.take().unwrap();
+            ops_tx.send(key_reg_op).unwrap();
+            self.burchain_ops_tx = Some(ops_tx);
+            return None;
+        }
 
-        // N: is block containing a key?
-        // Y: update key
-        // N: register a new key
+        let sortition_hash = match (block.sortition, self.last_sortitioned_block.clone()) {
+            (true, _) => {
+                self.last_sortitioned_block = Some(block.clone());
+                block.sortition_hash
+            }
+            (false, Some(ref past_block)) => {
+                past_block.sortition_hash
+            },
+            (false, None) => {
+                return None;
+            }
+        };
 
+        let tenure = self.initiate_new_tenure(sortition_hash);
+        
+        Some(tenure)
     }
 
     pub fn initiate_new_tenure(&mut self, sortition_hash: SortitionHash) -> LeaderTenure {
@@ -175,10 +216,11 @@ impl <'a> Leader <'a> {
 }
 
 pub struct LeaderTenure {
-    started_at: std::time::Instant,
     block_builder: StacksBlockBuilder,
-    vrf_seed: VRFSeed,
     block_time: u64,
+    burn_fee: u64,
+    started_at: std::time::Instant,
+    vrf_seed: VRFSeed,
     // registered_key: RegisteredKey,
 }
 
@@ -195,9 +237,10 @@ impl LeaderTenure {
         let block_builder = StacksBlockBuilder::from_parent(&parent_block, &ratio, &vrf_proof, &microblock_secret_key);
 
         Self {
-            started_at: now,
-            block_time,
             block_builder,
+            block_time,
+            burn_fee: 0,
+            started_at: now,
             vrf_seed: VRFSeed::from_proof(&vrf_proof),
         }
     }
@@ -206,18 +249,19 @@ impl LeaderTenure {
         
     }
 
-    pub fn start(&mut self) {
+    pub fn run(&mut self) {
 
         let mempool_poll_interval = time::Duration::from_millis(500);
         let tenure_duration = time::Duration::from_millis(self.block_time * 3 / 4);
         let should_commit_block_at = self.started_at.checked_add(tenure_duration).unwrap();
+        self.burn_fee = 1;
 
         while time::Instant::now() < should_commit_block_at {
             println!("Fetching mempool");
 
             thread::sleep(mempool_poll_interval);
         }
-    
+
         println!("Committing block");
 
         // loop {
