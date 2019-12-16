@@ -1,19 +1,10 @@
-
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::{StacksBlock, StacksTransactionSigner, StacksMicroblock, CoinbasePayload, TransactionAuth};
-use chainstate::burn::db::burndb::{BurnDB};
-use address::AddressHashMode;
-use burnchains::{Burnchain, BurnchainSigner, BurnchainHeaderHash, Txid, PrivateKey};
-use chainstate::burn::operations::{LeaderKeyRegisterOp, LeaderBlockCommitOp};
-use chainstate::burn::SortitionHash;
-use util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
-use util::hash::Sha256Sum;
 use std::collections::HashMap;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-use rand::RngCore;
-use util::hash::{to_hex};
-use std::{thread, time};
-use chainstate::stacks::{StacksPublicKey, StacksPrivateKey, StacksAddress};
+
+use chainstate::stacks::{StacksTransactionSigner, TransactionAuth, StacksPublicKey, StacksPrivateKey, StacksAddress};
+use address::AddressHashMode;
+use burnchains::{BurnchainSigner, BurnchainHeaderHash, PrivateKey};
+use util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
+use util::hash::{Sha256Sum};
 
 pub struct Keychain {
     secret_keys: Vec<StacksPrivateKey>, 

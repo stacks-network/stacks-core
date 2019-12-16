@@ -1,27 +1,23 @@
-use super::{MemPoolObserver, MemPool};
+use std::thread;
+use std::time;
 use std::fs;
-use std::env;
-use std::process;
-use net::StacksMessageCodec;
-use chainstate::stacks::*;
-use util::hash::hex_bytes;
 
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::{StacksBlock, StacksMicroblock, CoinbasePayload};
-use chainstate::burn::db::burndb::{BurnDB};
-use address::AddressHashMode;
-use burnchains::{Burnchain, BurnchainHeaderHash, Txid, PrivateKey};
-use chainstate::stacks::{StacksPrivateKey};
-use chainstate::burn::operations::{LeaderKeyRegisterOp, LeaderBlockCommitOp};
-use chainstate::burn::SortitionHash;
-use util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
-use util::hash::Sha256Sum;
-use std::collections::HashMap;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-use rand::RngCore;
-use util::hash::{to_hex};
-use std::{thread, time};
+use burnchains::{Txid};
 
+pub trait MemPool <'a> {
+    fn start(&mut self);
+    fn stop(&mut self);
+    fn reset(&mut self);
+    fn handle_incoming_tx(&mut self, tx: Txid);
+    fn archive_tx(&mut self, tx: Txid);
+    fn register_observer(&mut self, observer: &'a mut MemPoolObserver);
+    fn unregister_observer(&mut self, observer: &'a mut MemPoolObserver);
+}
+
+pub trait MemPoolObserver {
+    fn handle_received_tx(&mut self, tx: Txid);
+    fn handle_archived_tx(&mut self, tx: Txid);
+}
 
 pub struct MemPoolFS <'a> {
     path: String,

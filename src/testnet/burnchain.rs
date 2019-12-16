@@ -1,13 +1,14 @@
 use std::sync::mpsc;
 use std::thread;
 use std::time;
-use burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, Txid, PrivateKey, BurnchainBlock};
-use chainstate::burn::db::burndb::{BurnDB};
-use burnchains::bitcoin::BitcoinBlock;
-use util::hash::Sha256Sum;
-use chainstate::burn::{SortitionHash, BlockSnapshot, VRFSeed};
-use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
 use std::sync::{Arc, Mutex};
+
+use burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock};
+use burnchains::bitcoin::BitcoinBlock;
+use chainstate::burn::db::burndb::{BurnDB};
+use chainstate::burn::{BlockSnapshot};
+use chainstate::burn::operations::{BlockstackOperationType};
+use util::hash::Sha256Sum;
 
 pub struct BurnchainSimulator {
     mem_pool: Arc<Mutex<Vec<BlockstackOperationType>>>,
@@ -21,11 +22,12 @@ impl BurnchainSimulator {
         }
     }
     
-    pub fn start(&mut self, block_time: time::Duration, path: String, name: String) -> (mpsc::Receiver<BlockSnapshot>, mpsc::Sender<BlockstackOperationType>) {
+    pub fn start(&mut self, block_time: time::Duration, path: String, name: String) -> (mpsc::Receiver<(BlockSnapshot, Vec<BlockstackOperationType>)>, mpsc::Sender<BlockstackOperationType>) {
         let (block_tx, block_rx) = mpsc::channel();
                 
         let ops_dequeuing = Arc::clone(&self.mem_pool);
-        
+        let mut vtxindex = 1;
+
         thread::spawn(move || {
 
             let chain = Burnchain::new(&path, &"bitcoin".to_string(), &name).unwrap();
@@ -49,17 +51,21 @@ impl BurnchainSimulator {
                             BlockstackOperationType::LeaderKeyRegister(ref mut op) => {
                                 op.block_height = next_block_header.block_height;
                                 op.burn_header_hash = next_block_header.block_hash;
+                                op.vtxindex = vtxindex;
                             },
                             BlockstackOperationType::LeaderBlockCommit(ref mut op) => {
                                 op.block_height = next_block_header.block_height;
                                 op.burn_header_hash = next_block_header.block_hash;
+                                op.vtxindex = vtxindex;
                             },
                             BlockstackOperationType::UserBurnSupport(ref mut op) => {
                                 op.block_height = next_block_header.block_height;
                                 op.burn_header_hash = next_block_header.block_hash;
+                                op.vtxindex = vtxindex;
                             }
                         }
                         ops_to_include.push(op.clone());
+                        vtxindex += 1;
                     }
                     ops.clear();
                 };
@@ -76,7 +82,7 @@ impl BurnchainSimulator {
         
                 chain_tip = new_chain_tip;
 
-                block_tx.send(chain_tip.clone()).unwrap();    
+                block_tx.send((chain_tip.clone(), ops_to_include)).unwrap();    
             };
         });
         

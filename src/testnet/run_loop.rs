@@ -1,26 +1,8 @@
-use super::{MemPool, MemPoolFS, Config, Leader, Keychain, TestnetNode, TestnetBurnchainNode, TestnetMiner, BurnchainSimulator, MemPoolObserver};
+use super::{Config, Leader, BurnchainSimulator};
 
-use std::fs;
-use std::env;
-use std::process;
-use net::StacksMessageCodec;
-use chainstate::stacks::*;
-use util::hash::hex_bytes;
+use std::time;
 
-use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
-use chainstate::stacks::{StacksBlock, StacksTransactionSigner, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAuth};
-use address::AddressHashMode;
-use burnchains::{Burnchain, BurnchainHeaderHash, Txid, PrivateKey, BurnchainBlock};
-use chainstate::stacks::{StacksPrivateKey};
-use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
-use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed};
-use util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
-use util::hash::Sha256Sum;
-use std::collections::HashMap;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-use rand::RngCore;
-use util::hash::{to_hex};
-use std::{thread, time};
+use chainstate::burn::{ConsensusHash};
 
 pub struct RunLoop<'a> {
     config: Config,
@@ -52,10 +34,8 @@ impl <'a> RunLoop <'a> {
 
         let mut burnchain = BurnchainSimulator::new();
     
-        let block_time = time::Duration::from_millis(self.config.burchain_block_time);
-
         let (block_rx, op_tx) = burnchain.start(
-            block_time, 
+            time::Duration::from_millis(self.config.burchain_block_time), 
             self.config.burchain_path.to_string(), 
             self.config.testnet_name.to_string());
 
@@ -69,14 +49,15 @@ impl <'a> RunLoop <'a> {
 
         loop {
             // Handling incoming blocks
-            let burnchain_block = block_rx.recv().unwrap();
+            let (burnchain_block, ops) = block_rx.recv().unwrap();
 
             println!("Incoming block - {:?}", burnchain_block);
+            println!("Incoming ops - {:?}", ops);
 
             if burnchain_block.sortition == false {
                 continue;
             }
-
+            
             let sortition_hash = burnchain_block.sortition_hash;
 
             // Mark registered keys as approved, if any.
@@ -87,53 +68,8 @@ impl <'a> RunLoop <'a> {
             // 2) Start a new tenure
 
             for leader in self.leaders.iter_mut() {
-                // leader.initiate_new_tenure(sortition_hash.clone()) tear_up(op_tx.clone(), ConsensusHash::empty());
+                // leader.handle_burnchain_block();
             }
         }
-
-        // loop {
-        //     // Pump and exaust the mempool
-        //     let j = rx.recv().unwrap();
-        //     println!("====================================================");
-        //     println!("====================================================");
-        //     println!("{:?}", self.burnchain.chain_tip);
-        //     println!("====================================================");
-        //     println!("====================================================");
-
-        //     let mut tenure = self.initiate_new_tenure(vrf_pk);
-
-        //     // A tenure should end when
-        //     // 1 - blocktime is about to expire
-
-        //     let mut ops = vec![];
-
-        //     let burnchain_tip = self.burnchain.chain_tip.clone();
-
-        //     // Prepare commit block operation
-        //     let commit_block_op = self.generate_block_commitment_op(tenure, burn_fee);
-        //     ops.push(commit_block_op);
-            
-        //     self.commit_block_height = burnchain_tip.block_height as u16;
-        //     self.commit_vtxindex = self.vtxindex;        
-            
-        //     // Register a new vrf
-        //     vrf_pk = self.keychain.rotate_vrf_keypair();
-        //     let reg_key_op = self.generate_leader_key_register_op(vrf_pk.clone());
-        //     ops.push(reg_key_op);
-
-        //     self.key_block_height = burnchain_tip.block_height as u16;
-        //     self.key_vtxindex = self.vtxindex;        
-
-        //     self.burnchain.submit_ops(&mut ops);
-
-        //     self.chain_tip = Some(StacksHeaderInfo::genesis());
-
-        //     let block_time = time::Duration::from_millis(20000);
-        //     let now = time::Instant::now();
-
-        //     burn_fee += 1;
-
-        //     thread::sleep(block_time);
-        // }
     }
 }
