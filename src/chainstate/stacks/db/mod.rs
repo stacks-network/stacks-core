@@ -35,6 +35,8 @@ use std::io::prelude::*;
 use std::fmt;
 use std::fs;
 
+use core::*;
+
 use burnchains::BurnchainHeaderHash;
 use burnchains::Address;
 
@@ -86,7 +88,7 @@ use vm::clarity::Error as clarity_error;
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
 
-pub const STACKS_CHAINSTATE_VERSION: &'static str = "22.0.0.0";
+use core::CHAINSTATE_VERSION;
 
 pub struct StacksChainState {
     pub mainnet: bool,
@@ -151,7 +153,7 @@ impl StacksHeaderInfo {
             microblock_tail: None,
             block_height: StacksBlockHeader::genesis().total_work.work,
             index_root: TrieHash([0u8; 32]),
-            burn_header_hash: BurnchainHeaderHash([0u8; 32])
+            burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
         }
     }
     pub fn is_genesis(&self) -> bool {
@@ -432,7 +434,7 @@ impl StacksChainState {
             tx.execute(cmd, NO_PARAMS).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
         }
 
-        tx.execute("INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)", &[&STACKS_CHAINSTATE_VERSION, &(if mainnet { 1 } else { 0 }) as &dyn ToSql, &chain_id as &dyn ToSql])
+        tx.execute("INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)", &[&CHAINSTATE_VERSION, &(if mainnet { 1 } else { 0 }) as &dyn ToSql, &chain_id as &dyn ToSql])
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         let mut marf = StacksChainState::open_index(marf_path, None)?;
@@ -474,8 +476,8 @@ impl StacksChainState {
                 return Err(Error::InvalidChainstateDB);
             }
             
-            if db_config.version != STACKS_CHAINSTATE_VERSION {
-                error!("Invalid chain state database: expected version = {}, got {}", STACKS_CHAINSTATE_VERSION, db_config.version);
+            if db_config.version != CHAINSTATE_VERSION {
+                error!("Invalid chain state database: expected version = {}, got {}", CHAINSTATE_VERSION, db_config.version);
                 return Err(Error::InvalidChainstateDB);
             }
 
@@ -534,6 +536,7 @@ impl StacksChainState {
             hash_mode: SinglesigHashMode::P2PKH,
             key_encoding: TransactionPublicKeyEncoding::Uncompressed,
             nonce: 0,
+            fee_rate: 0,
             signature: MessageSignature::empty()
         }));
 
@@ -543,7 +546,7 @@ impl StacksChainState {
             stx_balance: 0
         };
 
-        let mut clarity_tx = chainstate.block_begin(&BurnchainHeaderHash([0xff; 32]), &BlockHeaderHash([0xff; 32]), &BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]));
+        let mut clarity_tx = chainstate.block_begin(&BURNCHAIN_BOOT_BLOCK_HASH, &BOOT_BLOCK_HASH, &FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
         for i in 0..STACKS_BOOT_CODE.len() {
             let smart_contract = TransactionPayload::SmartContract(
                 TransactionSmartContract {
@@ -572,7 +575,7 @@ impl StacksChainState {
             boot_code_account.nonce += 1;
         }
 
-        clarity_tx.commit_to_block(0, &BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]));
+        clarity_tx.commit_to_block(0, &FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
         Ok(())
     }
     
@@ -660,7 +663,7 @@ impl StacksChainState {
         DBConfig {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
-            version: STACKS_CHAINSTATE_VERSION.to_string()
+            version: CHAINSTATE_VERSION.to_string()
         }
     }
     
@@ -683,15 +686,15 @@ impl StacksChainState {
         // mix burn header hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the burn header hash _is_).
         let parent_index_block = 
-            if *parent_block == BlockHeaderHash([0xff; 32]) {
+            if *parent_block == BOOT_BLOCK_HASH {
                 // begin boot block
                 test_debug!("Begin processing boot block");
                 TrieFileStorage::block_sentinel()
             }
-            else if *parent_block == BlockHeaderHash([0u8; 32]) {
+            else if *parent_block == FIRST_STACKS_BLOCK_HASH {
                 // begin first-ever block
                 test_debug!("Begin processing first-ever block");
-                StacksBlockHeader::make_index_block_hash(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]))
+                StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH)
             }
             else {
                 // subsequent block
@@ -700,7 +703,7 @@ impl StacksChainState {
 
         let new_index_block = StacksBlockHeader::make_index_block_hash(new_burn_hash, new_block);
 
-        debug!("Begin processing Stacks block off of {}/{}", parent_burn_hash.to_hex(), parent_block.to_hex());
+        test_debug!("Begin processing Stacks block off of {}/{}", parent_burn_hash.to_hex(), parent_block.to_hex());
         test_debug!("Child MARF index root:  {} = {} + {}", new_index_block.to_hex(), new_burn_hash.to_hex(), new_block.to_hex());
         test_debug!("Parent MARF index root: {} = {} + {}", parent_index_block.to_hex(), parent_burn_hash.to_hex(), parent_block.to_hex());
 
@@ -723,7 +726,7 @@ impl StacksChainState {
                        block_reward: &MinerPaymentSchedule,
                        user_burns: &Vec<StagingUserBurnSupport>) -> Result<StacksHeaderInfo, Error>
     {
-        if new_tip.parent_block != BlockHeaderHash([0u8; 32]) {
+        if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
             assert_eq!(new_tip.parent_block, parent_tip.block_hash());
             assert_eq!(parent_tip.total_work.work.checked_add(1).expect("Block height overflow"),
@@ -770,10 +773,12 @@ impl StacksChainState {
 pub mod test {
     use super::*;
 
+    use chainstate::stacks::*;
+    use chainstate::stacks::db::*;
     use std::fs;
     
     pub fn instantiate_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
-        let path = format!("/tmp/blockstack-test-chainstate-{}", test_name);
+        let path = chainstate_path(test_name);
         match fs::metadata(&path) {
             Ok(_) => {
                 fs::remove_dir_all(&path).unwrap();
@@ -785,8 +790,12 @@ pub mod test {
     }
 
     pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
-        let path = format!("/tmp/blockstack-test-chainstate-{}", test_name);
+        let path = chainstate_path(test_name);
         StacksChainState::open(mainnet, chain_id, &path).unwrap()
+    }
+
+    pub fn chainstate_path(test_name: &str) -> String {
+        format!("/tmp/blockstack-test-chainstate-{}", test_name)
     }
 
     #[test]
@@ -794,7 +803,7 @@ pub mod test {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "instantiate-chainstate");
 
         // verify that the boot code is there
-        let mut conn = chainstate.block_begin(&BurnchainHeaderHash([0u8; 32]), &BlockHeaderHash([0u8; 32]), &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH);
 
         let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
         for boot_contract_name in STACKS_BOOT_CODE_CONTRACT_NAMES.iter() {
