@@ -31,9 +31,9 @@ pub struct MemPoolFS <'a> {
 }
 
 impl <'a> MemPoolFS <'a> {
-    pub fn new(path: String) -> Self {
+    pub fn new(path: &str) -> Self {
         Self {
-            path,
+            path: path.to_string(),
             pending_txs: vec![],
             archived_txs: vec![],
             observers: vec![],

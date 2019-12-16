@@ -1,7 +1,7 @@
 use std::sync::mpsc;
 use std::thread;
 use std::time;
-use burnchains::{Burnchain, BurnchainHeaderHash, Txid, PrivateKey, BurnchainBlock};
+use burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, Txid, PrivateKey, BurnchainBlock};
 use chainstate::burn::db::burndb::{BurnDB};
 use burnchains::bitcoin::BitcoinBlock;
 use util::hash::Sha256Sum;
@@ -21,14 +21,12 @@ impl BurnchainSimulator {
         }
     }
     
-    pub fn start(&mut self, block_time: time::Duration, path: String, name: String) -> mpsc::Receiver<BlockSnapshot> {
-        let (tx, rx) = mpsc::channel();
+    pub fn start(&mut self, block_time: time::Duration, path: String, name: String) -> (mpsc::Receiver<BlockSnapshot>, mpsc::Sender<BlockstackOperationType>) {
+        let (block_tx, block_rx) = mpsc::channel();
+                
+        let ops_dequeuing = Arc::clone(&self.mem_pool);
         
-        let builder = thread::Builder::new();
-
-        let mem_pool = Arc::clone(&self.mem_pool);
-
-        let handler = builder.spawn(move || {
+        thread::spawn(move || {
 
             let chain = Burnchain::new(&path, &"bitcoin".to_string(), &name).unwrap();
     
@@ -40,23 +38,12 @@ impl BurnchainSimulator {
                 thread::sleep(block_time);
 
                 // Simulating mining
-                let next_block_header = {
-                    // block.hash = hash(block.parent.hash)
-                    let curr_hash = &chain_tip.burn_header_hash.to_bytes()[..];
-                    let next_hash = Sha256Sum::from_data(&curr_hash);
-
-                    let block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
-                        chain_tip.block_height + 1,
-                        &BurnchainHeaderHash::from_bytes(next_hash.as_bytes()).unwrap(), 
-                        &chain_tip.burn_header_hash, 
-                        &vec![]));
-                    block.header(&chain_tip)
-                };
+                let next_block_header = BurnchainSimulator::build_next_block_header(&chain_tip);
 
                 // Updating ops properties before including them in the new block
                 let mut ops_to_include = vec![];
                 {
-                    let mut ops = mem_pool.lock().unwrap();
+                    let mut ops = ops_dequeuing.lock().unwrap();
                     for op in ops.iter_mut() {
                         match op {
                             BlockstackOperationType::LeaderKeyRegister(ref mut op) => {
@@ -89,15 +76,35 @@ impl BurnchainSimulator {
         
                 chain_tip = new_chain_tip;
 
-                tx.send(chain_tip.clone()).unwrap();    
+                block_tx.send(chain_tip.clone()).unwrap();    
             };
-        }).unwrap();
+        });
         
-        rx
+        let (op_tx, op_rx) = mpsc::channel();
+        
+        let ops_enqueuing = Arc::clone(&self.mem_pool);
+
+        thread::spawn(move || {
+            loop {
+                // Handling incoming operations
+                let op = op_rx.recv().unwrap();
+                let mut ops = ops_enqueuing.lock().unwrap();
+                ops.push(op);
+            }
+        });
+
+        (block_rx, op_tx)
     }
 
-    pub fn submit_ops(&mut self, ops: &mut Vec<BlockstackOperationType>) {
-        let mut mem_pool = self.mem_pool.lock().unwrap();
-        mem_pool.append(ops);
+    fn build_next_block_header(current_block: &BlockSnapshot) -> BurnchainBlockHeader {
+        let curr_hash = &current_block.burn_header_hash.to_bytes()[..];
+        let next_hash = Sha256Sum::from_data(&curr_hash);
+
+        let block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
+            current_block.block_height + 1,
+            &BurnchainHeaderHash::from_bytes(next_hash.as_bytes()).unwrap(), 
+            &current_block.burn_header_hash, 
+            &vec![]));
+        block.header(&current_block)
     }
 }

@@ -1,4 +1,4 @@
-use super::{MemPool, Config, Keychain, TestnetNode, TestnetBurnchainNode, TestnetMiner, BurnchainSimulator, MemPoolObserver};
+use super::{MemPool, MemPoolFS, Config, Leader, Keychain, TestnetNode, TestnetBurnchainNode, TestnetMiner, BurnchainSimulator, MemPoolObserver};
 
 use std::fs;
 use std::env;
@@ -22,219 +22,73 @@ use rand::RngCore;
 use util::hash::{to_hex};
 use std::{thread, time};
 
-// struct Miner {
-//     previous_tenures: Vec<LeaderTenure>,
-//     ongoing_tenure: Option<LeaderTenure>,
-//     ongoing_registered_key: Option<RegisteredKey>,
-//     keychain: Keychain,
-// }
-
-// impl Miner {
-
-//     // todo(ludo): revisit constructor
-//     pub fn new(keychain: Keychain) -> Self {
-//         Self {
-//             previous_tenures: vec![],
-//             ongoing_tenure: None,
-//             ongoing_registered_key: None,
-//             keychain
-//         }
-//     }
-
-//     pub fn tear_up(burnchain_tip: ) {
-
-//     }
-
-//     pub fn start_new_tenure() -> Tenure {
-//         // Should check if there's something ongoing.
-
-//     }
-// }
-
-
-// struct RegisteredKey {
-//     vrf_proof: VRFProof,
-//     block_height: u64,
-//     vtxindex: u32
-// }
-
-struct LeaderTenure {
-    started_at: std::time::Instant,
-    block_builder: StacksBlockBuilder,
-    vrf_seed: VRFSeed,
-    // registered_key: RegisteredKey,
-}
-
-impl LeaderTenure {
-
-    pub fn new(parent_block: StacksHeaderInfo, vrf_proof: VRFProof, microblock_secret_key: StacksPrivateKey) -> LeaderTenure {
-        let now = time::Instant::now();
-        
-        let ratio = StacksWorkScore {
-            burn: 1, // todo(ludo): get burn from burnchain_tip.
-            work: 0
-        };
-
-        let block_builder = StacksBlockBuilder::from_parent(&parent_block, &ratio, &vrf_proof, &microblock_secret_key);
-
-        Self {
-            started_at: now,
-            block_builder,
-            vrf_seed: VRFSeed::from_proof(&vrf_proof),
-        }
-    }
-
-    pub fn handle_txs(&mut self, txs: Vec<StacksTransaction>) {
-        
-    }
-}
-
 pub struct RunLoop<'a> {
-    chain_state: StacksChainState,
-    chain_tip: Option<StacksHeaderInfo>,
     config: Config,
-    keychain: Keychain,
-    mem_pool: &'a MemPool<'a>,
-    previous_tenures: Vec<LeaderTenure>,
     vtxindex: u16,
-    key_block_height: u16,
-    key_vtxindex: u16,
-    commit_block_height: u16,
-    commit_vtxindex: u16
+    leaders: Vec<Leader<'a>>,
 }
 
 impl <'a> RunLoop <'a> {
 
-    pub fn new(config: Config, keychain: Keychain, mem_pool: &'a MemPool<'a>) -> RunLoop {
-
-        let chain_state = StacksChainState::open(false, 0x80000000, &config.name).unwrap();
-
-        // todo(ludo): Genesis should probably attached to a block in the burnchain.
+    pub fn new(config: Config) -> RunLoop<'a> {
+        
+        let mut leaders = vec![]; 
+        let mut confs = config.leader_config.clone();
+        for conf in confs.drain(..) {
+            leaders.push(Leader::new(conf, config.burchain_block_time));
+        }
 
         Self {
             config,
-            mem_pool,
-            previous_tenures: vec![],
-            chain_state,
-            chain_tip: Some(StacksHeaderInfo::genesis()),
-            keychain,
+            leaders: leaders,
             vtxindex: 0,
-            key_block_height: 0,
-            key_vtxindex: 0,
-            commit_block_height: 0,
-            commit_vtxindex: 0,
         }
     }
 
     pub fn tear_down(&self) {
     }
 
-    fn generate_leader_key_register_op(&mut self, vrf_public_key: VRFPublicKey, consensus_hash: ConsensusHash) -> BlockstackOperationType {
-        self.vtxindex += 1;
-
-        BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
-            public_key: vrf_public_key,
-            memo: vec![],
-            address: self.keychain.get_address(),
-            consensus_hash,
-            vtxindex: self.vtxindex as u32,
-
-            // to be filled in 
-            txid: Txid([0u8; 32]),
-            block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-        })
-    }
-
-    fn generate_block_commitment_op(&mut self, tenure: LeaderTenure, burn_fee: u64) -> BlockstackOperationType {
-        self.vtxindex += 1;
-
-        BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-            new_seed: tenure.vrf_seed,
-            key_block_ptr: self.key_block_height as u32,
-            key_vtxindex: self.key_vtxindex as u16,
-            parent_block_ptr: self.commit_block_height as u32, //block_height as u32 - 1,
-            parent_vtxindex: self.commit_vtxindex as u16,
-            memo: vec![],
-            burn_fee,
-            input: self.keychain.get_burnchain_signer(),
-            block_header_hash: tenure.block_builder.header.block_hash(),
-            vtxindex: self.vtxindex as u32,
-
-            // to be filled in 
-            txid: Txid([0u8; 32]),
-            block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-        })
-    }
-
-    fn initiate_new_tenure(&mut self, vrf_public_key: VRFPublicKey, burnchain_chain_tip: BlockSnapshot) -> LeaderTenure {
-
-        // todo(ludo): chain tip does not necessarly have a sortition hash
-        let sortition_hash = burnchain_chain_tip.sortition_hash;
-
-        let chain_tip = match self.chain_tip {
-            Some(ref b) => b.clone(),
-            _ => panic!()
-        };
-
-        let vrf_proof = self.keychain.generate_proof(vrf_public_key, sortition_hash.as_bytes()).unwrap();
-
-        let microblock_secret_key = self.keychain.rotate_microblock_keypair();
-
-        let mut tenure = LeaderTenure::new(chain_tip, vrf_proof, microblock_secret_key);
-
-        let coinbase_tx = {
-            let tx_auth = self.keychain.get_transaction_auth().unwrap();
-
-            let mut tx = StacksTransaction::new(
-                TransactionVersion::Testnet, 
-                tx_auth, 
-                TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
-            tx.chain_id = 0x80000000;
-            tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
-            let mut tx_signer = StacksTransactionSigner::new(&tx);
-            self.keychain.sign_as_origin(&mut tx_signer);
-            tx_signer.get_tx().unwrap()
-        };
-
-        tenure.handle_txs(vec![coinbase_tx]);
-
-        tenure
-    }
-
     pub fn start(&mut self) {
-        let mut vrf_pk = self.keychain.rotate_vrf_keypair();
-        let mut burn_fee = 1;
 
         let mut burnchain = BurnchainSimulator::new();
     
-        let block_time = time::Duration::from_millis(5000);
+        let block_time = time::Duration::from_millis(self.config.burchain_block_time);
 
-        let burnchain_rx = burnchain.start(
+        let (block_rx, op_tx) = burnchain.start(
             block_time, 
-            self.config.db_path.to_string(), 
-            self.config.name.to_string());
+            self.config.burchain_path.to_string(), 
+            self.config.testnet_name.to_string());
 
-        let key_reg_op = self.generate_leader_key_register_op(vrf_pk);
-        let ops = vec![key_reg_op];
-        burnchain.submit_ops(&mut ops);
+        for leader in self.leaders.iter_mut() {
+            leader.tear_up(op_tx.clone(), ConsensusHash::empty());
+        }
 
         // The goal of this run loop is too: 
         // 1) Handle incoming blocks from the burnchain 
-        // 2) Pump and exaust the mempool
+        // 2) Pump and exaust the mempool (detached thread)
 
         loop {
             // Handling incoming blocks
-            let burnchain_block = burnchain_rx.recv().unwrap();
+            let burnchain_block = block_rx.recv().unwrap();
 
             println!("Incoming block - {:?}", burnchain_block);
-            // When receiving a new block from the burnchain,
-            // We should be:
-            // 2) Start a new tenure.
-            let _handle = thread::spawn(move|| {
-                // Tenure protocol
-            });
+
+            if burnchain_block.sortition == false {
+                continue;
+            }
+
+            let sortition_hash = burnchain_block.sortition_hash;
+
+            // Mark registered keys as approved, if any.
+
+            // When receiving a new block from the burnchain, if there's a block commit op,
+            // we should be:
+            // 1) Get the sortition hash
+            // 2) Start a new tenure
+
+            for leader in self.leaders.iter_mut() {
+                // leader.initiate_new_tenure(sortition_hash.clone()) tear_up(op_tx.clone(), ConsensusHash::empty());
+            }
         }
 
         // loop {
@@ -281,17 +135,5 @@ impl <'a> RunLoop <'a> {
 
         //     thread::sleep(block_time);
         // }
-    }
-}
-
-impl <'a> MemPoolObserver for RunLoop <'a> {
-    /// todo(ludo): define fn
-    fn handle_received_tx(&mut self, tx: Txid) {
-
-    }
-
-    /// todo(ludo): define fn
-    fn handle_archived_tx(&mut self, tx: Txid) {
-
     }
 }
