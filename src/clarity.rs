@@ -238,7 +238,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let contract_analysis = {
                 if args.len() >= 3 {
                     // use a persisted marf
-                    let mut marf_kv = friendly_expect(sqlite_marf(&args[2], None), "Failed to open VM database.");
+                    let marf_kv = friendly_expect(sqlite_marf(&args[2], None), "Failed to open VM database.");
                     let result = at_chaintip(
                         &args[2],
                         marf_kv,
