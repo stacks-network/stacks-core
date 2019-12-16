@@ -32,6 +32,8 @@ use chainstate::burn::{
 
 use util::db::Error as db_error;
 
+use core::*;
+
 use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::db::burndb::BurnDBTx;
@@ -78,22 +80,14 @@ impl BlockSnapshot {
             sortition: true,
             sortition_hash: SortitionHash::initial(),
             winning_block_txid: Txid([0u8; 32]),
-            winning_stacks_block_hash: BlockHeaderHash([0u8; 32]),
+            winning_stacks_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             index_root: TrieHash::from_empty_data(),
             num_sortitions: 0
         }
     }
 
     pub fn is_initial(&self) -> bool {
-        let mut parent_hash_bytes = [0u8; 32];
-        parent_hash_bytes.copy_from_slice(TrieFileStorage::block_sentinel().as_bytes());
-
-        self.parent_burn_header_hash == BurnchainHeaderHash(parent_hash_bytes) &&
-        self.total_burn == 0 &&
-        self.consensus_hash == ConsensusHash([0u8; 20]) &&
-        self.ops_hash == OpsHash([0u8; 32]) &&
-        self.sortition_hash == SortitionHash::initial() &&
-        self.winning_stacks_block_hash == BlockHeaderHash([0u8; 32])
+        self.sortition_hash == SortitionHash::initial()
     }
 
     /// Given the weighted burns, VRF seed of the last winner, and sortition hash, pick the next
@@ -139,7 +133,7 @@ impl BlockSnapshot {
             .expect("FATAL: failed to query last snapshot with sortition");
 
         let VRF_seed =
-            if last_sortition_snapshot.sortition_hash == SortitionHash::initial() {
+            if last_sortition_snapshot.is_initial() {
                 // this is the sentinal "first-sortition" block 
                 VRFSeed::initial()
             }
@@ -262,24 +256,16 @@ impl BlockSnapshot {
         };
 
         // Try to pick a next block.
-        let (winning_txid, winning_block_hash, winning_block_vrf_seed) = match BlockSnapshot::select_winning_block(tx, block_header, &next_sortition_hash, burn_dist)? {
-            None => {
-                // should be unreachable, but would happen if there were no burns
-                warn!("No winner for block {} {:?}", block_height, &block_hash);
-                return BlockSnapshot::make_snapshot_no_sortition(tx, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids)
-            },
-            Some(winning_block) => {
-                (winning_block.txid, winning_block.block_header_hash, winning_block.new_seed)
-            }
-        };
-      
+        let winning_block = BlockSnapshot::select_winning_block(tx, block_header, &next_sortition_hash, burn_dist)?
+            .expect("FATAL: there must be a winner if the burn distribution has 1 or more points");
+
         // mix in the winning block's VRF seed to the sortition hash.  The next block commits must
         // prove on this final sortition hash.
-        let final_sortition_hash = next_sortition_hash.mix_VRF_seed(&winning_block_vrf_seed);
+        let final_sortition_hash = next_sortition_hash.mix_VRF_seed(&winning_block.new_seed);
         let next_ops_hash = OpsHash::from_txids(&txids);
         let next_ch = ConsensusHash::from_parent_block_data(tx, &next_ops_hash, block_height - 1, first_block_height, &block_header.parent_block_hash, next_burn_total)?;
 
-        info!("SORTITION({}): WINNER IS {:?} (from {:?})", block_height, winning_block_hash, winning_txid);
+        info!("SORTITION({}): WINNER IS {:?} (from {:?})", block_height, &winning_block.block_header_hash, &winning_block.txid);
 
         Ok(BlockSnapshot {
             block_height: block_height,
@@ -290,8 +276,8 @@ impl BlockSnapshot {
             total_burn: next_burn_total,
             sortition: true,
             sortition_hash: final_sortition_hash,
-            winning_block_txid: winning_txid,
-            winning_stacks_block_hash: winning_block_hash,
+            winning_block_txid: winning_block.txid,
+            winning_stacks_block_hash: winning_block.block_header_hash,
             index_root: TrieHash::from_empty_data(),     // will be overwritten,
             num_sortitions: parent_snapshot.num_sortitions + 1
         })

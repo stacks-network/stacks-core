@@ -27,6 +27,7 @@ use std::fmt;
 use std::error;
 use std::io;
 use std::fs;
+use std::convert::TryInto; 
 
 use util::db::DBConn;
 use util::db::DBTx;
@@ -263,23 +264,9 @@ impl fmt::Display for BlockstackOperationType {
 
 // parser helpers
 pub fn parse_u32_from_be(bytes: &[u8]) -> Option<u32> {
-    match bytes.len() {
-        4 => {
-            Some(((bytes[0] as u32)) +
-                 ((bytes[1] as u32) << 8) +
-                 ((bytes[2] as u32) << 16) +
-                 ((bytes[3] as u32) << 24))
-        },
-        _ => None
-    }
+    bytes.try_into().ok().map(u32::from_be_bytes)
 }
 
 pub fn parse_u16_from_be(bytes: &[u8]) -> Option<u16> {
-    match bytes.len() {
-        2 => {
-            Some((bytes[0] as u16) +
-                ((bytes[1] as u16) << 8))
-        },
-        _ => None
-    }
+    bytes.try_into().ok().map(u16::from_be_bytes)
 }

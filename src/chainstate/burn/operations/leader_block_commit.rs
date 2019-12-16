@@ -265,7 +265,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         }
         
         /////////////////////////////////////////////////////////////////////////////////////
-        // This tx's epoch number must match the current epoch
+        // This tx must occur after the start of the network
         /////////////////////////////////////////////////////////////////////////////////////
     
         let first_block_snapshot = BurnDB::get_first_block_snapshot(tx)

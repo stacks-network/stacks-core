@@ -535,5 +535,7 @@ mod tests {
             assert_eq!(fixture.res, fixture.op.check(&burnchain, &header, &mut tx));
         }
     }
+
+    // TODO: make VRF keys expire
 }
 
