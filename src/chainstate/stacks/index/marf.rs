@@ -446,6 +446,8 @@ impl MARF {
             trace!("c.node_ptrs = {:?}", cursor.node_ptrs);
             assert!(false);
         }
+
+        test_debug!("MARF Insert in {}: '{}' = '{}' (...{:?})", block_hash.to_hex(), path.to_hex(), leaf_value.data.to_hex(), &leaf_value.path);
         
         Trie::add_value(storage, &mut cursor, &mut value)?;
 
@@ -724,7 +726,6 @@ impl MARF {
                 let height = MARF::get_block_height_miner_tip(&mut self.storage, chain_tip, chain_tip, miner_tip.as_ref())?
                     .ok_or(Error::CorruptionError(format!("Failed to find block height for `{:?}`", chain_tip)))?;
                 height.checked_add(1).expect("FATAL: block height overflow!")
-
             } else {
                 0
             };
