@@ -21,8 +21,9 @@ use std::io;
 use std::io::prelude::*;
 use std::fmt;
 use std::fs;
-use hashbrown::HashMap;
-use hashbrown::HashSet;
+use std::collections::{HashMap, HashSet};
+
+use core::*;
 
 use chainstate::burn::operations::*;
 
@@ -74,7 +75,6 @@ use vm::clarity::{
 };
 
 pub use vm::analysis::errors::CheckErrors;
-use vm::errors::Error as clarity_vm_error;
 
 use vm::database::ClarityDatabase;
 
@@ -88,7 +88,7 @@ pub struct StagingMicroblock {
     pub burn_header_hash: BurnchainHeaderHash,
     pub anchored_block_hash: BlockHeaderHash,
     pub microblock_hash: BlockHeaderHash,
-    pub sequence: u8,
+    pub sequence: u16,
     pub processed: bool,
     pub block_data: Vec<u8>
 }
@@ -117,7 +117,7 @@ pub struct StagingUserBurnSupport {
 
 impl StagingBlock {
     pub fn is_genesis(&self) -> bool {
-        self.parent_burn_header_hash == BurnchainHeaderHash([0u8; 32]) && self.parent_anchored_block_hash == BlockHeaderHash([0u8; 32])
+        self.parent_burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH && self.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH
     }
 }
 
@@ -136,12 +136,12 @@ impl FromRow<StagingMicroblock> for StagingMicroblock {
         let processed_i64 : i64 = row.get(index + 4);
         let block_data : Vec<u8> = row.get(index + 5);
 
-        if sequence_i64 > (u8::max_value() as i64) || sequence_i64 < 0 {
+        if sequence_i64 > (u16::max_value() as i64) || sequence_i64 < 0 {
             return Err(db_error::ParseError);
         }
 
         let processed = if processed_i64 != 0 { true } else { false };
-        let sequence = sequence_i64 as u8;
+        let sequence = sequence_i64 as u16;
 
         Ok(StagingMicroblock {
             burn_header_hash,
@@ -405,7 +405,7 @@ impl StacksChainState {
     /// The given burn_header_hash is the burnchain header hash of the snapshot that selected this
     /// stream's anchored block.
     pub fn has_stored_microblocks(&self, burn_header_hash: &BurnchainHeaderHash, tail_header: &BlockHeaderHash) -> Result<bool, Error> {
-        if *tail_header == BlockHeaderHash([0u8; 32]) {
+        if *tail_header == EMPTY_MICROBLOCK_PARENT_HASH {
             // empty
             Ok(true)
         }
@@ -551,10 +551,15 @@ impl StacksChainState {
                 Ok(None)
             }
             1 => {
-                let mut index = 0;
-                match StacksBlock::deserialize(&rows[0].block_data, &mut index, rows[0].block_data.len() as u32) {
-                    Ok(block) => Ok(Some(block)),
-                    Err(e) => Ok(None)
+                if rows[0].block_data.len() == 0 {
+                    Ok(None)
+                }
+                else {
+                    let mut index = 0;
+                    match StacksBlock::deserialize(&rows[0].block_data, &mut index, rows[0].block_data.len() as u32) {
+                        Ok(block) => Ok(Some(block)),
+                        Err(e) => Err(Error::NetError(e))
+                    }
                 }
             },
             _ => {
@@ -618,7 +623,7 @@ impl StacksChainState {
     /// Load up a preprocessed but still unprocessed microblock stream, given its parent's anchored
     /// block's hash and burn hash.
     /// Does not check for duplicates or invalid data; feed the stream into validate_parent_microblock_stream() for that.
-    fn load_staging_microblock_stream(&self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<Option<Vec<StacksMicroblock>>, Error> {
+    pub fn load_staging_microblock_stream(&self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<Option<Vec<StacksMicroblock>>, Error> {
         let row_order = StagingMicroblock::row_order().join(",");
         let sql = format!("SELECT {} FROM staging_microblocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 ORDER BY sequence", row_order);
         let args = [&anchored_block_hash.to_hex() as &dyn ToSql, &burn_header_hash.to_hex() as &dyn ToSql];
@@ -685,7 +690,8 @@ impl StacksChainState {
     /// Store a preprocessed microblock, queueing it up for subsequent processing.
     /// The caller should at least verify that this block was signed by the miner of the ancestor
     /// anchored block that this microblock builds off of.  Because microblocks may arrive out of
-    /// order, this method does not check that 
+    /// order, this method does not check that.
+    /// The burn_header_hash and anchored_block_hash correspond to the _parent Stacks block_
     fn store_staging_microblock(&mut self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<(), Error> {
         let microblock_bytes = microblock.serialize();
 
@@ -893,7 +899,7 @@ impl StacksChainState {
         let row_order = StagingMicroblock::row_order().join(",");
 
         let row_order = StagingMicroblock::row_order().join(",");
-        let sql = format!("SELECT {} FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 ORDER BY sequence ASC", row_order);
+        let sql = format!("SELECT {} FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND processed = 0 ORDER BY sequence ASC", row_order);
         let args = [&burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql];
         let staging_microblocks = query_rows::<StagingMicroblock, _>(&self.blocks_db, &sql, &args).map_err(Error::DBError)?;
 
@@ -946,13 +952,13 @@ impl StacksChainState {
     /// transaction for the two headers with the lowest duplicate sequence number.
     /// Return None if the stream does not connect to this block (e.g. it's incomplete or the like)
     fn validate_parent_microblock_stream(parent_anchored_block_header: &StacksBlockHeader, anchored_block_header: &StacksBlockHeader, microblocks: &Vec<StacksMicroblock>) -> Option<(usize, Option<TransactionPayload>)> {
-        if parent_anchored_block_header.is_genesis() {
+        if anchored_block_header.is_genesis() {
             // there had better be zero microblocks
-            if anchored_block_header.parent_microblock == BlockHeaderHash([0u8; 32]) && anchored_block_header.parent_microblock_sequence == 0 {
+            if anchored_block_header.parent_microblock == EMPTY_MICROBLOCK_PARENT_HASH && anchored_block_header.parent_microblock_sequence == 0 {
                 return Some((0, None));
             }
             else {
-                debug!("Block {} has no ancestor, and should have no microblock parents", anchored_block_header.block_hash().to_hex());
+                warn!("Block {} has no ancestor, and should have no microblock parents", anchored_block_header.block_hash().to_hex());
                 return None;
             }
         }
@@ -962,34 +968,34 @@ impl StacksChainState {
         for microblock in microblocks.iter() {
             let mut dup = microblock.clone();
             if dup.verify(&parent_anchored_block_header.microblock_pubkey_hash).is_err() {
-                debug!("Microblock {} not signed by {}", microblock.block_hash().to_hex(), parent_anchored_block_header.microblock_pubkey_hash.to_hex());
+                warn!("Microblock {} not signed by {}", microblock.block_hash().to_hex(), parent_anchored_block_header.microblock_pubkey_hash.to_hex());
                 continue;
             }
             signed_microblocks.push(microblock.clone());
         }
         
         if signed_microblocks.len() == 0 {
-            if anchored_block_header.parent_microblock == BlockHeaderHash([0u8; 32]) && anchored_block_header.parent_microblock_sequence == 0 {
+            if anchored_block_header.parent_microblock == EMPTY_MICROBLOCK_PARENT_HASH && anchored_block_header.parent_microblock_sequence == 0 {
                 // expected empty
-                debug!("No microblocks between {} and {}", parent_anchored_block_header.block_hash().to_hex(), anchored_block_header.block_hash().to_hex());
+                warn!("No microblocks between {} and {}", parent_anchored_block_header.block_hash().to_hex(), anchored_block_header.block_hash().to_hex());
                 return Some((0, None));
             }
             else {
                 // did not expect empty
-                debug!("Missing microblocks between {} and {}", parent_anchored_block_header.block_hash().to_hex(), anchored_block_header.block_hash().to_hex());
+                warn!("Missing microblocks between {} and {}", parent_anchored_block_header.block_hash().to_hex(), anchored_block_header.block_hash().to_hex());
                 return None;
             }
         }
         
         if signed_microblocks[0].header.sequence != 0 {
             // discontiguous -- must start with seq 0
-            debug!("Discontiguous stream -- first microblock header sequence is {}", signed_microblocks[0].header.sequence);
+            warn!("Discontiguous stream -- first microblock header sequence is {}", signed_microblocks[0].header.sequence);
             return None;
         }
 
         if signed_microblocks[0].header.prev_block != parent_anchored_block_header.block_hash() {
             // discontiguous -- not connected to parent
-            debug!("Discontiguous stream -- does not connect to parent");
+            warn!("Discontiguous stream -- does not connect to parent");
             return None;
         }
 
@@ -1001,7 +1007,7 @@ impl StacksChainState {
             let cur_seq = (signed_microblocks[i-1].header.sequence as u32) + 1;
             if cur_seq < (signed_microblocks[i].header.sequence as u32) {
                 // discontiguous
-                debug!("Discontiguous stream -- {} < {}", cur_seq, signed_microblocks[i].header.sequence);
+                warn!("Discontiguous stream -- {} < {}", cur_seq, signed_microblocks[i].header.sequence);
                 return None;
             }
         }
@@ -1036,18 +1042,16 @@ impl StacksChainState {
             }
         }
         
-        if anchored_block_header.parent_microblock == BlockHeaderHash([0u8; 32]) && anchored_block_header.parent_microblock_sequence == 0 {
+        if anchored_block_header.parent_microblock == EMPTY_MICROBLOCK_PARENT_HASH && anchored_block_header.parent_microblock_sequence == 0 {
             // expected empty
             debug!("Empty microblock stream between {} and {}", parent_anchored_block_header.block_hash().to_hex(), anchored_block_header.block_hash().to_hex());
             return Some((0, None));
         }
 
-        let num_microblocks = microblocks.len();
-
         let mut end = 0;
         let mut connects = false;
-        for i in 0..num_microblocks {
-            if microblocks[i].block_hash() == anchored_block_header.parent_microblock {
+        for i in 0..signed_microblocks.len() {
+            if signed_microblocks[i].block_hash() == anchored_block_header.parent_microblock {
                 end = i + 1;
                 connects = true;
                 break;
@@ -1068,7 +1072,7 @@ impl StacksChainState {
     /// Returns None if not valid
     /// * burn_header_hash is the burnchain block header hash of the burnchain block whose sortition
     /// (ostensibly) selected this block for inclusion.
-    pub fn validate_anchored_block_burnchain<'a>(tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<Option<(u64, u64)>, Error> {
+    pub fn validate_anchored_block_burnchain<'a>(tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, mainnet: bool, chain_id: u32) -> Result<Option<(u64, u64)>, Error> {
         // sortition-winning block commit for this block?
         let block_commit = match BurnDB::get_block_commit_for_stacks_block(tx, burn_header_hash, &block.block_hash()).map_err(Error::DBError)? {
             Some(bc) => bc,
@@ -1113,7 +1117,14 @@ impl StacksChainState {
                     .expect("FATAL: burn DB does not have snapshot for parent block commit")
             };
 
+        // attaches to burn chain
         let valid = block.header.validate_burnchain(&burn_chain_tip, &sortition_snapshot, &leader_key, &block_commit, &stacks_chain_tip);
+        if !valid {
+            return Ok(None);
+        }
+
+        // static checks on transactions all pass
+        let valid = block.validate_transactions_static(mainnet, chain_id);
         if !valid {
             return Ok(None);
         }
@@ -1132,8 +1143,7 @@ impl StacksChainState {
     /// elected the given Stacks block.
     /// 
     /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
-    /// deciding whether or not it can be processed.  If it's not full enough, and there were
-    /// pending transactions at the time it was relayed, then drop it.  Requires a working mempool.
+    /// deciding whether or not it can be processed.
     pub fn preprocess_anchored_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<bool, Error> {
         // already in queue or already processed?
         if self.has_stored_block(burn_header_hash, &block.block_hash())? || self.has_staging_block(burn_header_hash, &block.block_hash())? {
@@ -1141,7 +1151,7 @@ impl StacksChainState {
         }
         
         // does this block match the burnchain state? skip if not
-        let (commit_burn, sortition_burn) = match StacksChainState::validate_anchored_block_burnchain(burn_tx, burn_header_hash, block)? {
+        let (commit_burn, sortition_burn) = match StacksChainState::validate_anchored_block_burnchain(burn_tx, burn_header_hash, block, self.mainnet, self.chain_id)? {
             Some((commit_burn, sortition_burn)) => (commit_burn, sortition_burn),
             None => { 
                 let msg = format!("Invalid block {}: does not correspond to burn chain state", block.block_hash());
@@ -1198,7 +1208,14 @@ impl StacksChainState {
 
         let mut dup = microblock.clone();
         if dup.verify(&pubkey_hash).is_err() {
-            test_debug!("Invalid microblock {}: failed to verify", microblock.block_hash().to_hex());
+            warn!("Invalid microblock {}: failed to verify signature with {}", microblock.block_hash().to_hex(), pubkey_hash.to_hex());
+            return Ok(false);
+        }
+
+        // static checks on transactions all pass
+        let valid = microblock.validate_transactions_static(self.mainnet, self.chain_id);
+        if !valid {
+            warn!("Invalid microblock {}: one or more transactions failed static tests", microblock.block_hash().to_hex());
             return Ok(false);
         }
 
@@ -1294,7 +1311,7 @@ impl StacksChainState {
                 // either all processed, or no microblocks
                 let mut index = 0;
                 let block = StacksBlock::deserialize(&staging_block.block_data, &mut index, staging_block.block_data.len() as u32).map_err(Error::NetError)?;
-                if block.header.parent_microblock_sequence == 0 && block.header.parent_microblock == BlockHeaderHash([0u8; 32]) {
+                if block.header.parent_microblock_sequence == 0 && block.header.parent_microblock == EMPTY_MICROBLOCK_PARENT_HASH {
                     // no microblocks in the first place
                     return Ok(Some(vec![]));
                 }
@@ -1326,7 +1343,8 @@ impl StacksChainState {
             }
         }
 
-        // pick a random block 
+        // nothing prioritized.
+        // pick a random staging block.
         let sql = format!("SELECT {} FROM staging_blocks WHERE processed = 0 ORDER BY RANDOM() LIMIT 1", &row_order);
         let rows = query_rows::<StagingBlock, _>(&self.blocks_db, &sql, NO_PARAMS).map_err(Error::DBError)?;
         if rows.len() > 0 {
@@ -1348,7 +1366,7 @@ impl StacksChainState {
     /// Process a stream of microblocks
     /// Return the fees and burns.
     /// TODO: if we find an invalid Stacks microblock, then punish the miner who produced it
-    fn process_microblocks_transactions<'a>(clarity_tx: &mut ClarityTx<'a>, microblocks: &Vec<StacksMicroblock>) -> Result<(u128, u128), (Error, BlockHeaderHash)> {
+    pub fn process_microblocks_transactions<'a>(clarity_tx: &mut ClarityTx<'a>, microblocks: &Vec<StacksMicroblock>) -> Result<(u128, u128), (Error, BlockHeaderHash)> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         for microblock in microblocks.iter() {
@@ -1474,27 +1492,40 @@ impl StacksChainState {
     {
         let mainnet = self.mainnet;
         let block_hash = block.block_hash();
-        let next_block_height = parent_chain_tip.block_height.checked_add(1).expect("Blockchain overflow");
-        if next_block_height > (u32::max_value() as u64) {
-            panic!("Blockchain overflow!");
-        }
+        let next_block_height = block.header.total_work.work;
 
         // this looks awkward, but it keeps the borrow checker happy since `self` isn't in scope
         let inner_process_block = |state: &mut StacksChainState, matured_miner_rewards_opt: Option<&Vec<MinerReward>>| {
             let (parent_burn_header_hash, parent_block_hash) = 
                 if block.header.is_genesis() {
                     // has to be all 0's if this block has no parent
-                    (BurnchainHeaderHash([0u8; 32]), BlockHeaderHash([0u8; 32]))
+                    (FIRST_BURNCHAIN_BLOCK_HASH.clone(), FIRST_STACKS_BLOCK_HASH.clone())
                 }
                 else {
                     (parent_chain_tip.burn_header_hash.clone(), parent_chain_tip.anchored_header.block_hash())
                 };
+ 
+            let mut clarity_tx = state.block_begin(&parent_burn_header_hash, &parent_block_hash, &MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH);
 
-            debug!("Append block {}/{} off of {}/{}", chain_tip_burn_header_hash.to_hex(), block.block_hash().to_hex(), parent_burn_header_hash.to_hex(), parent_block_hash.to_hex());
-            
-            // NOTE: need to insert the child block's hashes as all 0's, since this is what the
-            // miner would have done when they mined the block.
-            let mut clarity_tx = state.block_begin(&parent_burn_header_hash, &parent_block_hash, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+            let (last_microblock_hash, last_microblock_seq) = 
+                if microblocks.len() > 0 {
+                    let first_mblock_hash = microblocks[0].block_hash();
+                    let num_mblocks = microblocks.len();
+                    let last_microblock_hash = microblocks[num_mblocks-1].block_hash();
+                    let last_microblock_seq = microblocks[num_mblocks-1].header.sequence;
+
+                    test_debug!("\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n", num_mblocks, chain_tip_burn_header_hash.to_hex(), first_mblock_hash, last_microblock_hash, parent_burn_header_hash.to_hex(), parent_block_hash.to_hex());
+                    (last_microblock_hash, last_microblock_seq)
+                }
+                else {
+                    (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0)
+                };
+
+            if last_microblock_hash != block.header.parent_microblock || last_microblock_seq != block.header.parent_microblock_sequence {
+                // the pre-processing step should prevent this from being reached
+                panic!("BUG: received discontiguous headers for processing: {} (seq={}) does not connect to {} (microblock parent is {} (seq {}))",
+                       last_microblock_hash.to_hex(), last_microblock_seq, block.block_hash(), block.header.parent_microblock.to_hex(), block.header.parent_microblock_sequence);
+            }
 
             // process microblock stream
             let (microblock_fees, microblock_burns) = match StacksChainState::process_microblocks_transactions(&mut clarity_tx, &microblocks) {
@@ -1509,6 +1540,10 @@ impl StacksChainState {
                     (fees, burns)
                 }
             };
+            
+            test_debug!("\n\nAppend block {}/{} off of {}/{}\nMicroblock parent: {} (seq {}) (count {})\n", 
+                        chain_tip_burn_header_hash.to_hex(), block.block_hash().to_hex(), parent_burn_header_hash.to_hex(), parent_block_hash.to_hex(),
+                        last_microblock_hash.to_hex(), last_microblock_seq, microblocks.len());
 
             // process anchored block
             let (block_fees, block_burns) = match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {
@@ -1701,8 +1736,8 @@ impl StacksChainState {
         debug!("Reached chain tip {}/{} from {}/{}", next_chain_tip.burn_header_hash.to_hex(), next_chain_tip.anchored_header.block_hash().to_hex(), next_staging_block.parent_burn_header_hash.to_hex(), next_staging_block.parent_anchored_block_hash.to_hex());
 
         // move over to chunk store
+        self.set_microblocks_processed(&next_staging_block.parent_burn_header_hash, &next_staging_block.parent_anchored_block_hash, true)?;
         self.set_block_processed(&next_chain_tip.burn_header_hash, &next_chain_tip.anchored_header.block_hash(), true)?;
-        self.set_microblocks_processed(&next_chain_tip.burn_header_hash, &next_chain_tip.anchored_header.block_hash(), true)?;
         
         Ok((Some(next_chain_tip), None))
     }
@@ -1793,7 +1828,7 @@ mod test {
     fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
         let privk = StacksPrivateKey::from_hex("59e4d5e18351d6027a37920efe53c2f1cbadc50dca7d77169b7291dff936ed6d01").unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-        let proof_bytes = hex_bytes("024c1484fcb05cecdb4dbfb9bf4e08e7f529aea3b3a2515716ad4e9cf7bace6c91181b6bb7d8201c5a85a11c626d1848aa2ac4d188c7e24a94faa32d1eec48d600fad7c55c7e71adb6a7dd6c73f6fc02").unwrap();
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
         
         let mut tx_coinbase = StacksTransaction::new(TransactionVersion::Testnet, auth, TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
@@ -1890,7 +1925,7 @@ mod test {
 
             let header = StacksMicroblockHeader {
                 version: 0x12,
-                sequence: i as u8,
+                sequence: i as u16,
                 prev_block: prev_block,
                 tx_merkle_root: tx_merkle_root,
                 signature: MessageSignature([0u8; 65])
@@ -1943,7 +1978,7 @@ mod test {
 
         // don't worry about freeing microblcok state yet
         block.header.parent_microblock_sequence = 0;
-        block.header.parent_microblock = BlockHeaderHash([0u8; 32]);
+        block.header.parent_microblock = EMPTY_MICROBLOCK_PARENT_HASH.clone();
 
         let path = chainstate.get_block_path(&BurnchainHeaderHash([1u8; 32]), &block.block_hash()).unwrap();
         assert!(fs::metadata(&path).is_err());
@@ -2186,7 +2221,7 @@ mod test {
         let microblocks = make_sample_microblock_stream(&privk, &block.block_hash());
         let num_mblocks = microblocks.len();
 
-        let proof_bytes = hex_bytes("024c1484fcb05cecdb4dbfb9bf4e08e7f529aea3b3a2515716ad4e9cf7bace6c91181b6bb7d8201c5a85a11c626d1848aa2ac4d188c7e24a94faa32d1eec48d600fad7c55c7e71adb6a7dd6c73f6fc02").unwrap();
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
 
         let child_block_header = StacksBlockHeader {
@@ -2217,7 +2252,7 @@ mod test {
         // empty stream
         { 
             let mut child_block_header_empty = child_block_header.clone();
-            child_block_header_empty.parent_microblock = BlockHeaderHash([0u8; 32]);
+            child_block_header_empty.parent_microblock = EMPTY_MICROBLOCK_PARENT_HASH.clone();
             child_block_header_empty.parent_microblock_sequence = 0;
 
             let res = StacksChainState::validate_parent_microblock_stream(&block.header, &child_block_header_empty, &vec![]);
@@ -2231,7 +2266,7 @@ mod test {
         // non-empty stream, but child drops all microblocks
         { 
             let mut child_block_header_empty = child_block_header.clone();
-            child_block_header_empty.parent_microblock = BlockHeaderHash([0u8; 32]);
+            child_block_header_empty.parent_microblock = EMPTY_MICROBLOCK_PARENT_HASH.clone();
             child_block_header_empty.parent_microblock_sequence = 0;
 
             let res = StacksChainState::validate_parent_microblock_stream(&block.header, &child_block_header_empty, &microblocks);
