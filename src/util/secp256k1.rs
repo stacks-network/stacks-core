@@ -160,6 +160,15 @@ impl Secp256k1PublicKey {
         })
     }
 
+    pub fn to_hex(&self) -> String {
+        if self.compressed {
+            to_hex(&self.key.serialize().to_vec())
+        }
+        else {
+            to_hex(&self.key.serialize_uncompressed().to_vec())
+        }
+    }
+
     pub fn to_bytes_compressed(&self) -> Vec<u8> {
         self.key.serialize().to_vec()
     }
@@ -320,6 +329,10 @@ impl Secp256k1PrivateKey {
 
     pub fn set_compress_public(&mut self, value: bool) -> () {
         self.compress_public = value;
+    }
+
+    pub fn to_hex(&self) -> String {
+        to_hex(&self.key[..].to_vec())
     }
 }
 
