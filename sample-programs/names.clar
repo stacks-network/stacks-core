@@ -11,9 +11,9 @@
 (define-public (preorder 
                 (name-hash (buff 20))
                 (name-price uint))
-  (if (is-ok? (contract-call! .tokens token-transfer
+  (if (is-ok (contract-call? .tokens token-transfer
                 burn-address name-price))
-      (begin (map-insert! preorder-map
+      (begin (map-insert preorder-map
                      (tuple (name-hash name-hash))
                      (tuple (paid name-price)
                             (buyer tx-sender)))
@@ -26,25 +26,25 @@
                 (salt uint))
   (let ((preorder-entry
          (unwrap! ;; name _must_ have been preordered.
-           (map-get preorder-map
+           (map-get? preorder-map
              (tuple (name-hash (hash160 (xor name salt)))))
            (err "no preorder found")))
         (name-entry 
-         (map-get name-map (tuple (name name)))))
+         (map-get? name-map (tuple (name name)))))
     (if (and
          ;; name shouldn't *already* exist
-         (is-none? name-entry)
+         (is-none name-entry)
          ;; preorder must have paid enough
          (<= (price-function name) 
              (get paid preorder-entry))
          ;; preorder must have been the current principal
-         (eq? tx-sender
+         (is-eq tx-sender
               (get buyer preorder-entry)))
         (if (and
-              (map-insert! name-map
+              (map-insert name-map
                         (tuple (name name))
                         (tuple (owner recipient-principal)))
-              (map-delete! preorder-map
+              (map-delete preorder-map
                         (tuple (name-hash (hash160 (xor name salt))))))
             (ok u0)
             (err "failed to insert new name entry"))

@@ -12,7 +12,7 @@ const SIMPLE_TOKENS: &str =
         "(define-map tokens ((account principal)) ((balance uint)))
          (define-read-only (my-get-token-balance (account principal))
             (let ((balance
-                  (get balance (map-get tokens (tuple (account account))))))
+                  (get balance (map-get? tokens (tuple (account account))))))
               (default-to u0 balance)))
 
          (define-private (token-credit! (account principal) (amount uint))
@@ -20,7 +20,7 @@ const SIMPLE_TOKENS: &str =
                 (err 1)
                 (let ((current-amount (my-get-token-balance account)))
                   (begin
-                    (map-set! tokens (tuple (account account))
+                    (map-set tokens (tuple (account account))
                                        (tuple (balance (+ amount current-amount))))
                     (ok u0)))))
          (define-public (token-transfer (to principal) (amount uint))
@@ -28,7 +28,7 @@ const SIMPLE_TOKENS: &str =
              (if (or (> amount balance) (<= amount u0))
                  (err 2)
                  (begin
-                   (map-set! tokens (tuple (account tx-sender))
+                   (map-set tokens (tuple (account tx-sender))
                                       (tuple (balance (- balance amount))))
                    (token-credit! to amount)))))                     
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
@@ -47,22 +47,22 @@ const SIMPLE_NAMES: &str =
 
          (define-private (check-balance)
            (default-to u0 
-             (get balance (contract-map-get
+             (get balance (contract-map-get?
               .tokens tokens (tuple (account tx-sender))))))
 
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price uint))
-           (let ((xfer-result (contract-call! .tokens token-transfer
+           (let ((xfer-result (contract-call? .tokens token-transfer
                                   burn-address name-price)))
-            (if (is-ok? xfer-result)
+            (if (is-ok xfer-result)
                (if
-                 (map-insert! preorder-map
+                 (map-insert preorder-map
                    (tuple (name-hash name-hash))
                    (tuple (paid name-price)
                           (buyer tx-sender)))
                  (ok 0) (err 2))
-               (if (eq? (unwrap-err! xfer-result (err (- 1)))
+               (if (is-eq (unwrap-err! xfer-result (err (- 1)))
                         2)
                    (err 1) (err 3)))))
 
@@ -72,24 +72,24 @@ const SIMPLE_NAMES: &str =
                         (salt uint))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (unwrap! (map-get preorder-map
+                   (unwrap! (map-get? preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 2)))
                  (name-entry 
-                   (map-get name-map (tuple (name name)))))
+                   (map-get? name-map (tuple (name name)))))
              (if (and
                   ;; name shouldn't *already* exist
-                  (is-none? name-entry)
+                  (is-none name-entry)
                   ;; preorder must have paid enough
                   (<= (price-function name) 
                       (get paid preorder-entry))
                   ;; preorder must have been the current principal
-                  (eq? tx-sender
+                  (is-eq tx-sender
                        (get buyer preorder-entry)))
                   (if (and
-                    (map-insert! name-map
+                    (map-insert name-map
                       (tuple (name name))
                       (tuple (owner recipient-principal)))
-                    (map-delete! preorder-map
+                    (map-delete preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
                     (ok 0)
                     (err 3))
@@ -123,7 +123,7 @@ fn test_names_tokens_contracts_interface() {
         (define-private (f08) 'SP000000000000000000002Q6VF78) 
         (define-private (f09) 0xdeadbeef)
         (define-private (f10) (tuple (tn1 'true) (tn2 0) (tn3 0xff) ))
-        (define-private (f11) (map-get map1 (tuple (name 0))))
+        (define-private (f11) (map-get? map1 (tuple (name 0))))
         (define-private (f12) (ok 3))
         (define-private (f13) (err 6))
         (define-private (f14) (if 'true (ok 1) (err 2)))
@@ -374,9 +374,9 @@ fn test_names_tokens_contracts() {
 fn test_names_tokens_contracts_bad() {
     let broken_public = "
          (define-public (broken-cross-contract (name-hash (buff 20)) (name-price uint))
-           (if (is-ok? (contract-call! .tokens token-transfer
+           (if (is-ok (contract-call? .tokens token-transfer
                  burn-address 'true))
-               (begin (map-insert! preorder-map
+               (begin (map-insert preorder-map
                  (tuple (name-hash name-hash))
                  (tuple (paid name-price)
                         (buyer tx-sender))) (ok u1))
@@ -409,7 +409,7 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
     let broken_public = "
          (define-private (check-balance)
            (default-to 0 
-             (get balance (contract-map-get
+             (get balance (contract-map-get?
               .tokens tokens (tuple (accnt tx-sender)))))) ;; should be a non-admissable tuple!
     ";
 
@@ -442,33 +442,33 @@ fn test_bad_map_usage() {
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (my-get-token-balance (account int))
             (let ((balance
-                  (get balance (map-get tokens (tuple (account account))))))
+                  (get balance (map-get? tokens (tuple (account account))))))
               balance))";
     let bad_delete = 
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (del-balance (account principal))
-            (map-delete! tokens (tuple (balance account))))";
+            (map-delete tokens (tuple (balance account))))";
     let bad_set_1 = 
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (set-balance (account principal))
-            (map-set! tokens (tuple (account account)) (tuple (balance \"foo\"))))";
+            (map-set tokens (tuple (account account)) (tuple (balance \"foo\"))))";
     let bad_set_2 = 
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (set-balance (account principal))
-            (map-set! tokens (tuple (account \"abc\")) (tuple (balance 0))))";
+            (map-set tokens (tuple (account \"abc\")) (tuple (balance 0))))";
     let bad_insert_1 = 
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (set-balance (account principal))
-            (map-insert! tokens (tuple (account account)) (tuple (balance \"foo\"))))";
+            (map-insert tokens (tuple (account account)) (tuple (balance \"foo\"))))";
     let bad_insert_2 = 
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (set-balance (account principal))
-            (map-insert! tokens (tuple (account \"abc\")) (tuple (balance 0))))";
+            (map-insert tokens (tuple (account \"abc\")) (tuple (balance 0))))";
 
     let unhandled_option =
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (plus-balance (account principal))
-           (+ (get balance (map-get tokens (tuple (account account)))) 1))";
+           (+ (get balance (map-get? tokens (tuple (account account)))) 1))";
 
     let tests = [bad_fetch,
                  bad_delete,
@@ -500,17 +500,17 @@ fn test_expects() {
         "(define-map tokens ((id int)) ((balance int)))
          (define-private (my-get-token-balance)
             (let ((balance (unwrap! 
-                              (get balance (map-get tokens (tuple (id 0)))) 
+                              (get balance (map-get? tokens (tuple (id 0)))) 
                               0)))
               (+ 0 balance)))
          (define-private (my-get-token-balance-2)
             (let ((balance 
-                    (get balance (unwrap! (map-get tokens (tuple (id 0))) 0)) 
+                    (get balance (unwrap! (map-get? tokens (tuple (id 0))) 0)) 
                               ))
               (+ 0 balance)))
           (define-private (my-get-token-balance-3)
              (let ((balance
-                     (unwrap! (get balance (map-get tokens (tuple (id 0))))
+                     (unwrap! (get balance (map-get? tokens (tuple (id 0))))
                                (err 'false))))
                (ok balance)))
           (define-private (my-get-token-balance-4)
@@ -527,18 +527,18 @@ fn test_expects() {
         "(define-map tokens ((id int)) ((balance int)))
          (define-private (my-get-token-balance)
             (let ((balance (unwrap! 
-                              (get balance (map-get tokens (tuple (id 0)))) 
+                              (get balance (map-get? tokens (tuple (id 0)))) 
                               'false)))
               (+ 0 balance)))",
         "(define-map tokens ((id int)) ((balance int)))
          (define-private (my-get-token-balance)
             (let ((balance (unwrap! 
-                              (get balance (map-get tokens (tuple (id 0)))) 
+                              (get balance (map-get? tokens (tuple (id 0)))) 
                               (err 1))))
               (err 'false)))"];
 
     let bad_default_type = "(define-map tokens ((id int)) ((balance int)))
-         (default-to 'false (get balance (map-get tokens (tuple (id 0)))))";
+         (default-to 'false (get balance (map-get? tokens (tuple (id 0)))))";
 
     let notype_response_type = "
          (define-private (t1) (ok 3))

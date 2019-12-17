@@ -12,17 +12,17 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))
             (ft-get-balance stackaroos account))
          (define-public (my-token-transfer (to principal) (amount uint))
-            (ft-transfer! stackaroos amount tx-sender to))
+            (ft-transfer? stackaroos amount tx-sender to))
          (define-public (faucet)
            (let ((original-sender tx-sender))
-             (as-contract (ft-transfer! stackaroos u1 tx-sender original-sender))))
+             (as-contract (ft-transfer? stackaroos u1 tx-sender original-sender))))
          (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
                (err \"must be in the future\")))
-         (begin (ft-mint! stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-                (ft-mint! stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
-                (ft-mint! stackaroos u4 .tokens))";
+         (begin (ft-mint? stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+                (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
+                (ft-mint? stackaroos u4 .tokens))";
 
 const ASSET_NAMES: &str =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
@@ -37,36 +37,36 @@ const ASSET_NAMES: &str =
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price uint))
-           (let ((xfer-result (contract-call! .tokens my-token-transfer
+           (let ((xfer-result (contract-call? .tokens my-token-transfer
                                 burn-address name-price)))
-            (if (is-ok? xfer-result)
+            (if (is-ok xfer-result)
                (if
-                 (map-insert! preorder-map
+                 (map-insert preorder-map
                    (tuple (name-hash name-hash))
                    (tuple (paid name-price)
                           (buyer tx-sender)))
                  (ok 0) (err 2))
-               (if (eq? xfer-result (err 1)) ;; not enough balance
+               (if (is-eq xfer-result (err 1)) ;; not enough balance
                    (err 1) (err 3)))))
 
          (define-public (force-mint (name int))
-           (nft-mint! names name tx-sender))
+           (nft-mint? names name tx-sender))
          (define-public (try-bad-transfers)
            (begin
-             (contract-call! .tokens my-token-transfer burn-address u50000)
-             (contract-call! .tokens my-token-transfer burn-address u1000)
-             (contract-call! .tokens my-token-transfer burn-address u1)
+             (contract-call? .tokens my-token-transfer burn-address u50000)
+             (contract-call? .tokens my-token-transfer burn-address u1000)
+             (contract-call? .tokens my-token-transfer burn-address u1)
              (err 0)))
          (define-public (try-bad-transfers-but-ok)
            (begin
-             (contract-call! .tokens my-token-transfer burn-address u50000)
-             (contract-call! .tokens my-token-transfer burn-address u1000)
-             (contract-call! .tokens my-token-transfer burn-address u1)
+             (contract-call? .tokens my-token-transfer burn-address u50000)
+             (contract-call? .tokens my-token-transfer burn-address u1000)
+             (contract-call? .tokens my-token-transfer burn-address u1)
              (ok 0)))
          (define-public (transfer (name int) (recipient principal))
-           (let ((transfer-name-result (nft-transfer! names name tx-sender recipient))
-                 (token-to-contract-result (contract-call! .tokens my-token-transfer .names u1))
-                 (contract-to-burn-result (as-contract (contract-call! .tokens my-token-transfer burn-address u1))))
+           (let ((transfer-name-result (nft-transfer? names name tx-sender recipient))
+                 (token-to-contract-result (contract-call? .tokens my-token-transfer .names u1))
+                 (contract-to-burn-result (as-contract (contract-call? .tokens my-token-transfer burn-address u1))))
              (begin (unwrap! transfer-name-result transfer-name-result)
                     (unwrap! token-to-contract-result token-to-contract-result)
                     (unwrap! contract-to-burn-result contract-to-burn-result)
@@ -77,21 +77,21 @@ const ASSET_NAMES: &str =
                         (salt int))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (unwrap! (map-get preorder-map
+                   (unwrap! (map-get? preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
                  (name-entry 
-                   (nft-get-owner names name)))
+                   (nft-get-owner? names name)))
              (if (and
-                  (is-none? name-entry)
+                  (is-none name-entry)
                   ;; preorder must have paid enough
                   (<= (price-function name) 
                       (get paid preorder-entry))
                   ;; preorder must have been the current principal
-                  (eq? tx-sender
+                  (is-eq tx-sender
                        (get buyer preorder-entry)))
                   (if (and
-                    (is-ok? (nft-mint! names name recipient-principal))
-                    (map-delete! preorder-map
+                    (is-ok (nft-mint? names name recipient-principal))
+                    (map-delete preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
                     (ok 0)
                     (err 3))
@@ -226,9 +226,9 @@ fn total_supply(owned_env: &mut OwnedEnvironment) {
          (define-read-only (get-balance (account principal))
             (ft-get-balance stackaroos account))
          (define-public (transfer (to principal) (amount uint))
-            (ft-transfer! stackaroos amount tx-sender to))
+            (ft-transfer? stackaroos amount tx-sender to))
          (define-public (faucet)
-            (ft-mint! stackaroos u2 tx-sender))
+            (ft-mint? stackaroos u2 tx-sender))
          (define-public (gated-faucet (x bool))
             (begin (faucet)
                    (if x (ok 1) (err 0))))";
@@ -358,7 +358,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(None);
         assert_eq!(
             env.eval_read_only(&names_contract_id.clone(),
-                               "(nft-get-owner names 1)").unwrap(),
+                               "(nft-get-owner? names 1)").unwrap(),
             Value::some(p2.clone()));
     }
 

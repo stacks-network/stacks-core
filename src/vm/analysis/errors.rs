@@ -89,7 +89,7 @@ pub enum CheckErrors {
     ContractAlreadyExists(String),
     ContractCallExpectName,
 
-    // get-block-info errors
+    // get-block-info? errors
     NoSuchBlockInfoProperty(String),
     GetBlockInfoExpectPropertyName,
 

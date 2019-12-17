@@ -227,8 +227,8 @@ fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], 
         .ok_or(CheckError::new(CheckErrors::NoSuchBlockInfoProperty(block_info_prop_str.to_string())))?;
 
     checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
-        
-    Ok(block_info_prop.type_result())
+
+    Ok(TypeSignature::new_option(block_info_prop.type_result()))
 }
 
 impl TypedNativeFunction {
@@ -316,7 +316,7 @@ impl TypedNativeFunction {
             Fold => Special(SpecialNativeFunction(&iterables::check_special_fold)),
             Append => Special(SpecialNativeFunction(&iterables::check_special_append)),
             Concat => Special(SpecialNativeFunction(&iterables::check_special_concat)),
-            AssertsMaxLen => Special(SpecialNativeFunction(&iterables::check_special_asserts_max_len)),
+            AsMaxLen => Special(SpecialNativeFunction(&iterables::check_special_as_max_len)),
             Len => Special(SpecialNativeFunction(&iterables::check_special_len)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
             FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),

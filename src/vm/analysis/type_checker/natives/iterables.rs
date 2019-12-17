@@ -170,7 +170,7 @@ pub fn check_special_append(checker: &mut TypeChecker, args: &[SymbolicExpressio
     }
 }
 
-pub fn check_special_asserts_max_len(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_as_max_len(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
 
     let expected_len = match args[1].expr {
