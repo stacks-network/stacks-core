@@ -637,7 +637,7 @@ impl StacksChainState {
         let headers_state_index = StacksChainState::open_index(&header_index_root, None)?;
 
         let vm_state = sqlite_marf(&clarity_state_index_root, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH)))
-            .map_err(Error::ClarityInterpreterError)?;
+            .map_err(|e| Error::ClarityError(e.into()))?;
 
         let clarity_state = ClarityInstance::new(vm_state);
         
