@@ -145,7 +145,7 @@ impl BlockSnapshot {
             }
             else {
                 // there may have been a prior winning block commit.  Use its VRF seed if possible
-                BurnDB::get_block_commit(tx, &last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.parent_burn_header_hash)?
+                BurnDB::get_block_commit(tx, &last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.burn_header_hash)?
                     .expect("FATAL ERROR: no winning block commits in database (indicates corruption)")
                     .new_seed.clone()
             };
