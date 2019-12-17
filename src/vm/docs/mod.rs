@@ -431,8 +431,8 @@ const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
 it returns `(some value)`.",
-    example: "(unwrap (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (tuple (id 1337))
-(unwrap (map-get? names-map ((name \"blockstack\")))) ;; Same command, using a shorthand for constructing the tuple
+    example: "(unwrap-panic (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (tuple (id 1337))
+(unwrap-panic (map-get? names-map ((name \"blockstack\")))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -483,8 +483,8 @@ const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
 it returns `(some value)`.",
-    example: "(unwrap (contract-map-get? .names-contract names-map (tuple (name \"blockstack\"))) ;; Returns (tuple (id 1337))
-(unwrap (contract-map-get? .names-contract names-map ((name \"blockstack\"))));; Same command, using a shorthand for constructing the tuple
+    example: "(unwrap-panic (contract-map-get? .names-contract names-map (tuple (name \"blockstack\"))) ;; Returns (tuple (id 1337))
+(unwrap-panic (contract-map-get? .names-contract names-map ((name \"blockstack\"))));; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -644,24 +644,24 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
 const UNWRAP_API: SpecialAPI = SpecialAPI {
     input_type: "(optional A) | (response A B)",
     output_type: "A",
-    signature: "(unwrap option-input)",
+    signature: "(unwrap-panic option-input)",
     description: "The `unwrap` function attempts to 'unpack' its argument: if the argument is
 an option type, and the argument is a `(some ...)` option, this function returns the inner value of the
 option. If the argument is a response type, and the argument is an `(ok ...)` response, it returns
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap` throws a runtime error, aborting any further processing of the current transaction.",
-    example: "(unwrap (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (tuple (id 1337))",
+    example: "(unwrap-panic (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (tuple (id 1337))",
 };
 
 const UNWRAP_ERR_API: SpecialAPI = SpecialAPI {
     input_type: "(response A B)",
     output_type: "B",
-    signature: "(unwrap-err response-input)",
+    signature: "(unwrap-err-panic response-input)",
     description: "The `unwrap-err` function attempts to 'unpack' the first argument: if the argument
 is an `(err ...)` response, `unwrap` returns the inner value of the `err`.
 If the supplied argument is an `(ok ...)` value,
 `unwrap-err` throws a runtime error, aborting any further processing of the current transaction.",
-    example: "(unwrap-err (err 1)) ;; Returns 1",
+    example: "(unwrap-err-panic (err 1)) ;; Returns 1",
 };
 
 const EXPECTS_ERR_API: SpecialAPI = SpecialAPI {

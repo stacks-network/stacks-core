@@ -243,7 +243,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ExpectedResponseValue(found_type) => format!("expecting expression of type 'response', found '{}'", found_type),
             CheckErrors::CouldNotDetermineResponseOkType => format!("attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"),
             CheckErrors::CouldNotDetermineResponseErrType => format!("attempted to obtain 'err' value from response, but 'err' type is indeterminate"),
-            CheckErrors::CouldNotDetermineMatchTypes => format!("attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap or unwrap-err instead."),
+            CheckErrors::CouldNotDetermineMatchTypes => format!("attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead."),
             CheckErrors::BadTupleFieldName => format!("invalid tuple field name"),
             CheckErrors::ExpectedTuple(type_signature) => format!("expecting tuple, found '{}'", type_signature),
             CheckErrors::NoSuchTupleField(field_name, tuple_signature) => format!("cannot find field '{}' in tuple '{}'", field_name, tuple_signature),
