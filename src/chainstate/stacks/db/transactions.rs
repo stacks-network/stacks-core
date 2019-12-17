@@ -384,18 +384,19 @@ impl StacksChainState {
             return Err(Error::InvalidStacksTransaction(msg));
         }
 
-        // update the account nonces
-        StacksChainState::update_account_nonce(clarity_tx, tx, &origin_account);
-        if origin != payer {
-            StacksChainState::update_account_nonce(clarity_tx, tx, &payer_account);
-        }
-
         // pay fee
         // TODO: don't do this here; do it when we know what the STX/compute rate will be, and then
         // debit the account (aborting the _whole block_ if the balance would go negative)
         let fee = StacksChainState::pay_transaction_fee(clarity_tx, tx, &payer_account)?;
     
         let burns = StacksChainState::process_transaction_payload(clarity_tx, tx, &origin_account)?;
+
+        // update the account nonces
+        StacksChainState::update_account_nonce(clarity_tx, tx, &origin_account);
+        if origin != payer {
+            StacksChainState::update_account_nonce(clarity_tx, tx, &payer_account);
+        }
+
         Ok((fee, burns))
     }
 }
@@ -405,6 +406,7 @@ pub mod test {
     use super::*;
     use chainstate::*;
     use chainstate::stacks::*;
+    use chainstate::stacks::Error;
     use chainstate::stacks::db::test::*;
     use chainstate::stacks::index::*;
     use chainstate::stacks::index::storage::*;
@@ -461,6 +463,113 @@ pub mod test {
         conn.commit_block();
 
         assert_eq!(fee, 0);
+    }
+    
+    #[test]
+    fn process_token_transfer_stx_transaction_invalid() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-token-transfer-stx-transaction-invalid");
+
+        let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
+        let privk_sponsor = StacksPrivateKey::from_hex("7e3af4db6af6b3c67e2c6c6d7d5983b519f4d9b3a6e00580ae96dcace3bde8bc01").unwrap();
+
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let recv_addr = addr.clone();       // shouldn't be allowed
+        
+        let auth_sponsored = {
+            let auth_origin = TransactionAuth::from_p2pkh(&privk).unwrap();
+            let auth_sponsor = TransactionAuth::from_p2pkh(&privk_sponsor).unwrap();
+            auth_origin.into_sponsored(auth_sponsor).unwrap()
+        };
+
+        let mut tx_stx_transfer_same_receiver = StacksTransaction::new(TransactionVersion::Testnet,
+                                                                       auth.clone(),
+                                                                       TransactionPayload::TokenTransfer(recv_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+
+        let mut tx_stx_transfer_wrong_network = StacksTransaction::new(TransactionVersion::Mainnet,
+                                                                       auth.clone(),
+                                                                       TransactionPayload::TokenTransfer(recv_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+        
+        let mut tx_stx_transfer_wrong_chain_id = StacksTransaction::new(TransactionVersion::Testnet,
+                                                                        auth.clone(),
+                                                                        TransactionPayload::TokenTransfer(recv_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+        
+        let mut wrong_nonce_auth = auth.clone();
+        wrong_nonce_auth.set_origin_nonce(1);
+        let mut tx_stx_transfer_wrong_nonce = StacksTransaction::new(TransactionVersion::Testnet,
+                                                                     wrong_nonce_auth,
+                                                                     TransactionPayload::TokenTransfer(recv_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+
+        let mut wrong_nonce_auth_sponsored = auth_sponsored.clone();
+        wrong_nonce_auth_sponsored.set_sponsor_nonce(1);
+        let mut tx_stx_transfer_wrong_nonce_sponsored = StacksTransaction::new(TransactionVersion::Testnet,
+                                                                               wrong_nonce_auth_sponsored,
+                                                                               TransactionPayload::TokenTransfer(recv_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+
+        tx_stx_transfer_same_receiver.chain_id = 0x80000000;
+        tx_stx_transfer_wrong_network.chain_id = 0x80000000;
+        tx_stx_transfer_wrong_chain_id.chain_id = 0x80000001;
+        tx_stx_transfer_wrong_nonce.chain_id = 0x80000000;
+        tx_stx_transfer_wrong_nonce_sponsored.chain_id = 0x80000000;
+
+        tx_stx_transfer_same_receiver.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer_wrong_network.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer_wrong_chain_id.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer_wrong_nonce.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer_wrong_nonce_sponsored.post_condition_mode = TransactionPostConditionMode::Allow;
+
+        tx_stx_transfer_same_receiver.set_fee_rate(0);
+        tx_stx_transfer_wrong_network.set_fee_rate(0);
+        tx_stx_transfer_wrong_chain_id.set_fee_rate(0);
+        tx_stx_transfer_wrong_nonce.set_fee_rate(0);
+        tx_stx_transfer_wrong_nonce_sponsored.set_fee_rate(0);
+
+        let error_frags = vec![
+            "address tried to send to itself".to_string(),
+            "on testnet; got mainnet".to_string(),
+            "invalid chain ID".to_string(),
+            "Bad nonce".to_string(),
+            "Bad nonce".to_string(),
+        ];
+
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        StacksChainState::account_credit(&mut conn, &addr.to_account_principal(), 123);
+        
+        for (tx_stx_transfer, err_frag) in [tx_stx_transfer_same_receiver, tx_stx_transfer_wrong_network, tx_stx_transfer_wrong_chain_id, tx_stx_transfer_wrong_nonce, tx_stx_transfer_wrong_nonce_sponsored].iter().zip(error_frags) {
+            let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+            signer.sign_origin(&privk).unwrap();
+            
+            if tx_stx_transfer.auth.is_sponsored() {
+                signer.sign_sponsor(&privk_sponsor).unwrap();
+            }
+
+            let signed_tx = signer.get_tx().unwrap();
+
+            // give the spending account some stx
+            let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+
+            assert_eq!(account.stx_balance, 123);
+            assert_eq!(account.nonce, 0);
+
+            let res = StacksChainState::process_transaction(&mut conn, &signed_tx);
+            assert!(res.is_err());
+            
+            match res {
+                Err(Error::InvalidStacksTransaction(msg)) => {
+                    assert!(msg.contains(&err_frag), err_frag);
+                },
+                _ => {
+                    eprintln!("bad error: {:?}", &res);
+                    assert!(false);
+                }
+            }
+        
+            let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+            assert_eq!(account_after.stx_balance, 123);
+            assert_eq!(account_after.nonce, 0);
+        }
+
+        conn.commit_block();
     }
     
     #[test]
@@ -822,7 +931,5 @@ pub mod test {
     }
 
     // TODO: post-conditions
-    // TODO: test that you can't send to yourself
-    // TODO: test invalid nonces won't be accepted
     // TODO: test poison microblock
 }
