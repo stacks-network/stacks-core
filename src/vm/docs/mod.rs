@@ -675,32 +675,25 @@ If the supplied argument is an `(ok ...)` value,
     example: "(unwrap-err! (err 1) 'false) ;; Returns 1",
 };
 
-const MATCH_OPT_API: SpecialAPI = SpecialAPI {
-    input_type: "(optional A) name expression expression",
-    output_type: "B",
-    signature: "(match-opt input binding-name some-branch none-branch)",
-    description: "The `match-opt` function tests whether the provided `input` is a `some` or `none` option,
-and evaluates `some-branch` or `none-branch` in each respective case.
+const MATCH_API: SpecialAPI = SpecialAPI {
+    input_type: "(optional A) name expression expression | (response A B) name expression name expression",
+    output_type: "C",
+    signature: "(match opt-input some-binding-name some-branch none-branch) |
+(match-resp input ok-binding-name ok-branch err-binding-name err-branch)",
+    description: "The `match` function is used to test and destructure optional and response types.
+
+If the `input` is an optional, it tests whether the provided
+`input` is a `some` or `none` option, and evaluates `some-branch` or
+`none-branch` in each respective case.
 
 Within the `some-branch`, the _contained value_ of the `input`
-argument is bound to the provided `binding-name` name. 
+argument is bound to the provided `some-binding-name` name. 
 
-Only _one_ of the branches will be evaluated (similar to `if` statements).",
-    example: "
-(define-private (add-10 (x (optional int)))
-  (match-opt x
-  value (+ 10 value)
-  10))
-(add-10 (some 5)) ;; returns 15
-(add-10 none) ;; returns 10
-", };
+Only _one_ of the branches will be evaluated (similar to `if` statements).
 
-const MATCH_RESP_API: SpecialAPI = SpecialAPI {
-    input_type: "(response A B) name expression name expression",
-    output_type: "C",
-    signature: "(match-resp input ok-binding-name ok-branch err-binding-name err-branch)",
-    description: "The `match-resp` function tests whether the provided `input` is a `ok` or `err` response type,
-and evaluates `ok-branch` or `err-branch` in each respective case.
+If the `input` is a response, it tests whether the provided `input` is
+an `ok` or `err` response type, and evaluates `ok-branch` or
+`err-branch` in each respective case.
 
 Within the `ok-branch`, the _contained ok value_ of the `input`
 argument is bound to the provided `ok-binding-name` name.
@@ -712,10 +705,17 @@ Only _one_ of the branches will be evaluated (similar to `if` statements).
 
 Note: Type checking requires that the type of both the ok and err parts of the
 response object be determinable. For situations in which one of the parts of a response
-is untyped, you should use `unwrap` or `unwrap-err` instead.",
+is untyped, you should use `unwrap-panic` or `unwrap-err-panic` instead of `match`.",
     example: "
+(define-private (add-10 (x (optional int)))
+  (match x
+  value (+ 10 value)
+  10))
+(add-10 (some 5)) ;; returns 15
+(add-10 none) ;; returns 10
+
 (define-private (add-or-pass-err (x (response int (buff 10))) (to-add int))
-  (match-resp x
+  (match x
    value (+ to-add value)
    err-value (err err-value)))
 (add-or-pass-err (ok 5) 20) ;; returns 25
@@ -1153,8 +1153,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         UnwrapErrRet => make_for_special(&EXPECTS_ERR_API, name),
         Unwrap => make_for_special(&UNWRAP_API, name),
         UnwrapErr => make_for_special(&UNWRAP_ERR_API, name),
-        MatchOpt => make_for_special(&MATCH_OPT_API, name),
-        MatchResp =>  make_for_special(&MATCH_RESP_API, name),
+        Match => make_for_special(&MATCH_API, name),
         TryRet =>  make_for_special(&TRY_API, name),
         IsOkay => make_for_special(&IS_OK_API, name),
         IsNone => make_for_special(&IS_NONE_API, name),

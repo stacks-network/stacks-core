@@ -61,9 +61,9 @@ fn test_destructuring_opts(){
         "(unwrap-panic (ok 3))",
         "(unwrap-panic (some 3))",
         "(unwrap-err-panic (err 3))",
-        "(match-opt (some 1) inner-value (+ 1 inner-value) (/ 1 0))",
+        "(match (some 1) inner-value (+ 1 inner-value) (/ 1 0))",
         "(define-private (foo) (if (> 1 0) (ok 1) (err 8)))
-         (match-resp (foo) ok-val (+ 1 ok-val) err-val (/ err-val 0))",
+         (match (foo) ok-val (+ 1 ok-val) err-val (/ err-val 0))",
         "(define-private (t1 (x uint)) (if (> x u1) (ok x) (err 'false)))
          (define-private (t2 (x uint))
            (if (> x u4)
@@ -107,30 +107,29 @@ fn test_destructuring_opts(){
          CheckErrors::CouldNotDetermineResponseOkType),
         ("(unwrap-panic (err 3))",
          CheckErrors::CouldNotDetermineResponseOkType),
-        ("(match-opt none inner-value (/ 1 0) (+ 1 8))",
+        ("(match none inner-value (/ 1 0) (+ 1 8))",
          CheckErrors::CouldNotDetermineMatchTypes),
-        ("(match-resp (ok 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
+        ("(match (ok 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
          CheckErrors::CouldNotDetermineMatchTypes),
-        ("(match-resp (err 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
+        ("(match (err 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
          CheckErrors::CouldNotDetermineMatchTypes),
         ("(define-private (foo) (if (> 1 0) (ok 1) (err u8)))
-         (match-resp (foo) ok-val (+ 1 ok-val) err-val (/ err-val u0))",
+         (match (foo) ok-val (+ 1 ok-val) err-val (/ err-val u0))",
          CheckErrors::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::UIntType)),
-        ("(match-opt (some 1) inner-value (+ 1 inner-value) (> 1 28))",
+        ("(match (some 1) inner-value (+ 1 inner-value) (> 1 28))",
          CheckErrors::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::BoolType)),         
-        ("(match-opt (some 1) inner-value (+ 1 inner-value))",
+        ("(match (some 1) inner-value (+ 1 inner-value))",
          CheckErrors::IncorrectArgumentCount(4, 3)),
-        ("(match-resp (some 1) inner-value (+ 1 inner-value))",
+        ("(match (ok 1) inner-value (+ 1 inner-value))",
          CheckErrors::IncorrectArgumentCount(5, 3)),
-        ("(match-resp (some 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
-         CheckErrors::ExpectedResponseType(TypeSignature::from("(optional int)"))),
-        ("(match-opt (ok 1) ok-val (/ ok-val 0) (+ 3 7))",
-         CheckErrors::ExpectedOptionalType(TypeSignature::new_response(
-             TypeSignature::IntType, TypeSignature::NoType))),
+        ("(match)",
+         CheckErrors::RequiresAtLeastArguments(1, 0)),
+        ("(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
+         CheckErrors::ExpectedOptionalOrResponseType(TypeSignature::from("int"))),
         ("(default-to 3 5)",
          CheckErrors::ExpectedOptionalType(TypeSignature::IntType)),
         ("(define-private (foo (x int))
-           (match-opt (some 3)
+           (match (some 3)
              x (+ x 2)
              5))",
          CheckErrors::NameAlreadyUsed("x".to_string())),

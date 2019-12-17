@@ -1,5 +1,6 @@
-use vm::errors::{CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count};
-use vm::types::{Value, ResponseData};
+use vm::errors::{CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result,
+                 check_argument_count, check_arguments_at_least};
+use vm::types::{Value, ResponseData, OptionalData};
 use vm::contexts::{LocalContext, Environment};
 use vm::{SymbolicExpression, ClarityName};
 use vm;
@@ -131,50 +132,54 @@ fn eval_with_new_binding(body: &SymbolicExpression, bind_name: ClarityName, bind
     vm::eval(body, env, &inner_context)
 }
 
-pub fn special_match_opt(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    check_argument_count(4, args)?;
+fn special_match_opt(input: OptionalData, args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    check_argument_count(3, args)?;
 
-    let input = vm::eval(&args[0], env, context)?;
-    let bind_name = args[1].match_atom()
+    let bind_name = args[0].match_atom()
         .ok_or_else(|| CheckErrors::ExpectedName)?
         .clone();
-    let some_branch = &args[2];
-    let none_branch = &args[3];
+    let some_branch = &args[1];
+    let none_branch = &args[2];
 
-    match input {
-        Value::Optional(data) => {
-            match data.data {
-                Some(data) => eval_with_new_binding(some_branch, bind_name, *data, env, context),
-                None => vm::eval(none_branch, env, context)
-            }
-        },
-        _ => return Err(CheckErrors::ExpectedOptionalValue(input.clone()).into())
+    match input.data {
+        Some(data) => eval_with_new_binding(some_branch, bind_name, *data, env, context),
+        None => vm::eval(none_branch, env, context)
     }
 }
 
 
-pub fn special_match_resp(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+fn special_match_resp(input: ResponseData, args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(5, args)?;
 
+    let ok_bind_name = args[0].match_atom()
+        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .clone();
+    let ok_branch = &args[1];
+    let err_bind_name = args[2].match_atom()
+        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .clone();
+    let err_branch = &args[3];
+
+    if input.committed {
+        eval_with_new_binding(ok_branch, ok_bind_name, *input.data, env, context)
+    } else {
+        eval_with_new_binding(err_branch, err_bind_name, *input.data, env, context)
+    }
+}
+
+pub fn special_match(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    check_arguments_at_least(1, args)?;
+
     let input = vm::eval(&args[0], env, context)?;
-    let ok_bind_name = args[1].match_atom()
-        .ok_or_else(|| CheckErrors::ExpectedName)?
-        .clone();
-    let ok_branch = &args[2];
-    let err_bind_name = args[3].match_atom()
-        .ok_or_else(|| CheckErrors::ExpectedName)?
-        .clone();
-    let err_branch = &args[4];
 
     match input {
         Value::Response(data) => {
-            if data.committed {
-                eval_with_new_binding(ok_branch, ok_bind_name, *data.data, env, context)
-            } else {
-                eval_with_new_binding(err_branch, err_bind_name, *data.data, env, context)
-            }
+            special_match_resp(data, &args[1..], env, context) 
         },
-        _ => return Err(CheckErrors::ExpectedResponseValue(input.clone()).into())
+        Value::Optional(data) => {
+            special_match_opt(data, &args[1..], env, context) 
+        },
+        _ => return Err(CheckErrors::ExpectedOptionalOrResponseValue(input.clone()).into())
     }
 }
 

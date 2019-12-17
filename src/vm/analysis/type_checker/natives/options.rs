@@ -1,7 +1,7 @@
 use vm::representations::{SymbolicExpression, ClarityName};
 use vm::types::{TypeSignature};
 
-use vm::analysis::type_checker::{TypeResult, TypingContext, check_argument_count,
+use vm::analysis::type_checker::{TypeResult, TypingContext, check_argument_count, check_arguments_at_least,
                                  CheckError, CheckErrors, no_type, TypeChecker};
 
 
@@ -196,58 +196,70 @@ fn eval_with_new_binding(body: &SymbolicExpression, bind_name: ClarityName, bind
     checker.type_check(body, &inner_context)
 }
 
-pub fn check_special_match_opt(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    check_argument_count(4, args)?;
+fn check_special_match_opt(option_type: TypeSignature, checker: &mut TypeChecker,
+                           args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() != 3 {
+        Err(CheckErrors::IncorrectArgumentCount(4, args.len()+1))?
+    }
     
-    let input = checker.type_check(&args[0], context)?;
-    let bind_name = args[1].match_atom()
+    let bind_name = args[0].match_atom()
         .ok_or_else(|| CheckErrors::ExpectedName)?
         .clone();
-    let some_branch = &args[2];
-    let none_branch = &args[3];
+    let some_branch = &args[1];
+    let none_branch = &args[2];
 
-    if let TypeSignature::OptionalType(option_type) = input {
-        if option_type.is_no_type() {
-            return Err(CheckErrors::CouldNotDetermineMatchTypes.into())
-        }
-
-        let some_branch_type = eval_with_new_binding(some_branch, bind_name, *option_type,
-                                                     checker, context)?;
-        let none_branch_type = checker.type_check(none_branch, context)?;
-
-        TypeSignature::least_supertype(&some_branch_type, &none_branch_type)
-            .map_err(|_| CheckErrors::MatchArmsMustMatch(some_branch_type, none_branch_type).into())
-    } else {
-        Err(CheckErrors::ExpectedOptionalType(input.clone()).into())
+    if option_type.is_no_type() {
+        return Err(CheckErrors::CouldNotDetermineMatchTypes.into())
     }
+
+    let some_branch_type = eval_with_new_binding(some_branch, bind_name, option_type,
+                                                 checker, context)?;
+    let none_branch_type = checker.type_check(none_branch, context)?;
+
+    TypeSignature::least_supertype(&some_branch_type, &none_branch_type)
+        .map_err(|_| CheckErrors::MatchArmsMustMatch(some_branch_type, none_branch_type).into())
 }
 
-pub fn check_special_match_resp(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    check_argument_count(5, args)?;
+fn check_special_match_resp(resp_type: (TypeSignature, TypeSignature), checker: &mut TypeChecker,
+                            args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() != 4 {
+        Err(CheckErrors::IncorrectArgumentCount(5, args.len()+1))?
+    }
     
+    let ok_bind_name = args[0].match_atom()
+        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .clone();
+    let ok_branch = &args[1];
+    let err_bind_name = args[2].match_atom()
+        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .clone();
+    let err_branch = &args[3];
+
+    let (ok_type, err_type) = resp_type;
+
+    if ok_type.is_no_type() || err_type.is_no_type() {
+        return Err(CheckErrors::CouldNotDetermineMatchTypes.into())
+    }
+
+    let ok_branch_type = eval_with_new_binding(ok_branch, ok_bind_name, ok_type, checker, context)?;
+    let err_branch_type = eval_with_new_binding(err_branch, err_bind_name, err_type, checker, context)?;
+
+    TypeSignature::least_supertype(&ok_branch_type, &err_branch_type)
+        .map_err(|_| CheckErrors::MatchArmsMustMatch(ok_branch_type, err_branch_type).into())
+}
+
+pub fn check_special_match(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_arguments_at_least(1, args)?;
+
     let input = checker.type_check(&args[0], context)?;
-    let ok_bind_name = args[1].match_atom()
-        .ok_or_else(|| CheckErrors::ExpectedName)?
-        .clone();
-    let ok_branch = &args[2];
-    let err_bind_name = args[3].match_atom()
-        .ok_or_else(|| CheckErrors::ExpectedName)?
-        .clone();
-    let err_branch = &args[4];
 
-    if let TypeSignature::ResponseType(resp_type) = input {
-        let (ok_type, err_type) = *resp_type;
-
-        if ok_type.is_no_type() || err_type.is_no_type() {
-            return Err(CheckErrors::CouldNotDetermineMatchTypes.into())
-        }
-
-        let ok_branch_type = eval_with_new_binding(ok_branch, ok_bind_name, ok_type, checker, context)?;
-        let err_branch_type = eval_with_new_binding(err_branch, err_bind_name, err_type, checker, context)?;
-
-        TypeSignature::least_supertype(&ok_branch_type, &err_branch_type)
-            .map_err(|_| CheckErrors::MatchArmsMustMatch(ok_branch_type, err_branch_type).into())
-    } else {
-        Err(CheckErrors::ExpectedResponseType(input.clone()).into())
+    match input {
+        TypeSignature::OptionalType(option_type) => {
+            check_special_match_opt(*option_type, checker, &args[1..], context)
+        },
+        TypeSignature::ResponseType(resp_type) => {
+            check_special_match_resp(*resp_type, checker, &args[1..], context)
+        },
+        _ => Err(CheckErrors::ExpectedOptionalOrResponseType(input).into())
     }
 }
