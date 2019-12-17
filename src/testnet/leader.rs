@@ -8,7 +8,7 @@ use std::time;
 use rand::RngCore;
 
 use address::AddressHashMode;
-use burnchains::{Burnchain, BurnchainHeaderHash, Txid};
+use burnchains::{Burnchain, BurnchainHeaderHash, Txid, BurnchainSigner};
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
 use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
@@ -17,21 +17,41 @@ use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
 
 #[derive(Clone)]
-struct RegisteredKey {
+pub struct RegisteredKey {
     vrf_public_key: VRFPublicKey,
-    key_block_height: u16,
-    key_vtxindex: u16,
+    block_height: u16,
+    op_vtxindex: u16,
+}
+
+#[derive(Clone)]
+pub struct SortitionedBlock {
+    sortition_hash: SortitionHash,
+    block_height: u16,
+    op_vtxindex: u16,
+    op_txid: Txid,
+}
+
+impl SortitionedBlock {
+    pub fn genesis() -> Self {
+        Self {
+            sortition_hash: SortitionHash::initial(),
+            block_height: 0,
+            op_vtxindex: 0,
+            op_txid: Txid([0u8; 32]),    
+        }
+    }
 }
 
 pub struct Leader {
     active_registered_key: Option<RegisteredKey>,
     chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
-    last_sortitioned_block: Option<BlockSnapshot>,
+    last_sortitioned_block: Option<SortitionedBlock>,
     mem_pool: MemPoolFS,
     keychain: Keychain,
     commit_block_height: u16,
     commit_vtxindex: u16,
+    
     block_time: u64,
     burchain_ops_tx: Option<Sender<BlockstackOperationType>>,
 }
@@ -89,36 +109,11 @@ impl Leader {
         })
     }
 
-    pub fn generate_block_commitment_op(&self, tenure: &LeaderTenure) -> BlockstackOperationType {
-
-        let active_key = self.active_registered_key.clone().unwrap();
-
-        BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-            new_seed: tenure.vrf_seed,
-            key_block_ptr: active_key.key_block_height as u32,
-            key_vtxindex: active_key.key_vtxindex as u16,
-            parent_block_ptr: self.commit_block_height as u32,
-            parent_vtxindex: self.commit_vtxindex as u16,
-            memo: vec![],
-            burn_fee: tenure.burn_fee,
-            input: self.keychain.get_burnchain_signer(),
-            block_header_hash: tenure.block_builder.header.block_hash(),
-
-            // to be filled in 
-            vtxindex: 0,
-            txid: Txid([0u8; 32]),
-            block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-        })
-    }
-
-    pub fn notify_key_registration(&mut self, vrf_public_key: VRFPublicKey, key_block_height: u16, key_vtxindex: u16) {
-        self.active_registered_key = Some(RegisteredKey { vrf_public_key, key_block_height, key_vtxindex });
-    }
-
-    pub fn handle_burnchain_block(&mut self, block: &BlockSnapshot, ops: &Vec<BlockstackOperationType>) -> Option<LeaderTenure> {
+    pub fn process_burnchain_block(&mut self, block: &BlockSnapshot, ops: &Vec<BlockstackOperationType>) -> Option<LeaderTenure> {
 
         let mut new_key = None;
+        let mut last_sortitioned_block = None; 
+
         for op in ops {
             match op {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => {
@@ -126,15 +121,24 @@ impl Leader {
                         // Update active key
                         new_key = Some(RegisteredKey {
                             vrf_public_key: op.public_key.clone(),
-                            key_block_height: op.block_height as u16,
-                            key_vtxindex: op.vtxindex as u16,
+                            block_height: op.block_height as u16,
+                            op_vtxindex: op.vtxindex as u16,
                         });
                     }
                 },
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                    if op.input == self.keychain.get_burnchain_signer() {
-                        // Expire active key
-                        self.active_registered_key = None;
+                    if op.txid == block.winning_block_txid {
+                        last_sortitioned_block = Some(SortitionedBlock {
+                            block_height: block.block_height as u16,
+                            op_vtxindex: op.vtxindex as u16,
+                            op_txid: op.txid,
+                            sortition_hash: block.sortition_hash,
+                        });
+
+                        // Should we re-register a new key
+                        if op.input == self.keychain.get_burnchain_signer() {
+                            self.active_registered_key = None;
+                        }    
                     }
                 },
                 _ => {
@@ -147,6 +151,10 @@ impl Leader {
             self.active_registered_key = new_key;
         }
 
+        if last_sortitioned_block.is_some() {
+            self.last_sortitioned_block = last_sortitioned_block;
+        }
+
         if self.active_registered_key.is_none() {                                    
             // Register a new key
             let vrf_pk = self.keychain.rotate_vrf_keypair();
@@ -157,43 +165,35 @@ impl Leader {
             return None;
         }
 
-        let sortition_hash = match (block.sortition, self.last_sortitioned_block.clone()) {
-            (true, _) => {
-                self.last_sortitioned_block = Some(block.clone());
-                block.sortition_hash
-            }
-            (false, Some(ref past_block)) => {
-                past_block.sortition_hash
-            },
-            (false, None) => {
-                return None;
-            }
-        };
+        if self.last_sortitioned_block.is_none() {
+            return None;
+        }
+        let sortitioned_block = self.last_sortitioned_block.clone().unwrap();
 
-        let tenure = self.initiate_new_tenure(sortition_hash);
+        let tenure = self.initiate_new_tenure(sortitioned_block);
         
         Some(tenure)
     }
 
-    pub fn initiate_new_tenure(&mut self, sortition_hash: SortitionHash) -> LeaderTenure {
+    pub fn initiate_new_tenure(&mut self, sortitioned_block: SortitionedBlock) -> LeaderTenure {
 
-        if self.active_registered_key.is_none() {
-            panic!();
-        }
-        let vrf_public_key = self.active_registered_key.clone().unwrap().vrf_public_key;
-        
         let chain_tip = self.chain_tip.clone().unwrap();
 
-        // let chain_tip = match self.chain_tip {
-        //     Some(ref b) => b.clone(),
-        //     _ => panic!()
-        // };
+        let registered_key = self.active_registered_key.clone().unwrap();
 
-        let vrf_proof = self.keychain.generate_proof(vrf_public_key, sortition_hash.as_bytes()).unwrap();
+        let vrf_proof = self.keychain.generate_proof(&registered_key.vrf_public_key, sortitioned_block.sortition_hash.as_bytes()).unwrap();
 
         let microblock_secret_key = self.keychain.rotate_microblock_keypair();
 
-        let mut tenure = LeaderTenure::new(chain_tip, vrf_proof, microblock_secret_key, self.block_time);
+        let mut tenure = LeaderTenure::new(
+            chain_tip, 
+            self.block_time,
+            self.burchain_ops_tx.clone().unwrap(),
+            self.keychain.get_burnchain_signer().clone(),
+            microblock_secret_key, 
+            sortitioned_block,
+            registered_key,
+            vrf_proof);
 
         let coinbase_tx = {
             let tx_auth = self.keychain.get_transaction_auth().unwrap();
@@ -216,17 +216,27 @@ impl Leader {
 }
 
 pub struct LeaderTenure {
+    average_block_time: u64,
     block_builder: StacksBlockBuilder,
-    block_time: u64,
     burn_fee: u64,
+    burnchain_ops_tx: Sender<BlockstackOperationType>,
+    burnchain_signer: Option<BurnchainSigner>,
+    last_sortitioned_block: SortitionedBlock,
+    registered_key: RegisteredKey,
     started_at: std::time::Instant,
     vrf_seed: VRFSeed,
-    // registered_key: RegisteredKey,
 }
 
 impl LeaderTenure {
 
-    pub fn new(parent_block: StacksHeaderInfo, vrf_proof: VRFProof, microblock_secret_key: StacksPrivateKey, block_time: u64) -> LeaderTenure {
+    pub fn new(parent_block: StacksHeaderInfo, 
+               average_block_time: u64,
+               burnchain_ops_tx: Sender<BlockstackOperationType>,
+               burnchain_signer: BurnchainSigner,
+               microblock_secret_key: StacksPrivateKey,  
+               last_sortitioned_block: SortitionedBlock,
+               registered_key: RegisteredKey,
+               vrf_proof: VRFProof) -> LeaderTenure {
         let now = time::Instant::now();
         
         let ratio = StacksWorkScore {
@@ -237,9 +247,13 @@ impl LeaderTenure {
         let block_builder = StacksBlockBuilder::from_parent(&parent_block, &ratio, &vrf_proof, &microblock_secret_key);
 
         Self {
+            average_block_time,
             block_builder,
-            block_time,
             burn_fee: 0,
+            burnchain_ops_tx,
+            burnchain_signer: Some(burnchain_signer),
+            last_sortitioned_block,
+            registered_key,
             started_at: now,
             vrf_seed: VRFSeed::from_proof(&vrf_proof),
         }
@@ -252,61 +266,38 @@ impl LeaderTenure {
     pub fn run(&mut self) {
 
         let mempool_poll_interval = time::Duration::from_millis(500);
-        let tenure_duration = time::Duration::from_millis(self.block_time * 3 / 4);
+        let tenure_duration = time::Duration::from_millis(self.average_block_time * 3 / 4);
         let should_commit_block_at = self.started_at.checked_add(tenure_duration).unwrap();
         self.burn_fee = 1;
 
         while time::Instant::now() < should_commit_block_at {
-            println!("Fetching mempool");
-
             thread::sleep(mempool_poll_interval);
+            // todo(ludo): should mine transactions
         }
 
-        println!("Committing block");
+        self.commit();
+    }
 
-        // loop {
-        //     // Pump and exaust the mempool
-        //     let j = rx.recv().unwrap();
-        //     println!("====================================================");
-        //     println!("====================================================");
-        //     println!("{:?}", self.burnchain.chain_tip);
-        //     println!("====================================================");
-        //     println!("====================================================");
+    fn commit(&mut self) {
 
-        //     let mut tenure = self.initiate_new_tenure(vrf_pk);
+        let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            new_seed: self.vrf_seed,
+            key_block_ptr: self.registered_key.block_height as u32,
+            key_vtxindex: self.registered_key.op_vtxindex as u16,
+            parent_block_ptr: self.last_sortitioned_block.block_height as u32,
+            parent_vtxindex: self.last_sortitioned_block.op_vtxindex as u16,
+            memo: vec![],
+            burn_fee: self.burn_fee,
+            input: self.burnchain_signer.take().unwrap(),
+            block_header_hash: self.block_builder.header.block_hash(),
 
-        //     // A tenure should end when
-        //     // 1 - blocktime is about to expire
+            // to be filled in 
+            vtxindex: 0,
+            txid: Txid([0u8; 32]),
+            block_height: 0,
+            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        });
 
-        //     let mut ops = vec![];
-
-        //     let burnchain_tip = self.burnchain.chain_tip.clone();
-
-        //     // Prepare commit block operation
-        //     let commit_block_op = self.generate_block_commitment_op(tenure, burn_fee);
-        //     ops.push(commit_block_op);
-            
-        //     self.commit_block_height = burnchain_tip.block_height as u16;
-        //     self.commit_vtxindex = self.vtxindex;        
-            
-        //     // Register a new vrf
-        //     vrf_pk = self.keychain.rotate_vrf_keypair();
-        //     let reg_key_op = self.generate_leader_key_register_op(vrf_pk.clone());
-        //     ops.push(reg_key_op);
-
-        //     self.key_block_height = burnchain_tip.block_height as u16;
-        //     self.key_vtxindex = self.vtxindex;        
-
-        //     self.burnchain.submit_ops(&mut ops);
-
-        //     self.chain_tip = Some(StacksHeaderInfo::genesis());
-
-        //     let block_time = time::Duration::from_millis(20000);
-        //     let now = time::Instant::now();
-
-        //     burn_fee += 1;
-
-        //     thread::sleep(block_time);
-        // }
+        self.burnchain_ops_tx.send(op).unwrap();
     }
 }

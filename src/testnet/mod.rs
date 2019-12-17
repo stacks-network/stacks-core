@@ -7,7 +7,7 @@ pub mod leader;
 pub use self::run_loop::{RunLoop};
 pub use self::mem_pool::{MemPoolFS};
 pub use self::keychain::{Keychain};
-pub use self::leader::{Leader};
+pub use self::leader::{Leader, SortitionedBlock};
 pub use self::burnchain::{BurnchainSimulator};
 
 pub struct Config {

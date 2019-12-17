@@ -3,7 +3,7 @@ use std::thread;
 use std::time;
 use std::sync::{Arc, Mutex};
 
-use burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock};
+use burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid};
 use burnchains::bitcoin::BitcoinBlock;
 use chainstate::burn::db::burndb::{BurnDB};
 use chainstate::burn::{BlockSnapshot};
@@ -52,16 +52,19 @@ impl BurnchainSimulator {
                                 op.block_height = next_block_header.block_height;
                                 op.burn_header_hash = next_block_header.block_hash;
                                 op.vtxindex = vtxindex;
+                                op.txid = Txid(Sha256Sum::from_data(format!("{}", vtxindex).as_bytes()).0);
                             },
                             BlockstackOperationType::LeaderBlockCommit(ref mut op) => {
                                 op.block_height = next_block_header.block_height;
                                 op.burn_header_hash = next_block_header.block_hash;
                                 op.vtxindex = vtxindex;
+                                op.txid = Txid(Sha256Sum::from_data(format!("{}", vtxindex).as_bytes()).0);
                             },
                             BlockstackOperationType::UserBurnSupport(ref mut op) => {
                                 op.block_height = next_block_header.block_height;
                                 op.burn_header_hash = next_block_header.block_hash;
                                 op.vtxindex = vtxindex;
+                                op.txid = Txid(Sha256Sum::from_data(format!("{}", vtxindex).as_bytes()).0);
                             }
                         }
                         ops_to_include.push(op.clone());

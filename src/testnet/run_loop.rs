@@ -1,4 +1,4 @@
-use super::{Config, Leader, BurnchainSimulator};
+use super::{Config, Leader, BurnchainSimulator, SortitionedBlock};
 
 use std::time;
 use std::thread;
@@ -29,7 +29,7 @@ impl RunLoop {
     }
 
     pub fn tear_down(&self) {
-        // Clean files
+        // todo(ludo): Clean files
     }
 
     pub fn start(&mut self) {
@@ -48,30 +48,26 @@ impl RunLoop {
         let mut bootstrap_chain = true;
 
         loop {
-            // Handling incoming blocks
+            // Handling incoming blocks from the burnchain
             let (burnchain_block, ops) = block_rx.recv().unwrap();
 
             for leader in self.leaders.iter_mut() {
 
-                let mut tenure = leader.handle_burnchain_block(&burnchain_block, &ops);
+                let mut result = leader.process_burnchain_block(&burnchain_block, &ops);
 
                 // Bootstrap chain
                 if bootstrap_chain == false {
-                    if tenure.is_none() {
-                        continue;
-                    }
-                    
-                    let mut tenure = tenure.unwrap();
-                    thread::spawn(move || {
-                        tenure.run();
-                        // leader.generate_block_commitment_op(&tenure);
-                    });                    
+                    match result {
+                        None => continue,
+                        Some(mut tenure) => thread::spawn(move || {
+                            tenure.run();
+                        })
+                    };
                 } else {
                     bootstrap_chain = false;
-                    let mut tenure = leader.initiate_new_tenure(SortitionHash::initial());
+                    let mut tenure = leader.initiate_new_tenure(SortitionedBlock::genesis());
                     thread::spawn(move || {
                         tenure.run();
-                        // leader.generate_block_commitment_op(&tenure);
                     });
                 }
             }

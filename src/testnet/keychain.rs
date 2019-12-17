@@ -91,14 +91,14 @@ impl Keychain {
         }
     }
 
-    pub fn generate_proof(&self, vrf_pk: VRFPublicKey, bytes: &[u8; 32]) -> Option<VRFProof> {
-        let vrf_sk = match self.vrf_map.get(&vrf_pk) {
+    pub fn generate_proof(&self, vrf_pk: &VRFPublicKey, bytes: &[u8; 32]) -> Option<VRFProof> {
+        let vrf_sk = match self.vrf_map.get(vrf_pk) {
             Some(vrf_pk) => vrf_pk,
             None => return None
         };
 
         let proof = VRF::prove(&vrf_sk, &bytes.to_vec());
-        let is_valid = match VRF::verify(&vrf_pk, &proof, &bytes.to_vec()) {
+        let is_valid = match VRF::verify(vrf_pk, &proof, &bytes.to_vec()) {
             Ok(v) => v,
             Err(e) => false
         };
