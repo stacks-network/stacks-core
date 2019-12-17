@@ -36,10 +36,7 @@ impl RunLoop {
 
         let mut burnchain = BurnchainSimulator::new();
     
-        let (block_rx, op_tx) = burnchain.start(
-            time::Duration::from_millis(self.config.burchain_block_time), 
-            self.config.burchain_path.to_string(), 
-            self.config.testnet_name.to_string());
+        let (block_rx, op_tx) = burnchain.start(&self.config);;
 
         for leader in self.leaders.iter_mut() {
             leader.tear_up(op_tx.clone(), ConsensusHash::empty());

@@ -3,6 +3,8 @@ use std::thread;
 use std::time;
 use std::sync::{Arc, Mutex};
 
+use super::{Config};
+
 use burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid};
 use burnchains::bitcoin::BitcoinBlock;
 use chainstate::burn::db::burndb::{BurnDB};
@@ -22,15 +24,20 @@ impl BurnchainSimulator {
         }
     }
     
-    pub fn start(&mut self, block_time: time::Duration, path: String, name: String) -> (mpsc::Receiver<(BlockSnapshot, Vec<BlockstackOperationType>)>, mpsc::Sender<BlockstackOperationType>) {
+    pub fn start(&mut self, config: &Config) -> (mpsc::Receiver<(BlockSnapshot, Vec<BlockstackOperationType>)>, mpsc::Sender<BlockstackOperationType>) {
         let (block_tx, block_rx) = mpsc::channel();
-                
+        
+        let path = config.burchain_path.clone();
+        let chain = config.chain.clone();
+        let name = config.testnet_name.clone();
+        let block_time = time::Duration::from_millis(config.burchain_block_time);
+
         let ops_dequeuing = Arc::clone(&self.mem_pool);
         let mut vtxindex = 1;
 
         thread::spawn(move || {
 
-            let chain = Burnchain::new(&path, &"bitcoin".to_string(), &name).unwrap();
+            let chain = Burnchain::new(&path, &chain, &name).unwrap();
     
             let mut db = BurnDB::connect(&path, 0, &BurnchainHeaderHash([0u8; 32]), true).unwrap();
     

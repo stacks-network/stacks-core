@@ -183,15 +183,16 @@ fn main() {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 8];
         rng.fill_bytes(&mut buf);
-        let testnet_name = format!("stacks-testnet-{}", to_hex(&buf));
+        let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
         
         let conf = testnet::Config {
             testnet_name: "testnet".to_string(),
-            burchain_path: format!("/tmp/{}/burnchain", testnet_name),
-            burchain_block_time: 5000,
+            chain: "bitcoin".to_string(),
+            burchain_path: format!("/tmp/{}/burnchain", testnet_id),
+            burchain_block_time: 10000,
             leader_config: vec![testnet::LeaderConfig {
                 name: "L1".to_string(),
-                path: format!("/tmp/{}/L1", testnet_name),
+                path: format!("/tmp/{}/L1", testnet_id),
                 mem_pool_path: "./mempool-L1".to_string()
             }]
         };
