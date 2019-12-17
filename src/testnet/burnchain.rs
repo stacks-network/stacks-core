@@ -18,7 +18,7 @@ pub struct BurnchainSimulator {
 
 impl BurnchainSimulator {
 
-    pub fn new() -> BurnchainSimulator {
+    pub fn new() -> Self {
         Self {
             mem_pool: Arc::new(Mutex::new(vec![]))
         }

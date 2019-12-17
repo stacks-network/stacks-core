@@ -175,7 +175,7 @@ fn main() {
     }
 
     if argv[1] == "testnet" {
-        use testnet::*;
+        use testnet;
         use rand::RngCore;
         use util::hash::{to_hex};
         
@@ -197,7 +197,7 @@ fn main() {
             }]
         };
         
-        let mut run_loop = RunLoop::new(conf);
+        let mut run_loop = testnet::RunLoop::new(conf);
         run_loop.start();
         return
     }

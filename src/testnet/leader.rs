@@ -58,7 +58,7 @@ pub struct Leader {
 
 impl Leader {
 
-    pub fn new(config: LeaderConfig, block_time: u64) -> Leader {
+    pub fn new(config: LeaderConfig, block_time: u64) -> Self {
         
         let keychain = Keychain::default();
 
@@ -236,7 +236,7 @@ impl LeaderTenure {
                microblock_secret_key: StacksPrivateKey,  
                last_sortitioned_block: SortitionedBlock,
                registered_key: RegisteredKey,
-               vrf_proof: VRFProof) -> LeaderTenure {
+               vrf_proof: VRFProof) -> Self {
         let now = time::Instant::now();
         
         let ratio = StacksWorkScore {
