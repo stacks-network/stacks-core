@@ -540,8 +540,8 @@ impl StacksTransaction {
     }
 
     /// set sponsor nonce
-    pub fn set_sponsor_nonce(&mut self, n: u64) -> () {
-        self.auth.set_sponsor_nonce(n);
+    pub fn set_sponsor_nonce(&mut self, n: u64) -> Result<(), Error> {
+        self.auth.set_sponsor_nonce(n)
     }
     
     /// Set anchor mode
@@ -555,7 +555,7 @@ impl StacksTransaction {
     }
 
     /// Add a post-condition
-    pub fn add_postcondition(&mut self, post_condition: TransactionPostCondition) -> () {
+    pub fn add_post_condition(&mut self, post_condition: TransactionPostCondition) -> () {
         self.post_conditions.push(post_condition);
     }
 
@@ -751,6 +751,24 @@ impl StacksTransactionSigner {
             check_oversign: true, 
             check_overlap: true
         }
+    }
+
+    pub fn new_sponsor(tx: &StacksTransaction, spending_condition: TransactionSpendingCondition) -> Result<StacksTransactionSigner, Error> {
+        if !tx.auth.is_sponsored() {
+            return Err(Error::IncompatibleSpendingConditionError);
+        }
+        let mut new_tx = tx.clone();
+        new_tx.auth.set_sponsor(spending_condition)?;
+        let origin_sighash = new_tx.verify_origin()
+            .map_err(Error::NetError)?;
+
+        Ok(StacksTransactionSigner {
+            tx: new_tx,
+            sighash: origin_sighash,
+            origin_done: true,
+            check_oversign: true,
+            check_overlap: true
+        })
     }
 
     pub fn resume(&mut self, tx: &StacksTransaction) -> () {
@@ -2035,26 +2053,28 @@ mod test {
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
             tx.set_fee_rate(123);
-            tx.set_sponsor_nonce(456);
+            tx.set_sponsor_nonce(456).unwrap();
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
             test_debug!("Sign origin");
             tx_signer.sign_origin(&privk).unwrap();
 
             // sponsor sets keys, nonce, and fee after origin signs
-            let mut origin_tx = tx_signer.get_tx_incomplete();
-            origin_tx.auth.set_sponsor(TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk_diff_sponsor)).unwrap());
-            origin_tx.set_fee_rate(456);
-            origin_tx.set_sponsor_nonce(789);
-            tx_signer.resume(&origin_tx);
+            let origin_tx = tx_signer.get_tx_incomplete();
+            
+            let mut sponsor_auth = TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk_diff_sponsor)).unwrap();
+            sponsor_auth.set_fee_rate(456);
+            sponsor_auth.set_nonce(789);
+
+            let mut tx_sponsor_signer = StacksTransactionSigner::new_sponsor(&origin_tx, sponsor_auth).unwrap();
 
             test_debug!("Sign sponsor");
-            tx_signer.sign_sponsor(&privk_diff_sponsor).unwrap();
+            tx_sponsor_signer.sign_sponsor(&privk_diff_sponsor).unwrap();
 
             // make comparable
             tx.set_fee_rate(456);
-            tx.set_sponsor_nonce(789);
-            let mut signed_tx = tx_signer.get_tx().unwrap();
+            tx.set_sponsor_nonce(789).unwrap();
+            let mut signed_tx = tx_sponsor_signer.get_tx().unwrap();
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 1);
@@ -2180,22 +2200,22 @@ mod test {
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
             tx.set_fee_rate(123);
-            tx.set_sponsor_nonce(456);
+            tx.set_sponsor_nonce(456).unwrap();
 
             let mut tx_signer = StacksTransactionSigner::new(&tx);
             tx_signer.sign_origin(&privk).unwrap();
 
             // sponsor sets and pays fee after origin signs
             let mut origin_tx = tx_signer.get_tx_incomplete();
-            origin_tx.auth.set_sponsor(real_sponsor.clone());
+            origin_tx.auth.set_sponsor(real_sponsor.clone()).unwrap();
             origin_tx.set_fee_rate(456);
-            origin_tx.set_sponsor_nonce(789);
+            origin_tx.set_sponsor_nonce(789).unwrap();
             tx_signer.resume(&origin_tx);
 
             tx_signer.sign_sponsor(&privk_sponsored).unwrap();
 
             tx.set_fee_rate(456);
-            tx.set_sponsor_nonce(789);
+            tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
             
             // try to over-sign
@@ -2343,16 +2363,16 @@ mod test {
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
             tx.set_fee_rate(123);
-            tx.set_sponsor_nonce(456);
+            tx.set_sponsor_nonce(456).unwrap();
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
             tx_signer.sign_origin(&origin_privk).unwrap();
 
             // sponsor sets and pays fee after origin signs
             let mut origin_tx = tx_signer.get_tx_incomplete();
-            origin_tx.auth.set_sponsor(real_sponsor.clone());
+            origin_tx.auth.set_sponsor(real_sponsor.clone()).unwrap();
             origin_tx.set_fee_rate(456);
-            origin_tx.set_sponsor_nonce(789);
+            origin_tx.set_sponsor_nonce(789).unwrap();
             tx_signer.resume(&origin_tx);
 
             tx_signer.sign_sponsor(&privk_1).unwrap();
@@ -2360,7 +2380,7 @@ mod test {
             tx_signer.append_sponsor(&pubk_3).unwrap();
             
             tx.set_fee_rate(456);
-            tx.set_sponsor_nonce(789);
+            tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
@@ -2519,16 +2539,16 @@ mod test {
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
             tx.set_fee_rate(123);
-            tx.set_sponsor_nonce(456);
+            tx.set_sponsor_nonce(456).unwrap();
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
             tx_signer.sign_origin(&origin_privk).unwrap();
             
             // sponsor sets and pays fee after origin signs
             let mut origin_tx = tx_signer.get_tx_incomplete();
-            origin_tx.auth.set_sponsor(real_sponsor.clone());
+            origin_tx.auth.set_sponsor(real_sponsor.clone()).unwrap();
             origin_tx.set_fee_rate(456);
-            origin_tx.set_sponsor_nonce(789);
+            origin_tx.set_sponsor_nonce(789).unwrap();
             tx_signer.resume(&origin_tx);
 
             tx_signer.sign_sponsor(&privk_1).unwrap();
@@ -2536,7 +2556,7 @@ mod test {
             tx_signer.append_sponsor(&pubk_3).unwrap();
             
             tx.set_fee_rate(456);
-            tx.set_sponsor_nonce(789);
+            tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap(); 
             
             check_oversign_origin_singlesig(&mut signed_tx);
@@ -2690,16 +2710,16 @@ mod test {
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
             tx.set_fee_rate(123);
-            tx.set_sponsor_nonce(456);
+            tx.set_sponsor_nonce(456).unwrap();
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
             tx_signer.sign_origin(&origin_privk).unwrap();
 
             // sponsor sets and pays fee after origin signs
             let mut origin_tx = tx_signer.get_tx_incomplete();
-            origin_tx.auth.set_sponsor(real_sponsor.clone());
+            origin_tx.auth.set_sponsor(real_sponsor.clone()).unwrap();
             origin_tx.set_fee_rate(456);
-            origin_tx.set_sponsor_nonce(789);
+            origin_tx.set_sponsor_nonce(789).unwrap();
             tx_signer.resume(&origin_tx);
 
             tx_signer.sign_sponsor(&privk_1).unwrap();
@@ -2707,7 +2727,7 @@ mod test {
             tx_signer.sign_sponsor(&privk_3).unwrap();
             
             tx.set_fee_rate(456);
-            tx.set_sponsor_nonce(789);
+            tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
             
             check_oversign_origin_singlesig(&mut signed_tx);
@@ -2839,22 +2859,22 @@ mod test {
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
             tx.set_fee_rate(123);
-            tx.set_sponsor_nonce(456);
+            tx.set_sponsor_nonce(456).unwrap();
             let mut tx_signer = StacksTransactionSigner::new(&tx);
             
             tx_signer.sign_origin(&origin_privk).unwrap();
 
             // sponsor sets and pays fee after origin signs
             let mut origin_tx = tx_signer.get_tx_incomplete();
-            origin_tx.auth.set_sponsor(real_sponsor.clone());
+            origin_tx.auth.set_sponsor(real_sponsor.clone()).unwrap();
             origin_tx.set_fee_rate(456);
-            origin_tx.set_sponsor_nonce(789);
+            origin_tx.set_sponsor_nonce(789).unwrap();
             tx_signer.resume(&origin_tx);
 
             tx_signer.sign_sponsor(&privk).unwrap();
 
             tx.set_fee_rate(456);
-            tx.set_sponsor_nonce(789);
+            tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             // try to over-sign
@@ -3002,16 +3022,16 @@ mod test {
             assert_eq!(tx.auth().sponsor().unwrap().num_signatures(), 0);
 
             tx.set_fee_rate(123);
-            tx.set_sponsor_nonce(456);
+            tx.set_sponsor_nonce(456).unwrap();
             let mut tx_signer = StacksTransactionSigner::new(&tx);
 
             tx_signer.sign_origin(&origin_privk).unwrap();
             
             // sponsor sets and pays fee after origin signs
             let mut origin_tx = tx_signer.get_tx_incomplete();
-            origin_tx.auth.set_sponsor(real_sponsor.clone());
+            origin_tx.auth.set_sponsor(real_sponsor.clone()).unwrap();
             origin_tx.set_fee_rate(456);
-            origin_tx.set_sponsor_nonce(789);
+            origin_tx.set_sponsor_nonce(789).unwrap();
             tx_signer.resume(&origin_tx);
 
             tx_signer.sign_sponsor(&privk_1).unwrap();
@@ -3019,7 +3039,7 @@ mod test {
             tx_signer.append_sponsor(&pubk_3).unwrap();
 
             tx.set_fee_rate(456);
-            tx.set_sponsor_nonce(789);
+            tx.set_sponsor_nonce(789).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
