@@ -67,7 +67,6 @@ use vm::types::{
 
 use vm::representations::{ContractName, ClarityName};
 use vm::clarity::Error as clarity_error;
-use vm::errors::Error as clarity_vm_error;
 
 pub type StacksPublicKey = secp256k1::Secp256k1PublicKey;
 pub type StacksPrivateKey = secp256k1::Secp256k1PrivateKey;
@@ -116,8 +115,8 @@ pub enum Error {
     InvalidChainstateDB,
     BlockTooBigError,
     MicroblockStreamTooLongError,
+    IncompatibleSpendingConditionError,
     ClarityError(clarity_error),
-    ClarityInterpreterError(clarity_vm_error),
     DBError(db_error),
     NetError(net_error),
     MARFError(marf_error),
@@ -135,8 +134,8 @@ impl fmt::Display for Error {
             Error::InvalidChainstateDB => f.write_str(error::Error::description(self)),
             Error::BlockTooBigError => f.write_str(error::Error::description(self)),
             Error::MicroblockStreamTooLongError => f.write_str(error::Error::description(self)),
+            Error::IncompatibleSpendingConditionError => f.write_str(error::Error::description(self)),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
-            Error::ClarityInterpreterError(ref e) => f.write_str(&format!("{:?}", e)),
             Error::DBError(ref e) => fmt::Display::fmt(e, f),
             Error::NetError(ref e) => fmt::Display::fmt(e, f),
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
@@ -156,8 +155,8 @@ impl error::Error for Error {
             Error::InvalidChainstateDB => None,
             Error::BlockTooBigError => None,
             Error::MicroblockStreamTooLongError => None,
+            Error::IncompatibleSpendingConditionError => None,
             Error::ClarityError(ref e) => Some(e),
-            Error::ClarityInterpreterError(ref e) => None,
             Error::DBError(ref e) => Some(e),
             Error::NetError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
@@ -175,8 +174,8 @@ impl error::Error for Error {
             Error::InvalidChainstateDB => "Invalid chainstate database",
             Error::BlockTooBigError => "Too much data in block",
             Error::MicroblockStreamTooLongError => "Too many microblocks in stream",
+            Error::IncompatibleSpendingConditionError => "Spending condition is incompatible with this operation",
             Error::ClarityError(ref e) => e.description(),
-            Error::ClarityInterpreterError(ref e) => "Clarity fucked up and Aaron didn't make this error struct implement the Error trait, so who knows what went wrong?",
             Error::DBError(ref e) => e.description(),
             Error::NetError(ref e) => e.description(),
             Error::MARFError(ref e) => e.description()
