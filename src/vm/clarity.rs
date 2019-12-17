@@ -46,8 +46,7 @@ pub enum Error {
     Analysis(CheckError),
     Parse(ParseError),
     Interpreter(InterpreterError),
-    BadTransaction(String),
-    PostCondition(String)
+    BadTransaction(String)
 }
 
 impl From<CheckError> for Error {
@@ -74,8 +73,7 @@ impl fmt::Display for Error {
             Error::Analysis(ref e) => fmt::Display::fmt(e, f),
             Error::Parse(ref e) => fmt::Display::fmt(e, f),
             Error::Interpreter(ref e) => fmt::Display::fmt(e, f),
-            Error::BadTransaction(ref s) => fmt::Display::fmt(s, f),
-            Error::PostCondition(ref s) => fmt::Display::fmt(s, f)
+            Error::BadTransaction(ref s) => fmt::Display::fmt(s, f)
         }
     }
 }
@@ -86,8 +84,7 @@ impl error::Error for Error {
             Error::Analysis(ref e) => Some(e),
             Error::Parse(ref e) => Some(e),
             Error::Interpreter(ref e) => Some(e),
-            Error::BadTransaction(ref _s) => None,
-            Error::PostCondition(ref _s) => None,
+            Error::BadTransaction(ref _s) => None
         }
     }
 
@@ -96,8 +93,7 @@ impl error::Error for Error {
             Error::Analysis(ref e) => e.description(),
             Error::Parse(ref e) => e.description(),
             Error::Interpreter(ref e) => e.description(),
-            Error::BadTransaction(ref s) => s.as_str(),
-            Error::PostCondition(ref s) => s.as_str(),
+            Error::BadTransaction(ref s) => s.as_str()
         }
     }
 }
