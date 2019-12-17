@@ -617,7 +617,7 @@ an option type, and the argument is a `(some ...)` option, `unwrap!` returns the
 option. If the argument is a response type, and the argument is an `(ok ...)` response, `unwrap!` returns
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
-    example: "(unwrap! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
+    example: "(unwrap! (map-get? names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
 };
 
 const TRY_API: SpecialAPI = SpecialAPI {
@@ -629,7 +629,7 @@ an option type, and the argument is a `(some ...)` option, `try!` returns the in
 option. If the argument is a response type, and the argument is an `(ok ...)` response, `try!` returns
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `none` value,
 `try!` _returns_ either `none` or the `(err ...)` value from the current function and exits the current control-flow.",
-    example: "(try! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
+    example: "(try! (map-get? names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
 (define-private (checked-even (x int))
   (if (eq? (mod x 2) 0) 
       (ok x)
@@ -650,7 +650,7 @@ an option type, and the argument is a `(some ...)` option, this function returns
 option. If the argument is a response type, and the argument is an `(ok ...)` response, it returns
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `unwrap` throws a runtime error, aborting any further processing of the current transaction.",
-    example: "(unwrap (map-get names-map (tuple (name \"blockstack\")))) ;; Returns (tuple (id 1337))",
+    example: "(unwrap (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (tuple (id 1337))",
 };
 
 const UNWRAP_ERR_API: SpecialAPI = SpecialAPI {
@@ -799,8 +799,8 @@ const IS_SOME_API: SpecialAPI = SpecialAPI {
     signature: "(is-some? value)",
     description: "`is-some?` tests a supplied option value, returning `true` if the option value is `(some ...)`,
 and `false` if it is a `none`.",
-    example: "(is-some? (get id (map-get names-map (tuple (name \"blockstack\"))))) ;; Returns 'true
-(is-some? (get id (map-get names-map (tuple (name \"non-existant\"))))) ;; Returns 'false"
+    example: "(is-some? (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 'true
+(is-some? (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 'false"
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {

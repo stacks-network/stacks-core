@@ -72,7 +72,7 @@ fn test_bad_define_names() {
 }
 
 #[test]
-fn test_expects() {
+fn test_unwrap_ret() {
     let test0 =
         "(define-private (foo) (unwrap! (ok 1) 2)) (foo)";
     let test1 =
