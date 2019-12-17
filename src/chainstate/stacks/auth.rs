@@ -23,6 +23,7 @@ use net::codec::{read_next, write_next};
 
 use address::AddressHashMode;
 use address::public_keys_to_address_hash;
+use chainstate::stacks::Error;
 use chainstate::stacks::TransactionSpendingCondition;
 use chainstate::stacks::TransactionAuth;
 use chainstate::stacks::TransactionAuthFlags;
@@ -47,7 +48,6 @@ use net::STACKS_PUBLIC_KEY_ENCODED_SIZE;
 use burnchains::Txid;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
-
 use util::hash::Sha512Trunc256Sum;
 use util::hash::to_hex;
 use util::hash::Hash160;
@@ -790,15 +790,15 @@ impl TransactionAuth {
         }
     }
 
-    // directly set the sponsor spending condition
-    #[cfg(test)]
-    pub fn set_sponsor(&mut self, sponsor_spending_cond: TransactionSpendingCondition) -> () {
+    /// Directly set the sponsor spending condition
+    pub fn set_sponsor(&mut self, sponsor_spending_cond: TransactionSpendingCondition) -> Result<(), Error> {
         match *self {
             TransactionAuth::Sponsored(ref sc, ref mut ssc) => {
                 *ssc = sponsor_spending_cond;
+                Ok(())
             },
             _ => {
-                panic!("Tried to set sponsor on a non-sponsored transaction");
+                Err(Error::IncompatibleSpendingConditionError)
             }
         }
     }
@@ -865,10 +865,15 @@ impl TransactionAuth {
         }
     }
 
-    pub fn set_sponsor_nonce(&mut self, n: u64) -> () {
+    pub fn set_sponsor_nonce(&mut self, n: u64) -> Result<(), Error> {
         match *self {
-            TransactionAuth::Standard(_) => {},
-            TransactionAuth::Sponsored(_, ref mut s) => s.set_nonce(n)
+            TransactionAuth::Standard(_) => {
+                Err(Error::IncompatibleSpendingConditionError)
+            }
+            TransactionAuth::Sponsored(_, ref mut s) => {
+                s.set_nonce(n);
+                Ok(())
+            }
         }
     }
 
