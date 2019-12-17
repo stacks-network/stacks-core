@@ -286,6 +286,7 @@ impl VRFProof {
     }
 
     pub fn empty() -> VRFProof {
+        // can't be all 0's, since an all-0 string decodes to a low-order point
         VRFProof::from_slice(&[1u8; 80]).unwrap()
     }
 
@@ -494,7 +495,6 @@ impl VRF {
         let mut scalar_buf = [0u8; 32];
         scalar_buf[0..16].copy_from_slice(hash128);
 
-        // ed25519_Scalar::from_canonical_bytes(scalar_buf).expect("FATAL: upper 16 bytes were not 0's")
         ed25519_Scalar::from_bits(scalar_buf)
     }
 
