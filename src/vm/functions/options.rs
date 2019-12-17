@@ -20,7 +20,7 @@ fn inner_unwrap(to_unwrap: &Value) -> Result<Option<Value>> {
                 None
             }
         },
-        _ => return Err(CheckErrors::ExpectedResponseValue(to_unwrap.clone()).into())
+        _ => return Err(CheckErrors::ExpectedOptionalOrResponseValue(to_unwrap.clone()).into())
     };
 
     Ok(result)
@@ -114,7 +114,7 @@ pub fn native_try_ret(args: &[Value]) -> Result<Value> {
                 Err(ShortReturnType::ExpectedValue((*data.data).clone()).into())
             }
         },
-        _ => Err(CheckErrors::ExpectedResponseValue(input.clone()).into())
+        _ => Err(CheckErrors::ExpectedOptionalOrResponseValue(input.clone()).into())
     }
 }
 
@@ -149,7 +149,7 @@ fn special_match_opt(input: OptionalData, args: &[SymbolicExpression], env: &mut
 
 
 fn special_match_resp(input: ResponseData, args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    check_argument_count(5, args)?;
+    check_argument_count(4, args)?;
 
     let ok_bind_name = args[0].match_atom()
         .ok_or_else(|| CheckErrors::ExpectedName)?

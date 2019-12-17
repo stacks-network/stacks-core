@@ -89,7 +89,7 @@ fn test_unwrap_ret() {
     assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
     assert_eq_err(CheckErrors::IncorrectArgumentCount(2,1),
                   execute(&test1).unwrap_err());
-    assert_eq_err(CheckErrors::ExpectedResponseValue(Value::Int(1)),
+    assert_eq_err(CheckErrors::ExpectedOptionalOrResponseValue(Value::Int(1)),
                   execute(&test2).unwrap_err());
     assert_eq_err(CheckErrors::ExpectedResponseValue(Value::Int(1)),
                   execute(&test3).unwrap_err());
