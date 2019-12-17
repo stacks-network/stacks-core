@@ -229,8 +229,8 @@ impl StacksBlockBuilder {
         let parent_burn_header_hash = self.chain_tip.burn_header_hash.clone();
         let parent_header_hash = self.header.parent_block.clone();
         
-        // apply parent microblocks before beginning our tenure 
-        let parent_microblocks = match chainstate.load_staging_microblock_stream(&parent_burn_header_hash, &parent_header_hash)? {
+        // apply all known parent microblocks before beginning our tenure 
+        let parent_microblocks = match chainstate.load_staging_microblock_stream(&parent_burn_header_hash, &parent_header_hash, u16::max_value())? {
             Some(mblocks) => mblocks,
             None => vec![]
         };
@@ -2157,13 +2157,10 @@ pub mod test {
         mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-stacks-fork".to_string(), 10, mine_smart_contract_block_contract_call_microblock, mine_smart_contract_block_contract_call_microblock);
     }
 
-    /*
-     * TODO: broken -- we don't handle microblock storage & retrieval the right way yet
     #[test]
     fn mine_anchored_smart_contract_block_contract_call_microblock_burnchain_fork() {
         mine_stacks_blocks_1_fork_2_miners_2_burnchains(&"smart-contract-block-contract-call-microblock-burnchain-fork".to_string(), 10, mine_smart_contract_block_contract_call_microblock, mine_smart_contract_block_contract_call_microblock);
     }
-    */
     
     #[test]
     fn mine_anchored_smart_contract_block_contract_call_microblock_burnchain_fork_stacks_fork() {
@@ -2171,7 +2168,7 @@ pub mod test {
     }
 
 
-    // TODO: microblocks
+    // TODO: build off of different points in the same microblock stream
     // TODO; skipped blocks
     // TODO: missing blocks
     // TODO: invalid blocks
