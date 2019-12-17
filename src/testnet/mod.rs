@@ -5,7 +5,7 @@ pub mod burnchain;
 pub mod leader;
 
 pub use self::run_loop::{RunLoop};
-pub use self::mem_pool::{MemPoolFS};
+pub use self::mem_pool::{MemPool, MemPoolFS};
 pub use self::keychain::{Keychain};
 pub use self::leader::{Leader, SortitionedBlock};
 pub use self::burnchain::{BurnchainSimulator};
