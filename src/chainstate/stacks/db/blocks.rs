@@ -99,6 +99,8 @@ pub struct StagingBlock {
     pub anchored_block_hash: BlockHeaderHash,
     pub parent_burn_header_hash: BurnchainHeaderHash,
     pub parent_anchored_block_hash: BlockHeaderHash,
+    pub parent_microblock_hash: BlockHeaderHash,
+    pub parent_microblock_seq: u16,
     pub microblock_pubkey_hash: Hash160,
     pub processed: bool,
     pub commit_burn: u64,
@@ -156,7 +158,7 @@ impl FromRow<StagingMicroblock> for StagingMicroblock {
 
 impl RowOrder for StagingBlock {
     fn row_order() -> Vec<&'static str> {
-        vec!["anchored_block_hash", "parent_anchored_block_hash", "burn_header_hash", "parent_burn_header_hash", "microblock_pubkey_hash", "processed", "commit_burn", "sortition_burn", "block_data"]
+        vec!["anchored_block_hash", "parent_anchored_block_hash", "burn_header_hash", "parent_burn_header_hash", "parent_microblock_hash", "parent_microblock_seq", "microblock_pubkey_hash", "processed", "commit_burn", "sortition_burn", "block_data"]
     }
 }
 
@@ -166,11 +168,13 @@ impl FromRow<StagingBlock> for StagingBlock {
         let parent_anchored_block_hash : BlockHeaderHash = BlockHeaderHash::from_row(row, index + 1)?;
         let burn_header_hash : BurnchainHeaderHash = BurnchainHeaderHash::from_row(row, index + 2)?;
         let parent_burn_header_hash: BurnchainHeaderHash = BurnchainHeaderHash::from_row(row, index + 3)?;
-        let microblock_pubkey_hash : Hash160 = Hash160::from_row(row, index + 4)?;
-        let processed_i64 : i64 = row.get(index + 5);
-        let commit_burn_i64 : i64 = row.get(index + 6);
-        let sortition_burn_i64 : i64 = row.get(index + 7);
-        let block_data : Vec<u8> = row.get(index + 8);
+        let parent_microblock_hash : BlockHeaderHash = BlockHeaderHash::from_row(row, index + 4)?;
+        let parent_microblock_seq : u16 = row.get(index + 5);
+        let microblock_pubkey_hash : Hash160 = Hash160::from_row(row, index + 6)?;
+        let processed_i64 : i64 = row.get(index + 7);
+        let commit_burn_i64 : i64 = row.get(index + 8);
+        let sortition_burn_i64 : i64 = row.get(index + 9);
+        let block_data : Vec<u8> = row.get(index + 10);
 
         let processed = if processed_i64 != 0 { true } else { false };
         let commit_burn = commit_burn_i64 as u64;
@@ -181,6 +185,8 @@ impl FromRow<StagingBlock> for StagingBlock {
             parent_anchored_block_hash,
             burn_header_hash,
             parent_burn_header_hash,
+            parent_microblock_hash,
+            parent_microblock_seq,
             microblock_pubkey_hash,
             processed,
             commit_burn,
@@ -220,11 +226,19 @@ impl FromRow<StagingUserBurnSupport> for StagingUserBurnSupport {
     }
 }
 
+impl StagingMicroblock {
+    pub fn try_into_microblock(self) -> Result<StacksMicroblock, StagingMicroblock> {
+        let mut index = 0;
+        StacksMicroblock::deserialize(&self.block_data, &mut index, self.block_data.len() as u32).map_err(|_e| self)
+    }
+}
+
+
 const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
     r#"
     -- Staging microblocks -- preprocessed microblocks queued up for subsequent processing and inclusion in the chunk store.
-    CREATE TABLE staging_microblocks(anchored_block_hash TEXT NOT NULL,
-                                     burn_header_hash TEXT NOT NULL,
+    CREATE TABLE staging_microblocks(anchored_block_hash TEXT NOT NULL,     -- this is the hash of the parent anchored block
+                                     burn_header_hash TEXT NOT NULL,        -- this is the hash of the burn chain block that holds the parent anchored block's block-commit
                                      microblock_hash TEXT NOT NULL,
                                      sequence INT NOT NULL,
                                      block_data BLOB NOT NULL,      -- cannot exceed 1 billion bytes, per sqlite3 defaults
@@ -238,6 +252,8 @@ const STACKS_BLOCK_INDEX_SQL : &'static [&'static str]= &[
                                 parent_anchored_block_hash TEXT NOT NULL,
                                 burn_header_hash TEXT NOT NULL,
                                 parent_burn_header_hash TEXT NOT NULL,
+                                parent_microblock_hash TEXT NOT NULL,
+                                parent_microblock_seq INT NOT NULL,
                                 microblock_pubkey_hash TEXT NOT NULL,
                                 processed INT NOT NULL,
                                 commit_burn INT NOT NULL,
@@ -357,7 +373,7 @@ impl StacksChainState {
                     .open(path)
                     .map_err(|e| {
                         if e.kind() == io::ErrorKind::NotFound {
-                            error!("File not found: {:?}", path);
+                            debug!("File not found: {:?}", path);
                             Error::DBError(db_error::NotFoundError)
                         }
                         else {
@@ -494,11 +510,21 @@ impl StacksChainState {
         Ok(Some(block_header))
     }
 
-    /// Store a stream of microblocks to the chunk store, named by its tail block's hash.
+    /// Store a stream of microblocks to the chunk store, named by its header block's hash.
     /// The given burn_header_hash is the burnchain header hash of the snapshot that selected this
     /// stream's anchored block.
+    ///
+    /// The stored file is effectively an append-only file.  Microblocks may be appended to it
+    /// later if e.g. multiple anchored blocks build off of different microblocks in the stream.
+    /// Regardless, the file contains the longest stream built on by any anchored block discovered
+    /// so far.
     pub fn store_microblock_stream(&mut self, burn_header_hash: &BurnchainHeaderHash, microblocks: &Vec<StacksMicroblock>) -> Result<(), Error> {
-        let block_hash = microblocks[microblocks.len() - 1].block_hash();
+        if microblocks.len() == 0 {
+            self.store_empty_block(burn_header_hash, &EMPTY_MICROBLOCK_PARENT_HASH)?;
+            return Ok(())
+        }
+
+        let block_hash = microblocks[0].block_hash();
         let block_path = self.make_block_dir(burn_header_hash, &block_hash)?;
 
         let mut buf = vec![];
@@ -510,18 +536,18 @@ impl StacksChainState {
         StacksChainState::atomic_file_write(&block_path, &buf)
     }
 
-    /// Load a stream of microblocks from the chunk store, given its tail block's hash.
+    /// Load a stream of microblocks from the chunk store, given its first block's hash.
     /// The given burn_header_hash is the burnchain header hash of the snapshot that selected this
     /// stream's anchored block.
     /// Returns Ok(Some(microblocks)) if the data was found
     /// Returns Ok(None) if the microblocks stream was previously processed and is known to be invalid
     /// Returns Err(...) for not found, I/O error, etc.
-    fn load_microblock_stream(&self, burn_header_hash: &BurnchainHeaderHash, microblock_tail_hash: &BlockHeaderHash) -> Result<Option<Vec<StacksMicroblock>>, Error> {
-        let block_path = self.get_block_path(burn_header_hash, microblock_tail_hash)?;
+    fn load_microblock_stream(&self, burn_header_hash: &BurnchainHeaderHash, microblock_head_hash: &BlockHeaderHash) -> Result<Option<Vec<StacksMicroblock>>, Error> {
+        let block_path = self.get_block_path(burn_header_hash, microblock_head_hash)?;
         let block_bytes = StacksChainState::file_load(&block_path)?;
         if block_bytes.len() == 0 {
             // known-invalid
-            debug!("Zero-sized microblock stream {}", microblock_tail_hash.to_hex());
+            debug!("Zero-sized microblock stream {}", microblock_head_hash.to_hex());
             return Ok(None);
         }
 
@@ -533,14 +559,26 @@ impl StacksChainState {
         }
 
         if (index as usize) != block_bytes.len() {
-            error!("Corrupt microblock stream {}: read {} out of {} bytes", microblock_tail_hash.to_hex(), index, block_bytes.len());
+            error!("Corrupt microblock stream {}: read {} out of {} bytes", microblock_head_hash.to_hex(), index, block_bytes.len());
             return Err(Error::DBError(db_error::Corruption));
         }
 
         Ok(Some(microblocks))
     }
 
+    /// Closure for defaulting to an empty microblock stream if a microblock stream file is not found
+    fn empty_stream(e: Error) -> Result<Option<Vec<StacksMicroblock>>, Error> {
+        match e {
+            Error::DBError(ref dbe) => match dbe {
+                db_error::NotFoundError => Ok(Some(vec![])),
+                _ => Err(e)
+            },
+            _ => Err(e)
+        }
+    }
+
     /// Load up a preprocessed (queued) but still unprocessed block.
+    #[cfg(test)]
     fn load_staging_block(&self, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<StacksBlock>, Error> {
         let row_order = StagingBlock::row_order().join(",");
         let sql = format!("SELECT {} FROM staging_blocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2", row_order);
@@ -597,8 +635,8 @@ impl StacksChainState {
         }
     }
 
-    /// Load up a preprocessed but still unprocessed microblock.  Also loads up its parent anchor block's hash.
-    fn load_staging_microblock(&self, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<Option<StacksMicroblock>, Error> {
+    /// Load up a preprocessed but still unprocessed microblock.
+    fn load_staging_microblock(&self, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<Option<StagingMicroblock>, Error> {
         let row_order = StagingMicroblock::row_order().join(",");
         let sql = format!("SELECT {} FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND microblock_hash = ?3", row_order);
         let args = [&burn_header_hash.to_hex() as &dyn ToSql, &block_hash.to_hex() as &dyn ToSql, &microblock_hash.to_hex() as &dyn ToSql];
@@ -608,10 +646,7 @@ impl StacksChainState {
                 Ok(None)
             },
             1 => {
-                let mut index = 0;
-                let microblock = StacksMicroblock::deserialize(&rows[0].block_data, &mut index, rows[0].block_data.len() as u32)
-                    .map_err(Error::NetError)?;
-                Ok(Some(microblock))
+                Ok(Some(rows[0].clone()))
             },
             _ => {
                 // should be impossible since microblocks are unique
@@ -620,48 +655,86 @@ impl StacksChainState {
         }
     }
 
-    /// Load up a preprocessed but still unprocessed microblock stream, given its parent's anchored
-    /// block's hash and burn hash.
-    /// Does not check for duplicates or invalid data; feed the stream into validate_parent_microblock_stream() for that.
-    pub fn load_staging_microblock_stream(&self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<Option<Vec<StacksMicroblock>>, Error> {
-        let row_order = StagingMicroblock::row_order().join(",");
-        let sql = format!("SELECT {} FROM staging_microblocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 ORDER BY sequence", row_order);
-        let args = [&anchored_block_hash.to_hex() as &dyn ToSql, &burn_header_hash.to_hex() as &dyn ToSql];
-        let rows = query_rows::<StagingMicroblock, _>(&self.blocks_db, &sql, &args)
-            .map_err(Error::DBError)?;
+    /// Merge two sorted microblock streams.
+    /// Resulting stream will be sorted by sequence
+    fn merge_microblock_streams(staging_microblocks: Vec<StagingMicroblock>, disk_microblocks: Vec<StacksMicroblock>) -> Result<Vec<StacksMicroblock>, Error> {
+        let num_staging_microblocks = staging_microblocks.len();
+        let num_disk_microblocks = disk_microblocks.len();
+        let cnt = if num_staging_microblocks < num_disk_microblocks { num_staging_microblocks } else { num_disk_microblocks };
 
-        let mut num_processed = 0;
-        let mut num_unprocessed = 0;
-        for row in rows.iter() {
-            if row.processed {
-                num_processed += 1;
+        // merge staging and on-disk streams
+        let mut microblocks = vec![];
+        for i in 0..cnt {
+            // favor DB-stored microblock over disk-stored, since the DB is less likely to be
+            // corrupt!
+            if !staging_microblocks[i].processed {
+                let mut index = 0;
+                let microblock = StacksMicroblock::deserialize(&staging_microblocks[i].block_data, &mut index, staging_microblocks[i].block_data.len() as u32)
+                    .map_err(Error::NetError)?;
+                microblocks.push(microblock);
             }
             else {
-                num_unprocessed += 1;
+                microblocks.push(disk_microblocks[i].clone());
             }
         }
 
-        if num_processed == 0 && num_unprocessed == 0 {
-            // no microblocks
-            return Ok(None);
-        }
-        else if num_processed > 0 && num_unprocessed == 0 {
-            // all processed
-            return Ok(None);
-        }
-        else if num_processed > 0 && num_unprocessed > 0 {
-            // not possible 
-            return Err(Error::DBError(db_error::Corruption));
+        if cnt < num_staging_microblocks {
+            for i in cnt..num_staging_microblocks {
+                if !staging_microblocks[i].processed {
+                    let mut index = 0;
+                    let microblock = StacksMicroblock::deserialize(&staging_microblocks[i].block_data, &mut index, staging_microblocks[i].block_data.len() as u32)
+                        .map_err(Error::NetError)?;
+                    microblocks.push(microblock);
+                }
+                else {
+                    // discontiguous -- there's a processed microblock occurring later in the
+                    // sequence than an unprocessed microblock.  Shouldn't happen.
+                    return Err(Error::DBError(db_error::Corruption));
+                }
+            }
         }
 
-        // all unprocessed
-        let mut microblocks = vec![];
-        for row in rows.iter() {
-            let mut index = 0;
-            let microblock = StacksMicroblock::deserialize(&row.block_data, &mut index, row.block_data.len() as u32)
-                .map_err(Error::NetError)?;
-            microblocks.push(microblock);
+        else if cnt < num_disk_microblocks {
+            for i in cnt..num_disk_microblocks {
+                microblocks.push(disk_microblocks[i].clone());
+            }
         }
+
+        // just to be sure...
+        microblocks.sort_by(|a, b| a.header.sequence.partial_cmp(&b.header.sequence).unwrap());
+        
+        Ok(microblocks)
+    }
+
+    /// Load up a block's descendent microblock stream, given its block hash and burn header hash.
+    ///
+    /// Does not check for duplicates or invalid data; feed the stream into validate_parent_microblock_stream() for that.
+    ///
+    /// Note that it's possible that some of the microblock data was already processed and moved to the chunk store.  If so,
+    /// then this method goes and fetches them as well.
+    pub fn load_staging_microblock_stream(&self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, last_seq: u16) -> Result<Option<Vec<StacksMicroblock>>, Error> {
+        let row_order = StagingMicroblock::row_order().join(",");
+        let sql = format!("SELECT {} FROM staging_microblocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 AND sequence <= ?3 ORDER BY sequence", row_order);
+        let args = [&anchored_block_hash.to_hex() as &dyn ToSql, &burn_header_hash.to_hex() as &dyn ToSql, &last_seq as &dyn ToSql];
+        let staging_microblocks = query_rows::<StagingMicroblock, _>(&self.blocks_db, &sql, &args)
+            .map_err(Error::DBError)?;
+
+        if staging_microblocks.len() == 0 {
+            // haven't seen any microblocks that descend from this block yet
+            return Ok(None);
+        }
+
+        let microblock_head_hash = &staging_microblocks[0].microblock_hash;
+
+        // load any matching already-confirmed microblocks up.  This block may also confirm them
+        // (but in a different fork).
+        let disk_microblocks = match self.load_microblock_stream(burn_header_hash, microblock_head_hash).or_else(StacksChainState::empty_stream)? {
+            Some(mblocks) => mblocks,
+            None => vec![]
+        };
+        
+        let microblocks = StacksChainState::merge_microblock_streams(staging_microblocks, disk_microblocks)?;
+
         Ok(Some(microblocks))
     }
     
@@ -675,8 +748,10 @@ impl StacksChainState {
         let block_hash = block.block_hash();
         let block_bytes = block.serialize();
 
-        let sql = "INSERT OR REPLACE INTO staging_blocks (anchored_block_hash, parent_anchored_block_hash, burn_header_hash, parent_burn_header_hash, microblock_pubkey_hash, processed, commit_burn, sortition_burn, block_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
+        let sql = "INSERT OR REPLACE INTO staging_blocks (anchored_block_hash, parent_anchored_block_hash, burn_header_hash, parent_burn_header_hash, parent_microblock_hash, parent_microblock_seq, microblock_pubkey_hash, processed, commit_burn, sortition_burn, block_data) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
         let args = [&block_hash.to_hex() as &dyn ToSql, &block.header.parent_block.to_hex() as &dyn ToSql, &burn_hash.to_hex() as &dyn ToSql, &parent_burn_header_hash.to_hex() as &dyn ToSql,
+                    &block.header.parent_microblock.to_hex() as &dyn ToSql, &block.header.parent_microblock_sequence as &dyn ToSql,
                     &block.header.microblock_pubkey_hash.to_hex() as &dyn ToSql, &0 as &dyn ToSql, &(commit_burn as i64) as &dyn ToSql, &(sortition_burn as i64) as &dyn ToSql, &block_bytes as &dyn ToSql];
 
         let tx = self.blocks_tx_begin()?;
@@ -772,6 +847,19 @@ impl StacksChainState {
         };
 
         Ok(Some(processed_i64 != 0))
+    }
+
+    /// What's the first microblock hash in a stream?
+    fn get_microblock_stream_head_hash(&self, burn_hash: &BurnchainHeaderHash, anchored_header_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+        let row_order = StagingMicroblock::row_order().join(",");
+        let sql = format!("SELECT {} FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND sequence = 0", row_order);
+        let args = [&burn_hash.to_hex() as &dyn ToSql, &anchored_header_hash.to_hex() as &dyn ToSql];
+        let staging_microblocks = query_rows::<StagingMicroblock, _>(&self.blocks_db, &sql, &args).map_err(Error::DBError)?;
+        match staging_microblocks.len() {
+            0 => Ok(None),
+            1 => Ok(Some(staging_microblocks[0].microblock_hash.clone())),
+            _ => Ok(None)       // leader equivocated
+        }
     }
     
     /// Do we have a microblock stream queued up, and if so, is it being processed?
@@ -893,44 +981,100 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Mark a stream of microblocks as processed -- move them to the chunk store.
-    /// All the corresponding blocks must have been validated and proven contiguous
-    fn set_microblocks_processed(&mut self, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, accept: bool) -> Result<(), Error> {
-        let row_order = StagingMicroblock::row_order().join(",");
+    /// Truncate a stored microblock stream 
+    fn truncate_microblock_stream(&mut self, burn_hash: &BurnchainHeaderHash, microblock_head_hash: &BlockHeaderHash, last_sequence: u16) -> Result<(), Error> {
+        let mut microblocks = match self.load_microblock_stream(burn_hash, microblock_head_hash).or_else(StacksChainState::empty_stream)? {
+            Some(mblocks) => mblocks,
+            None => vec![]
+        };
 
-        let row_order = StagingMicroblock::row_order().join(",");
-        let sql = format!("SELECT {} FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND processed = 0 ORDER BY sequence ASC", row_order);
-        let args = [&burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql];
-        let staging_microblocks = query_rows::<StagingMicroblock, _>(&self.blocks_db, &sql, &args).map_err(Error::DBError)?;
-
-        let mut microblocks = Vec::with_capacity(staging_microblocks.len());
-        for smb in staging_microblocks.iter() {
-            let mut index = 0;
-            let microblock = StacksMicroblock::deserialize(&smb.block_data, &mut index, smb.block_data.len() as u32).map_err(Error::NetError)?;
-            microblocks.push(microblock);
+        let mut new_microblocks = vec![];
+        for mblock in microblocks.drain(..) {
+            if mblock.header.sequence > last_sequence {
+                break;
+            }
+            new_microblocks.push(mblock);
         }
 
-        if microblocks.len() > 0 {
-            let num_microblocks = microblocks.len();
-            if !self.has_stored_block(burn_hash, &microblocks[num_microblocks - 1].block_hash())? {
-                if accept {
-                    debug!("Accept microblock stream rooted at {}/{}-{}", burn_hash.to_hex(), anchored_block_hash.to_hex(), microblocks[num_microblocks-1].block_hash().to_hex());
-                    self.store_microblock_stream(burn_hash, &microblocks)?;
-                }
-                else {
-                    debug!("Reject microblock stream rooted at {}/{}-{}", burn_hash.to_hex(), anchored_block_hash.to_hex(), microblocks[num_microblocks-1].block_hash().to_hex());
-                    self.store_empty_block(burn_hash, &microblocks[num_microblocks - 1].block_hash())?;
-                }
+        self.store_microblock_stream(burn_hash, &new_microblocks)?;
+        Ok(())
+    }
+
+    /// Drop a microblock stream starting after the given invalid microblock hash -- all blocks beyond it will never be considered valid
+    fn drop_microblock_stream(&mut self, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, invalid_microblock_hash: &BlockHeaderHash) -> Result<(), Error> {
+        // what's the head of this stream?
+        let microblock_head_hash = match self.get_microblock_stream_head_hash(burn_hash, anchored_block_hash)? {
+            Some(bhh) => bhh,
+            None => {
+                // nothing to do 
+                return Ok(())
             }
-            else {
-                debug!("Already processed microblock stream {}/{}-{}", burn_hash.to_hex(), anchored_block_hash.to_hex(), microblocks[num_microblocks-1].block_hash().to_hex());
-            }
+        };
+
+        // what's this invalid block's sequence number?
+        let drop_sequence = match self.load_staging_microblock(burn_hash, anchored_block_hash, invalid_microblock_hash)? {
+            Some(staging_microblock) => staging_microblock.sequence,
+            None => u16::max_value()
+        };
+
+        let tx = self.blocks_tx_begin()?;
+        
+        // clear out of queue beyond the invalid sequence 
+        let sql = "UPDATE staging_microblocks SET processed = 1, block_data = ?1 WHERE burn_header_hash = ?2 AND anchored_block_hash = ?3 AND sequence > ?4".to_string();
+        let args = [&(vec![] as Vec<u8>) as &dyn ToSql, &burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql, &drop_sequence as &dyn ToSql];
+
+        tx.execute(&sql, &args)
+            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+
+        tx.commit()
+            .map_err(Error::DBError)?;
+       
+        // drop invalidated microblocks from the chunk store
+        self.truncate_microblock_stream(burn_hash, &microblock_head_hash, drop_sequence)?;
+
+        Ok(())
+    }
+
+    /// Mark a range of a stream of microblocks as confirmed -- move them to the chunk store if
+    /// they're not there already.
+    ///
+    /// All the corresponding blocks must have been validated and proven contiguous.
+    fn set_microblocks_confirmed(&mut self, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, last_seq: u16) -> Result<(), Error> {
+        let row_order = StagingMicroblock::row_order().join(",");
+        let sql = format!("SELECT {} FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND sequence <= ?3 ORDER BY sequence ASC", row_order);
+        let args = [&burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql, &last_seq as &dyn ToSql];
+        let staging_microblocks = query_rows::<StagingMicroblock, _>(&self.blocks_db, &sql, &args).map_err(Error::DBError)?;
+
+        if staging_microblocks.len() > 0 {
+            // have more microblocks to store -- some anchored block confirmed them.
+            // what's the first microblock in this stream?
+            let first_microblock_hash = match self.get_microblock_stream_head_hash(burn_hash, anchored_block_hash)? {
+                Some(bhh) => bhh,
+                None => {
+                    if staging_microblocks[0].sequence != 0 {
+                        // inexplicibly, we don't have it
+                        return Err(Error::DBError(db_error::Corruption));
+                    }
+                    staging_microblocks[0].microblock_hash.clone()
+                }
+            };
+
+            // merge with chunk-stored microblock stream, if present
+            let stored_microblocks = match self.load_microblock_stream(burn_hash, &first_microblock_hash).or_else(StacksChainState::empty_stream)? {
+                Some(mblocks) => mblocks,
+                None => vec![]
+            };
+
+            let microblocks = StacksChainState::merge_microblock_streams(staging_microblocks, stored_microblocks)?;
+
+            debug!("Accept microblock stream rooted at {}/{}-{} ({})", burn_hash.to_hex(), anchored_block_hash.to_hex(), microblocks[0].block_hash().to_hex(), last_seq);
+            self.store_microblock_stream(burn_hash, &microblocks)?;
 
             let tx = self.blocks_tx_begin()?;
 
             // clear out of queue 
-            let sql = "UPDATE staging_microblocks SET processed = 1, block_data = ?1 WHERE burn_header_hash = ?2 AND anchored_block_hash = ?3".to_string();
-            let args = [&(vec![] as Vec<u8>) as &dyn ToSql, &burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql];
+            let sql = "UPDATE staging_microblocks SET processed = 1, block_data = ?1 WHERE burn_header_hash = ?2 AND anchored_block_hash = ?3 AND sequence <= ?4".to_string();
+            let args = [&(vec![] as Vec<u8>) as &dyn ToSql, &burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql, &last_seq as &dyn ToSql];
 
             tx.execute(&sql, &args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1300,26 +1444,23 @@ impl StacksChainState {
     }
    
     /// Given a staging block, load up its parent microblock stream from staging.
+    /// Try to build off of the longest possible valid stream.
     /// Return Ok(Some(microblocks)) if we got microblocks (even if it's an empty stream)
     /// Return Ok(None) if there are no staging microblocks yet
     fn find_next_staging_microblock_stream(&self, staging_block: &StagingBlock) -> Result<Option<Vec<StacksMicroblock>>, Error> {
-        match self.load_staging_microblock_stream(&staging_block.parent_burn_header_hash, &staging_block.parent_anchored_block_hash)? {
+        if staging_block.parent_microblock_hash == EMPTY_MICROBLOCK_PARENT_HASH && staging_block.parent_microblock_seq == 0 {
+            // no parent microblocks, ever
+            return Ok(Some(vec![]));
+        }
+
+        match self.load_staging_microblock_stream(&staging_block.parent_burn_header_hash, &staging_block.parent_anchored_block_hash, u16::max_value())? {
             Some(microblocks) => {
                 return Ok(Some(microblocks));
             }
             None => {
-                // either all processed, or no microblocks
-                let mut index = 0;
-                let block = StacksBlock::deserialize(&staging_block.block_data, &mut index, staging_block.block_data.len() as u32).map_err(Error::NetError)?;
-                if block.header.parent_microblock_sequence == 0 && block.header.parent_microblock == EMPTY_MICROBLOCK_PARENT_HASH {
-                    // no microblocks in the first place
-                    return Ok(Some(vec![]));
-                }
-                else {
-                    // microblocks haven't arrived yet
-                    debug!("No parent microblock stream for {}: expected {},{}", block.block_hash().to_hex(), block.header.parent_microblock.to_hex(), block.header.parent_microblock_sequence);
-                    return Ok(None);
-                }
+                // parent microblocks haven't arrived yet
+                debug!("No parent microblock stream for {}: expected {},{}", staging_block.anchored_block_hash.to_hex(), staging_block.parent_microblock_hash.to_hex(), staging_block.parent_microblock_seq);
+                return Ok(None);
             }
         }
     }
@@ -1700,6 +1841,14 @@ impl StacksChainState {
             next_microblocks.truncate(microblock_terminus);
         }
 
+        let (last_microblock_hash, last_microblock_seq) = match next_microblocks.len() {
+            0 => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
+            _ => {
+                let l = next_microblocks.len();
+                (next_microblocks[l - 1].block_hash(), next_microblocks[l - 1].header.sequence)
+            }
+        };
+
         // find users that burned in support of this block, so we can calculate the miner reward
         let user_supports = self.load_staging_block_user_supports(&next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash)?;
 
@@ -1707,19 +1856,18 @@ impl StacksChainState {
         let next_chain_tip = match self.append_block(&parent_block_header_info, &next_staging_block.burn_header_hash, &block, &next_microblocks, next_staging_block.commit_burn, next_staging_block.sortition_burn, &user_supports) {
             Ok(next_chain_tip) => next_chain_tip,
             Err(e) => {
+                // this block is invalid
                 self.free_block_state(&next_staging_block.burn_header_hash, &block.header);
                 self.set_block_processed(&next_staging_block.burn_header_hash, &block.header.block_hash(), false)
                     .expect(&format!("FATAL: failed to clear invalid block {}/{}", next_staging_block.burn_header_hash.to_hex(), &block.header.block_hash().to_hex()));
 
                 match e {
                     Error::InvalidStacksMicroblock(ref msg, ref header_hash) => {
-                        if next_microblocks.len() == 0 || *header_hash == next_microblocks[0].block_hash() {
-                            // entire stream is invalid
-                            self.set_microblocks_processed(&next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, false)
-                                .expect(&format!("FATAL: failed to clear invalid microblocks off of {}/{}", next_staging_block.burn_header_hash.to_hex(), next_staging_block.anchored_block_hash.to_hex()));
-                        }
-                        // otherwise, there exists a valid microblock in this stream that someone
-                        // else can later build on.
+                        error!("Parent microblock stream from {}/{} is invalid at microblock {}: {}", parent_block_header_info.burn_header_hash.to_hex(), parent_block_header_info.anchored_header.block_hash().to_hex(), header_hash, msg);
+
+                        // parent microblock stream is invalid after a given hash
+                        self.drop_microblock_stream(&parent_block_header_info.burn_header_hash, &parent_block_header_info.anchored_header.block_hash(), header_hash)
+                            .expect(&format!("FATAL: failed to clear invalid microblocks off of {}/{}", next_staging_block.burn_header_hash.to_hex(), next_staging_block.anchored_block_hash.to_hex()));
                     },
                     _ => {
                         // block was invalid, but this means the microblocks were valid
@@ -1732,11 +1880,15 @@ impl StacksChainState {
 
         assert_eq!(next_chain_tip.anchored_header.block_hash(), block.block_hash());
         assert_eq!(next_chain_tip.burn_header_hash, next_staging_block.burn_header_hash);
+        assert_eq!(next_chain_tip.anchored_header.parent_microblock, last_microblock_hash);
+        assert_eq!(next_chain_tip.anchored_header.parent_microblock_sequence, last_microblock_seq);
 
         debug!("Reached chain tip {}/{} from {}/{}", next_chain_tip.burn_header_hash.to_hex(), next_chain_tip.anchored_header.block_hash().to_hex(), next_staging_block.parent_burn_header_hash.to_hex(), next_staging_block.parent_anchored_block_hash.to_hex());
 
-        // move over to chunk store
-        self.set_microblocks_processed(&next_staging_block.parent_burn_header_hash, &next_staging_block.parent_anchored_block_hash, true)?;
+        if next_staging_block.parent_microblock_hash != EMPTY_MICROBLOCK_PARENT_HASH || next_staging_block.parent_microblock_seq != 0 {
+            // confirmed one or more parent microblocks
+            self.set_microblocks_confirmed(&next_staging_block.parent_burn_header_hash, &next_staging_block.parent_anchored_block_hash, last_microblock_seq)?;
+        }
         self.set_block_processed(&next_chain_tip.burn_header_hash, &next_chain_tip.anchored_header.block_hash(), true)?;
         
         Ok((Some(next_chain_tip), None))
@@ -2068,37 +2220,35 @@ mod test {
       
         let block = make_empty_coinbase_block(&privk);
         let microblocks = make_sample_microblock_stream(&privk, &block.block_hash());
-        let num_mblocks = microblocks.len();
 
-        let path = chainstate.get_block_path(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap();
+        let path = chainstate.get_block_path(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap();
         assert!(fs::metadata(&path).is_err());
-        assert!(!chainstate.has_stored_block(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap());
-        assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).is_err());
+        assert!(!chainstate.has_stored_block(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
+        assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).is_err());
 
         chainstate.store_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks).unwrap();
 
         assert!(fs::metadata(&path).is_ok());
-        assert!(chainstate.has_stored_block(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap());
-        assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap().is_some());
-        assert_eq!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap().unwrap(), microblocks);
+        assert!(chainstate.has_stored_block(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
+        assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap().is_some());
+        assert_eq!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap().unwrap(), microblocks);
 
-        chainstate.free_block(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash());
+        chainstate.free_block(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash());
 
-        assert!(chainstate.has_stored_block(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap());
-        assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap().is_none());
+        assert!(chainstate.has_stored_block(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
+        assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap().is_none());
     }
 
     #[test]
-    fn stacks_db_staging_microblock_stream_load_store_accept() {
+    fn stacks_db_staging_microblock_stream_load_store_confirm_all() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_staging_microblock_stream_load_store_accept");
         let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
       
         let block = make_empty_coinbase_block(&privk);
         let microblocks = make_sample_microblock_stream(&privk, &block.block_hash());
-        let num_mblocks = microblocks.len();
         
         assert!(chainstate.load_staging_microblock(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_none());
-        assert!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
+        assert!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().is_none());
 
         chainstate.store_staging_block(&BurnchainHeaderHash([2u8; 32]), &block, &BurnchainHeaderHash([1u8; 32]), 1, 2).unwrap();
         for mb in microblocks.iter() {
@@ -2112,8 +2262,8 @@ mod test {
 
         // microblock stream should be stored to staging
         assert!(chainstate.load_staging_microblock(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_some());
-        assert_eq!(chainstate.load_staging_microblock(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().unwrap(), microblocks[0]);
-        assert_eq!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().unwrap(), microblocks);
+        assert_eq!(chainstate.load_staging_microblock(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().unwrap().try_into_microblock().unwrap(), microblocks[0]);
+        assert_eq!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
 
         // block should _not_ be in the chunk store
         assert!(!chainstate.has_stored_block(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap());
@@ -2122,11 +2272,11 @@ mod test {
         assert_eq!(chainstate.load_staging_block_pubkey_hash(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().unwrap(), block.header.microblock_pubkey_hash);
 
         // microblocks should _not_ be in the chunk store
-        assert!(!chainstate.has_stored_microblocks(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap());
-        assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).is_err());
+        assert!(!chainstate.has_stored_microblocks(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
+        assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).is_err());
 
         chainstate.set_block_processed(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), true).unwrap();
-        chainstate.set_microblocks_processed(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), true).unwrap();
+        chainstate.set_microblocks_confirmed(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), (microblocks.len() - 1) as u16).unwrap();
 
         // block should be stored to chunk store now
         assert!(chainstate.has_stored_block(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap());
@@ -2140,8 +2290,8 @@ mod test {
         assert!(chainstate.load_staging_block_pubkey_hash(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
 
         // microblocks should be in the chunk store
-        assert!(chainstate.has_stored_microblocks(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap());
-        assert_eq!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap().unwrap(), microblocks);
+        assert!(chainstate.has_stored_microblocks(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
+        assert_eq!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap().unwrap(), microblocks);
 
         // microblocks should be absent from staging
         for mb in microblocks.iter() {
@@ -2149,20 +2299,21 @@ mod test {
             assert_eq!(chainstate.get_staging_microblock_status(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &mb.block_hash()).unwrap().unwrap(), true);
         }
         
-        assert!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
+        // but we should still load the full stream if asked
+        assert!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().is_some());
+        assert_eq!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
     }
     
     #[test]
-    fn stacks_db_staging_microblock_stream_load_store_reject() {
+    fn stacks_db_staging_microblock_stream_load_store_partial_confirm() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_staging_microblock_stream_load_store_reject");
         let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
       
         let block = make_empty_coinbase_block(&privk);
         let microblocks = make_sample_microblock_stream(&privk, &block.block_hash());
-        let num_mblocks = microblocks.len();
         
         assert!(chainstate.load_staging_microblock(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_none());
-        assert!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
+        assert!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().is_none());
 
         chainstate.store_staging_block(&BurnchainHeaderHash([2u8; 32]), &block, &BurnchainHeaderHash([1u8; 32]), 1, 2).unwrap();
         for mb in microblocks.iter() {
@@ -2176,8 +2327,8 @@ mod test {
 
         // microblock stream should be stored to staging
         assert!(chainstate.load_staging_microblock(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_some());
-        assert_eq!(chainstate.load_staging_microblock(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().unwrap(), microblocks[0]);
-        assert_eq!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().unwrap(), microblocks);
+        assert_eq!(chainstate.load_staging_microblock(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().unwrap().try_into_microblock().unwrap(), microblocks[0]);
+        assert_eq!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
 
         // block should _not_ be in the chunk store
         assert!(!chainstate.has_stored_block(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap());
@@ -2186,11 +2337,13 @@ mod test {
         assert_eq!(chainstate.load_staging_block_pubkey_hash(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().unwrap(), block.header.microblock_pubkey_hash);
 
         // microblocks should _not_ be in the chunk store
-        assert!(!chainstate.has_stored_microblocks(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap());
-        assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).is_err());
+        assert!(!chainstate.has_stored_microblocks(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
+        assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).is_err());
 
+        // confirm the 0th microblock, but not the 1st or later.
+        // do not confirm the block.
         chainstate.set_block_processed(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), false).unwrap();
-        chainstate.set_microblocks_processed(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), false).unwrap();
+        chainstate.set_microblocks_confirmed(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), 0).unwrap();
 
         // empty block should be stored to chunk store now
         assert!(chainstate.has_stored_block(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap());
@@ -2201,17 +2354,27 @@ mod test {
         assert!(chainstate.load_staging_block(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
         assert!(chainstate.load_staging_block_pubkey_hash(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
 
-        // microblocks should not be in the chunk store (just an empty file)
-        assert!(chainstate.has_stored_microblocks(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap());
-        assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[num_mblocks-1].block_hash()).unwrap().is_none());
-
-        // microblocks should be absent from staging
+        // microblocks should not be in the chunk store, except for block 0 which was confirmed
+        assert!(chainstate.has_stored_microblocks(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap());
+        assert!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap().is_some());
+        assert_eq!(chainstate.load_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &microblocks[0].block_hash()).unwrap().unwrap(), vec![microblocks[0].clone()]);
+        
+        // microblocks should be present in staging, except for block 0 
         for mb in microblocks.iter() {
             assert!(chainstate.get_staging_microblock_status(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &mb.block_hash()).unwrap().is_some());
-            assert_eq!(chainstate.get_staging_microblock_status(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &mb.block_hash()).unwrap().unwrap(), true);
+            
+            if mb.header.sequence == 0 {
+                assert_eq!(chainstate.get_staging_microblock_status(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &mb.block_hash()).unwrap().unwrap(), true);
+            }
+            else {
+                // not processed since seq=0 was the last block to be accepted
+                assert_eq!(chainstate.get_staging_microblock_status(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &mb.block_hash()).unwrap().unwrap(), false);
+            }
         }
         
-        assert!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash()).unwrap().is_none());
+        // can load the entire stream still
+        assert!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().is_some());
+        assert_eq!(chainstate.load_staging_microblock_stream(&BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
     }
 
     #[test]
@@ -2459,4 +2622,8 @@ mod test {
             }
         }
     }
+
+    // TODO: test drop_microblock_stream
+    // TODO: test multiple anchored blocks confirming the same microblock stream (in the same
+    // place, and different places, with/without orphans)
 }
