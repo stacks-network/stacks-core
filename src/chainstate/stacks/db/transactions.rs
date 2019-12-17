@@ -964,6 +964,19 @@ pub mod test {
           (begin
              (nft-transfer! names name tx-sender recipient))
         )
+        (define-public (send-stackaroos-and-name (name (buff 50)) (recipient principal))
+          (begin
+             (as-contract  ;; used to test post-conditions on contract principal
+               (begin (nft-mint! names name tx-sender)
+                      (nft-transfer! names name tx-sender recipient)
+                      (ft-mint! stackaroos u100 tx-sender)
+                      (ft-transfer! stackaroos u100 tx-sender recipient)))
+           ))
+        (define-public (user-send-stackaroos-and-name (name (buff 50)) (recipient principal))
+           (begin
+             (ft-transfer! stackaroos u100 tx-sender recipient)
+             (nft-transfer! names name tx-sender recipient))
+        )
         (define-public (get-bar) (ok (var-get bar)))
         (define-public (set-bar (x int) (y int))
           (begin (var-set! bar (/ x y)) (ok (var-get bar))))";
@@ -1346,6 +1359,353 @@ pub mod test {
             assert_eq!(account_publisher_after.nonce, expected_nonce);
         }
         
+        conn.commit_block();
+    }
+    
+    #[test]
+    fn process_post_conditions_tokens_deny() {
+        let contract = "
+        (define-data-var bar int 0)
+        (define-fungible-token stackaroos)
+        (define-non-fungible-token names (buff 50))
+        (define-public (send-stackaroos (recipient principal))
+          (begin 
+             (as-contract  ;; used to test post-conditions on contract principal
+               (begin (ft-mint! stackaroos u100 tx-sender)
+                      (ft-transfer! stackaroos u100 tx-sender recipient)))
+          ))
+        (define-public (send-name (name (buff 50)) (recipient principal))
+          (begin 
+            (as-contract   ;; used to test post-conditions on contract principal
+              (begin (nft-mint! names name tx-sender)
+                     (nft-transfer! names name tx-sender recipient)))
+          ))
+        (define-public (user-send-stackaroos (recipient principal))
+          (begin
+             (ft-transfer! stackaroos u100 tx-sender recipient))
+        )
+        (define-public (user-send-name (name (buff 50)) (recipient principal))
+          (begin
+             (nft-transfer! names name tx-sender recipient))
+        )
+        (define-public (send-stackaroos-and-name (name (buff 50)) (recipient principal))
+          (begin
+             (as-contract  ;; used to test post-conditions on contract principal
+               (begin (nft-mint! names name tx-sender)
+                      (nft-transfer! names name tx-sender recipient)
+                      (ft-mint! stackaroos u100 tx-sender)
+                      (ft-transfer! stackaroos u100 tx-sender recipient)))
+           ))
+        (define-public (user-send-stackaroos-and-name (name (buff 50)) (recipient principal))
+           (begin
+             (ft-transfer! stackaroos u100 tx-sender recipient)
+             (nft-transfer! names name tx-sender recipient))
+        )
+        (define-public (get-bar) (ok (var-get bar)))
+        (define-public (set-bar (x int) (y int))
+          (begin (var-set! bar (/ x y)) (ok (var-get bar))))";
+
+        let privk_origin = StacksPrivateKey::from_hex("027682d2f7b05c3801fe4467883ab4cff0568b5e36412b5289e83ea5b519de8a01").unwrap();
+        let privk_recipient = StacksPrivateKey::from_hex("7e3af4db6af6b3c67e2c6c6d7d5983b519f4d9b3a6e00580ae96dcace3bde8bc01").unwrap();
+        let auth_origin = TransactionAuth::from_p2pkh(&privk_origin).unwrap();
+        let auth_recv = TransactionAuth::from_p2pkh(&privk_recipient).unwrap();
+        let addr_publisher = auth_origin.origin().address_testnet();
+        let addr_principal = addr_publisher.to_account_principal();
+
+        let contract_name = ContractName::try_from("hello-world").unwrap();
+
+        let recv_addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk_recipient)]).unwrap();
+        let recv_principal = recv_addr.to_account_principal();
+        let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr_publisher.clone()), contract_name.clone());
+        let contract_principal = PrincipalData::Contract(contract_id.clone());
+
+        let asset_info = AssetInfo {
+            contract_address: addr_publisher.clone(),
+            contract_name: contract_name.clone(),
+            asset_name: ClarityName::try_from("stackaroos").unwrap(),
+        };
+        
+        let name_asset_info = AssetInfo {
+            contract_address: addr_publisher.clone(),
+            contract_name: contract_name.clone(),
+            asset_name: ClarityName::try_from("names").unwrap(),
+        };
+        
+        let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
+                                                     auth_origin.clone(),
+                                                     TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
+
+        tx_contract.chain_id = 0x80000000;
+        tx_contract.set_fee_rate(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_contract);
+        signer.sign_origin(&privk_origin).unwrap();
+        
+        let signed_contract_tx = signer.get_tx().unwrap();
+
+        let mut post_conditions_pass = vec![];
+        let mut post_conditions_pass_payback = vec![];
+        let mut post_conditions_fail = vec![];
+        let mut post_conditions_fail_payback = vec![];
+        let mut nonce = 1;
+        let mut recv_nonce = 0;
+
+        // mint 100 stackaroos and the name to recv_addr, and set a post-condition for each asset on the contract-principal
+        // assert contract sent ==, <=, or >= 100 stackaroos
+        for (i, pass_condition) in [FungibleConditionCode::SentEq, FungibleConditionCode::SentGe, FungibleConditionCode::SentLe].iter().enumerate() {
+            let name = Value::buff_from(i.to_be_bytes().to_vec()).unwrap();
+            let mut tx_contract_call_both = StacksTransaction::new(TransactionVersion::Testnet,
+                                                                   auth_origin.clone(),
+                                                                   TransactionPayload::new_contract_call(addr_publisher.clone(), "hello-world", "send-stackaroos-and-name", vec![name.clone(), Value::Principal(recv_principal.clone())]).unwrap());
+
+            tx_contract_call_both.chain_id = 0x80000000;
+            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_origin_nonce(nonce);
+            
+            tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
+            tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), asset_info.clone(), *pass_condition, 100));
+            tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Absent));
+
+            let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
+            signer.sign_origin(&privk_origin).unwrap();
+            post_conditions_pass.push(signer.get_tx().unwrap());
+
+            nonce += 1;
+        }
+        
+        // recv_addr sends 100 stackaroos and name back to addr_publisher.
+        // assert recv_addr sent ==, <=, or >= 100 stackaroos
+        for (i, pass_condition) in [FungibleConditionCode::SentEq, FungibleConditionCode::SentGe, FungibleConditionCode::SentLe].iter().enumerate() {
+            let name = Value::buff_from(i.to_be_bytes().to_vec()).unwrap();
+            let mut tx_contract_call_both = StacksTransaction::new(TransactionVersion::Testnet,
+                                                                   auth_recv.clone(),
+                                                                   TransactionPayload::new_contract_call(addr_publisher.clone(), "hello-world", "user-send-stackaroos-and-name", vec![name.clone(), Value::Principal(addr_principal.clone())]).unwrap());
+
+            tx_contract_call_both.chain_id = 0x80000000;
+            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_origin_nonce(recv_nonce);
+            
+            tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
+            tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info.clone(), *pass_condition, 100));
+            tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Absent));
+            
+            let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
+            signer.sign_origin(&privk_recipient).unwrap();
+            post_conditions_pass_payback.push(signer.get_tx().unwrap());
+
+            recv_nonce += 1;
+        }
+        
+        // mint 100 stackaroos and the name to recv_addr, but neglect to set a fungible post-condition.
+        // assert contract sent ==, <=, or >= 100 stackaroos, and that the name was removed from
+        // the contract
+        for (i, pass_condition) in [FungibleConditionCode::SentEq, FungibleConditionCode::SentGe, FungibleConditionCode::SentLe].iter().enumerate() {
+            let name = Value::buff_from(i.to_be_bytes().to_vec()).unwrap();
+            let mut tx_contract_call_both = StacksTransaction::new(TransactionVersion::Testnet,
+                                                                   auth_origin.clone(),
+                                                                   TransactionPayload::new_contract_call(addr_publisher.clone(), "hello-world", "send-stackaroos-and-name", vec![name.clone(), Value::Principal(recv_principal.clone())]).unwrap());
+
+            tx_contract_call_both.chain_id = 0x80000000;
+            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_origin_nonce(nonce);
+            
+            tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
+            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), asset_info.clone(), *pass_condition, 100));
+            tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Absent));
+
+            let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
+            signer.sign_origin(&privk_origin).unwrap();
+            post_conditions_fail.push(signer.get_tx().unwrap());
+
+            nonce += 1;
+        }
+        
+        // mint 100 stackaroos and the name to recv_addr, but neglect to set a non-fungible post-condition.
+        // assert contract sent ==, <=, or >= 100 stackaroos, and that the name was removed from
+        // the contract
+        for (i, pass_condition) in [FungibleConditionCode::SentEq, FungibleConditionCode::SentGe, FungibleConditionCode::SentLe].iter().enumerate() {
+            let name = Value::buff_from((128 + i).to_be_bytes().to_vec()).unwrap();
+            let mut tx_contract_call_both = StacksTransaction::new(TransactionVersion::Testnet,
+                                                                   auth_origin.clone(),
+                                                                   TransactionPayload::new_contract_call(addr_publisher.clone(), "hello-world", "send-stackaroos-and-name", vec![name.clone(), Value::Principal(recv_principal.clone())]).unwrap());
+
+            tx_contract_call_both.chain_id = 0x80000000;
+            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_origin_nonce(nonce);
+            
+            tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
+            tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), asset_info.clone(), *pass_condition, 100));
+            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Absent));
+
+            let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
+            signer.sign_origin(&privk_origin).unwrap();
+            post_conditions_fail.push(signer.get_tx().unwrap());
+
+            nonce += 1;
+        }
+        
+        // recv_addr sends 100 stackaroos and name back to addr_publisher, but forgets a fungible
+        // post-condition.
+        // assert recv_addr sent ==, <=, or >= 100 stackaroos
+        for (i, pass_condition) in [FungibleConditionCode::SentEq, FungibleConditionCode::SentGe, FungibleConditionCode::SentLe].iter().enumerate() {
+            let name = Value::buff_from((128 + i).to_be_bytes().to_vec()).unwrap();
+            let mut tx_contract_call_both = StacksTransaction::new(TransactionVersion::Testnet,
+                                                                   auth_recv.clone(),
+                                                                   TransactionPayload::new_contract_call(addr_publisher.clone(), "hello-world", "user-send-stackaroos-and-name", vec![name.clone(), Value::Principal(addr_principal.clone())]).unwrap());
+
+            tx_contract_call_both.chain_id = 0x80000000;
+            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_origin_nonce(recv_nonce);
+            
+            tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
+            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info.clone(), *pass_condition, 100));
+            tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Absent));
+            
+            let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
+            signer.sign_origin(&privk_recipient).unwrap();
+            post_conditions_fail_payback.push(signer.get_tx().unwrap());
+
+            recv_nonce += 1;
+        }
+       
+        // recv_addr sends 100 stackaroos and name back to addr_publisher, but forgets a non-fungible
+        // post-condition.
+        // assert recv_addr sent ==, <=, or >= 100 stackaroos
+        for (i, pass_condition) in [FungibleConditionCode::SentEq, FungibleConditionCode::SentGe, FungibleConditionCode::SentLe].iter().enumerate() {
+            let name = Value::buff_from((128 + i).to_be_bytes().to_vec()).unwrap();
+            let mut tx_contract_call_both = StacksTransaction::new(TransactionVersion::Testnet,
+                                                                   auth_recv.clone(),
+                                                                   TransactionPayload::new_contract_call(addr_publisher.clone(), "hello-world", "user-send-stackaroos-and-name", vec![name.clone(), Value::Principal(addr_principal.clone())]).unwrap());
+
+            tx_contract_call_both.chain_id = 0x80000000;
+            tx_contract_call_both.set_fee_rate(0);
+            tx_contract_call_both.set_origin_nonce(recv_nonce);
+            
+            tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
+            tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info.clone(), *pass_condition, 100));
+            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Absent));
+            
+            let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
+            signer.sign_origin(&privk_recipient).unwrap();
+            post_conditions_fail_payback.push(signer.get_tx().unwrap());
+
+            recv_nonce += 1;
+        }
+        
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-post-conditions");
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+
+        let account_publisher = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
+        assert_eq!(account_publisher.nonce, 0);
+
+        // no initial stackaroos balance -- there is no stackaroos token (yet)
+        let _ = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap_err();
+
+        // publish contract
+        let _ = StacksChainState::process_transaction(&mut conn, &signed_contract_tx).unwrap();
+        
+        // no initial stackaroos balance
+        let account_stackaroos_balance = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
+        assert_eq!(account_stackaroos_balance, 0);
+
+        let mut expected_stackaroos_balance = 0;
+        let mut expected_nonce = 1;
+        let mut expected_recv_nonce = 0;
+        let mut expected_payback_stackaroos_balance = 0;
+
+        for (i, tx_pass) in post_conditions_pass.iter().enumerate() {
+            let (fee, _) = StacksChainState::process_transaction(&mut conn, &tx_pass).unwrap();
+            expected_stackaroos_balance += 100;
+            expected_nonce += 1;
+
+            // should have gotten stackaroos
+            let account_recipient_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
+            assert_eq!(account_recipient_stackaroos_after, expected_stackaroos_balance);
+
+            // should have gotten name
+            let expected_value = Value::buff_from(i.to_be_bytes().to_vec()).unwrap();
+            let account_recipient_names_after = StacksChainState::get_account_nft(&mut conn, &contract_id, "names", &expected_value).unwrap();
+            assert_eq!(account_recipient_names_after, recv_principal);
+
+            // sender's nonce increased
+            let account_publisher_after = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
+            assert_eq!(account_publisher_after.nonce, expected_nonce);
+        }
+        
+        for (i, tx_pass) in post_conditions_pass_payback.iter().enumerate() {
+            let (fee, _) = StacksChainState::process_transaction(&mut conn, &tx_pass).unwrap();
+            expected_stackaroos_balance -= 100;
+            expected_payback_stackaroos_balance += 100;
+            expected_recv_nonce += 1;
+
+            // recipient should have sent stackaroos
+            let account_recipient_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
+            assert_eq!(account_recipient_stackaroos_after, expected_stackaroos_balance);
+            
+            // publisher should have gotten them
+            let account_pub_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &addr_principal).unwrap();
+            assert_eq!(account_pub_stackaroos_after, expected_payback_stackaroos_balance);
+            
+            // publisher should have gotten name
+            let expected_value = Value::buff_from(i.to_be_bytes().to_vec()).unwrap();
+            let account_publisher_names_after = StacksChainState::get_account_nft(&mut conn, &contract_id, "names", &expected_value).unwrap();
+            assert_eq!(account_publisher_names_after, addr_principal);
+
+            // no change in nonce
+            let account_publisher_after = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
+            assert_eq!(account_publisher_after.nonce, expected_nonce);
+            
+            // receiver nonce changed
+            let account_recv_publisher_after = StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
+            assert_eq!(account_recv_publisher_after.nonce, expected_recv_nonce);
+        }
+       
+        for (i, tx_fail) in post_conditions_fail.iter().enumerate() {
+            let (fee, _) = StacksChainState::process_transaction(&mut conn, &tx_fail).unwrap();
+            expected_nonce += 1;
+            let expected_value = Value::buff_from((128 + i).to_be_bytes().to_vec()).unwrap();
+            
+            // no change in balance
+            let account_recipient_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
+            assert_eq!(account_recipient_stackaroos_after, expected_stackaroos_balance);
+            
+            let account_pub_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &addr_principal).unwrap();
+            assert_eq!(account_pub_stackaroos_after, expected_payback_stackaroos_balance);
+
+            // name not owned
+            let res = StacksChainState::get_account_nft(&mut conn, &contract_id, "names", &expected_value);
+            assert!(res.is_err());
+            
+            // but nonce _does_ change
+            let account_publisher_after = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
+            assert_eq!(account_publisher_after.nonce, expected_nonce);
+        }
+        
+        for (i, tx_fail) in post_conditions_fail_payback.iter().enumerate() {
+            let (fee, _) = StacksChainState::process_transaction(&mut conn, &tx_fail).unwrap();
+            expected_recv_nonce += 1;
+            let expected_value = Value::buff_from((128 + i).to_be_bytes().to_vec()).unwrap();
+            
+            // no change in balance
+            let account_recipient_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
+            assert_eq!(account_recipient_stackaroos_after, expected_stackaroos_balance);
+            
+            let account_pub_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &addr_principal).unwrap();
+            assert_eq!(account_pub_stackaroos_after, expected_payback_stackaroos_balance);
+            
+            // name not owned
+            let res = StacksChainState::get_account_nft(&mut conn, &contract_id, "names", &expected_value);
+            assert!(res.is_err());
+
+            // nonce for publisher doesn't change
+            let account_publisher_after = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
+            assert_eq!(account_publisher_after.nonce, expected_nonce);
+            
+            // but nonce _does_ change for reciever, who sent back
+            let account_publisher_after = StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
+            assert_eq!(account_publisher_after.nonce, expected_recv_nonce);
+        }
+
         conn.commit_block();
     }
 
