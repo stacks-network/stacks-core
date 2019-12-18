@@ -189,11 +189,11 @@ fn main() {
             testnet_name: "testnet".to_string(),
             chain: "bitcoin".to_string(),
             burchain_path: format!("/tmp/{}/burnchain", testnet_id),
-            burchain_block_time: 10000,
+            burchain_block_time: 2000,
             leader_config: vec![testnet::LeaderConfig {
                 name: "L1".to_string(),
                 path: format!("/tmp/{}/L1", testnet_id),
-                mem_pool_path: "./mempool-L1".to_string()
+                mem_pool_path: format!("/tmp/{}/L1/mempool", testnet_id)
             }]
         };
         
