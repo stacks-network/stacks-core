@@ -1,6 +1,6 @@
 use vm::errors::{CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result,
                  check_argument_count, check_arguments_at_least};
-use vm::types::{Value, ResponseData, OptionalData};
+use vm::types::{Value, ResponseData, OptionalData, TypeSignature};
 use vm::contexts::{LocalContext, Environment};
 use vm::{SymbolicExpression, ClarityName};
 use vm;
@@ -133,10 +133,14 @@ fn eval_with_new_binding(body: &SymbolicExpression, bind_name: ClarityName, bind
 }
 
 fn special_match_opt(input: OptionalData, args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    check_argument_count(3, args)?;
+    if args.len() != 3 {
+        Err(CheckErrors::BadMatchOptionSyntax(
+            Box::new(CheckErrors::IncorrectArgumentCount(4, args.len()+1))))?;
+    }
 
     let bind_name = args[0].match_atom()
-        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .ok_or_else(
+            || CheckErrors::BadMatchOptionSyntax(Box::new(CheckErrors::ExpectedName)))?
         .clone();
     let some_branch = &args[1];
     let none_branch = &args[2];
@@ -149,14 +153,19 @@ fn special_match_opt(input: OptionalData, args: &[SymbolicExpression], env: &mut
 
 
 fn special_match_resp(input: ResponseData, args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    check_argument_count(4, args)?;
+    if args.len() != 4 {
+        Err(CheckErrors::BadMatchResponseSyntax(
+            Box::new(CheckErrors::IncorrectArgumentCount(5, args.len()+1))))?;
+    }
 
     let ok_bind_name = args[0].match_atom()
-        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .ok_or_else(
+            || CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::ExpectedName)))?
         .clone();
     let ok_branch = &args[1];
     let err_bind_name = args[2].match_atom()
-        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .ok_or_else(
+            || CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::ExpectedName)))?
         .clone();
     let err_branch = &args[3];
 
@@ -179,7 +188,7 @@ pub fn special_match(args: &[SymbolicExpression], env: &mut Environment, context
         Value::Optional(data) => {
             special_match_opt(data, &args[1..], env, context) 
         },
-        _ => return Err(CheckErrors::ExpectedOptionalOrResponseValue(input.clone()).into())
+        _ => return Err(CheckErrors::BadMatchInput(TypeSignature::type_of(&input)).into())
     }
 }
 

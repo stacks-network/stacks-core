@@ -199,11 +199,13 @@ fn eval_with_new_binding(body: &SymbolicExpression, bind_name: ClarityName, bind
 fn check_special_match_opt(option_type: TypeSignature, checker: &mut TypeChecker,
                            args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 3 {
-        Err(CheckErrors::IncorrectArgumentCount(4, args.len()+1))?
+        Err(CheckErrors::BadMatchOptionSyntax(
+            Box::new(CheckErrors::IncorrectArgumentCount(4, args.len()+1))))?;
     }
     
     let bind_name = args[0].match_atom()
-        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .ok_or_else(
+            || CheckErrors::BadMatchOptionSyntax(Box::new(CheckErrors::ExpectedName)))?
         .clone();
     let some_branch = &args[1];
     let none_branch = &args[2];
@@ -223,15 +225,18 @@ fn check_special_match_opt(option_type: TypeSignature, checker: &mut TypeChecker
 fn check_special_match_resp(resp_type: (TypeSignature, TypeSignature), checker: &mut TypeChecker,
                             args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 4 {
-        Err(CheckErrors::IncorrectArgumentCount(5, args.len()+1))?
+        Err(CheckErrors::BadMatchResponseSyntax(
+            Box::new(CheckErrors::IncorrectArgumentCount(5, args.len()+1))))?;
     }
     
     let ok_bind_name = args[0].match_atom()
-        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .ok_or_else(
+            || CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::ExpectedName)))?
         .clone();
     let ok_branch = &args[1];
     let err_bind_name = args[2].match_atom()
-        .ok_or_else(|| CheckErrors::ExpectedName)?
+        .ok_or_else(
+            || CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::ExpectedName)))?
         .clone();
     let err_branch = &args[3];
 
@@ -260,6 +265,6 @@ pub fn check_special_match(checker: &mut TypeChecker, args: &[SymbolicExpression
         TypeSignature::ResponseType(resp_type) => {
             check_special_match_resp(*resp_type, checker, &args[1..], context)
         },
-        _ => Err(CheckErrors::ExpectedOptionalOrResponseType(input).into())
+        _ => Err(CheckErrors::BadMatchInput(input).into())
     }
 }

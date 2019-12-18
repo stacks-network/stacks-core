@@ -456,10 +456,8 @@ fn test_option_destructs() {
         Ok(Value::Int(9)),
         Ok(Value::Int(2)),
         Ok(Value::Int(8)),
-        Err(CheckErrors::ExpectedOptionalOrResponseValue(
-            Value::Int(1)).into()),
-        Err(CheckErrors::ExpectedOptionalOrResponseValue(
-            Value::Int(2)).into()),
+        Err(CheckErrors::BadMatchInput(TypeSignature::IntType).into()),
+        Err(CheckErrors::BadMatchInput(TypeSignature::IntType).into()),
         Err(ShortReturnType::ExpectedValue(Value::UInt(1)).into()),
         Ok(Value::Int(3)),
         Err(ShortReturnType::ExpectedValue(Value::none()).into()),

@@ -14,6 +14,11 @@ pub enum CheckErrors {
     ValueTooLarge,
     ExpectedName,
 
+    // match errors
+    BadMatchOptionSyntax(Box<CheckErrors>),
+    BadMatchResponseSyntax(Box<CheckErrors>),
+    BadMatchInput(TypeSignature),
+
     // list typing errors
     UnknownListConstructionFailure,
     ListTypesMustMatch,
@@ -220,6 +225,14 @@ impl DiagnosableError for CheckErrors {
 
     fn message(&self) -> String {
         match &self {
+            CheckErrors::BadMatchOptionSyntax(source) =>
+                format!("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",
+                        source.message()),
+            CheckErrors::BadMatchResponseSyntax(source) =>
+                format!("match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: {}",
+                        source.message()),
+            CheckErrors::BadMatchInput(t) =>
+                format!("match requires an input of either a response or optional, found input: '{}'", t),
             CheckErrors::TypeAnnotationExpectedFailure => "analysis expected type to already be annotated for expression".into(),
             CheckErrors::CostOverflow => "contract execution cost overflowed cost counter".into(),
             CheckErrors::InvalidTypeDescription => "supplied type description is invalid".into(),

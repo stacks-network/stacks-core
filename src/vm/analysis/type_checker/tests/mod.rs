@@ -119,13 +119,24 @@ fn test_destructuring_opts(){
         ("(match (some 1) inner-value (+ 1 inner-value) (> 1 28))",
          CheckErrors::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::BoolType)),         
         ("(match (some 1) inner-value (+ 1 inner-value))",
-         CheckErrors::IncorrectArgumentCount(4, 3)),
+         CheckErrors::BadMatchOptionSyntax(Box::new(
+             CheckErrors::IncorrectArgumentCount(4, 3)))),
         ("(match (ok 1) inner-value (+ 1 inner-value))",
-         CheckErrors::IncorrectArgumentCount(5, 3)),
+         CheckErrors::BadMatchResponseSyntax(Box::new(
+             CheckErrors::IncorrectArgumentCount(5, 3)))),
+        ("(match (ok 1) 1 (+ 1 1) err-val (+ 2 err-val))",
+         CheckErrors::BadMatchResponseSyntax(Box::new(
+             CheckErrors::ExpectedName))),
+        ("(match (ok 1) ok-val (+ 1 1) (+ 3 4) (+ 2 err-val))",
+         CheckErrors::BadMatchResponseSyntax(Box::new(
+             CheckErrors::ExpectedName))),
+        ("(match (some 1) 2 (+ 1 1) (+ 3 4))",
+         CheckErrors::BadMatchOptionSyntax(Box::new(
+             CheckErrors::ExpectedName))),
         ("(match)",
          CheckErrors::RequiresAtLeastArguments(1, 0)),
         ("(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
-         CheckErrors::ExpectedOptionalOrResponseType(TypeSignature::from("int"))),
+         CheckErrors::BadMatchInput(TypeSignature::from("int"))),
         ("(default-to 3 5)",
          CheckErrors::ExpectedOptionalType(TypeSignature::IntType)),
         ("(define-private (foo (x int))
