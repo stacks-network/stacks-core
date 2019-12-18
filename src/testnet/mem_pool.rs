@@ -24,6 +24,9 @@ pub struct MemPoolFS {
 
 impl MemPoolFS {
     pub fn new(path: &str) -> Self {
+        
+        fs::create_dir_all(path).unwrap();
+
         Self {
             path: path.to_string(),
             pending_txs: vec![],
