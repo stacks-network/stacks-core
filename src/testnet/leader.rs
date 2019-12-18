@@ -26,18 +26,24 @@ pub struct RegisteredKey {
 #[derive(Clone)]
 pub struct SortitionedBlock {
     sortition_hash: SortitionHash,
+    burn_header_hash: BurnchainHeaderHash,
+    parent_burn_header_hash: BurnchainHeaderHash,
     block_height: u16,
     op_vtxindex: u16,
     op_txid: Txid,
+    total_burn: u64,
 }
 
 impl SortitionedBlock {
     pub fn genesis() -> Self {
         Self {
             sortition_hash: SortitionHash::initial(),
+            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            parent_burn_header_hash: BurnchainHeaderHash([0u8; 32]),
             block_height: 0,
             op_vtxindex: 0,
-            op_txid: Txid([0u8; 32]),    
+            op_txid: Txid([0u8; 32]),
+            total_burn: 0
         }
     }
 }
@@ -46,7 +52,8 @@ pub struct Leader {
     active_registered_key: Option<RegisteredKey>,
     chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
-    last_sortitioned_block: Option<SortitionedBlock>,
+    pub last_sortitioned_block: Option<SortitionedBlock>,
+    burnchain_tip: Option<BlockSnapshot>,
     mem_pool: MemPoolFS,
     keychain: Keychain,
     block_time: u64,
@@ -62,7 +69,7 @@ impl Leader {
         
         let keychain = Keychain::default();
 
-        let chain_state = StacksChainState::open(false, 0x80000000, &config.name).unwrap();
+        let chain_state = StacksChainState::open(false, 0x80000000, &config.path).unwrap();
 
         let mem_pool = MemPoolFS::new(&config.mem_pool_path);
 
@@ -77,6 +84,7 @@ impl Leader {
             mem_pool,
             block_time,
             burchain_ops_tx: None,
+            burnchain_tip: None,
             tx,
             rx,
         }
@@ -111,10 +119,37 @@ impl Leader {
         })
     }
 
-    pub fn process_burnchain_block(&mut self, block: &BlockSnapshot, ops: &Vec<BlockstackOperationType>) -> Option<SortitionedBlock> {
+    fn generate_block_commit_op(&mut self, 
+                                block_header_hash: BlockHeaderHash,
+                                burn_fee: u64, 
+                                key: &RegisteredKey,
+                                parent_block: &SortitionedBlock,
+                                vrf_seed: VRFSeed) -> BlockstackOperationType {
+
+        BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            block_header_hash,
+            burn_fee,
+            input: self.keychain.get_burnchain_signer(),
+            key_block_ptr: key.block_height as u32,
+            key_vtxindex: key.op_vtxindex as u16,
+            memo: vec![],
+            new_seed: vrf_seed,
+            parent_block_ptr: parent_block.block_height as u32,
+            parent_vtxindex: parent_block.op_vtxindex as u16,
+
+            // to be filled in 
+            vtxindex: 0,
+            txid: Txid([0u8; 32]),
+            block_height: 0,
+            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        })
+    }
+
+    pub fn process_burnchain_block(&mut self, block: &BlockSnapshot, ops: &Vec<BlockstackOperationType>) -> bool {
 
         let mut new_key = None;
         let mut last_sortitioned_block = None; 
+        let mut won_sortition = false;
 
         for op in ops {
             match op {
@@ -135,12 +170,16 @@ impl Leader {
                             op_vtxindex: op.vtxindex as u16,
                             op_txid: op.txid,
                             sortition_hash: block.sortition_hash,
+                            total_burn: block.total_burn,
+                            burn_header_hash: block.burn_header_hash,
+                            parent_burn_header_hash: block.parent_burn_header_hash,
                         });
 
                         // De-register key if leader won the sortition
                         // This will trigger a new registration
                         if op.input == self.keychain.get_burnchain_signer() {
                             self.active_registered_key = None;
+                            won_sortition = true;
                         }    
                     }
                 },
@@ -158,21 +197,70 @@ impl Leader {
             self.last_sortitioned_block = last_sortitioned_block;
         }
 
+        self.burnchain_tip = Some(block.clone());
+
+        won_sortition
+    }
+
+    pub fn process_previous_tenure(&mut self, anchored_block: Option<StacksBlock>, microblocks: Option<Vec<StacksMicroblock>>) {
+        
+        // todo(ludo): verify that the block is attached to some fork in the burn chain.
+        if let Some(anchored_block) = anchored_block {
+            let parent_block = self.last_sortitioned_block.clone().unwrap();
+
+            self.chain_state.store_staging_block(
+                &parent_block.burn_header_hash, 
+                &anchored_block, 
+                &parent_block.parent_burn_header_hash, 
+                1, 
+                parent_block.total_burn).unwrap();
+
+            // todo(ludo): verify that this block was signed by the miner of the ancestor
+            // anchored block that this microblock builds off of, + ordering?
+            if let Some(microblocks) = microblocks {
+                for microblock in microblocks {
+                    self.chain_state.store_staging_microblock(
+                        &parent_block.burn_header_hash, 
+                        &anchored_block.block_hash(),
+                        &microblock).unwrap();    
+                }
+            }
+        }
+
+        // Update self.chain_tip = Some(...);
+    }
+
+    pub fn maintain_leadership_eligibility(&mut self) {
+
+        let ops_tx = self.burchain_ops_tx.take().unwrap();
         if self.active_registered_key.is_none() {                                    
-            // Register a new key
+            // Trigger register_key op
+            // todo(ludo): should we use the consensus hash from the burnchain tip, or last sortitioned block?
+            let burnchain_tip = self.burnchain_tip.clone().unwrap();
+
             let vrf_pk = self.keychain.rotate_vrf_keypair();
-            let key_reg_op = self.generate_leader_key_register_op(vrf_pk, block.consensus_hash);
-            let ops_tx = self.burchain_ops_tx.take().unwrap();
-            ops_tx.send(key_reg_op).unwrap();
-            self.burchain_ops_tx = Some(ops_tx);
-            return None;
-        }
+            let op = self.generate_leader_key_register_op(vrf_pk, burnchain_tip.consensus_hash);
+            ops_tx.send(op).unwrap();
 
-        if self.last_sortitioned_block.is_none() {
-            return None;
-        }
+        } else {
+            if self.last_sortitioned_block.is_some() {
+                // Trigger block_commit op
+                let registered_key = self.active_registered_key.clone().unwrap();
+                let sortitioned_block = self.last_sortitioned_block.clone().unwrap();
+                let chain_tip = self.chain_tip.clone().unwrap();
 
-        self.last_sortitioned_block.clone()
+                let vrf_proof = self.keychain.generate_proof(&registered_key.vrf_public_key, sortitioned_block.sortition_hash.as_bytes()).unwrap();
+
+                let op = self.generate_block_commit_op(
+                    chain_tip.anchored_header.block_hash(),
+                    1, // todo(ludo): fix
+                    &registered_key, 
+                    &sortitioned_block,
+                    VRFSeed::from_proof(&vrf_proof));
+                ops_tx.send(op).unwrap();
+            }
+        }
+        self.burchain_ops_tx = Some(ops_tx);
     }
 
     pub fn initiate_new_tenure(&mut self, sortitioned_block: SortitionedBlock) -> LeaderTenure {
@@ -185,18 +273,31 @@ impl Leader {
 
         let microblock_secret_key = self.keychain.rotate_microblock_keypair();
 
-        let clarity_tx = self.chain_state.block_begin(
-            &BurnchainHeaderHash([0u8; 32]), // &chain_tip.burn_header_hash, 
-            &BlockHeaderHash([0u8; 32]),     // &chain_tip.anchored_header, 
-            &BurnchainHeaderHash([1u8; 32]), 
-            &BlockHeaderHash([1u8; 32]));
+        // println!("===> {:?} - {:?}", chain_tip.burn_header_hash, chain_tip.anchored_header.block_hash());
+
+        let clarity_tx = match chain_tip.block_height {
+            // 1 => self.chain_state.block_begin(
+            //     &BurnchainHeaderHash([0xff; 32]), 
+            //     &BlockHeaderHash([0xff; 32]),
+            //     &BurnchainHeaderHash([1u8; 32]), 
+            //     &BlockHeaderHash([1u8; 32])),
+            1 => self.chain_state.block_begin(
+                &BurnchainHeaderHash([0u8; 32]),
+                &BlockHeaderHash([0u8; 32]),
+                &BurnchainHeaderHash([1u8; 32]), 
+                &BlockHeaderHash([1u8; 32])),
+            _ => self.chain_state.block_begin(
+                &chain_tip.burn_header_hash, 
+                &chain_tip.anchored_header.block_hash(), 
+                &BurnchainHeaderHash([1u8; 32]), 
+                &BlockHeaderHash([1u8; 32]))
+        };
 
         let mut tenure = LeaderTenure::new(
             chain_tip, 
             self.block_time,
             self.burchain_ops_tx.clone().unwrap(),
             self.keychain.get_burnchain_signer().clone(),
-            clarity_tx,
             self.mem_pool.clone(),
             microblock_secret_key, 
             sortitioned_block,
@@ -210,14 +311,18 @@ impl Leader {
                 TransactionVersion::Testnet, 
                 tx_auth, 
                 TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
-            tx.chain_id = 0x80000000;
+            tx.chain_id = 0x80000000; // todo(ludo): fix?
             tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
             let mut tx_signer = StacksTransactionSigner::new(&tx);
             self.keychain.sign_as_origin(&mut tx_signer);
             tx_signer.get_tx().unwrap()
         };
 
-        tenure.handle_txs(vec![coinbase_tx]);
+        // let res = tenure.block_builder.epoch_begin(&mut self.chain_state, &coinbase_tx);
+        // let clarity_tx = res.unwrap();
+        tenure.tear_up(clarity_tx);
+
+        // tenure.tear_up(&mut self.chain_state, &coinbase_tx);
 
         tenure
     }
@@ -226,11 +331,11 @@ impl Leader {
 pub struct LeaderTenure <'a> {
 // pub struct LeaderTenure {
     average_block_time: u64,
-    block_builder: StacksBlockBuilder,
+    pub block_builder: StacksBlockBuilder,
     burn_fee: u64,
     burnchain_ops_tx: Sender<BlockstackOperationType>,
     burnchain_signer: Option<BurnchainSigner>,
-    clarity_tx: ClarityTx<'a>,
+    clarity_tx: Option<ClarityTx<'a>>,
     last_sortitioned_block: SortitionedBlock,
     mem_pool: MemPoolFS,
     registered_key: RegisteredKey,
@@ -245,7 +350,6 @@ impl <'a> LeaderTenure <'a> {
                average_block_time: u64,
                burnchain_ops_tx: Sender<BlockstackOperationType>,
                burnchain_signer: BurnchainSigner,
-               clarity_tx: ClarityTx<'a>,
                mem_pool: MemPoolFS,
                microblock_secret_key: StacksPrivateKey,  
                last_sortitioned_block: SortitionedBlock,
@@ -268,7 +372,7 @@ impl <'a> LeaderTenure <'a> {
             burn_fee: 0,
             burnchain_ops_tx,
             burnchain_signer: Some(burnchain_signer),
-            clarity_tx,
+            clarity_tx: None,
             last_sortitioned_block,
             mem_pool,
             registered_key,
@@ -277,27 +381,42 @@ impl <'a> LeaderTenure <'a> {
         }
     }
 
-    pub fn handle_txs(&mut self, txs: Vec<StacksTransaction>) {
+    // pub fn tear_up(&mut self, chain_state: &mut StacksChainState, coinbase: &StacksTransaction) {
+    //     let res = self.block_builder.epoch_begin(&mut chain_state, coinbase);
+    //     let mut clarity_tx = res.unwrap();
+    //     self.clarity_tx = Some(clarity_tx);
+    // }
+
+    pub fn tear_up(&mut self, clarity_tx: ClarityTx<'a>) {
+        self.clarity_tx = Some(clarity_tx);
     }
 
-    pub fn run(&mut self) {
+    pub fn handle_txs(&mut self, txs: Vec<StacksTransaction>) {
+        let mut clarity_tx = self.clarity_tx.take().unwrap();
+        for tx in txs {
+            self.block_builder.try_mine_tx(&mut clarity_tx, &tx).unwrap();
+        }
+        self.clarity_tx = Some(clarity_tx);
+    }
 
-        let mempool_poll_interval = time::Duration::from_millis(500);
+    pub fn run(&mut self) -> (Option<StacksBlock>, Option<Vec<StacksMicroblock>>) {
+
+        let mempool_poll_interval = time::Duration::from_millis(250);
         let tenure_duration = time::Duration::from_millis(self.average_block_time * 3 / 4);
         let should_commit_block_at = self.started_at.checked_add(tenure_duration).unwrap();
         self.burn_fee = 1;
 
         while time::Instant::now() < should_commit_block_at {
             let txs = self.mem_pool.poll();
-
-            for tx in txs {
-                self.block_builder.try_mine_tx(&mut self.clarity_tx, &tx).unwrap();
-            }
+            self.handle_txs(txs);
             thread::sleep(mempool_poll_interval);
         }
 
-        self.commit();
+        let mut clarity_tx = self.clarity_tx.take().unwrap();
+        let anchored_block = self.block_builder.mine_anchored_block(&mut clarity_tx);
+        self.clarity_tx = Some(clarity_tx);
 
+        // (anchored_block, vec![])
         // // "discover" this stacks block
         // let res = node.chainstate.preprocess_anchored_block(&mut tx, &commit_snapshot.burn_header_hash, &stacks_block, &parent_block_burn_header_hash).unwrap();
         // if !res {
@@ -313,29 +432,10 @@ impl <'a> LeaderTenure <'a> {
         // }
 
         // Should broadcast artefacts
-    }
 
-    fn commit(&mut self) {
-        // Build LeaderBlockCommit operation
-        let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-            new_seed: self.vrf_seed,
-            key_block_ptr: self.registered_key.block_height as u32,
-            key_vtxindex: self.registered_key.op_vtxindex as u16,
-            parent_block_ptr: self.last_sortitioned_block.block_height as u32,
-            parent_vtxindex: self.last_sortitioned_block.op_vtxindex as u16,
-            memo: vec![],
-            burn_fee: self.burn_fee,
-            input: self.burnchain_signer.take().unwrap(),
-            block_header_hash: self.block_builder.header.block_hash(),
+        // let mut clarity_tx = self.clarity_tx.take().unwrap();
+        // self.block_builder.epoch_finish(clarity_tx);
 
-            // to be filled in 
-            vtxindex: 0,
-            txid: Txid([0u8; 32]),
-            block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-        });
-
-        // Send op to the burnchain
-        self.burnchain_ops_tx.send(op).unwrap();
+        (None, None)
     }
 }
