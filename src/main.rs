@@ -188,8 +188,8 @@ fn main() {
         let conf = testnet::Config {
             testnet_name: "testnet".to_string(),
             chain: "bitcoin".to_string(),
-            burchain_path: format!("/tmp/{}/burnchain", testnet_id),
-            burchain_block_time: 2000,
+            burnchain_path: format!("/tmp/{}/burnchain", testnet_id),
+            burnchain_block_time: 5000,
             leader_config: vec![testnet::LeaderConfig {
                 name: "L1".to_string(),
                 path: format!("/tmp/{}/L1", testnet_id),

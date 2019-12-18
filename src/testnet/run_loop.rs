@@ -22,7 +22,7 @@ impl RunLoop {
         let mut leaders_txs = vec![]; 
         let mut confs = config.leader_config.clone();
         for conf in confs.drain(..) {
-            let leader = Leader::new(conf, config.burchain_block_time);
+            let leader = Leader::new(conf, config.burnchain_block_time);
             leaders_txs.push(leader.tx.clone());
             leaders.push(leader);
         }

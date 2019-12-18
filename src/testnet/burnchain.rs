@@ -27,10 +27,10 @@ impl BurnchainSimulator {
     pub fn start(&mut self, config: &Config) -> (mpsc::Receiver<(BlockSnapshot, Vec<BlockstackOperationType>)>, mpsc::Sender<BlockstackOperationType>) {
         let (block_tx, block_rx) = mpsc::channel();
         
-        let path = config.burchain_path.clone();
+        let path = config.burnchain_path.clone();
         let chain = config.chain.clone();
         let name = config.testnet_name.clone();
-        let block_time = time::Duration::from_millis(config.burchain_block_time);
+        let block_time = time::Duration::from_millis(config.burnchain_block_time);
 
         let ops_dequeuing = Arc::clone(&self.mem_pool);
         let mut vtxindex = 1;

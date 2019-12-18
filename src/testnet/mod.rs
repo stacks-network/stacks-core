@@ -13,8 +13,8 @@ pub use self::burnchain::{BurnchainSimulator};
 pub struct Config {
     pub testnet_name: String,
     pub chain: String,
-    pub burchain_path: String,
-    pub burchain_block_time: u64,
+    pub burnchain_path: String,
+    pub burnchain_block_time: u64,
     pub leader_config: Vec<LeaderConfig>
 }
 
