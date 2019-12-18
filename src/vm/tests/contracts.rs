@@ -16,7 +16,7 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current in
          (define-private (init-factorial (id int) (factorial int))
            (print (map-insert factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
          (define-public (compute (id int))
-           (let ((entry (expects! (map-get? factorials (tuple (id id)))
+           (let ((entry (unwrap! (map-get? factorials (tuple (id id)))
                                  (err 'false))))
                     (let ((current (get current entry))
                           (index   (get index entry)))
@@ -328,7 +328,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
                    (tuple (paid name-price)
                           (buyer tx-sender)))
                  (ok 0) (err 2))
-               (if (is-eq (expects-err! xfer-result (err (- 1)))
+               (if (is-eq (unwrap-err! xfer-result (err (- 1)))
                         \"not enough balance\")
                    (err 1) (err 3)))))
 
@@ -338,7 +338,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
                         (salt int))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (expects! (map-get? preorder-map
+                   (unwrap! (map-get? preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
                  (name-entry 
                    (map-get? name-map (tuple (name name)))))
@@ -464,7 +464,7 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
         env.execute_contract(&QualifiedContractIdentifier::local("proxy-compute").unwrap(), "proxy-compute", &args).unwrap();
         assert_eq!(
             env.eval_read_only(&QualifiedContractIdentifier::local("factorial-contract").unwrap(),
-                               "(get current (expects! (map-get? factorials (tuple (id 8008))) 'false))").unwrap(),
+                               "(get current (unwrap! (map-get? factorials (tuple (id 8008))) 'false))").unwrap(),
             *expected_result);
     }
 }
@@ -599,7 +599,7 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
 
         assert_eq!(*expectation,
                    env.eval_read_only(&QualifiedContractIdentifier::local("factorial").unwrap(),
-                                      &format!("(expects! (get current (map-get? factorials (tuple (id {})))) 'false)", arguments[0]))
+                                      &format!("(unwrap! (get current (map-get? factorials (tuple (id {})))) 'false)", arguments[0]))
                    .unwrap());
     }
 

@@ -25,7 +25,7 @@
                 (name uint)
                 (salt uint))
   (let ((preorder-entry
-         (expects! ;; name _must_ have been preordered.
+         (unwrap! ;; name _must_ have been preordered.
            (map-get? preorder-map
              (tuple (name-hash (hash160 (xor name salt)))))
            (err "no preorder found")))
