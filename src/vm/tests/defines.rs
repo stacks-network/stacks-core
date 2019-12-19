@@ -18,6 +18,13 @@ fn test_defines() {
     assert_eq!(Ok(Some(Value::Int(29))), execute(&tests));
 
     let tests =
+        "(define-private (f (a int) (b int)) (+ a b))
+         (f 3 1 4)";
+
+    assert_eq!(execute(&tests).unwrap_err(),
+               CheckErrors::IncorrectArgumentCount(2, 3).into());
+
+    let tests =
         "1";
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(&tests));
