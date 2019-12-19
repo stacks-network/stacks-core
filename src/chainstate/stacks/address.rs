@@ -60,12 +60,13 @@ impl StacksMessageCodec for StacksAddress {
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksAddress, net_error> {
         let mut index = *index_ptr;
 
-        let new_index = index.checked_add(STACKS_ADDRESS_ENCODED_SIZE).ok_or(net_error::DeserializeError)?;
+        // serialized as 1-byte version + 20-byte hash160
+        let new_index = index.checked_add(1 + HASH160_ENCODED_SIZE).ok_or(net_error::OverflowError("Would overflow u32 to parse address version".to_string()))?;
         if new_index > max_size {
-            return Err(net_error::OverflowError);
+            return Err(net_error::OverflowError("Would read beyond end of buffer to read address".to_string()));
         }
-        if new_index as usize > buf.len() {
-            return Err(net_error::UnderflowError);
+        if buf.len() < new_index as usize {
+            return Err(net_error::UnderflowError("Not enough bytes to read address".to_string()));
         }
 
         let version : u8    = read_next(buf, &mut index, max_size)?;

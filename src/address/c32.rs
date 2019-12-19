@@ -21,8 +21,6 @@ use super::Error;
 use sha2::Sha256;
 use sha2::Digest;
 
-// TODO: normalize!
-
 const C32_CHARACTERS: &str = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 fn c32_encode(input_bytes: &[u8]) -> String {
@@ -73,16 +71,39 @@ fn c32_encode(input_bytes: &[u8]) -> String {
     String::from_utf8(result).unwrap()
 }
 
+fn c32_normalize(input_str: &str) -> String {
+    let norm_str : String = input_str
+        .to_uppercase()
+        .replace("O", "0")
+        .replace("L", "1")
+        .replace("I", "1")
+        .to_string();
+    norm_str
+}
+
 fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
     let mut result = vec![];
     let mut carry: u16 = 0;
     let mut carry_bits = 0; // can be up to 5
 
-    let iter_c32_digits = input_str.chars().rev()
-        .map(|x| { C32_CHARACTERS.find(x) });
+    let iter_c32_digits_opts : Vec<Option<usize>> = c32_normalize(input_str)
+        .chars()
+        .rev()
+        .map(|x| { C32_CHARACTERS.find(x) })
+        .collect();
 
-    for current_result in iter_c32_digits {
-        let current_5bit = current_result.ok_or(Error::InvalidCrockford32)?;
+    let iter_c32_digits : Vec<usize> = iter_c32_digits_opts
+        .iter()
+        .filter_map(|x| x.as_ref())
+        .map(|ref_x| *ref_x)
+        .collect();
+
+    if iter_c32_digits.len() != iter_c32_digits_opts.len() {
+        // at least one char was None
+        return Err(Error::InvalidCrockford32);
+    }
+
+    for current_5bit in iter_c32_digits {
         carry += (current_5bit as u16) << carry_bits;
         carry_bits += 5;
 
@@ -153,10 +174,12 @@ fn c32_check_encode(version: u8, data: &[u8]) -> Result<String, Error> {
     Ok(String::from_utf8(c32_string).unwrap())
 }
 
-fn c32_check_decode(check_data: &str) -> Result<(u8, Vec<u8>), Error> {
-    if check_data.len() < 2 {
+fn c32_check_decode(check_data_unsanitized: &str) -> Result<(u8, Vec<u8>), Error> {
+    if check_data_unsanitized.len() < 2 {
         return Err(Error::InvalidCrockford32)
     }
+    
+    let check_data = c32_normalize(check_data_unsanitized);
     let (version, data) = check_data.split_at(1);
 
     let data_sum_bytes = c32_decode(data)?;
@@ -350,5 +373,26 @@ mod test {
         }
     }
 
-    // TODO: test normalization 
+    #[test]
+    fn test_normalize() {
+        let addrs = [
+            "S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE",
+            "SO2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE",
+            "S02J6ZY48GVLEZ5V2V5RB9MP66SW86PYKKPVKG2CE",
+            "SO2J6ZY48GVLEZ5V2V5RB9MP66SW86PYKKPVKG2CE",
+            "s02j6zy48gv1ez5v2v5rb9mp66sw86pykkpvkg2ce",
+            "sO2j6zy48gv1ez5v2v5rb9mp66sw86pykkpvkg2ce",
+            "s02j6zy48gvlez5v2v5rb9mp66sw86pykkpvkg2ce",
+            "sO2j6zy48gvlez5v2v5rb9mp66sw86pykkpvkg2ce"
+        ];
+
+        let expected_bytes = hex_bytes("a46ff88886c2ef9762d970b4d2c63678835bd39d").unwrap();
+        let expected_version = 0;
+
+        for addr in addrs.iter() {
+            let (decoded_version, decoded_bytes) = c32_address_decode(addr).unwrap();
+            assert_eq!(decoded_version, expected_version);
+            assert_eq!(decoded_bytes, expected_bytes);
+        }
+    }
 }

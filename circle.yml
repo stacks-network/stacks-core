@@ -3,7 +3,7 @@ jobs:
   deploy:
     working_directory: /build
     docker:
-      - image: rust:1.34.0-stretch
+      - image: rust:1.39-stretch
     steps:
       - checkout
       - run:
@@ -15,7 +15,7 @@ jobs:
   test_demo:
     working_directory: /test
     docker:
-      - image: rust:1.34.0-stretch
+      - image: rust:1.39-stretch
     steps:
       - checkout
       - run:

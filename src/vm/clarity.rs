@@ -46,8 +46,7 @@ pub enum Error {
     Analysis(CheckError),
     Parse(ParseError),
     Interpreter(InterpreterError),
-    BadTransaction(String),
-    PostCondition(String)
+    BadTransaction(String)
 }
 
 impl From<CheckError> for Error {
@@ -74,8 +73,7 @@ impl fmt::Display for Error {
             Error::Analysis(ref e) => fmt::Display::fmt(e, f),
             Error::Parse(ref e) => fmt::Display::fmt(e, f),
             Error::Interpreter(ref e) => fmt::Display::fmt(e, f),
-            Error::BadTransaction(ref s) => fmt::Display::fmt(s, f),
-            Error::PostCondition(ref s) => fmt::Display::fmt(s, f)
+            Error::BadTransaction(ref s) => fmt::Display::fmt(s, f)
         }
     }
 }
@@ -86,8 +84,7 @@ impl error::Error for Error {
             Error::Analysis(ref e) => Some(e),
             Error::Parse(ref e) => Some(e),
             Error::Interpreter(ref e) => Some(e),
-            Error::BadTransaction(ref _s) => None,
-            Error::PostCondition(ref _s) => None,
+            Error::BadTransaction(ref _s) => None
         }
     }
 
@@ -96,8 +93,7 @@ impl error::Error for Error {
             Error::Analysis(ref e) => e.description(),
             Error::Parse(ref e) => e.description(),
             Error::Interpreter(ref e) => e.description(),
-            Error::BadTransaction(ref s) => s.as_str(),
-            Error::PostCondition(ref s) => s.as_str(),
+            Error::BadTransaction(ref s) => s.as_str()
         }
     }
 }
@@ -248,7 +244,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Save a contract analysis output to the AnalysisDatabase
     /// An error here would indicate that something has gone terribly wrong in the processing of a contract insert.
     ///   the caller should likely abort the whole block or panic
-    pub fn save_analysis(&mut self, identifier: &QualifiedContractIdentifier, contract_analysis: &ContractAnalysis) -> Result<(), Error> {
+    pub fn save_analysis(&mut self, identifier: &QualifiedContractIdentifier, contract_analysis: &ContractAnalysis) -> Result<(), CheckError> {
         let mut db = AnalysisDatabase::new(Box::new(&mut self.datastore));
         db.begin();
         let result = db.insert_contract(identifier, contract_analysis);
@@ -259,7 +255,7 @@ impl <'a> ClarityBlockConnection <'a> {
             },
             Err(e) => {
                 db.roll_back();
-                Err(Error::from(e))
+                Err(e)
             }
         }
     }
@@ -379,7 +375,7 @@ mod tests {
             (define-data-var bar int 0)
             (define-public (get-bar) (ok (var-get bar)))
             (define-public (set-bar (x int) (y int))
-              (begin (var-set! bar (/ x y)) (ok (var-get bar))))";
+              (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
             conn.initialize_smart_contract(

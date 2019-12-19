@@ -227,8 +227,8 @@ fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], 
         .ok_or(CheckError::new(CheckErrors::NoSuchBlockInfoProperty(block_info_prop_str.to_string())))?;
 
     checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
-        
-    Ok(block_info_prop.type_result())
+
+    Ok(TypeSignature::new_option(block_info_prop.type_result()))
 }
 
 impl TypedNativeFunction {
@@ -316,7 +316,7 @@ impl TypedNativeFunction {
             Fold => Special(SpecialNativeFunction(&iterables::check_special_fold)),
             Append => Special(SpecialNativeFunction(&iterables::check_special_append)),
             Concat => Special(SpecialNativeFunction(&iterables::check_special_concat)),
-            AssertsMaxLen => Special(SpecialNativeFunction(&iterables::check_special_asserts_max_len)),
+            AsMaxLen => Special(SpecialNativeFunction(&iterables::check_special_as_max_len)),
             Len => Special(SpecialNativeFunction(&iterables::check_special_len)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
             FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),
@@ -336,10 +336,16 @@ impl TypedNativeFunction {
             ConsError => Special(SpecialNativeFunction(&options::check_special_error)),
             DefaultTo => Special(SpecialNativeFunction(&options::check_special_default_to)),
             Asserts => Special(SpecialNativeFunction(&options::check_special_asserts)),
-            Expects => Special(SpecialNativeFunction(&options::check_special_expects)),
-            ExpectsErr => Special(SpecialNativeFunction(&options::check_special_expects_err)),
-            IsOkay => Special(SpecialNativeFunction(&options::check_special_is_okay)),
-            IsNone => Special(SpecialNativeFunction(&options::check_special_is_none)),
+            UnwrapRet => Special(SpecialNativeFunction(&options::check_special_unwrap_or_ret)),
+            UnwrapErrRet => Special(SpecialNativeFunction(&options::check_special_unwrap_err_or_ret)),
+            Unwrap => Special(SpecialNativeFunction(&options::check_special_unwrap)),
+            UnwrapErr => Special(SpecialNativeFunction(&options::check_special_unwrap_err)),
+            TryRet => Special(SpecialNativeFunction(&options::check_special_try_ret)),
+            Match => Special(SpecialNativeFunction(&options::check_special_match)),
+            IsOkay => Special(SpecialNativeFunction(&options::check_special_is_response)),
+            IsErr => Special(SpecialNativeFunction(&options::check_special_is_response)),
+            IsNone => Special(SpecialNativeFunction(&options::check_special_is_optional)),
+            IsSome => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             AtBlock => Special(SpecialNativeFunction(&check_special_at_block)),
         }
     }

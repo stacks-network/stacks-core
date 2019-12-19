@@ -72,24 +72,24 @@ fn test_bad_define_names() {
 }
 
 #[test]
-fn test_expects() {
+fn test_unwrap_ret() {
     let test0 =
-        "(define-private (foo) (expects! (ok 1) 2)) (foo)";
+        "(define-private (foo) (unwrap! (ok 1) 2)) (foo)";
     let test1 =
-        "(define-private (foo) (expects! (ok 1))) (foo)";
+        "(define-private (foo) (unwrap! (ok 1))) (foo)";
     let test2 =
-        "(define-private (foo) (expects! 1 2)) (foo)";
+        "(define-private (foo) (unwrap! 1 2)) (foo)";
     let test3 =
-        "(define-private (foo) (expects-err! 1 2)) (foo)";
+        "(define-private (foo) (unwrap-err! 1 2)) (foo)";
     let test4 =
-        "(define-private (foo) (expects-err! (err 1) 2)) (foo)";
+        "(define-private (foo) (unwrap-err! (err 1) 2)) (foo)";
     let test5 =
-        "(define-private (foo) (expects-err! (err 1))) (foo)";
+        "(define-private (foo) (unwrap-err! (err 1))) (foo)";
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
     assert_eq_err(CheckErrors::IncorrectArgumentCount(2,1),
                   execute(&test1).unwrap_err());
-    assert_eq_err(CheckErrors::ExpectedResponseValue(Value::Int(1)),
+    assert_eq_err(CheckErrors::ExpectedOptionalOrResponseValue(Value::Int(1)),
                   execute(&test2).unwrap_err());
     assert_eq_err(CheckErrors::ExpectedResponseValue(Value::Int(1)),
                   execute(&test3).unwrap_err());
@@ -103,11 +103,11 @@ fn test_define_read_only() {
     let test0 =
         "(define-read-only (silly) 1) (silly)";
     let test1 =
-        "(define-read-only (silly) (map-delete! map-name (tuple (value 1))))  (silly)";
+        "(define-read-only (silly) (map-delete map-name (tuple (value 1))))  (silly)";
     let test2 =
-        "(define-read-only (silly) (map-insert! map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
+        "(define-read-only (silly) (map-insert map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
     let test3 =
-        "(define-read-only (silly) (map-set! map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
+        "(define-read-only (silly) (map-set map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
     assert_eq_err(CheckErrors::WriteAttemptedInReadOnly, execute(&test1).unwrap_err());
@@ -143,7 +143,7 @@ fn test_stack_depth() {
 fn test_recursive_panic() {
     let tests =
         "(define-private (factorial (a int))
-          (if (eq? a 0)
+          (if (is-eq a 0)
               1
               (* a (factorial (- a 1)))))
          (factorial 10)";

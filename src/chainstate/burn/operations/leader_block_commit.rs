@@ -265,7 +265,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         }
         
         /////////////////////////////////////////////////////////////////////////////////////
-        // This tx's epoch number must match the current epoch
+        // This tx must occur after the start of the network
         /////////////////////////////////////////////////////////////////////////////////////
     
         let first_block_snapshot = BurnDB::get_first_block_snapshot(tx)
@@ -434,10 +434,10 @@ mod tests {
                 result: Some(LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_ptr: 0x43424140,
-                    parent_vtxindex: 0x5150,
-                    key_block_ptr: 0x63626160,
-                    key_vtxindex: 0x7170,
+                    parent_block_ptr: 0x40414243,
+                    parent_vtxindex: 0x5051,
+                    key_block_ptr: 0x60616263,
+                    key_vtxindex: 0x7071,
                     memo: vec![0x80],
 
                     burn_fee: 12345,

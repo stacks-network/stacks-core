@@ -22,12 +22,6 @@
 
 /// This codebase is based on routines defined in the IETF draft for verifiable random functions
 /// over elliptic curves (https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html).
-///
-/// This module does not implement one of the defined ciphersuites, but instead implements ECVRF
-/// over Curve25519 with the SHA512 hash function and the Ristretto elligator map (as opposed to
-/// the Elligator 2 map for Ed25519 points).
-///
-/// THIS CODE HAS NOT BEEN AUDITED.  DO NOT USE IN PRODUCTION SYSTEMS.
 
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -44,9 +38,8 @@ use ed25519_dalek::PublicKey as ed25519_PublicKey;
 use ed25519_dalek::SecretKey as ed25519_PrivateKey;
 use ed25519_dalek::Keypair as VRFKeypair;
 
-use curve25519_dalek::ristretto::{RistrettoPoint, CompressedRistretto};
 use curve25519_dalek::scalar::Scalar as ed25519_Scalar;
-use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
+use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 
 use sha2::Digest;
@@ -253,13 +246,14 @@ impl error::Error for Error {
     }
 }
 
-pub const SUITE : u8 = 0x05;        /* cipher suite (not standardized yet).  This would be ECVRF-ED25519-SHA512-RistrettoElligator -- i.e. using the Ristretto group on ed25519 and its elligator function */
+pub const SUITE : u8 = 0x03;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VRFProof {
     // force private so we don't accidentally expose
     // an invalid c point
-    Gamma: RistrettoPoint,
+    // Gamma: RistrettoPoint,
+    Gamma: EdwardsPoint,
     c: ed25519_Scalar,
     s: ed25519_Scalar
 }
@@ -267,7 +261,7 @@ pub struct VRFProof {
 pub const VRF_PROOF_ENCODED_SIZE : u32 = 80;
 
 impl VRFProof {
-    pub fn Gamma(&self) -> &RistrettoPoint {
+    pub fn Gamma(&self) -> &EdwardsPoint {
         &self.Gamma
     }
 
@@ -292,10 +286,11 @@ impl VRFProof {
     }
 
     pub fn empty() -> VRFProof {
-        VRFProof::from_slice(&[0u8; 80]).unwrap()
+        // can't be all 0's, since an all-0 string decodes to a low-order point
+        VRFProof::from_slice(&[1u8; 80]).unwrap()
     }
 
-    pub fn new(Gamma: RistrettoPoint, c: ed25519_Scalar, s: ed25519_Scalar) -> Result<VRFProof, Error> {
+    pub fn new(Gamma: EdwardsPoint, c: ed25519_Scalar, s: ed25519_Scalar) -> Result<VRFProof, Error> {
         if !VRFProof::check_c(&c) {
             return Err(Error::InvalidDataError);
         }
@@ -314,8 +309,14 @@ impl VRFProof {
                 // 0                            32         48                         80
                 // |----------------------------|----------|---------------------------|
                 //      Gamma point               c scalar   s scalar
-                let gamma_opt = CompressedRistretto::from_slice(&bytes[0..32]).decompress();
+                let gamma_opt = CompressedEdwardsY::from_slice(&bytes[0..32]).decompress();
                 if gamma_opt.is_none() {
+                    test_debug!("Invalid Gamma");
+                    return None;
+                }
+                let gamma = gamma_opt.unwrap();
+                if gamma.is_small_order() {
+                    test_debug!("Invalid Gamma -- small order");
                     return None;
                 }
 
@@ -329,11 +330,11 @@ impl VRFProof {
                     s_buf[i] = bytes[48+i];
                 }
 
-                let c = ed25519_Scalar::from_bits(c_buf);
-                let s = ed25519_Scalar::from_bits(s_buf);
+                let c = ed25519_Scalar::from_canonical_bytes(c_buf)?;
+                let s = ed25519_Scalar::from_canonical_bytes(s_buf)?;
                 
                 Some(VRFProof {
-                    Gamma: gamma_opt.unwrap(),
+                    Gamma: gamma,
                     c: c,
                     s: s
                 })
@@ -362,11 +363,7 @@ impl VRFProof {
         assert!(VRFProof::check_c(&self.c), "FATAL ERROR: somehow constructed an invalid ECVRF proof");
 
         let c_bytes = self.c.reduce().to_bytes();
-        
-        // upper 16 bytes of c must be 0's
-        for i in 16..32 {
-            c_bytes_16[i-16] = c_bytes[i-16];
-        }
+        c_bytes_16[0..16].copy_from_slice(&c_bytes[0..16]);
 
         let gamma_bytes = self.Gamma.compress().to_bytes();
         let s_bytes = self.s.to_bytes();
@@ -389,53 +386,59 @@ impl VRFProof {
 pub struct VRF {}
 
 impl VRF {
-    fn point_to_string(p: &RistrettoPoint) -> Vec<u8> {
-        p.compress().as_bytes().to_vec()
-    }
 
-    /// Ristretto elligator hash-to-curve routine.
-    /// https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html#rfc.section.5.4.1
-    fn hash_to_curve(y: &VRFPublicKey, alpha: &Vec<u8>) -> RistrettoPoint {
-        let pk_bytes = y.to_bytes();
-        
-        let mut hasher = Sha512::new();
-        let mut result = [0u8; 64];        // encodes 2 field elements from the hash
+    /// Hash-to-curve, Try-and-increment approach (described in 
+    /// https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html)
+    fn hash_to_curve(y: &VRFPublicKey, alpha: &Vec<u8>) -> EdwardsPoint {
+        let mut ctr : u64 = 0;
+        let mut h : Option<EdwardsPoint> = None;
 
-        hasher.input(&[SUITE, 0x01]);
-        hasher.input(&pk_bytes[..]);
-        hasher.input(&alpha[..]);
-        
-        let rs = &hasher.result()[..];
-        result.copy_from_slice(&rs);
+        loop {
+            let mut hasher = Sha512::new();
+            hasher.input(&[SUITE, 0x01]);
+            hasher.input(y.as_bytes());
+            hasher.input(alpha);
 
-        RistrettoPoint::from_uniform_bytes(&result)
+            if ctr == 0 {
+                hasher.input(&[0u8]);
+            }
+            else {
+                // 2**64 - 1 is an artificial cap -- the RFC implies that you should count forever
+                let ctr_bytes = ctr.to_le_bytes();
+                for i in 0..8 {
+                    if ctr > 1u64 << (8*i) {
+                        hasher.input(&[ctr_bytes[i]]);
+                    }
+                }
+            }
+
+            let y = CompressedEdwardsY::from_slice(&hasher.result()[0..32]);
+            if y.decompress().is_some() {
+                h = Some(y.decompress().unwrap());
+                break;
+            }
+           
+            ctr = ctr.checked_add(1).expect("Too many attempts at try-and-increment hash-to-curve");
+        }
+
+        let ed = h.unwrap().mul_by_cofactor();
+        ed
     }
 
     /// Hash four points to a 16-byte string.
     /// Implementation of https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html#rfc.section.5.4.2
-    fn hash_points(p1: &RistrettoPoint, p2: &RistrettoPoint, p3: &RistrettoPoint, p4: &RistrettoPoint) -> [u8; 16] {
+    fn hash_points(p1: &EdwardsPoint, p2: &EdwardsPoint, p3: &EdwardsPoint, p4: &EdwardsPoint) -> [u8; 16] {
         let mut hasher = Sha512::new();
-        let mut sha512_result = [0u8; 64];
         let mut hash128 = [0u8; 16];
 
-        let p1_bytes = VRF::point_to_string(p1);
-        let p2_bytes = VRF::point_to_string(p2);
-        let p3_bytes = VRF::point_to_string(p3);
-        let p4_bytes = VRF::point_to_string(p4);
-
-        hasher.input(&[SUITE, 0x02]);
-        hasher.input(&p1_bytes[..]);
-        hasher.input(&p2_bytes[..]);
-        hasher.input(&p3_bytes[..]);
-        hasher.input(&p4_bytes[..]);
+        // hasher.input(&[SUITE, 0x02]);
+        hasher.input(&[0x03, 0x02]);
+        hasher.input(&p1.compress().to_bytes());
+        hasher.input(&p2.compress().to_bytes());
+        hasher.input(&p3.compress().to_bytes());
+        hasher.input(&p4.compress().to_bytes());
         
-        let rs = &hasher.result()[..];
-        sha512_result.copy_from_slice(&rs);
-        
-        for i in 0..16 {
-            hash128[i] = sha512_result[i];
-        }
-
+        hash128.copy_from_slice(&hasher.result()[0..16]);
         hash128
     }
 
@@ -455,7 +458,7 @@ impl VRF {
         hasher.input(&privkey_buf[0..32]);
         h.copy_from_slice(&hasher.result()[..]);
 
-        // h will encode a new private key, so we need to twiddle a few bits to make sure it falls in the
+        // h[0..32] will encode a new private key, so we need to twiddle a few bits to make sure it falls in the
         // right range (i.e. the curve order).
         h[0] &= 248;
         h[31] &= 127;
@@ -463,15 +466,17 @@ impl VRF {
 
         let mut h_32 = [0u8; 32];
         h_32.copy_from_slice(&h[0..32]);
-        
-        let x_scalar = ed25519_Scalar::from_bits(h_32);
+
+        let x_scalar_raw = ed25519_Scalar::from_bits(h_32);
+        let x_scalar = x_scalar_raw.reduce();       // use the canonical scalar for the private key
+
         trunc_hash.copy_from_slice(&h[32..64]);
 
         (pubkey, x_scalar, trunc_hash)
     }
 
     /// RFC8032 nonce generation for ed25519, given part of a hash of a private key and a public key
-    fn nonce_generation(trunc_hash: &[u8; 32], H_point: &RistrettoPoint) -> ed25519_Scalar {
+    fn nonce_generation(trunc_hash: &[u8; 32], H_point: &EdwardsPoint) -> ed25519_Scalar {
         let mut hasher = Sha512::new();
         let mut k_string = [0u8; 64];
         let h_string = H_point.compress().to_bytes();
@@ -481,20 +486,14 @@ impl VRF {
         let rs = &hasher.result()[..];
         k_string.copy_from_slice(rs);
 
-        let mut k_32 = [0u8; 32];
-        k_32.copy_from_slice(&k_string[0..32]);
-
-        let k = ed25519_Scalar::from_bits(k_32);
-        k.reduce()
+        ed25519_Scalar::from_bytes_mod_order_wide(&k_string)
     }
 
     /// Convert a 16-byte string into a scalar.
     /// The upper 16 bytes in the resulting scalar MUST BE 0's
     fn ed25519_scalar_from_hash128(hash128: &[u8; 16]) -> ed25519_Scalar {
         let mut scalar_buf = [0u8; 32];
-        for i in 0..16 {
-            scalar_buf[i] = hash128[i];
-        }
+        scalar_buf[0..16].copy_from_slice(hash128);
 
         ed25519_Scalar::from_bits(scalar_buf)
     }
@@ -508,42 +507,18 @@ impl VRF {
         let Gamma_point = &x_scalar * &H_point;
         let k_scalar = VRF::nonce_generation(&trunc_hash, &H_point);
 
-        let kB_point = &k_scalar * &RISTRETTO_BASEPOINT_POINT;
+        let kB_point = &k_scalar * &ED25519_BASEPOINT_POINT;
         let kH_point = &k_scalar * &H_point;
 
         let c_hashbuf = VRF::hash_points(&H_point, &Gamma_point, &kB_point, &kH_point);
         let c_scalar = VRF::ed25519_scalar_from_hash128(&c_hashbuf);
         
-        let s_full_scalar = &c_scalar * &x_scalar + &k_scalar;
+        let s_full_scalar = &k_scalar + &c_scalar * &x_scalar;
         let s_scalar = s_full_scalar.reduce();
 
-        // NOTE: unwrap() won't panic because c_scalar is guaranteed to have 
+        // NOTE: expect() won't panic because c_scalar is guaranteed to have 
         // its upper 16 bytes as 0
         VRFProof::new(Gamma_point, c_scalar, s_scalar).expect("FATAL ERROR: upper-16 bytes of proof's C scalar are NOT 0")
-    }
-
-    /// Auxilliary routine to convert an ed25519 public key point to a Ristretto point.
-    /// Not supposed to fail, but you never know!
-    fn VRFPublicKey_to_RistrettoPoint(public_key: &VRFPublicKey) -> Result<RistrettoPoint, Error> {
-        // for reasons above my pay grade, curve25519_dalek does not expose a RistrettoPoint's internal
-        // EdwardsPoint (even though it is, structurally, the same thing).
-       
-        // VRFPublicKey is just a wrapper around CompressedEdwardsY, so this conversion shouldn't fail
-        let public_key_edy = CompressedEdwardsY::from_slice(public_key.as_bytes());
-        let public_key_ed_opt = public_key_edy.decompress();
-
-        if public_key_ed_opt.is_none() {
-            // bad public key
-            return Err(Error::InvalidDataError);
-        }
-
-        let public_key_ed = public_key_ed_opt.unwrap();
-        
-        // RistrettoPoint is just a wrapper around EdwardsPoint
-        // TODO: see about getting a public constructor here
-        use std::mem::transmute;
-        let rp = unsafe { transmute::<EdwardsPoint, RistrettoPoint>(public_key_ed) };
-        return Ok(rp);
     }
 
     /// Given a public key, verify that the private key owner that generate the ECVRF proof did so on the given message.
@@ -553,10 +528,13 @@ impl VRF {
     /// necessary internal data conversions.
     pub fn verify(Y_point: &VRFPublicKey, proof: &VRFProof, alpha: &Vec<u8>) -> Result<bool, Error> {
         let H_point = VRF::hash_to_curve(Y_point, alpha);
-        let Y_ristretto_point = VRF::VRFPublicKey_to_RistrettoPoint(Y_point)?;
         let s_reduced = proof.s().reduce();
+        let Y_point_ed = CompressedEdwardsY(Y_point.to_bytes()).decompress().ok_or(Error::InvalidPublicKey)?;
+        if proof.Gamma().is_small_order() {
+            return Err(Error::InvalidPublicKey);
+        }
 
-        let U_point = &s_reduced * &RISTRETTO_BASEPOINT_POINT - proof.c() * Y_ristretto_point;
+        let U_point = &s_reduced * &ED25519_BASEPOINT_POINT - proof.c() * Y_point_ed;
         let V_point = &s_reduced * &H_point - proof.c() * proof.Gamma();
 
         let c_prime_hashbuf = VRF::hash_points(&H_point, proof.Gamma(), &U_point, &V_point);
@@ -591,12 +569,14 @@ mod tests {
     use rand;
     use rand::RngCore;
 
+    #[derive(Debug)]
     struct VRF_Proof_Fixture {
         privkey: Vec<u8>,
         message: &'static str,
         proof: Vec<u8>
     }
 
+    #[derive(Debug)]
     struct VRF_Verify_Fixture {
         pubkey: Vec<u8>,
         proof: Vec<u8>,
@@ -604,38 +584,35 @@ mod tests {
         result: bool
     }
 
+    #[derive(Debug)]
     struct VRF_Proof_Codec_Fixture {
         proof: Vec<u8>,
         result: bool
     }
 
+    // from Appendix A.3 in https://tools.ietf.org/id/draft-irtf-cfrg-vrf-04.html 
     #[test]
-    fn test_prove() {
+    fn test_vrf_rfc() {
         let proof_fixtures = vec![
             VRF_Proof_Fixture {
-                privkey: hex_bytes("5b28b7069b05f2d0731bb6722d7a5bd1669a1112321bb127002e650274d35a87").unwrap(),
-                message: "hello world 1",
-                proof: hex_bytes("d4d9b8e66c9c0eeea3ad68952936a0d9a83ef1cd4bb6b8b9dd658aa17154b24cd094cba3d09d27113e404cd7d0e7fac593d1e13c8541a119ee2b5e730f99b9649037e0fcc7abad99825055dfe191490e").unwrap()
-            },
-            VRF_Proof_Fixture {
-                privkey: hex_bytes("aa29dc3afa098cdee5352449e664b88436265bd31680d5fa74dedde9d3bd6743").unwrap(),
-                message: "hello world 2",
-                proof: hex_bytes("b8b1f6f601a9dfe68e8edc68466c163c23d133391285e15c8a69df399ae7cd4818928b7d15eb361b54e23ea5aa5317cfb4119e2e2d5396ed07b77db3772d5e8ba3e63ac2a28ec1836995778fea99f40c").unwrap(),
-            },
-            VRF_Proof_Fixture {
-                privkey: hex_bytes("a5af68df155ae7aee9eab85b293b6ac9475f8a1df72b65acfde062447a7b7b81").unwrap(),
-                message: "hello world 3",
-                proof: hex_bytes("cab399408ec5ea593b85eba68716eefb44816f7ab88d4cdfd6608bc3a6a21972362bedbb8b35c13c3cbc320026d44233eaf63cf76e99b21f5e09ee5e7959cba5f91ef4b21626e4dde617730ef1e14f03").unwrap(),
-            },
-            VRF_Proof_Fixture {
-                privkey: hex_bytes("f4b124f6cdf10930ca7139e1ff58a3f0419b8f82da163d160a7595a4620e6afd").unwrap(),
+                privkey: hex_bytes("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60").unwrap(),
                 message: "",
-                proof: hex_bytes("92edbd66e47b5a063862d98583d939ad234cfcb45a7dd24b5c8436264090d01bf3e70aafe80ccb9cd954d3a2d4229664f02107b2fc0a4922846e1dd02f8bb959528360d1e99f82299e7ee6f98499670e").unwrap()
+                proof: hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap()
+            },
+            VRF_Proof_Fixture {
+                privkey: hex_bytes("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb").unwrap(),
+                message: "72",
+                proof: hex_bytes("84a63e74eca8fdd64e9972dcda1c6f33d03ce3cd4d333fd6cc789db12b5a7b9d03f1cb6b2bf7cd81a2a20bacf6e1c04e59f2fa16d9119c73a45a97194b504fb9a5c8cf37f6da85e03368d6882e511008").unwrap()
+            },
+            VRF_Proof_Fixture {
+                privkey: hex_bytes("c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7").unwrap(),
+                message: "af82",
+                proof: hex_bytes("aca8ade9b7f03e2b149637629f95654c94fc9053c225ec21e5838f193af2b727b84ad849b0039ad38b41513fe5a66cdd2367737a84b488d62486bd2fb110b4801a46bfca770af98e059158ac563b690f").unwrap()
             }
         ];
 
         for proof_fixture in proof_fixtures {
-            let alpha = proof_fixture.message.as_bytes();
+            let alpha = hex_bytes(&proof_fixture.message).unwrap();
             let privk = VRFPrivateKey::from_bytes(&proof_fixture.privkey[..]).unwrap();
             let expected_proof_bytes = &proof_fixture.proof[..];
 
@@ -643,62 +620,11 @@ mod tests {
             let proof_bytes = proof.to_bytes();
 
             assert_eq!(proof_bytes.to_vec(), expected_proof_bytes.to_vec());
-        }
-    }
 
-    #[test]
-    fn test_verify() {
-        let verify_fixtures = vec![
-            VRF_Verify_Fixture { 
-                result: true,
-                pubkey: hex_bytes("e7ea5f723a5753174ce609a22ca5cbd8e5eee8deee2fbba0e72ff79e5dfc139c").unwrap(),
-                message: "hello world 1",
-                proof: hex_bytes("94f27ca7ae235c3b9c6df682a0fe314927a4b24b06cb24b61703cbb9ff725c38125cfea5b4c9105db772c9acc17c188032f900a3b85c16775b398347393a70d3afb5bf2095a2375e362f659a8d529b0c").unwrap(),
-            },
-            VRF_Verify_Fixture {
-                result: true,
-                pubkey: hex_bytes("b924bc463eddc787eb15673c6baaf0df84fe0e8e2ef58cc35d291aa37edeb4fc").unwrap(),
-                message: "hello world 2",
-                proof: hex_bytes("024c1484fcb05cecdb4dbfb9bf4e08e7f529aea3b3a2515716ad4e9cf7bace6c91181b6bb7d8201c5a85a11c626d1848aa2ac4d188c7e24a94faa32d1eec48d600fad7c55c7e71adb6a7dd6c73f6fc02").unwrap(),
-            },
-            VRF_Verify_Fixture {
-                result: true,
-                pubkey: hex_bytes("a126397fdce063498b9f119e7b75e414fa678ee95ec4a315cfed783304dcee13").unwrap(),
-                message: "hello world 3",
-                proof: hex_bytes("661c630811ab9573c52d85d51a5d3bc6f7d2cdef389489d35a97602713c4513ed1197b7ae5655bfbeba5913a0607176f41941e5562c4c1ea7912ef0ac5b89249bedb47cdf7c66966194a4d16c2008b03").unwrap(),
-            },
-            // wrong message
-            VRF_Verify_Fixture { 
-                result: false,
-                pubkey: hex_bytes("e7ea5f723a5753174ce609a22ca5cbd8e5eee8deee2fbba0e72ff79e5dfc139c").unwrap(),
-                message: "nope",
-                proof: hex_bytes("94f27ca7ae235c3b9c6df682a0fe314927a4b24b06cb24b61703cbb9ff725c38125cfea5b4c9105db772c9acc17c188032f900a3b85c16775b398347393a70d3afb5bf2095a2375e362f659a8d529b0c").unwrap(),
-            },
-            // wrong key
-            VRF_Verify_Fixture {
-                result: false,
-                pubkey: hex_bytes("a126397fdce063498b9f119e7b75e414fa678ee95ec4a315cfed783304dcee13").unwrap(),
-                message: "hello world 2",
-                proof: hex_bytes("024c1484fcb05cecdb4dbfb9bf4e08e7f529aea3b3a2515716ad4e9cf7bace6c91181b6bb7d8201c5a85a11c626d1848aa2ac4d188c7e24a94faa32d1eec48d600fad7c55c7e71adb6a7dd6c73f6fc02").unwrap(),
-            },
-            // wrong proof
-            VRF_Verify_Fixture {
-                result: false,
-                pubkey: hex_bytes("a126397fdce063498b9f119e7b75e414fa678ee95ec4a315cfed783304dcee13").unwrap(),
-                message: "hello world 3",
-                proof: hex_bytes("024c1484fcb05cecdb4dbfb9bf4e08e7f529aea3b3a2515716ad4e9cf7bace6c91181b6bb7d8201c5a85a11c626d1848aa2ac4d188c7e24a94faa32d1eec48d600fad7c55c7e71adb6a7dd6c73f6fc02").unwrap(),
-            },
-        ];
+            let pubk = VRFPublicKey::from_private(&privk);
+            let res = VRF::verify(&pubk, &proof, &alpha.to_vec()).unwrap();
 
-        for verify_fixture in verify_fixtures {
-            let pubk = VRFPublicKey::from_bytes(&verify_fixture.pubkey[..]).unwrap();
-            let proof_bytes = &verify_fixture.proof[..];
-            let alpha = verify_fixture.message[..].as_bytes();
-
-            let proof = VRFProof::from_slice(proof_bytes).unwrap();
-
-            let result = VRF::verify(&pubk, &proof, &alpha.to_vec()).unwrap();
-            assert_eq!(result, verify_fixture.result);
+            assert!(res);
         }
     }
 
@@ -723,31 +649,19 @@ mod tests {
     fn test_proof_codec() {
         let proof_fixtures = vec![
             VRF_Proof_Codec_Fixture {
-                proof: hex_bytes("024c1484fcb05cecdb4dbfb9bf4e08e7f529aea3b3a2515716ad4e9cf7bace6c91181b6bb7d8201c5a85a11c626d1848aa2ac4d188c7e24a94faa32d1eec48d600fad7c55c7e71adb6a7dd6c73f6fc02").unwrap(),
+                proof: hex_bytes("ced9804ca06ed515c632fb83ef89e9cba4acf1539a33685a1c1cb475df733a5af33288af50fe1fa1c3facd9d19cf7ad98ba7413a8d09010363ac11ae7c4110b94707ab5bdee3726792daaf2c7f4f6106").unwrap(),
                 result: true
             },
             VRF_Proof_Codec_Fixture {
-                proof: hex_bytes("94f27ca7ae235c3b9c6df682a0fe314927a4b24b06cb24b61703cbb9ff725c38125cfea5b4c9105db772c9acc17c188032f900a3b85c16775b398347393a70d3afb5bf2095a2375e362f659a8d529b0c").unwrap(),
+                proof: hex_bytes("86bfdbd03147ae8bd3e16c76c9e40fe02e6fd2d7b072dce710897d97558fd00ec027222746d07207c381621b3a7d34db29762b43b73b6af816ca64da1503d37138fbb9e73faf82e83525be00f880cf04").unwrap(),
                 result: true,
             },
             VRF_Proof_Codec_Fixture {
-                proof: hex_bytes("6e7b566536d1e856977263cf0e23dc3c31e79a5a040a37d779feb9b17b61f66a30e7333c7f173a13ffbccb338f2d245bba4539c9f18ebe24c86e1e4301189714deee9ad36d1565f43267034aef6e4a0c").unwrap(),
+                proof: hex_bytes("6d5af6e8d02e4c04f7ee114c0adb7ff5ed2982e7b63cc0a82ec68c9a0967abfa07bbf70e92c03fcafb9a0a779cb511c85c946853154b406cb5a37563751886ac1f14d81694cf99fb103e712aa879c20f").unwrap(),
                 result: true,
             },
             VRF_Proof_Codec_Fixture {
-                proof: hex_bytes("f4c5ac0fe2ae06b0aae9979be90065d7a13012402b5587b76e3ab000d526e97c70c4fac4c8be99b576881a4f97fc833e7cd17d669b94e15eac894f8e66dacd8ed3c621d5948fffe76ba45121265b0709").unwrap(),
-                result: true,
-            },
-            VRF_Proof_Codec_Fixture {
-                proof: hex_bytes("661c630811ab9573c52d85d51a5d3bc6f7d2cdef389489d35a97602713c4513ed1197b7ae5655bfbeba5913a0607176f41941e5562c4c1ea7912ef0ac5b89249bedb47cdf7c66966194a4d16c2008b03").unwrap(),
-                result: true,
-            },
-            VRF_Proof_Codec_Fixture {
-                proof: hex_bytes("cc3a7ca8208fa8965d1439ef74ba974154ea8383aa1cbf658b711472b7d32d2f4e31e00db99b81d9428d10b7c03e6cab9894bebd37e9de82dbdeaefff9d1501d875cd220f3a81bf84bd174f29640f509").unwrap(),
-                result: true,
-            },
-            VRF_Proof_Codec_Fixture {
-                proof: hex_bytes("94654efaef05909d40ddd4e0bb8aae8fd70780b22bb57844fb4c1d81636ed6556d9725d59ccb0975b9c70b8cb2b20d781455e44d5914d15ed7eefdc58606b085ae13aa9c2e5d03c081e81fc25f945b0c").unwrap(),
+                proof: hex_bytes("ead84ef119fc0240395448853b0f1ca54e686c1fbbc0ed1669d24d95dcdd078f5273365211c6a7f66025e1114206ba8e721d0f486b952a544ab354cdc15ffa0957a0491f659be554de21d67cb86e880f").unwrap(),
                 result: true,
             },
             // should fail -- 79 bytes
@@ -762,7 +676,7 @@ mod tests {
             },
             // should fail -- Gamma isn't a valid point
             VRF_Proof_Codec_Fixture {
-                proof: hex_bytes("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6d9725d59ccb0975b9c70b8cb2b20d781455e44d5914d15ed7eefdc58606b085ae13aa9c2e5d03c081e81fc25f945b0c").unwrap(),
+                proof: hex_bytes("0000000000000000000000000000000000000000000000000000000000000000000025d59ccb0975b9c70b8cb2b20d781455e44d5914d15ed7eefdc58606b085ae13aa9c2e5d03c081e81fc25f945b0c").unwrap(),
                 result: false,
             },
         ];

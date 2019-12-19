@@ -37,8 +37,9 @@ use util::db::Error as db_error;
 use chainstate::ChainstateDB;
 
 use chainstate::burn::Opcodes;
-use chainstate::burn::CHAINSTATE_VERSION;
 use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, BlockSnapshot, SortitionHash};
+
+use core::CHAINSTATE_VERSION;
 
 use chainstate::burn::operations::{
     LeaderBlockCommitOp,
@@ -91,20 +92,14 @@ pub const REWARD_WINDOW_END : u64 = 144 * 90 + REWARD_WINDOW_START;
 // for using BurnchainHeaderHash values as block hashes in a MARF
 impl From<BurnchainHeaderHash> for BlockHeaderHash {
     fn from(bhh: BurnchainHeaderHash) -> BlockHeaderHash {
-        let mut header_hash_bytes = [0u8; 32];
-        header_hash_bytes.copy_from_slice(bhh.as_bytes());
-        let header_hash = BlockHeaderHash(header_hash_bytes);
-        header_hash
+        BlockHeaderHash(bhh.0)
     }
 }
 
 // for using BurnchainHeaderHash values as block hashes in a MARF
 impl From<BlockHeaderHash> for BurnchainHeaderHash {
     fn from(bhh: BlockHeaderHash) -> BurnchainHeaderHash {
-        let mut header_hash_bytes = [0u8; 32];
-        header_hash_bytes.copy_from_slice(bhh.as_bytes());
-        let header_hash = BurnchainHeaderHash(header_hash_bytes);
-        header_hash
+        BurnchainHeaderHash(bhh.0)
     }
 }
 

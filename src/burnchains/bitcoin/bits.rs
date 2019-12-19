@@ -60,11 +60,7 @@ use util::hash::Hash160;
 pub fn parse_script<'a>(script: &'a Script) -> Vec<Instruction<'a>> {
     // we will have to accept non-minimial pushdata since there's at least one OP_RETURN
     // in the transaction stream that has this property already.
-    let mut ret = vec![];
-    for script_elem in script.iter(false) {
-        ret.push(script_elem);
-    }
-    return ret;
+    script.iter(false).collect()
 }
 
 impl BitcoinTxInput {

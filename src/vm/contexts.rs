@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, BTreeMap};
 use std::fmt;
 use std::convert::TryInto;
 
@@ -13,6 +13,8 @@ use vm::ast;
 use vm::eval;
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
+
+use serde::Serialize;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -45,7 +47,7 @@ pub enum AssetMapEntry {
  The AssetMap is used to track which assets have been transfered from whom
  during the execution of a transaction.
  */
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AssetMap {
     stx_map: HashMap<PrincipalData, u128>,
     burn_map: HashMap<PrincipalData, u128>,
@@ -68,8 +70,22 @@ pub struct GlobalContext<'a> {
 #[derive(Serialize, Deserialize)]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
+    
+    #[serde(serialize_with = "ordered_map_variables")]
     pub variables: HashMap<ClarityName, Value>,
+    
+    #[serde(serialize_with = "ordered_map_functions")]
     pub functions: HashMap<ClarityName, DefinedFunction>,
+}
+
+fn ordered_map_variables<S: serde::Serializer>(value: &HashMap<ClarityName, Value>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
+}
+
+fn ordered_map_functions<S: serde::Serializer>(value: &HashMap<ClarityName, DefinedFunction>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
 }
 
 pub struct LocalContext <'a> {
@@ -229,7 +245,6 @@ impl AssetMap {
         Ok(())
     }
 
-    #[cfg(test)]
     pub fn to_table(mut self) -> HashMap<PrincipalData, HashMap<AssetIdentifier, AssetMapEntry>> {
         let mut map = HashMap::new();
         for (principal, mut principal_map) in self.token_map.drain() {
@@ -247,7 +262,7 @@ impl AssetMap {
                 map.insert(principal.clone(), HashMap::new());
                 map.get_mut(&principal).unwrap()
             };
-            output_map.insert(AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: ClarityName::from("STX") }, AssetMapEntry::STX(stx_amount as u128));
+            output_map.insert(AssetIdentifier::STX(), AssetMapEntry::STX(stx_amount as u128));
         }
         
         for (principal, stx_burned_amount) in self.burn_map.drain() {
@@ -257,7 +272,7 @@ impl AssetMap {
                 map.insert(principal.clone(), HashMap::new());
                 map.get_mut(&principal).unwrap()
             };
-            output_map.insert(AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: ClarityName::from("BURNED") }, AssetMapEntry::Burn(stx_burned_amount as u128));
+            output_map.insert(AssetIdentifier::STX_burned(), AssetMapEntry::Burn(stx_burned_amount as u128));
         }
 
         for (principal, mut principal_map) in self.asset_map.drain() {
@@ -896,8 +911,8 @@ mod test {
         let t3 = AssetIdentifier { contract_identifier: c_contract_id.clone(), asset_name: "a".into() };
         let t4 = AssetIdentifier { contract_identifier: d_contract_id.clone(), asset_name: "a".into() };
         let t5 = AssetIdentifier { contract_identifier: e_contract_id.clone(), asset_name: "a".into() };
-        let t6 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: "STX".into() };
-        let t7 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::transient(), asset_name: "BURNED".into() };
+        let t6 = AssetIdentifier::STX();
+        let t7 = AssetIdentifier::STX_burned();
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();

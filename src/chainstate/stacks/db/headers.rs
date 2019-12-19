@@ -24,7 +24,7 @@ use std::io;
 use std::io::prelude::*;
 use std::fmt;
 use std::fs;
-use hashbrown::HashMap;
+use std::collections::HashMap;
 
 use burnchains::BurnchainHeaderHash;
 
@@ -57,7 +57,7 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
         let proof : VRFProof = VRFProof::from_row(row, 3 + index)?;
         let parent_block = BlockHeaderHash::from_row(row, 4 + index)?;
         let parent_microblock = BlockHeaderHash::from_row(row, 5 + index)?;
-        let parent_microblock_sequence : u8 = row.get(6 + index);
+        let parent_microblock_sequence : u16 = row.get(6 + index);
         let tx_merkle_root = Sha512Trunc256Sum::from_row(row, 7 + index)?;
         let state_index_root = TrieHash::from_row(row, 8 + index)?;
         let microblock_pubkey_hash = Hash160::from_row(row, 9 + index)?;
@@ -96,7 +96,7 @@ impl RowOrder for StacksMicroblockHeader {
 impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
     fn from_row<'a>(row: &'a Row, index: usize) -> Result<StacksMicroblockHeader, db_error> {
         let version : u8 = row.get(0 + index);
-        let sequence : u8 = row.get(1 + index);
+        let sequence : u16 = row.get(1 + index);
         let prev_block = BlockHeaderHash::from_row(row, 2 + index)?;
         let tx_merkle_root = Sha512Trunc256Sum::from_row(row, 3 + index)?;
         let signature = MessageSignature::from_row(row, 4 + index)?;

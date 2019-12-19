@@ -192,8 +192,8 @@ impl StacksChainState {
             Ok(())
         }).expect("FATAL: failed to credit account")
     }
-    
-    /// Verify that this transaction is not a replay, and update its nonce.
+   
+    /// Increment an account's nonce
     pub fn update_account_nonce<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction, account: &StacksAccount) {
         clarity_tx.connection().with_clarity_db(|ref mut db| {
             let next_nonce = account.nonce.checked_add(1).expect("OUT OF NONCES");
@@ -255,6 +255,12 @@ impl StacksChainState {
     /// TODO: .burns?
     fn calculate_miner_reward(miner: &MinerPaymentSchedule, sample: &Vec<(MinerPaymentSchedule, Vec<MinerPaymentSchedule>)>) -> MinerReward {
         assert!(miner.burnchain_sortition_burn > 0);        // don't call this method if there was no sortition for this block!
+        for i in 0..sample.len() {
+            assert!(sample[i].0.miner);
+            for u in sample[i].1.iter() {
+                assert!(!u.miner);
+            }
+        }
 
         let mut num_mined : u128 = 0;
 
@@ -280,7 +286,7 @@ impl StacksChainState {
         // 40% of the streamed tx fees of the microblocks it produced.
         let mut microblock_fees_produced : u128 = 0;
         let mut microblock_fees_confirmed : u128 = 0;
-
+        
         ////////////////////// number of blocks this miner mined or supported //////
         for i in 0..sample.len() {
             let block_miner = &sample[i].0;
@@ -290,6 +296,8 @@ impl StacksChainState {
                 num_mined += 1;
             }
             else {
+                // considering a user's share of the coinbase (count the block's miner as another
+                // user, distinct from this one)
                 for user_support in user_supports.iter() {
                     if user_support.address == miner.address {
                         num_mined += 1;
@@ -300,8 +308,42 @@ impl StacksChainState {
         }
 
         ////////////////////// coinbase reward total /////////////////////////////////
-        test_debug!("{}: Coinbase reward = {} * ({}/{})", miner.address.to_string(), miner.coinbase, miner.burnchain_commit_burn, miner.burnchain_sortition_burn);
-        coinbase_reward = miner.coinbase.checked_mul(miner.burnchain_commit_burn as u128).expect("FATAL: STX coinbase reward overflow") / (miner.burnchain_sortition_burn as u128);
+        let (this_burn_total, other_burn_total) = {
+            let block_miner = &sample[0].0;
+            let user_supports = &sample[0].1;
+
+            if block_miner.address == miner.address {
+                let mut total_user : u128 = 0;
+                for user_support in user_supports.iter() {
+                    total_user = total_user.checked_add(user_support.burnchain_commit_burn as u128).expect("FATAL: user support burn overflow");
+                }
+                (block_miner.burnchain_commit_burn as u128, total_user)
+            }
+            else {
+                let mut this_user : u128 = 0;
+                let mut total_other : u128 = block_miner.burnchain_commit_burn as u128;
+                for user_support in user_supports.iter() {
+                    if user_support.address != miner.address {
+                        total_other = total_other.checked_add(user_support.burnchain_commit_burn as u128).expect("FATAL: user support burn overflow");
+                    }
+                    else {
+                        this_user = user_support.burnchain_commit_burn as u128;
+                    }
+                }
+                (this_user, total_other)
+            }
+        };
+
+        coinbase_reward = 
+            if num_mined == 0 {
+                // this miner didn't help at all
+                0
+            }
+            else {
+                let burn_total = other_burn_total.checked_add(this_burn_total).expect("FATAL: combined burns exceed u128");
+                test_debug!("{}: Coinbase reward = {} * ({}/{})", miner.address.to_string(), miner.coinbase, this_burn_total, burn_total);
+                miner.coinbase.checked_mul(this_burn_total as u128).expect("FATAL: STX coinbase reward overflow") / (burn_total as u128)
+            };
 
         ////////////////////// anchored tx fees (miner only) //////////////////////////
         if miner.miner {
@@ -408,16 +450,13 @@ impl StacksChainState {
     /// Find the latest miner reward to mature, assuming that there are mature rewards.
     /// Returns a list of payments to make to each address -- miners and user-support burners
     pub fn find_mature_miner_rewards<'a>(tx: &mut StacksDBTx<'a>, tip: &StacksHeaderInfo) -> Result<Option<Vec<MinerReward>>, Error> {
-        if tip.block_height < MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1 {
+        if tip.block_height < MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
             // no mature rewards exist
             return Ok(None);
         }
 
         let matured_miners = StacksChainState::get_scheduled_block_rewards_in_fork(tx, tip, tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW)?;
-        if matured_miners.len() == 0 {
-            // no sortition happened here
-            return Ok(None);
-        }
+        assert!(matured_miners.len() > 0);
 
         let mut scheduled_payments = vec![];
         for i in 0..MINER_REWARD_WINDOW {
@@ -471,10 +510,10 @@ mod test {
     fn make_dummy_miner_payment_schedule(addr: &StacksAddress, coinbase: u128, tx_fees_anchored: u128, tx_fees_streamed: u128, commit_burn: u64, sortition_burn: u64) -> MinerPaymentSchedule {
         MinerPaymentSchedule {
             address: addr.clone(),
-            block_hash: BlockHeaderHash([0u8; 32]),
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-            parent_block_hash: BlockHeaderHash([0u8; 32]),
-            parent_burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
+            burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            parent_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
+            parent_burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
             coinbase,
             tx_fees_anchored,
             tx_fees_streamed, 
@@ -662,10 +701,9 @@ mod test {
         assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
-       
-        // if miner 2 won, then it would get all the coinbase (since it did all the burn), and
-        // should only receive the shared tx fees
-        assert_eq!(reward_miner_2.coinbase, 500);
+      
+        // miner 2 didn't mine this block
+        assert_eq!(reward_miner_2.coinbase, 0);
         assert_eq!(reward_miner_2.tx_fees_anchored_shared, 500);        // did half the work over the sample
         assert_eq!(reward_miner_2.tx_fees_anchored_exclusive, 0);
         assert_eq!(reward_miner_2.tx_fees_streamed_produced, 0);
@@ -731,15 +769,15 @@ mod test {
                 (500 * fill_cutoff) >> 64
             };
         
-        // if miner 1 won, then it should have received 1/4 the coinbase
+        // miner 1 should have received 1/4 the coinbase
         assert_eq!(reward_miner_1.coinbase, 125);
         assert_eq!(reward_miner_1.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
         assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 500 - expected_shared);
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
-       
-        // if miner 2 won, then it would get all the coinbase (since it did all the burn)
-        assert_eq!(reward_miner_2.coinbase, 500);
+      
+        // miner 2 didn't win this block, so it gets no coinbase
+        assert_eq!(reward_miner_2.coinbase, 0);
         assert_eq!(reward_miner_2.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
         assert_eq!(reward_miner_2.tx_fees_anchored_exclusive, 500 - expected_shared);
         assert_eq!(reward_miner_2.tx_fees_streamed_produced, 0);
@@ -805,15 +843,15 @@ mod test {
                 (500 * fill_cutoff) >> 64
             };
         
-        // if miner 1 won, then it should have received 1/4 the coinbase
+        // miner 1 produced this block with the help from users 3x as interested, so it gets 1/4 of the coinbase
         assert_eq!(reward_miner_1.coinbase, 125);
         assert_eq!(reward_miner_1.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
         assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 500 - expected_shared);
         assert_eq!(reward_miner_1.tx_fees_streamed_produced, 240);                  // produced half of the microblocks, should get half the 2/5 of the reward
         assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 240);                 // confirmed half of the microblocks, should get half of the 3/5 reward
-       
-        // if miner 2 won, then it would get all the coinbase (since it did all the burn)
-        assert_eq!(reward_miner_2.coinbase, 500);
+      
+        // miner 2 didn't produce this block, so no coinbase
+        assert_eq!(reward_miner_2.coinbase, 0);
         assert_eq!(reward_miner_2.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
         assert_eq!(reward_miner_2.tx_fees_anchored_exclusive, 500 - expected_shared);
         assert_eq!(reward_miner_2.tx_fees_streamed_produced, 200);

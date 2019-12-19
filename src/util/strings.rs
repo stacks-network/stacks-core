@@ -28,7 +28,6 @@ use net::codec::{read_next, write_next};
 use net::Error as net_error;
 
 use vm::representations::{ClarityName, ContractName, SymbolicExpression, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH};
-use vm::ast::errors::ParseResult;
 use vm::ast::parser::{lex, LexItem};
 
 use vm::types::{
@@ -83,13 +82,13 @@ impl StacksMessageCodec for StacksString {
         let s = String::from_utf8(bytes.clone())
             .map_err(|_e| {
                 warn!("Invalid StacksString -- could not build from utf8");
-                net_error::DeserializeError
+                net_error::DeserializeError("Invalid Stacks string: could not build from utf8".to_string())
             })?;
         
         if !StacksString::is_valid_string(&s) {
             // non-printable ASCII or not ASCII
             warn!("Invalid StacksString -- non-printable ASCII or non-ASCII");
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError("Invalid Stacks string: non-printable or non-ASCII string".to_string()));
         }
 
         *index_ptr = index;
@@ -103,13 +102,13 @@ fn read_clarity_string_bytes(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) 
     let len = len_byte as u32;
 
     if index > u32::max_value() - len {
-        return Err(net_error::OverflowError);
+        return Err(net_error::OverflowError(format!("Would overflow u32 to read string of {} bytes", len)));
     }
     if index + len > max_size {
-        return Err(net_error::OverflowError);
+        return Err(net_error::OverflowError(format!("Would read beyond end of buffer to read string of {} bytes", len)));
     }
     if (buf.len() as u32) < index + len {
-        return Err(net_error::UnderflowError);
+        return Err(net_error::UnderflowError(format!("Not enough bytes to read string (have {}, need {})", buf.len(), index + len)));
     }
 
     let bytes : Vec<u8> = buf[(index as usize)..((index + len) as usize)].to_vec();
@@ -135,11 +134,11 @@ impl StacksMessageCodec for ClarityName {
         let bytes = read_clarity_string_bytes(buf, &mut index, max_size)?;
 
         // must encode a valid string
-        let s = String::from_utf8(bytes.clone())
-            .map_err(|_e| net_error::DeserializeError)?;
+        let s = String::from_utf8(bytes)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse Clarity name: could not contruct from utf8".to_string()))?;
 
         // must decode to a clarity name
-        let name = ClarityName::try_from(s).map_err(|_e| net_error::DeserializeError)?;
+        let name = ClarityName::try_from(s).map_err(|e| net_error::DeserializeError(format!("Failed to parse Clarity name: {:?}", e)))?;
         *index_ptr = index;
         Ok(name)
     }
@@ -161,10 +160,10 @@ impl StacksMessageCodec for ContractName {
         let bytes = read_clarity_string_bytes(buf, &mut index, max_size)?;
         
         // must encode a valid string
-        let s = String::from_utf8(bytes.clone())
-            .map_err(|_e| net_error::DeserializeError)?;
+        let s = String::from_utf8(bytes)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse Contract name: could not construct from utf8".to_string()))?;
 
-        let name = ContractName::try_from(s).map_err(|_e| net_error::DeserializeError)?;
+        let name = ContractName::try_from(s).map_err(|e| net_error::DeserializeError(format!("Failed to parse Contract name: {:?}", e)))?;
         *index_ptr = index;
         Ok(name)
     }
@@ -205,28 +204,6 @@ impl StacksString {
         true
     }
 
-    pub fn try_as_clarity_literal(&self) -> Option<Value> {
-        // must parse to a single Clarity literal
-        match lex(&self.to_string()) {
-            Ok(lexed) => {
-                if lexed.len() != 1 {
-                    return None;
-                }
-                match lexed[0].0 {
-                    LexItem::LiteralValue(_, ref value) => {
-                        return Some((*value).clone());
-                    }
-                    _ => {
-                        return None;
-                    }
-                }
-            },
-            Err(_) => {
-                return None;
-            }
-        }
-    }
-    
     pub fn is_clarity_variable(&self) -> bool {
         // must parse to a single Clarity variable
         match lex(&self.to_string()) {
@@ -247,10 +224,6 @@ impl StacksString {
                 false
             }
         }
-    }
-
-    pub fn is_clarity_literal(&self) -> bool {
-        self.try_as_clarity_literal().is_some()
     }
     
     pub fn from_string(s: &String) -> Option<StacksString> {

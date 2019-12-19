@@ -63,16 +63,14 @@ use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    /// Failed to encode
-    SerializeError,
     /// Failed to decode 
-    DeserializeError,
+    DeserializeError(String),
     /// Failed to recognize message
     UnrecognizedMessageID,
     /// Underflow -- not enough bytes to form the message
-    UnderflowError,
+    UnderflowError(String),
     /// Overflow -- message too big 
-    OverflowError,
+    OverflowError(String),
     /// Array is too big 
     ArrayTooLong,
     /// Receive timed out 
@@ -138,11 +136,10 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::SerializeError => f.write_str(error::Error::description(self)),
-            Error::DeserializeError => f.write_str(error::Error::description(self)),
+            Error::DeserializeError(ref s) => fmt::Display::fmt(s, f),
             Error::UnrecognizedMessageID => f.write_str(error::Error::description(self)),
-            Error::UnderflowError => f.write_str(error::Error::description(self)),
-            Error::OverflowError => f.write_str(error::Error::description(self)),
+            Error::UnderflowError(ref s) => fmt::Display::fmt(s, f),
+            Error::OverflowError(ref s) => fmt::Display::fmt(s, f),
             Error::ArrayTooLong => f.write_str(error::Error::description(self)),
             Error::RecvTimeout => f.write_str(error::Error::description(self)),
             Error::SigningError(ref s) => fmt::Display::fmt(s, f),
@@ -179,11 +176,10 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
-            Error::SerializeError => None,
-            Error::DeserializeError => None,
+            Error::DeserializeError(ref _s) => None,
             Error::UnrecognizedMessageID => None,
-            Error::UnderflowError => None,
-            Error::OverflowError => None,
+            Error::UnderflowError(ref _s) => None,
+            Error::OverflowError(ref _s) => None,
             Error::ArrayTooLong => None,
             Error::RecvTimeout => None,
             Error::SigningError(ref _s) => None,
@@ -218,11 +214,10 @@ impl error::Error for Error {
 
     fn description(&self) -> &str {
         match *self {
-            Error::SerializeError => "Failed to serialize message payload",
-            Error::DeserializeError => "Failed to deserialize message payload",
+            Error::DeserializeError(ref s) => s.as_str(),
             Error::UnrecognizedMessageID => "Failed to recognize message type",
-            Error::UnderflowError => "Not enough remaining data to parse",
-            Error::OverflowError => "Message is too long",
+            Error::UnderflowError(ref s) => s.as_str(),
+            Error::OverflowError(ref s) => s.as_str(),
             Error::ArrayTooLong => "Array too long",
             Error::RecvTimeout => "Packet receive timeout",
             Error::SigningError(ref s) => s.as_str(),
@@ -407,7 +402,7 @@ pub struct GetBlocksData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MicroblocksInvData {
     pub last_microblock_hash: BlockHeaderHash,
-    pub last_sequence: u8
+    pub last_sequence: u16
 }
 
 /// A bit vector that describes which block and microblock data node has data for in a given burn
@@ -607,16 +602,16 @@ macro_rules! impl_byte_array_message_codec {
             fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<$thing, ::net::Error> {
                 let index = *index_ptr;
                 if index > u32::max_value() - ($len) {
-                    return Err(::net::Error::OverflowError);
+                    return Err(::net::Error::OverflowError(format!("Would overflow when parsing {}", stringify!($thing))));
                 }
                 if index + ($len) > max_size {
-                    return Err(::net::Error::OverflowError);
+                    return Err(::net::Error::OverflowError(format!("Would read beyond end of buffer when parsing {}", stringify!($thing))));
                 }
                 if (buf.len() as u32) < index + ($len) {
-                    return Err(::net::Error::UnderflowError);
+                    return Err(::net::Error::UnderflowError(format!("Not enough bytes remaining to parse {}", stringify!($thing))));
                 }
                 let ret = $thing::from_bytes(&buf[(index as usize)..((index+($len)) as usize)])
-                    .ok_or(::net::Error::UnderflowError)?;
+                    .ok_or(::net::Error::UnderflowError(format!("Not enough bytes to parse {}", stringify!($thing))))?;
 
                 *index_ptr += $len;
                 Ok(ret)
@@ -920,7 +915,7 @@ mod test {
                     next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
                     next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
                     next_snapshot.total_burn += 1;
-                    next_snapshot.stacks_block_height += 1;
+                    next_snapshot.num_sortitions += 1;
                     next_snapshot.sortition = true;
                     next_snapshot.sortition_hash = next_snapshot.sortition_hash.mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
 
