@@ -145,7 +145,7 @@ pub fn native_concat(args: &[SymbolicExpression], env: &mut Environment, context
     }
 }
 
-pub fn native_asserts_max_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn native_as_max_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let iterable = eval(&args[0], env, context)?;
