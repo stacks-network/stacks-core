@@ -368,8 +368,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     &args[3]
                 };
 
-            let mut marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
-            let db = ClarityDatabase::new(Box::new(&mut marf_kv));
+
 
             let content: String = {
                 if args.len() == 3 {
@@ -385,10 +384,16 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[1]), "Failed to parse contract identifier.");
 
-            let mut vm_env = OwnedEnvironment::new(db);
-            
-            let result = vm_env.get_exec_environment(None)
-                .eval_read_only(&contract_identifier, &content);
+            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
+            let result = in_block(vm_filename, marf_kv, |mut marf| {
+                let result = {
+                    let db = ClarityDatabase::new(Box::new(&mut marf));
+                    let mut vm_env = OwnedEnvironment::new(db);
+                    vm_env.get_exec_environment(None)
+                        .eval_read_only(&contract_identifier, &content)
+                };
+                (marf, result)
+            });
 
             match result {
                 Ok(x) => {
