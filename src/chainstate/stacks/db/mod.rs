@@ -369,7 +369,7 @@ const STACKS_BOOT_CODE : &'static [&'static str] = &[
         ((available uint) (authorized bool))
     )
     (define-private (get-participant-info (participant principal))
-        (default-to (tuple (available u0) (authorized 'false)) (map-get rewards ((participant participant)))))
+        (default-to (tuple (available u0) (authorized 'false)) (map-get? rewards ((participant participant)))))
 
     (define-public (get-participant-reward (participant principal))
         (ok (get available (get-participant-info participant))))
