@@ -375,7 +375,7 @@ mod tests {
             (define-data-var bar int 0)
             (define-public (get-bar) (ok (var-get bar)))
             (define-public (set-bar (x int) (y int))
-              (begin (var-set! bar (/ x y)) (ok (var-get bar))))";
+              (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
             conn.initialize_smart_contract(

@@ -57,7 +57,7 @@ impl <'a> DefinitionSorter {
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
         
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
-            let deps_props: Vec<(_)> = deps.iter().map(|i| {
+            let deps_props: Vec<_> = deps.iter().map(|i| {
                 let exp = &contract_analysis.expressions[*i];
                 self.find_expression_definition(&exp).unwrap()
             }).collect();

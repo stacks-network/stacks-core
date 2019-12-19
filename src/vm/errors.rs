@@ -75,7 +75,8 @@ pub enum RuntimeErrorType {
     AttemptToFetchInTransientContext,
     BadNameValue(&'static str, String),
     UnknownBlockHeaderHash(BlockHeaderHash),
-    BadBlockHash(Vec<u8>)
+    BadBlockHash(Vec<u8>),
+    UnwrapFailure,
 }
 
 #[derive(Debug, PartialEq)]
