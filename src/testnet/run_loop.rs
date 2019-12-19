@@ -9,8 +9,8 @@ use net::StacksMessageType;
 
 pub struct RunLoop {
     config: Config,
-    leaders: Vec<Leader>,
-    leaders_txs: Vec<Sender<StacksMessageType>>
+    nodes: Vec<Leader>,
+    nodes_txs: Vec<Sender<StacksMessageType>>
 }
 
 impl RunLoop {
@@ -18,19 +18,19 @@ impl RunLoop {
     pub fn new(config: Config) -> Self {
 
         // Build a vec of leaders based on the config
-        let mut leaders = vec![]; 
-        let mut leaders_txs = vec![]; 
+        let mut nodes = vec![]; 
+        let mut nodes_txs = vec![]; 
         let mut confs = config.leader_config.clone();
         for conf in confs.drain(..) {
-            let leader = Leader::new(conf, config.burnchain_block_time);
-            leaders_txs.push(leader.tx.clone());
-            leaders.push(leader);
+            let node = Leader::new(conf, config.burnchain_block_time);
+            nodes_txs.push(node.tx.clone());
+            nodes.push(node);
         }
 
         Self {
             config,
-            leaders,
-            leaders_txs
+            nodes,
+            nodes_txs
         }
     }
 
@@ -43,46 +43,57 @@ impl RunLoop {
         // Tear-up each leader with the op_tx (mpsc::Sender<ops>) 
         // returned by the burnchain, so that each leader can commit
         // its ops independently.
-        for leader in self.leaders.iter_mut() {
-            leader.tear_up(burnchain_op_tx.clone(), ConsensusHash::empty());
+        for node in self.nodes.iter_mut() {
+            node.tear_up(burnchain_op_tx.clone(), ConsensusHash::empty());
         }
 
         let mut bootstrap_chain = true;
-        let mut prev_tenure_artefacts = (None, None);
 
         loop {
             // Wait for incoming block from the burnchain
             let (burnchain_block, ops) = burnchain_block_rx.recv().unwrap();
 
-            let mut leader_tenure = None;
+            let tenure_artefacts = {
+                
+                let mut leader_tenure = None;
 
-            // Dispatch incoming block to the leaders            
-            for leader in self.leaders.iter_mut() {
+                // Dispatch incoming block to the nodes            
+                for node in self.nodes.iter_mut() {
+    
+                    let won_sortition = node.process_burnchain_block(&burnchain_block, &ops);
+    
+                    // todo(ludo): refactor (at least naming)
+                    let parent_block = match (won_sortition, bootstrap_chain) {
+                        (true, _) => node.last_sortitioned_block.clone().unwrap(),
+                        (false, true) => {
+                            bootstrap_chain = false;
+                            SortitionedBlock::genesis()
+                        },
+                        (false, false) => { continue; },
+                    };
 
-                let (anchored_block, microblocks) = prev_tenure_artefacts.clone();
 
-                let won_sortition = leader.process_burnchain_block(&burnchain_block, &ops);
-
-                leader.process_previous_tenure(anchored_block, microblocks);
-
-                leader.maintain_leadership_eligibility();
-
-                let parent_block = match (won_sortition, bootstrap_chain) {
-                    (true, _) => leader.last_sortitioned_block.clone().unwrap(),
-                    (false, true) => {
-                        bootstrap_chain = false;
-                        SortitionedBlock::genesis()
-                    },
-                    (false, false) => { continue; },
-                };
-                // Initiate and detach a new tenure targeting the initial sortition hash
-                leader_tenure = Some(leader.initiate_new_tenure(parent_block));
-            }
-
-            if leader_tenure.is_some() {
+                    println!("About to initiate new tenure with {:?}", parent_block);
+                    // Initiate and detach a new tenure targeting the initial sortition hash
+                    leader_tenure = Some(node.initiate_new_tenure(parent_block));
+                }
+    
+                if leader_tenure.is_none() {
+                    continue;
+                }
+    
                 // run tenure
                 // get blocks + micro-blocks
-                prev_tenure_artefacts = leader_tenure.unwrap().run();
+                leader_tenure.unwrap().run()
+            };
+
+            // Dispatch tenure artefacts (anchored_block + microblocks) to the other nodes            
+            for node in self.nodes.iter_mut() {
+                let (anchored_block, microblocks) = tenure_artefacts.clone();
+
+                node.process_tenure(anchored_block, microblocks);
+
+                node.maintain_leadership_eligibility();
             }
         }
     }
