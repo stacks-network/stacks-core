@@ -663,11 +663,19 @@ impl StacksChainState {
     /// Store a preprocessed block, queuing it up for subsequent processing.
     /// The caller should at least verify that the block is attached to some fork in the burn
     /// chain.
-    fn store_staging_block(&mut self, burn_hash: &BurnchainHeaderHash, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash, commit_burn: u64, sortition_burn: u64) -> Result<(), Error> {
+    pub fn store_staging_block(&mut self, burn_hash: &BurnchainHeaderHash, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash, commit_burn: u64, sortition_burn: u64) -> Result<(), Error> {
         assert!(commit_burn < i64::max_value() as u64);
         assert!(sortition_burn < i64::max_value() as u64);
 
         let block_hash = block.block_hash();
+
+        // let block_hash = match block.header.is_genesis() {
+        //     true => BlockHeaderHash([0u8; 32]),
+        //     false => block.block_hash()
+        // };
+
+        println!("===> {:?} {:?}", block.header, block_hash);
+
         let block_bytes = block.serialize();
 
         let sql = "INSERT OR REPLACE INTO staging_blocks (anchored_block_hash, parent_anchored_block_hash, burn_header_hash, parent_burn_header_hash, microblock_pubkey_hash, processed, commit_burn, sortition_burn, block_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
@@ -686,7 +694,7 @@ impl StacksChainState {
     /// The caller should at least verify that this block was signed by the miner of the ancestor
     /// anchored block that this microblock builds off of.  Because microblocks may arrive out of
     /// order, this method does not check that 
-    fn store_staging_microblock(&mut self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<(), Error> {
+    pub fn store_staging_microblock(&mut self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<(), Error> {
         let microblock_bytes = microblock.serialize();
 
         let sql = "INSERT OR REPLACE INTO staging_microblocks (anchored_block_hash, burn_header_hash, microblock_hash, sequence, processed, block_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
@@ -1463,7 +1471,7 @@ impl StacksChainState {
     /// processed yet.
     /// Returns a StacksHeaderInfo with the microblock stream and chain state index root hash filled in, corresponding to the next block to process.
     /// Returns None if we're out of blocks to process.
-    fn append_block(&mut self, 
+    pub fn append_block(&mut self, 
                     parent_chain_tip: &StacksHeaderInfo, 
                     chain_tip_burn_header_hash: &BurnchainHeaderHash, 
                     block: &StacksBlock, 
@@ -1483,6 +1491,7 @@ impl StacksChainState {
         let inner_process_block = |state: &mut StacksChainState, matured_miner_rewards_opt: Option<&Vec<MinerReward>>| {
             let (parent_burn_header_hash, parent_block_hash) = 
                 if block.header.is_genesis() {
+                    println!("??????");
                     // has to be all 0's if this block has no parent
                     (BurnchainHeaderHash([0u8; 32]), BlockHeaderHash([0u8; 32]))
                 }

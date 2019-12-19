@@ -701,8 +701,8 @@ impl StacksChainState {
         let new_index_block = StacksBlockHeader::make_index_block_hash(new_burn_hash, new_block);
 
         debug!("Begin processing Stacks block off of {}/{}", parent_burn_hash.to_hex(), parent_block.to_hex());
-        test_debug!("Child MARF index root:  {} = {} + {}", new_index_block.to_hex(), new_burn_hash.to_hex(), new_block.to_hex());
-        test_debug!("Parent MARF index root: {} = {} + {}", parent_index_block.to_hex(), parent_burn_hash.to_hex(), parent_block.to_hex());
+        debug!("Child MARF index root:  {} = {} + {}", new_index_block.to_hex(), new_burn_hash.to_hex(), new_block.to_hex());
+        debug!("Parent MARF index root: {} = {} + {}", parent_index_block.to_hex(), parent_burn_hash.to_hex(), parent_block.to_hex());
 
         let clarity_tx = self.clarity_state.begin_block(&parent_index_block, &new_index_block);
 
@@ -725,6 +725,7 @@ impl StacksChainState {
     {
         if new_tip.parent_block != BlockHeaderHash([0u8; 32]) {
             // not the first-ever block, so linkage must occur
+            println!("-------");
             assert_eq!(new_tip.parent_block, parent_tip.block_hash());
             assert_eq!(parent_tip.total_work.work.checked_add(1).expect("Block height overflow"),
                        new_tip.total_work.work);

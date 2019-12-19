@@ -251,6 +251,22 @@ impl Leader {
 
             // chain_tip_burn_header_hash: &BurnchainHeaderHash, 
 
+    /// Process the next pre-processed staging block.
+    /// We've already processed parent_chain_tip.  chain_tip refers to a block we have _not_
+    /// processed yet.
+    /// Returns a StacksHeaderInfo with the microblock stream and chain state index root hash filled in, corresponding to the next block to process.
+    /// Returns None if we're out of blocks to process.
+    // pub fn append_block(&mut self, 
+    //     parent_chain_tip: &StacksHeaderInfo, 
+    //     chain_tip_burn_header_hash: &BurnchainHeaderHash, 
+    //     block: &StacksBlock, 
+    //     microblocks: &Vec<StacksMicroblock>, 
+    //     burnchain_commit_burn: u64, 
+    //     burnchain_sortition_burn: u64, 
+    //     user_burns: &Vec<StagingUserBurnSupport>) -> Result<StacksHeaderInfo, Error>
+
+
+
             let new_chain_tip = self.chain_state.append_block( 
                 &current_chain_tip, 
                 &parent_block.burn_header_hash, 
@@ -451,12 +467,6 @@ impl <'a> LeaderTenure <'a> {
             vrf_seed: VRFSeed::from_proof(&vrf_proof),
         }
     }
-
-    // pub fn tear_up(&mut self, chain_state: &mut StacksChainState, coinbase: &StacksTransaction) {
-    //     let res = self.block_builder.epoch_begin(&mut chain_state, coinbase);
-    //     let mut clarity_tx = res.unwrap();
-    //     self.clarity_tx = Some(clarity_tx);
-    // }
 
     pub fn tear_up(&mut self, clarity_tx: ClarityTx<'a>) {
         self.clarity_tx = Some(clarity_tx);
