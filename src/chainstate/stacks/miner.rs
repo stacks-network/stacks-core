@@ -2003,7 +2003,7 @@ pub mod test {
         (define-data-var bar int 0)
         (define-public (get-bar) (ok (var-get bar)))
         (define-public (set-bar (x int) (y int))
-          (begin (var-set! bar (/ x y)) (ok (var-get bar))))";
+          (begin (var-set bar (/ x y)) (ok (var-get bar))))";
         
         let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                      miner.as_transaction_auth().unwrap(),
