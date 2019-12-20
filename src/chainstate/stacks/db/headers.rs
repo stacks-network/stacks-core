@@ -64,8 +64,8 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
 
         let block_hash = BlockHeaderHash::from_row(row, 10 + index)?;
 
-        let total_burn = total_burn_str.parse::<u64>().map_err(|e| db_error::ParseError)?;
-        let total_work = total_work_str.parse::<u64>().map_err(|e| db_error::ParseError)?;
+        let total_burn = total_burn_str.parse::<u64>().map_err(|_e| db_error::ParseError)?;
+        let total_work = total_work_str.parse::<u64>().map_err(|_e| db_error::ParseError)?;
 
         let header = StacksBlockHeader {
             version,
@@ -102,7 +102,7 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
         let signature = MessageSignature::from_row(row, 4 + index)?;
 
         let microblock_hash = BlockHeaderHash::from_row(row, 5 + index)?;
-        let parent_block_hash = BlockHeaderHash::from_row(row, 6 + index)?;
+        let _ = BlockHeaderHash::from_row(row, 6 + index)?;
         let block_height_i64 : i64 = row.get(7 + index);
         let index_root = TrieHash::from_row(row, 8 + index);    // checked but not used
 
@@ -157,8 +157,6 @@ impl StacksChainState {
     /// Insert a microblock header that is paired with an already-existing block header
     pub fn insert_stacks_microblock_header<'a>(tx: &mut StacksDBTx<'a>, microblock_header: &StacksMicroblockHeader, parent_block_hash: &BlockHeaderHash, parent_burn_header_hash: &BurnchainHeaderHash, block_height: u64, index_root: &TrieHash) -> Result<(), Error> {
         assert!(block_height < (i64::max_value() as u64));
-
-        let microblock_hash = microblock_header.block_hash();
 
         tx.execute("INSERT OR REPLACE INTO microblock_headers \
                     (version, sequence, prev_block, tx_merkle_root, signature, microblock_hash, parent_block_hash, parent_burn_header_hash, block_height, index_root) \
