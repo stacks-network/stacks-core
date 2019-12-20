@@ -14,13 +14,15 @@ use util::hash::Sha256Sum;
 
 pub struct BurnchainSimulator {
     mem_pool: Arc<Mutex<Vec<BlockstackOperationType>>>,
+    db: Option<Arc<Mutex<BurnDB>>>,
 }
 
 impl BurnchainSimulator {
 
     pub fn new() -> Self {
         Self {
-            mem_pool: Arc::new(Mutex::new(vec![]))
+            mem_pool: Arc::new(Mutex::new(vec![])),
+            db: None,
         }
     }
     
@@ -35,14 +37,19 @@ impl BurnchainSimulator {
         let ops_dequeuing = Arc::clone(&self.mem_pool);
         let mut vtxindex = 1;
 
+        let db = BurnDB::connect(&path, 0, &BurnchainHeaderHash([0u8; 32]), true).unwrap();
+        self.db = Some(Arc::new(Mutex::new(db)));
+        let burn_db = Arc::clone(&self.db.as_ref().unwrap());
+
         thread::spawn(move || {
 
             let chain = Burnchain::new(&path, &chain, &name).unwrap();
-    
-            let mut db = BurnDB::connect(&path, 0, &BurnchainHeaderHash([0u8; 32]), true).unwrap();
-    
-            let mut chain_tip = BurnDB::get_first_block_snapshot(db.conn()).unwrap();
             
+            let mut chain_tip = {
+                let mut db = burn_db.lock().unwrap();
+                BurnDB::get_first_block_snapshot(db.conn()).unwrap()
+            };
+                
             loop {
                 thread::sleep(block_time);
 
@@ -80,18 +87,20 @@ impl BurnchainSimulator {
                     ops.clear();
                 };
                 
-                // Include txs in a
-                let mut burn_tx = db.tx_begin().unwrap();
-                let new_chain_tip = Burnchain::process_block_ops(
-                    &mut burn_tx, 
-                    &chain, 
-                    &chain_tip, 
-                    &next_block_header, 
-                    &ops_to_include).unwrap();
-                burn_tx.commit().unwrap();
+                // Include txs in a    
+                chain_tip = {
+                    let mut db = burn_db.lock().unwrap();
+                    let mut burn_tx = db.tx_begin().unwrap();
+                    let new_chain_tip = Burnchain::process_block_ops(
+                        &mut burn_tx, 
+                        &chain, 
+                        &chain_tip, 
+                        &next_block_header, 
+                        &ops_to_include).unwrap();
+                    burn_tx.commit().unwrap();
+                    new_chain_tip
+                };
         
-                chain_tip = new_chain_tip;
-
                 block_tx.send((chain_tip.clone(), ops_to_include)).unwrap();    
             };
         });

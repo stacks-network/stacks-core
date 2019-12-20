@@ -1,4 +1,4 @@
-use super::{Keychain, MemPool, MemPoolFS, LeaderConfig};
+use super::{Keychain, MemPool, MemPoolFS, NodeConfig};
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -49,7 +49,7 @@ impl SortitionedBlock {
 
 }
 
-pub struct Leader {
+pub struct Node {
     active_registered_key: Option<RegisteredKey>,
     chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
@@ -62,13 +62,13 @@ pub struct Leader {
     block_time: u64,
     burnchain_ops_tx: Option<Sender<BlockstackOperationType>>,
     rx: Receiver<StacksMessageType>,
-
+    nonce: u64,
     pub tx: Sender<StacksMessageType>,
 }
 
-impl Leader {
+impl Node {
 
-    pub fn new(config: LeaderConfig, block_time: u64) -> Self {
+    pub fn new(config: NodeConfig, block_time: u64) -> Self {
         
         let keychain = Keychain::default();
 
@@ -90,6 +90,7 @@ impl Leader {
             burnchain_tip: None,
             tx,
             rx,
+            nonce: 0,
         }
     }
     
@@ -148,7 +149,7 @@ impl Leader {
         })
     }
 
-    pub fn process_burnchain_block(&mut self, block: &BlockSnapshot, ops: &Vec<BlockstackOperationType>) -> bool {
+    pub fn process_burnchain_block(&mut self, block: &BlockSnapshot, ops: &Vec<BlockstackOperationType>) -> (Option<SortitionedBlock>, bool) {
         println!("=======================================================");
         println!("NEW EPOCH");
         println!("BURNCHAIN: {:?} {:?} {:?}", block.block_height, block.burn_header_hash, block.parent_burn_header_hash);
@@ -215,14 +216,15 @@ impl Leader {
 
         self.burnchain_tip = Some(block.clone());
 
-        won_sortition
+        (self.last_sortitioned_block.clone(), won_sortition)
     }
 
-    pub fn process_tenure(&mut self, anchored_block: Option<StacksBlock>, microblocks: Vec<StacksMicroblock>) {
+    pub fn process_tenure(&mut self, anchored_block: StacksBlock, microblocks: Vec<StacksMicroblock>) {
         println!("process_tenure: {:?}", anchored_block);
 
+        // self.chain_tip = Some(anchored_block.anchored_header);
         // todo(ludo): verify that the block is attached to some fork in the burn chain.
-        if let Some(anchored_block) = anchored_block {
+        
             let parent_block = match self.last_sortitioned_block {
                 None => SortitionedBlock::genesis(),
                 Some(ref parent_block) => parent_block.clone()
@@ -266,6 +268,39 @@ impl Leader {
     //     user_burns: &Vec<StagingUserBurnSupport>) -> Result<StacksHeaderInfo, Error>
 
 
+//     #[derive(Debug, Clone, PartialEq)]
+// pub struct StacksBlockHeader {
+//     pub version: u8,
+//     pub total_work: StacksWorkScore,            // NOTE: this is the work done on the chain tip this block builds on (i.e. take this from the parent)
+//     pub proof: VRFProof,
+//     pub parent_block: BlockHeaderHash,          // NOTE: even though this is also present in the burn chain, we need this here for super-light clients that don't even have burn chain headers
+//     pub parent_microblock: BlockHeaderHash,
+//     pub parent_microblock_sequence: u16,
+//     pub tx_merkle_root: Sha512Trunc256Sum,
+//     pub state_index_root: TrieHash,
+//     pub microblock_pubkey_hash: Hash160,        // we'll get the public key back from the first signature (note that this is the Hash160 of the _compressed_ public key)
+// }
+
+// /// A block that contains blockchain-anchored data 
+// /// (corresponding to a LeaderBlockCommitOp)
+// #[derive(Debug, Clone, PartialEq)]
+// pub struct StacksBlock {
+//     pub header: StacksBlockHeader,
+//     pub txs: Vec<StacksTransaction>
+// }
+
+
+        // let header = StacksHeaderInfo {
+        //     anchored_header: anchored_block.header,
+        //     microblock_tail: None,
+        //     block_height: anchored_block.header.,
+        //     index_root: anchored_block.header.state_index_root,
+        //     burn_header_hash: BurnchainHeaderHash
+        // };
+    
+
+        // let (next_tip_opt, next_microblock_poison_opt) = self.chain_state.process_next_staging_block(&best_chain_tips)?;
+
 
             let new_chain_tip = self.chain_state.append_block( 
                 &current_chain_tip, 
@@ -276,6 +311,7 @@ impl Leader {
                 parent_block.total_burn, 
                 &vec![]).unwrap();
 
+
             println!("----------------------------------------------");
             println!("Updating chain_tip");
             println!("{:?}", current_chain_tip);
@@ -283,8 +319,7 @@ impl Leader {
             self.chain_tip = Some(new_chain_tip);
             println!("----------------------------------------------");
 
-        }
-
+        
         // Update self.chain_tip = Some(...);
     }
 
@@ -362,25 +397,41 @@ impl Leader {
 
         let microblock_secret_key = self.keychain.rotate_microblock_keypair();
 
-        let (chain_tip, clarity_tx) = match self.chain_tip {
+        let (chain_tip, mut clarity_tx) = match self.chain_tip {
             Some(ref chain_tip) => {
                 println!("1: {:?}", sortitioned_block.parent_burn_header_hash);
                 println!("2: {:?}", sortitioned_block.burn_header_hash);
                 println!("3: {:?}", chain_tip.index_block_hash());
                 println!("4: {:?}", chain_tip.anchored_header.block_hash());
+                println!("5: {:?}", chain_tip.anchored_header.parent_block);
+
+                println!("#### INNER BEGIN: {:?}, {:?}, {:?}, {:?}", chain_tip.anchored_header.parent_block,chain_tip.anchored_header.block_hash(), BurnchainHeaderHash([1u8; 32]), BlockHeaderHash([1u8; 32]));
+
                 (chain_tip.clone(), self.chain_state.block_begin(
                     &sortitioned_block.parent_burn_header_hash, 
-                    &BlockHeaderHash([0u8; 32]), 
-                    &sortitioned_block.burn_header_hash, 
-                    &chain_tip.anchored_header.block_hash()))
+                    &chain_tip.anchored_header.parent_block, 
+                    &BurnchainHeaderHash([1u8; 32]), 
+                    &BlockHeaderHash([1u8; 32])))
+                    // &sortitioned_block.burn_header_hash, 
+                    // &chain_tip.anchored_header.block_hash()))
             },
             None => 
+                {println!("1");
                 (StacksHeaderInfo::genesis(), self.chain_state.block_begin(
                     &BurnchainHeaderHash([0u8; 32]),
                     &BlockHeaderHash([0u8; 32]),
                     &BurnchainHeaderHash([1u8; 32]), 
-                    &BlockHeaderHash([1u8; 32])))
+                    &BlockHeaderHash([1u8; 32])))}
         };
+        println!("2");
+
+
+        // println!("#### INNER BEGIN: {:?}, {:?}, {:?}, {:?}", sortitioned_block.parent_burn_header_hash, sortitioned_block.burn_header_hash, &MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH);
+        // let mut clarity_tx = state.block_begin(&parent_burn_header_hash, &parent_block_hash, &MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH);
+        println!("#### INIT BEGIN: {:?}", clarity_tx.get_root_hash());
+
+        let block_height = self.burnchain_tip.as_ref().unwrap().block_height - 1;
+
 
         let mut tenure = LeaderTenure::new(
             chain_tip, 
@@ -396,7 +447,8 @@ impl Leader {
         tenure.tear_up(clarity_tx);
 
         let coinbase_tx = {
-            let tx_auth = self.keychain.get_transaction_auth().unwrap();
+            let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
+            tx_auth.set_origin_nonce(0);
 
             let mut tx = StacksTransaction::new(
                 TransactionVersion::Testnet, 
@@ -408,7 +460,10 @@ impl Leader {
             self.keychain.sign_as_origin(&mut tx_signer);
             tx_signer.get_tx().unwrap()
         };
+
+
         tenure.handle_txs(vec![coinbase_tx]);
+
 
         // tenure.tear_up(&mut self.chain_state, &coinbase_tx);
 
@@ -440,20 +495,19 @@ impl <'a> LeaderTenure <'a> {
                vrf_proof: VRFProof) -> LeaderTenure <'a> {
 
         let now = time::Instant::now();
-        
+
         let ratio = StacksWorkScore {
             burn: 0, // todo(ludo): get burn from burnchain_tip.
-            work: 1
+            work: parent_block.anchored_header.total_work.work + 1,
         };
-
 
         // last_sortitioned_block.sortition_hash.to_uint256() == 0
 
         println!("Initializing new tenure {:?}", last_sortitioned_block);
 
         let block_builder = match last_sortitioned_block.block_height {
-            1 => StacksBlockBuilder::first(&parent_block.burn_header_hash, &vrf_proof, &microblock_secret_key),
-            _ => StacksBlockBuilder::from_parent(&parent_block, &ratio, &vrf_proof, &microblock_secret_key)
+            1 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, &vrf_proof, &microblock_secret_key),
+            _ => StacksBlockBuilder::from_parent(1, &parent_block, &ratio, &vrf_proof, &microblock_secret_key)
         };
 
         Self {
@@ -475,12 +529,17 @@ impl <'a> LeaderTenure <'a> {
     pub fn handle_txs(&mut self, txs: Vec<StacksTransaction>) {
         let mut clarity_tx = self.clarity_tx.take().unwrap();
         for tx in txs {
+            println!("#### PRE-TX: {:?}", clarity_tx.get_root_hash());
+
             self.block_builder.try_mine_tx(&mut clarity_tx, &tx).unwrap();
+    
+            println!("#### POST-TX: {:?}", clarity_tx.get_root_hash());    
         }
         self.clarity_tx = Some(clarity_tx);
     }
 
     pub fn run(&mut self) -> (Option<StacksBlock>, Vec<StacksMicroblock>) {
+
 
         println!("Running tenure");
         let mempool_poll_interval = time::Duration::from_millis(250);
@@ -493,9 +552,20 @@ impl <'a> LeaderTenure <'a> {
             thread::sleep(mempool_poll_interval);
         }
 
+
         let mut clarity_tx = self.clarity_tx.take().unwrap();
+        println!("#### OUTER BEFORE COMMIT: {:?}", clarity_tx.get_root_hash());
+
+
+        let mut b = self.block_builder.clone();
         let anchored_block = self.block_builder.mine_anchored_block(&mut clarity_tx);
-        // self.block_builder.epoch_finish(clarity_tx);
+
+        // let res = StacksChainState::process_block_transactions(&mut clarity_tx, &anchored_block);
+        // println!("===> {:?}", res);
+        // b.epoch_finish(clarity_tx);
+
+        println!("#### OUTER AFTER COMMIT: {}", clarity_tx.get_root_hash());
+
         clarity_tx.rollback_block();
 
         // (anchored_block, vec![])
