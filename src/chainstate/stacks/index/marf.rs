@@ -162,7 +162,7 @@ impl MARF {
         trace!("Copy to {:?} child {:x} of {:?}", storage.get_cur_block(), chr, node);
 
         let cur_block_hash = storage.get_cur_block();
-        let (mut child_node, _, child_ptr, child_dist) = MARF::walk_backptr(storage, node, chr, cursor)?;
+        let (mut child_node, _, child_ptr, _) = MARF::walk_backptr(storage, node, chr, cursor)?;
         let child_block_hash = storage.get_cur_block();
         let child_block_identifier = storage.get_cur_block_identifier()?;
 
@@ -765,15 +765,6 @@ impl MARF {
     /// Finish writing the next trie in the MARF, but change the hash of the current Trie's 
     /// block hash to something other than what we opened it as.  This persists all changes.
     pub fn commit_to(&mut self, real_bhh: &BlockHeaderHash) -> Result<(), Error> {
-        if self.open_chain_tip.is_some() {
-            // re-set the internal block height <--> hash map to the block hash we'll write
-            // this under.
-            let height = match self.open_chain_tip {
-                Some(ref tip) => tip.height,
-                None => unreachable!()
-            };
-        }
-
         match self.open_chain_tip.take() {
             Some(_tip) => {
                 self.storage.flush_to(Some(real_bhh))?;
