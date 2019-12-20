@@ -222,8 +222,8 @@ impl StacksBlockBuilder {
 
         test_debug!("\n\nMiner {} epoch begin off of {}/{}\n", self.miner_id, self.chain_tip.burn_header_hash.to_hex(), self.header.parent_block.to_hex());
 
-        if let Some(ref payout) = self.miner_payouts {
-            test_debug!("Miner payout to process: {:?}", payout);
+        if let Some(ref _payout) = self.miner_payouts {
+            test_debug!("Miner payout to process: {:?}", _payout);
         }
 
         let parent_burn_header_hash = self.chain_tip.burn_header_hash.clone();
@@ -243,7 +243,7 @@ impl StacksBlockBuilder {
             self.set_parent_microblock(&EMPTY_MICROBLOCK_PARENT_HASH, 0);
         }
         else {
-            let (stx_spent, stx_burnt) = match StacksChainState::process_microblocks_transactions(&mut tx, &parent_microblocks) {
+            let (stx_spent, _stx_burnt) = match StacksChainState::process_microblocks_transactions(&mut tx, &parent_microblocks) {
                 Ok((stx_spent, stx_burnt)) => (stx_spent, stx_burnt),
                 Err((e, mblock_header_hash)) => {
                     let msg = format!("Invalid Stacks microblocks {},{} (offender {}): {:?}", parent_burn_header_hash.to_hex(), parent_header_hash.to_hex(), mblock_header_hash.to_hex(), &e);
@@ -634,7 +634,7 @@ pub mod test {
         // "discover" this stacks microblock stream
         for mblock in stacks_microblocks.iter() {
             test_debug!("Preprocess Stacks microblock {}-{} (seq {})", &block_hash.to_hex(), mblock.block_hash().to_hex(), mblock.header.sequence);
-            let res = node.chainstate.preprocess_streamed_microblock(&mut tx, &commit_snapshot.burn_header_hash, &stacks_block.block_hash(), mblock).unwrap();
+            let res = node.chainstate.preprocess_streamed_microblock(&commit_snapshot.burn_header_hash, &stacks_block.block_hash(), mblock).unwrap();
             if !res {
                 return Some(res)
             }
@@ -2168,6 +2168,8 @@ pub mod test {
     }
 
 
+    // TODO: blocks arrive in different (reverseable) orders, but still all get processed (even if
+    // there are forks!)
     // TODO: build off of different points in the same microblock stream
     // TODO; skipped blocks
     // TODO: missing blocks
