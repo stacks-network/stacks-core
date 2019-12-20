@@ -251,6 +251,18 @@ impl Value {
     }
 }
 
+impl BuffData {
+    pub fn len(&self) -> BufferLength {
+        self.data.len().try_into().unwrap()
+    }
+}
+
+impl ListData {
+    pub fn len(&self) -> u32 {
+        self.data.len().try_into().unwrap()
+    }
+}
+
 impl fmt::Display for OptionalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.data {
@@ -343,6 +355,12 @@ impl fmt::Display for PrincipalData {
 impl From<StandardPrincipalData> for Value {
     fn from(principal: StandardPrincipalData) -> Self {
         Value::Principal(PrincipalData::from(principal))
+    }
+}
+
+impl From<QualifiedContractIdentifier> for Value {
+    fn from(principal: QualifiedContractIdentifier) -> Self {
+        Value::Principal(PrincipalData::Contract(principal))
     }
 }
 

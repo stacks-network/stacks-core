@@ -29,6 +29,12 @@ macro_rules! guarded_string {
             }
         }
 
+        impl $Name {
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+
         impl Deref for $Name {
             type Target = str;
             fn deref(&self) -> &Self::Target {
@@ -38,7 +44,7 @@ macro_rules! guarded_string {
 
         impl Borrow<str> for $Name {
             fn borrow(&self) -> &str {
-                &self.0
+                self.as_str()
             }
         }
 

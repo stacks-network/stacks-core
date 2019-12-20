@@ -1,12 +1,16 @@
-use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError};
-use vm::types::{Value, OptionalData, PrincipalData, TypeSignature, TupleData, QualifiedContractIdentifier};
+use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError, Error as ClarityError, CheckErrors};
+use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, BufferLength,
+                TypeSignature, TupleData, QualifiedContractIdentifier, ResponseData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
-use vm::representations::ClarityName;
+use vm::representations::{ClarityName, ContractName};
 
+use std::borrow::Borrow;
 use std::convert::{TryFrom, TryInto};
 use std::collections::HashMap;
 use serde_json::{Value as JSONValue};
 use util::hash;
+
+use std::io::{Write, Read};
 
 const TYPE_I128: &str = "i128";
 const TYPE_U128: &str = "u128";
@@ -102,6 +106,246 @@ fn json_recursive_object(type_name: &str, val: &str) -> String {
     format!(
         r#"{{ "type": "{}", "value": {} }}"#,
         type_name, val)
+}
+
+fn type_prefix(v: &Value) -> u8 {
+    use super::Value::*;
+    use super::PrincipalData::*;
+
+    match v {
+        Int(_) => 1,
+        UInt(_) => 2,
+        Buffer(_) => 3,
+        Bool(value) => {
+            if *value {
+                4
+            } else {
+                5
+            }
+        },
+        Principal(Standard(_)) => 6,
+        Principal(Contract(_)) => 7,
+        Response(response) => {
+            if response.committed {
+                8
+            } else {
+                9
+            }
+        },
+        Optional(OptionalData{ data: None }) => 10,
+        Optional(OptionalData{ data: Some(value) }) => 11,
+        List(_) => 12,
+        Tuple(_) => 13,
+    }
+}
+
+trait ClarityValueSerializable<T: std::marker::Sized> {
+    fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()>;
+    fn deserialize_read<R: Read>(r: &mut R) -> Result<T, SerializationError>;
+}
+
+impl ClarityValueSerializable<StandardPrincipalData> for StandardPrincipalData {
+    fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
+        w.write_all(&[self.0])?;
+        w.write_all(&self.1)
+    }
+
+    fn deserialize_read<R: Read>(r: &mut R) -> Result<Self, SerializationError> {
+        let mut version = [0; 1];
+        let mut data = [0; 20];
+        r.read_exact(&mut version)?;
+        r.read_exact(&mut data)?;
+        Ok(StandardPrincipalData(version[0], data))
+    }
+}
+
+macro_rules! serialize_guarded_string {
+    ($Name:ident) => {
+
+impl ClarityValueSerializable<$Name> for $Name {
+    fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
+        w.write_all(&u32::try_from(self.as_str().len())
+                    .unwrap()
+                    .to_be_bytes())?;
+        // self.as_bytes() is always len bytes, because this is only used for GuardedStrings
+        //   which are a subset of ASCII
+        w.write_all(self.as_str().as_bytes())
+    }
+
+    fn deserialize_read<R: Read>(r: &mut R) -> Result<Self, SerializationError> {
+        let mut len = [0; 4];
+        r.read_exact(&mut len)?;
+        let len = u32::from_be_bytes(len);
+        let mut data = vec![0; len as usize];
+        r.read_exact(&mut data)?;
+
+        String::from_utf8(data)
+            .map_err(|_| "Non-UTF8 string data".into())
+            .and_then(|x| $Name::try_from(x)
+                      .map_err(|_| "Illegal Clarity string".into()))
+    }
+}
+
+}}
+
+serialize_guarded_string!(ClarityName);
+serialize_guarded_string!(ContractName);
+
+enum SerializationError {
+    IoError(std::io::Error),
+    BadTypeError(CheckErrors),
+    DeserializationError(String),
+}
+
+impl From<std::io::Error> for SerializationError {
+    fn from(e: std::io::Error) -> Self {
+        // todo:: UnexpectedEOF should become a ParseError.
+        SerializationError::IoError(e)
+    }
+}
+
+impl From<&str> for SerializationError {
+    fn from(e: &str) -> Self {
+        SerializationError::DeserializationError(e.into())
+    }
+}
+
+impl From<CheckErrors> for SerializationError {
+    fn from(e: CheckErrors) -> Self {
+        SerializationError::BadTypeError(e)
+    }
+}
+
+
+impl Value {
+    fn deserialize_read<R: Read>(r: &mut R) -> Result<Value, SerializationError> {
+         use super::Value::*;
+        use super::PrincipalData::*;
+
+        let mut header = [0];
+        r.read_exact(&mut header)?;
+        match header[0] {
+            1 => {
+                let mut buffer = [0; 16];
+                r.read_exact(&mut buffer)?;
+                Ok(Int(i128::from_be_bytes(buffer)))
+            },
+            2 => {
+                let mut buffer = [0; 16];
+                r.read_exact(&mut buffer)?;
+                Ok(UInt(u128::from_be_bytes(buffer)))
+            },
+            3 => {
+                let mut buffer_len = [0; 4];
+                r.read_exact(&mut buffer_len)?;
+                let buffer_len = BufferLength::try_from(
+                    u32::from_be_bytes(buffer_len))?;
+
+                let mut data = vec![0; u32::from(buffer_len) as usize];
+
+                r.read_exact(&mut data[..])?;
+
+                // can safely unwrap, because the buffer length was _already_ checked.
+                Ok(Value::buff_from(data).unwrap())
+            },
+            4 => Ok(Bool(true)),
+            5 => Ok(Bool(false)),
+            6 => {
+                StandardPrincipalData::deserialize_read(r)
+                    .map(Value::from)
+            },
+            7 => {
+                let issuer = StandardPrincipalData::deserialize_read(r)?;
+                let name = ContractName::deserialize_read(r)?;
+                Ok(Value::from(QualifiedContractIdentifier { issuer, name }))
+            },
+            8 | 9 => {
+                let committed = header[0] == 7;
+                let data = Box::new(Value::deserialize_read(r)?);
+                Ok(Response(ResponseData { committed, data }))
+            },
+            10 => Ok(Value::none()),
+            11 => Ok(Value::some(Value::deserialize_read(r)?)),
+            12 => {
+                let mut len = [0; 4];
+                r.read_exact(&mut len)?;
+                let len = u32::from_be_bytes(len);
+                let mut items = Vec::with_capacity(len as usize);
+                for _i in 0..len {
+                    items.push(Value::deserialize_read(r)?);
+                }
+                Value::list_from(items)
+                    .map_err(|_| "Illegal list type".into())
+            },
+            13 => {
+                let mut len = [0; 4];
+                r.read_exact(&mut len)?;
+                let len = u32::from_be_bytes(len);
+                let mut items = Vec::with_capacity(len as usize);
+                for _i in 0..len {
+                    let key = ClarityName::deserialize_read(r)?;
+                    let value = Value::deserialize_read(r)?;
+                    items.push((key, value))
+                }
+                TupleData::from_data(items)
+                    .map_err(|_| "Illegal tuple type".into())
+                    .map(Value::from)
+            },
+            _ => {
+                panic!("Foo")
+            }
+        }
+
+    }
+
+    fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
+        use super::Value::*;
+        use super::PrincipalData::*;
+
+        w.write_all(&[type_prefix(self)])?;
+        match self {
+            Int(value) => w.write_all(&value.to_be_bytes())?,
+            UInt(value) => w.write_all(&value.to_be_bytes())?,
+            Buffer(value) => {
+                w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
+                w.write_all(&value.data)?
+            }
+            Principal(Standard(data)) => {
+                data.serialize_write(w)?
+            },
+            Principal(Contract(contract_identifier)) => {
+                contract_identifier.issuer.serialize_write(w)?;
+                contract_identifier.name.serialize_write(w)?;
+            },
+            Response(response) => {
+                response.data.serialize_write(w)?
+            },
+            // Bool types don't need any more data.
+            Bool(_) => {},
+            // None types don't need any more data.
+            Optional(OptionalData{ data: None }) => {},
+            Optional(OptionalData{ data: Some(value) }) => {
+                value.serialize_write(w)?;
+            },
+            List(data) => {
+                w.write_all(&data.len().to_be_bytes())?;
+                for item in data.data.iter() {
+                    item.serialize_write(w)?;
+                }
+            },
+            Tuple(data) => {
+                w.write_all(&u32::try_from(data.data_map.len())
+                            .unwrap()
+                            .to_be_bytes())?;
+                for (key, value) in data.data_map.iter() {
+                    key.serialize_write(w)?;
+                    value.serialize_write(w)?;
+                }
+            }
+        };
+
+        Ok(())
+    }
 }
 
 impl ClaritySerializable for Value {
