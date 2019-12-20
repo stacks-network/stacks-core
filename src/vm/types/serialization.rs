@@ -13,6 +13,42 @@ use util::hash::{hex_bytes, to_hex};
 
 use std::io::{Write, Read};
 
+
+/// Errors that may occur in serialization or deserialization
+/// If deserialization failed because the described type is a bad type and
+///   a CheckError is thrown, it gets wrapped in BadTypeError.
+/// Any IOErrrors from the supplied buffer will manifest as IOError variants,
+///   except for EOF -- if the deserialization code experiences an EOF, it is caught
+///   and rethrown as DeserializationError
+#[derive(Debug, PartialEq)]
+pub enum SerializationError {
+    IOError(IncomparableError<std::io::Error>),
+    BadTypeError(CheckErrors),
+    DeserializationError(String),
+    DeserializeExpected(TypeSignature),
+}
+
+impl From<std::io::Error> for SerializationError {
+    fn from(err: std::io::Error) -> Self {
+        match err.kind() {
+            std::io::ErrorKind::UnexpectedEof => "Unexpected end of byte stream".into(),
+            _ => SerializationError::IOError(IncomparableError { err })
+        }
+    }
+}
+
+impl From<&str> for SerializationError {
+    fn from(e: &str) -> Self {
+        SerializationError::DeserializationError(e.into())
+    }
+}
+
+impl From<CheckErrors> for SerializationError {
+    fn from(e: CheckErrors) -> Self {
+        SerializationError::BadTypeError(e)
+    }
+}
+
 define_u8_enum!(TypePrefix {
     Int,
     UInt,
@@ -62,6 +98,9 @@ impl From<&Value> for TypePrefix {
     }
 }
 
+/// Not a public trait,
+///   this is just used to simplify serializing some types that
+///   are repeatedly serialized or deserialized.
 trait ClarityValueSerializable<T: std::marker::Sized> {
     fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()>;
     fn deserialize_read<R: Read>(r: &mut R) -> Result<T, SerializationError>;
@@ -114,35 +153,6 @@ impl ClarityValueSerializable<$Name> for $Name {
 serialize_guarded_string!(ClarityName);
 serialize_guarded_string!(ContractName);
 
-#[derive(Debug, PartialEq)]
-pub enum SerializationError {
-    IoError(IncomparableError<std::io::Error>),
-    BadTypeError(CheckErrors),
-    DeserializationError(String),
-    DeserializeExpected(TypeSignature),
-}
-
-impl From<std::io::Error> for SerializationError {
-    fn from(err: std::io::Error) -> Self {
-        match err.kind() {
-            std::io::ErrorKind::UnexpectedEof => "Unexpected end of byte stream".into(),
-            _ => SerializationError::IoError(IncomparableError { err })
-        }
-    }
-}
-
-impl From<&str> for SerializationError {
-    fn from(e: &str) -> Self {
-        SerializationError::DeserializationError(e.into())
-    }
-}
-
-impl From<CheckErrors> for SerializationError {
-    fn from(e: CheckErrors) -> Self {
-        SerializationError::BadTypeError(e)
-    }
-}
-
 macro_rules! check_match {
     ($item:expr, $Pattern:pat) => {
         match $item {
@@ -154,7 +164,7 @@ macro_rules! check_match {
 }
 
 impl Value {
-    fn deserialize_read<R: Read>(r: &mut R, expected_type: Option<&TypeSignature>) -> Result<Value, SerializationError> {
+    pub fn deserialize_read<R: Read>(r: &mut R, expected_type: Option<&TypeSignature>) -> Result<Value, SerializationError> {
         use super::Value::*;
         use super::PrincipalData::*;
 
@@ -334,7 +344,7 @@ impl Value {
 
     }
 
-    fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
+    pub fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
         use super::Value::*;
         use super::PrincipalData::*;
 
@@ -382,19 +392,8 @@ impl Value {
 
         Ok(())
     }
-}
 
-impl ClaritySerializable for Value {
-    fn serialize(&self) -> String {
-        let mut byte_serialization = Vec::new();
-        self.serialize_write(&mut byte_serialization)
-            .expect("IOError filling byte buffer.");
-        to_hex(byte_serialization.as_slice())
-    }
-}
-
-impl Value {
-    /// This function attempts to deserialize a JSONParser struct into a Clarity Value.
+    /// This function attempts to deserialize a hex string into a Clarity Value.
     ///   The `expected_type` parameter determines whether or not the deserializer should expect (and enforce)
     ///   a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
     ///   have their max-length and other type information set by the type declarations in the contract.
@@ -406,7 +405,7 @@ impl Value {
             .map_err(|_| "Bad hex string")?;
         Value::deserialize_read(&mut data.as_slice(), Some(expected))
             .map_err(|e| match e {
-                SerializationError::IoError(e) => panic!("Should not have received IO Error: {:?}", e),
+                SerializationError::IOError(e) => panic!("Should not have received IO Error: {:?}", e),
                 _ => e
             })
     }
@@ -416,22 +415,29 @@ impl Value {
             .map_err(|_| "Bad hex string")?;
         Value::deserialize_read(&mut data.as_slice(), None)
             .map_err(|e| match e {
-                SerializationError::IoError(e) => panic!("Should not have received IO Error: {:?}", e),
+                SerializationError::IOError(e) => panic!("Should not have received IO Error: {:?}", e),
                 _ => e
             })
     }
-}
 
-impl Value {
     pub fn deserialize(json: &str, expected: &TypeSignature) -> Self {
         Value::try_deserialize_hex(json, expected)
             .expect("ERROR: Failed to parse Clarity hex string")
     }
 }
 
+impl ClaritySerializable for Value {
+    fn serialize(&self) -> String {
+        let mut byte_serialization = Vec::new();
+        self.serialize_write(&mut byte_serialization)
+            .expect("IOError filling byte buffer.");
+        to_hex(byte_serialization.as_slice())
+    }
+}
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
     use super::SerializationError;
     use vm::database::ClaritySerializable;
     use vm::errors::Error;
@@ -484,6 +490,34 @@ mod tests {
         test_bad_expectation(list_list_int.clone(), TypeSignature::from("(list 1 (list 2 uint))"));
         // parent list longer than expected
         test_bad_expectation(list_list_int.clone(), TypeSignature::from("(list 0 (list 2 uint))"));
+
+        // make a list too large for the type itself!
+        //   this describes a list of size 1+MAX_VALUE_SIZE of Value::Bool(true)'s
+        let mut too_big = vec![3u8; 6+MAX_VALUE_SIZE as usize];
+        // list prefix
+        too_big[0] = 11;
+        // list length
+        Write::write_all(&mut too_big.get_mut(1..5).unwrap(), &(1+MAX_VALUE_SIZE).to_be_bytes()).unwrap();
+
+        assert_eq!(
+            Value::deserialize_read(&mut too_big.as_slice(), None).unwrap_err(),
+            "Illegal list type".into());
+
+
+        // make a list that says it is longer than it is!
+        //   this describes a list of size 1+MAX_VALUE_SIZE of Value::Bool(true)'s, but is actually only 59 bools.
+        let mut eof = vec![3u8; 64 as usize];
+        // list prefix
+        eof[0] = 11;
+        // list length
+        Write::write_all(&mut eof.get_mut(1..5).unwrap(), &(1+MAX_VALUE_SIZE).to_be_bytes()).unwrap();
+
+        assert_eq!(
+            Value::deserialize_read(&mut eof.as_slice(), None).unwrap_err(),
+            "Unexpected end of byte stream".into());
+
+
+
     }
 
     #[test]

@@ -16,7 +16,7 @@ pub struct IncomparableError<T> {
     pub err: T
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
 /// UncheckedErrors are errors that *should* be caught by the
 ///   TypeChecker and other check passes. Test executions may
@@ -40,10 +40,6 @@ pub enum InterpreterError {
     BadFileName,
     FailedToCreateDataDirectory,
     MarfFailure(IncomparableError<MarfError>),
-    DeserializeExpected(TypeSignature),
-    DeserializationFailure(String),
-    DeserializedBadType(CheckErrors),
-    IOError(IncomparableError<std::io::Error>),
     FailureConstructingTupleWithType,
     FailureConstructingListWithType,
 }
@@ -92,18 +88,6 @@ pub type InterpreterResult <R> = Result<R, Error>;
 impl <T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {
         return false
-    }
-}
-
-impl PartialEq<Error> for Error {
-    fn eq(&self, other: &Error) -> bool {
-        match (self, other) {
-            (Error::Runtime(x, _), Error::Runtime(y, _)) => x == y,
-            (Error::Unchecked(x), Error::Unchecked(y)) => x == y,
-            (Error::ShortReturn(x), Error::ShortReturn(y)) => x == y,
-            (Error::Interpreter(x), Error::Interpreter(y)) => x == y,
-            _ => false
-        }
     }
 }
 
