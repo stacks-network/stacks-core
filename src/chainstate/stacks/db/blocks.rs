@@ -403,7 +403,7 @@ impl StacksChainState {
     pub fn has_stored_block(&self, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
         let block_path = self.get_block_path(burn_header_hash, block_hash)?;
         match fs::metadata(block_path) {
-            Ok(md) => {
+            Ok(_) => {
                 Ok(true)
             },
             Err(e) => {
@@ -1107,6 +1107,7 @@ impl StacksChainState {
             }
         }
 
+        // TODO: only do this once, ever -- do this when storing the microblocks
         // filter out only signed microblocks
         let mut signed_microblocks = vec![];
         for microblock in microblocks.iter() {
@@ -1230,9 +1231,10 @@ impl StacksChainState {
         let burn_chain_tip = BurnDB::get_block_snapshot(tx, &block_commit.burn_header_hash)
             .map_err(Error::DBError)?
             .expect("FATAL: have block commit but no block snapshot");
-        
-        // snapshot that elected this block commit
-        let sortition_snapshot = BurnDB::get_block_snapshot_in_fork(tx, block_commit.block_height - 1, &block_commit.burn_header_hash)
+       
+        // this is the penultimate burnchain snapshot with the VRF seed that this
+        // block's miner had to prove on to generate the block-commit and block itself.
+        let penultimate_sortition_snapshot = BurnDB::get_block_snapshot_in_fork(tx, block_commit.block_height - 1, &block_commit.burn_header_hash)
             .map_err(Error::DBError)?
             .expect("FATAL: have block commit but no sortition snapshot");
 
@@ -1262,7 +1264,7 @@ impl StacksChainState {
             };
 
         // attaches to burn chain
-        let valid = block.header.validate_burnchain(&burn_chain_tip, &sortition_snapshot, &leader_key, &block_commit, &stacks_chain_tip);
+        let valid = block.header.validate_burnchain(&burn_chain_tip, &penultimate_sortition_snapshot, &leader_key, &block_commit, &stacks_chain_tip);
         if !valid {
             return Ok(None);
         }
@@ -1329,7 +1331,7 @@ impl StacksChainState {
     /// be renamed.
     ///
     /// This method is `&mut self` to ensure that concurrent renames don't corrupt our chain state.
-    pub fn preprocess_streamed_microblock<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<bool, Error> {
+    pub fn preprocess_streamed_microblock(&mut self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<bool, Error> {
         // already queued or already processed?
         if self.has_staging_microblock(burn_header_hash, anchored_block_hash, &microblock.block_hash())? {
             return Ok(true);
@@ -1467,6 +1469,7 @@ impl StacksChainState {
 
     /// Find the next queued microblock stream and anchored block to process, if available.
     /// Try to process blocks whose parents are in the list of priority_chain_tips.
+    /// TODO: need to make sure we select blocks whose parents we already have!
     fn find_next_staging_block(&self, priority_chain_tips: &Vec<StacksHeaderInfo>) -> Result<Option<(StagingBlock, Vec<StacksMicroblock>)>, Error> {
         let row_order = StagingBlock::row_order().join(",");
         for priority_chain_tip in priority_chain_tips.iter() {
@@ -1475,7 +1478,7 @@ impl StacksChainState {
             let rows = query_rows::<StagingBlock, _>(&self.blocks_db, &sql, &args).map_err(Error::DBError)?;
             if rows.len() > 0 {
                 let staging_block = rows[0].clone();
-                let microblocks = match self.find_next_staging_microblock_stream(&staging_block)? {
+                match self.find_next_staging_microblock_stream(&staging_block)? {
                     Some(microblocks) => {
                         return Ok(Some((staging_block, microblocks)));
                     }
@@ -1490,7 +1493,7 @@ impl StacksChainState {
         let rows = query_rows::<StagingBlock, _>(&self.blocks_db, &sql, NO_PARAMS).map_err(Error::DBError)?;
         if rows.len() > 0 {
             let staging_block = rows[0].clone();
-            let microblocks = match self.find_next_staging_microblock_stream(&staging_block)? {
+            match self.find_next_staging_microblock_stream(&staging_block)? {
                 Some(microblocks) => {
                     return Ok(Some((staging_block, microblocks)));
                 }
@@ -1632,7 +1635,6 @@ impl StacksChainState {
                     user_burns: &Vec<StagingUserBurnSupport>) -> Result<StacksHeaderInfo, Error>
     {
         let mainnet = self.mainnet;
-        let block_hash = block.block_hash();
         let next_block_height = block.header.total_work.work;
 
         // this looks awkward, but it keeps the borrow checker happy since `self` isn't in scope
@@ -1650,12 +1652,12 @@ impl StacksChainState {
 
             let (last_microblock_hash, last_microblock_seq) = 
                 if microblocks.len() > 0 {
-                    let first_mblock_hash = microblocks[0].block_hash();
+                    let _first_mblock_hash = microblocks[0].block_hash();
                     let num_mblocks = microblocks.len();
                     let last_microblock_hash = microblocks[num_mblocks-1].block_hash();
                     let last_microblock_seq = microblocks[num_mblocks-1].header.sequence;
 
-                    test_debug!("\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n", num_mblocks, chain_tip_burn_header_hash.to_hex(), first_mblock_hash, last_microblock_hash, parent_burn_header_hash.to_hex(), parent_block_hash.to_hex());
+                    test_debug!("\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n", num_mblocks, chain_tip_burn_header_hash.to_hex(), _first_mblock_hash, last_microblock_hash, parent_burn_header_hash.to_hex(), parent_block_hash.to_hex());
                     (last_microblock_hash, last_microblock_seq)
                 }
                 else {
@@ -1669,7 +1671,7 @@ impl StacksChainState {
             }
 
             // process microblock stream
-            let (microblock_fees, microblock_burns) = match StacksChainState::process_microblocks_transactions(&mut clarity_tx, &microblocks) {
+            let (microblock_fees, _microblock_burns) = match StacksChainState::process_microblocks_transactions(&mut clarity_tx, &microblocks) {
                 Err((e, offending_mblock_header_hash)) => {
                     let msg = format!("Invalid Stacks microblocks {},{} (offender {}): {:?}", block.header.parent_microblock.to_hex(), block.header.parent_microblock_sequence, offending_mblock_header_hash.to_hex(), &e);
                     warn!("{}", &msg);
@@ -1716,7 +1718,7 @@ impl StacksChainState {
             debug!("Reached state root {}", root_hash.to_hex());
             
             // good to go!
-            clarity_tx.commit_to_block(next_block_height as u32, chain_tip_burn_header_hash, &block.block_hash());
+            clarity_tx.commit_to_block(chain_tip_burn_header_hash, &block.block_hash());
 
             // calculate reward for this block's miner
             let scheduled_miner_reward = StacksChainState::make_scheduled_miner_reward(mainnet, 
@@ -1906,6 +1908,7 @@ impl StacksChainState {
         }
 
         // prioritize processing the best chain tip
+        // TODO: need to find all headers for which we have blocks to build off of!
         let best_chain_tip_snapshot = match BurnDB::get_canonical_stacks_chain_tip(burndb_conn).map_err(Error::DBError)? {
             Some(sn) => sn,
             None => {
@@ -1941,7 +1944,7 @@ impl StacksChainState {
             }
         }
 
-        for i in 0..(max_blocks-1) {
+        for _i in 0..(max_blocks-1) {
             // process any other pending 
             let (next_tip_opt, next_microblock_poison_opt) = self.process_next_staging_block(&vec![])?;
             match next_tip_opt {
