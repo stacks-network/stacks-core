@@ -51,7 +51,8 @@ use vm::types::{
 };
 
 use vm::contexts::{
-    AssetMap
+    AssetMap,
+    AssetMapEntry
 };
 
 use vm::ast::build_ast;
@@ -74,6 +75,14 @@ use vm::clarity::Error as clarity_error;
 use vm::database::ClarityDatabase;
 
 use vm::contracts::Contract;
+
+// make it possible to have a set of Values
+impl std::hash::Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let s = self.serialize();
+        s.hash(state);
+    }
+}
 
 impl StacksChainState {
     /// Look up an account given the spending condition
@@ -145,8 +154,9 @@ impl StacksChainState {
     /// Apply a post-conditions check.
     /// Return true if they all pass.
     /// Return false if at least one fails.
-    fn check_transaction_postconditions<'a>(clarity_db: &mut ClarityDatabase<'a>, tx: &StacksTransaction, origin_account: &StacksAccount, asset_map: &AssetMap) -> bool {
-        let mut checked_assets : HashMap<PrincipalData, HashSet<AssetIdentifier>> = HashMap::new();
+    fn check_transaction_postconditions(tx: &StacksTransaction, origin_account: &StacksAccount, asset_map: &AssetMap) -> bool {
+        let mut checked_fungible_assets : HashMap<PrincipalData, HashSet<AssetIdentifier>> = HashMap::new();
+        let mut checked_nonfungible_assets : HashMap<PrincipalData, HashMap<AssetIdentifier, HashSet<Value>>> = HashMap::new();
         let allow_unchecked_assets = tx.post_condition_mode == TransactionPostConditionMode::Allow;
 
         for postcond in tx.post_conditions.iter() {
@@ -159,13 +169,13 @@ impl StacksChainState {
                         return false;
                     }
 
-                    if let Some(ref mut asset_ids) = checked_assets.get_mut(&account_principal) {
+                    if let Some(ref mut asset_ids) = checked_fungible_assets.get_mut(&account_principal) {
                         asset_ids.insert(AssetIdentifier::STX());
                     }
                     else {
                         let mut h = HashSet::new();
                         h.insert(AssetIdentifier::STX());
-                        checked_assets.insert(account_principal, h);
+                        checked_fungible_assets.insert(account_principal, h);
                     }
                 },
                 TransactionPostCondition::Fungible(ref principal, ref asset_info, ref condition_code, ref amount_sent_condition) => {
@@ -181,13 +191,13 @@ impl StacksChainState {
                         return false;
                     }
                     
-                    if let Some(ref mut asset_ids) = checked_assets.get_mut(&account_principal) {
+                    if let Some(ref mut asset_ids) = checked_fungible_assets.get_mut(&account_principal) {
                         asset_ids.insert(asset_id);
                     }
                     else {
                         let mut h = HashSet::new();
                         h.insert(asset_id);
-                        checked_assets.insert(account_principal, h);
+                        checked_fungible_assets.insert(account_principal, h);
                     }
                 },
                 TransactionPostCondition::Nonfungible(ref principal, ref asset_info, ref asset_value, ref condition_code) => {
@@ -204,13 +214,22 @@ impl StacksChainState {
                         return false;
                     }
 
-                    if let Some(ref mut asset_ids) = checked_assets.get_mut(&account_principal) {
-                        asset_ids.insert(asset_id);
+                    if let Some(ref mut asset_id_map) = checked_nonfungible_assets.get_mut(&account_principal) {
+                        if let Some(ref mut asset_values) = asset_id_map.get_mut(&asset_id) {
+                            asset_values.insert(asset_value.clone());
+                        }
+                        else {
+                            let mut asset_set = HashSet::new();
+                            asset_set.insert(asset_value.clone());
+                            asset_id_map.insert(asset_id, asset_set);
+                        }
                     }
                     else {
-                        let mut h = HashSet::new();
-                        h.insert(asset_id);
-                        checked_assets.insert(account_principal, h);
+                        let mut asset_id_map = HashMap::new();
+                        let mut asset_set = HashSet::new();
+                        asset_set.insert(asset_value.clone());
+                        asset_id_map.insert(asset_id, asset_set);
+                        checked_nonfungible_assets.insert(account_principal, asset_id_map);
                     }
                 }
             }
@@ -221,15 +240,45 @@ impl StacksChainState {
             let asset_map_copy = (*asset_map).clone();
             let mut all_assets_sent = asset_map_copy.to_table();
             for (principal, mut assets) in all_assets_sent.drain() {
-                if checked_assets.get(&principal).is_none() {
-                    debug!("Post-condition check failure: checks did not cover transfers from {:?}", &principal);
-                    return false;
-                };
-                for (asset_identifier, _) in assets.drain() {
-                    let checked_asset_ids = checked_assets.get(&principal).expect("FATAL: principal transferred no assets, despite earlier check");
-                    if !checked_asset_ids.contains(&asset_identifier) {
-                        debug!("Post-condition check failure: checks did not cover transfer of {:?} by {:?}", &asset_identifier, &principal);
-                        return false;
+                for (asset_identifier, asset_entry) in assets.drain() {
+                    match asset_entry {
+                        AssetMapEntry::Asset(values) => {
+                            // this is a NFT
+                            if let Some(ref checked_nft_asset_map) = checked_nonfungible_assets.get(&principal) {
+                                if let Some(ref nfts) = checked_nft_asset_map.get(&asset_identifier) {
+                                    // each value must be covered
+                                    for v in values {
+                                        if !nfts.contains(&v) {
+                                            debug!("Post-condition check failure: Non-fungible asset {:?} value {:?} was moved by {:?} but not checked", &asset_identifier, &v, &principal);
+                                            return false;
+                                        }
+                                    }
+                                }
+                                else {
+                                    // no values covered
+                                    debug!("Post-condition check failure: No checks for non-fungible asset type {:?} moved by {:?}", &asset_identifier, &principal);
+                                    return false;
+                                }
+                            }
+                            else {
+                                // no NFT for this principal
+                                debug!("Post-condition check failure: No checks for any non-fungible assets, but moved {:?} by {:?}", &asset_identifier, &principal);
+                                return false;
+                            }
+                        },
+                        _ => {
+                            // This is STX or a fungible token
+                            if let Some(ref checked_ft_asset_ids) = checked_fungible_assets.get(&principal) {
+                                if !checked_ft_asset_ids.contains(&asset_identifier) {
+                                    debug!("Post-condition check failure: checks did not cover transfer of {:?} by {:?}", &asset_identifier, &principal);
+                                    return false;
+                                }
+                            }
+                            else {
+                                debug!("Post-condition check failure: No checks for fungible token type {:?} moved by {:?}", &asset_identifier, &principal);
+                                return false;
+                            }
+                        }
                     }
                 }
             }
@@ -252,23 +301,16 @@ impl StacksChainState {
         clarity_tx.connection().with_clarity_db(|ref mut db| {
             // does the sender have ths amount?
             let cur_balance = db.get_account_stx_balance(&origin_account.principal);
-            if cur_balance < (amount as u128) {
-                return Err(clarity_error::BadTransaction(format!("Address {:?} has {} microSTX; needed at least {}", &origin_account.principal, cur_balance, amount)));
-            }
-
             let recipient_balance = db.get_account_stx_balance(&recipient_principal);
-            if recipient_balance.checked_add(amount as u128).is_none() {
-                return Err(clarity_error::BadTransaction(format!("Address {:?} has {} microSTX; cannot add {}", &recipient_principal, recipient_balance, amount)));
-            }
 
-            let new_balance = cur_balance - (amount as u128);
-            let new_recipient_balance = recipient_balance + (amount as u128);
+            let new_balance = cur_balance.checked_sub(amount as u128)
+                .ok_or(clarity_error::BadTransaction(format!("Address {:?} has {} microSTX; needed at least {}", &origin_account.principal, cur_balance, amount)))?;
+
+            let new_recipient_balance = recipient_balance.checked_add(amount as u128)
+                .ok_or(clarity_error::BadTransaction(format!("Address {:?} has {} microSTX; cannot add {}", &recipient_principal, recipient_balance, amount)))?;
 
             db.set_account_stx_balance(&origin_account.principal, new_balance);
             db.set_account_stx_balance(&recipient_principal, new_recipient_balance);
-
-            let mut asset_map = AssetMap::new();
-            asset_map.add_stx_transfer(&origin_account.principal, amount as u128)?;
 
             Ok(())
         })
@@ -281,6 +323,7 @@ impl StacksChainState {
                     Error::InvalidStacksTransaction(msg)
                 },
                 // TODO: catch runtime errors -- these are okay
+                // TODO: panic on other errors?
                 _ => Error::ClarityError(e)
             }
         })
@@ -288,9 +331,8 @@ impl StacksChainState {
 
     /// Process the transaction's payload, and run the post-conditions against the resulting state.
     /// Returns the number of STX burned.
-    /// TODO: catch runtime errors -- these are okay!
     pub fn process_transaction_payload<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction, origin_account: &StacksAccount) -> Result<u128, Error> {
-        let stx_burned = match tx.payload {
+        match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref _memo) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
@@ -304,39 +346,34 @@ impl StacksChainState {
                 StacksChainState::process_transaction_token_transfer(clarity_tx, &tx.txid(), addr, *amount, origin_account)?;
 
                 // no burns
-                0
+                Ok(0)
             },
             TransactionPayload::ContractCall(ref contract_call) => {
-                // if this calls a function that doesn't exist or is syntatically invalid, then the
+                // if this calls a function that doesn't exist or is syntactically invalid, then the
                 // transaction is invalid (since this can be checked statically by the miner).
                 // if on the other hand the contract being called has a runtime error, then the
                 // transaction is still valid, but no changes will materialize besides debiting the
                 // tx fee.
                 let contract_id = contract_call.to_clarity_contract_id();
                 let asset_map = match clarity_tx.connection().run_contract_call(&origin_account.principal, &contract_id, &contract_call.function_name, &contract_call.function_args,
-                                                                                |asset_map, ref mut clarity_db| { !StacksChainState::check_transaction_postconditions(clarity_db, tx, origin_account, asset_map) }) {
+                                                                                |asset_map, _| { !StacksChainState::check_transaction_postconditions(tx, origin_account, asset_map) }) {
                     Ok((return_value, asset_map)) => {
-                        // TODO: pretty-print return value if in debug mode
+                        debug!("Contract-call to {:?}.{:?} args {:?} returned {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &return_value);
                         Ok(asset_map)
                     },
                     Err(e) => {
                         match e {
                             // runtime errors are okay -- we just have an empty asset map
-                            clarity_error::Interpreter(ref ie) => {
-                                match ie {
-                                    InterpreterError::Runtime(ref runtime_error, ref stack) => {
-                                        // TODO: pretty-print this if in debug mode
-                                        Ok(AssetMap::new())
-                                    },
-                                    _ => Err(e)
-                                }
+                            clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
+                                debug!("Runtime error {:?} on contract-call {:?}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
+                                Ok(AssetMap::new())
                             },
                             _ => Err(e)
                         }
                     }
                 }.map_err(Error::ClarityError)?;
 
-                asset_map.get_stx_burned_total()
+                Ok(asset_map.get_stx_burned_total())
             },
             TransactionPayload::SmartContract(ref smart_contract) => {
                 let issuer_principal = match origin_account.principal {
@@ -344,7 +381,7 @@ impl StacksChainState {
                         p.clone()
                     },
                     _ => {
-                        panic!("Transaction issued by something other than a standard principal");
+                        unreachable!("BUG: transaction issued by something other than a standard principal");
                     }
                 };
 
@@ -360,28 +397,33 @@ impl StacksChainState {
                     return Err(Error::InvalidStacksTransaction(msg));
                 }
 
-                // analysis pass -- if this fails, then the transaction is invalid (because this can be
-                // checked statically by the miner before mining the block).
-                let (contract_ast, contract_analysis) = clarity_tx.connection().analyze_smart_contract(&contract_id, &contract_code_str).map_err(Error::ClarityError)?;
+                // analysis pass -- if this fails, then the transaction is still accepted, but nothing is stored or processed.
+                // The reason for this is that analyzing the transaction is itself an expensive
+                // operation, and the paying account will need to be debited the fee regardless.
+                let (contract_ast, contract_analysis) = match clarity_tx.connection().analyze_smart_contract(&contract_id, &contract_code_str) {
+                    Ok((ast, analysis)) => (ast, analysis),
+                    Err(e) => {
+                        // this analysis isn't free -- convert to runtime error
+                        debug!("Runtime error in contract analysis for {:?}: {:?}", &contract_id, &e);
+
+                        // abort now -- no burns
+                        return Ok(0);
+                    }
+                };
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
-                // valid, but the contract does not materialize (but the sender is out their fee).
+                // accepted, but the contract does not materialize (but the sender is out their fee).
                 let asset_map = match clarity_tx.connection().initialize_smart_contract(&contract_id, &contract_ast,
-                                                                                       |asset_map, ref mut clarity_db| { !StacksChainState::check_transaction_postconditions(clarity_db, tx, origin_account, asset_map) }) {
+                                                                                       |asset_map, _| { !StacksChainState::check_transaction_postconditions(tx, origin_account, asset_map) }) {
                     Ok(asset_map) => {
                         Ok(asset_map)
                     },
                     Err(e) => {
                         match e {
                             // runtime errors are okay -- we just have an empty asset map
-                            clarity_error::Interpreter(ref ie) => {
-                                match ie {
-                                    InterpreterError::Runtime(ref runtime_error, ref stack) => {
-                                        // TODO: pretty-print this if in debug mode
-                                        Ok(AssetMap::new())
-                                    },
-                                    _ => Err(e)
-                                }
+                            clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
+                                debug!("Runtime error {:?} on instantiating {:?}, code {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_code_str, stack);
+                                Ok(AssetMap::new())
                             },
                             _ => Err(e)
                         }
@@ -390,20 +432,19 @@ impl StacksChainState {
                 
                 // store analysis -- if this fails, then the have some pretty bad problems
                 clarity_tx.connection().save_analysis(&contract_id, &contract_analysis)
-                    .map_err(|e| Error::ClarityError(clarity_error::Analysis(e)))?;
+                    .expect("FATAL: failed to store contract analysis");
                 
-                asset_map.get_stx_burned_total()
+                Ok(asset_map.get_stx_burned_total())
             },
-            TransactionPayload::PoisonMicroblock(ref mblock_header_1, ref mblock_header_2) => {
+            TransactionPayload::PoisonMicroblock(ref _mblock_header_1, ref _mblock_header_2) => {
+                // TODO: actually implement this, but not necessarily for this PR
                 panic!("Not implemented yet");
             },
-            TransactionPayload::Coinbase(ref miner_payload) => {
+            TransactionPayload::Coinbase(_) => {
                 // no-op; not handled here
-                0
+                Ok(0)
             }
-        };
-
-        Ok(stx_burned as u128)
+        }
     }
 
     /// Process a transaction.  Return the fee and amount of STX destroyed
@@ -441,9 +482,9 @@ impl StacksChainState {
         let burns = StacksChainState::process_transaction_payload(clarity_tx, tx, &origin_account)?;
 
         // update the account nonces
-        StacksChainState::update_account_nonce(clarity_tx, tx, &origin_account);
+        StacksChainState::update_account_nonce(clarity_tx, &origin_account);
         if origin != payer {
-            StacksChainState::update_account_nonce(clarity_tx, tx, &payer_account);
+            StacksChainState::update_account_nonce(clarity_tx, &payer_account);
         }
 
         Ok((fee, burns))
@@ -631,7 +672,7 @@ pub mod test {
 
         conn.commit_block();
     }
-    
+
     #[test]
     fn process_token_transfer_stx_sponsored_transaction() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-token-transfer-stx-sponsored-transaction");
@@ -742,6 +783,172 @@ pub mod test {
 
         assert_eq!(fee, 0);
         assert!(contract_res.is_ok());
+    }
+
+    #[test]
+    fn process_smart_contract_transaction_invalid() {
+        let contract_correct = "
+        (define-data-var bar int 0)
+        (define-public (get-bar) (ok (var-get bar)))
+        (define-public (set-bar (x int) (y int))
+          (begin (var-set bar (/ x y)) (ok (var-get bar))))";
+
+        let contract_syntax_error = "
+        (define-data-var bar int 0)) ;; oops
+        (define-public (get-bar) (ok (var-get bar)))
+        (define-public (set-bar (x int) (y int))
+          (begin (var-set bar (/ x y)) (ok (var-get bar))))";
+
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-transaction-invalid");
+
+        let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        
+        let contracts = vec![
+            contract_correct.clone(),
+            contract_correct.clone(),
+            contract_syntax_error,      // should still be mined, even though analysis fails
+        ];
+
+        let expected_behavior = vec![
+            true,
+            false,
+            true,
+        ];
+
+        let contract_names = vec![
+            "hello-world-0",
+            "hello-world-0",
+            "hello-world-1",
+        ];
+        
+        let mut next_nonce = 0;
+        for i in 0..contracts.len() {
+            let contract_name = contract_names[i].to_string();
+            let contract = contracts[i].to_string();
+            
+            test_debug!("\ninstantiate contract\n{}\n", &contracts[i]);
+
+            let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
+                                                         auth.clone(),
+                                                         TransactionPayload::new_smart_contract(&contract_name, &contract).unwrap());
+
+            tx_contract.chain_id = 0x80000000;
+            tx_contract.set_fee_rate(0);
+            tx_contract.set_origin_nonce(next_nonce);
+
+            let mut signer = StacksTransactionSigner::new(&tx_contract);
+            signer.sign_origin(&privk).unwrap();
+
+            let signed_tx = signer.get_tx().unwrap();
+
+            let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from(contract_name.as_str()));
+
+            let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+            assert_eq!(account.nonce, next_nonce);
+
+            let res = StacksChainState::process_transaction(&mut conn, &signed_tx);
+            if expected_behavior[i] {
+                assert!(res.is_ok());
+
+                // account nonce should increment
+                let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+                assert_eq!(account.nonce, next_nonce + 1);
+
+                next_nonce += 1;
+            }
+            else {
+                assert!(res.is_err());
+                
+                // account nonce should NOT increment
+                let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+                assert_eq!(account.nonce, next_nonce);
+                continue;
+            }
+        }
+    }
+   
+    #[test]
+    fn process_smart_contract_transaction_runtime_error() {
+        let contract_correct = "
+        (define-data-var bar int 0)
+        (define-public (get-bar) (ok (var-get bar)))
+        (define-public (set-bar (x int) (y int))
+          (begin (var-set bar (/ x y)) (ok (var-get bar))))";
+        
+        let contract_runtime_error_definition = "
+        (define-data-var bar int (/ 1 0))   ;; divide-by-zero
+        (define-public (get-bar) (ok (var-get bar)))
+        (define-public (set-bar (x int) (y int))
+          (begin (var-set bar (/ x y)) (ok (var-get bar))))";
+        
+        let contract_runtime_error_bare_code = "
+        (define-data-var bar int 0)
+        (define-public (get-bar) (ok (var-get bar)))
+        (define-public (set-bar (x int) (y int))
+          (begin (var-set bar (/ x y)) (ok (var-get bar))))
+        (begin (set-bar 1 0) (ok 1))";
+
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-transaction-runtime-error");
+
+        let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+       
+        let contracts = vec![
+            contract_correct,
+            contract_runtime_error_definition,
+            contract_runtime_error_bare_code
+        ];
+
+        let contract_names = vec![
+            "hello-world-0",
+            "hello-world-1",
+            "hello-world-2"
+        ];
+            
+        for i in 0..contracts.len() {
+            let contract_name = contract_names[i].to_string();
+            let contract = contracts[i].to_string();
+
+            let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
+                                                         auth.clone(),
+                                                         TransactionPayload::new_smart_contract(&contract_name, &contract).unwrap());
+
+            tx_contract.chain_id = 0x80000000;
+            tx_contract.set_fee_rate(0);
+            tx_contract.set_origin_nonce(i as u64);
+
+            let mut signer = StacksTransactionSigner::new(&tx_contract);
+            signer.sign_origin(&privk).unwrap();
+
+            let signed_tx = signer.get_tx().unwrap();
+
+            let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from(contract_name.as_str()));
+            let contract_before_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
+            assert!(contract_before_res.is_none());
+
+            let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+            assert_eq!(account.nonce, i as u64);
+
+            // runtime error should be handled
+            let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
+
+            // account nonce should increment
+            let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+            assert_eq!(account.nonce, (i+1) as u64);
+
+            // contract is instantiated despite runtime error
+            let contract_res = StacksChainState::get_contract(&mut conn, &contract_id);
+            assert!(contract_res.is_ok());
+        }
+        
+        conn.commit_block();
     }
 
     #[test]
@@ -889,6 +1096,167 @@ pub mod test {
         assert!(contract_res.is_some());
         assert!(var_res.is_some());
         assert_eq!(var_res, Some(Value::Int(3)));
+    }
+    
+    #[test]
+    fn process_smart_contract_contract_call_runtime_error() {
+        let contract = "
+        (define-data-var bar int 1)
+        (define-public (get-bar) (ok (var-get bar)))
+        (define-public (set-bar (x int) (y int))
+          (begin (var-set bar (/ x y)) (ok (var-get bar))))
+        (define-public (return-error) (err 1))";
+
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-transaction-runtime-error");
+
+        // contract instantiation
+        let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        
+        let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
+                                                     auth.clone(),
+                                                     TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
+
+        tx_contract.chain_id = 0x80000000;
+        tx_contract.set_fee_rate(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_contract);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_tx = signer.get_tx().unwrap();
+        
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        
+        let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from("hello-world"));
+        let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
+
+        // contract-calls that don't commit
+        let contract_calls = vec![
+            ("hello-world", "set-bar", vec![Value::Int(1), Value::Int(0)]),     // divide-by-zero
+            ("hello-world", "return-error", vec![]),                            // returns an (err ...)
+        ];
+
+        // do contract-calls
+        let privk_2 = StacksPrivateKey::from_hex("d2c340ebcc0794b6fabdd8ac8b1c983e363b05dc8adcdf7e30db205a3fa54c1601").unwrap();
+        let auth_2 = TransactionAuth::from_p2pkh(&privk_2).unwrap();
+        let addr_2 = auth_2.origin().address_testnet();
+
+        let mut next_nonce = 0;
+
+        for contract_call in contract_calls {
+            let (contract_name, contract_function, contract_args) = contract_call;
+            let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
+                                                              auth_2.clone(),
+                                                              TransactionPayload::new_contract_call(addr.clone(), contract_name, contract_function, contract_args).unwrap());
+
+            tx_contract_call.chain_id = 0x80000000;
+            tx_contract_call.set_fee_rate(0);
+            tx_contract_call.set_origin_nonce(next_nonce);
+
+            let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
+            signer_2.sign_origin(&privk_2).unwrap();
+           
+            let signed_tx_2 = signer_2.get_tx().unwrap();
+        
+            let account_2 = StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
+            assert_eq!(account_2.nonce, next_nonce);
+        
+            let (fee_2, _) = StacksChainState::process_transaction(&mut conn, &signed_tx_2).unwrap();
+
+            // nonce should have incremented
+            next_nonce += 1;
+            let account_2 = StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
+            assert_eq!(account_2.nonce, next_nonce);
+
+            // var should not have changed
+            let var_res = StacksChainState::get_data_var(&mut conn, &contract_id, "bar").unwrap();
+            assert!(var_res.is_some());
+            assert_eq!(var_res, Some(Value::Int(1)));
+        }
+        conn.commit_block();
+    }
+    
+    #[test]
+    fn process_smart_contract_contract_call_invalid() {
+        let contract = "
+        (define-data-var bar int 1)
+        (define-public (get-bar) (ok (var-get bar)))
+        (define-public (set-bar (x int) (y int))
+          (begin (var-set bar (/ x y)) (ok (var-get bar))))";
+
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-transaction-invalid");
+
+        // contract instantiation
+        let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from("hello-world"));
+        
+        // for contract-calls
+        let privk_2 = StacksPrivateKey::from_hex("d2c340ebcc0794b6fabdd8ac8b1c983e363b05dc8adcdf7e30db205a3fa54c1601").unwrap();
+        let auth_2 = TransactionAuth::from_p2pkh(&privk_2).unwrap();
+        let addr_2 = auth_2.origin().address_testnet();
+        
+        let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
+                                                     auth.clone(),
+                                                     TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
+
+        tx_contract.chain_id = 0x80000000;
+        tx_contract.set_fee_rate(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_contract);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_tx = signer.get_tx().unwrap();
+        
+        let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+        let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
+
+        // invalid contract-calls
+        let contract_calls = vec![
+            (addr.clone(), "hello-world", "set-bar-not-a-method", vec![Value::Int(1), Value::Int(1)]),     // call into non-existant method
+            (addr.clone(), "hello-world-not-a-contract", "set-bar", vec![Value::Int(1), Value::Int(1)]),   // call into non-existant contract
+            (addr_2.clone(), "hello-world", "set-bar", vec![Value::Int(1), Value::Int(1)]),                // address does not have a contract
+            (addr.clone(), "hello-world", "set-bar", vec![Value::Int(1)]),                                 // wrong number of args (too few)
+            (addr.clone(), "hello-world", "set-bar", vec![Value::Int(1), Value::Int(1), Value::Int(1)]),   // wrong number of args (too many)
+            (addr.clone(), "hello-world", "set-bar", vec![Value::buff_from([0xff, 4].to_vec()).unwrap(), Value::Int(1)]),   // wrong arg type
+            (addr.clone(), "hello-world", "set-bar", vec![Value::UInt(1), Value::Int(1)]),                 // wrong arg type
+        ];
+
+        let next_nonce = 0;
+
+        for contract_call in contract_calls {
+            let (contract_addr, contract_name, contract_function, contract_args) = contract_call;
+            let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
+                                                              auth_2.clone(),
+                                                              TransactionPayload::new_contract_call(contract_addr.clone(), contract_name, contract_function, contract_args).unwrap());
+
+            tx_contract_call.chain_id = 0x80000000;
+            tx_contract_call.set_fee_rate(0);
+
+            let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
+            signer_2.sign_origin(&privk_2).unwrap();
+           
+            let signed_tx_2 = signer_2.get_tx().unwrap();
+        
+            let account_2 = StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
+            assert_eq!(account_2.nonce, next_nonce);
+       
+            // transaction is invalid, and won't be mined
+            let res = StacksChainState::process_transaction(&mut conn, &signed_tx_2);
+            assert!(res.is_err());
+
+            // nonce should NOT have incremented
+            let account_2 = StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
+            assert_eq!(account_2.nonce, next_nonce);
+
+            // var should NOT have changed
+            let var_res = StacksChainState::get_data_var(&mut conn, &contract_id, "bar").unwrap();
+            assert!(var_res.is_some());
+            assert_eq!(var_res, Some(Value::Int(1)));
+        }
+        conn.commit_block();
     }
     
     #[test]
@@ -1209,7 +1577,7 @@ pub mod test {
 
         // mint names to recv_addr, and set a post-condition on the contract-principal to check it.
         // assert contract does not possess the name
-        for (i, pass_condition) in [NonfungibleConditionCode::Absent].iter().enumerate() {
+        for (i, pass_condition) in [NonfungibleConditionCode::Sent].iter().enumerate() {
             let name = Value::buff_from(next_name.to_be_bytes().to_vec()).unwrap();
             next_name += 1;
 
@@ -1292,7 +1660,7 @@ pub mod test {
         
         // mint names to recv_addr, and set a post-condition on the contract-principal to check it.
         // assert contract still possesses the name (should fail)
-        for (i, fail_condition) in [NonfungibleConditionCode::Present].iter().enumerate() {
+        for (i, fail_condition) in [NonfungibleConditionCode::NotSent].iter().enumerate() {
             let name = Value::buff_from(next_name.to_be_bytes().to_vec()).unwrap();
             next_name += 1;
 
@@ -1555,7 +1923,7 @@ pub mod test {
             
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), asset_info.clone(), *pass_condition, 100));
-            tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Absent));
+            tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
 
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_origin).unwrap();
@@ -1603,7 +1971,7 @@ pub mod test {
             
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info.clone(), *pass_condition, 100));
-            tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Absent));
+            tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
             
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_recipient).unwrap();
@@ -1629,7 +1997,7 @@ pub mod test {
             
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             // tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), asset_info.clone(), *fail_condition, 100));
-            tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Absent));
+            tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
 
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_origin).unwrap();
@@ -1655,7 +2023,7 @@ pub mod test {
             
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), asset_info.clone(), *fail_condition, 100));
-            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Absent));
+            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
 
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_origin).unwrap();
@@ -1680,7 +2048,7 @@ pub mod test {
             
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             // tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info.clone(), *fail_condition, 100));
-            tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Absent));
+            tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
             
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_recipient).unwrap();
@@ -1707,7 +2075,7 @@ pub mod test {
             
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info.clone(), *fail_condition, 100));
-            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Absent));
+            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
             
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_recipient).unwrap();
@@ -1855,10 +2223,13 @@ pub mod test {
     // TODO: test post_conditions_check directly
     // TODO: test post_conditions that try to make statements about assets and principals that
     // don't exist or didn't move.
+    // TODO: test post_conditions that don't make statements about specific NFTs that did move in
+    // the Deny case
     // TODO: catch runtime exceptions and handle them properly (i.e. abort)
     // TODO: test common invalid-contract scenarios:
     // * duplicate contract
     // * invalid contract (doesn't check)
+    // * bad contract-call (no such function, bad arguments, etc.)
     // TODO: post-conditions on STX (blocked on stx-transfer!)
     // TODO: test poison microblock
 }
