@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use serde_json::{Value as JSONValue};
 use util::hash::{hex_bytes, to_hex};
 
+use std::{error, fmt};
 use std::io::{Write, Read};
 
 
@@ -26,6 +27,28 @@ pub enum SerializationError {
     BadTypeError(CheckErrors),
     DeserializationError(String),
     DeserializeExpected(TypeSignature),
+}
+
+
+impl std::fmt::Display for SerializationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            SerializationError::IOError(e) => write!(f, "Serialization error caused by IO: {}", e.err),
+            SerializationError::BadTypeError(e) => write!(f, "Deserialization error, bad type, caused by: {}", e),
+            SerializationError::DeserializationError(e) => write!(f, "Deserialization error: {}", e),
+            SerializationError::DeserializeExpected(e) => write!(f, "Deserialization expected the type of the input to be: {}", e),
+        }
+    }
+}
+
+impl error::Error for SerializationError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            SerializationError::IOError(e) => Some(&e.err),
+            SerializationError::BadTypeError(e) => Some(e),
+            _ => None
+        }
+    }
 }
 
 impl From<std::io::Error> for SerializationError {
