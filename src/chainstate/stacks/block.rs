@@ -276,7 +276,7 @@ impl StacksBlockHeader {
             Ok(v) => {
                 v
             },
-            Err(e) => {
+            Err(_e) => {
                 false
             }
         };
