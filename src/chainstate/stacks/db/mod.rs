@@ -233,7 +233,7 @@ impl<'a> ClarityTx<'a> {
         self.block.commit_block()
     }
 
-    pub fn commit_to_block(self, height: u32, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> () {
+    pub fn commit_to_block(self, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> () {
         let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_hash, block_hash);
         self.block.commit_to_block(&index_block_hash)
     }
@@ -575,7 +575,7 @@ impl StacksChainState {
             boot_code_account.nonce += 1;
         }
 
-        clarity_tx.commit_to_block(0, &FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
+        clarity_tx.commit_to_block(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
         Ok(())
     }
     
@@ -591,8 +591,6 @@ impl StacksChainState {
             };
 
         path.push(chain_id_str);
-        let root_path_str = path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
-
         StacksChainState::mkdirs(&path)?;
 
         let mut blocks_path = path.clone();
