@@ -127,7 +127,7 @@ impl fmt::Display for Error {
         match *self {
             Error::InvalidFee => f.write_str(error::Error::description(self)),
             Error::InvalidStacksBlock(ref s) => fmt::Display::fmt(s, f),
-            Error::InvalidStacksMicroblock(ref s, ref h) => fmt::Display::fmt(s, f),
+            Error::InvalidStacksMicroblock(ref s, _) => fmt::Display::fmt(s, f),
             Error::InvalidStacksTransaction(ref s) => fmt::Display::fmt(s, f),
             Error::PostConditionFailed(ref s) => fmt::Display::fmt(s, f),
             Error::NoSuchBlockError => f.write_str(error::Error::description(self)),
@@ -167,7 +167,7 @@ impl error::Error for Error {
         match *self {
             Error::InvalidFee => "Invalid fee",
             Error::InvalidStacksBlock(ref s) => s.as_str(),
-            Error::InvalidStacksMicroblock(ref s, ref h) => s.as_str(),
+            Error::InvalidStacksMicroblock(ref s, _) => s.as_str(),
             Error::InvalidStacksTransaction(ref s) => s.as_str(),
             Error::PostConditionFailed(ref s) => s.as_str(),
             Error::NoSuchBlockError => "No such Stacks block",
