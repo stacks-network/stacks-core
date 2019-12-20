@@ -626,9 +626,8 @@ impl TransactionSpendingCondition {
         // new hash combines the previous hash and all the new data this signature will add.  This
         // includes:
         // * the public key compression flag
-        // * the public key
         // * the signature
-        let new_tx_hash_bits_len = 32 + 1 + STACKS_PUBLIC_KEY_ENCODED_SIZE + MESSAGE_SIGNATURE_ENCODED_SIZE;
+        let new_tx_hash_bits_len = 32 + 1 + MESSAGE_SIGNATURE_ENCODED_SIZE;
         let mut new_tx_hash_bits = Vec::with_capacity(new_tx_hash_bits_len as usize);
         let pubkey_encoding = 
             if pubkey.compressed() {
@@ -638,11 +637,8 @@ impl TransactionSpendingCondition {
                 TransactionPublicKeyEncoding::Uncompressed
             };
 
-        let pubkey_buf = StacksPublicKeyBuffer::from_public_key(pubkey);
-
         new_tx_hash_bits.extend_from_slice(cur_sighash.as_bytes());
         new_tx_hash_bits.extend_from_slice(&[pubkey_encoding as u8]);
-        new_tx_hash_bits.extend_from_slice(pubkey_buf.as_bytes());
         new_tx_hash_bits.extend_from_slice(sig.as_bytes());
 
         assert!(new_tx_hash_bits.len() == new_tx_hash_bits_len as usize);
@@ -793,7 +789,7 @@ impl TransactionAuth {
     /// Directly set the sponsor spending condition
     pub fn set_sponsor(&mut self, sponsor_spending_cond: TransactionSpendingCondition) -> Result<(), Error> {
         match *self {
-            TransactionAuth::Sponsored(ref sc, ref mut ssc) => {
+            TransactionAuth::Sponsored(_, ref mut ssc) => {
                 *ssc = sponsor_spending_cond;
                 Ok(())
             },
@@ -826,7 +822,7 @@ impl TransactionAuth {
                 origin.clear();
                 TransactionAuth::Standard(origin)
             },
-            TransactionAuth::Sponsored(mut origin, sponsor) => {
+            TransactionAuth::Sponsored(mut origin, _) => {
                 origin.clear();
                 TransactionAuth::Sponsored(origin, TransactionSpendingCondition::new_initial_sighash())
             }
@@ -905,10 +901,10 @@ impl TransactionAuth {
     pub fn verify(&self, initial_sighash: &Txid) -> Result<bool, net_error> {
         let origin_sighash = self.verify_origin(initial_sighash)?;
         match *self {
-            TransactionAuth::Standard(ref origin_condition) => {
+            TransactionAuth::Standard(_) => {
                 Ok(true)
             }
-            TransactionAuth::Sponsored(ref origin_condition, ref sponsor_condition) => {
+            TransactionAuth::Sponsored(_, ref sponsor_condition) => {
                 sponsor_condition.verify(&origin_sighash, &TransactionAuthFlags::AuthSponsored)
                     .and_then(|_sigh| Ok(true))
             }
@@ -1583,7 +1579,6 @@ mod test {
             expected_sighash_bytes.clear();
             expected_sighash_bytes.extend_from_slice(expected_sighash_presign.as_bytes());
             expected_sighash_bytes.extend_from_slice(&[key_modes[i] as u8]);
-            expected_sighash_bytes.extend_from_slice(StacksPublicKeyBuffer::from_public_key(&StacksPublicKey::from_private(&keys[i])).as_bytes());
             expected_sighash_bytes.extend_from_slice(sig.as_bytes());
             let expected_sighash_postsign = Txid::from_sighash_bytes(&expected_sighash_bytes[..]);
 
