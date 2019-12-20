@@ -41,9 +41,11 @@ pub enum InterpreterError {
     FailedToCreateDataDirectory,
     MarfFailure(IncomparableError<MarfError>),
     DeserializeExpected(TypeSignature),
-    DeserializeUnexpectedTypeField(String),
+    DeserializationFailure(String),
+    DeserializedBadType(CheckErrors),
+    IOError(IncomparableError<std::io::Error>),
     FailureConstructingTupleWithType,
-    FailureConstructingListWithType
+    FailureConstructingListWithType,
 }
 
 
