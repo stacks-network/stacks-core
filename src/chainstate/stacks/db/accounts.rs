@@ -188,13 +188,13 @@ impl StacksChainState {
         clarity_tx.connection().with_clarity_db(|ref mut db| {
             let cur_balance = db.get_account_stx_balance(principal);
             let final_balance = cur_balance.checked_add(amount as u128).expect("FATAL: account balance overflow");
-            db.set_account_stx_balance(principal, amount as u128);
+            db.set_account_stx_balance(principal, final_balance as u128);
             Ok(())
         }).expect("FATAL: failed to credit account")
     }
    
     /// Increment an account's nonce
-    pub fn update_account_nonce<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction, account: &StacksAccount) {
+    pub fn update_account_nonce<'a>(clarity_tx: &mut ClarityTx<'a>, account: &StacksAccount) {
         clarity_tx.connection().with_clarity_db(|ref mut db| {
             let next_nonce = account.nonce.checked_add(1).expect("OUT OF NONCES");
             db.set_account_nonce(&account.principal, next_nonce);
@@ -369,9 +369,9 @@ impl StacksChainState {
 
                     if block_miner.address == miner.address {
                         assert!((block_miner.tx_fees_anchored << 64) >= shared_fees);
-                        let exclusive_fees = (block_miner.tx_fees_anchored << 64) - shared_fees;
+                        let _exclusive_fees = (block_miner.tx_fees_anchored << 64) - shared_fees;
                         
-                        test_debug!("{}: Anchored tx fees exclusive: {} = {} + {}", miner.address.to_string(), (fees_total + exclusive_fees) >> 64, fees_total >> 64, exclusive_fees >> 64);
+                        test_debug!("{}: Anchored tx fees exclusive: {} = {} + {}", miner.address.to_string(), (fees_total + _exclusive_fees) >> 64, fees_total >> 64, _exclusive_fees >> 64);
                         fees_total = fees_total.checked_add((block_miner.tx_fees_anchored << 64) - shared_fees).expect("FATAL: STX exclusive total anchored fee calculation overflow");
                     }
                 }
