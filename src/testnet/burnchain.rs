@@ -26,7 +26,7 @@ impl BurnchainSimulator {
         }
     }
     
-    pub fn start(&mut self, config: &Config) -> (mpsc::Receiver<(BlockSnapshot, Vec<BlockstackOperationType>)>, mpsc::Sender<BlockstackOperationType>) {
+    pub fn start(&mut self, config: &Config) -> (mpsc::Receiver<(BlockSnapshot, Vec<BlockstackOperationType>, Arc<Mutex<BurnDB>>)>, mpsc::Sender<BlockstackOperationType>) {
         let (block_tx, block_rx) = mpsc::channel();
         
         let path = config.burnchain_path.clone();
@@ -101,7 +101,7 @@ impl BurnchainSimulator {
                     new_chain_tip
                 };
         
-                block_tx.send((chain_tip.clone(), ops_to_include)).unwrap();    
+                block_tx.send((chain_tip.clone(), ops_to_include, Arc::clone(&burn_db))).unwrap();    
             };
         });
         

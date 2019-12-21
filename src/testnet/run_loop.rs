@@ -51,7 +51,7 @@ impl RunLoop {
 
         loop {
             // Wait for incoming block from the burnchain
-            let (burnchain_block, ops) = burnchain_block_rx.recv().unwrap();
+            let (burnchain_block, ops, burn_db) = burnchain_block_rx.recv().unwrap();
 
             // for each leader:
                 // process the block:
@@ -75,9 +75,10 @@ impl RunLoop {
 
                 // Should the node bootstrap the chain and start a tenure on top of genesis.
                 if bootstrap_chain {
-                    bootstrap_chain = false;
-                    let tenure = node.initiate_new_tenure(SortitionedBlock::genesis());
-                    leader_tenure = Some(tenure);
+                    leader_tenure = node.initiate_genesis_tenure(&burnchain_block);
+                    if leader_tenure.is_some() {
+                        bootstrap_chain = false;
+                    }
                     continue;
                 }
 
@@ -87,7 +88,7 @@ impl RunLoop {
                         Some(parent_block) => parent_block,
                         None => unreachable!()
                     };
-                    let tenure = node.initiate_new_tenure(parent_block);
+                    let tenure = node.initiate_new_tenure(&parent_block);
                     leader_tenure = Some(tenure);
                 } else {
                     // This node need to get the blocks from the current leader
@@ -106,10 +107,14 @@ impl RunLoop {
                 for node in self.nodes.iter_mut() {
                     let (anchored_block, microblocks) = artefacts.clone();
     
-                    node.process_tenure(anchored_block.unwrap(), microblocks);
+                    node.process_tenure(anchored_block.unwrap(), microblocks, burn_db);
     
                     node.maintain_leadership_eligibility();
+
+                    break;
                 }
+            } else {
+                println!("NO SORTITION");
             }
 
 
