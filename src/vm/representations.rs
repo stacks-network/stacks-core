@@ -33,6 +33,10 @@ macro_rules! guarded_string {
             pub fn as_str(&self) -> &str {
                 &self.0
             }
+
+            pub fn len(&self) -> u8 {
+                u8::try_from(self.as_str().len()).unwrap()
+            }
         }
 
         impl Deref for $Name {

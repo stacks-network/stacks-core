@@ -149,18 +149,16 @@ macro_rules! serialize_guarded_string {
 
 impl ClarityValueSerializable<$Name> for $Name {
     fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
-        w.write_all(&u32::try_from(self.as_str().len())
-                    .unwrap()
-                    .to_be_bytes())?;
+        w.write_all(&self.len().to_be_bytes())?;
         // self.as_bytes() is always len bytes, because this is only used for GuardedStrings
         //   which are a subset of ASCII
         w.write_all(self.as_str().as_bytes())
     }
 
     fn deserialize_read<R: Read>(r: &mut R) -> Result<Self, SerializationError> {
-        let mut len = [0; 4];
+        let mut len = [0; 1];
         r.read_exact(&mut len)?;
-        let len = u32::from_be_bytes(len);
+        let len = u8::from_be_bytes(len);
         let mut data = vec![0; len as usize];
         r.read_exact(&mut data)?;
 
@@ -664,6 +662,53 @@ mod tests {
             SerializationError::DeserializeExpected(_) => true,
              _ => false
         });
+    }
+
+    #[test]
+    fn test_vectors() {
+        let tests = [
+            ("1010", Err("Bad type prefix".into())),
+            ("0000000000000000000000000000000001", Ok(Value::Int(1))),
+            ("00ffffffffffffffffffffffffffffffff", Ok(Value::Int(-1))),
+            ("0100000000000000000000000000000001", Ok(Value::UInt(1))),
+            ("0200000004deadbeef", Ok(Value::buff_from(vec![0xde, 0xad, 0xbe, 0xef])
+                                      .unwrap())),
+            ("03", Ok(Value::Bool(true))),
+            ("04", Ok(Value::Bool(false))),
+            ("050011deadbeef11ababffff11deadbeef11ababffff", Ok(
+                StandardPrincipalData(
+                    0x00, 
+                    [0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
+                     0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]).into())),
+            ("060011deadbeef11ababffff11deadbeef11ababffff0461626364", Ok(
+                QualifiedContractIdentifier::new(
+                    StandardPrincipalData(
+                        0x00, 
+                        [0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
+                         0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]),
+                    "abcd".into()).into())),
+            ("0700ffffffffffffffffffffffffffffffff", Ok(Value::okay(Value::Int(-1)))),
+            ("0800ffffffffffffffffffffffffffffffff", Ok(Value::error(Value::Int(-1)))),
+            ("09", Ok(Value::none())),
+            ("0a00ffffffffffffffffffffffffffffffff", Ok(Value::some(Value::Int(-1)))),
+            ("0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
+             Ok(Value::list_from(vec![
+                 Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(-4)]).unwrap())),
+            ("0c000000020362617a0906666f6f62617203",
+             Ok(Value::from(TupleData::from_data(vec![
+                 ("baz".into(), Value::none()), ("foobar".into(), Value::Bool(true))]).unwrap())))
+        ];
+
+        for (test, expected) in tests.iter() {
+            if let Ok(x) = expected {
+                assert_eq!(
+                    test,
+                    &x.serialize());
+            }
+            assert_eq!(
+                expected,
+                &Value::try_deserialize_hex_untyped(test));
+        }
     }
 
     #[test]
