@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
 
+use std::fmt;
 use std::thread;
 use std::time;
 use rand::RngCore;
@@ -112,17 +113,6 @@ impl Node {
     }
 
     pub fn process_burnchain_block(&mut self, block: &BlockSnapshot, ops: &Vec<BlockstackOperationType>) -> (Option<SortitionedBlock>, bool) {
-        println!("=======================================================");
-        println!("NEW EPOCH");
-        println!("BURNCHAIN: {:?} {:?} {:?}", block.block_height, block.burn_header_hash, block.parent_burn_header_hash);
-        if self.last_sortitioned_block.is_some() {
-            println!("LAST_SORT: {:?} {:?}", self.last_sortitioned_block.clone().unwrap().block_height, self.last_sortitioned_block.clone().unwrap().burn_header_hash);
-        }
-        if self.chain_tip.is_some() {
-            println!("CHAIN_TIP: {:?} {:?}", self.chain_tip.clone().unwrap().block_height, self.chain_tip.clone().unwrap().anchored_header.block_hash());
-        }
-        println!("=======================================================");
-
         let mut new_key = None;
         let mut last_sortitioned_block = None; 
         let mut won_sortition = false;
@@ -208,12 +198,29 @@ impl Node {
 
         self.last_sortitioned_block = Some(block);
 
-        Some(tenure)
+        tenure
     }
 
-    pub fn initiate_new_tenure(&mut self, sortitioned_block: &SortitionedBlock) -> LeaderTenure {
+    pub fn initiate_new_tenure(&mut self, sortitioned_block: &SortitionedBlock) -> Option<LeaderTenure> {
 
-        let registered_key = self.active_registered_key.clone().unwrap();
+        let registered_key = match &self.active_registered_key {
+            None => {
+
+
+                let ops_tx = self.burnchain_ops_tx.take().unwrap();
+                let vrf_pk = self.keychain.rotate_vrf_keypair();
+                let op = self.generate_leader_key_register_op(
+                    vrf_pk, 
+                    self.burnchain_tip.as_ref().unwrap().consensus_hash.clone()); // todo(ludo): should we use the consensus hash from the burnchain tip, or last sortitioned block?
+                ops_tx.send(op).unwrap();
+
+                self.burnchain_ops_tx = Some(ops_tx);
+        
+
+                return None;
+            },
+            Some(registered_key) => registered_key.clone(),
+        };
 
         let vrf_proof = self.keychain.generate_proof(&registered_key.vrf_public_key, sortitioned_block.sortition_hash.as_bytes()).unwrap();
 
@@ -253,7 +260,7 @@ impl Node {
             sortitioned_block.clone(),
             vrf_proof);
 
-        tenure
+        Some(tenure)
     }
 
     pub fn process_tenure(&mut self, anchored_block: StacksBlock, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
@@ -355,7 +362,7 @@ impl Node {
 
                 let res = self.chain_state.preprocess_anchored_block(
                     &mut tx, 
-                    &parent_block.burn_header_hash, 
+                    &parent_block.burn_header_hash,
                     &anchored_block, 
                     &parent_block.parent_burn_header_hash).unwrap();
             }
@@ -404,6 +411,43 @@ impl Node {
         
         // Update self.chain_tip = Some(...);
     }
+
+    // pub fn process_tenure(&mut self, anchored_block: StacksBlock, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
+
+    pub fn receive_tenure_artefacts(&mut self, anchored_block_from_ongoing_tenure: StacksBlock) {
+        println!("receive_tenure_artefacts");
+
+        let ops_tx = self.burnchain_ops_tx.take().unwrap();
+
+        let burnchain_tip = self.burnchain_tip.clone().unwrap();
+        
+        if self.active_registered_key.is_some() {
+            let registered_key = self.active_registered_key.clone().unwrap();
+            let sortitioned_block = self.last_sortitioned_block.clone().unwrap();
+
+            // let previous_seed = VRFSeed::from_proof(&anchored_block_from_ongoing_tenure.header.proof);
+            // let new_proof = previous_seed
+            // let vrf_proof = self.keychain.generate_proof(&registered_key.vrf_public_key, previous_seed.as_bytes()).unwrap();
+            let vrf_proof = self.keychain.generate_proof(&registered_key.vrf_public_key, sortitioned_block.sortition_hash.as_bytes()).unwrap();
+
+            let op = self.generate_block_commit_op(
+                anchored_block_from_ongoing_tenure.header.block_hash(),
+                1, // todo(ludo): fix
+                &registered_key, 
+                &sortitioned_block,
+                VRFSeed::from_proof(&vrf_proof));
+            println!("SUBMITTING OP: {:?}", op);
+            ops_tx.send(op).unwrap();
+        }
+
+        // Naive implementation: we keep registering new keys
+        // let vrf_pk = self.keychain.rotate_vrf_keypair();
+        // let op = self.generate_leader_key_register_op(vrf_pk, burnchain_tip.consensus_hash); // todo(ludo): should we use the consensus hash from the burnchain tip, or last sortitioned block?
+        // ops_tx.send(op).unwrap();
+
+        self.burnchain_ops_tx = Some(ops_tx);
+    }
+
 
     pub fn maintain_leadership_eligibility(&mut self) {
         println!("maintain_leadership_eligibility");
@@ -500,11 +544,18 @@ pub struct LeaderTenure {
     burnchain_ops_tx: Sender<BlockstackOperationType>,
     coinbase_tx: StacksTransaction,
     config: NodeConfig,
-    last_sortitioned_block: SortitionedBlock,
+    pub last_sortitioned_block: SortitionedBlock,
     mem_pool: MemPoolFS,
-    parent_block: StacksHeaderInfo,
+    pub parent_block: StacksHeaderInfo,
     started_at: std::time::Instant,
     vrf_seed: VRFSeed,
+}
+
+impl fmt::Display for LeaderTenure {
+
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Tenure ( height: {}, burn_header_hash: {:?}, parent_hash: {} )", self.parent_block.block_height, self.last_sortitioned_block.burn_header_hash, self.parent_block.anchored_header.block_hash())
+    }
 }
 
 impl <'a> LeaderTenure {
@@ -560,7 +611,7 @@ impl <'a> LeaderTenure {
         }
     }
 
-    pub fn run(&mut self) -> (Option<StacksBlock>, Vec<StacksMicroblock>) {
+    pub fn run(&mut self) -> (Option<StacksBlock>, Vec<StacksMicroblock>, VRFSeed) {
 
         let mut chain_state = StacksChainState::open(false, 0x80000000, &self.config.path).unwrap();
 
@@ -642,6 +693,6 @@ impl <'a> LeaderTenure {
 
         println!("End tenure");
 
-        (Some(anchored_block), vec![])
+        (Some(anchored_block), vec![], self.vrf_seed.clone())
     }
 }
