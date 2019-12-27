@@ -30,6 +30,7 @@ pub struct RegisteredKey {
 #[derive(Clone, Debug)]
 pub struct SortitionedBlock {
     sortition_hash: SortitionHash,
+    consensus_hash: ConsensusHash,
     burn_header_hash: BurnchainHeaderHash,
     parent_burn_header_hash: BurnchainHeaderHash,
     block_height: u16,
@@ -42,6 +43,7 @@ impl SortitionedBlock {
     pub fn genesis() -> Self {
         Self {
             sortition_hash: SortitionHash::initial(),
+            consensus_hash: ConsensusHash::empty(),
             burn_header_hash: BurnchainHeaderHash([0u8; 32]),
             parent_burn_header_hash: BurnchainHeaderHash([0u8; 32]),
             block_height: 1,
@@ -136,6 +138,7 @@ impl Node {
                             op_vtxindex: op.vtxindex as u16,
                             op_txid: op.txid,
                             sortition_hash: block.sortition_hash,
+                            consensus_hash: block.consensus_hash,
                             total_burn: block.total_burn,
                             burn_header_hash: block.burn_header_hash,
                             parent_burn_header_hash: block.parent_burn_header_hash,
@@ -189,6 +192,7 @@ impl Node {
             op_vtxindex: 0,
             op_txid: Txid([0u8; 32]),
             sortition_hash: SortitionHash::initial(),
+            consensus_hash: block.consensus_hash,
             total_burn: 0,
             burn_header_hash: block.burn_header_hash,
             parent_burn_header_hash: block.parent_burn_header_hash,
@@ -206,17 +210,16 @@ impl Node {
         let registered_key = match &self.active_registered_key {
             None => {
 
+                println!("Registering new key");
 
-                let ops_tx = self.burnchain_ops_tx.take().unwrap();
-                let vrf_pk = self.keychain.rotate_vrf_keypair();
-                let op = self.generate_leader_key_register_op(
-                    vrf_pk, 
-                    self.burnchain_tip.as_ref().unwrap().consensus_hash.clone()); // todo(ludo): should we use the consensus hash from the burnchain tip, or last sortitioned block?
-                ops_tx.send(op).unwrap();
+                // let ops_tx = self.burnchain_ops_tx.take().unwrap();
+                // let vrf_pk = self.keychain.rotate_vrf_keypair();
+                // let op = self.generate_leader_key_register_op(
+                //     vrf_pk, 
+                //     self.burnchain_tip.as_ref().unwrap().consensus_hash.clone()); // todo(ludo): should we use the consensus hash from the burnchain tip, or last sortitioned block?
+                // ops_tx.send(op).unwrap();
 
-                self.burnchain_ops_tx = Some(ops_tx);
-        
-
+                // self.burnchain_ops_tx = Some(ops_tx);
                 return None;
             },
             Some(registered_key) => registered_key.clone(),
@@ -263,8 +266,8 @@ impl Node {
         Some(tenure)
     }
 
-    pub fn process_tenure(&mut self, anchored_block: StacksBlock, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
-        println!("process_tenure: {:?}", anchored_block);
+
+    pub fn process_tenure(&mut self, anchored_block: StacksBlock, parent_block: SortitionedBlock, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
 
         // todo(ludo): verify that the block is attached to some fork in the burn chain.
 
@@ -275,11 +278,7 @@ impl Node {
                 _ => unreachable!()
             }
         };
-
-        let parent_block = match &self.last_sortitioned_block {
-            Some(parent_block) => parent_block,
-            _ => unreachable!()
-        };
+        println!("process_tenure: {:?} - {:?}", anchored_block, chain_tip);
 
         println!("SORTITIONED BLOCK: {:?}", parent_block);
 
@@ -355,6 +354,13 @@ impl Node {
 
             // pub fn preprocess_anchored_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<bool, Error> {
 
+                // pub fn preprocess_anchored_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<bool, Error> {
+                //     // already in queue or already processed?
+                //     if self.has_stored_block(burn_header_hash, &block.block_hash())? || self.has_staging_block(burn_header_hash, &block.block_hash())? {
+                //         return Ok(false);
+                //     }
+
+
             {
                 let mut db = burn_db.lock().unwrap();
 
@@ -389,7 +395,9 @@ impl Node {
         // let (next_tip_opt, next_microblock_poison_opt) = self.chain_state.process_next_staging_block(&best_chain_tips)?;
             let new_chain_tip = {
                 let db = burn_db.lock().unwrap();
-                self.chain_state.process_blocks(db.conn(), 1).unwrap().first().unwrap().0.as_ref().unwrap().clone()
+                let res = self.chain_state.process_blocks(db.conn(), 1).unwrap();
+                println!("~~~~> {:?}", res);
+                res.first().unwrap().0.as_ref().unwrap().clone()
             };
             // let new_chain_tip = self.chain_state.append_block( 
             //     &current_chain_tip, 
@@ -408,42 +416,44 @@ impl Node {
             self.chain_tip = Some(new_chain_tip);
             println!("----------------------------------------------");
 
+            self.bootstraping_chain = false;
         
         // Update self.chain_tip = Some(...);
     }
 
     // pub fn process_tenure(&mut self, anchored_block: StacksBlock, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
 
-    pub fn receive_tenure_artefacts(&mut self, anchored_block_from_ongoing_tenure: StacksBlock) {
+    pub fn receive_tenure_artefacts(&mut self, anchored_block_from_ongoing_tenure: StacksBlock, parent_block: SortitionedBlock) {
         println!("receive_tenure_artefacts");
 
         let ops_tx = self.burnchain_ops_tx.take().unwrap();
 
-        let burnchain_tip = self.burnchain_tip.clone().unwrap();
-        
+        // let burnchain_tip = self.burnchain_tip.clone().unwrap();
+        // let parent_block = self.last_sortitioned_block.clone().unwrap();
+
         if self.active_registered_key.is_some() {
             let registered_key = self.active_registered_key.clone().unwrap();
-            let sortitioned_block = self.last_sortitioned_block.clone().unwrap();
+            // let sortitioned_block = self.last_sortitioned_block.clone().unwrap();
 
             // let previous_seed = VRFSeed::from_proof(&anchored_block_from_ongoing_tenure.header.proof);
             // let new_proof = previous_seed
             // let vrf_proof = self.keychain.generate_proof(&registered_key.vrf_public_key, previous_seed.as_bytes()).unwrap();
-            let vrf_proof = self.keychain.generate_proof(&registered_key.vrf_public_key, sortitioned_block.sortition_hash.as_bytes()).unwrap();
+            let vrf_proof = self.keychain.generate_proof(&registered_key.vrf_public_key, parent_block.sortition_hash.as_bytes()).unwrap();
 
             let op = self.generate_block_commit_op(
                 anchored_block_from_ongoing_tenure.header.block_hash(),
                 1, // todo(ludo): fix
                 &registered_key, 
-                &sortitioned_block,
+                &parent_block.clone(),
                 VRFSeed::from_proof(&vrf_proof));
             println!("SUBMITTING OP: {:?}", op);
             ops_tx.send(op).unwrap();
         }
 
         // Naive implementation: we keep registering new keys
-        // let vrf_pk = self.keychain.rotate_vrf_keypair();
-        // let op = self.generate_leader_key_register_op(vrf_pk, burnchain_tip.consensus_hash); // todo(ludo): should we use the consensus hash from the burnchain tip, or last sortitioned block?
-        // ops_tx.send(op).unwrap();
+        let vrf_pk = self.keychain.rotate_vrf_keypair();
+        let op = self.generate_leader_key_register_op(vrf_pk, parent_block.consensus_hash); // todo(ludo): should we use the consensus hash from the burnchain tip, or last sortitioned block?
+        ops_tx.send(op).unwrap();
 
         self.burnchain_ops_tx = Some(ops_tx);
     }
@@ -583,7 +593,7 @@ impl <'a> LeaderTenure {
         println!("Initializing new tenure {:?}", last_sortitioned_block);
 
         let block_builder = match last_sortitioned_block.block_height {
-            1 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, &vrf_proof, &microblock_secret_key),
+            0 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, &vrf_proof, &microblock_secret_key),
             _ => StacksBlockBuilder::from_parent(1, &parent_block, &ratio, &vrf_proof, &microblock_secret_key)
         };
 
@@ -611,7 +621,7 @@ impl <'a> LeaderTenure {
         }
     }
 
-    pub fn run(&mut self) -> (Option<StacksBlock>, Vec<StacksMicroblock>, VRFSeed) {
+    pub fn run(&mut self) -> (Option<StacksBlock>, Vec<StacksMicroblock>, SortitionedBlock) {
 
         let mut chain_state = StacksChainState::open(false, 0x80000000, &self.config.path).unwrap();
 
@@ -631,12 +641,17 @@ impl <'a> LeaderTenure {
         //             &BlockHeaderHash([1u8; 32]))
         //     };
 
+        println!("BOOTSTRAPING TENURE {}", self.last_sortitioned_block.block_height);
+
         let mut clarity_tx = match self.last_sortitioned_block.block_height {
-            1 => chain_state.block_begin(
+            0 => {
+                println!("HERE");
+                chain_state.block_begin(
                 &BurnchainHeaderHash([0u8; 32]),
                 &BlockHeaderHash([0u8; 32]),
                 &BurnchainHeaderHash([1u8; 32]), 
-                &BlockHeaderHash([1u8; 32])),
+                &BlockHeaderHash([1u8; 32]))
+            },
             _ => chain_state.block_begin(
                 &self.last_sortitioned_block.parent_burn_header_hash, 
                 &self.parent_block.anchored_header.parent_block, 
@@ -691,8 +706,8 @@ impl <'a> LeaderTenure {
 
         // let mut clarity_tx = self.clarity_tx.take().unwrap();
 
-        println!("End tenure");
+        println!("End tenure -> {:?}", anchored_block);
 
-        (Some(anchored_block), vec![], self.vrf_seed.clone())
+        (Some(anchored_block), vec![], self.last_sortitioned_block.clone())
     }
 }

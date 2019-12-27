@@ -47,19 +47,67 @@ impl RunLoop {
             node.tear_up(burnchain_op_tx.clone(), ConsensusHash::empty());
         }
 
-        let (burnchain_block, ops, burn_db) = burnchain_block_rx.recv().unwrap();
+        let (genesis_block, ops, _) = burnchain_block_rx.recv().unwrap();
 
-        let mut bootstrap_chain = true;
+        println!("=======================================================");
+        println!("GENESIS EPOCH");
+        println!("BURNCHAIN: {:?} {:?} {:?}", genesis_block.block_height, genesis_block.burn_header_hash, genesis_block.parent_burn_header_hash);
+        println!("=======================================================");
+
+        for node in self.nodes.iter_mut() {
+            node.process_burnchain_block(&genesis_block, &ops);
+        }
+
+        let (burnchain_block_1, ops, _) = burnchain_block_rx.recv().unwrap();
+
+        println!("=======================================================");
+        println!("EPOCH #1 - Targeting Genesis");
+        println!("BURNCHAIN: {:?} {:?} {:?}", burnchain_block_1.block_height, burnchain_block_1.burn_header_hash, burnchain_block_1.parent_burn_header_hash);
+        println!("=======================================================");
+
+        for node in self.nodes.iter_mut() {
+            let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block_1, &ops);
+        }
+
+        let mut tenure_1 = self.nodes[0].initiate_genesis_tenure(&genesis_block).unwrap();
+
+        let artefacts_from_tenure_1 = tenure_1.run();
+
+        let (anchored_block_1, microblocks, parent_block_1) = artefacts_from_tenure_1.clone();
+        println!("ANCHORED_BLOCK: {:?}", anchored_block_1);
+        println!("PARENT_BLOCK: {:?}", parent_block_1);
+        self.nodes[0].receive_tenure_artefacts(anchored_block_1.unwrap(), parent_block_1.clone());
+
+        let (burnchain_block, ops, burn_db) = burnchain_block_rx.recv().unwrap();
         let mut burnchain_block = burnchain_block;
         let mut ops = ops;
         let mut burn_db = burn_db;
         let mut leader_tenure = None;
+        let mut last_sortitioned_block = None;
 
         for node in self.nodes.iter_mut() {
             let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block, &ops);
+        
+            if won_sortition {
+                // This node is in charge of the new tenure
+                let parent_block = match sortitioned_block {
+                    Some(parent_block) => parent_block,
+                    None => unreachable!()
+                };
+                last_sortitioned_block = Some(parent_block.clone());
+                leader_tenure = node.initiate_new_tenure(&parent_block);
+            } 
         }
 
-        leader_tenure = self.nodes[0].initiate_genesis_tenure(&burnchain_block);
+        for node in self.nodes.iter_mut() {
+            let (anchored_block, microblocks, parent_block) = artefacts_from_tenure_1.clone();
+
+            node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db);
+
+            break;
+        }
+
+
         // let artefacts_from_tenure = match leader_tenure {
         //     Some(mut tenure) => Some(tenure.run()),
         //     None => None
@@ -147,9 +195,9 @@ impl RunLoop {
             if artefacts_from_tenure.is_some() {
 
                 for node in self.nodes.iter_mut() {
-                    let (anchored_block, _, _) = artefacts_from_tenure.clone().unwrap();
+                    let (anchored_block, _, parent_block) = artefacts_from_tenure.clone().unwrap();
         
-                    node.receive_tenure_artefacts(anchored_block.unwrap());
+                    node.receive_tenure_artefacts(anchored_block.unwrap(), parent_block);
 
                     break; // todo(ludo): get rid of this.
                 }
@@ -181,9 +229,9 @@ impl RunLoop {
             if artefacts_from_tenure.is_some() {
 
                 for node in self.nodes.iter_mut() {
-                    let (anchored_block, microblocks, _) = artefacts_from_tenure.clone().unwrap();
+                    let (anchored_block, microblocks, parent_block) = artefacts_from_tenure.clone().unwrap();
         
-                    node.process_tenure(anchored_block.unwrap(), microblocks, burn_db);
+                    node.process_tenure(anchored_block.unwrap(), parent_block, microblocks, burn_db);
 
                     break; // todo(ludo): get rid of this.
                 }

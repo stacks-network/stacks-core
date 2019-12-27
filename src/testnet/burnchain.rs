@@ -49,6 +49,8 @@ impl BurnchainSimulator {
                 let mut db = burn_db.lock().unwrap();
                 BurnDB::get_first_block_snapshot(db.conn()).unwrap()
             };
+
+            block_tx.send((chain_tip.clone(), vec![], Arc::clone(&burn_db))).unwrap();    
                 
             loop {
                 thread::sleep(block_time);
