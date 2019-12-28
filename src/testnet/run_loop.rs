@@ -88,22 +88,21 @@ impl RunLoop {
         for node in self.nodes.iter_mut() {
             let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block, &ops);
         
-            if won_sortition {
-                // This node is in charge of the new tenure
-                let parent_block = match sortitioned_block {
-                    Some(parent_block) => parent_block,
-                    None => unreachable!()
-                };
-                last_sortitioned_block = Some(parent_block.clone());
-                leader_tenure = node.initiate_new_tenure(&parent_block);
-            } 
-        }
+            last_sortitioned_block = sortitioned_block.clone();
 
-        for node in self.nodes.iter_mut() {
-            let (anchored_block, microblocks, parent_block) = artefacts_from_tenure_1.clone();
+            let (anchored_block, microblocks, parent_sortitioned_block) = artefacts_from_tenure_1.clone();
 
             node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db);
 
+            if won_sortition {
+                // This node is in charge of the new tenure
+                let parent_block = last_sortitioned_block.clone().unwrap();
+                // match sortitioned_block {
+                //     Some(parent_block) => parent_block,
+                //     None => unreachable!()
+                // };
+                leader_tenure = node.initiate_new_tenure(&parent_block);
+            } 
             break;
         }
 
@@ -212,32 +211,65 @@ impl RunLoop {
     
             leader_tenure = None;
 
+            // for node in self.nodes.iter_mut() {
+
+            //     let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block, &ops);
+        
+            //     if won_sortition {
+            //         // This node is in charge of the new tenure
+            //         let parent_block = match sortitioned_block {
+            //             Some(parent_block) => parent_block,
+            //             None => unreachable!()
+            //         };
+            //         last_sortitioned_block = Some(parent_block.clone());
+            //         leader_tenure = node.initiate_new_tenure(&parent_block);
+            //     } 
+            // }
+
+            // if artefacts_from_tenure.is_some() {
+
+            //     for node in self.nodes.iter_mut() {
+            //         let (anchored_block, microblocks, parent_block) = artefacts_from_tenure.clone().unwrap();
+        
+            //         node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db);
+
+            //         break; // todo(ludo): get rid of this.
+            //     }
+            // } else {
+            //     println!("NO SORTITION");
+            // }
+
+
+
+
+
             for node in self.nodes.iter_mut() {
 
                 let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block, &ops);
+
+                if artefacts_from_tenure.is_none() {
+                    continue;
+                }
+
+                last_sortitioned_block = sortitioned_block;
+
+                let (anchored_block, microblocks, parent_block) = artefacts_from_tenure.clone().unwrap();
         
+                node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db);
+
                 if won_sortition {
                     // This node is in charge of the new tenure
-                    let parent_block = match sortitioned_block {
-                        Some(parent_block) => parent_block,
-                        None => unreachable!()
-                    };
+                    let parent_block = last_sortitioned_block.clone().unwrap();
+                    // match sortitioned_block {
+                    //     Some(parent_block) => parent_block,
+                    //     None => unreachable!()
+                    // };
                     leader_tenure = node.initiate_new_tenure(&parent_block);
                 } 
+
+                break; // todo(ludo): get rid of this.
             }
 
-            if artefacts_from_tenure.is_some() {
-
-                for node in self.nodes.iter_mut() {
-                    let (anchored_block, microblocks, parent_block) = artefacts_from_tenure.clone().unwrap();
-        
-                    node.process_tenure(anchored_block.unwrap(), parent_block, microblocks, burn_db);
-
-                    break; // todo(ludo): get rid of this.
-                }
-            } else {
-                println!("NO SORTITION");
-            }
 
             // let tenure_artefacts = {
                 

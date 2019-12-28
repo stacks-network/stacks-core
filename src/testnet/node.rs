@@ -206,6 +206,7 @@ impl Node {
     }
 
     pub fn initiate_new_tenure(&mut self, sortitioned_block: &SortitionedBlock) -> Option<LeaderTenure> {
+        println!("initiate_new_tenure()");
 
         let registered_key = match &self.active_registered_key {
             None => {
@@ -237,9 +238,12 @@ impl Node {
             }
         };
 
+        println!("INITIATING TENURE WITH ~~~~> {:?} {:?}", chain_tip, chain_tip.anchored_header.block_hash());
+
+
         let coinbase_tx = {
             let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
-            tx_auth.set_origin_nonce(0);
+            tx_auth.set_origin_nonce(self.nonce); // todo(ludo): fix nonce management
 
             let mut tx = StacksTransaction::new(
                 TransactionVersion::Testnet, 
@@ -263,6 +267,7 @@ impl Node {
             sortitioned_block.clone(),
             vrf_proof);
 
+        self.nonce += 1;
         Some(tenure)
     }
 
@@ -413,6 +418,8 @@ impl Node {
             println!("Updating chain_tip");
             println!("{:?}", chain_tip);
             println!("{:?}", new_chain_tip);
+            println!("~~~~> {:?}", new_chain_tip.anchored_header.block_hash());
+
             self.chain_tip = Some(new_chain_tip);
             println!("----------------------------------------------");
 
@@ -584,7 +591,7 @@ impl <'a> LeaderTenure {
         let now = time::Instant::now();
 
         let ratio = StacksWorkScore {
-            burn: 0, // todo(ludo): get burn from burnchain_tip.
+            burn: parent_block.anchored_header.total_work.burn + 1, // todo(ludo): get burn from burnchain_tip.
             work: parent_block.anchored_header.total_work.work + 1,
         };
 
@@ -653,12 +660,12 @@ impl <'a> LeaderTenure {
                 &BlockHeaderHash([1u8; 32]))
             },
             _ => chain_state.block_begin(
-                &self.last_sortitioned_block.parent_burn_header_hash, 
-                &self.parent_block.anchored_header.parent_block, 
-                // &BurnchainHeaderHash([1u8; 32]), 
-                // &BlockHeaderHash([1u8; 32])))
                 &self.last_sortitioned_block.burn_header_hash, 
-                &self.parent_block.anchored_header.block_hash()),
+                &self.parent_block.anchored_header.block_hash(), 
+                &BurnchainHeaderHash([1u8; 32]), 
+                &BlockHeaderHash([1u8; 32])),
+                // &self.last_sortitioned_block.burn_header_hash, 
+                // &self.parent_block.anchored_header.block_hash()),
         };
 
         println!("Running tenure");
@@ -681,11 +688,11 @@ impl <'a> LeaderTenure {
 
         // let res = StacksChainState::process_block_transactions(&mut clarity_tx, &anchored_block);
         // println!("===> {:?}", res);
-        b.epoch_finish(clarity_tx);
+        // b.epoch_finish(clarity_tx);
 
         // println!("#### OUTER AFTER COMMIT: {}", clarity_tx.get_root_hash());
 
-        // clarity_tx.rollback_block();
+        clarity_tx.rollback_block();
 
         // (anchored_block, vec![])
         // // "discover" this stacks block
