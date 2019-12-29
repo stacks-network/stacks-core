@@ -1,84 +1,93 @@
-use super::{Config, Node, BurnchainSimulator, SortitionedBlock};
+use super::{Config, Node, BurnchainSimulator};
 
-use std::sync::mpsc::Sender;
 use std::time;
 use std::thread;
 
-use chainstate::burn::{ConsensusHash, SortitionHash};
-use net::StacksMessageType;
+use chainstate::burn::{ConsensusHash};
 
+/// RunLoop is coordinating a simulated burnchain and some simulated nodes
+/// taking turns in producing blocks.
 pub struct RunLoop {
     config: Config,
     nodes: Vec<Node>,
-    nodes_txs: Vec<Sender<StacksMessageType>>
 }
 
 impl RunLoop {
 
+    /// Sets up a runloop and nodes, given a config.
     pub fn new(config: Config) -> Self {
-
-        // Build a vec of nodes based on the config
+        // Build a vec of nodes based on config
         let mut nodes = vec![]; 
-        let mut nodes_txs = vec![]; 
-        let mut confs = config.node_config.clone();
-        for conf in confs.drain(..) {
+        let mut nodes_confs = config.node_config.clone();
+        for conf in nodes_confs.drain(..) {
             let node = Node::new(conf, config.burnchain_block_time);
-            nodes_txs.push(node.tx.clone());
             nodes.push(node);
         }
 
         Self {
             config,
             nodes,
-            nodes_txs
         }
     }
 
+    /// Starts the testnet runloop.
+    /// 
+    /// This function will block by looping infinitely.
+    /// It will start the burnchain (separate thread), set-up a channel in
+    /// charge of coordinating the new blocks coming from the burnchain and 
+    /// the nodes, taking turns on tenures.  
     pub fn start(&mut self) {
 
-        // Initialize and start the burnchain
+        // Initialize and start the burnchain.
         let mut burnchain = BurnchainSimulator::new();
+
+        // Start the burnchain - happening on a separate thread. 
+        // Keep a mpsc::Receiver (burnchain_block_rx), used for receiving blocks, and
+        // a mpsc::Sender, cloned by each node and used for submitting ops (key registrations, 
+        // block commits) on the burnchain.
         let (burnchain_block_rx, burnchain_op_tx) = burnchain.start(&self.config);
 
-        // Tear-up each leader with the op_tx (mpsc::Sender<ops>) 
-        // returned by the burnchain, so that each leader can commit
-        // its ops independently.
+        // Tear-up each node with a mpsc::Sender channeling ops to the burnchain
         for node in self.nodes.iter_mut() {
             node.tear_up(burnchain_op_tx.clone(), ConsensusHash::empty());
         }
 
+        // Wait on the genesis block from the burnchain.
         let (genesis_block, ops, _) = burnchain_block_rx.recv().unwrap();
 
-        println!("=======================================================");
-        println!("GENESIS EPOCH");
-        println!("BURNCHAIN: {:?} {:?} {:?}", genesis_block.block_height, genesis_block.burn_header_hash, genesis_block.parent_burn_header_hash);
-        println!("=======================================================");
-
+        // Update each node with the genesis block.
         for node in self.nodes.iter_mut() {
             node.process_burnchain_block(&genesis_block, &ops);
         }
 
+        // When producing an anchored block, we need a block from the burnchain, and its parent.
+        // We'll wait on the next block from the burnchain for starting the bootstrap.
         let (burnchain_block_1, ops, _) = burnchain_block_rx.recv().unwrap();
 
-        println!("=======================================================");
-        println!("EPOCH #1 - Targeting Genesis");
-        println!("BURNCHAIN: {:?} {:?} {:?}", burnchain_block_1.block_height, burnchain_block_1.burn_header_hash, burnchain_block_1.parent_burn_header_hash);
-        println!("=======================================================");
-
+        // Update each node with this new block.
         for node in self.nodes.iter_mut() {
-            let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block_1, &ops);
+            node.process_burnchain_block(&burnchain_block_1, &ops);
         }
 
-        let mut tenure_1 = self.nodes[0].initiate_genesis_tenure(&genesis_block).unwrap();
+        // Bootstrap the chain: the first node (could be random) will start a new tenure,
+        // using SortitionHash::genesis for generating a VRF.
+        let mut first_tenure = self.nodes[0].initiate_genesis_tenure(&genesis_block).unwrap();
 
-        let artefacts_from_tenure_1 = tenure_1.run();
+        // Run the tenure, keep the artifacts
+        let artifacts_from_1st_tenure = first_tenure.run();
+        let (anchored_block_1, microblocks, parent_block_1) = artifacts_from_1st_tenure.clone();
 
-        let (anchored_block_1, microblocks, parent_block_1) = artefacts_from_tenure_1.clone();
-        println!("ANCHORED_BLOCK: {:?}", anchored_block_1);
-        println!("PARENT_BLOCK: {:?}", parent_block_1);
+        // Tenures are instantiating their own chainstate, so that nodes can keep some clean chainstates,
+        // and have the option of running multiple tenures concurrently and try different strategies.
+        // As a result, once the tenure ran and we have the artifacts (anchored_blocks, microblocks),
+        // we have the 1st node (leading) updating its chainstate with the artifacts from its tenure.
         self.nodes[0].receive_tenure_artefacts(anchored_block_1.unwrap(), parent_block_1.clone());
 
+        // Bootstraping phase is done. Waiting on the next block from the burnchain, that 
+        // will include a block commit op and consequently a sortition.
         let (burnchain_block, ops, burn_db) = burnchain_block_rx.recv().unwrap();
+        
+        // Declare and bind some mutable variables, that will be updated on each cycle.  
         let mut burnchain_block = burnchain_block;
         let mut ops = ops;
         let mut burn_db = burn_db;
@@ -86,241 +95,74 @@ impl RunLoop {
         let mut last_sortitioned_block = None;
 
         for node in self.nodes.iter_mut() {
+            // Have each node process the new block, that should include a sortition thanks to the
+            // 1st tenure.
             let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block, &ops);
-        
             last_sortitioned_block = sortitioned_block.clone();
 
-            let (anchored_block, microblocks, parent_sortitioned_block) = artefacts_from_tenure_1.clone();
+            let (anchored_block, microblocks, parent_sortitioned_block) = artifacts_from_1st_tenure.clone();
 
+            // Have each node process the previous tenure.
+            // We should have some additional checks here, and ensure that the previous artifacts are legit.
             node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db);
 
+            // If the node we're looping on won the sortition, initialize and configure the next tenure
             if won_sortition {
-                // This node is in charge of the new tenure
                 let parent_block = last_sortitioned_block.clone().unwrap();
-                // match sortitioned_block {
-                //     Some(parent_block) => parent_block,
-                //     None => unreachable!()
-                // };
                 leader_tenure = node.initiate_new_tenure(&parent_block);
             } 
+            // todo(ludo): get rid of this.
             break;
         }
 
-
-        // let artefacts_from_tenure = match leader_tenure {
-        //     Some(mut tenure) => Some(tenure.run()),
-        //     None => None
-        // };
-    
-        // if artefacts_from_tenure.is_some() {
-
-        //     for node in self.nodes.iter_mut() {
-        //         let (anchored_block, _) = artefacts_from_tenure.clone().unwrap();
-    
-        //         node.receive_tenure_artefacts(anchored_block.unwrap());
-
-        //         break; // todo(ludo): get rid of this.
-        //     }
-        // } else {
-        //     println!("NO SORTITION");
-        // }
-
-        // let (new_block, new_ops, new_db) = burnchain_block_rx.recv().unwrap();
-        // burnchain_block = new_block;
-        // ops = new_ops;
-        // burn_db = new_db;
-
-        // leader_tenure = None;
-
-        // for node in self.nodes.iter_mut() {
-
-        //     let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block, &ops);
-    
-        //     if won_sortition {
-        //         // This node is in charge of the new tenure
-        //         let parent_block = match sortitioned_block {
-        //             Some(parent_block) => parent_block,
-        //             None => unreachable!()
-        //         };
-        //         let tenure = node.initiate_new_tenure(&parent_block);
-        //         leader_tenure = Some(tenure);
-        //     } 
-        // }
-
-        // if artefacts_from_tenure.is_some() {
-
-        //     for node in self.nodes.iter_mut() {
-        //         let (anchored_block, microblocks) = artefacts_from_tenure.clone().unwrap();
-    
-        //         node.process_tenure(anchored_block.unwrap(), microblocks, burn_db);
-
-        //         break; // todo(ludo): get rid of this.
-        //     }
-        // } else {
-        //     println!("NO SORTITION");
-        // }
-
-
+        // Start the (infinite) runloop
         loop {
-            println!("=======================================================");
-            println!("NEW EPOCH");
-            println!("BURNCHAIN: {:?} {:?} {:?}", burnchain_block.block_height, burnchain_block.burn_header_hash, burnchain_block.parent_burn_header_hash);
-            // if leader_tenure.is_some() {
-            //     println!("{}", leader_tenure.unwrap());
-            // }
-            println!("=======================================================");
-    
-            // Wait for incoming block from the burnchain
-
-            // for each leader:
-                // process the block:
-                    // does the block include a sortition?
-                        // did i won sortition?
-                    // does the block include a registered key that I've submitted earlier?
-
-                // if sortition
-                    // get the blocks and latest microblocks from the previous leader (if was not me)
-                    // submit block_commit_op
-                    // if winner 
-                        // start tenure
-                        // dispatch artefacts to other nodes at T/2
-                        // keep building microblocks until block from burnchain arrives.
-
-            let artefacts_from_tenure = match leader_tenure {
+            // Run the last initialized tenure
+            let artifacts_from_tenure = match leader_tenure {
                 Some(mut tenure) => Some(tenure.run()),
                 None => None
             };
 
-            if artefacts_from_tenure.is_some() {
-
+            if artifacts_from_tenure.is_some() {
+                // Have each node receive artifacts from the current tenure
                 for node in self.nodes.iter_mut() {
-                    let (anchored_block, _, parent_block) = artefacts_from_tenure.clone().unwrap();
-        
-                    node.receive_tenure_artefacts(anchored_block.unwrap(), parent_block);
-
-                    break; // todo(ludo): get rid of this.
+                    let (anchored_block, _, parent_block) = artifacts_from_tenure.clone().unwrap();
+                    node.receive_tenure_artefacts(anchored_block.unwrap(), parent_block);                    
                 }
             } else {
                 println!("NO SORTITION");
             }
 
+            // Wait on the next block from the burnchain.
             let (new_block, new_ops, new_db) = burnchain_block_rx.recv().unwrap();
             burnchain_block = new_block;
             ops = new_ops;
             burn_db = new_db;
-    
             leader_tenure = None;
 
-            // for node in self.nodes.iter_mut() {
-
-            //     let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block, &ops);
-        
-            //     if won_sortition {
-            //         // This node is in charge of the new tenure
-            //         let parent_block = match sortitioned_block {
-            //             Some(parent_block) => parent_block,
-            //             None => unreachable!()
-            //         };
-            //         last_sortitioned_block = Some(parent_block.clone());
-            //         leader_tenure = node.initiate_new_tenure(&parent_block);
-            //     } 
-            // }
-
-            // if artefacts_from_tenure.is_some() {
-
-            //     for node in self.nodes.iter_mut() {
-            //         let (anchored_block, microblocks, parent_block) = artefacts_from_tenure.clone().unwrap();
-        
-            //         node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db);
-
-            //         break; // todo(ludo): get rid of this.
-            //     }
-            // } else {
-            //     println!("NO SORTITION");
-            // }
-
-
-
-
-
             for node in self.nodes.iter_mut() {
-
+                // Have each node process the new block, that can include, or not, a sortition.
                 let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block, &ops);
 
-                if artefacts_from_tenure.is_none() {
+                // Pass if we're missing the artifacts from the current tenure.
+                if artifacts_from_tenure.is_none() {
                     continue;
                 }
 
+                // Have each node process the previous tenure.
+                // We should have some additional checks here, and ensure that the previous artifacts are legit.
                 last_sortitioned_block = sortitioned_block;
-
-                let (anchored_block, microblocks, parent_block) = artefacts_from_tenure.clone().unwrap();
-        
+                let (anchored_block, microblocks, parent_block) = artifacts_from_tenure.clone().unwrap();
                 node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db);
 
+                // If the node we're looping on won the sortition, initialize and configure the next tenure
                 if won_sortition {
-                    // This node is in charge of the new tenure
                     let parent_block = last_sortitioned_block.clone().unwrap();
-                    // match sortitioned_block {
-                    //     Some(parent_block) => parent_block,
-                    //     None => unreachable!()
-                    // };
                     leader_tenure = node.initiate_new_tenure(&parent_block);
                 } 
-
-                break; // todo(ludo): get rid of this.
+                // todo(ludo): get rid of this.
+                break;
             }
-
-
-            // let tenure_artefacts = {
-                
-            //     let mut leader_tenure = None;
-
-            //     // Dispatch incoming block to the nodes            
-            //     for node in self.nodes.iter_mut() {
-    
-            //         let won_sortition = node.process_burnchain_block(&burnchain_block, &ops);
-    
-            //         // todo(ludo): refactor (at least naming)
-            //         let parent_block = match (won_sortition, bootstrap_chain) {
-            //             (true, _) => node.last_sortitioned_block.clone().unwrap(),
-            //             (false, true) => {
-            //                 bootstrap_chain = false;
-            //                 SortitionedBlock::genesis()
-            //             },
-            //             (false, false) => { continue; },
-            //         };
-
-
-            //         println!("About to initiate new tenure with {:?}", parent_block);
-            //         // Initiate and detach a new tenure targeting the initial sortition hash
-            //         leader_tenure = Some(node.initiate_new_tenure(parent_block));
-            //     }
-    
-            //     if leader_tenure.is_none() {
-            //         continue;
-            //     }
-    
-            //     // run tenure
-            //     // get blocks + micro-blocks
-            //     leader_tenure.unwrap().run()
-            // };
-
-            // // Dispatch tenure artefacts (anchored_block + microblocks) to the other nodes            
-            // for node in self.nodes.iter_mut() {
-            //     let (anchored_block, microblocks) = tenure_artefacts.clone();
-
-            //     node.process_tenure(anchored_block, microblocks);
-
-            //     node.maintain_leadership_eligibility();
-            // }
         }
-    }
-
-    pub fn bootstrap(&mut self) {
-
-    }
-
-    pub fn tear_down(&self) {
-        // todo(ludo): Clean dirs
     }
 }

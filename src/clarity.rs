@@ -577,7 +577,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 .collect();
 
             // println!("===> {:?}", arguments);
-            let result = in_block(marf_kv, |mut marf| {
+            let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = ClarityDatabase::new(Box::new(&mut marf));
                     let mut vm_env = OwnedEnvironment::new(db);
@@ -617,7 +617,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let vm_filename = &args[2];
 
             let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
-            in_block(marf_kv, |mut kv| {
+            in_block(vm_filename, marf_kv, |mut kv| {
                 { 
                     let mut db = clarity_db(&mut kv);
                     db.begin();
@@ -638,7 +638,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let vm_filename = &args[1];
 
             let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
-            in_block(marf_kv, |mut kv| {
+            in_block(vm_filename, marf_kv, |mut kv| {
                 { 
                     let mut db = clarity_db(&mut kv);
                     db.begin();

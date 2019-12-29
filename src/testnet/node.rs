@@ -238,9 +238,6 @@ impl Node {
             }
         };
 
-        println!("INITIATING TENURE WITH ~~~~> {:?} {:?}", chain_tip, chain_tip.anchored_header.block_hash());
-
-
         let coinbase_tx = {
             let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
             tx_auth.set_origin_nonce(self.nonce); // todo(ludo): fix nonce management
@@ -283,152 +280,30 @@ impl Node {
                 _ => unreachable!()
             }
         };
-        println!("process_tenure: {:?} - {:?}", anchored_block, chain_tip);
 
-        println!("SORTITIONED BLOCK: {:?}", parent_block);
+        {
+            let mut db = burn_db.lock().unwrap();
 
-        // self.chain_state.store_staging_block(
-        //     &parent_block.burn_header_hash, 
-        //     &anchored_block, 
-        //     &parent_block.parent_burn_header_hash, 
-        //     1, 
-        //     parent_block.total_burn).unwrap();
+            let mut tx = db.tx_begin().unwrap();
 
-            // todo(ludo): verify that this block was signed by the miner of the ancestor
-            // anchored block that this microblock builds off of, + ordering?
-            // for microblock in microblocks.iter() {
-            //     self.chain_state.store_staging_microblock(
-            //         &parent_block.burn_header_hash, 
-            //         &anchored_block.block_hash(),
-            //         &microblock).unwrap();    
-            // }
+            let res = self.chain_state.preprocess_anchored_block(
+                &mut tx, 
+                &parent_block.burn_header_hash,
+                &anchored_block, 
+                &parent_block.parent_burn_header_hash).unwrap();
+        }
 
-            // let current_chain_tip = match self.chain_tip {
-            //     Some(ref chain_tip) => chain_tip.clone(),
-            //     None => StacksHeaderInfo::genesis(),
-            // };
+        let new_chain_tip = {
+            let db = burn_db.lock().unwrap();
+            let res = self.chain_state.process_blocks(db.conn(), 1).unwrap();
+            println!("~~~~> {:?}", res);
+            res.first().unwrap().0.as_ref().unwrap().clone()
+        };
 
-            // chain_tip_burn_header_hash: &BurnchainHeaderHash, 
+        self.chain_tip = Some(new_chain_tip);
 
-    /// Process the next pre-processed staging block.
-    /// We've already processed parent_chain_tip.  chain_tip refers to a block we have _not_
-    /// processed yet.
-    /// Returns a StacksHeaderInfo with the microblock stream and chain state index root hash filled in, corresponding to the next block to process.
-    /// Returns None if we're out of blocks to process.
-    // pub fn append_block(&mut self, 
-    //     parent_chain_tip: &StacksHeaderInfo, 
-    //     chain_tip_burn_header_hash: &BurnchainHeaderHash, 
-    //     block: &StacksBlock, 
-    //     microblocks: &Vec<StacksMicroblock>, 
-    //     burnchain_commit_burn: u64, 
-    //     burnchain_sortition_burn: u64, 
-    //     user_burns: &Vec<StagingUserBurnSupport>) -> Result<StacksHeaderInfo, Error>
-
-
-//     #[derive(Debug, Clone, PartialEq)]
-// pub struct StacksBlockHeader {
-//     pub version: u8,
-//     pub total_work: StacksWorkScore,            // NOTE: this is the work done on the chain tip this block builds on (i.e. take this from the parent)
-//     pub proof: VRFProof,
-//     pub parent_block: BlockHeaderHash,          // NOTE: even though this is also present in the burn chain, we need this here for super-light clients that don't even have burn chain headers
-//     pub parent_microblock: BlockHeaderHash,
-//     pub parent_microblock_sequence: u16,
-//     pub tx_merkle_root: Sha512Trunc256Sum,
-//     pub state_index_root: TrieHash,
-//     pub microblock_pubkey_hash: Hash160,        // we'll get the public key back from the first signature (note that this is the Hash160 of the _compressed_ public key)
-// }
-
-// /// A block that contains blockchain-anchored data 
-// /// (corresponding to a LeaderBlockCommitOp)
-// #[derive(Debug, Clone, PartialEq)]
-// pub struct StacksBlock {
-//     pub header: StacksBlockHeader,
-//     pub txs: Vec<StacksTransaction>
-// }
-
-
-        // let header = StacksHeaderInfo {
-        //     anchored_header: anchored_block.header,
-        //     microblock_tail: None,
-        //     block_height: anchored_block.header.,
-        //     index_root: anchored_block.header.state_index_root,
-        //     burn_header_hash: BurnchainHeaderHash
-        // };
-    
-        // pub fn process_blocks(&mut self, burndb_conn: &DBConn, max_blocks: usize) -> Result<Vec<(Option<StacksHeaderInfo>, Option<TransactionPayload>)>, Error> {
-
-            // pub fn preprocess_anchored_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<bool, Error> {
-
-                // pub fn preprocess_anchored_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<bool, Error> {
-                //     // already in queue or already processed?
-                //     if self.has_stored_block(burn_header_hash, &block.block_hash())? || self.has_staging_block(burn_header_hash, &block.block_hash())? {
-                //         return Ok(false);
-                //     }
-
-
-            {
-                let mut db = burn_db.lock().unwrap();
-
-                let mut tx = db.tx_begin().unwrap();
-
-                let res = self.chain_state.preprocess_anchored_block(
-                    &mut tx, 
-                    &parent_block.burn_header_hash,
-                    &anchored_block, 
-                    &parent_block.parent_burn_header_hash).unwrap();
-            }
-
-        // // "discover" this stacks microblock stream
-        // for mblock in stacks_microblocks.iter() {
-        //     test_debug!("Preprocess Stacks microblock {}-{} (seq {})", &block_hash.to_hex(), mblock.block_hash().to_hex(), mblock.header.sequence);
-        //     let res = node.chainstate.preprocess_streamed_microblock(&mut tx, &commit_snapshot.burn_header_hash, &stacks_block.block_hash(), mblock).unwrap();
-        //     if !res {
-        //         return Some(res)
-        //     }
-        // }
-        
-
-        // self.chain_state.store_staging_block(
-        //     &parent_block.burn_header_hash, 
-        //     &anchored_block, 
-        //     &parent_block.parent_burn_header_hash, 
-        //     1, 
-        //     parent_block.total_burn).unwrap();
-
-
-
-        // let (next_tip_opt, next_microblock_poison_opt) = self.chain_state.process_next_staging_block(&best_chain_tips)?;
-            let new_chain_tip = {
-                let db = burn_db.lock().unwrap();
-                let res = self.chain_state.process_blocks(db.conn(), 1).unwrap();
-                println!("~~~~> {:?}", res);
-                res.first().unwrap().0.as_ref().unwrap().clone()
-            };
-            // let new_chain_tip = self.chain_state.append_block( 
-            //     &current_chain_tip, 
-            //     &parent_block.burn_header_hash, 
-            //     &anchored_block, 
-            //     &microblocks, 
-            //     1, 
-            //     parent_block.total_burn, 
-            //     &vec![]).unwrap();
-
-
-            println!("----------------------------------------------");
-            println!("Updating chain_tip");
-            println!("{:?}", chain_tip);
-            println!("{:?}", new_chain_tip);
-            println!("~~~~> {:?}", new_chain_tip.anchored_header.block_hash());
-
-            self.chain_tip = Some(new_chain_tip);
-            println!("----------------------------------------------");
-
-            self.bootstraping_chain = false;
-        
-        // Update self.chain_tip = Some(...);
+        self.bootstraping_chain = false;    
     }
-
-    // pub fn process_tenure(&mut self, anchored_block: StacksBlock, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
 
     pub fn receive_tenure_artefacts(&mut self, anchored_block_from_ongoing_tenure: StacksBlock, parent_block: SortitionedBlock) {
         println!("receive_tenure_artefacts");
@@ -555,7 +430,6 @@ impl Node {
 }
 
 pub struct LeaderTenure {
-// pub struct LeaderTenure {
     average_block_time: u64,
     pub block_builder: StacksBlockBuilder,
     burnchain_ops_tx: Sender<BlockstackOperationType>,
@@ -576,7 +450,6 @@ impl fmt::Display for LeaderTenure {
 }
 
 impl <'a> LeaderTenure {
-// impl LeaderTenure {
 
     pub fn new(parent_block: StacksHeaderInfo, 
                average_block_time: u64,
@@ -594,8 +467,6 @@ impl <'a> LeaderTenure {
             burn: parent_block.anchored_header.total_work.burn + 1, // todo(ludo): get burn from burnchain_tip.
             work: parent_block.anchored_header.total_work.work + 1,
         };
-
-        // last_sortitioned_block.sortition_hash.to_uint256() == 0
 
         println!("Initializing new tenure {:?}", last_sortitioned_block);
 
@@ -620,35 +491,15 @@ impl <'a> LeaderTenure {
 
     pub fn handle_txs(&mut self, clarity_tx: &mut ClarityTx<'a>, txs: Vec<StacksTransaction>) {
         for tx in txs {
-            // println!("#### PRE-TX: {:?}", clarity_tx.get_root_hash());
 
             self.block_builder.try_mine_tx(clarity_tx, &tx).unwrap();
     
-            // println!("#### POST-TX: {:?}", clarity_tx.get_root_hash());    
         }
     }
 
     pub fn run(&mut self) -> (Option<StacksBlock>, Vec<StacksMicroblock>, SortitionedBlock) {
 
         let mut chain_state = StacksChainState::open(false, 0x80000000, &self.config.path).unwrap();
-
-        // let mut clarity_tx = if self.last_sortitioned_block.block_height == 1 {
-        //     chain_state.block_begin(
-        //             &self.last_sortitioned_block.parent_burn_header_hash, 
-        //             &self.parent_block.anchored_header.parent_block, 
-        //             // &BurnchainHeaderHash([1u8; 32]), 
-        //             // &BlockHeaderHash([1u8; 32])))
-        //             &self.last_sortitioned_block.burn_header_hash, 
-        //             &self.parent_block.anchored_header.block_hash())
-        //     } else {
-        //         chain_state.block_begin(
-        //             &BurnchainHeaderHash([0u8; 32]),
-        //             &BlockHeaderHash([0u8; 32]),
-        //             &BurnchainHeaderHash([1u8; 32]), 
-        //             &BlockHeaderHash([1u8; 32]))
-        //     };
-
-        println!("BOOTSTRAPING TENURE {}", self.last_sortitioned_block.block_height);
 
         let mut clarity_tx = match self.last_sortitioned_block.block_height {
             0 => {
@@ -664,8 +515,6 @@ impl <'a> LeaderTenure {
                 &self.parent_block.anchored_header.block_hash(), 
                 &BurnchainHeaderHash([1u8; 32]), 
                 &BlockHeaderHash([1u8; 32])),
-                // &self.last_sortitioned_block.burn_header_hash, 
-                // &self.parent_block.anchored_header.block_hash()),
         };
 
         println!("Running tenure");
@@ -681,37 +530,10 @@ impl <'a> LeaderTenure {
             thread::sleep(mempool_poll_interval);
         }
 
-        // println!("#### OUTER BEFORE COMMIT: {:?}", clarity_tx.get_root_hash());
-
         let mut b = self.block_builder.clone();
         let anchored_block = self.block_builder.mine_anchored_block(&mut clarity_tx);
 
-        // let res = StacksChainState::process_block_transactions(&mut clarity_tx, &anchored_block);
-        // println!("===> {:?}", res);
-        // b.epoch_finish(clarity_tx);
-
-        // println!("#### OUTER AFTER COMMIT: {}", clarity_tx.get_root_hash());
-
         clarity_tx.rollback_block();
-
-        // (anchored_block, vec![])
-        // // "discover" this stacks block
-        // let res = node.chainstate.preprocess_anchored_block(&mut tx, &commit_snapshot.burn_header_hash, &stacks_block, &parent_block_burn_header_hash).unwrap();
-        // if !res {
-        //     return Some(res)
-        // }
-
-        // // "discover" this stacks microblock stream
-        // for mblock in stacks_microblocks.iter() {
-        //     let res = node.chainstate.preprocess_streamed_microblock(&mut tx, &commit_snapshot.burn_header_hash, &stacks_block.block_hash(), mblock).unwrap();
-        //     if !res {
-        //         return Some(res)
-        //     }
-        // }
-
-        // Should broadcast artefacts
-
-        // let mut clarity_tx = self.clarity_tx.take().unwrap();
 
         println!("End tenure -> {:?}", anchored_block);
 
