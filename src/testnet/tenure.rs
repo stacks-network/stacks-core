@@ -1,21 +1,18 @@
 use super::{MemPool, MemPoolFS, NodeConfig};
 use super::node::{SortitionedBlock};
 
-use std::sync::mpsc::{Sender};
 use std::thread;
 use std::time;
 
 use burnchains::{BurnchainHeaderHash, Txid};
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
 use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
-use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use util::vrf::{VRFProof};
 
 pub struct LeaderTenure {
     average_block_time: u64,
     pub block_builder: StacksBlockBuilder,
-    burnchain_ops_tx: Sender<BlockstackOperationType>,
     coinbase_tx: StacksTransaction,
     config: NodeConfig,
     pub last_sortitioned_block: SortitionedBlock,
@@ -29,7 +26,6 @@ impl <'a> LeaderTenure {
 
     pub fn new(parent_block: StacksHeaderInfo, 
                average_block_time: u64,
-               burnchain_ops_tx: Sender<BlockstackOperationType>,
                coinbase_tx: StacksTransaction,
                config: NodeConfig,
                mem_pool: MemPoolFS,
@@ -52,7 +48,6 @@ impl <'a> LeaderTenure {
         Self {
             average_block_time,
             block_builder,
-            burnchain_ops_tx,
             coinbase_tx,
             config,
             last_sortitioned_block,

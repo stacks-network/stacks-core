@@ -258,7 +258,6 @@ impl Node {
         let mut tenure = LeaderTenure::new(
             chain_tip, 
             self.average_block_time,
-            self.burnchain_ops_tx.clone().unwrap(),
             coinbase_tx,
             self.config.clone(),
             self.mem_pool.clone(),
