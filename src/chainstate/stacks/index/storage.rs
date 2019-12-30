@@ -1306,7 +1306,6 @@ impl TrieFileStorage {
         // TODO: this needs to be more robust.  Also fsync the parent directory itself, before and
         // after.  Turns out rename(2) isn't crash-consistent, and turns out syscalls can get
         // reordered.
-        debug!("FINAL_BHH {:?}", final_bhh);
         if let Some((ref bhh, ref mut trie_ram)) = self.last_extended.take() {
             let block_path_tmp = TrieFileStorage::block_path_tmp(&self.dir_path, bhh);
             let (block_path, real_bhh) = match final_bhh {
@@ -1314,7 +1313,7 @@ impl TrieFileStorage {
                     if *real_bhh != *bhh {
                         self.block_retarget(bhh, real_bhh)?;
                         debug!("{:?}", self.block_map);
-                        // assert_eq!(self.block_map.find_id(real_bhh), Some(trie_ram.identifier));
+                        assert_eq!(self.block_map.find_id(real_bhh), Some(trie_ram.identifier));
                         trie_ram.identifier = self.block_map.find_id(real_bhh).expect("FATAL: no idenifier for new block hash");
                     }
                     (self.cached_block_path(real_bhh), real_bhh.clone())
