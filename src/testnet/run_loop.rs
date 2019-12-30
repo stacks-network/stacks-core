@@ -100,7 +100,7 @@ impl RunLoop {
             let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block, &ops);
             last_sortitioned_block = sortitioned_block.clone();
 
-            let (anchored_block, microblocks, parent_sortitioned_block) = artifacts_from_1st_tenure.clone();
+            let (anchored_block, microblocks, _) = artifacts_from_1st_tenure.clone();
 
             // Have each node process the previous tenure.
             // We should have some additional checks here, and ensure that the previous artifacts are legit.
