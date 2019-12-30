@@ -12,12 +12,12 @@ use util::vrf::{VRFProof};
 
 pub struct LeaderTenure {
     average_block_time: u64,
-    pub block_builder: StacksBlockBuilder,
+    block_builder: StacksBlockBuilder,
     coinbase_tx: StacksTransaction,
     config: NodeConfig,
-    pub last_sortitioned_block: SortitionedBlock,
+    last_sortitioned_block: SortitionedBlock,
     mem_pool: MemPoolFS,
-    pub parent_block: StacksHeaderInfo,
+    parent_block: StacksHeaderInfo,
     started_at: std::time::Instant,
     vrf_seed: VRFSeed,
 }
