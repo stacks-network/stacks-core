@@ -230,7 +230,7 @@ impl StacksBlockBuilder {
         let parent_header_hash = self.header.parent_block.clone();
         
         // apply all known parent microblocks before beginning our tenure 
-        let parent_microblocks = match chainstate.load_staging_microblock_stream(&parent_burn_header_hash, &parent_header_hash, u16::max_value())? {
+        let parent_microblocks = match StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &parent_burn_header_hash, &parent_header_hash, u16::max_value())? {
             Some(mblocks) => mblocks,
             None => vec![]
         };
@@ -295,6 +295,7 @@ pub mod test {
     use std::path::{Path, PathBuf};
 
     use std::collections::HashMap;
+    use std::collections::HashSet;
     use std::collections::VecDeque;
     use address::*;
     use chainstate::stacks::*;
@@ -310,6 +311,10 @@ pub mod test {
     use util::vrf::*;
 
     use vm::types::*;
+
+    use rand::Rng;
+    use rand::thread_rng;
+    use rand::seq::SliceRandom;
 
     pub fn path_join(dir: &str, path: &str) -> String {
         // force path to be relative
@@ -358,6 +363,142 @@ pub mod test {
             }
         }
         Ok(())
+    }
+
+    // one point per round
+    pub struct TestMinerTracePoint {
+        pub fork_snapshots: HashMap<usize, BlockSnapshot>,  // map miner ID to snapshot
+        pub stacks_blocks: HashMap<usize, StacksBlock>,     // map miner ID to stacks block 
+        pub microblocks: HashMap<usize, Vec<StacksMicroblock>>,  // map miner ID to microblocks
+        pub block_commits: HashMap<usize, LeaderBlockCommitOp>,  // map miner ID to block commit
+        pub miner_node_map: HashMap<usize, String>,              // map miner ID to the node it worked on
+    }
+
+    impl TestMinerTracePoint {
+        pub fn new() -> TestMinerTracePoint {
+            TestMinerTracePoint {
+                fork_snapshots: HashMap::new(),
+                stacks_blocks: HashMap::new(),
+                microblocks: HashMap::new(),
+                block_commits: HashMap::new(),
+                miner_node_map: HashMap::new()
+            }
+        }
+
+        pub fn add(&mut self, miner_id: usize, node_name: String, fork_snapshot: BlockSnapshot, stacks_block: StacksBlock, microblocks: Vec<StacksMicroblock>, block_commit: LeaderBlockCommitOp) -> () {
+            self.fork_snapshots.insert(miner_id, fork_snapshot);
+            self.stacks_blocks.insert(miner_id, stacks_block);
+            self.microblocks.insert(miner_id, microblocks);
+            self.block_commits.insert(miner_id, block_commit);
+            self.miner_node_map.insert(miner_id, node_name);
+        }
+
+        pub fn get_block_snapshot(&self, miner_id: usize) -> Option<BlockSnapshot> {
+            self.fork_snapshots.get(&miner_id).cloned()
+        }
+
+        pub fn get_stacks_block(&self, miner_id: usize) -> Option<StacksBlock> {
+            self.stacks_blocks.get(&miner_id).cloned()
+        }
+        
+        pub fn get_microblocks(&self, miner_id: usize) -> Option<Vec<StacksMicroblock>> {
+            self.microblocks.get(&miner_id).cloned()
+        }
+
+        pub fn get_block_commit(&self, miner_id: usize) -> Option<LeaderBlockCommitOp> {
+            self.block_commits.get(&miner_id).cloned()
+        }
+
+        pub fn get_node_name(&self, miner_id: usize) -> Option<String> {
+            self.miner_node_map.get(&miner_id).cloned()
+        }
+
+        pub fn get_miner_ids(&self) -> Vec<usize> {
+            let mut miner_ids = HashSet::new();
+            for miner_id in self.fork_snapshots.keys() {
+                miner_ids.insert(*miner_id);
+            }
+            for miner_id in self.stacks_blocks.keys() {
+                miner_ids.insert(*miner_id);
+            }
+            for miner_id in self.microblocks.keys() {
+                miner_ids.insert(*miner_id);
+            }
+            for miner_id in self.block_commits.keys() {
+                miner_ids.insert(*miner_id);
+            }
+            let mut ret = vec![];
+            for miner_id in miner_ids.iter() {
+                ret.push(*miner_id);
+            }
+            ret
+        }
+    }
+
+    pub struct TestMinerTrace {
+        pub points: Vec<TestMinerTracePoint>,
+        pub burn_node: TestBurnchainNode,
+        pub miners: Vec<TestMiner>,
+    }
+
+    impl TestMinerTrace {
+        pub fn new(burn_node: TestBurnchainNode, miners: Vec<TestMiner>, points: Vec<TestMinerTracePoint>) -> TestMinerTrace {
+            TestMinerTrace {
+                points: points,
+                burn_node: burn_node,
+                miners: miners,
+            }
+        }
+
+        /// how many blocks represented here?
+        pub fn get_num_blocks(&self) -> usize {
+            let mut num_blocks = 0;
+            for p in self.points.iter() {
+                for miner_id in p.stacks_blocks.keys() {
+                    if p.stacks_blocks.get(miner_id).is_some() {
+                        num_blocks += 1;
+                    }
+                }
+            }
+            num_blocks
+        }
+        
+        /// how many sortitions represented here?
+        pub fn get_num_sortitions(&self) -> usize {
+            let mut num_sortitions = 0;
+            for p in self.points.iter() {
+                for miner_id in p.fork_snapshots.keys() {
+                    if p.fork_snapshots.get(miner_id).is_some() {
+                        num_sortitions += 1;
+                    }
+                }
+            }
+            num_sortitions
+        }
+
+        /// how many rounds did this trace go for?
+        pub fn rounds(&self) -> usize {
+            self.points.len()
+        }
+
+        /// what are the chainstate directories?
+        pub fn get_test_names(&self) -> Vec<String> {
+            let mut all_test_names = HashSet::new();
+            for p in self.points.iter() {
+                for miner_id in p.miner_node_map.keys() {
+                    if let Some(ref test_name) = p.miner_node_map.get(miner_id) {
+                        if !all_test_names.contains(test_name) {
+                            all_test_names.insert(test_name.clone());
+                        }
+                    }
+                }
+            }
+            let mut ret = vec![];
+            for name in all_test_names.drain() {
+                ret.push(name.to_owned());
+            }
+            ret
+        }
     }
 
     pub struct TestStacksNode {
@@ -698,7 +839,7 @@ pub mod test {
 
     /// Simplest end-to-end test: create 1 fork of N Stacks epochs, mined on 1 burn chain fork,
     /// all from the same miner.
-    fn mine_stacks_blocks_1_fork_1_miner_1_burnchain<F>(test_name: &String, rounds: usize, mut block_builder: F) -> () 
+    fn mine_stacks_blocks_1_fork_1_miner_1_burnchain<F>(test_name: &String, rounds: usize, mut block_builder: F) -> TestMinerTrace
     where
         F: FnMut(&mut ClarityTx, &mut StacksBlockBuilder, &mut TestMiner, usize, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>)
     {
@@ -721,7 +862,7 @@ pub mod test {
         fork.append_block(first_burn_block);
         burn_node.mine_fork(&mut fork);
 
-        let last_microblocks : Vec<StacksMicroblock> = vec![];
+        let mut miner_trace = vec![];
 
         // next, build up some stacks blocks
         for i in 0..rounds {
@@ -782,11 +923,17 @@ pub mod test {
 
             // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
             assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &chain_tip.anchored_header));
+
+            let mut next_miner_trace = TestMinerTracePoint::new();
+            next_miner_trace.add(miner.id, full_test_name.clone(), fork_snapshot, stacks_block, microblocks, block_commit_op);
+            miner_trace.push(next_miner_trace);
         }
+
+        TestMinerTrace::new(burn_node, vec![miner], miner_trace)
     }
 
     /// one miner begins a chain, and another miner joins it in the same fork at rounds/2.
-    fn mine_stacks_blocks_1_fork_2_miners_1_burnchain<F>(test_name: &String, rounds: usize, mut miner_1_block_builder: F, mut miner_2_block_builder: F) -> () 
+    fn mine_stacks_blocks_1_fork_2_miners_1_burnchain<F>(test_name: &String, rounds: usize, mut miner_1_block_builder: F, mut miner_2_block_builder: F) -> TestMinerTrace 
     where
         F: FnMut(&mut ClarityTx, &mut StacksBlockBuilder, &mut TestMiner, usize, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>)
     {
@@ -812,6 +959,8 @@ pub mod test {
 
         fork.append_block(first_burn_block);
         burn_node.mine_fork(&mut fork);
+        
+        let mut miner_trace = vec![];
 
         // next, build up some stacks blocks
         for i in 0..rounds/2 {
@@ -876,6 +1025,10 @@ pub mod test {
             assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &chain_tip.anchored_header));
 
             sortition_winners.push(miner_1.origin_address().unwrap());
+
+            let mut next_miner_trace = TestMinerTracePoint::new();
+            next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot, stacks_block, microblocks, block_commit_op);
+            miner_trace.push(next_miner_trace);
         }
 
         // miner 2 begins mining
@@ -996,12 +1149,15 @@ pub mod test {
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
             assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
             
+            let mut next_miner_trace = TestMinerTracePoint::new();
             if fork_snapshot.winning_stacks_block_hash == stacks_block_1.block_hash() {
                 test_debug!("\n\nMiner 1 ({}) won sortition\n", miner_1.origin_address().unwrap().to_string());
 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_1.header));
                 sortition_winners.push(miner_1.origin_address().unwrap());
+            
+                next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot, stacks_block_1, microblocks_1, block_commit_op_1);
             }
             else {
                 test_debug!("\n\nMiner 2 ({}) won sortition\n", miner_2.origin_address().unwrap().to_string());
@@ -1009,14 +1165,20 @@ pub mod test {
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_2.header));
                 sortition_winners.push(miner_2.origin_address().unwrap());
+            
+                next_miner_trace.add(miner_2.id, full_test_name.clone(), fork_snapshot, stacks_block_2, microblocks_2, block_commit_op_2);
             }
+
+            miner_trace.push(next_miner_trace);
         }
+
+        TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
     }
 
     /// two miners begin working on the same stacks chain, and then the stacks chain forks
     /// (resulting in two chainstates).  The burnchain is unaffected.  One miner continues on one
     /// chainstate, and the other continues on the other chainstate.  Fork happens on rounds/2
-    fn mine_stacks_blocks_2_forks_2_miners_1_burnchain<F>(test_name: &String, rounds: usize, mut miner_1_block_builder: F, mut miner_2_block_builder: F) -> () 
+    fn mine_stacks_blocks_2_forks_2_miners_1_burnchain<F>(test_name: &String, rounds: usize, mut miner_1_block_builder: F, mut miner_2_block_builder: F) -> TestMinerTrace 
     where
         F: FnMut(&mut ClarityTx, &mut StacksBlockBuilder, &mut TestMiner, usize, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>)
     {
@@ -1043,6 +1205,8 @@ pub mod test {
 
         fork.append_block(first_burn_block);
         burn_node.mine_fork(&mut fork);
+        
+        let mut miner_trace = vec![];
         
         // miner 1 and 2 cooperate to build a shared fork
         for i in 0..rounds/2 {
@@ -1170,12 +1334,15 @@ pub mod test {
 
             let chain_tip = chain_tip_opt.unwrap();
 
+            let mut next_miner_trace = TestMinerTracePoint::new();
             if fork_snapshot.winning_stacks_block_hash == stacks_block_1.block_hash() {
                 test_debug!("\n\nMiner 1 ({}) won sortition\n", miner_1.origin_address().unwrap().to_string());
 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_1.header));
                 sortition_winners.push(miner_1.origin_address().unwrap());
+            
+                next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot, stacks_block_1, microblocks_1, block_commit_op_1);
             }
             else {
                 test_debug!("\n\nMiner 2 ({}) won sortition\n", miner_2.origin_address().unwrap().to_string());
@@ -1183,7 +1350,11 @@ pub mod test {
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_2.header));
                 sortition_winners.push(miner_2.origin_address().unwrap());
+            
+                next_miner_trace.add(miner_2.id, full_test_name.clone(), fork_snapshot, stacks_block_2, microblocks_2, block_commit_op_2);
             }
+
+            miner_trace.push(next_miner_trace);
         }
 
         test_debug!("\n\nMiner 1 and Miner 2 now separate\n\n");
@@ -1358,12 +1529,15 @@ pub mod test {
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
             assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
             
+            let mut next_miner_trace = TestMinerTracePoint::new();
             if fork_snapshot.winning_stacks_block_hash == stacks_block_1.block_hash() {
                 test_debug!("\n\nMiner 1 ({}) won sortition\n", miner_1.origin_address().unwrap().to_string());
 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_1.header));
                 sortition_winners_1.push(miner_1.origin_address().unwrap());
+            
+                next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot, stacks_block_1, microblocks_1, block_commit_op_1);
             }
             else {
                 test_debug!("\n\nMiner 2 ({}) won sortition\n", miner_2.origin_address().unwrap().to_string());
@@ -1371,13 +1545,19 @@ pub mod test {
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node_2.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_2.header));
                 sortition_winners_2.push(miner_2.origin_address().unwrap());
+            
+                next_miner_trace.add(miner_2.id, full_test_name_2.clone(), fork_snapshot, stacks_block_2, microblocks_2, block_commit_op_2);
             }
+            
+            miner_trace.push(next_miner_trace);
         }
+        
+        TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
     }
     
     /// two miners work on the same fork, and the burnchain splits them.
     /// the split happens at rounds/2
-    fn mine_stacks_blocks_1_fork_2_miners_2_burnchains<F>(test_name: &String, rounds: usize, mut miner_1_block_builder: F, mut miner_2_block_builder: F) -> () 
+    fn mine_stacks_blocks_1_fork_2_miners_2_burnchains<F>(test_name: &String, rounds: usize, mut miner_1_block_builder: F, mut miner_2_block_builder: F) -> TestMinerTrace 
     where
         F: FnMut(&mut ClarityTx, &mut StacksBlockBuilder, &mut TestMiner, usize, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>)
     {
@@ -1401,6 +1581,8 @@ pub mod test {
 
         fork_1.append_block(first_burn_block);
         burn_node.mine_fork(&mut fork_1);
+        
+        let mut miner_trace = vec![];
 
         // next, build up some stacks blocks, cooperatively
         for i in 0..rounds/2 {
@@ -1508,18 +1690,22 @@ pub mod test {
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
             assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
             
+            let mut next_miner_trace = TestMinerTracePoint::new();
             if fork_snapshot.winning_stacks_block_hash == stacks_block_1.block_hash() {
                 test_debug!("\n\nMiner 1 ({}) won sortition\n", miner_1.origin_address().unwrap().to_string());
 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_1.header));
+                next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot, stacks_block_1, microblocks_1, block_commit_op_1);
             }
             else {
                 test_debug!("\n\nMiner 2 ({}) won sortition\n", miner_2.origin_address().unwrap().to_string());
                 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_2.header));
+                next_miner_trace.add(miner_2.id, full_test_name.clone(), fork_snapshot, stacks_block_2, microblocks_2, block_commit_op_2);
             }
+            miner_trace.push(next_miner_trace);
         }
 
         let mut fork_2 = fork_1.fork();
@@ -1666,14 +1852,21 @@ pub mod test {
             }
 
             assert!(found_fork_2);
+            
+            let mut next_miner_trace = TestMinerTracePoint::new();
+            next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot_1, stacks_block_1, microblocks_1, block_commit_op_1);
+            next_miner_trace.add(miner_2.id, full_test_name.clone(), fork_snapshot_2, stacks_block_2, microblocks_2, block_commit_op_2);
+            miner_trace.push(next_miner_trace);
         }
+        
+        TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
     }
 
 
     /// two miners begin working on separate forks, and the burnchain splits out under them,
     /// putting each one on a different fork.
     /// split happens at rounds/2
-    fn mine_stacks_blocks_2_forks_2_miners_2_burnchains<F>(test_name: &String, rounds: usize, mut miner_1_block_builder: F, mut miner_2_block_builder: F) -> () 
+    fn mine_stacks_blocks_2_forks_2_miners_2_burnchains<F>(test_name: &String, rounds: usize, mut miner_1_block_builder: F, mut miner_2_block_builder: F) -> TestMinerTrace 
     where
         F: FnMut(&mut ClarityTx, &mut StacksBlockBuilder, &mut TestMiner, usize, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>)
     {
@@ -1697,6 +1890,8 @@ pub mod test {
 
         fork_1.append_block(first_burn_block);
         burn_node.mine_fork(&mut fork_1);
+        
+        let mut miner_trace = vec![];
 
         // next, build up some stacks blocks. miners cooperate
         for i in 0..rounds/2 {
@@ -1803,18 +1998,23 @@ pub mod test {
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
             assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
             
+            let mut next_miner_trace = TestMinerTracePoint::new();
             if fork_snapshot.winning_stacks_block_hash == stacks_block_1.block_hash() {
                 test_debug!("\n\nMiner 1 ({}) won sortition\n", miner_1.origin_address().unwrap().to_string());
 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_1.header));
+                next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot.clone(), stacks_block_1, microblocks_1, block_commit_op_1);
             }
             else {
                 test_debug!("\n\nMiner 2 ({}) won sortition\n", miner_2.origin_address().unwrap().to_string());
                 
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_2.header));
+                next_miner_trace.add(miner_2.id, full_test_name.clone(), fork_snapshot, stacks_block_2, microblocks_2, block_commit_op_2);
             }
+
+            miner_trace.push(next_miner_trace);
         }
 
         let mut fork_2 = fork_1.fork();
@@ -1966,6 +2166,192 @@ pub mod test {
             }
 
             assert!(found_fork_2);
+            
+            let mut next_miner_trace = TestMinerTracePoint::new();
+            next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot_1, stacks_block_1, microblocks_1, block_commit_op_1);
+            next_miner_trace.add(miner_2.id, full_test_name.clone(), fork_snapshot_2, stacks_block_2, microblocks_2, block_commit_op_2);
+            miner_trace.push(next_miner_trace);
+        }
+        
+        TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
+    }
+
+    /// compare two chainstates to see if they have exactly the same blocks and microblocks.
+    fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
+        let ch1 = open_chainstate(false, 0x80000000, test_name_1);
+        let ch2 = open_chainstate(false, 0x80000000, test_name_2);
+
+        // check presence of anchored blocks
+        let mut all_blocks_1 = StacksChainState::list_blocks(&ch1.blocks_db, &ch1.blocks_path).unwrap();
+        let mut all_blocks_2 = StacksChainState::list_blocks(&ch2.blocks_db, &ch2.blocks_path).unwrap();
+
+        all_blocks_1.sort();
+        all_blocks_2.sort();
+
+        assert_eq!(all_blocks_1.len(), all_blocks_2.len());
+        for i in 0..all_blocks_1.len() {
+            assert_eq!(all_blocks_1[i], all_blocks_2[i]);
+        }
+
+        // check presence and ordering of microblocks
+        let mut all_microblocks_1 = StacksChainState::list_microblocks(&ch1.blocks_db, &ch1.blocks_path).unwrap();
+        let mut all_microblocks_2 = StacksChainState::list_microblocks(&ch2.blocks_db, &ch2.blocks_path).unwrap();
+
+        all_microblocks_1.sort();
+        all_microblocks_2.sort();
+
+        assert_eq!(all_microblocks_1.len(), all_microblocks_2.len());
+        for i in 0..all_microblocks_1.len() {
+            assert_eq!(all_microblocks_1[i].0, all_microblocks_2[i].0);
+            assert_eq!(all_microblocks_1[i].1, all_microblocks_2[i].1);
+
+            assert_eq!(all_microblocks_1[i].2.len(), all_microblocks_2[i].2.len());
+            for j in 0..all_microblocks_1[i].2.len() {
+                assert_eq!(all_microblocks_1[i].2[j], all_microblocks_2[i].2[j]);
+            }
+        }
+
+        // compare block status (staging vs confirmed) and contents
+        for i in 0..all_blocks_1.len() {
+            let staging_1_opt = StacksChainState::load_staging_block(&ch1.blocks_db, &all_blocks_1[i].0, &all_blocks_1[i].1).unwrap();
+            let staging_2_opt = StacksChainState::load_staging_block(&ch2.blocks_db, &all_blocks_2[i].0, &all_blocks_2[i].1).unwrap();
+
+            let chunk_1_opt = StacksChainState::load_block(&ch1.blocks_path, &all_blocks_1[i].0, &all_blocks_1[i].1).unwrap();
+            let chunk_2_opt = StacksChainState::load_block(&ch2.blocks_path, &all_blocks_2[i].0, &all_blocks_2[i].1).unwrap();
+
+            match (staging_1_opt, staging_2_opt) {
+                (Some(staging_1), Some(staging_2)) => {
+                    assert_eq!(staging_1.block_data, staging_2.block_data);
+                },
+                (None, None) => {},
+                (_, _) => {
+                    assert!(false);
+                }
+            }
+
+            match (chunk_1_opt, chunk_2_opt) {
+                (Some(block_1), Some(block_2)) => {
+                    assert_eq!(block_1, block_2);
+                },
+                (None, None) => {},
+                (_, _) => {
+                    assert!(false);
+                }
+            }
+        }
+
+        for i in 0..all_microblocks_1.len() {
+            if all_microblocks_1[i].2.len() == 0 {
+                continue;
+            }
+            let chunk_1_opt = StacksChainState::load_staging_microblock_stream(&ch1.blocks_db, &ch1.blocks_path, &all_microblocks_1[i].0, &all_microblocks_1[i].1, u16::max_value()).unwrap();
+            let chunk_2_opt = StacksChainState::load_staging_microblock_stream(&ch1.blocks_db, &ch2.blocks_path, &all_microblocks_2[i].0, &all_microblocks_2[i].1, u16::max_value()).unwrap();
+
+            match (chunk_1_opt, chunk_2_opt) {
+                (Some(chunk_1), Some(chunk_2)) => {
+                    assert_eq!(chunk_1, chunk_2);
+                },
+                (None, None) => {},
+                (_, _) => {
+                    assert!(false);
+                }
+            }
+            for j in 0..all_microblocks_1[i].2.len() {
+                // staging status is the same
+                let staging_1_opt = StacksChainState::load_staging_microblock(&ch1.blocks_db, &all_microblocks_1[i].0, &all_microblocks_1[i].1, &all_microblocks_1[i].2[j]).unwrap();
+                let staging_2_opt = StacksChainState::load_staging_microblock(&ch2.blocks_db, &all_microblocks_2[i].0, &all_microblocks_2[i].1, &all_microblocks_2[i].2[j]).unwrap();
+
+                match (staging_1_opt, staging_2_opt) {
+                    (Some(staging_1), Some(staging_2)) => {
+                        assert_eq!(staging_1.block_data, staging_2.block_data);
+                    },
+                    (None, None) => {},
+                    (_, _) => {
+                        assert!(false);
+                    }
+                }
+            }
+        }
+    }
+
+    /// produce all stacks blocks, but don't process them in order.  Instead, queue them all up and
+    /// process them in randomized order.
+    /// This works by running mine_stacks_blocks_1_fork_1_miner_1_burnchain, extracting the blocks,
+    /// and then re-processing them in a different chainstate directory.
+    fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
+        test_debug!("\n\n");
+        test_debug!("------------------------------------------------------------------------");
+        test_debug!("                   Randomize and re-apply blocks");
+        test_debug!("------------------------------------------------------------------------");
+        test_debug!("\n\n");
+
+        let rounds = miner_trace.rounds();
+        let test_names = miner_trace.get_test_names();
+        let mut nodes = HashMap::new();
+        for (i, test_name) in test_names.iter().enumerate() {
+            let rnd_test_name = format!("{}-replay_randomized", test_name);
+            let next_node = TestStacksNode::new(false, 0x80000000, &rnd_test_name);
+            nodes.insert(test_name, next_node);
+        }
+
+        let expected_num_sortitions = miner_trace.get_num_sortitions();
+        let expected_num_blocks = miner_trace.get_num_blocks();
+        let mut num_processed = 0;
+
+        let mut rng = thread_rng();
+        miner_trace.points.as_mut_slice().shuffle(&mut rng);
+
+        // "discover" blocks in random order
+        for point in miner_trace.points.drain(..) {
+            let mut miner_ids = point.get_miner_ids();
+            miner_ids.as_mut_slice().shuffle(&mut rng);
+
+            for miner_id in miner_ids {
+                let fork_snapshot_opt = point.get_block_snapshot(miner_id);
+                let stacks_block_opt = point.get_stacks_block(miner_id);
+                let microblocks_opt = point.get_microblocks(miner_id);
+                let block_commit_op_opt = point.get_block_commit(miner_id);
+
+                if fork_snapshot_opt.is_none() || block_commit_op_opt.is_none() {
+                    // no sortition by this miner at this point in time
+                    continue;
+                }
+
+                let fork_snapshot = fork_snapshot_opt.unwrap();
+                let block_commit_op = block_commit_op_opt.unwrap();
+
+                match stacks_block_opt {
+                    Some(stacks_block) => {
+                        let microblocks = microblocks_opt.unwrap_or(vec![]);
+
+                        // "discover" the stacks block and its microblocks in all nodes
+                        // TODO: randomize microblock discovery order too
+                        for (node_name, mut node) in nodes.iter_mut() {
+                            preprocess_stacks_block_data(&mut node, &mut miner_trace.burn_node, &fork_snapshot, &stacks_block, &microblocks, &block_commit_op);
+                        
+                            // process all the blocks we can 
+                            test_debug!("Process Stacks block {} and {} microblocks in {}", &stacks_block.block_hash().to_hex(), microblocks.len(), &node_name);
+                            let tip_info_list = node.chainstate.process_blocks(miner_trace.burn_node.burndb.conn(), expected_num_blocks).unwrap();
+
+                            num_processed += tip_info_list.len();
+                        }
+                    },
+                    None => {
+                        // no block announced at this point in time
+                        test_debug!("Miner {} did not produce a Stacks block for {:?} (commit {:?})", miner_id, &fork_snapshot, &block_commit_op);
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // must have processed the same number of blocks in all nodes
+        assert_eq!(num_processed, expected_num_blocks);
+
+        // must have processed all blocks the same way
+        for test_name in test_names.iter() {
+            let rnd_test_name = format!("{}-replay_randomized", test_name);
+            assert_chainstate_blocks_eq(test_name, &rnd_test_name);
         }
     }
 
@@ -1985,6 +2371,21 @@ pub mod test {
     fn mine_empty_anchored_block<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
         let miner_account = StacksChainState::get_account(clarity_tx, &miner.origin_address().unwrap().to_account_principal());
         miner.set_nonce(miner_account.nonce);
+
+        // make a coinbase for this miner
+        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
+
+        builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
+
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
+        
+        test_debug!("Produce anchored stacks block at burnchain height {} stacks height {}", burnchain_height, stacks_block.header.total_work.work);
+        (stacks_block, vec![])
+    }
+    
+    fn mine_empty_anchored_block_order_invariant<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
+        // unlike the above, this doesn't depend on the chain state being valid.
+        miner.set_nonce(burnchain_height as u64);
 
         // make a coinbase for this miner
         let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
@@ -2096,6 +2497,12 @@ pub mod test {
     fn mine_anchored_empty_blocks_single() {
         mine_stacks_blocks_1_fork_1_miner_1_burnchain(&"empty-anchored-blocks".to_string(), 10, mine_empty_anchored_block);
     }
+    
+    #[test]
+    fn mine_anchored_empty_blocks_random() {
+        let mut miner_trace = mine_stacks_blocks_1_fork_1_miner_1_burnchain(&"empty-anchored-blocks-random".to_string(), 10, mine_empty_anchored_block);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
 
     #[test]
     fn mine_anchored_empty_blocks_multiple_miners() {
@@ -2103,8 +2510,20 @@ pub mod test {
     }
     
     #[test]
+    fn mine_anchored_empty_blocks_multiple_miners_random() {
+        let mut miner_trace = mine_stacks_blocks_1_fork_2_miners_1_burnchain(&"empty-anchored-blocks-multiple-miners-random".to_string(), 10, mine_empty_anchored_block, mine_empty_anchored_block);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
+    
+    #[test]
     fn mine_anchored_empty_blocks_stacks_fork() {
         mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"empty-anchored-blocks-stacks-fork".to_string(), 10, mine_empty_anchored_block, mine_empty_anchored_block);
+    }
+    
+    #[test]
+    fn mine_anchored_empty_blocks_stacks_fork_random() {
+        let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"empty-anchored-blocks-stacks-fork-random".to_string(), 10, mine_empty_anchored_block, mine_empty_anchored_block);
+        miner_trace_replay_randomized(&mut miner_trace);
     }
 
     #[test]
@@ -2113,13 +2532,31 @@ pub mod test {
     }
     
     #[test]
+    fn mine_anchored_empty_blocks_burnchain_fork_random() {
+        let mut miner_trace = mine_stacks_blocks_1_fork_2_miners_2_burnchains(&"empty-anchored-blocks-burnchain-fork-random".to_string(), 10, mine_empty_anchored_block, mine_empty_anchored_block);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
+    
+    #[test]
     fn mine_anchored_empty_blocks_burnchain_fork_stacks_fork() {
         mine_stacks_blocks_2_forks_2_miners_2_burnchains(&"empty-anchored-blocks-burnchain-stacks-fork".to_string(), 10, mine_empty_anchored_block, mine_empty_anchored_block);
     }
     
     #[test]
+    fn mine_anchored_empty_blocks_burnchain_fork_stacks_fork_random() {
+        let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_2_burnchains(&"empty-anchored-blocks-burnchain-stacks-fork-random".to_string(), 10, mine_empty_anchored_block, mine_empty_anchored_block);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
+    
+    #[test]
     fn mine_anchored_smart_contract_contract_call_blocks_single() {
         mine_stacks_blocks_1_fork_1_miner_1_burnchain(&"smart-contract-contract-call-anchored-blocks".to_string(), 10, mine_smart_contract_contract_call_block);
+    }
+    
+    #[test]
+    fn mine_anchored_smart_contract_contract_call_blocks_single_random() {
+        let mut miner_trace = mine_stacks_blocks_1_fork_1_miner_1_burnchain(&"smart-contract-contract-call-anchored-blocks-random".to_string(), 10, mine_smart_contract_contract_call_block);
+        miner_trace_replay_randomized(&mut miner_trace);
     }
 
     #[test]
@@ -2128,8 +2565,20 @@ pub mod test {
     }
     
     #[test]
+    fn mine_anchored_smart_contract_contract_call_blocks_multiple_miners_random() {
+        let mut miner_trace = mine_stacks_blocks_1_fork_2_miners_1_burnchain(&"smart-contract-contract-call-anchored-blocks-multiple-miners-random".to_string(), 10, mine_smart_contract_contract_call_block, mine_smart_contract_contract_call_block);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
+    
+    #[test]
     fn mine_anchored_smart_contract_contract_call_blocks_stacks_fork() {
         mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-contract-call-anchored-blocks-stacks-fork".to_string(), 10, mine_smart_contract_contract_call_block, mine_smart_contract_contract_call_block);
+    }
+    
+    #[test]
+    fn mine_anchored_smart_contract_contract_call_blocks_stacks_fork_random() {
+        let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-contract-call-anchored-blocks-stacks-fork-random".to_string(), 10, mine_smart_contract_contract_call_block, mine_smart_contract_contract_call_block);
+        miner_trace_replay_randomized(&mut miner_trace);
     }
 
     #[test]
@@ -2138,13 +2587,31 @@ pub mod test {
     }
     
     #[test]
+    fn mine_anchored_smart_contract_contract_call_blocks_burnchain_fork_random() {
+        let mut miner_trace = mine_stacks_blocks_1_fork_2_miners_2_burnchains(&"smart-contract-contract-call-anchored-blocks-burnchain-fork-random".to_string(), 10, mine_smart_contract_contract_call_block, mine_smart_contract_contract_call_block);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
+    
+    #[test]
     fn mine_anchored_smart_contract_contract_call_blocks_burnchain_fork_stacks_fork() {
         mine_stacks_blocks_2_forks_2_miners_2_burnchains(&"smart-contract-contract-call-anchored-blocks-burnchain-stacks-fork".to_string(), 10, mine_smart_contract_contract_call_block, mine_smart_contract_contract_call_block);
     }
     
     #[test]
+    fn mine_anchored_smart_contract_contract_call_blocks_burnchain_fork_stacks_fork_random() {
+        let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_2_burnchains(&"smart-contract-contract-call-anchored-blocks-burnchain-stacks-fork-random".to_string(), 10, mine_smart_contract_contract_call_block, mine_smart_contract_contract_call_block);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
+    
+    #[test]
     fn mine_anchored_smart_contract_block_contract_call_microblock_single() {
         mine_stacks_blocks_1_fork_1_miner_1_burnchain(&"smart-contract-block-contract-call-microblock".to_string(), 10, mine_smart_contract_block_contract_call_microblock);
+    }
+    
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_single_random() {
+        let mut miner_trace = mine_stacks_blocks_1_fork_1_miner_1_burnchain(&"smart-contract-block-contract-call-microblock-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock);
+        miner_trace_replay_randomized(&mut miner_trace);
     }
 
     #[test]
@@ -2153,8 +2620,20 @@ pub mod test {
     }
     
     #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_multiple_miners_random() {
+        let mut miner_trace = mine_stacks_blocks_1_fork_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-multiple-miners-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock, mine_smart_contract_block_contract_call_microblock);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
+    
+    #[test]
     fn mine_anchored_smart_contract_block_contract_call_microblock_stacks_fork() {
         mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-stacks-fork".to_string(), 10, mine_smart_contract_block_contract_call_microblock, mine_smart_contract_block_contract_call_microblock);
+    }
+    
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_stacks_fork_random() {
+        let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-stacks-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock, mine_smart_contract_block_contract_call_microblock);
+        miner_trace_replay_randomized(&mut miner_trace);
     }
 
     #[test]
@@ -2163,18 +2642,38 @@ pub mod test {
     }
     
     #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_burnchain_fork_random() {
+        let mut miner_trace = mine_stacks_blocks_1_fork_2_miners_2_burnchains(&"smart-contract-block-contract-call-microblock-burnchain-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock, mine_smart_contract_block_contract_call_microblock);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
+    
+    #[test]
     fn mine_anchored_smart_contract_block_contract_call_microblock_burnchain_fork_stacks_fork() {
         mine_stacks_blocks_2_forks_2_miners_2_burnchains(&"smart-contract-block-contract-call-microblock-burnchain-stacks-fork".to_string(), 10, mine_smart_contract_block_contract_call_microblock, mine_smart_contract_block_contract_call_microblock);
     }
+    
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_burnchain_fork_stacks_fork_random() {
+        let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_2_burnchains(&"smart-contract-block-contract-call-microblock-burnchain-stacks-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock, mine_smart_contract_block_contract_call_microblock);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
 
 
-    // TODO: blocks arrive in different (reverseable) orders, but still all get processed (even if
-    // there are forks!)
     // TODO: build off of different points in the same microblock stream
     // TODO; skipped blocks
     // TODO: missing blocks
     // TODO: invalid blocks
+    // TODO: invalid block with duplicate microblock public key hash (okay between forks, but not
+    // within the same fork)
     // TODO: no-sortition
     // TODO: post-conditions and aborted transactions
+    // TODO: burnchain forks, and we mine the same anchored stacks block in the beginnings of the two descendent
+    // forks.  Verify all descendents are unique -- if A --> B and A --> C, and B --> D and C -->
+    // E, and B == C, verify that it is never the case that D == E (but it is allowed that B == C
+    // if the burnchain forks).
+    // TODO: confirm that if A is accepted but B is rejected, then C must also be rejected even if
+    // it's on a different burnchain fork.
+    // TODO: confirm that we can process B and C separately, even though they're the same block
+    // TODO: poison microblocks
     // TODO: verify that the Clarity MARF stores _only_ Clarity data
 }
