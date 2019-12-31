@@ -1341,8 +1341,6 @@ pub mod test {
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_1.header));
                 sortition_winners.push(miner_1.origin_address().unwrap());
-            
-                next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot, stacks_block_1, microblocks_1, block_commit_op_1);
             }
             else {
                 test_debug!("\n\nMiner 2 ({}) won sortition\n", miner_2.origin_address().unwrap().to_string());
@@ -1350,10 +1348,10 @@ pub mod test {
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_2.header));
                 sortition_winners.push(miner_2.origin_address().unwrap());
-            
-                next_miner_trace.add(miner_2.id, full_test_name.clone(), fork_snapshot, stacks_block_2, microblocks_2, block_commit_op_2);
             }
 
+            next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot.clone(), stacks_block_1.clone(), microblocks_1.clone(), block_commit_op_1.clone());
+            next_miner_trace.add(miner_2.id, full_test_name.clone(), fork_snapshot.clone(), stacks_block_2.clone(), microblocks_2.clone(), block_commit_op_2.clone());
             miner_trace.push(next_miner_trace);
         }
 
@@ -1536,8 +1534,6 @@ pub mod test {
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_1.header));
                 sortition_winners_1.push(miner_1.origin_address().unwrap());
-            
-                next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot, stacks_block_1, microblocks_1, block_commit_op_1);
             }
             else {
                 test_debug!("\n\nMiner 2 ({}) won sortition\n", miner_2.origin_address().unwrap().to_string());
@@ -1545,11 +1541,19 @@ pub mod test {
                 // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
                 assert!(check_block_state_index_root(&mut node_2.chainstate, &fork_snapshot.burn_header_hash, &stacks_block_2.header));
                 sortition_winners_2.push(miner_2.origin_address().unwrap());
-            
-                next_miner_trace.add(miner_2.id, full_test_name_2.clone(), fork_snapshot, stacks_block_2, microblocks_2, block_commit_op_2);
             }
-            
+           
+            // each miner produced a block; just one of them got accepted
+            next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot.clone(), stacks_block_1.clone(), microblocks_1.clone(), block_commit_op_1.clone());
+            next_miner_trace.add(miner_2.id, full_test_name_2.clone(), fork_snapshot.clone(), stacks_block_2.clone(), microblocks_2.clone(), block_commit_op_2.clone());
             miner_trace.push(next_miner_trace);
+
+            // keep chainstates in sync with one another -- each node discovers each other nodes'
+            // block data.
+            preprocess_stacks_block_data(&mut node, &mut burn_node, &fork_snapshot, &stacks_block_2, &microblocks_2, &block_commit_op_2);
+            preprocess_stacks_block_data(&mut node_2, &mut burn_node, &fork_snapshot, &stacks_block_1, &microblocks_1, &block_commit_op_1);
+            let _ = node.chainstate.process_blocks(burn_node.burndb.conn(), 2).unwrap();
+            let _ = node_2.chainstate.process_blocks(burn_node.burndb.conn(), 2).unwrap();
         }
         
         TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
