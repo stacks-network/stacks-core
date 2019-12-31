@@ -1350,6 +1350,8 @@ pub mod test {
                 sortition_winners.push(miner_2.origin_address().unwrap());
             }
 
+            // add both blocks to the miner trace, because in this test runner, there will be _two_
+            // nodes that process _all_ blocks
             next_miner_trace.add(miner_1.id, full_test_name.clone(), fork_snapshot.clone(), stacks_block_1.clone(), microblocks_1.clone(), block_commit_op_1.clone());
             next_miner_trace.add(miner_2.id, full_test_name.clone(), fork_snapshot.clone(), stacks_block_2.clone(), microblocks_2.clone(), block_commit_op_2.clone());
             miner_trace.push(next_miner_trace);
