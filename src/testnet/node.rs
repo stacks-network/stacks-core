@@ -56,7 +56,6 @@ pub struct Node {
     average_block_time: u64,
     bootstraping_chain: bool,
     burnchain_ops_tx: Option<Sender<BlockstackOperationType>>,
-    burnchain_tip: Option<BlockSnapshot>,
     chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
     config: NodeConfig,
@@ -95,7 +94,6 @@ impl Node {
             mem_pool,
             average_block_time,
             burnchain_ops_tx: None,
-            burnchain_tip: None,
             tx,
             rx,
             nonce: 0,
@@ -147,7 +145,7 @@ impl Node {
                             parent_burn_header_hash: block.parent_burn_header_hash,
                         });
 
-                        // De-register key if leader won the sortition
+                        // Release current registered key if leader won the sortition
                         // This will trigger a new registration
                         if op.input == self.keychain.get_burnchain_signer() {
                             self.active_registered_key = None;
@@ -171,9 +169,6 @@ impl Node {
         if last_sortitioned_block.is_some() {
             self.last_sortitioned_block = last_sortitioned_block;
         }
-
-        // Keep a pointer of the burnchain's chain tip.
-        self.burnchain_tip = Some(block.clone());
 
         (self.last_sortitioned_block.clone(), won_sortition)
     }
