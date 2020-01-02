@@ -652,7 +652,7 @@ impl StacksChainState {
                     version: STACKS_BLOCK_VERSION,
                     total_work: StacksWorkScore {
                         burn: 0,
-                        work: 1
+                        work: 0
                     },
                     proof: VRFProof::empty(),
                     parent_block: BOOT_BLOCK_HASH.clone(),
@@ -664,7 +664,7 @@ impl StacksChainState {
                 },
                 microblock_tail: None,
                 index_root: first_root_hash,
-                block_height: 1,
+                block_height: 0,
                 burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
             };
 
