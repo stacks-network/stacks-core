@@ -257,7 +257,7 @@ impl Node {
         };
 
         // Construct the upcoming tenure
-        let mut tenure = LeaderTenure::new(
+        let tenure = LeaderTenure::new(
             chain_tip, 
             self.average_block_time,
             coinbase_tx,

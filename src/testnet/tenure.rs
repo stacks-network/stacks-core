@@ -95,7 +95,7 @@ impl <'a> LeaderTenure {
             thread::sleep(mempool_poll_interval);
         }
 
-        let mut b = self.block_builder.clone();
+        let b = self.block_builder.clone();
         let anchored_block = self.block_builder.mine_anchored_block(&mut clarity_tx);
 
         clarity_tx.rollback_block();

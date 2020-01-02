@@ -46,7 +46,7 @@ impl BurnchainSimulator {
             let chain = Burnchain::new(&path, &chain, &name).unwrap();
             
             let mut chain_tip = {
-                let mut db = burn_db.lock().unwrap();
+                let db = burn_db.lock().unwrap();
                 BurnDB::get_first_block_snapshot(db.conn()).unwrap()
             };
 
