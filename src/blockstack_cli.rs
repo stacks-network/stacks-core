@@ -16,6 +16,7 @@ use blockstack_lib::vm;
 use blockstack_lib::vm::{
     Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
 use blockstack_lib::chainstate::stacks::{
+    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
     StacksPublicKey, TransactionPayload, StacksTransactionSigner,
     StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress };
@@ -67,6 +68,12 @@ e.g.,
                        -x 0000000000000000000000000000000001 \\
                        -x 050011deadbeef11ababffff11deadbeef11ababffff
 ";
+
+const GENERATE_USAGE: &str = "blockstack-cli (options) generate-sk
+
+This method generates a secret key, outputting the hex encoding of the
+secret key, the corresponding public key, and the corresponding P2PKH Stacks address.";
+
 
 #[derive(Debug)]
 enum CliError {
@@ -267,9 +274,39 @@ fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<
     Ok(())
 }
 
+fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<(), CliError> {
+    if args.len() > 1 && args[0] == "-h" {
+        return Err(CliError::Message(format!("USAGE:\n {}", GENERATE_USAGE)))
+    }
+
+    let sk = StacksPrivateKey::new();
+    let pk = StacksPublicKey::from_private(&sk);
+    let version = match version {
+        TransactionVersion::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        TransactionVersion::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    };
+
+    let address = StacksAddress::from_public_keys(
+        version, &AddressHashMode::SerializeP2PKH, 1, &vec![pk.clone()])
+        .expect("Failed to generate address from public key");
+
+    println!("{{ 
+  secretKey: \"{}\",
+  publicKey: \"{}\",
+  stacksAddress: \"{}\"
+}}",
+             sk.to_hex(),
+             pk.to_hex(),
+             address.to_string());
+
+    Ok(())
+}
+
 fn main() {
     log::set_loglevel(log::LOG_DEBUG).unwrap();
-    let argv : Vec<String> = env::args().collect();
+    let mut argv : Vec<String> = env::args().collect();
+
+    argv.remove(0);
 
     match main_handler(argv) {
         Ok(_) => {},
@@ -292,6 +329,7 @@ fn main_handler(mut argv: Vec<String>) -> Result<(), CliError> {
         match method.as_str() {
             "contract-call" => handle_contract_call(args, tx_version),
             "publish" => handle_contract_publish(args, tx_version),
+            "generate-sk" => generate_secret_key(args, tx_version),
             _ => Err(CliError::Usage)
         }
     } else {
