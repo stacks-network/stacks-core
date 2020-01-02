@@ -289,6 +289,15 @@ impl <'a> ClarityBlockConnection <'a> {
             abort_call_back)?;
         Ok(asset_map)
     }
+
+    /// Evaluate a raw Clarity snippit
+    #[cfg(test)]
+    pub fn clarity_eval_raw(&mut self, code: &str) -> Result<Value, Error> {
+        let (result, _) = self.with_abort_callback(
+            |vm_env| { vm_env.eval_raw(code).map_err(Error::from) },
+            |_, _| { false })?;
+        Ok(result)
+    }
 }
 
 

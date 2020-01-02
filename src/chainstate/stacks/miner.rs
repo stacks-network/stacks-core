@@ -86,6 +86,11 @@ impl StacksBlockBuilder {
         builder
     }
 
+    /// Assign the block parent
+    pub fn set_parent_block(&mut self, parent_block_hash: &BlockHeaderHash) -> () {
+        self.header.parent_block = parent_block_hash.clone();
+    }
+
     /// Assign the anchored block's parent microblock (used for testing orphaning)
     pub fn set_parent_microblock(&mut self, parent_mblock_hash: &BlockHeaderHash, parent_mblock_seq: u16) -> () {
         self.header.parent_microblock = parent_mblock_hash.clone();
@@ -201,7 +206,7 @@ impl StacksBlockBuilder {
         test_debug!("\n\nMiner {}: Mined microblock block {} (seq={}): {} transaction(s)\n", self.miner_id, microblock.block_hash().to_hex(), microblock.header.sequence, microblock.txs.len());
         Ok(microblock)
     }
-
+    
     /// Begin mining an epoch's transactions.
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
     /// transaction can't query information about the _current_ block (i.e. information that is not
@@ -315,6 +320,17 @@ pub mod test {
     use rand::Rng;
     use rand::thread_rng;
     use rand::seq::SliceRandom;
+
+    pub const COINBASE : u128 = 500 * 100_000;
+
+    pub fn coinbase_total_at(stacks_height: u64) -> u128 {
+        if stacks_height > MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
+            COINBASE * ((stacks_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW) as u128)
+        }
+        else {
+            0
+        }
+    }
 
     pub fn path_join(dir: &str, path: &str) -> String {
         // force path to be relative
@@ -788,22 +804,36 @@ pub mod test {
         state_root == stacks_header.state_index_root
     }
 
-    /// Verify that the miner got the expected block reward, and update the miner's total expected
-    /// mining rewards
-    fn check_mining_reward<'a>(clarity_tx: &mut ClarityTx<'a>, miner: &mut TestMiner, expected_block_value: u128) -> bool {
+    /// Verify that the miner got the expected block reward
+    fn check_mining_reward<'a>(clarity_tx: &mut ClarityTx<'a>, miner: &mut TestMiner, block_height: u64, prev_block_rewards: &Vec<Vec<MinerPaymentSchedule>>) -> bool {
+        let mut total : u128 = 0;
+        if block_height >= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
+            for (i, prev_block_reward) in prev_block_rewards.iter().enumerate() {
+                if i as u64 > block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW {
+                    break;
+                }
+                for recipient in prev_block_reward {
+                    if recipient.address == miner.origin_address().unwrap() {
+                        let reward : u128 = recipient.coinbase;     // TODO: expand to cover tx fees
+                        test_debug!("Miner {} received a reward {} at block {}", &recipient.address.to_string(), reward, i);
+                        total += reward;
+                    }
+                }
+            }
+        }
+
         let miner_status_opt = TestStacksNode::get_miner_status(clarity_tx, &miner.origin_address().unwrap());
         match miner_status_opt {
             None => {
                 test_debug!("Miner {} '{}' has no mature funds in this fork", miner.id, miner.origin_address().unwrap().to_string());
-                return miner.expected_mining_rewards + expected_block_value == 0;
-            },
+                return total == 0;
+            }
             Some((authorized, amount)) => {
                 test_debug!("Miner {} '{}' is authorized: {}, with amount: {} in this fork", miner.id, miner.origin_address().unwrap().to_string(), authorized, amount);
-                if amount != miner.expected_mining_rewards + expected_block_value {
-                    test_debug!("Amount {} != {} + {}", amount, miner.expected_mining_rewards, expected_block_value);
+                if amount != total {
+                    test_debug!("Amount {} != {}", amount, total);
                     return false;
                 }
-                miner.expected_mining_rewards += expected_block_value;
                 return true;
             }
         }
@@ -831,6 +861,34 @@ pub mod test {
         };
 
         last_microblock_header_opt
+    }
+
+    fn get_all_mining_rewards(chainstate: &mut StacksChainState, tip: &StacksHeaderInfo, block_height: u64) -> Vec<Vec<MinerPaymentSchedule>> {
+        let mut ret = vec![];
+        let mut tx = chainstate.headers_tx_begin().unwrap();
+
+        for i in 0..block_height {
+            let block_rewards = StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, tip, i).unwrap();
+            ret.push(block_rewards);
+        }
+
+        ret
+    }
+
+    fn clarity_get_block_hash<'a>(clarity_tx: &mut ClarityTx<'a>, block_height: u64) -> Option<BlockHeaderHash> {
+        let block_hash_value = clarity_tx.connection().clarity_eval_raw(&format!("(get-block-info? header-hash u{})", &block_height)).unwrap();
+
+        match block_hash_value {
+            Value::Buffer(block_hash_buff) => {
+                assert_eq!(block_hash_buff.data.len(), 32);
+                let mut buf = [0u8; 32];
+                buf.copy_from_slice(&block_hash_buff.data[0..32]);
+                Some(BlockHeaderHash(buf))
+            },
+            _ => {
+                None
+            }
+        }
     }
 
     /// Simplest end-to-end test: create 1 fork of N Stacks epochs, mined on 1 burn chain fork,
@@ -878,17 +936,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header.as_ref());
 
-                // make sure the coinbase is right (note that i matches the stacks height)
-                if (i as u64) < MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    // matured!
-                    assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                }
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -977,18 +1030,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
 
-                // make sure the coinbase is right (note that i matches the number of sortitions
-                // that this miner has won so far).
-                if (i as u64) < MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    // matured!
-                    assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                }
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -1059,26 +1106,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
 
-                if (i as u64) < MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-                    // this miner should not have received any reward, period, since there haven't
-                    // been enough blocks yet.
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    // this miner should have received an award if it mined the block at
-                    // MINER_REWARD_MATURITY + MINER_REWARD_WINDOW blocks in the past
-                    if sortition_winners[((i as u64) - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW) as usize] == miner.origin_address().unwrap() {
-                        test_debug!("Miner {} won sortition at stacks block {}", miner.origin_address().unwrap().to_string(), (i as u64) - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                        assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                    }
-                    else {
-                        test_debug!("Miner {} DID NOT WIN sortition at stacks block {}", miner.origin_address().unwrap().to_string(), (i as u64) - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                        assert!(check_mining_reward(&mut epoch, miner, 0));
-                    }
-                }
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -1088,26 +1121,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
 
-                if (i as u64) < MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-                    // this miner should not have received any reward, period, since there haven't
-                    // been enough blocks yet.
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    // this miner should have received an award if it mined the block at
-                    // MINER_REWARD_MATURITY + MINER_REWARD_WINDOW blocks in the past
-                    if sortition_winners[((i as u64) - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW) as usize] == miner.origin_address().unwrap() {
-                        test_debug!("Miner {} won sortition at stacks block {}", miner.origin_address().unwrap().to_string(), (i as u64) - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                        assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                    }
-                    else {
-                        test_debug!("Miner {} DID NOT WIN sortition at stacks block {}", miner.origin_address().unwrap().to_string(), (i as u64) - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                        assert!(check_mining_reward(&mut epoch, miner, 0));
-                    }
-                }
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -1244,31 +1263,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
-
-                let chain_len = stacks_block.header.total_work.work;
-                if chain_len <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-                    // this miner should not have received any reward, period, since there haven't
-                    // been enough blocks yet.
-                    test_debug!("sortitions: {:?}", &sortition_winners);
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    test_debug!("\n\n");
-                    test_debug!("consider block {}", chain_len - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                    test_debug!("sortitions: {:?}", &sortition_winners);
-                    // this miner should have received an award if it mined the block at
-                    // MINER_REWARD_MATURITY + MINER_REWARD_WINDOW blocks in the past
-                    if sortition_winners[(chain_len - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW) as usize] == miner.origin_address().unwrap() {
-                        test_debug!("Miner {} won sortition at stacks block {}", miner.origin_address().unwrap().to_string(), chain_len - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                        assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                    }
-                    else {
-                        test_debug!("Miner {} DID NOT WIN sortition at stacks block {}", miner.origin_address().unwrap().to_string(), chain_len - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                        assert!(check_mining_reward(&mut epoch, miner, 0));
-                    }
-                }
+                
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -1278,31 +1278,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
 
-                let chain_len = stacks_block.header.total_work.work;
-                if chain_len <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-                    // this miner should not have received any reward, period, since there haven't
-                    // been enough blocks yet.
-                    test_debug!("sortitions: {:?}", &sortition_winners);
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    test_debug!("\n\n");
-                    test_debug!("consider block {}", chain_len - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                    test_debug!("sortitions: {:?}", &sortition_winners);
-                    // this miner should have received an award if it mined the block at
-                    // MINER_REWARD_MATURITY + MINER_REWARD_WINDOW blocks in the past
-                    if sortition_winners[(chain_len - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW) as usize] == miner.origin_address().unwrap() {
-                        test_debug!("Miner {} won sortition at stacks block {}", miner.origin_address().unwrap().to_string(), chain_len - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                        assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                    }
-                    else {
-                        test_debug!("Miner {} DID NOT WIN sortition at stacks block {}", miner.origin_address().unwrap().to_string(), chain_len - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                        assert!(check_mining_reward(&mut epoch, miner, 0));
-                    }
-                }
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -1420,34 +1401,12 @@ pub mod test {
                 test_debug!("Miner {}: Produce anchored stacks block in stacks fork 1 via {}", miner.id, miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_1.as_ref());
 
-                /*
-                let chain_len = stacks_block.header.total_work.work;
-                if chain_len <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-                    // this miner should not have received any reward, period, since there haven't
-                    // been enough blocks yet.
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    test_debug!("\n\n");
-                    test_debug!("consider block {}", chain_len - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                    test_debug!("sortitions 1: {:?}", &sortition_winners_1);
-                    test_debug!("sortitions 2: {:?}", &sortition_winners_2);
-
-                    // this miner should have received an award if it mined the block at
-                    // MINER_REWARD_MATURITY + MINER_REWARD_WINDOW blocks in the past
-                    if sortition_winners_1[((chain_len as u64) - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW) as usize] == miner.origin_address().unwrap() {
-                        test_debug!("Miner {} won sortition at stacks block {} fork 1", miner.origin_address().unwrap().to_string(), (chain_len as u64) - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                        assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                    }
-                    else {
-                        test_debug!("Miner {} DID NOT WIN sortition at stacks block {} fork 1", miner.origin_address().unwrap().to_string(), (chain_len as u64) - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                        assert!(check_mining_reward(&mut epoch, miner, 0));
-                    }
-                }
-                */
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -1457,34 +1416,12 @@ pub mod test {
                 test_debug!("Miner {}: Produce anchored stacks block in stacks fork 2 via {}", miner.id, miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name_2);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_2.as_ref());
 
-                /*
-                let chain_len = stacks_block.header.total_work.work;
-                if chain_len <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-                    // this miner should not have received any reward, period, since there haven't
-                    // been enough blocks yet.
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    test_debug!("\n\n");
-                    test_debug!("consider block {}", chain_len - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                    test_debug!("sortitions 1: {:?}", &sortition_winners_1);
-                    test_debug!("sortitions 2: {:?}", &sortition_winners_2);
-
-                    // this miner should have received an award if it mined the block at
-                    // MINER_REWARD_MATURITY + MINER_REWARD_WINDOW blocks in the past
-                    if sortition_winners_2[((chain_len as u64) - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW) as usize] == miner.origin_address().unwrap() {
-                        test_debug!("Miner {} won sortition at stacks block {} fork 2", miner.origin_address().unwrap().to_string(), (chain_len as u64) - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                        assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                    }
-                    else {
-                        test_debug!("Miner {} DID NOT WIN sortition at stacks block {} fork 2", miner.origin_address().unwrap().to_string(), (chain_len as u64) - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW);
-                        assert!(check_mining_reward(&mut epoch, miner, 0));
-                    }
-                }
-                */
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -1626,19 +1563,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block from miner 1");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
 
-                /*
-                // make sure the coinbase is right (note that i matches the stacks height so far)
-                if (i as u64) <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    // matured!
-                    assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                }
-                */
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -1648,19 +1578,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block from miner 2");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt.as_ref());
 
-                /*
-                // make sure the coinbase is right (note that i matches the stacks height so far)
-                if (i as u64) <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    // matured!
-                    assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                }
-                */
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -1757,20 +1680,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_1.as_ref());
-
-                // TODO: broken
-                /*
-                // make sure the coinbase is right
-                if stacks_block.header.total_work.work <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1 {
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    // matured!
-                    assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                }
-                */
+                
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -1780,19 +1695,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_2.as_ref());
-
-                /*
-                // make sure the coinbase is right
-                if stacks_block.header.total_work.work <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1 {
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    // matured!
-                    assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                }
-                */
+                
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -1934,19 +1842,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_1.as_ref());
 
-                /*
-                // make sure the coinbase is right (note that i matches the stacks height so far)
-                if (i as u64) <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    // matured!
-                    assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                }
-                */
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -1956,19 +1857,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_2.as_ref());
 
-                /*
-                // make sure the coinbase is right (note that i matches the stacks height so far)
-                if (i as u64) <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    // matured!
-                    assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                }
-                */
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -2071,20 +1965,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_1_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_1.as_ref());
-
-                // TODO: broken
-                /*
-                // make sure the coinbase is right
-                if stacks_block.header.total_work.work <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1 {
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    // matured!
-                    assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                }
-                */
+                
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -2094,19 +1980,12 @@ pub mod test {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
+                let all_prev_mining_rewards = get_all_mining_rewards(&mut miner_chainstate, &builder.chain_tip, builder.chain_tip.block_height);
+
                 let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
                 let (stacks_block, microblocks) = miner_2_block_builder(&mut epoch, &mut builder, miner, i, last_microblock_header_opt_2.as_ref());
-
-                /*
-                // make sure the coinbase is right
-                if stacks_block.header.total_work.work <= MINER_REWARD_MATURITY + MINER_REWARD_WINDOW + 1 {
-                    assert!(check_mining_reward(&mut epoch, miner, 0));
-                }
-                else {
-                    // matured!
-                    assert!(check_mining_reward(&mut epoch, miner, 500000000));
-                }
-                */
+                
+                assert!(check_mining_reward(&mut epoch, miner, builder.chain_tip.block_height, &all_prev_mining_rewards));
 
                 builder.epoch_finish(epoch);
                 (stacks_block, microblocks)
@@ -2424,6 +2303,8 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
         
+        test_debug!("Make smart contract block at hello-world-{}-{}", burnchain_height, builder.header.total_work.work);
+
         let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                      miner.as_transaction_auth().unwrap(),
                                                      TransactionPayload::new_smart_contract(&format!("hello-world-{}-{}", burnchain_height, builder.header.total_work.work), &contract.to_string()).unwrap());
@@ -2439,11 +2320,29 @@ pub mod test {
         tx_contract_signed
     }
 
-    fn make_contract_call<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize) -> StacksTransaction {
+    /// paired with make_smart_contract
+    fn make_contract_call<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, arg1: i128, arg2: i128) -> StacksTransaction {
         let addr = miner.origin_address().unwrap();
         let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
                                                           miner.as_transaction_auth().unwrap(),
-                                                          TransactionPayload::new_contract_call(addr.clone(), &format!("hello-world-{}-{}", burnchain_height, builder.header.total_work.work), "set-bar", vec![Value::Int(6), Value::Int(2)]).unwrap());
+                                                          TransactionPayload::new_contract_call(addr.clone(), &format!("hello-world-{}-{}", burnchain_height, builder.header.total_work.work), "set-bar", vec![Value::Int(arg1), Value::Int(arg2)]).unwrap());
+
+        tx_contract_call.chain_id = 0x80000000;
+        tx_contract_call.auth.set_origin_nonce(miner.get_nonce());
+        tx_contract_call.set_fee_rate(0);
+
+        let mut tx_signer = StacksTransactionSigner::new(&tx_contract_call);
+        miner.sign_as_origin(&mut tx_signer);
+        let tx_contract_call_signed = tx_signer.get_tx().unwrap();
+        tx_contract_call_signed
+    }
+    
+    /// paired with make_smart_contract
+    fn make_contract_call_at<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, stacks_height: usize, arg1: i128, arg2: i128) -> StacksTransaction {
+        let addr = miner.origin_address().unwrap();
+        let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
+                                                          miner.as_transaction_auth().unwrap(),
+                                                          TransactionPayload::new_contract_call(addr.clone(), &format!("hello-world-{}-{}", burnchain_height, stacks_height), "set-bar", vec![Value::Int(arg1), Value::Int(arg2)]).unwrap());
 
         tx_contract_call.chain_id = 0x80000000;
         tx_contract_call.auth.set_origin_nonce(miner.get_nonce());
@@ -2470,7 +2369,7 @@ pub mod test {
         builder.try_mine_tx(clarity_tx, &tx_contract_signed).unwrap();
 
         // make a contract call 
-        let tx_contract_call_signed = make_contract_call(clarity_tx, builder, miner, burnchain_height);
+        let tx_contract_call_signed = make_contract_call(clarity_tx, builder, miner, burnchain_height, 6, 2);
         builder.try_mine_tx(clarity_tx, &tx_contract_call_signed).unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2481,8 +2380,23 @@ pub mod test {
         (stacks_block, vec![])
     }
     
-    /// mine a smart contract in an anchored block, and mine a contract-call to it in a microblock.
+    /// mine a smart contract in an anchored block, and mine some contract-calls to it in a microblock tail
     fn mine_smart_contract_block_contract_call_microblock<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
+        if burnchain_height > 0 && builder.chain_tip.anchored_header.total_work.work > 0 {
+            // find previous contract in this fork
+            for i in (0..burnchain_height).rev() {
+                let prev_contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(miner.origin_address().unwrap()), ContractName::try_from(format!("hello-world-{}-{}", i, builder.chain_tip.anchored_header.total_work.work).as_str()).unwrap());
+                let contract = StacksChainState::get_contract(clarity_tx, &prev_contract_id).unwrap();
+                if contract.is_none() {
+                    continue;
+                }
+
+                let prev_bar_value = StacksChainState::get_data_var(clarity_tx, &prev_contract_id, "bar").unwrap();
+                assert_eq!(prev_bar_value, Some(Value::Int((6 + 3 - 1) / (2 + 3 - 1))));
+                break;
+            }
+        }
+
         let miner_account = StacksChainState::get_account(clarity_tx, &miner.origin_address().unwrap().to_account_principal());
         miner.set_nonce(miner_account.nonce);
 
@@ -2496,20 +2410,139 @@ pub mod test {
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
 
-        // make a contract call
-        let tx_contract_call_signed = make_contract_call(clarity_tx, builder, miner, burnchain_height);
-        builder.try_mine_tx(clarity_tx, &tx_contract_call_signed).unwrap();
-        
-        // put the contract-call into a microblock 
-        let microblock = builder.mine_next_microblock().unwrap();
+        let mut microblocks = vec![];
+        for i in 0..3 {
+            // make a contract call
+            let tx_contract_call_signed = make_contract_call(clarity_tx, builder, miner, burnchain_height, 6 + i, 2 + i);
+            builder.try_mine_tx(clarity_tx, &tx_contract_call_signed).unwrap();
+            
+            // put the contract-call into a microblock 
+            let microblock = builder.mine_next_microblock().unwrap();
+            microblocks.push(microblock);
+        }
 
-        // TODO: test value of 'bar' in last contract(s)
-        
-        test_debug!("Produce anchored stacks block {} with smart contract and microblock {} with contract call at burnchain height {} stacks height {}", 
-                    stacks_block.block_hash().to_hex(), microblock.block_hash(), burnchain_height, stacks_block.header.total_work.work);
+        test_debug!("Produce anchored stacks block {} with smart contract and {} microblocks with contract call at burnchain height {} stacks height {}", 
+                    stacks_block.block_hash().to_hex(), microblocks.len(), burnchain_height, stacks_block.header.total_work.work);
 
-        (stacks_block, vec![microblock])
+        (stacks_block, microblocks)
     }
+    
+    /// mine a smart contract in an anchored block, and mine a contract-call to it in a microblock.
+    /// Make it so all microblocks throw a runtime exception, but confirm that they are still mined
+    /// anyway.
+    fn mine_smart_contract_block_contract_call_microblock_exception<'a>(clarity_tx: &mut ClarityTx<'a>, 
+                                                                        builder: &mut StacksBlockBuilder, 
+                                                                        miner: &mut TestMiner, 
+                                                                        burnchain_height: usize, 
+                                                                        parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
+        if burnchain_height > 0 && builder.chain_tip.anchored_header.total_work.work > 0 {
+            // find previous contract in this fork
+            for i in (0..burnchain_height).rev() {
+                let prev_contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(miner.origin_address().unwrap()), ContractName::try_from(format!("hello-world-{}-{}", i, builder.chain_tip.anchored_header.total_work.work).as_str()).unwrap());
+                let contract = StacksChainState::get_contract(clarity_tx, &prev_contract_id).unwrap();
+                if contract.is_none() {
+                    continue;
+                }
+
+                test_debug!("Found contract {:?}", &prev_contract_id);
+                let prev_bar_value = StacksChainState::get_data_var(clarity_tx, &prev_contract_id, "bar").unwrap();
+                assert_eq!(prev_bar_value, Some(Value::Int(0)));
+                break;
+            }
+        }
+
+        let miner_account = StacksChainState::get_account(clarity_tx, &miner.origin_address().unwrap().to_account_principal());
+        miner.set_nonce(miner_account.nonce);
+
+        // make a coinbase for this miner
+        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
+        builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
+
+        // make a smart contract
+        let tx_contract_signed = make_smart_contract(clarity_tx, builder, miner, burnchain_height);
+        builder.try_mine_tx(clarity_tx, &tx_contract_signed).unwrap();
+
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
+
+        let mut microblocks = vec![];
+        for i in 0..3 {
+            // make a contract call (note: triggers a divide-by-zero runtime error)
+            let tx_contract_call_signed = make_contract_call(clarity_tx, builder, miner, burnchain_height, 6 + i, 0);
+            builder.try_mine_tx(clarity_tx, &tx_contract_call_signed).unwrap();
+            
+            // put the contract-call into a microblock 
+            let microblock = builder.mine_next_microblock().unwrap();
+            microblocks.push(microblock);
+        }
+        
+        test_debug!("Produce anchored stacks block {} with smart contract and {} microblocks with contract call at burnchain height {} stacks height {}", 
+                    stacks_block.block_hash().to_hex(), microblocks.len(), burnchain_height, stacks_block.header.total_work.work);
+
+        (stacks_block, microblocks)
+    }
+
+    /*
+    // TODO: blocked on get-block-info's reliance on get_simmed_block_height
+
+    /// In the first epoch, mine an anchored block followed by 100 microblocks.
+    /// In all following epochs, build off of one of the microblocks.
+    fn mine_smart_contract_block_contract_call_microblocks_same_stream<'a>(clarity_tx: &mut ClarityTx<'a>, 
+                                                                           builder: &mut StacksBlockBuilder, 
+                                                                           miner: &mut TestMiner, 
+                                                                           burnchain_height: usize, 
+                                                                           parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
+
+        let miner_account = StacksChainState::get_account(clarity_tx, &miner.origin_address().unwrap().to_account_principal());
+        miner.set_nonce(miner_account.nonce);
+
+        // make a coinbase for this miner
+        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
+        builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
+        
+        if burnchain_height == 0 {
+            // make a smart contract
+            let tx_contract_signed = make_smart_contract(clarity_tx, builder, miner, 0);
+            builder.try_mine_tx(clarity_tx, &tx_contract_signed).unwrap();
+            
+            let stacks_block = builder.mine_anchored_block(clarity_tx);
+
+            // create the initial 20 contract calls in microblocks
+            let mut stacks_microblocks = vec![];
+            for i in 0..20 {
+                let tx_contract_call_signed = make_contract_call_at(clarity_tx, builder, miner, 0, 1, i+1, 1);
+                builder.try_mine_tx(clarity_tx, &tx_contract_call_signed).unwrap();
+
+                let microblock = builder.mine_next_microblock().unwrap();
+                stacks_microblocks.push(microblock);
+            }
+
+            (stacks_block, stacks_microblocks)
+        }
+        else {
+            // set parent at block 1
+            let first_block_hash = clarity_get_block_hash(clarity_tx, 1).unwrap();
+            builder.set_parent_block(&first_block_hash);
+            
+            let mut stacks_block = builder.mine_anchored_block(clarity_tx);
+
+            // re-create the initial 100 contract calls in microblocks
+            let mut stacks_microblocks = vec![];
+            for i in 0..20 {
+                let tx_contract_call_signed = make_contract_call_at(clarity_tx, builder, miner, 0, 1, i+1, 1);
+                builder.try_mine_tx(clarity_tx, &tx_contract_call_signed).unwrap();
+
+                let microblock = builder.mine_next_microblock().unwrap();
+                stacks_microblocks.push(microblock);
+            }
+
+            // builder.set_parent_microblock(&stacks_microblocks[burnchain_height].block_hash(), stacks_microblocks[burnchain_height].header.sequence);
+            stacks_block.header.parent_microblock = stacks_microblocks[burnchain_height].block_hash();
+            stacks_block.header.parent_microblock_sequence = stacks_microblocks[burnchain_height].header.sequence;
+
+            (stacks_block, vec![])
+        }
+    }
+    */
 
     #[test]
     fn mine_anchored_empty_blocks_single() {
@@ -2675,16 +2708,69 @@ pub mod test {
         let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_2_burnchains(&"smart-contract-block-contract-call-microblock-burnchain-stacks-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock, mine_smart_contract_block_contract_call_microblock);
         miner_trace_replay_randomized(&mut miner_trace);
     }
+    
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_exception_single() {
+        mine_stacks_blocks_1_fork_1_miner_1_burnchain(&"smart-contract-block-contract-call-microblock-exception".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception);
+    }
+    
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_exception_single_random() {
+        let mut miner_trace = mine_stacks_blocks_1_fork_1_miner_1_burnchain(&"smart-contract-block-contract-call-microblock-exception-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
 
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_exception_multiple_miners() {
+        mine_stacks_blocks_1_fork_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-exception-multiple-miners".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception, mine_smart_contract_block_contract_call_microblock_exception);
+    }
+    
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_exception_multiple_miners_random() {
+        let mut miner_trace = mine_stacks_blocks_1_fork_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-exception-multiple-miners-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception, mine_smart_contract_block_contract_call_microblock_exception);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
+    
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_exception_stacks_fork() {
+        mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-exception-stacks-fork".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception, mine_smart_contract_block_contract_call_microblock_exception);
+    }
+    
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_exception_stacks_fork_random() {
+        let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-exception-stacks-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception, mine_smart_contract_block_contract_call_microblock_exception);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
 
-    // TODO: build off of different points in the same microblock stream
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_exception_burnchain_fork() {
+        mine_stacks_blocks_1_fork_2_miners_2_burnchains(&"smart-contract-block-contract-call-microblock-exception-burnchain-fork".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception, mine_smart_contract_block_contract_call_microblock_exception);
+    }
+    
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_exception_burnchain_fork_random() {
+        let mut miner_trace = mine_stacks_blocks_1_fork_2_miners_2_burnchains(&"smart-contract-block-contract-call-microblock-exception-burnchain-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception, mine_smart_contract_block_contract_call_microblock_exception);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
+    
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_exception_burnchain_fork_stacks_fork() {
+        mine_stacks_blocks_2_forks_2_miners_2_burnchains(&"smart-contract-block-contract-call-microblock-exception-burnchain-stacks-fork".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception, mine_smart_contract_block_contract_call_microblock_exception);
+    }
+    
+    #[test]
+    fn mine_anchored_smart_contract_block_contract_call_microblock_exception_burnchain_fork_stacks_fork_random() {
+        let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_2_burnchains(&"smart-contract-block-contract-call-microblock-exception-burnchain-stacks-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception, mine_smart_contract_block_contract_call_microblock_exception);
+        miner_trace_replay_randomized(&mut miner_trace);
+    }
+
+    // TODO: (BLOCKED) build off of different points in the same microblock stream
     // TODO; skipped blocks
     // TODO: missing blocks
     // TODO: invalid blocks
     // TODO: invalid block with duplicate microblock public key hash (okay between forks, but not
     // within the same fork)
     // TODO: no-sortition
-    // TODO: post-conditions and aborted transactions
     // TODO: burnchain forks, and we mine the same anchored stacks block in the beginnings of the two descendent
     // forks.  Verify all descendents are unique -- if A --> B and A --> C, and B --> D and C -->
     // E, and B == C, verify that it is never the case that D == E (but it is allowed that B == C
