@@ -601,36 +601,78 @@ impl StacksChainState {
             stx_balance: 0
         };
 
-        let mut clarity_tx = chainstate.block_begin(&BURNCHAIN_BOOT_BLOCK_HASH, &BOOT_BLOCK_HASH, &FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
-        for i in 0..STACKS_BOOT_CODE.len() {
-            let smart_contract = TransactionPayload::SmartContract(
-                TransactionSmartContract {
-                    name: ContractName::try_from(STACKS_BOOT_CODE_CONTRACT_NAMES[i].to_string()).expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(&STACKS_BOOT_CODE[i].to_string()).expect("FATAL: invalid boot code body"),
-                }
-            );
+        {
+            let mut clarity_tx = chainstate.block_begin(&BURNCHAIN_BOOT_BLOCK_HASH, &BOOT_BLOCK_HASH, &FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
+            for i in 0..STACKS_BOOT_CODE.len() {
+                let smart_contract = TransactionPayload::SmartContract(
+                    TransactionSmartContract {
+                        name: ContractName::try_from(STACKS_BOOT_CODE_CONTRACT_NAMES[i].to_string()).expect("FATAL: invalid boot-code contract name"),
+                        code_body: StacksString::from_str(&STACKS_BOOT_CODE[i].to_string()).expect("FATAL: invalid boot code body"),
+                    }
+                );
 
-            let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-            StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+                let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
+                StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
 
-            boot_code_account.nonce += 1;
+                boot_code_account.nonce += 1;
+            }
+
+            for i in 0..additional_boot_code.len() {
+                let smart_contract = TransactionPayload::SmartContract(
+                    TransactionSmartContract {
+                        name: ContractName::try_from(additional_boot_code_contract_names[i].clone()).expect("FATAL: invalid additional boot-code contract name"),
+                        code_body: StacksString::from_str(&additional_boot_code[i]).expect("FATAL: invalid additional boot code body"),
+                    }
+                );
+
+                let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
+                StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+                
+                boot_code_account.nonce += 1;
+            }
+
+            clarity_tx.commit_to_block(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
-
-        for i in 0..additional_boot_code.len() {
-            let smart_contract = TransactionPayload::SmartContract(
-                TransactionSmartContract {
-                    name: ContractName::try_from(additional_boot_code_contract_names[i].clone()).expect("FATAL: invalid additional boot-code contract name"),
-                    code_body: StacksString::from_str(&additional_boot_code[i]).expect("FATAL: invalid additional boot code body"),
-                }
-            );
-
-            let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-            StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+        
+        {
+            // add a block header entry for the boot code (TODO)
+            let mut headers_tx = chainstate.headers_tx_begin()?;
+            let parent_hash = TrieFileStorage::block_sentinel();
+            let first_index_hash = StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
             
-            boot_code_account.nonce += 1;
+            headers_tx.put_indexed_begin(&parent_hash, &first_index_hash)
+                .map_err(Error::DBError)?;
+            let first_root_hash = headers_tx.put_indexed_all(&vec![], &vec![])
+                .map_err(Error::DBError)?;
+            headers_tx.indexed_commit()
+                .map_err(Error::DBError)?;
+
+            let first_tip_info = StacksHeaderInfo {
+                anchored_header: StacksBlockHeader {
+                    version: STACKS_BLOCK_VERSION,
+                    total_work: StacksWorkScore {
+                        burn: 0,
+                        work: 1
+                    },
+                    proof: VRFProof::empty(),
+                    parent_block: BOOT_BLOCK_HASH.clone(),
+                    parent_microblock: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+                    parent_microblock_sequence: 0,
+                    tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
+                    state_index_root: TrieHash([0u8; 32]),
+                    microblock_pubkey_hash: Hash160([0u8; 20]),
+                },
+                microblock_tail: None,
+                index_root: first_root_hash,
+                block_height: 1,
+                burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            };
+
+            StacksChainState::insert_stacks_block_header(&mut headers_tx, &first_tip_info)?;
+            headers_tx.commit()
+                .map_err(Error::DBError)?;
         }
 
-        clarity_tx.commit_to_block(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
         Ok(())
     }
     
