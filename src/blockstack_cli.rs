@@ -62,7 +62,7 @@ prefacing each argument with a flag:
 
 e.g.,
 
-   blockstack-cli contract-call $secret_key SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4 foo-contract \\
+   blockstack-cli contract-call $secret_key SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4 10 0 foo-contract \\
       transfer-fookens -e \\'SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4 \\
                        -e \"(+ 1 2)\" \\
                        -x 0000000000000000000000000000000001 \\
@@ -185,8 +185,8 @@ fn sign_transaction_single_sig_standard(transaction: &str, secret_key: &StacksPr
        .ok_or("TX did not finish signing -- was this a standard single signature transaction?")?)
 }
 
-fn handle_contract_publish(args: &[String], version: TransactionVersion) -> Result<(), CliError> {
-    if args.len() > 1 && args[0] == "-h" {
+fn handle_contract_publish(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
+    if args.len() >= 1 && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", PUBLISH_USAGE)))
     }
     if args.len() != 5 {
@@ -214,13 +214,11 @@ fn handle_contract_publish(args: &[String], version: TransactionVersion) -> Resu
     let signed_tx = sign_transaction_single_sig_standard(
         &to_hex(&unsigned_tx.serialize()), &sk_publisher)?;
 
-    println!("{}", to_hex(&signed_tx.serialize()));
-
-    Ok(())
+    Ok(to_hex(&signed_tx.serialize()))
 }
 
-fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<(), CliError> {
-    if args.len() > 1 && args[0] == "-h" {
+fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
+    if args.len() >= 1 && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", CALL_USAGE)))
     }
     if args.len() < 6 {
@@ -269,13 +267,11 @@ fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<
     let signed_tx = sign_transaction_single_sig_standard(
         &to_hex(&unsigned_tx.serialize()), &sk_origin)?;
 
-    println!("{}", to_hex(&signed_tx.serialize()));
-
-    Ok(())
+    Ok(to_hex(&signed_tx.serialize()))
 }
 
-fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<(), CliError> {
-    if args.len() > 1 && args[0] == "-h" {
+fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
+    if args.len() >= 1 && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", GENERATE_USAGE)))
     }
 
@@ -289,17 +285,14 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<(
     let address = StacksAddress::from_public_keys(
         version, &AddressHashMode::SerializeP2PKH, 1, &vec![pk.clone()])
         .expect("Failed to generate address from public key");
-
-    println!("{{ 
+    Ok(format!("{{ 
   secretKey: \"{}\",
   publicKey: \"{}\",
   stacksAddress: \"{}\"
 }}",
              sk.to_hex(),
              pk.to_hex(),
-             address.to_string());
-
-    Ok(())
+             address.to_string()))
 }
 
 fn main() {
@@ -309,7 +302,9 @@ fn main() {
     argv.remove(0);
 
     match main_handler(argv) {
-        Ok(_) => {},
+        Ok(s) => {
+            println!("{}", s);
+        },
         Err(e) => {
             eprintln!("{}", e);
             std::process::exit(1);
@@ -317,7 +312,7 @@ fn main() {
     }
 }
 
-fn main_handler(mut argv: Vec<String>) -> Result<(), CliError> {
+fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
     let tx_version = if let Some(ix) = argv.iter().position(|x| x == "--testnet") {
         argv.remove(ix);
         TransactionVersion::Testnet
@@ -335,4 +330,101 @@ fn main_handler(mut argv: Vec<String>) -> Result<(), CliError> {
     } else {
         Err(CliError::Usage)
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn generate_should_work() {
+        assert!(main_handler(vec!["generate-sk".into(), "--testnet".into()]).is_ok());
+        assert!(main_handler(vec!["generate-sk".into()]).is_ok());
+        assert!(generate_secret_key(&vec!["-h".into()], TransactionVersion::Mainnet).is_err());
+    }
+
+    fn to_string_vec(x: &[&str]) -> Vec<String> {
+        x.iter().map(|&x| x.into()).collect()
+    }
+
+    #[test]
+    fn simple_publish() {
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            "./sample-programs/tokens.clar"];
+
+        assert!(main_handler(to_string_vec(&publish_args)).is_ok());
+    }
+
+    #[test]
+    fn simple_cc() {
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "-e",
+            "(+ 1 0)",
+            "-e",
+            "2"
+        ];
+
+        let exec_1 = main_handler(to_string_vec(&cc_args)).unwrap();
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "-e",
+            "(+ 0 1)",
+            "-e",
+            "(+ 1 1)"
+        ];
+
+
+        let exec_2 = main_handler(to_string_vec(&cc_args)).unwrap();
+
+        assert_eq!(exec_1, exec_2);
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "-e",
+            "(+ 0 1)",
+            "-e",
+        ];
+
+        assert!(main_handler(to_string_vec(&cc_args)).is_err());
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "-e",
+            "(/ 1 0)",
+        ];
+
+        assert!(main_handler(to_string_vec(&cc_args)).is_err());
+
+    }
+
 }
