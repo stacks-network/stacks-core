@@ -75,7 +75,10 @@ impl Node {
         
         let keychain = Keychain::default();
 
-        let chain_state = StacksChainState::open(false, 0x80000000, &config.path).unwrap();
+        let chain_state = match StacksChainState::open(false, 0x80000000, &config.path) {
+            Ok(res) => res,
+            Err(err) => panic!("Error while opening chain state at path {:?}", config.path)
+        };
 
         let mem_pool = MemPoolFS::new(&config.mem_pool_path);
 
@@ -104,7 +107,10 @@ impl Node {
         // Register a new key
         let vrf_pk = self.keychain.rotate_vrf_keypair();
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, consensus_hash);
-        burnchain_ops_tx.send(key_reg_op).unwrap();
+        let chain_state = match burnchain_ops_tx.send(key_reg_op) {
+            Ok(res) => res,
+            Err(err) => panic!("Error while transmitting op to the burnchain")
+        };
 
         // Keep the burnchain_ops_tx for subsequent ops submissions
         self.burnchain_ops_tx = Some(burnchain_ops_tx);
@@ -231,20 +237,7 @@ impl Node {
 
         // Constructs the coinbase transaction - 1st txn that should be handled and included in 
         // the upcoming tenure.
-        let coinbase_tx = {
-            let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
-            tx_auth.set_origin_nonce(self.nonce);
-
-            let mut tx = StacksTransaction::new(
-                TransactionVersion::Testnet, 
-                tx_auth, 
-                TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
-            tx.chain_id = 0x80000000;
-            tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
-            let mut tx_signer = StacksTransactionSigner::new(&tx);
-            self.keychain.sign_as_origin(&mut tx_signer);
-            tx_signer.get_tx().unwrap()
-        };
+        let coinbase_tx = self.generate_coinbase_tx();
 
         // Construct the upcoming tenure
         let tenure = LeaderTenure::new(
@@ -256,9 +249,6 @@ impl Node {
             microblock_secret_key, 
             sortitioned_block.clone(),
             vrf_proof);
-        
-        // Increment nonce
-        self.nonce += 1;
 
         Some(tenure)
     }
@@ -376,5 +366,25 @@ impl Node {
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash([0u8; 32]),
         })
+    }
+
+    // Constructs a coinbase transaction
+    fn generate_coinbase_tx(&mut self) -> StacksTransaction {
+        let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
+        tx_auth.set_origin_nonce(self.nonce);
+
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet, 
+            tx_auth, 
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
+        tx.chain_id = 0x80000000;
+        tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+        let mut tx_signer = StacksTransactionSigner::new(&tx);
+        self.keychain.sign_as_origin(&mut tx_signer);
+     
+        // Increment nonce
+        self.nonce += 1;
+
+        tx_signer.get_tx().unwrap()                       
     }
 }
