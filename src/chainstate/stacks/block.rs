@@ -37,6 +37,7 @@ use net::StacksPublicKeyBuffer;
 use sha2::Sha512Trunc256;
 use sha2::Digest;
 
+use chainstate::stacks::Error;
 use chainstate::burn::*;
 use chainstate::burn::operations::*;
 
@@ -98,15 +99,17 @@ impl StacksWorkScore {
     pub fn initial() -> StacksWorkScore {
         StacksWorkScore {
             burn: 0,
-            work: 1
+            work: 1     // block 0 is the boot code
         }
     }
 
+    /*
     pub fn add(&self, work_delta: &StacksWorkScore) -> StacksWorkScore {
         let mut ret = self.clone();
         ret.burn = self.burn.checked_add(work_delta.burn).expect("FATAL: numeric overflow on calculating new total burn");
         ret
     }
+    */
 }
 
 impl StacksMessageCodec for StacksBlockHeader {
@@ -158,7 +161,9 @@ impl StacksBlockHeader {
         let bytes = pubkey_buf.serialize();
         Hash160::from_data(&bytes[..])
     }
-    
+   
+    // TODO: Rename to "first_block_header" or something -- the genesis block ought to be the boot
+    // block
     pub fn genesis() -> StacksBlockHeader {
         StacksBlockHeader {
             version: STACKS_BLOCK_VERSION,
@@ -241,33 +246,37 @@ impl StacksBlockHeader {
     /// inclusion in the Stacks blockchain chain state.
     /// * stacks_chain_tip is the BlockSnapshot for the parent Stacks block this header builds on
     /// (i.e. this is the BlockSnapshot that corresponds to the parent of the given block_commit).
-    pub fn validate_burnchain(&self, burn_chain_tip: &BlockSnapshot, sortition_chain_tip: &BlockSnapshot, leader_key: &LeaderKeyRegisterOp, block_commit: &LeaderBlockCommitOp, stacks_chain_tip: &BlockSnapshot) -> bool {
+    pub fn validate_burnchain(&self, burn_chain_tip: &BlockSnapshot, sortition_chain_tip: &BlockSnapshot, leader_key: &LeaderKeyRegisterOp, block_commit: &LeaderBlockCommitOp, stacks_chain_tip: &BlockSnapshot) -> Result<(), Error> {
         // the burn chain tip's sortition must have chosen given block commit
         assert_eq!(burn_chain_tip.winning_stacks_block_hash, block_commit.block_header_hash);
         assert_eq!(burn_chain_tip.winning_block_txid, block_commit.txid);
         
         // this header must match the header that won sortition on the burn chain
         if self.block_hash() != burn_chain_tip.winning_stacks_block_hash {
-            debug!("Invalid Stacks block header {}: invalid commit: {} != {}", self.block_hash().to_hex(), self.block_hash().to_hex(), burn_chain_tip.winning_stacks_block_hash.to_hex());
-            return false;
+            let msg = format!("Invalid Stacks block header {}: invalid commit: {} != {}", self.block_hash().to_hex(), self.block_hash().to_hex(), burn_chain_tip.winning_stacks_block_hash.to_hex());
+            debug!("{}", msg);
+            return Err(Error::InvalidStacksBlock(msg));
         }
 
         // this header must match the parent header as recorded on the burn chain
         if self.parent_block != stacks_chain_tip.winning_stacks_block_hash {
-            debug!("Invalid Stacks block header {}: invalid parent hash: {} != {}", self.block_hash().to_hex(), self.parent_block.to_hex(), stacks_chain_tip.winning_stacks_block_hash.to_hex());
-            return false;
+            let msg = format!("Invalid Stacks block header {}: invalid parent hash: {} != {}", self.block_hash().to_hex(), self.parent_block.to_hex(), stacks_chain_tip.winning_stacks_block_hash.to_hex());
+            debug!("{}", msg);
+            return Err(Error::InvalidStacksBlock(msg));
         }
         
         // this header's proof must hash to the burn chain tip's VRF seed
         if !block_commit.new_seed.is_from_proof(&self.proof) {
-            debug!("Invalid Stacks block header {}: invalid VRF proof: hash({}) != {} (but {})", self.block_hash().to_hex(), self.proof.to_hex(), block_commit.new_seed.to_hex(), VRFSeed::from_proof(&self.proof).to_hex());
-            return false;
+            let msg = format!("Invalid Stacks block header {}: invalid VRF proof: hash({}) != {} (but {})", self.block_hash().to_hex(), self.proof.to_hex(), block_commit.new_seed.to_hex(), VRFSeed::from_proof(&self.proof).to_hex());
+            debug!("{}", msg);
+            return Err(Error::InvalidStacksBlock(msg));
         }
 
         // this header must commit to all of the work seen so far in this stacks blockchain fork.
         if self.total_work.burn != stacks_chain_tip.total_burn {
-            debug!("Invalid Stacks block header {}: invalid total burns: {} != {}", self.block_hash().to_hex(), self.total_work.burn, stacks_chain_tip.total_burn);
-            return false;
+            let msg = format!("Invalid Stacks block header {}: invalid total burns: {} != {}", self.block_hash().to_hex(), self.total_work.burn, stacks_chain_tip.total_burn);
+            debug!("{}", msg);
+            return Err(Error::InvalidStacksBlock(msg));
         }
 
         // this header's VRF proof must have been generated from the last sortition's sortition
@@ -282,66 +291,17 @@ impl StacksBlockHeader {
         };
 
         if !valid {
-            debug!("Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}", self.block_hash().to_hex(), leader_key.public_key.to_hex(), burn_chain_tip.sortition_hash.to_hex());
-            return false;
+            let msg = format!("Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}", self.block_hash().to_hex(), leader_key.public_key.to_hex(), burn_chain_tip.sortition_hash.to_hex());
+            debug!("{}", msg);
+            return Err(Error::InvalidStacksBlock(msg));
         }
 
         // not verified by this method:
         // * parent_microblock and parent_microblock_sequence
         // * total_work.work (need the parent block header for that)
-        // use validate_parent() for that.
-        //
-        // also not verified:
         // * tx_merkle_root     (already verified; validated on deserialization)
         // * state_index_root   (validated on process_block())
-        true
-    }
-
-    /// Validate this block header against its parent block header.
-    /// Call after validate_burnchain()
-    pub fn validate_parent(&self, parent: &StacksBlockHeader, microblock_parent_opt: Option<&StacksMicroblockHeader>) -> bool {
-        if parent.block_hash() != self.parent_block {
-            debug!("Invalid Stacks block header {}: parent {} != {}", self.block_hash().to_hex(), parent.block_hash().to_hex(), self.parent_block.to_hex());
-            return false;
-        }
-        
-        // this header must commit to the chain height
-        if self.total_work.work != parent.total_work.work.checked_add(1).expect("FATAL: stacks block height overflow") {
-            debug!("Invalid Stacks block header {}: invalid total work: {} != {}", self.block_hash().to_hex(), self.total_work.work, parent.total_work.work.checked_add(1).expect("FATAL: stacks block height overflow"));
-            return false;
-        }
-
-        if let Some(ref microblock_parent) = microblock_parent_opt {
-            if self.parent_microblock_sequence == 0 {
-                // we have no parent microblock 
-                debug!("Invalid Stacks block header {}: no parent microblock (sequence 0), but expected {}", self.block_hash().to_hex(), microblock_parent.sequence);
-                return false;
-            }
-
-            if microblock_parent.block_hash() != self.parent_microblock {
-                debug!("Invalid Stacks block header {}: parent microblock {} != {}", self.block_hash().to_hex(), microblock_parent.block_hash().to_hex(), self.parent_microblock.to_hex());
-                return false;
-            }
-
-            if microblock_parent.sequence != self.parent_microblock_sequence {
-                debug!("Invalid Stacks block header {}: parent microblock sequence {} != {}", self.block_hash().to_hex(), microblock_parent.sequence, self.parent_microblock_sequence);
-                return false;
-            }
-        }
-        else {
-            // no parent microblock, so these fields must be 0'ed
-            if self.parent_microblock_sequence != 0 {
-                debug!("Invalid Stacks block header {}: sequence is not 0 (but is {})", self.block_hash().to_hex(), self.parent_microblock_sequence);
-                return false;
-            }
-
-            if self.parent_microblock != EMPTY_MICROBLOCK_PARENT_HASH {
-                debug!("Invalid Stacks block header {}: parent microblock {} != {}", self.block_hash().to_hex(), self.parent_microblock.to_hex(), EMPTY_MICROBLOCK_PARENT_HASH.to_hex());
-                return false;
-            }
-        }
-
-        return true;
+        Ok(())
     }
 }
 
@@ -404,7 +364,21 @@ impl StacksMessageCodec for StacksBlock {
             return Err(net_error::DeserializeError("Invalid block: tx Merkle root mismatch".to_string()));
         }
 
-        // coinbase is present 
+        // must be only one coinbase
+        let mut coinbase_count = 0;
+        for tx in txs.iter() {
+            match tx.payload {
+                TransactionPayload::Coinbase(_) => {
+                    coinbase_count += 1;
+                    if coinbase_count > 1 {
+                        return Err(net_error::DeserializeError("Invalid block: multiple coinbases found".to_string()));
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        // coinbase is present at the right place
         if !StacksBlock::validate_coinbase(&txs, true) {
             warn!("Invalid block: no coinbase found at first transaction slot");
             return Err(net_error::DeserializeError("Invalid block: no coinbase found at first transaction slot".to_string()));
@@ -419,6 +393,7 @@ impl StacksMessageCodec for StacksBlock {
 }
 
 impl StacksBlock {
+    // TODO: rename to "first_block" or something, since the genesis block is the boot block
     pub fn genesis() -> StacksBlock {
         let header = StacksBlockHeader::genesis();
         StacksBlock {
@@ -444,41 +419,6 @@ impl StacksBlock {
     
     pub fn index_block_hash(&self, burn_hash: &BurnchainHeaderHash) -> BlockHeaderHash {
         self.header.index_block_hash(burn_hash)
-    }
-
-    /// Validate the block, except for the transactions and state root.
-    /// I.e. confirm that it is okay to begin processing this block's transactions.
-    /// NOTE: the caller must call header.validate_burnchain() separately
-    pub fn validate(&self, parent_header: &StacksBlockHeader, parent_microblock_stream: &Vec<StacksMicroblock>) -> bool {
-        if parent_microblock_stream.len() == 0 {
-            // this block should attach directly to its parent
-            if !self.header.validate_parent(parent_header, None) {
-                test_debug!("Invalid Stacks block {}: header does not match parent", self.block_hash().to_hex());
-                return false;
-            }
-        }
-        else {
-            // this block should attach to the end of this microblock stream
-            if !parent_microblock_stream[0].validate(&parent_header.block_hash(), None, &parent_header.microblock_pubkey_hash) {
-                test_debug!("Invalid Stacks block {}: parent microblock stream entry 0 is invalid", self.block_hash().to_hex());
-                return false;
-            }
-
-            for i in 1..parent_microblock_stream.len() {
-                // parent stream must all be contiguous and valid
-                if !parent_microblock_stream[i].validate(&parent_microblock_stream[i-1].block_hash(), Some(parent_microblock_stream[i-1].header.sequence), &parent_header.microblock_pubkey_hash) {
-                    test_debug!("Invalid Stacks block {}: parent microblock stream entry {} is invalid", self.block_hash().to_hex(), i);
-                    return false;
-                }
-            }
-            
-            if !self.header.validate_parent(parent_header, Some(&parent_microblock_stream[parent_microblock_stream.len()-1].header)) {
-                test_debug!("Invalid Stacks block {}: header does not match parent or microblock parent", self.block_hash().to_hex());
-                return false;
-            }
-        }
-        
-        return true;
     }
 
     /// Find and return the coinbase transaction.  It's always the first transaction.
@@ -762,49 +702,6 @@ impl StacksMicroblockHeader {
             signature: MessageSignature::empty()
         })
     }
-
-    /// Verify that this microblock connects to its parent microblock (or anchored block), and that
-    /// it was signed by the anchored block's miner.
-    pub fn validate_parent(&self, parent_hash: &BlockHeaderHash, parent_sequence: Option<u16>, parent_pubkey_hash: &Hash160) -> bool {
-        match parent_sequence {
-            Some(seq) => {
-                match seq.checked_add(1) {
-                    Some(my_seq) => {
-                        if self.sequence != my_seq {
-                            test_debug!("Invalid microblock {}: sequence {} != {}", self.block_hash().to_hex(), self.sequence, my_seq);
-                            return false;
-                        }
-                    },
-                    None => {
-                        // parent sequence is the largest sequence, so this block cannot be valid.
-                        // A subsequent leader can declare this microblock as a duplicate, and
-                        // steal this block's miner's coinbase.
-                        test_debug!("Invalid microblock {}: sequence {} overflow", self.block_hash().to_hex(), self.sequence);
-                        return false;
-                    }
-                };
-            },
-            None => {
-                if self.sequence != 0 {
-                    test_debug!("Invalid microblock {}: sequence {} != 0", self.block_hash().to_hex(), self.sequence);
-                    return false;
-                }
-            }
-        }
-
-        if self.prev_block != *parent_hash {
-            test_debug!("Invalid microblock {}: parent hash {} != {}", self.block_hash().to_hex(), self.prev_block.to_hex(), parent_hash.to_hex());
-            return false;
-        }
-
-        let mut dup = self.clone();
-        if dup.verify(parent_pubkey_hash).is_err() {
-            test_debug!("Invalid microblock {}: failed to verify", self.block_hash().to_hex());
-            return false;
-        }
-
-        return true;
-    }
 }
 
 
@@ -834,6 +731,11 @@ impl StacksMessageCodec for StacksMicroblock {
 
         let header : StacksMicroblockHeader = read_next(buf, &mut index, size_clamp)?;
         let txs : Vec<StacksTransaction>    = read_next(buf, &mut index, size_clamp)?;
+
+        if txs.len() == 0 {
+            warn!("Invalid microblock: zero transactions");
+            return Err(net_error::DeserializeError("Invalid microblock: zero transactions".to_string()));
+        }
 
         if !StacksBlock::validate_transactions_unique(&txs) {
             warn!("Invalid microblock: duplicate transaction");
@@ -915,10 +817,6 @@ impl StacksMicroblock {
         self.header.block_hash()
     }
 
-    pub fn validate(&self, parent_hash: &BlockHeaderHash, parent_sequence: Option<u16>, parent_pubkey_hash: &Hash160) -> bool {
-        self.header.validate_parent(parent_hash, parent_sequence, parent_pubkey_hash)
-    }
-
     /// static sanity checks on transactions.
     pub fn validate_transactions_static(&self, mainnet: bool, chain_id: u32) -> bool {
         if !StacksBlock::validate_transactions_unique(&self.txs) {
@@ -951,6 +849,20 @@ mod test {
     use net::codec::test::*;
 
     use util::hash::*;
+
+    use address::*;
+    
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use burnchains::bitcoin::address::BitcoinAddress;
+    use burnchains::bitcoin::blocks::BitcoinBlockParser;
+    use burnchains::Txid;
+    use burnchains::BLOCKSTACK_MAGIC_MAINNET;
+    use burnchains::BurnchainBlockHeader;
+    use burnchains::BurnchainSigner;
+
+    use burnchains::bitcoin::BitcoinNetworkType;
+
+    use std::error::Error;
 
     #[test]
     fn codec_stacks_block_ecvrf_proof() {
@@ -1276,8 +1188,290 @@ mod test {
         mblock_header.verify(&pubkh_compressed).unwrap();
     }
 
+    #[test]
+    fn stacks_header_validate_burnchain() {
+        let mut header = StacksBlockHeader {
+            version: 0x01,
+            total_work: StacksWorkScore {
+                burn: 234,
+                work: 567,
+            },
+            proof: VRFProof::empty(),
+            parent_block: BlockHeaderHash([5u8; 32]),
+            parent_microblock: BlockHeaderHash([6u8; 32]),
+            parent_microblock_sequence: 4,
+            tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
+            state_index_root: TrieHash([8u8; 32]),
+            microblock_pubkey_hash: Hash160([9u8; 20])
+        };
+       
+        let mut burn_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]));
+        let mut stacks_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]));
+        let sortition_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]));
+
+        let leader_key = LeaderKeyRegisterOp {
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
+
+            txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+            vtxindex: 455,
+            block_height: 123,
+            burn_header_hash: BurnchainHeaderHash([0xfe; 32]),
+        };
+
+        let mut block_commit = LeaderBlockCommitOp {
+            block_header_hash: header.block_hash(),
+            new_seed: VRFSeed::from_proof(&header.proof),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![0x80],
+
+            burn_fee: 12345,
+            input: BurnchainSigner {
+                public_keys: vec![
+                    StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
+                ],
+                num_sigs: 1, 
+                hash_mode: AddressHashMode::SerializeP2PKH
+            },
+
+            txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
+            vtxindex: 444,
+            block_height: 125,
+            burn_header_hash: BurnchainHeaderHash([0xff; 32])
+        };
+
+        burn_chain_tip.winning_stacks_block_hash = header.block_hash();
+        burn_chain_tip.winning_block_txid = block_commit.txid.clone();
+
+        stacks_chain_tip.winning_stacks_block_hash = header.parent_block.clone();
+        stacks_chain_tip.total_burn = header.total_work.burn;
+
+        // should fail due to invalid proof 
+        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().description().find("did not produce a valid proof").is_some());
+
+        // should fail due to invalid burns
+        stacks_chain_tip.total_burn += 1;
+        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().description().find("invalid total burns").is_some());
+
+        // should fail due to invalid VRF seed
+        block_commit.new_seed = VRFSeed::initial();
+        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().description().find("invalid VRF proof").is_some());
+
+        // should fail due to invalid parent hash
+        stacks_chain_tip.winning_stacks_block_hash = BlockHeaderHash([0u8; 32]);
+        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().description().find("invalid parent hash").is_some());
+
+        // should fail due to bad commit
+        header.version += 1;
+        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().description().find("invalid commit").is_some());
+    }
+
+    #[test]
+    fn stacks_block_invalid() {
+        let header = StacksBlockHeader {
+            version: 0x01,
+            total_work: StacksWorkScore {
+                burn: 234,
+                work: 567,
+            },
+            proof: VRFProof::empty(),
+            parent_block: BlockHeaderHash([5u8; 32]),
+            parent_microblock: BlockHeaderHash([6u8; 32]),
+            parent_microblock_sequence: 4,
+            tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
+            state_index_root: TrieHash([8u8; 32]),
+            microblock_pubkey_hash: Hash160([9u8; 20])
+        };
+
+        let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
+        let origin_auth = TransactionAuth::Standard(TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk)).unwrap());
+        let tx_coinbase = StacksTransaction::new(TransactionVersion::Testnet,
+                                                 origin_auth.clone(),
+                                                 TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
+        
+        let tx_coinbase_2 = StacksTransaction::new(TransactionVersion::Testnet,
+                                                   origin_auth.clone(),
+                                                   TransactionPayload::Coinbase(CoinbasePayload([1u8; 32])));
+
+        let mut tx_invalid_coinbase = tx_coinbase.clone();
+        tx_invalid_coinbase.anchor_mode = TransactionAnchorMode::OffChainOnly;
+        
+        let mut tx_invalid_anchor = StacksTransaction::new(TransactionVersion::Testnet,
+                                                           origin_auth.clone(),
+                                                           TransactionPayload::TokenTransfer(StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 123, TokenTransferMemo([1u8; 34])));
+
+        tx_invalid_anchor.anchor_mode = TransactionAnchorMode::OffChainOnly;
+        
+        let mut tx_dup = tx_invalid_anchor.clone();
+        tx_dup.anchor_mode = TransactionAnchorMode::OnChainOnly;
+
+        let txs_bad_coinbase = vec![tx_invalid_coinbase.clone()];
+        let txs_no_coinbase = vec![tx_dup.clone()];
+        let txs_multiple_coinbases = vec![tx_coinbase.clone(), tx_coinbase_2.clone()];
+        let txs_bad_anchor = vec![tx_coinbase.clone(), tx_invalid_anchor.clone()];
+        let txs_dup = vec![tx_coinbase.clone(), tx_dup.clone(), tx_dup.clone()];
+        
+        let get_tx_root = |txs: &Vec<StacksTransaction>| {
+            let txid_vecs = txs
+                .iter()
+                .map(|tx| tx.txid().as_bytes().to_vec())
+                .collect();
+
+            let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+            let tx_merkle_root = merkle_tree.root();
+            tx_merkle_root
+        };
+
+        let mut block_header_no_coinbase = header.clone();
+        block_header_no_coinbase.tx_merkle_root = get_tx_root(&txs_no_coinbase);
+
+        let mut block_header_multiple_coinbase = header.clone();
+        block_header_multiple_coinbase.tx_merkle_root = get_tx_root(&txs_multiple_coinbases);
+
+        let mut block_header_invalid_coinbase = header.clone();
+        block_header_invalid_coinbase.tx_merkle_root = get_tx_root(&txs_bad_coinbase);
+
+        let mut block_header_invalid_anchor = header.clone();
+        block_header_invalid_anchor.tx_merkle_root = get_tx_root(&txs_bad_anchor);
+
+        let mut block_header_dup_tx = header.clone();
+        block_header_dup_tx.tx_merkle_root = get_tx_root(&txs_dup);
+
+        let mut block_header_empty = header.clone();
+        block_header_empty.tx_merkle_root = get_tx_root(&vec![]);
+
+        let invalid_blocks = vec![
+            (StacksBlock {
+                header: block_header_no_coinbase,
+                txs: txs_no_coinbase,
+            },
+            "no coinbase found"),
+            (StacksBlock {
+                header: block_header_multiple_coinbase,
+                txs: txs_multiple_coinbases
+            },
+            "multiple coinbases found"),
+            (StacksBlock {
+                header: block_header_invalid_anchor,
+                txs: txs_bad_anchor
+            },
+            "Found offchain-only transaction"),
+            (StacksBlock {
+                header: block_header_dup_tx,
+                txs: txs_dup
+            },
+            "found duplicate transaction"),
+            (StacksBlock {
+                header: block_header_empty,
+                txs: vec![]
+            },
+            "zero transactions")
+        ];
+        for (ref block, ref msg) in invalid_blocks.iter() {
+            let mut index = 0;
+            let bytes = block.serialize();
+            assert!(StacksBlock::deserialize(&bytes, &mut index, bytes.len() as u32).unwrap_err().description().find(msg).is_some());
+        }
+    }
+    
+    #[test]
+    fn stacks_microblock_invalid() {
+        let header = StacksMicroblockHeader {
+            version: 0x12, 
+            sequence: 0x34,
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
+            signature: MessageSignature::empty()
+        };
+
+        let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
+        let origin_auth = TransactionAuth::Standard(TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk)).unwrap());
+        let tx_coinbase = StacksTransaction::new(TransactionVersion::Testnet,
+                                                 origin_auth.clone(),
+                                                 TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
+        
+        let mut tx_coinbase_offchain = tx_coinbase.clone();
+        tx_coinbase_offchain.anchor_mode = TransactionAnchorMode::OffChainOnly;
+
+        let mut tx_invalid_anchor = StacksTransaction::new(TransactionVersion::Testnet,
+                                                           origin_auth.clone(),
+                                                           TransactionPayload::TokenTransfer(StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 123, TokenTransferMemo([1u8; 34])));
+
+        tx_invalid_anchor.anchor_mode = TransactionAnchorMode::OnChainOnly;
+        
+        let mut tx_dup = tx_invalid_anchor.clone();
+        tx_dup.anchor_mode = TransactionAnchorMode::OffChainOnly;
+
+        let txs_coinbase = vec![tx_coinbase.clone()];
+        let txs_offchain_coinbase = vec![tx_coinbase_offchain.clone()];
+        let txs_bad_anchor = vec![tx_invalid_anchor.clone()];
+        let txs_dup = vec![tx_dup.clone(), tx_dup.clone()];
+        
+        let get_tx_root = |txs: &Vec<StacksTransaction>| {
+            let txid_vecs = txs
+                .iter()
+                .map(|tx| tx.txid().as_bytes().to_vec())
+                .collect();
+
+            let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+            let tx_merkle_root = merkle_tree.root();
+            tx_merkle_root
+        };
+
+        let mut block_header_coinbase = header.clone();
+        block_header_coinbase.tx_merkle_root = get_tx_root(&txs_coinbase);
+        
+        let mut block_header_offchain_coinbase = header.clone();
+        block_header_offchain_coinbase.tx_merkle_root = get_tx_root(&txs_coinbase);
+
+        let mut block_header_invalid_anchor = header.clone();
+        block_header_invalid_anchor.tx_merkle_root = get_tx_root(&txs_bad_anchor);
+
+        let mut block_header_dup_tx = header.clone();
+        block_header_dup_tx.tx_merkle_root = get_tx_root(&txs_dup);
+
+        let mut block_header_empty = header.clone();
+        block_header_empty.tx_merkle_root = get_tx_root(&vec![]);
+
+        let invalid_blocks = vec![
+            (StacksMicroblock {
+                header: block_header_offchain_coinbase,
+                txs: txs_offchain_coinbase,
+            },
+            "invalid anchor mode for Coinbase"),
+            (StacksMicroblock {
+                header: block_header_coinbase,
+                txs: txs_coinbase,
+            },
+            "found on-chain-only transaction"),
+            (StacksMicroblock {
+                header: block_header_invalid_anchor,
+                txs: txs_bad_anchor
+            },
+            "found on-chain-only transaction"),
+            (StacksMicroblock {
+                header: block_header_dup_tx,
+                txs: txs_dup
+            },
+            "duplicate transaction"),
+            (StacksMicroblock {
+                header: block_header_empty,
+                txs: vec![]
+            },
+            "zero transactions")
+        ];
+        for (ref block, ref msg) in invalid_blocks.iter() {
+            let mut index = 0;
+            let bytes = block.serialize();
+            assert!(StacksMicroblock::deserialize(&bytes, &mut index, bytes.len() as u32).unwrap_err().description().find(msg).is_some());
+        }
+    }
+
     // TODO:
-    // * blocks themselves
-    // * wellformed (and not wellformed) blocks
     // * size limits
 }
