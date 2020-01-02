@@ -32,7 +32,7 @@ use core::*;
 use net::StacksPublicKeyBuffer;
 
 use util::hash::Sha512Trunc256Sum;
-
+use util::hash::to_hex;
 use util::secp256k1::MessageSignature;
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::ast::build_ast;
@@ -48,21 +48,19 @@ use vm::representations::{
 
 impl StacksMessageCodec for Value {
     fn serialize(&self) -> Vec<u8> {
-        use vm::database::ClaritySerializable;
         let mut res = vec![];
-        let value_str : String = ClaritySerializable::serialize(self);
-        write_next(&mut res, &value_str.as_bytes().to_vec());
+        let mut bytes = vec![];
+        self.serialize_write(&mut bytes);
+        write_next(&mut res, &bytes);
         res
     }
 
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<Value, net_error> {
         let mut index = *index_ptr;
         let bytes : Vec<u8> = read_next(buf, &mut index, max_size)?;
-        let bytes_json = String::from_utf8(bytes[..].to_vec())
-            .map_err(|_e| net_error::DeserializeError("Value byte sequence does not decode to utf8 string".to_string()))?;
 
-        let value = Value::try_deserialize_untyped(&bytes_json)
-            .map_err(|e| net_error::DeserializeError(format!("Failed to decode Value from '{}': {:?}", &bytes_json, &e)))?;
+        let value = Value::try_deserialize_bytes_untyped(&bytes)
+            .map_err(|e| net_error::DeserializeError(format!("Failed to decode Value from '{}': {:?}", &to_hex(&bytes), &e)))?;
        
         *index_ptr = index;
         Ok(value)
@@ -1899,6 +1897,8 @@ mod test {
 
             test_debug!("---------");
             test_debug!("test tx:\n{:?}", &tx);
+            test_debug!("---------");
+            test_debug!("text tx bytes:\n{}", &to_hex(&tx_bytes));
 
             check_codec_and_corruption::<StacksTransaction>(&tx, &tx_bytes);
         }
