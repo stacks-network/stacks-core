@@ -122,7 +122,7 @@ pub struct StagingUserBurnSupport {
 
 impl StagingBlock {
     pub fn is_genesis(&self) -> bool {
-        self.parent_burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH && self.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH
+        self.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH
     }
 }
 
