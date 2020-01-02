@@ -1777,7 +1777,7 @@ impl StacksChainState {
                                 &candidate.parent_burn_header_hash.to_hex(), &candidate.parent_anchored_block_hash.to_hex());
         
                     let can_attach = {
-                        if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH && candidate.parent_burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH {
+                        if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH {
                             // this block's parent is the boot code -- it's the first-ever block,
                             // so it can be processed immediately 
                             true
