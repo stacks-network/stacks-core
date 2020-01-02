@@ -110,7 +110,7 @@ impl fmt::Display for Error {
         match self {
             Error::Runtime(ref err, ref stack) => {
                 match err {
-                    _ =>  write!(f, "{:?}", err)
+                    _ =>  write!(f, "{}", err)
                 }?;
 
                 if let Some(ref stack_trace) = stack {
@@ -126,7 +126,19 @@ impl fmt::Display for Error {
     }
 }
 
+impl fmt::Display for RuntimeErrorType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        None
+    }
+}
+
+impl error::Error for RuntimeErrorType {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
     }
