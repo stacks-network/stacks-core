@@ -446,6 +446,12 @@ impl <'a> OwnedEnvironment <'a> {
                             |exec_env| exec_env.execute_contract(&contract_identifier, tx_name, args))
     }
 
+    #[cfg(test)]
+    pub fn eval_raw(&mut self, program: &str) -> Result<(Value, AssetMap)> {
+        self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
+                            |exec_env| exec_env.eval_raw(program))
+    }
+
     pub fn begin(&mut self) {
         self.context.begin();
     }
