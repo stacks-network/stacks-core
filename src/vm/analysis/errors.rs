@@ -164,10 +164,16 @@ impl CheckError {
     }
 }
 
+impl fmt::Display for CheckErrors {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl fmt::Display for CheckError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.err {
-            _ =>  write!(f, "{:?}", self.err)
+            _ =>  write!(f, "{}", self.err)
         }?;
 
         if let Some(ref e) = self.expressions {
@@ -180,9 +186,13 @@ impl fmt::Display for CheckError {
 
 impl error::Error for CheckError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match self.err {
-            _ => None
-        }
+        None
+    }
+}
+
+impl error::Error for CheckErrors {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        None
     }
 }
 
