@@ -127,7 +127,7 @@ impl fmt::Display for Error {
         match *self {
             Error::InvalidFee => f.write_str(error::Error::description(self)),
             Error::InvalidStacksBlock(ref s) => fmt::Display::fmt(s, f),
-            Error::InvalidStacksMicroblock(ref s, ref h) => fmt::Display::fmt(s, f),
+            Error::InvalidStacksMicroblock(ref s, _) => fmt::Display::fmt(s, f),
             Error::InvalidStacksTransaction(ref s) => fmt::Display::fmt(s, f),
             Error::PostConditionFailed(ref s) => fmt::Display::fmt(s, f),
             Error::NoSuchBlockError => f.write_str(error::Error::description(self)),
@@ -167,7 +167,7 @@ impl error::Error for Error {
         match *self {
             Error::InvalidFee => "Invalid fee",
             Error::InvalidStacksBlock(ref s) => s.as_str(),
-            Error::InvalidStacksMicroblock(ref s, ref h) => s.as_str(),
+            Error::InvalidStacksMicroblock(ref s, _) => s.as_str(),
             Error::InvalidStacksTransaction(ref s) => s.as_str(),
             Error::PostConditionFailed(ref s) => s.as_str(),
             Error::NoSuchBlockError => "No such Stacks block",
@@ -292,6 +292,7 @@ impl TransactionAuthField {
         }
     }
 
+    // TODO: enforce u8; 32
     pub fn get_public_key(&self, sighash_bytes: &[u8]) -> Result<StacksPublicKey, net_error> {
         match *self {
             TransactionAuthField::PublicKey(ref pubk) => Ok(pubk.clone()),
@@ -521,15 +522,15 @@ impl FungibleConditionCode {
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum NonfungibleConditionCode {
-    Absent = 0x10,
-    Present = 0x11
+    Sent = 0x10,
+    NotSent = 0x11
 }
 
 impl NonfungibleConditionCode {
     pub fn from_u8(b: u8) -> Option<NonfungibleConditionCode> {
         match b {
-            0x10 => Some(NonfungibleConditionCode::Absent),
-            0x11 => Some(NonfungibleConditionCode::Present),
+            0x10 => Some(NonfungibleConditionCode::Sent),
+            0x11 => Some(NonfungibleConditionCode::NotSent),
             _ => None
         }
     }
@@ -546,8 +547,8 @@ impl NonfungibleConditionCode {
 
     pub fn check(&self, nft_sent_condition: &Value, nfts_sent: &Vec<Value>) -> bool {
         match *self {
-            NonfungibleConditionCode::Absent => NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent),
-            NonfungibleConditionCode::Present => !NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent)
+            NonfungibleConditionCode::Sent => NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent),
+            NonfungibleConditionCode::NotSent => !NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent)
         }
     }
 }
@@ -833,7 +834,7 @@ pub mod test {
                     tx_pcp.clone(),
                     AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() },
                     asset_value.clone(),
-                    NonfungibleConditionCode::Present)
+                    NonfungibleConditionCode::NotSent)
                 ],
                 vec![TransactionPostCondition::STX(tx_pcp.clone(), FungibleConditionCode::SentLt, 12345),
                     TransactionPostCondition::Fungible(tx_pcp.clone(),
@@ -845,7 +846,7 @@ pub mod test {
                     TransactionPostCondition::Nonfungible(tx_pcp.clone(),
                                                           AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
                                                           asset_value.clone(),
-                                                          NonfungibleConditionCode::Present)
+                                                          NonfungibleConditionCode::NotSent)
                 ],
                 vec![TransactionPostCondition::Fungible(tx_pcp.clone(),
                                                         AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
@@ -854,13 +855,13 @@ pub mod test {
                      TransactionPostCondition::Nonfungible(tx_pcp.clone(),
                                                            AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
                                                            asset_value.clone(),
-                                                           NonfungibleConditionCode::Present)
+                                                           NonfungibleConditionCode::NotSent)
                 ],
                 vec![TransactionPostCondition::STX(tx_pcp.clone(), FungibleConditionCode::SentLt, 12345),
                      TransactionPostCondition::Nonfungible(tx_pcp.clone(),
                                                            AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
                                                            asset_value.clone(),
-                                                           NonfungibleConditionCode::Present),
+                                                           NonfungibleConditionCode::NotSent),
                      TransactionPostCondition::Fungible(tx_pcp.clone(),
                                                         AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() }, 
                                                         FungibleConditionCode::SentGt, 

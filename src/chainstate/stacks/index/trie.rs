@@ -274,7 +274,7 @@ impl Trie {
         let cur_leaf_new_ptr = TriePtr::new(TrieNodeID::Leaf, cur_leaf_chr, cur_leaf_disk_ptr as u32);
 
         assert!(cur_leaf_path.len() <= cur_leaf_data.path.len());
-        let sav_cur_leaf_data = cur_leaf_data.clone();
+        let _sav_cur_leaf_data = cur_leaf_data.clone();
         cur_leaf_data.path = cur_leaf_path;
         let cur_leaf_hash = get_leaf_hash(cur_leaf_data);
 
@@ -316,7 +316,7 @@ impl Trie {
         // reflects the path taken to it).
         cursor.repair_retarget(&node4.clone(), &ret, &storage.get_cur_block());
 
-        trace!("Promoted {:?} to {:?}, {:?}, {:?}, new ptr = {:?}", sav_cur_leaf_data, cur_leaf_data, &node4, new_leaf_data, &ret);
+        trace!("Promoted {:?} to {:?}, {:?}, {:?}, new ptr = {:?}", _sav_cur_leaf_data, cur_leaf_data, &node4, new_leaf_data, &ret);
         Ok(ret)
     }
 
@@ -656,7 +656,7 @@ impl Trie {
             // root node was already updated by trie operations, but it will have the wrong hash.
             // we need to "fix" the root node so it mixes in its ancestor hashes.
             trace!("Fix up root node so it mixes in its ancestor hashes");
-            let (node, cur_hash) = storage.read_nodetype(&child_ptr)?;
+            let (node, _cur_hash) = storage.read_nodetype(&child_ptr)?;
             if !node.is_node256() {
                 return Err(Error::CorruptionError("Only ptr was not a node256".to_string()));
             }
@@ -680,8 +680,8 @@ impl Trie {
             // for debug purposes
             if is_trace() {
                 let node_hash = my_hash.clone();
-                let hs = Trie::get_trie_root_ancestor_hashes_bytes(storage, &node_hash)?;
-                trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?} (fixed root)", &node, &child_ptr, &cur_hash, &node_hash, &hs[1..].to_vec(), &h);
+                let _hs = Trie::get_trie_root_ancestor_hashes_bytes(storage, &node_hash)?;
+                trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?} (fixed root)", &node, &child_ptr, &_cur_hash, &node_hash, &_hs[1..].to_vec(), &h);
             }
 
             test_debug!("Next root hash is {} (update_skiplist={})", h.to_hex(), update_skiplist);
@@ -696,7 +696,7 @@ impl Trie {
                     continue;
                 }
 
-                let (mut node, cur_hash) = storage.read_nodetype(&ptr)?;
+                let (mut node, _cur_hash) = storage.read_nodetype(&ptr)?;
                 assert!(!node.is_leaf());
 
                 // this child_ptr _must_ be in the node.
@@ -716,7 +716,7 @@ impl Trie {
 
                 let h = 
                     if !node.is_node256() {
-                        trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?}", node, &child_ptr, &cur_hash, &content_hash);
+                        trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?}", node, &child_ptr, &_cur_hash, &content_hash);
                         content_hash.clone()
                     }
                     else {
@@ -733,14 +733,14 @@ impl Trie {
 
                                 if is_trace() {
                                     let hs = Trie::get_trie_root_ancestor_hashes_bytes(storage, &content_hash)?;
-                                    trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &cur_hash, &content_hash, &hs[1..].to_vec(), &h);
+                                    trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &_cur_hash, &content_hash, &hs[1..].to_vec(), &h);
                                 }
             
                                 test_debug!("Next root hash is {} (update_skiplist={})", h.to_hex(), update_skiplist);
                                 h
                             }
                             else {
-                                trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?}", &node, &child_ptr, &cur_hash, &content_hash);
+                                trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?}", &node, &child_ptr, &_cur_hash, &content_hash);
                                 content_hash
                             };
                         node_hash

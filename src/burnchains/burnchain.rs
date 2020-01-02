@@ -105,7 +105,7 @@ impl BurnchainStateTransition {
         // don't treat block commits and user burn supports just yet.
         for i in 0..block_ops.len() {
             match block_ops[i] {
-                BlockstackOperationType::LeaderKeyRegister(ref op) => {
+                BlockstackOperationType::LeaderKeyRegister(_) => {
                     accepted_ops.push(block_ops[i].clone());
                 },
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
@@ -475,7 +475,7 @@ impl Burnchain {
 
     /// Filter out the burnchain block's transactions that could be blockstack transactions.
     /// Return the ordered list of blockstack operations by vtxindex
-    fn get_blockstack_transactions(burnchain: &Burnchain, block: &BurnchainBlock, block_header: &BurnchainBlockHeader) -> Vec<BlockstackOperationType> {
+    fn get_blockstack_transactions(block: &BurnchainBlock, block_header: &BurnchainBlockHeader) -> Vec<BlockstackOperationType> {
         debug!("Extract Blockstack transactions from block {} {}", block.block_height(), &block.block_hash().to_hex());
         block.txs().iter().filter_map(|tx| Burnchain::classify_transaction(block_header, &tx)).collect()
     }
@@ -496,7 +496,7 @@ impl Burnchain {
     /// If a key was registered more than once, take the first one and drop the rest.
     /// checked_ops must be sorted by vtxindex
     /// Returns the filtered list of blockstack ops
-    fn filter_block_VRF_dups(block_header: &BurnchainBlockHeader, mut checked_ops: Vec<BlockstackOperationType>) -> Vec<BlockstackOperationType> {
+    fn filter_block_VRF_dups(mut checked_ops: Vec<BlockstackOperationType>) -> Vec<BlockstackOperationType> {
         debug!("Check Blockstack transactions: reject duplicate VRF keys");
         assert!(Burnchain::ops_are_sorted(&checked_ops));
 
@@ -547,7 +547,7 @@ impl Burnchain {
         }
 
         // block-wide check: no duplicate keys registered
-        let ret_filtered = Burnchain::filter_block_VRF_dups(block_header, ret);
+        let ret_filtered = Burnchain::filter_block_VRF_dups(ret);
 
         assert!(Burnchain::ops_are_sorted(&ret_filtered));
         Ok(ret_filtered)
@@ -561,7 +561,6 @@ impl Burnchain {
     fn process_checked_block_ops<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, this_block_ops: &Vec<BlockstackOperationType>) -> Result<BlockSnapshot, burnchain_error> {
         let this_block_height = block_header.block_height;
         let this_block_hash = block_header.block_hash.clone();
-        let parent_block_hash = block_header.parent_block_hash.clone();
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
         let state_transition = BurnchainStateTransition::from_block_ops(tx, parent_snapshot, this_block_ops)
@@ -674,7 +673,7 @@ impl Burnchain {
             .expect("FATAL: failed to begin Sqlite transaction");
 
         let (header, parent_snapshot) = Burnchain::get_burnchain_block_attachment_info(&mut tx, block)?;
-        let mut blockstack_txs = Burnchain::get_blockstack_transactions(burnchain, block, &header);
+        let mut blockstack_txs = Burnchain::get_blockstack_transactions(block, &header);
 
         Burnchain::apply_blockstack_txs_safety_checks(block, &mut blockstack_txs);
         
@@ -685,7 +684,7 @@ impl Burnchain {
         Ok(new_snapshot)
     }
 
-    fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I, burndb: &mut BurnDB, chain_tip: &BlockSnapshot) -> Result<u64, burnchain_error> {
+    fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I, chain_tip: &BlockSnapshot) -> Result<u64, burnchain_error> {
         let headers_path = indexer.get_headers_path();
         let sync_height;
         
@@ -739,7 +738,7 @@ impl Burnchain {
         let db_height = burn_chain_tip.block_height;
 
         // handle reorgs
-        let sync_reorg_res = Burnchain::sync_reorg(&mut indexer, &mut burndb, &burn_chain_tip);
+        let sync_reorg_res = Burnchain::sync_reorg(&mut indexer, &burn_chain_tip);
         let sync_height = sync_reorg_res?;
 
         // get latest headers 
