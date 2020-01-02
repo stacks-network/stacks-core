@@ -172,7 +172,7 @@ impl Node {
         (self.last_sortitioned_block.clone(), won_sortition)
     }
 
-    /// Prepare the node to run a tenure consisting in bootstraping the chain.
+    /// Prepares the node to run a tenure consisting in bootstraping the chain.
     /// 
     /// Will internally call initiate_new_tenure().
     pub fn initiate_genesis_tenure(&mut self, block: &BlockSnapshot) -> Option<LeaderTenure> {
@@ -207,7 +207,9 @@ impl Node {
         self.initiate_new_tenure(&block)
     }
 
-    /// 
+    /// Constructs and returns an instance of LeaderTenure, that can be run
+    /// on an isolated thread and discarded or canceled without corrupting the
+    /// chain state of the node.
     pub fn initiate_new_tenure(&mut self, sortitioned_block: &SortitionedBlock) -> Option<LeaderTenure> {
         // Get the latest registered key
         let registered_key = match &self.active_registered_key {
@@ -219,12 +221,12 @@ impl Node {
             Some(key) => key.clone(),
         };
 
-        // Generate a proof out of the sortition hash provided in the params.
+        // Generates a proof out of the sortition hash provided in the params.
         let vrf_proof = self.keychain.generate_proof(
             &registered_key.vrf_public_key, 
             sortitioned_block.sortition_hash.as_bytes()).unwrap();
 
-        // Generate a new secret key for signing the trail of microblocks
+        // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
         let microblock_secret_key = self.keychain.rotate_microblock_keypair();
 
@@ -237,7 +239,7 @@ impl Node {
             }
         };
 
-        // Construct the coinbase transaction - 1st txn that should be handled and included in 
+        // Constructs the coinbase transaction - 1st txn that should be handled and included in 
         // the upcoming tenure.
         let coinbase_tx = {
             let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
@@ -343,7 +345,7 @@ impl Node {
         self.keychain.get_address()
     }
 
-    /// Construct a LeaderKeyRegisterOp out of the provided params
+    /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
     fn generate_leader_key_register_op(&mut self, vrf_public_key: VRFPublicKey, consensus_hash: ConsensusHash) -> BlockstackOperationType {
 
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
@@ -360,7 +362,7 @@ impl Node {
         })
     }
 
-    /// Construct a LeaderBlockCommitOp out of the provided params
+    /// Constructs and returns a LeaderBlockCommitOp out of the provided params
     fn generate_block_commit_op(&mut self, 
                                 block_header_hash: BlockHeaderHash,
                                 burn_fee: u64, 

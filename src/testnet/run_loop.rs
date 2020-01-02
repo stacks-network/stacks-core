@@ -104,15 +104,13 @@ impl RunLoop {
 
             // Have each node process the previous tenure.
             // We should have some additional checks here, and ensure that the previous artifacts are legit.
-            node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db);
+            node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db.clone());
 
             // If the node we're looping on won the sortition, initialize and configure the next tenure
             if won_sortition {
                 let parent_block = last_sortitioned_block.clone().unwrap();
                 leader_tenure = node.initiate_new_tenure(&parent_block);
             } 
-            // todo(ludo): get rid of this.
-            break;
         }
 
         // Start the (infinite) runloop
@@ -129,8 +127,6 @@ impl RunLoop {
                     let (anchored_block, _, parent_block) = artifacts_from_tenure.clone().unwrap();
                     node.receive_tenure_artefacts(anchored_block.unwrap(), parent_block);                    
                 }
-            } else {
-                println!("NO SORTITION");
             }
 
             // Wait on the next block from the burnchain.
@@ -153,15 +149,13 @@ impl RunLoop {
                 // We should have some additional checks here, and ensure that the previous artifacts are legit.
                 last_sortitioned_block = sortitioned_block;
                 let (anchored_block, microblocks, parent_block) = artifacts_from_tenure.clone().unwrap();
-                node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db);
+                node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db.clone());
 
                 // If the node we're looping on won the sortition, initialize and configure the next tenure
                 if won_sortition {
                     let parent_block = last_sortitioned_block.clone().unwrap();
                     leader_tenure = node.initiate_new_tenure(&parent_block);
                 } 
-                // todo(ludo): get rid of this.
-                break;
             }
         }
     }

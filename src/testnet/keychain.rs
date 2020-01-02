@@ -79,7 +79,6 @@ impl Keychain {
     }
 
     pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) -> () {
-        // todo(ludo): hmmm
         let num_keys = if self.secret_keys.len() < self.threshold as usize {
             self.secret_keys.len() 
         } else {
@@ -91,13 +90,17 @@ impl Keychain {
         }
     }
 
+    /// Given a VRF public key, generates a VRF Proof
     pub fn generate_proof(&self, vrf_pk: &VRFPublicKey, bytes: &[u8; 32]) -> Option<VRFProof> {
+        // Retrieve the corresponding VRF secret key
         let vrf_sk = match self.vrf_map.get(vrf_pk) {
             Some(vrf_pk) => vrf_pk,
             None => return None
         };
 
+        // Generate the proof
         let proof = VRF::prove(&vrf_sk, &bytes.to_vec());
+        // Ensure that the proof is valid by verifying
         let is_valid = match VRF::verify(vrf_pk, &proof, &bytes.to_vec()) {
             Ok(v) => v,
             Err(e) => false
@@ -106,22 +109,15 @@ impl Keychain {
         Some(proof)
     }
 
+    /// Given the keychain's secret keys, computes and returns the corresponding Stack address.
+    /// Note: Testnet bit is hardcoded.
     pub fn get_address(&self) -> StacksAddress {
         let public_keys = self.secret_keys.iter().map(|ref pk| StacksPublicKey::from_private(pk)).collect();
         StacksAddress::from_public_keys(
-            self.hash_mode.to_version_testnet(), // todo(ludo): testnet hard-coded
+            self.hash_mode.to_version_testnet(),
             &self.hash_mode, 
             self.threshold as usize, 
             &public_keys).unwrap()
-    }
-
-    pub fn get_transaction_auth(&self) -> Option<TransactionAuth> {
-        match self.hash_mode {
-            AddressHashMode::SerializeP2PKH => TransactionAuth::from_p2pkh(&self.secret_keys[0]),
-            AddressHashMode::SerializeP2SH => TransactionAuth::from_p2sh(&self.secret_keys, self.threshold),
-            AddressHashMode::SerializeP2WPKH => TransactionAuth::from_p2wpkh(&self.secret_keys[0]),
-            AddressHashMode::SerializeP2WSH => TransactionAuth::from_p2wsh(&self.secret_keys, self.threshold),
-        }
     }
 
     pub fn get_burnchain_signer(&self) -> BurnchainSigner {
@@ -130,6 +126,15 @@ impl Keychain {
             hash_mode: self.hash_mode,
             num_sigs: self.threshold as usize,
             public_keys
+        }
+    }
+
+    pub fn get_transaction_auth(&self) -> Option<TransactionAuth> {
+        match self.hash_mode {
+            AddressHashMode::SerializeP2PKH => TransactionAuth::from_p2pkh(&self.secret_keys[0]),
+            AddressHashMode::SerializeP2SH => TransactionAuth::from_p2sh(&self.secret_keys, self.threshold),
+            AddressHashMode::SerializeP2WPKH => TransactionAuth::from_p2wpkh(&self.secret_keys[0]),
+            AddressHashMode::SerializeP2WSH => TransactionAuth::from_p2wsh(&self.secret_keys, self.threshold),
         }
     }
 

@@ -36,7 +36,7 @@ impl <'a> LeaderTenure {
         let now = time::Instant::now();
 
         let ratio = StacksWorkScore {
-            burn: parent_block.anchored_header.total_work.burn + 1, // todo(ludo): get burn from burnchain_tip.
+            burn: parent_block.anchored_header.total_work.burn + 1,
             work: parent_block.anchored_header.total_work.work + 1,
         };
 
