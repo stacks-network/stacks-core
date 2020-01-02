@@ -59,7 +59,7 @@ impl Keychain {
         let pk = VRFPublicKey::from_private(&sk);
 
         self.vrf_secret_keys.push(sk.clone());
-        self.vrf_map.insert(pk.clone(), sk.clone());
+        self.vrf_map.insert(pk.clone(), sk);
 
         pk
     }

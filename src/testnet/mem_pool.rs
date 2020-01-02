@@ -38,7 +38,7 @@ impl MemPoolFS {
 impl MemPool for MemPoolFS {
 
     fn poll(&mut self) -> Vec<StacksTransaction> {
-        let txs_paths = fs::read_dir(self.path.clone()).unwrap();
+        let txs_paths = fs::read_dir(&self.path).unwrap();
         let mut decoded_txs = vec![];
 
         for tx in txs_paths {
