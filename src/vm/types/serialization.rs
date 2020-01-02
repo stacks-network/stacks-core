@@ -421,10 +421,22 @@ impl Value {
     ///   If passed `None`, the deserializer will construct the values as if they were literals in the contract, e.g.,
     ///     list max length = the length of the list.
 
+    pub fn try_deserialize_bytes(bytes: &Vec<u8>, expected: &TypeSignature) -> Result<Value, SerializationError> {
+        Value::deserialize_read(&mut bytes.as_slice(), Some(expected))
+            .map_err(|e| match e {
+                SerializationError::IOError(e) => panic!("Should not have received IO Error: {:?}", e),
+                _ => e
+            })
+    }
+
     pub fn try_deserialize_hex(hex: &str, expected: &TypeSignature) -> Result<Value, SerializationError> {
-        let data = hex_bytes(hex)
+        let mut data = hex_bytes(hex)
             .map_err(|_| "Bad hex string")?;
-        Value::deserialize_read(&mut data.as_slice(), Some(expected))
+        Value::try_deserialize_bytes(&mut data, expected)
+    }
+    
+    pub fn try_deserialize_bytes_untyped(bytes: &Vec<u8>) -> Result<Value, SerializationError> {
+        Value::deserialize_read(&mut bytes.as_slice(), None)
             .map_err(|e| match e {
                 SerializationError::IOError(e) => panic!("Should not have received IO Error: {:?}", e),
                 _ => e
@@ -432,17 +444,13 @@ impl Value {
     }
 
     pub fn try_deserialize_hex_untyped(hex: &str) -> Result<Value, SerializationError> {
-        let data = hex_bytes(hex)
+        let mut data = hex_bytes(hex)
             .map_err(|_| "Bad hex string")?;
-        Value::deserialize_read(&mut data.as_slice(), None)
-            .map_err(|e| match e {
-                SerializationError::IOError(e) => panic!("Should not have received IO Error: {:?}", e),
-                _ => e
-            })
+        Value::try_deserialize_bytes_untyped(&mut data)
     }
 
-    pub fn deserialize(json: &str, expected: &TypeSignature) -> Self {
-        Value::try_deserialize_hex(json, expected)
+    pub fn deserialize(hex: &str, expected: &TypeSignature) -> Self {
+        Value::try_deserialize_hex(hex, expected)
             .expect("ERROR: Failed to parse Clarity hex string")
     }
 }
