@@ -32,6 +32,7 @@ This CLI has two methods:
 
   publish          used to generate and sign a contract publish transaction
   contract-call    used to generate and sign a contract-call transaction
+  generate-sk      used to generate a secret key for transaction signing
 
 For usage information on those methods, call `blockstack-cli [method] -h`
 
