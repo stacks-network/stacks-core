@@ -746,14 +746,6 @@ impl StacksChainState {
         assert!(sortition_burn < i64::max_value() as u64);
 
         let block_hash = block.block_hash();
-
-        // let block_hash = match block.header.is_genesis() {
-        //     true => BlockHeaderHash([0u8; 32]),
-        //     false => block.block_hash()
-        // };
-
-        println!("===> {:?} {:?}", block.header, block_hash);
-
         let block_bytes = block.serialize();
 
         let sql = "INSERT OR REPLACE INTO staging_blocks (anchored_block_hash, parent_anchored_block_hash, burn_header_hash, parent_burn_header_hash, parent_microblock_hash, parent_microblock_seq, microblock_pubkey_hash, processed, commit_burn, sortition_burn, block_data) \
@@ -1647,7 +1639,6 @@ impl StacksChainState {
         let inner_process_block = |state: &mut StacksChainState, matured_miner_rewards_opt: Option<&Vec<MinerReward>>| {
             let (parent_burn_header_hash, parent_block_hash) = 
                 if block.header.is_genesis() {
-                    println!("??????");
                     // has to be all 0's if this block has no parent
                     (FIRST_BURNCHAIN_BLOCK_HASH.clone(), FIRST_STACKS_BLOCK_HASH.clone())
                 }

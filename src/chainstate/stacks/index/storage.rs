@@ -1313,7 +1313,6 @@ impl TrieFileStorage {
                     if *real_bhh != *bhh {
                         self.block_retarget(bhh, real_bhh)?;
                         assert_eq!(self.block_map.find_id(real_bhh), Some(trie_ram.identifier));
-                        trie_ram.identifier = self.block_map.find_id(real_bhh).expect("FATAL: no idenifier for new block hash");
                     }
                     (self.cached_block_path(real_bhh), real_bhh.clone())
                 }
