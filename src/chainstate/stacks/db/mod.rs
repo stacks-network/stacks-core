@@ -728,7 +728,6 @@ impl StacksChainState {
     {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
-            println!("-------");
             assert_eq!(new_tip.parent_block, parent_tip.block_hash());
             assert_eq!(parent_tip.total_work.work.checked_add(1).expect("Block height overflow"),
                        new_tip.total_work.work);

@@ -280,8 +280,8 @@ impl StacksBlockBuilder {
 
         // ...and move it (possibly overwriting)
         // TODO: this is atomic but _not_ crash-consistent!
-        fs::rename(&block_pathbuf, &mined_block_pathbuf);
-            // .expect(&format!("FATAL: failed to rename {:?} to {:?}", &block_pathbuf, &mined_block_pathbuf));
+        fs::rename(&block_pathbuf, &mined_block_pathbuf)
+            .expect(&format!("FATAL: failed to rename {:?} to {:?}", &block_pathbuf, &mined_block_pathbuf));
 
         test_debug!("\n\nMiner {}: Finished mining child of {}/{}. Trie is in {:?}\n", self.miner_id, self.chain_tip.burn_header_hash.to_hex(), self.chain_tip.anchored_header.block_hash().to_hex(), &mined_block_pathbuf);
     }

@@ -98,7 +98,7 @@ pub fn fseek_end<F: Seek>(f: &mut F) -> Result<u64, Error> {
         .map_err(Error::IOError)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct BlockHashMap {
     next_identifier: u32,
     map: Vec<BlockHeaderHash>
@@ -1312,7 +1312,6 @@ impl TrieFileStorage {
                 Some(real_bhh) => {
                     if *real_bhh != *bhh {
                         self.block_retarget(bhh, real_bhh)?;
-                        debug!("{:?}", self.block_map);
                         assert_eq!(self.block_map.find_id(real_bhh), Some(trie_ram.identifier));
                         trie_ram.identifier = self.block_map.find_id(real_bhh).expect("FATAL: no idenifier for new block hash");
                     }

@@ -741,7 +741,7 @@ impl StacksChainState {
     /// Store a preprocessed block, queuing it up for subsequent processing.
     /// The caller should at least verify that the block is attached to some fork in the burn
     /// chain.
-    pub fn store_staging_block(&mut self, burn_hash: &BurnchainHeaderHash, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash, commit_burn: u64, sortition_burn: u64) -> Result<(), Error> {
+    fn store_staging_block(&mut self, burn_hash: &BurnchainHeaderHash, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash, commit_burn: u64, sortition_burn: u64) -> Result<(), Error> {
         assert!(commit_burn < i64::max_value() as u64);
         assert!(sortition_burn < i64::max_value() as u64);
 
@@ -775,7 +775,7 @@ impl StacksChainState {
     /// anchored block that this microblock builds off of.  Because microblocks may arrive out of
     /// order, this method does not check that.
     /// The burn_header_hash and anchored_block_hash correspond to the _parent Stacks block_
-    pub fn store_staging_microblock(&mut self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<(), Error> {
+    fn store_staging_microblock(&mut self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<(), Error> {
         let microblock_bytes = microblock.serialize();
 
         let sql = "INSERT OR REPLACE INTO staging_microblocks (anchored_block_hash, burn_header_hash, microblock_hash, sequence, processed, block_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
@@ -1630,7 +1630,7 @@ impl StacksChainState {
     /// processed yet.
     /// Returns a StacksHeaderInfo with the microblock stream and chain state index root hash filled in, corresponding to the next block to process.
     /// Returns None if we're out of blocks to process.
-    pub fn append_block(&mut self, 
+    fn append_block(&mut self, 
                     parent_chain_tip: &StacksHeaderInfo, 
                     chain_tip_burn_header_hash: &BurnchainHeaderHash, 
                     block: &StacksBlock, 
