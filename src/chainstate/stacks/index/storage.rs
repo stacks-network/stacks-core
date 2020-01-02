@@ -522,7 +522,7 @@ impl TrieFileStorage {
             return Err(Error::PartialWriteError);
         }
 
-        let (block_map, chain_tips) = TrieFileStorage::read_block_hash_map(&dir_path, &TrieFileStorage::block_sentinel())?;
+        let (block_map, chain_tips) = TrieFileStorage::read_block_hash_map(&dir_path)?;
         test_debug!("Opened TrieFileStorage {}; {} blocks", dir_path, block_map.len());
 
         let ret = TrieFileStorage {
@@ -785,7 +785,7 @@ impl TrieFileStorage {
         Ok(())
     }
 
-    fn read_block_hash_map(dir_path: &String, root_hash: &BlockHeaderHash) -> Result<(BlockHashMap, HashSet<BlockHeaderHash>), Error> {
+    fn read_block_hash_map(dir_path: &String) -> Result<(BlockHashMap, HashSet<BlockHeaderHash>), Error> {
         let mut blocks = vec![];
 
         let mut parents = HashSet::new();
@@ -1067,7 +1067,7 @@ impl TrieFileStorage {
     }
 
     pub fn root_ptr(&self) -> u32 {
-        if let Some((ref last_extended, ref last_extended_trie)) = self.last_extended {
+        if let Some((ref last_extended, _)) = self.last_extended {
             if &self.cur_block == last_extended {
                 return 0
             }
@@ -1363,7 +1363,7 @@ impl TrieFileStorage {
     }
 
     pub fn drop_extending_trie(&mut self) {
-        if let Some((ref bhh, ref mut trie_ram)) = self.last_extended.take() {
+        if let Some((ref bhh, _)) = self.last_extended.take() {
             let block_path_tmp = TrieFileStorage::block_path_tmp(&self.dir_path, bhh);
             match fs::metadata(&block_path_tmp) {
                 Ok(_md) => {
@@ -1375,7 +1375,7 @@ impl TrieFileStorage {
                         }
                     };
                 },
-                Err(e) => {}
+                Err(_) => {}
             }
         }
 

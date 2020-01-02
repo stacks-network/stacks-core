@@ -55,6 +55,10 @@ impl DefinedFunction {
 
     pub fn execute_apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
         let mut context = LocalContext::new();
+        if args.len() != self.arguments.len() {
+            Err(CheckErrors::IncorrectArgumentCount(self.arguments.len(), args.len()))?
+        }
+
         let arg_iterator = self.arguments.iter().zip(self.arg_types.iter()).zip(args.iter());
         for ((arg, type_sig), value) in arg_iterator {
             if !type_sig.admits(value) {

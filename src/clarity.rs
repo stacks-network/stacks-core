@@ -83,12 +83,10 @@ fn clarity_db<S: KeyValueStorage>(marf_kv: &mut MarfedKV<S>) -> ClarityDatabase 
 }
 
 fn create_or_open_db(path: &String) -> Connection {
-    let mut create_flag = false;
     let open_flags = match fs::metadata(path) {
         Err(e) => {
             if e.kind() == io::ErrorKind::NotFound {
                 // need to create 
-                create_flag = true;
                 OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
             }
             else {
@@ -117,7 +115,7 @@ fn get_cli_chain_tip(conn: &Connection) -> BlockHeaderHash {
                 break;
             },
             Err(e) => {
-                panic!("FATAL: could not read block hash");
+                panic!("FATAL: could not read block hash: {:?}", e);
             }
         }
     }

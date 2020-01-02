@@ -399,7 +399,6 @@ impl StacksMessageCodec for TransactionPostCondition {
 impl StacksMessageCodec for StacksTransaction {
     fn serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
-        let anchor_mode = self.anchor_mode;
 
         write_next(&mut ret, &(self.version as u8));
         write_next(&mut ret, &self.chain_id);
@@ -637,7 +636,6 @@ impl StacksTransaction {
     /// Append the next signature from the origin account authorization.
     /// Return the next sighash.
     pub fn sign_next_origin(&mut self, cur_sighash: &Txid, privk: &StacksPrivateKey) -> Result<Txid, net_error> {
-        let pubk = StacksPublicKey::from_private(privk);
         let next_sighash = match self.auth {
             TransactionAuth::Standard(ref mut origin_condition) => {
                 StacksTransaction::sign_and_append(origin_condition, cur_sighash, &TransactionAuthFlags::AuthStandard, privk)?
@@ -664,7 +662,6 @@ impl StacksTransaction {
     /// Append the next signature from the sponsoring account.
     /// Return the next sighash
     pub fn sign_next_sponsor(&mut self, cur_sighash: &Txid, privk: &StacksPrivateKey) -> Result<Txid, net_error> {
-        let pubk = StacksPublicKey::from_private(privk);
         let next_sighash = match self.auth {
             TransactionAuth::Standard(_) => {
                 // invalid
@@ -1627,7 +1624,7 @@ mod test {
                 tx_pcp.clone(),
                 AssetInfo { contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone() },
                 Value::buff_from(vec![0, 1, 2, 3]).unwrap(),
-                NonfungibleConditionCode::Present);
+                NonfungibleConditionCode::NotSent);
 
             let mut stx_pc_bytes = (AssetInfoID::STX as u8).serialize();
             stx_pc_bytes.append(&mut tx_pcp.serialize());
@@ -1654,7 +1651,7 @@ mod test {
             nonfungible_pc_bytes.append(&mut Value::buff_from(vec![0, 1, 2, 3]).unwrap().serialize());
             nonfungible_pc_bytes.append(&mut vec![
                 // condition code
-                NonfungibleConditionCode::Present as u8
+                NonfungibleConditionCode::NotSent as u8
             ]);
 
             let pcs = vec![stx_pc, fungible_pc, nonfungible_pc];
@@ -1678,7 +1675,7 @@ mod test {
             // principal
             PostConditionPrincipalID::Origin as u8,
             // condition code
-            NonfungibleConditionCode::Present as u8,
+            NonfungibleConditionCode::NotSent as u8,
             // amount 
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x39
         ]);
@@ -1688,7 +1685,7 @@ mod test {
         fungible_pc_bytes_bad_condition.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
         fungible_pc_bytes_bad_condition.append(&mut vec![
             // condition code 
-            NonfungibleConditionCode::Absent as u8,
+            NonfungibleConditionCode::Sent as u8,
             // amount
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5b, 0xa0
         ]);
@@ -1716,7 +1713,7 @@ mod test {
             // principal
             0xff,
             // condition code
-            NonfungibleConditionCode::Present as u8,
+            NonfungibleConditionCode::NotSent as u8,
             // amount 
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x39
         ]);
@@ -1726,7 +1723,7 @@ mod test {
         fungible_pc_bytes_bad_principal.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
         fungible_pc_bytes_bad_principal.append(&mut vec![
             // condition code 
-            NonfungibleConditionCode::Absent as u8,
+            NonfungibleConditionCode::Sent as u8,
             // amount
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5b, 0xa0
         ]);

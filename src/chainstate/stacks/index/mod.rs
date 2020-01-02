@@ -290,15 +290,15 @@ impl error::Error for Error {
             Error::ExistsError => "Object exists",
             Error::BadSeekValue => "Bad seek value",
             Error::CorruptionError(ref s) => s.as_str(),
-            Error::BlockHashMapCorruptionError(ref opt_e) => "Corrupted MARF BlockHashMap",
+            Error::BlockHashMapCorruptionError(_) => "Corrupted MARF BlockHashMap",
             Error::ReadOnlyError => "Storage is in read-only mode",
             Error::NotDirectoryError => "Not a directory",
             Error::PartialWriteError => "Data is partially written and not yet recovered",
             Error::InProgressError => "Write was in progress",
             Error::WriteNotBegunError => "Write has not begun",
             Error::CursorError(ref e) => e.description(),
-            Error::RestoreMarfBlockError(ref _e) => "Failed to restore previous open block during block header check",
-            Error::NonMatchingForks(ref a, ref b) => "The supplied blocks are not in the same fork",
+            Error::RestoreMarfBlockError(_) => "Failed to restore previous open block during block header check",
+            Error::NonMatchingForks(_, _) => "The supplied blocks are not in the same fork",
         }
     }
 }
