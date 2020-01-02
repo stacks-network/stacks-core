@@ -477,20 +477,12 @@ impl StacksChainState {
     fn free_block(blocks_path: &String, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash) -> () {
         let block_path = StacksChainState::make_block_dir(blocks_path, burn_header_hash, &block_header_hash)
             .expect("FATAL: failed to create block directory");
-        let _ = fs::OpenOptions::new()
-                    .read(false)
-                    .write(true)
-                    .truncate(true)
-                    .open(&block_path)
-                    .map_err(|e| {
-                        if e.kind() == io::ErrorKind::NotFound {
-                            error!("File not found: {:?}", &block_path);
-                            Error::DBError(db_error::NotFoundError)
-                        }
-                        else {
-                            Error::DBError(db_error::IOError(e))
-                        }
-                    });
+        fs::OpenOptions::new()
+            .read(false)
+            .write(true)
+            .truncate(true)
+            .open(&block_path)
+            .expect(&format!("FATAL: Failed to mark block path '{}' as free", &block_path));
     }
 
     /// Free up all state for an invalid block
@@ -870,6 +862,7 @@ impl StacksChainState {
 
         if staging_microblocks.len() == 0 {
             // haven't seen any microblocks that descend from this block yet
+            test_debug!("No microblocks built on {}/{} up to {}", &burn_header_hash.to_hex(), &anchored_block_hash.to_hex(), last_seq);
             return Ok(None);
         }
 
@@ -1054,57 +1047,6 @@ impl StacksChainState {
         }
     }
     
-    /// Do we have a microblock stream queued up, and if so, is it being processed?
-    /// Return Some(processed) if the microblock is queued up
-    /// Return None if there is no microblock stream
-    fn get_staging_microblock_stream_status(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<bool>, Error> {
-        let sql = "SELECT processed FROM staging_microblocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 AND orphaned = 0".to_string();
-        let args = [&block_hash.to_hex() as &dyn ToSql, &burn_hash.to_hex() as &dyn ToSql];
-        
-        let mut stmt = blocks_conn.prepare(&sql)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        let mut rows = stmt.query(&args)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        let mut num_processed = 0;
-        let mut num_unprocessed = 0;
-
-        while let Some(row_res) = rows.next() {
-            match row_res {
-                Ok(row) => {
-                    let processed : i64 = row.get(0);
-                    if processed == 0 {
-                        num_unprocessed += 1;
-                    }
-                    else {
-                        num_processed += 1;
-                    }
-                },
-                Err(e) => {
-                    return Err(Error::DBError(db_error::SqliteError(e)));
-                }
-            };
-        }
-
-        if num_processed == 0 && num_unprocessed == 0 {
-            // no rows, period 
-            return Ok(None);
-        }
-        else if num_processed == 0 && num_unprocessed > 0 {
-            // not processed
-            return Ok(Some(false));
-        }
-        else if num_processed > 0 && num_unprocessed == 0 {
-            // processed
-            return Ok(Some(true));
-        }
-        else {
-            // corrupt
-            return Err(Error::DBError(db_error::Corruption));
-        }
-    }
-
     /// Do we have a staging block?
     pub fn has_staging_block(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
         let res = StacksChainState::get_staging_block_status(blocks_conn, burn_hash, block_hash)?.is_some();
@@ -1213,8 +1155,17 @@ impl StacksChainState {
         let rows = query_rows::<StagingBlock, _>(tx, &sql, &args).map_err(Error::DBError)?;
         let block = match rows.len() {
             0 => {
-                test_debug!("No such block at {}/{}", burn_hash.to_hex(), anchored_block_hash.to_hex());
-                return Err(Error::DBError(db_error::NotFoundError));
+                // not an error if this block was already orphaned
+                let orphan_sql = format!("SELECT {} FROM staging_blocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 1", row_order);
+                let orphan_args = [&burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql];
+                let orphan_rows = query_rows::<StagingBlock, _>(tx, &orphan_sql, &orphan_args).map_err(Error::DBError)?;
+                if orphan_rows.len() == 1 {
+                    return Ok(());
+                }
+                else {
+                    test_debug!("No such block at {}/{}", burn_hash.to_hex(), anchored_block_hash.to_hex());
+                    return Err(Error::DBError(db_error::NotFoundError));
+                }
             },
             1 => {
                 rows[0].clone()
@@ -1549,10 +1500,12 @@ impl StacksChainState {
             };
 
         // attaches to burn chain
-        let valid = block.header.validate_burnchain(&burn_chain_tip, &penultimate_sortition_snapshot, &leader_key, &block_commit, &stacks_chain_tip);
-        if !valid {
-            return Ok(None);
-        }
+        match block.header.validate_burnchain(&burn_chain_tip, &penultimate_sortition_snapshot, &leader_key, &block_commit, &stacks_chain_tip) {
+            Ok(_) => {},
+            Err(_) => {
+                return Ok(None);
+            }
+        };
 
         // static checks on transactions all pass
         let valid = block.validate_transactions_static(mainnet, chain_id);
@@ -1628,6 +1581,7 @@ impl StacksChainState {
     pub fn preprocess_streamed_microblock(&mut self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<bool, Error> {
         // already queued or already processed?
         if StacksChainState::has_staging_microblock(&self.blocks_db, burn_header_hash, anchored_block_hash, &microblock.block_hash())? {
+            test_debug!("Microblock already stored and/or processed: {}/{} {} {}", burn_header_hash.to_hex(), &anchored_block_hash.to_hex(), microblock.block_hash().to_hex(), microblock.header.sequence);
             return Ok(true);
         }
 
@@ -2641,6 +2595,11 @@ mod test {
         set_block_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), true);
 
         assert_block_stored_not_staging(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        
+        // should be idempotent
+        set_block_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), true);
+
+        assert_block_stored_not_staging(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
     }
     
     #[test]
@@ -2657,6 +2616,11 @@ mod test {
         assert_block_staging_not_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
         assert_block_not_stored(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
 
+        set_block_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), false);
+    
+        assert_block_stored_rejected(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
+        
+        // should be idempotent
         set_block_processed(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), false);
     
         assert_block_stored_rejected(&mut chainstate, &BurnchainHeaderHash([2u8; 32]), &block);
