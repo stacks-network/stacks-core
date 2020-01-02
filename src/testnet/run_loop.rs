@@ -53,7 +53,10 @@ impl RunLoop {
         }
 
         // Wait on the genesis block from the burnchain.
-        let (genesis_block, ops, _) = burnchain_block_rx.recv().unwrap();
+        let (genesis_block, ops, _) = match burnchain_block_rx.recv() {
+            Ok(res) => res,
+            Err(err) => panic!("Error while expecting genesis block from burnchain: {:?}", err)
+        };
 
         // Update each node with the genesis block.
         for node in self.nodes.iter_mut() {
@@ -62,7 +65,10 @@ impl RunLoop {
 
         // When producing an anchored block, we need a block from the burnchain, and its parent.
         // We'll wait on the next block from the burnchain for starting the bootstrap.
-        let (burnchain_block_1, ops, _) = burnchain_block_rx.recv().unwrap();
+        let (burnchain_block_1, ops, _) = match burnchain_block_rx.recv() {
+            Ok(res) => res,
+            Err(err) => panic!("Error while expecting block #1 from burnchain: {:?}", err)
+        };
 
         // Update each node with this new block.
         for node in self.nodes.iter_mut() {
@@ -71,45 +77,54 @@ impl RunLoop {
 
         // Bootstrap the chain: the first node (could be random) will start a new tenure,
         // using SortitionHash::genesis for generating a VRF.
-        let mut first_tenure = self.nodes[0].initiate_genesis_tenure(&genesis_block).unwrap();
-
+        let leader = &mut self.nodes[0];
+        let mut first_tenure = match leader.initiate_genesis_tenure(&genesis_block) {
+            Some(res) => res,
+            None => panic!("Error while initiating genesis tenure")
+        };
         // Run the tenure, keep the artifacts
-        let artifacts_from_1st_tenure = first_tenure.run();
-        let (anchored_block_1, microblocks, parent_block_1) = artifacts_from_1st_tenure.clone();
+        let artifacts_from_1st_tenure = match first_tenure.run() {
+            Some(res) => res,
+            None => panic!("Error while running 1st tenure")
+        };
 
-        // Tenures are instantiating their own chainstate, so that nodes can keep some clean chainstates,
-        // and have the option of running multiple tenures concurrently and try different strategies.
+        let (anchored_block_1, microblocks, parent_block_1) = artifacts_from_1st_tenure;
+
+        // Tenures are instantiating their own chainstate, so that nodes can keep their chainstate clean,
+        // while having the option of running multiple tenures concurrently and try different strategies.
         // As a result, once the tenure ran and we have the artifacts (anchored_blocks, microblocks),
         // we have the 1st node (leading) updating its chainstate with the artifacts from its tenure.
-        self.nodes[0].receive_tenure_artefacts(anchored_block_1.unwrap(), parent_block_1.clone());
+        leader.receive_tenure_artefacts(&anchored_block_1, &parent_block_1);
 
         // Bootstraping phase is done. Waiting on the next block from the burnchain, that 
         // will include a block commit op and consequently a sortition.
-        let (burnchain_block, ops, burn_db) = burnchain_block_rx.recv().unwrap();
+        let (burnchain_block, ops, burn_db) = match burnchain_block_rx.recv() {
+            Ok(res) => res,
+            Err(err) => panic!("Error while expecting block #2 from burnchain: {:?}", err)
+        };
         
         // Declare and bind some mutable variables, that will be updated on each cycle.  
         let mut burnchain_block = burnchain_block;
         let mut ops = ops;
         let mut burn_db = burn_db;
         let mut leader_tenure = None;
-        let mut last_sortitioned_block = None;
 
         for node in self.nodes.iter_mut() {
             // Have each node process the new block, that should include a sortition thanks to the
             // 1st tenure.
-            let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block, &ops);
-            last_sortitioned_block = sortitioned_block.clone();
-
-            let (anchored_block, microblocks, _) = artifacts_from_1st_tenure.clone();
-
+            let (last_sortitioned_block, won_sortition) = match node.process_burnchain_block(&burnchain_block, &ops) {
+                (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
+                (None, _) => panic!("Node should have a sortitioned block")
+            };
+            
             // Have each node process the previous tenure.
             // We should have some additional checks here, and ensure that the previous artifacts are legit.
-            node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db.clone());
+            // Note: we're cloning ARC<burn_db>, not burn_db instances.
+            node.process_tenure(&anchored_block_1, &last_sortitioned_block, microblocks.clone(), burn_db.clone());
 
             // If the node we're looping on won the sortition, initialize and configure the next tenure
             if won_sortition {
-                let parent_block = last_sortitioned_block.clone().unwrap();
-                leader_tenure = node.initiate_new_tenure(&parent_block);
+                leader_tenure = node.initiate_new_tenure(&last_sortitioned_block);
             } 
         }
 
@@ -117,20 +132,26 @@ impl RunLoop {
         loop {
             // Run the last initialized tenure
             let artifacts_from_tenure = match leader_tenure {
-                Some(mut tenure) => Some(tenure.run()),
+                Some(mut tenure) => tenure.run(),
                 None => None
             };
 
-            if artifacts_from_tenure.is_some() {
-                // Have each node receive artifacts from the current tenure
-                for node in self.nodes.iter_mut() {
-                    let (anchored_block, _, parent_block) = artifacts_from_tenure.clone().unwrap();
-                    node.receive_tenure_artefacts(anchored_block.unwrap(), parent_block);                    
-                }
+            match artifacts_from_tenure {
+                Some(ref artifacts) => {
+                    // Have each node receive artifacts from the current tenure
+                    let (anchored_block, _, parent_block) = artifacts;
+                    for node in self.nodes.iter_mut() {
+                        node.receive_tenure_artefacts(&anchored_block, &parent_block);                    
+                    }    
+                },
+                None => {}
             }
 
             // Wait on the next block from the burnchain.
-            let (new_block, new_ops, new_db) = burnchain_block_rx.recv().unwrap();
+            let (new_block, new_ops, new_db) = match burnchain_block_rx.recv() {
+                Ok(res) => res,
+                Err(err) => panic!("Error while expecting block from burnchain: {:?}", err)
+            };
             burnchain_block = new_block;
             ops = new_ops;
             burn_db = new_db;
@@ -138,23 +159,25 @@ impl RunLoop {
 
             for node in self.nodes.iter_mut() {
                 // Have each node process the new block, that can include, or not, a sortition.
-                let (sortitioned_block, won_sortition) = node.process_burnchain_block(&burnchain_block, &ops);
+                let (last_sortitioned_block, won_sortition) = match node.process_burnchain_block(&burnchain_block, &ops) {
+                    (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
+                    (None, _) => panic!("Node should have a sortitioned block")
+                };
 
-                // Pass if we're missing the artifacts from the current tenure.
-                if artifacts_from_tenure.is_none() {
-                    continue;
+                match artifacts_from_tenure {
+                    // Pass if we're missing the artifacts from the current tenure.
+                    None => continue,
+                    Some(ref artifacts) => {
+                        // Have each node process the previous tenure.
+                        // We should have some additional checks here, and ensure that the previous artifacts are legit.
+                        let (anchored_block, microblocks, parent_block) = artifacts;
+                        node.process_tenure(&anchored_block, &last_sortitioned_block, microblocks.to_vec(), burn_db.clone());
+                    },
                 }
-
-                // Have each node process the previous tenure.
-                // We should have some additional checks here, and ensure that the previous artifacts are legit.
-                last_sortitioned_block = sortitioned_block;
-                let (anchored_block, microblocks, parent_block) = artifacts_from_tenure.clone().unwrap();
-                node.process_tenure(anchored_block.unwrap(), last_sortitioned_block.clone().unwrap(), microblocks, burn_db.clone());
 
                 // If the node we're looping on won the sortition, initialize and configure the next tenure
                 if won_sortition {
-                    let parent_block = last_sortitioned_block.clone().unwrap();
-                    leader_tenure = node.initiate_new_tenure(&parent_block);
+                    leader_tenure = node.initiate_new_tenure(&last_sortitioned_block);
                 } 
             }
         }

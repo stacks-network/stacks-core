@@ -274,7 +274,7 @@ impl Node {
     }
 
 
-    pub fn process_tenure(&mut self, anchored_block: StacksBlock, parent_block: SortitionedBlock, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
+    pub fn process_tenure(&mut self, anchored_block: &StacksBlock, parent_block: &SortitionedBlock, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
 
         // todo(ludo): verify that the block is attached to some fork in the burn chain.
 
@@ -312,7 +312,7 @@ impl Node {
         }
     }
 
-    pub fn receive_tenure_artefacts(&mut self, anchored_block_from_ongoing_tenure: StacksBlock, parent_block: SortitionedBlock) {
+    pub fn receive_tenure_artefacts(&mut self, anchored_block_from_ongoing_tenure: &StacksBlock, parent_block: &SortitionedBlock) {
         let ops_tx = self.burnchain_ops_tx.take().unwrap();
 
         if self.active_registered_key.is_some() {

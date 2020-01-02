@@ -64,7 +64,7 @@ impl <'a> LeaderTenure {
         }
     }
 
-    pub fn run(&mut self) -> (Option<StacksBlock>, Vec<StacksMicroblock>, SortitionedBlock) {
+    pub fn run(&mut self) -> Option<(StacksBlock, Vec<StacksMicroblock>, SortitionedBlock)> {
 
         let mut chain_state = StacksChainState::open(false, 0x80000000, &self.config.path).unwrap();
 
@@ -100,6 +100,6 @@ impl <'a> LeaderTenure {
 
         clarity_tx.rollback_block();
 
-        (Some(anchored_block), vec![], self.last_sortitioned_block.clone())
+        Some((anchored_block, vec![], self.last_sortitioned_block.clone()))
     }
 }
