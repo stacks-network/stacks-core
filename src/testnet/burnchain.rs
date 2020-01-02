@@ -12,6 +12,10 @@ use chainstate::burn::{BlockSnapshot};
 use chainstate::burn::operations::{BlockstackOperationType};
 use util::hash::Sha256Sum;
 
+/// BurnchainSimulator is simulating a simplistic burnchain.
+/// 
+/// When calling start(), a thread is being detached, looping, sleeping and firing some events, and a tuple (tx, rx) 
+/// is being returned so that the caller can be receiving new blocks, and transmitting ops in a simulated mem_pool.
 pub struct BurnchainSimulator {
     mem_pool: Arc<Mutex<Vec<BlockstackOperationType>>>,
     db: Option<Arc<Mutex<BurnDB>>>,

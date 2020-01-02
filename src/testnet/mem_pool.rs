@@ -76,5 +76,6 @@ impl MemPool for MemPoolFS {
     fn archive_tx(&mut self, tx: Txid) {
         // Remove tx from pending_txs
         // Add tx to archived_txs
+        // todo(ludo): remove tx from filesystem
     }
 }

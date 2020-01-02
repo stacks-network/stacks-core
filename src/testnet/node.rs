@@ -180,16 +180,6 @@ impl Node {
         // bootstraping tenure ran successfully (process_tenure).
         self.bootstraping_chain = true;
 
-        // Get the latest registered key
-        let registered_key = match &self.active_registered_key {
-            None => {
-                // We're continuously registering new keys, as such, this branch
-                // should be unreachable.
-                unreachable!()
-            },
-            Some(key) => key.clone(),
-        };
-
         // Mock a block, including the expected initial sortition.
         let block = SortitionedBlock {
             block_height: block.block_height as u16,
@@ -218,7 +208,7 @@ impl Node {
                 // should be unreachable.
                 unreachable!()
             },
-            Some(key) => key.clone(),
+            Some(ref key) => key,
         };
 
         // Generates a proof out of the sortition hash provided in the params.
@@ -273,18 +263,40 @@ impl Node {
         Some(tenure)
     }
 
+    /// Handles artefacts coming from an ongoing tenure.
+    /// At this point, we're not updating the chainstate, we're simply having the node
+    /// candidating for the next tenure.
+    pub fn receive_tenure_artefacts(&mut self, anchored_block_from_ongoing_tenure: &StacksBlock, parent_block: &SortitionedBlock) {
+        let ops_tx = self.burnchain_ops_tx.take().unwrap();
 
+        if self.active_registered_key.is_some() {
+            let registered_key = self.active_registered_key.clone().unwrap();
+
+            let vrf_proof = self.keychain.generate_proof(
+                &registered_key.vrf_public_key, 
+                parent_block.sortition_hash.as_bytes()).unwrap();
+
+            let op = self.generate_block_commit_op(
+                anchored_block_from_ongoing_tenure.header.block_hash(),
+                1, // todo(ludo): fix
+                &registered_key, 
+                &parent_block,
+                VRFSeed::from_proof(&vrf_proof));
+
+            ops_tx.send(op).unwrap();
+        }
+
+        // Naive implementation: we keep registering new keys
+        let vrf_pk = self.keychain.rotate_vrf_keypair();
+        let op = self.generate_leader_key_register_op(vrf_pk, parent_block.consensus_hash); // todo(ludo): should we use the consensus hash from the burnchain tip, or last sortitioned block?
+        ops_tx.send(op).unwrap();
+
+        self.burnchain_ops_tx = Some(ops_tx);
+    }
+
+    /// Process artefacts from the tenure.
+    /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
     pub fn process_tenure(&mut self, anchored_block: &StacksBlock, parent_block: &SortitionedBlock, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
-
-        // todo(ludo): verify that the block is attached to some fork in the burn chain.
-
-        let chain_tip = match self.bootstraping_chain {
-            true => StacksHeaderInfo::genesis(),
-            false => match &self.chain_tip {
-                Some(chain_tip) => chain_tip.clone(),
-                _ => unreachable!()
-            }
-        };
 
         {
             let mut db = burn_db.lock().unwrap();
@@ -301,7 +313,7 @@ impl Node {
         let new_chain_tip = {
             let db = burn_db.lock().unwrap();
             let res = self.chain_state.process_blocks(db.conn(), 1).unwrap();
-            res.first().unwrap().0.as_ref().unwrap().clone()
+            res.first().unwrap().0.as_ref().unwrap().clone() // todo(ludo): yikes
         };
 
         self.chain_tip = Some(new_chain_tip);
@@ -310,34 +322,6 @@ impl Node {
         if self.bootstraping_chain {
             self.bootstraping_chain = false;
         }
-    }
-
-    pub fn receive_tenure_artefacts(&mut self, anchored_block_from_ongoing_tenure: &StacksBlock, parent_block: &SortitionedBlock) {
-        let ops_tx = self.burnchain_ops_tx.take().unwrap();
-
-        if self.active_registered_key.is_some() {
-            let registered_key = self.active_registered_key.clone().unwrap();
-
-            let vrf_proof = self.keychain.generate_proof(
-                &registered_key.vrf_public_key, 
-                parent_block.sortition_hash.as_bytes()).unwrap();
-
-            let op = self.generate_block_commit_op(
-                anchored_block_from_ongoing_tenure.header.block_hash(),
-                1, // todo(ludo): fix
-                &registered_key, 
-                &parent_block.clone(),
-                VRFSeed::from_proof(&vrf_proof));
-
-            ops_tx.send(op).unwrap();
-        }
-
-        // Naive implementation: we keep registering new keys
-        let vrf_pk = self.keychain.rotate_vrf_keypair();
-        let op = self.generate_leader_key_register_op(vrf_pk, parent_block.consensus_hash); // todo(ludo): should we use the consensus hash from the burnchain tip, or last sortitioned block?
-        ops_tx.send(op).unwrap();
-
-        self.burnchain_ops_tx = Some(ops_tx);
     }
 
     /// Returns the Stacks address of the node
