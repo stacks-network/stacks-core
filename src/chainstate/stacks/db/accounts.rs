@@ -234,10 +234,11 @@ impl StacksChainState {
         let ancestor_info = match StacksChainState::get_tip_ancestor(tx, tip, block_height)? {
             Some(info) => info,
             None => {
+                test_debug!("No ancestor at height {}", block_height);
                 return Ok(vec![]);
             }
         };
-        
+
         let row_order = MinerPaymentSchedule::row_order().join(",");
         let qry = format!("SELECT {} FROM payments WHERE block_hash = ?1 AND burn_header_hash = ?2 ORDER BY vtxindex ASC", row_order);
         let args = [&ancestor_info.anchored_header.block_hash().to_hex(), &ancestor_info.burn_header_hash.to_hex()];
@@ -252,7 +253,8 @@ impl StacksChainState {
     ///
     /// There must be MINER_REWARD_WINDOW items in the sample.
     ///
-    /// TODO: .burns?
+    /// TODO: this is incomplete -- it does not calculate transaction fees.  This is just stubbed
+    /// out for now -- it only grants miners and user burn supports their coinbases.
     fn calculate_miner_reward(miner: &MinerPaymentSchedule, sample: &Vec<(MinerPaymentSchedule, Vec<MinerPaymentSchedule>)>) -> MinerReward {
         assert!(miner.burnchain_sortition_burn > 0);        // don't call this method if there was no sortition for this block!
         for i in 0..sample.len() {
@@ -262,6 +264,7 @@ impl StacksChainState {
             }
         }
 
+        // how many blocks this miner mined or supported
         let mut num_mined : u128 = 0;
 
         // this miner gets (r*b)/(R*B) of the coinbases over the reward window, where:
@@ -270,22 +273,6 @@ impl StacksChainState {
         // * b is the amount of burn tokens destroyed by this miner 
         // * B is the total amount of burn tokens destroyed over this interval
         let mut coinbase_reward : u128 = 0;
-
-        // the transaction fee _actually paid_ by each transaction is equal to the fraction of the
-        // block's compute budget used, multipled by the block-wide STX/compute-unit rate set by
-        // all transactions.
-        // Miners share the first F% of the anchored tx fees over the next B blocks, proportional
-        // to the fraction of mining power they supply.
-        // Miners receive exclusively the remaining tx fees for the block, if the block used more
-        // than F% of the computing budget.
-        let mut anchored_tx_fee_exclusive : u128 = 0;
-        let mut anchored_tx_fee_shared : u128 = 0;
-        let mut anchored_tx_fee_shared_total : u128 = 0;
-
-        // this miner gets 60% of the streamed tx fees of the microblocks it confirmed (built on), and
-        // 40% of the streamed tx fees of the microblocks it produced.
-        let mut microblock_fees_produced : u128 = 0;
-        let mut microblock_fees_confirmed : u128 = 0;
         
         ////////////////////// number of blocks this miner mined or supported //////
         for i in 0..sample.len() {
@@ -345,103 +332,14 @@ impl StacksChainState {
                 miner.coinbase.checked_mul(this_burn_total as u128).expect("FATAL: STX coinbase reward overflow") / (burn_total as u128)
             };
 
-        ////////////////////// anchored tx fees (miner only) //////////////////////////
-        if miner.miner {
-            let fill_cutoff = ((MINER_FEE_MINIMUM_BLOCK_USAGE as u128) << 64) / 100u128;       // scale fill fraction to between 0 and 2**64 - 1
-            assert!(fill_cutoff <= u64::max_value() as u128);
-
-            let mut shared_fees_total : u128 = 0;
-            let mut fees_total : u128 = 0;
-
-            for i in 0..sample.len() {
-                let block_miner = &sample[i].0;
-                if block_miner.fill < (fill_cutoff as u64) {
-                    // block was underfull but relayed.
-                    // The fees are entirely shared -- this will be metered at the minimum STX/compute ratio
-                    shared_fees_total = shared_fees_total.checked_add(block_miner.tx_fees_anchored << 64).expect("FATAL: STX shared-total anchored fee overflow");
-                }
-                else {
-                    // block met or exceeded budget.
-                    // The first F% is shared.
-                    // The remaining (1 - F%) is given exclusively to this miner.
-                    let shared_fees = block_miner.tx_fees_anchored.checked_mul(fill_cutoff).expect("FATAL: STX shared-total anchored fee calculation overflow");
-                    shared_fees_total = shared_fees_total.checked_add(shared_fees).expect("FATAL: STX shared-total anchored fee calculation overflow");
-
-                    if block_miner.address == miner.address {
-                        assert!((block_miner.tx_fees_anchored << 64) >= shared_fees);
-                        let _exclusive_fees = (block_miner.tx_fees_anchored << 64) - shared_fees;
-                        
-                        test_debug!("{}: Anchored tx fees exclusive: {} = {} + {}", miner.address.to_string(), (fees_total + _exclusive_fees) >> 64, fees_total >> 64, _exclusive_fees >> 64);
-                        fees_total = fees_total.checked_add((block_miner.tx_fees_anchored << 64) - shared_fees).expect("FATAL: STX exclusive total anchored fee calculation overflow");
-                    }
-                }
-            }
-
-            let decimal_mask = 0x0000000000000000ffffffffffffffffu128;
-            let decimal_half = 0x00000000000000007fffffffffffffffu128;
-
-            anchored_tx_fee_shared_total = 
-                if shared_fees_total & decimal_mask > decimal_half {
-                    // round up
-                    (shared_fees_total >> 64) + 1
-                }
-                else {
-                    // round down
-                    shared_fees_total >> 64
-                };
-
-            anchored_tx_fee_exclusive = 
-                if fees_total & decimal_mask > decimal_half {
-                    // round up
-                    (fees_total >> 64) + 1
-                }
-                else {
-                    // round down
-                    fees_total >> 64
-                };
-            
-            test_debug!("{}: Anchored tx fees shared = {} * ({}/{})", miner.address.to_string(), anchored_tx_fee_shared_total, num_mined, sample.len());
-            anchored_tx_fee_shared = anchored_tx_fee_shared_total.checked_mul(num_mined).expect("FATAL: STX shared anchored tx fee overflow") / (sample.len() as u128);
-        }
-
-        ////////////////////// microblock tx fees confirmed (miner only) /////////////
-        if miner.miner {
-            let mut fees_confirmed : u128 = 0;
-            for i in 1..sample.len() {
-                let prev_block_miner = &sample[i-1].0;
-                let block_miner = &sample[i].0;
-                if block_miner.address == miner.address {
-                    test_debug!("{}: Confirmed streamd tx fees: 3/5 * {} = 3/5 * ({} + {})", miner.address.to_string(), fees_confirmed + prev_block_miner.tx_fees_streamed, fees_confirmed, prev_block_miner.tx_fees_streamed);
-                    fees_confirmed = fees_confirmed.checked_add(prev_block_miner.tx_fees_streamed).expect("FATAL: STX tx fees streamed confirmation overflow");
-                }
-            }
-            
-            // built on top of the previous block's microblocks, so get 60%
-            microblock_fees_confirmed = fees_confirmed.checked_mul(3).expect("FATAL: failed to calculate microblock STX stream fee") / 5;
-        }
-
-        ////////////////////// microblock tx fees produced (miner only) //////////////
-        if miner.miner {
-            let mut fees_produced : u128 = miner.tx_fees_streamed;
-            for i in 0..sample.len() {
-                let block_miner = &sample[i].0;
-                if block_miner.address == miner.address {
-                    test_debug!("{}: Produced streamd tx fees: 2/5 * {} = 2/5 * ({} + {})", miner.address.to_string(), fees_produced + block_miner.tx_fees_streamed, fees_produced, block_miner.tx_fees_streamed);
-                    fees_produced = fees_produced.checked_add(block_miner.tx_fees_streamed).expect("FATAL: STX tx fees streamed production overflow");
-                }
-            }
-            
-            // produced this block's microblocks, so get 40%
-            microblock_fees_produced = fees_produced.checked_mul(2).expect("FATAL: failed to calculate microblock STX stream fee") / 5;
-        }
-
+        // TODO: missing transaction fee calculation
         let miner_reward = MinerReward {
             address: miner.address.clone(),
             coinbase: coinbase_reward,
-            tx_fees_anchored_shared: anchored_tx_fee_shared,
-            tx_fees_anchored_exclusive: anchored_tx_fee_exclusive,
-            tx_fees_streamed_produced: microblock_fees_produced,
-            tx_fees_streamed_confirmed: microblock_fees_confirmed,
+            tx_fees_anchored_shared: 0,
+            tx_fees_anchored_exclusive: 0,
+            tx_fees_streamed_produced: 0,
+            tx_fees_streamed_confirmed: 0,
             vtxindex: miner.vtxindex
         };
         miner_reward
@@ -506,6 +404,8 @@ mod test {
     use burnchains::*;
     use chainstate::burn::*;
     use chainstate::stacks::*;
+    use chainstate::stacks::db::test::*;
+    use util::hash::*;
 
     fn make_dummy_miner_payment_schedule(addr: &StacksAddress, coinbase: u128, tx_fees_anchored: u128, tx_fees_streamed: u128, commit_burn: u64, sortition_burn: u64) -> MinerPaymentSchedule {
         MinerPaymentSchedule {
@@ -532,6 +432,130 @@ mod test {
         sched.miner = false;
         sched.vtxindex = vtxindex;
         sched
+    }
+
+    impl StagingUserBurnSupport {
+        pub fn from_miner_payment_schedule(user: &MinerPaymentSchedule) -> StagingUserBurnSupport {
+            StagingUserBurnSupport {
+                burn_header_hash: user.burn_header_hash.clone(),
+                anchored_block_hash: user.block_hash.clone(),
+                address: user.address.clone(),
+                burn_amount: user.burnchain_commit_burn,
+                vtxindex: user.vtxindex
+            }
+        }
+    }
+
+    fn advance_tip(chainstate: &mut StacksChainState, parent_header_info: &StacksHeaderInfo, block_reward: &mut MinerPaymentSchedule, user_burns: &mut Vec<StagingUserBurnSupport>) -> StacksHeaderInfo {
+        let mut new_tip = parent_header_info.clone();
+
+        new_tip.anchored_header.parent_block = parent_header_info.anchored_header.block_hash();
+        new_tip.anchored_header.microblock_pubkey_hash = Hash160::from_data(&parent_header_info.anchored_header.microblock_pubkey_hash.0);
+        new_tip.anchored_header.total_work.work = parent_header_info.anchored_header.total_work.work + 1;
+        new_tip.microblock_tail = None;
+        new_tip.block_height = parent_header_info.block_height + 1;
+        new_tip.burn_header_hash = BurnchainHeaderHash(Sha512Trunc256Sum::from_data(&parent_header_info.burn_header_hash.0).0);
+
+        block_reward.parent_burn_header_hash = parent_header_info.burn_header_hash.clone();
+        block_reward.parent_block_hash = parent_header_info.anchored_header.block_hash().clone();
+        block_reward.block_hash = new_tip.anchored_header.block_hash();
+        block_reward.burn_header_hash = new_tip.burn_header_hash.clone();
+
+        for ref mut user_burn in user_burns.iter_mut() {
+            user_burn.anchored_block_hash = new_tip.anchored_header.block_hash();
+            user_burn.burn_header_hash = new_tip.burn_header_hash.clone();
+        }
+        
+        let mut tx = chainstate.headers_tx_begin().unwrap();
+        let tip = StacksChainState::advance_tip(&mut tx, &parent_header_info.anchored_header, &parent_header_info.burn_header_hash, &new_tip.anchored_header, &new_tip.burn_header_hash, new_tip.microblock_tail.clone(), &block_reward, &user_burns).unwrap();
+        tx.commit().unwrap();
+        tip
+    }
+    
+    #[test]
+    fn get_tip_ancestor() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "load_store_miner_payment_schedule");
+        let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
+        let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
+        let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
+       
+        // dummy reward
+        let mut tip_reward = make_dummy_miner_payment_schedule(&StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 0, 0, 0, 0, 0);
+        
+        let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
+        let mut user_supports = vec![user_support];
+
+        {
+            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &StacksHeaderInfo::genesis(), 0).unwrap();
+            assert!(ancestor_0.is_none());
+        }
+
+        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis(), &mut miner_reward, &mut user_supports);
+
+        {
+            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 0).unwrap();
+            let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 1).unwrap();
+            
+            assert!(ancestor_1.is_none());
+            assert!(ancestor_0.is_some());
+            assert_eq!(ancestor_0.unwrap().block_height, 2);    // block 1 is the boot block
+        }
+
+        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
+        
+        {
+            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let ancestor_2 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 2).unwrap();
+            let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 1).unwrap();
+            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
+            
+            assert!(ancestor_2.is_none());
+            assert!(ancestor_1.is_some());
+            assert_eq!(ancestor_1.unwrap().block_height, 3);    // block 1 is the boot block
+            assert!(ancestor_0.is_some());
+            assert_eq!(ancestor_0.unwrap().block_height, 2);    // block 1 is the boot block
+        }
+    }
+
+    #[test]
+    fn load_store_miner_payment_schedule() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "load_store_miner_payment_schedule");
+        let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
+        let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
+
+        let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
+
+        let initial_tip = StacksHeaderInfo::genesis();
+        
+        let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
+        let mut user_supports = vec![user_support];
+
+        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis(), &mut miner_reward, &mut user_supports);
+
+        // dummy reward
+        let mut tip_reward = make_dummy_miner_payment_schedule(&StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 0, 0, 0, 0, 0);
+        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
+        
+        {
+            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let payments_0 = StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 0).unwrap();
+            let payments_1 = StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 1).unwrap();
+            let payments_2 = StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 2).unwrap();
+
+            let mut expected_user_support = user_reward.clone();
+            expected_user_support.burn_header_hash = miner_reward.burn_header_hash.clone();
+            expected_user_support.parent_burn_header_hash = miner_reward.parent_burn_header_hash.clone();
+            expected_user_support.block_hash = miner_reward.block_hash.clone();
+            expected_user_support.parent_block_hash = miner_reward.parent_block_hash.clone();
+
+            assert_eq!(payments_0, vec![miner_reward, expected_user_support]);
+            assert_eq!(payments_1, vec![tip_reward]);
+            assert_eq!(payments_2, vec![]);
+        };
     }
 
     #[test]
@@ -610,6 +634,8 @@ mod test {
 
     }
     
+    /*
+    // TODO: broken; needs to be rewritten once transaction fee processing is added
     #[test]
     fn miner_reward_one_miner_one_user_anchored_tx_fees_unfull() {
         let mut sample = vec![];
@@ -653,6 +679,7 @@ mod test {
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
     
+    // TODO: broken; needs to be rewritten once transaction fee processing is added
     #[test]
     fn miner_reward_two_miners_one_user_anchored_tx_fees_unfull() {
         let mut sample = vec![];
@@ -717,6 +744,7 @@ mod test {
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
     
+    // TODO: broken; needs to be rewritten once transaction fee processing is added
     #[test]
     fn miner_reward_two_miners_one_user_anchored_tx_fees_full() {
         let mut sample = vec![];
@@ -791,6 +819,7 @@ mod test {
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
     
+    // TODO: broken; needs to be rewritten once transaction fee processing is added
     #[test]
     fn miner_reward_two_miners_one_user_anchored_tx_fees_full_streamed() {
         let mut sample = vec![];
@@ -864,4 +893,5 @@ mod test {
         assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
         assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
     }
+    */
 }
