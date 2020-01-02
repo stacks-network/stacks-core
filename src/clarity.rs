@@ -58,7 +58,6 @@ where command is one of:
   repl               to typecheck and evaluate expressions in a stdin/stdout loop.
   execute            to execute a public function of a defined contract.
   generate_address   to generate a random Stacks public address for testing purposes.
-  sim_tx             to execute a public function of a defined contract.
 ", invoked_by);
     panic_test!()
 }
@@ -523,82 +522,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 },
                 Err(error) => {
                     eprintln!("Transaction execution error: \n{}", error);
-                    panic_test!();
-                }
-            }
-        },
-        "sim_tx" => {
-            if args.len() < 5 {
-                eprintln!("Usage: {} {} [vm-state.db] [contract-identifier] [public-function-name] [sender-address] [args...]", invoked_by, args[0]);
-                panic_test!();
-            }
-            let vm_filename = &args[1];
-            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
-
-            let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[2]), "Failed to parse contract identifier.");
-
-            let tx_name = &args[3];            
-            let sender_in = &args[4];
-
-            let sender = {
-                if let Ok(sender) = PrincipalData::parse_standard_principal(sender_in) {
-                    PrincipalData::Standard(sender.clone())
-                } else {
-                    eprintln!("Unexpected result parsing sender: {}", sender_in);
-                    panic_test!();
-                }
-            };
-
-            let arguments: Vec<_> = args[5..]
-                .iter()
-                .map(|argument| {
-                    // println!("{:?}", argument);
-                    // let mut argument_parsed = friendly_expect(
-                    //     parse(&contract_identifier, argument),
-                    //     &format!("Error parsing argument \"{}\"", argument));
-                    // let argument_value = friendly_expect_opt(
-                    //     argument_parsed.pop(),
-                    //     &format!("Failed to parse a value from the argument: {}", argument));
-                    // let argument_value = friendly_expect_opt(
-                    //     argument_value.match_literal_value(),
-                    //     &format!("Expected a literal value from the argument: {}", argument));
-
-                    let mut vm_env = OwnedEnvironment::memory();
-                    let mut exec_env = vm_env.get_exec_environment(None);
-        
-                    match exec_env.eval_raw(&argument.clone()) {
-                        Ok(val) => SymbolicExpression::atom_value(val.clone()),
-                        Err(error) => {
-                            println!("Error eval'ing arguments:\n{}", error);
-                            panic!()
-                        }
-                    }                  
-                })
-                .collect();
-
-            // println!("===> {:?}", arguments);
-            let result = in_block(vm_filename, marf_kv, |mut marf| {
-                let result = {
-                    let db = ClarityDatabase::new(Box::new(&mut marf));
-                    let mut vm_env = OwnedEnvironment::new(db);
-                    vm_env.execute_transaction(Value::Principal(sender), contract_identifier, &tx_name, &arguments) };
-                (marf, result)
-            });
-
-            match result {
-                Ok((x, _)) => {
-                    if let Value::Response(data) = x {
-                        if data.committed {
-                            println!("{{\"success\": true, \"result\": \"{}\"}}", data.data);
-                        } else {
-                            println!("{{\"success\": false, \"result\": \"{}\"}}", data.data);
-                        }
-                    } else {
-                        panic!(format!("Expected a ResponseType result from transaction. Found: {}", x));
-                    }
-                },
-                Err(error) => {
-                    eprintln!("{{\"success\": false, \"result\": \"{}\"}}", error);
                     panic_test!();
                 }
             }
