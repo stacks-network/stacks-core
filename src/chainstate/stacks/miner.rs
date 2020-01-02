@@ -738,7 +738,7 @@ pub mod test {
         }
     }
 
-    /// Return Some(bool) to indicate whether or not the block was accepted into the queue.
+    /// Return Some(bool) to indicate whether or not the anchored block was accepted into the queue.
     /// Return None if the block was not submitted at all.
     fn preprocess_stacks_block_data(node: &mut TestStacksNode, burn_node: &mut TestBurnchainNode, fork_snapshot: &BlockSnapshot, stacks_block: &StacksBlock, stacks_microblocks: &Vec<StacksMicroblock>, block_commit_op: &LeaderBlockCommitOp) -> Option<bool> {
         let block_hash = stacks_block.block_hash();
@@ -764,24 +764,20 @@ pub mod test {
             }
         };
 
-        test_debug!("\n\nPreprocess Stacks block {}/{}", &commit_snapshot.burn_header_hash.to_hex(), &block_hash.to_hex());
-
         // "discover" this stacks block
-        let res = node.chainstate.preprocess_anchored_block(&mut tx, &commit_snapshot.burn_header_hash, &stacks_block, &parent_block_burn_header_hash).unwrap();
-        if !res {
-            return Some(res)
-        }
+        test_debug!("\n\nPreprocess Stacks block {}/{}", &commit_snapshot.burn_header_hash.to_hex(), &block_hash.to_hex());
+        let block_res = node.chainstate.preprocess_anchored_block(&mut tx, &commit_snapshot.burn_header_hash, &stacks_block, &parent_block_burn_header_hash).unwrap();
 
         // "discover" this stacks microblock stream
         for mblock in stacks_microblocks.iter() {
             test_debug!("Preprocess Stacks microblock {}-{} (seq {})", &block_hash.to_hex(), mblock.block_hash().to_hex(), mblock.header.sequence);
-            let res = node.chainstate.preprocess_streamed_microblock(&commit_snapshot.burn_header_hash, &stacks_block.block_hash(), mblock).unwrap();
-            if !res {
-                return Some(res)
+            let mblock_res = node.chainstate.preprocess_streamed_microblock(&commit_snapshot.burn_header_hash, &stacks_block.block_hash(), mblock).unwrap();
+            if !mblock_res {
+                return Some(mblock_res)
             }
         }
 
-        Some(true)
+        Some(block_res)
     }
     
     /// Verify that the stacks block's state root matches the state root in the chain state
@@ -2328,18 +2324,34 @@ pub mod test {
 
                 match stacks_block_opt {
                     Some(stacks_block) => {
-                        let microblocks = microblocks_opt.unwrap_or(vec![]);
+                        let mut microblocks = microblocks_opt.unwrap_or(vec![]);
 
                         // "discover" the stacks block and its microblocks in all nodes
                         // TODO: randomize microblock discovery order too
                         for (node_name, mut node) in nodes.iter_mut() {
-                            preprocess_stacks_block_data(&mut node, &mut miner_trace.burn_node, &fork_snapshot, &stacks_block, &microblocks, &block_commit_op);
-                        
-                            // process all the blocks we can 
-                            test_debug!("Process Stacks block {} and {} microblocks in {}", &stacks_block.block_hash().to_hex(), microblocks.len(), &node_name);
-                            let tip_info_list = node.chainstate.process_blocks(miner_trace.burn_node.burndb.conn(), expected_num_blocks).unwrap();
 
-                            num_processed += tip_info_list.len();
+                            microblocks.as_mut_slice().shuffle(&mut rng);
+                            
+                            preprocess_stacks_block_data(&mut node, &mut miner_trace.burn_node, &fork_snapshot, &stacks_block, &vec![], &block_commit_op);
+                            
+                            if microblocks.len() > 0 {
+                                for mblock in microblocks.iter() {
+                                    preprocess_stacks_block_data(&mut node, &mut miner_trace.burn_node, &fork_snapshot, &stacks_block, &vec![mblock.clone()], &block_commit_op);
+                                
+                                    // process all the blocks we can 
+                                    test_debug!("Process Stacks block {} and microblock {} {}", &stacks_block.block_hash().to_hex(), mblock.block_hash().to_hex(), mblock.header.sequence);
+                                    let tip_info_list = node.chainstate.process_blocks(miner_trace.burn_node.burndb.conn(), expected_num_blocks).unwrap();
+
+                                    num_processed += tip_info_list.len();
+                                }
+                            }
+                            else {
+                                // process all the blocks we can 
+                                test_debug!("Process Stacks block {} and {} microblocks in {}", &stacks_block.block_hash().to_hex(), microblocks.len(), &node_name);
+                                let tip_info_list = node.chainstate.process_blocks(miner_trace.burn_node.burndb.conn(), expected_num_blocks).unwrap();
+
+                                num_processed += tip_info_list.len();
+                            }
                         }
                     },
                     None => {
