@@ -39,7 +39,6 @@ impl BurnchainSimulator {
         let block_time = time::Duration::from_millis(config.burnchain_block_time);
 
         let ops_dequeuing = Arc::clone(&self.mem_pool);
-        let mut vtxindex = 1;
 
         let db = BurnDB::connect(&path, 0, &BurnchainHeaderHash([0u8; 32]), true).unwrap();
         self.db = Some(Arc::new(Mutex::new(db)));
@@ -61,6 +60,7 @@ impl BurnchainSimulator {
 
                 // Simulating mining
                 let next_block_header = BurnchainSimulator::build_next_block_header(&chain_tip);
+                let mut vtxindex = 1;
 
                 // Updating ops properties before including them in the new block
                 let mut ops_to_include = vec![];
@@ -72,19 +72,19 @@ impl BurnchainSimulator {
                                 op.block_height = next_block_header.block_height;
                                 op.burn_header_hash = next_block_header.block_hash;
                                 op.vtxindex = vtxindex;
-                                op.txid = Txid(Sha256Sum::from_data(format!("{}", vtxindex).as_bytes()).0);
+                                op.txid = Txid(Sha256Sum::from_data(format!("{}::{}", op.block_height, vtxindex).as_bytes()).0);
                             },
                             BlockstackOperationType::LeaderBlockCommit(ref mut op) => {
                                 op.block_height = next_block_header.block_height;
                                 op.burn_header_hash = next_block_header.block_hash;
                                 op.vtxindex = vtxindex;
-                                op.txid = Txid(Sha256Sum::from_data(format!("{}", vtxindex).as_bytes()).0);
+                                op.txid = Txid(Sha256Sum::from_data(format!("{}::{}", op.block_height, vtxindex).as_bytes()).0);
                             },
                             BlockstackOperationType::UserBurnSupport(ref mut op) => {
                                 op.block_height = next_block_header.block_height;
                                 op.burn_header_hash = next_block_header.block_hash;
                                 op.vtxindex = vtxindex;
-                                op.txid = Txid(Sha256Sum::from_data(format!("{}", vtxindex).as_bytes()).0);
+                                op.txid = Txid(Sha256Sum::from_data(format!("{}::{}", op.block_height, vtxindex).as_bytes()).0);
                             }
                         }
                         ops_to_include.push(op.clone());
