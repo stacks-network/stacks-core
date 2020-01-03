@@ -49,13 +49,21 @@ impl Keychain {
     }
 
     pub fn rotate_vrf_keypair(&mut self) -> VRFPublicKey {
-        let seed = match self.vrf_secret_keys.last() {
+        let mut seed = match self.vrf_secret_keys.last() {
             // First key is the hash of the secret state
             None => self.hashed_secret_state,
             // Next key is the hash of the last
             Some(last_vrf) => Sha256Sum::from_data(last_vrf.as_bytes()),  
         };
-        let sk = VRFPrivateKey::from_bytes(seed.as_bytes()).unwrap();
+        
+        // Not every 256-bit number is a valid Ed25519 secret key.
+        // As such, we continuously generate seeds through re-hashing until one works.
+        let sk = loop {
+            match VRFPrivateKey::from_bytes(seed.as_bytes()) {
+                Some(sk) => break sk,
+                None => seed = Sha256Sum::from_data(seed.as_bytes())
+            }
+        };        
         let pk = VRFPublicKey::from_private(&sk);
 
         self.vrf_secret_keys.push(sk.clone());
@@ -65,14 +73,21 @@ impl Keychain {
     }
 
     pub fn rotate_microblock_keypair(&mut self) -> StacksPrivateKey {
-        let seed = match self.microblocks_secret_keys.last() {
+        let mut seed = match self.microblocks_secret_keys.last() {
             // First key is the hash of the secret state
             None => self.hashed_secret_state,
             // Next key is the hash of the last
             Some(last_sk) => Sha256Sum::from_data(&last_sk.to_bytes()[..]),  
         };
-        let sk = StacksPrivateKey::from_slice(&seed.to_bytes()[..]).unwrap();
 
+        // Not every 256-bit number is a valid secp256k1 secret key.
+        // As such, we continuously generate seeds through re-hashing until one works.
+        let sk = loop {
+            match StacksPrivateKey::from_slice(&seed.to_bytes()[..]) {
+                Ok(sk) => break sk,
+                Err(_) => seed = Sha256Sum::from_data(seed.as_bytes())
+            }
+        };
         self.microblocks_secret_keys.push(sk.clone());
 
         sk
