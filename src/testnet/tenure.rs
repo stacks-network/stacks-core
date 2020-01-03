@@ -7,6 +7,7 @@ use std::time;
 use burnchains::{BurnchainHeaderHash, Txid};
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
 use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
+use chainstate::stacks::{MINER_BLOCK_BURN_HEADER_HASH, MINER_BLOCK_HEADER_HASH};
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use util::vrf::{VRFProof};
 
@@ -73,14 +74,14 @@ impl <'a> LeaderTenure {
                 chain_state.block_begin(
                 &BurnchainHeaderHash([0u8; 32]),
                 &BlockHeaderHash([0u8; 32]),
-                &BurnchainHeaderHash([1u8; 32]), 
-                &BlockHeaderHash([1u8; 32]))
+                &MINER_BLOCK_BURN_HEADER_HASH, 
+                &MINER_BLOCK_HEADER_HASH)
             },
             _ => chain_state.block_begin(
                 &self.last_sortitioned_block.burn_header_hash, 
                 &self.parent_block.anchored_header.block_hash(), 
-                &BurnchainHeaderHash([1u8; 32]), 
-                &BlockHeaderHash([1u8; 32])),
+                &MINER_BLOCK_BURN_HEADER_HASH, 
+                &MINER_BLOCK_HEADER_HASH),
         };
 
         let mempool_poll_interval = time::Duration::from_millis(250);
