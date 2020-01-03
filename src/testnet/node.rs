@@ -15,6 +15,8 @@ use net::StacksMessageType;
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
 
+const TESTNET_CHAIN_ID: u32 = 0x80000000;
+
 #[derive(Clone)]
 struct RegisteredKey {
     block_height: u16,
@@ -372,7 +374,7 @@ impl Node {
             TransactionVersion::Testnet, 
             tx_auth, 
             TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
-        tx.chain_id = 0x80000000;
+        tx.chain_id = TESTNET_CHAIN_ID;
         tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
         let mut tx_signer = StacksTransactionSigner::new(&tx);
         self.keychain.sign_as_origin(&mut tx_signer);
