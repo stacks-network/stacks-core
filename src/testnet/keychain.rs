@@ -155,7 +155,8 @@ impl Keychain {
 
     pub fn origin_address(&self) -> Option<StacksAddress> {
         match self.get_transaction_auth() {
-            Some(auth) => Some(auth.origin().address_testnet()), // todo(ludo): testnet hard-coded
+            // Note: testnet hard-coded
+            Some(auth) => Some(auth.origin().address_testnet()),
             None => None
         }
     }

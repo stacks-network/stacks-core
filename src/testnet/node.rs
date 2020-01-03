@@ -52,7 +52,7 @@ impl SortitionedBlock {
 
 }
 
-/// 
+/// Node is a structure modelising an active node working on the stacks chain.
 pub struct Node {
     active_registered_key: Option<RegisteredKey>,
     average_block_time: u64,
@@ -66,13 +66,11 @@ pub struct Node {
     last_sortitioned_block: Option<SortitionedBlock>,
     mem_pool: MemPoolFS,
     nonce: u64,
-    pub rx: Receiver<StacksMessageType>,
-    pub tx: Sender<StacksMessageType>,
 }
 
 impl Node {
 
-    /// 
+    /// Instantiate and initialize a new node, given a config
     pub fn new(config: NodeConfig, average_block_time: u64) -> Self {
         
         let keychain = Keychain::default();
@@ -83,8 +81,6 @@ impl Node {
         };
 
         let mem_pool = MemPoolFS::new(&config.mem_pool_path);
-
-        let (tx, rx) = channel();
 
         Self {
             active_registered_key: None,
@@ -98,19 +94,18 @@ impl Node {
             average_block_time,
             burnchain_ops_tx: None,
             burnchain_tip: None,
-            tx,
-            rx,
             nonce: 0,
         }
     }
     
-    /// 
+    /// Setup the node so that it can transmit ops to the underlying burnchain.
+    /// Submit a KeyRegisterOp.
     pub fn setup(&mut self, burnchain_ops_tx: Sender<BlockstackOperationType>) {
         // Register a new key
         let vrf_pk = self.keychain.rotate_vrf_keypair();
         let consensus_hash = ConsensusHash::empty();
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
-        let chain_state = match burnchain_ops_tx.send(key_reg_op) {
+        match burnchain_ops_tx.send(key_reg_op) {
             Ok(res) => res,
             Err(err) => panic!("Error while transmitting op to the burnchain")
         };
@@ -119,7 +114,8 @@ impl Node {
         self.burnchain_ops_tx = Some(burnchain_ops_tx);
     }
 
-    /// 
+    /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
+    /// and inspecting if a sortition was won.
     pub fn process_burnchain_state(&mut self, state: &BurnchainState) -> (Option<SortitionedBlock>, bool) {
         let mut new_key = None;
         let mut last_sortitioned_block = None; 

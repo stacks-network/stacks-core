@@ -63,8 +63,8 @@ impl RunLoop {
             node.process_burnchain_state(&genesis_state);
         }
 
-        // When producing an anchored block, we need a block from the burnchain, and its parent.
-        // We'll wait on the next block from the burnchain for starting the bootstrap.
+        // Waiting on the 1st block (post-genesis) from the burnchain, containing the first key registrations 
+        // that will be used for bootstraping the chain.
         let state_1 = match burnchain_block_rx.recv() {
             Ok(res) => res,
             Err(err) => panic!("Error while expecting block #1 from burnchain: {:?}", err)

@@ -24,8 +24,10 @@ pub struct MemPoolFS {
 
 impl MemPoolFS {
     pub fn new(path: &str) -> Self {
-        
-        fs::create_dir_all(path).unwrap();
+        match fs::create_dir_all(path) {
+            Ok(_) => {},
+            Err(_) => panic!("Error while creating dir at path {}", path)
+        };
 
         Self {
             path: path.to_string(),
@@ -65,12 +67,15 @@ impl MemPool for MemPoolFS {
     }
 
     fn start(&mut self) {
+        // no op - irrelevant in the case of MemPoolFS
     }
 
     fn stop(&mut self) {
+        // no op - irrelevant in the case of MemPoolFS
     }
 
     fn handle_incoming_tx(&mut self, tx: Txid) {
+        // no op - irrelevant in the case of MemPoolFS
     }
 
     fn archive_tx(&mut self, tx: Txid) {

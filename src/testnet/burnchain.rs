@@ -46,17 +46,27 @@ impl BurnchainSimulator {
 
         let ops_dequeuing = Arc::clone(&self.mem_pool);
 
-        let db = BurnDB::connect(&path, 0, &BurnchainHeaderHash([0u8; 32]), true).unwrap();
-        self.db = Some(Arc::new(Mutex::new(db)));
-        let burn_db = Arc::clone(&self.db.as_ref().unwrap());
+        let db = match BurnDB::connect(&path, 0, &BurnchainHeaderHash([0u8; 32]), true) {
+            Ok(db) => Arc::new(Mutex::new(db)),
+            Err(_) => panic!("Error while connecting to burnchain db")
+        };
+
+        let burn_db = Arc::clone(&db);
+        self.db = Some(db);
 
         thread::spawn(move || {
 
-            let chain = Burnchain::new(&path, &chain, &name).unwrap();
-            
+            let chain = match Burnchain::new(&path, &chain, &name) {
+                Ok(res) => res,
+                Err(_) => panic!("Error while instantiating burnchain")
+            };
+
             let mut chain_tip = {
                 let db = burn_db.lock().unwrap();
-                BurnDB::get_first_block_snapshot(db.conn()).unwrap()
+                match BurnDB::get_first_block_snapshot(db.conn()) {
+                    Ok(res) => res,
+                    Err(_) => panic!("Error while getting genesis block")
+                }
             };
 
             // Transmit genesis state
