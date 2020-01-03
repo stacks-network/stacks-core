@@ -1,3 +1,5 @@
+use vm::errors::{ InterpreterResult as Result };
+use chainstate::burn::BlockHeaderHash;
 use std::collections::{HashMap};
 
 // These functions _do not_ return errors, rather, any errors in the underlying storage
@@ -7,6 +9,24 @@ pub trait KeyValueStorage {
     fn put(&mut self, key: &str, value: &str);
     fn get(&mut self, key: &str) -> Option<String>;
     fn has_entry(&mut self, key: &str) -> bool;
+
+    /// begin, commit, rollback a save point identified by key
+    ///    not all backends will implement this! this is used to clean up
+    ///     any data from aborted blocks (not aborted transactions! that is handled
+    ///      by the clarity vm directly).
+    /// The block header hash is used for identifying savepoints.
+    ///     this _cannot_ be used to rollback to arbitrary prior block hash, because that
+    ///     blockhash would already have committed and no longer exist in the save point stack.
+    /// this is a "lower-level" rollback than the roll backs performed in
+    ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
+    fn begin(&mut self, key: &BlockHeaderHash) {}
+    fn commit(&mut self, key: &BlockHeaderHash) {}
+    fn rollback(&mut self, key: &BlockHeaderHash) {}
+
+    /// returns the previous block header hash on success
+    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+        panic!("Attempted to evaluate changed block height with a generic backend");
+    } 
 
     fn put_all(&mut self, mut items: Vec<(String, String)>) {
         for (key, value) in items.drain(..) {
@@ -21,7 +41,7 @@ pub struct RollbackContext {
 
 pub struct RollbackWrapper <'a> {
     // the underlying key-value storage.
-    store: Box<KeyValueStorage + 'a>,
+    store: Box<dyn KeyValueStorage + 'a>,
     // lookup_map is a history of edits for a given key.
     //   in order of least-recent to most-recent at the tail.
     //   this allows ~ O(1) lookups, and ~ O(1) commits, roll-backs (amortized by # of PUTs).
@@ -37,7 +57,7 @@ pub struct RollbackWrapper <'a> {
 }
 
 impl <'a> RollbackWrapper <'a> {
-    pub fn new(store: Box<KeyValueStorage + 'a>) -> RollbackWrapper {
+    pub fn new(store: Box<dyn KeyValueStorage + 'a>) -> RollbackWrapper {
         RollbackWrapper {
             store: store,
             lookup_map: HashMap::new(),
@@ -125,8 +145,12 @@ impl <'a> KeyValueStorage for RollbackWrapper <'a> {
         current.edits.push((key.to_string(), value.to_string()));
     }
 
+    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+        self.store.set_block_hash(bhh)
+    }
+
     fn get(&mut self, key: &str) -> Option<String> {
-        let current = self.stack.last()
+        self.stack.last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
         let lookup_result = match self.lookup_map.get(key) {
@@ -143,7 +167,7 @@ impl <'a> KeyValueStorage for RollbackWrapper <'a> {
     }
 
     fn has_entry(&mut self, key: &str) -> bool {
-        let current = self.stack.last()
+        self.stack.last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
         if self.lookup_map.contains_key(key) {
             true

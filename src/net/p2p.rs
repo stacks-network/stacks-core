@@ -69,7 +69,7 @@ use burnchains::PublicKey;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
 
-use chainstate::burn::db::burndb;
+use chainstate::burn::db::burndb::BurnDB;
 
 use util::log;
 use util::get_epoch_time_secs;
@@ -781,7 +781,7 @@ impl PeerNetwork {
     /// Advance the state of all such conversations with remote peers.
     /// Return the list of events that correspond to failed conversations, as well as the set of
     /// unsolicited messages grouped by event_id.
-    fn process_ready_sockets(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, burndb_conn: &DBConn, poll_state: &mut NetworkPollState) -> (Vec<usize>, HashMap<usize, Vec<StacksMessage>>) {
+    fn process_ready_sockets(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, poll_state: &mut NetworkPollState) -> (Vec<usize>, HashMap<usize, Vec<StacksMessage>>) {
         let mut to_remove = vec![];
         let mut unsolicited = HashMap::new();
 
@@ -806,7 +806,7 @@ impl PeerNetwork {
                 to_remove.push(*event_id);
                 continue;
             }
-            let mut convo = self.peers.get_mut(&event_id).unwrap();
+            let convo = self.peers.get_mut(&event_id).unwrap();
 
             test_debug!("{:?}: process data from {:?}", local_peer, convo);
 
@@ -822,7 +822,7 @@ impl PeerNetwork {
             }
         
             // react to inbound messages -- do we need to send something out?
-            let mut chat_res = convo.chat(local_peer, burndb_conn, chain_view);
+            let mut chat_res = convo.chat(local_peer, chain_view);
             match chat_res {
                 Err(e) => {
                     debug!("Failed to converse on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
@@ -855,9 +855,9 @@ impl PeerNetwork {
 
     /// Make progress on sending any/all new outbound messages we have.
     /// Meant to prime sockets so we wake up on the next loop pass immediately to finish sending.
-    fn send_outbound_messages(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, burndb_conn: &DBConn) -> Vec<usize> {
+    fn send_outbound_messages(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView) -> Vec<usize> {
         let mut to_remove = vec![];
-        for (mut event_id, mut convo) in self.peers.iter_mut() {
+        for (event_id, convo) in self.peers.iter_mut() {
             if !self.sockets.contains_key(&event_id) {
                 test_debug!("Rogue socket event {}", event_id);
                 to_remove.push(*event_id);
@@ -1132,7 +1132,7 @@ impl PeerNetwork {
 
                 // begin re-key 
                 let mut inflight_handshakes = HashMap::new();
-                for (event_id, mut convo) in self.peers.iter_mut() {
+                for (event_id, convo) in self.peers.iter_mut() {
                     let nk = convo.to_neighbor_key();
                     let handshake_data = HandshakeData::from_local_peer(new_local_peer);
                     let handshake = StacksMessageType::Handshake(handshake_data);
@@ -1195,15 +1195,12 @@ impl PeerNetwork {
     /// -- receive data on ready sockets
     /// -- clear out timed-out requests
     /// Returns the list of unsolicited peer messages
-    fn dispatch_network(&mut self, burndb_conn: &DBConn, mut poll_state: NetworkPollState) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    fn dispatch_network(&mut self, chain_view: &BurnchainView, mut poll_state: NetworkPollState) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         if self.network.is_none() {
             return Err(net_error::NotConnected);
         }
         
         let local_peer = PeerDB::get_local_peer(self.peerdb.conn())
-            .map_err(|e| net_error::DBError)?;
-
-        let chain_view = burndb::get_burnchain_view(burndb_conn, &self.burnchain)
             .map_err(|e| net_error::DBError)?;
 
         // handle network I/O requests from other threads, and get back reply handles to them
@@ -1213,7 +1210,7 @@ impl PeerNetwork {
         self.process_new_sockets(&local_peer, &chain_view, &mut poll_state);
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
-        let (error_events, unsolicited_messages) = self.process_ready_sockets(&local_peer, &chain_view, burndb_conn, &mut poll_state);
+        let (error_events, unsolicited_messages) = self.process_ready_sockets(&local_peer, &chain_view, &mut poll_state);
         for error_event in error_events {
             let _ = self.reregister_if_outbound(&local_peer, &chain_view, error_event)
                 .map_err(|e| {
@@ -1247,7 +1244,7 @@ impl PeerNetwork {
 
         // send out any queued messages.
         // this has the intentional side-effect of activating some sockets as writeable.
-        let error_outbound_events = self.send_outbound_messages(&local_peer, &chain_view, burndb_conn);
+        let error_outbound_events = self.send_outbound_messages(&local_peer, &chain_view);
         for error_event in error_outbound_events {
             let _ = self.reregister_if_outbound(&local_peer, &chain_view, error_event)
                 .map_err(|e| {
@@ -1280,7 +1277,7 @@ impl PeerNetwork {
     /// -- carries out network conversations
     /// -- receives and dispatches requests from other threads
     /// Returns the list of unsolicited network messages to be acted upon.
-    pub fn run(&mut self, burndb_conn: &DBConn, poll_timeout: u64) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    pub fn run(&mut self, burnchain_snapshot: &BurnchainView, poll_timeout: u64) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         let poll_state = match self.network {
             None => {
                 Err(net_error::NotConnected)
@@ -1290,7 +1287,7 @@ impl PeerNetwork {
             }
         }?;
 
-        let unsolicited_messages = self.dispatch_network(burndb_conn, poll_state)?;
+        let unsolicited_messages = self.dispatch_network(burnchain_snapshot, poll_state)?;
         Ok(unsolicited_messages)
     }
 }
@@ -1340,19 +1337,20 @@ mod test {
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
-            burn_quota: get_burn_quota_config(&"bitcoin".to_string()).unwrap(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,
             first_block_hash: first_burn_hash.clone(),
         };
 
-        let burnchain_view = BurnchainView {
+        let mut burnchain_view = BurnchainView {
             burn_block_height: 12345,
             burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
             burn_stable_block_height: 12339,
             burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+            last_consensus_hashes: HashMap::new()
         };
+        burnchain_view.make_test_data();
 
         let ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                       burnchain_view.burn_block_height,

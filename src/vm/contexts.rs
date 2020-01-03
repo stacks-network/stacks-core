@@ -1,16 +1,20 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, BTreeMap};
 use std::fmt;
+use std::convert::TryInto;
 
-use vm::errors::{InterpreterError, UncheckedError, RuntimeErrorType, InterpreterResult as Result};
-use vm::types::{Value, AssetIdentifier, PrincipalData};
+use vm::errors::{InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result};
+use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase, memory_db};
-use vm::{SymbolicExpression};
+use vm::representations::{SymbolicExpression, ClarityName, ContractName};
 use vm::contracts::Contract;
-use vm::{parser, eval};
+use vm::ast::ContractAST;
+use vm::ast;
+use vm::eval;
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
-use burnchains::BurnchainHeaderHash;
+
+use serde::Serialize;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -33,7 +37,9 @@ pub struct OwnedEnvironment <'a> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AssetMapEntry {
-    Token(i128),
+    STX(u128),
+    Burn(u128),
+    Token(u128),
     Asset(Vec<Value>)
 }
 
@@ -41,9 +47,11 @@ pub enum AssetMapEntry {
  The AssetMap is used to track which assets have been transfered from whom
  during the execution of a transaction.
  */
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AssetMap {
-    token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, i128>>,
+    stx_map: HashMap<PrincipalData, u128>,
+    burn_map: HashMap<PrincipalData, u128>,
+    token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, u128>>,
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>
 }
 
@@ -61,14 +69,28 @@ pub struct GlobalContext<'a> {
 
 #[derive(Serialize, Deserialize)]
 pub struct ContractContext {
-    pub name: String,
-    pub variables: HashMap<String, Value>,
-    pub functions: HashMap<String, DefinedFunction>,
+    pub contract_identifier: QualifiedContractIdentifier,
+    
+    #[serde(serialize_with = "ordered_map_variables")]
+    pub variables: HashMap<ClarityName, Value>,
+    
+    #[serde(serialize_with = "ordered_map_functions")]
+    pub functions: HashMap<ClarityName, DefinedFunction>,
+}
+
+fn ordered_map_variables<S: serde::Serializer>(value: &HashMap<ClarityName, Value>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
+}
+
+fn ordered_map_functions<S: serde::Serializer>(value: &HashMap<ClarityName, DefinedFunction>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
 }
 
 pub struct LocalContext <'a> {
     pub parent: Option< &'a LocalContext<'a>>,
-    pub variables: HashMap<String, Value>,
+    pub variables: HashMap<ClarityName, Value>,
     depth: u16
 }
 
@@ -79,16 +101,34 @@ pub struct CallStack {
 
 pub type StackTrace = Vec<FunctionIdentifier>;
 
+pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
+
 impl AssetMap {
     pub fn new() -> AssetMap {
         AssetMap {
+            stx_map: HashMap::new(),
+            burn_map: HashMap::new(),
             token_map: HashMap::new(),
             asset_map: HashMap::new()
         }
     }
+    
+    // This will get the next amount for a (principal, stx) entry in the stx table.
+    fn get_next_stx_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
+        let current_amount = self.stx_map.get(principal).unwrap_or(&0);
+        current_amount.checked_add(amount)
+            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+    }
+    
+    // This will get the next amount for a (principal, stx) entry in the burn table.
+    fn get_next_stx_burn_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
+        let current_amount = self.burn_map.get(principal).unwrap_or(&0);
+        current_amount.checked_add(amount)
+            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+    }
 
     // This will get the next amount for a (principal, asset) entry in the asset table.
-    fn get_next_amount(&self, principal: &PrincipalData, asset: &AssetIdentifier, amount: i128) -> Result<i128> {
+    fn get_next_amount(&self, principal: &PrincipalData, asset: &AssetIdentifier, amount: u128) -> Result<u128> {
         let current_amount = match self.token_map.get(principal) {
             Some(principal_map) => *principal_map.get(&asset).unwrap_or(&0),
             None => 0
@@ -96,6 +136,20 @@ impl AssetMap {
             
         current_amount.checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+    }
+
+    pub fn add_stx_transfer(&mut self, principal: &PrincipalData, amount: u128) -> Result<()> {
+        let next_amount = self.get_next_stx_amount(principal, amount)?;
+        self.stx_map.insert(principal.clone(), next_amount);
+
+        Ok(())
+    }
+    
+    pub fn add_stx_burn(&mut self, principal: &PrincipalData, amount: u128) -> Result<()> {
+        let next_amount = self.get_next_stx_burn_amount(principal, amount)?;
+        self.burn_map.insert(principal.clone(), next_amount);
+
+        Ok(())
     }
 
     pub fn add_asset_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, transfered: Value) {
@@ -113,11 +167,7 @@ impl AssetMap {
         }
     }
 
-    pub fn add_token_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, amount: i128) -> Result<()> {
-        if amount < 0 {
-            panic!("Should never attempt to log a negative transfer.");
-        }
-
+    pub fn add_token_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, amount: u128) -> Result<()> {
         let next_amount = self.get_next_amount(principal, &asset, amount)?;
 
         if !self.token_map.contains_key(principal) {
@@ -136,11 +186,24 @@ impl AssetMap {
     //   aborting _all_ changes in the event of an error, leaving self unchanged
     pub fn commit_other(&mut self, mut other: AssetMap) -> Result<()> {
         let mut to_add = Vec::new();
+        let mut stx_to_add = Vec::new();
+        let mut stx_burn_to_add = Vec::new();
+
         for (principal, mut principal_map) in other.token_map.drain() {
             for (asset, amount) in principal_map.drain() {
                 let next_amount = self.get_next_amount(&principal, &asset, amount)?;
                 to_add.push((principal.clone(), asset, next_amount));
             }
+        }
+
+        for (principal, stx_amount) in other.stx_map.drain() {
+            let next_amount = self.get_next_stx_amount(&principal, stx_amount)?;
+            stx_to_add.push((principal.clone(), next_amount));
+        }
+
+        for (principal, stx_burn_amount) in other.burn_map.drain() {
+            let next_amount = self.get_next_stx_burn_amount(&principal, stx_burn_amount)?;
+            stx_burn_to_add.push((principal.clone(), next_amount));
         }
 
         // After this point, this function will not fail.
@@ -161,6 +224,13 @@ impl AssetMap {
             }
         }
 
+        for (principal, stx_amount) in stx_to_add.drain(..) {
+            self.stx_map.insert(principal, stx_amount);
+        }
+
+        for (principal, stx_burn_amount) in stx_burn_to_add.drain(..) {
+            self.burn_map.insert(principal, stx_burn_amount);
+        }
 
         for (principal, asset, amount) in to_add.drain(..) {
             if !self.token_map.contains_key(&principal) {
@@ -175,7 +245,6 @@ impl AssetMap {
         Ok(())
     }
 
-    #[cfg(test)]
     pub fn to_table(mut self) -> HashMap<PrincipalData, HashMap<AssetIdentifier, AssetMapEntry>> {
         let mut map = HashMap::new();
         for (principal, mut principal_map) in self.token_map.drain() {
@@ -184,6 +253,26 @@ impl AssetMap {
                 output_map.insert(asset, AssetMapEntry::Token(amount));
             }
             map.insert(principal, output_map);
+        }
+
+        for (principal, stx_amount) in self.stx_map.drain() {
+            let output_map = if map.contains_key(&principal) {
+                map.get_mut(&principal).unwrap()
+            } else {
+                map.insert(principal.clone(), HashMap::new());
+                map.get_mut(&principal).unwrap()
+            };
+            output_map.insert(AssetIdentifier::STX(), AssetMapEntry::STX(stx_amount as u128));
+        }
+        
+        for (principal, stx_burned_amount) in self.burn_map.drain() {
+            let output_map = if map.contains_key(&principal) {
+                map.get_mut(&principal).unwrap()
+            } else {
+                map.insert(principal.clone(), HashMap::new());
+                map.get_mut(&principal).unwrap()
+            };
+            output_map.insert(AssetIdentifier::STX_burned(), AssetMapEntry::Burn(stx_burned_amount as u128));
         }
 
         for (principal, mut principal_map) in self.asset_map.drain() {
@@ -200,6 +289,48 @@ impl AssetMap {
         }
 
         return map
+    }
+
+    pub fn get_stx(&self, principal: &PrincipalData) -> Option<u128> {
+        match self.stx_map.get(principal) {
+            Some(value) => Some(*value),
+            None => None
+        }
+    }
+
+    pub fn get_stx_burned(&self, principal: &PrincipalData) -> Option<u128> {
+        match self.burn_map.get(principal) {
+            Some(value) => Some(*value),
+            None => None
+        }
+    }
+
+    pub fn get_stx_burned_total(&self) -> u128 {
+        let mut total : u128 = 0;
+        for principal in self.burn_map.keys() {
+            total = total.checked_add(*self.burn_map.get(principal).unwrap_or(&0u128)).expect("BURN OVERFLOW");
+        }
+        total
+    }
+
+    pub fn get_fungible_tokens(&self, principal: &PrincipalData, asset_identifier: &AssetIdentifier) -> Option<u128> {
+        match self.token_map.get(principal) {
+            Some(ref assets) => match assets.get(asset_identifier) {
+                Some(value) => Some(*value),
+                None => None,
+            },
+            None => None
+        }
+    }
+    
+    pub fn get_nonfungible_tokens(&self, principal: &PrincipalData, asset_identifier: &AssetIdentifier) -> Option<&Vec<Value>> {
+        match self.asset_map.get(principal) {
+            Some(ref assets) => match assets.get(asset_identifier) {
+                Some(values) => Some(values),
+                None => None,
+            },
+            None => None
+        }
     }
 }
 
@@ -220,6 +351,12 @@ impl fmt::Display for AssetMap {
                 write!(f, "] {}\n", asset)?;
             }
         }
+        for (principal, stx_amount) in self.stx_map.iter() {
+            write!(f, "{} spent {} microSTX\n", principal, stx_amount)?;
+        }
+        for (principal, stx_burn_amount) in self.burn_map.iter() {
+            write!(f, "{} burned {} microSTX\n", principal, stx_burn_amount)?;
+        }
         write!(f, "]")
     }
 }
@@ -229,7 +366,7 @@ impl <'a> OwnedEnvironment <'a> {
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment <'a> {
         OwnedEnvironment {
             context: GlobalContext::new(database),
-            default_contract: ContractContext::new(":transient:".to_string()),
+            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new()
         }
     }
@@ -245,21 +382,48 @@ impl <'a> OwnedEnvironment <'a> {
                          sender.clone(), sender)
     }
 
-    pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
-        let mut exec_env = self.get_exec_environment(None);
-        exec_env.initialize_contract(contract_name, contract_content)
-    }
-
-    pub fn execute_transaction(&mut self, sender: Value, contract_name: &str, 
-                               tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap)> {
+    fn execute_in_env <F, A> (&mut self, sender: Value, f: F) -> Result<(A, AssetMap)>
+    where F: FnOnce(&mut Environment) -> Result<A> {
         assert!(self.context.is_top_level());
         self.begin();
-        let return_value = {
+
+        let result = {
             let mut exec_env = self.get_exec_environment(Some(sender));
-            exec_env.execute_contract(contract_name, tx_name, args)
-        }?;
-        let asset_map = self.commit()?;
-        Ok((return_value, asset_map))
+            f(&mut exec_env)
+        };
+
+        match result {
+            Ok(return_value) => {
+                let asset_map = self.commit()?;
+                Ok((return_value, asset_map))
+            },
+            Err(e) => {
+                self.context.roll_back();
+                Err(e)
+            },
+        }
+    }
+
+    pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<((), AssetMap)> {
+        self.execute_in_env(Value::from(contract_identifier.issuer.clone()),
+                            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content))
+    }
+
+    pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &ContractAST) -> Result<((), AssetMap)> {
+        self.execute_in_env(Value::from(contract_identifier.issuer.clone()),
+                            |exec_env| exec_env.initialize_contract_from_ast(contract_identifier, contract_content))
+    }
+
+    pub fn execute_transaction(&mut self, sender: Value, contract_identifier: QualifiedContractIdentifier, 
+                               tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap)> {
+        self.execute_in_env(sender, 
+                            |exec_env| exec_env.execute_contract(&contract_identifier, tx_name, args))
+    }
+
+    #[cfg(test)]
+    pub fn eval_raw(&mut self, program: &str) -> Result<(Value, AssetMap)> {
+        self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
+                            |exec_env| exec_env.eval_raw(program))
     }
 
     pub fn begin(&mut self) {
@@ -269,6 +433,13 @@ impl <'a> OwnedEnvironment <'a> {
     pub fn commit(&mut self) -> Result<AssetMap> {
         self.context.commit()?
             .ok_or(InterpreterError::FailedToConstructAssetTable.into())
+    }
+
+    /// Destroys this environment, returning ownership of its database reference.
+    ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
+    ///   because the database is not guaranteed to be in a sane state.
+    pub fn destruct(self) -> Option<ClarityDatabase<'a>> {
+        self.context.destruct()
     }
 }
 
@@ -316,15 +487,15 @@ impl <'a,'b> Environment <'a,'b> {
                          self.sender.clone(), Some(caller))
     }
 
-    pub fn eval_read_only(&mut self, contract_name: &str, program: &str) -> Result<Value> {
-        let parsed = parser::parse(program)?;
+    pub fn eval_read_only(&mut self, contract_identifier: &QualifiedContractIdentifier, program: &str) -> Result<Value> {
+        let parsed = ast::parse(contract_identifier, program)?;
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
         }
 
         self.global_context.begin();
 
-        let contract = self.global_context.database.get_contract(contract_name)?;
+        let contract = self.global_context.database.get_contract(contract_identifier)?;
 
         let result = {
             let mut nested_env = Environment::new(&mut self.global_context, &contract.contract_context,
@@ -339,7 +510,9 @@ impl <'a,'b> Environment <'a,'b> {
     }
     
     pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
-        let parsed = parser::parse(program)?;
+        let contract_id = QualifiedContractIdentifier::transient();
+
+        let parsed = ast::parse(&contract_id, program)?;
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
         }
@@ -350,14 +523,14 @@ impl <'a,'b> Environment <'a,'b> {
         result
     }
 
-    pub fn execute_contract(&mut self, contract_name: &str, 
+    pub fn execute_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, 
                             tx_name: &str, args: &[SymbolicExpression]) -> Result<Value> {
-        let contract = self.global_context.database.get_contract(contract_name)?;
+        let contract = self.global_context.database.get_contract(contract_identifier)?;
 
         let func = contract.contract_context.lookup_function(tx_name)
-            .ok_or_else(|| { UncheckedError::UndefinedFunction(tx_name.to_string()) })?;
+            .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
         if !func.is_public() {
-            return Err(UncheckedError::NonPublicFunction(tx_name.to_string()).into());
+            return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
         }
 
         let args: Result<Vec<Value>> = args.iter()
@@ -401,13 +574,36 @@ impl <'a,'b> Environment <'a,'b> {
         }
     }
 
-    pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
+    pub fn evaluate_at_block(&mut self, bhh: BlockHeaderHash, closure: &SymbolicExpression, local: &LocalContext) -> Result<Value> {
+        self.global_context.begin_read_only();
+
+        let result = self.global_context.database.set_block_hash(bhh)
+            .and_then(|prior_bhh| {
+                let result = eval(closure, self, local);
+                self.global_context.database.set_block_hash(prior_bhh)
+                    .expect("ERROR: Failed to restore prior active block after time-shifted evaluation.");
+                result
+            });
+
+        self.global_context.roll_back();
+
+        result
+    }
+
+    pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
+        let contract_ast = ast::build_ast(&contract_identifier, contract_content)
+            .map_err(RuntimeErrorType::ASTError)?;
+        self.initialize_contract_from_ast(contract_identifier, &contract_ast)
+    }
+
+    pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &ContractAST) -> Result<()> {
         self.global_context.begin();
-        let result = Contract::initialize(contract_name, contract_content,
-                                          &mut self.global_context);
+        let result = Contract::initialize_from_ast(contract_identifier.clone(), 
+                                                   contract_content,
+                                                   &mut self.global_context);
         match result {
             Ok(contract) => {
-                self.global_context.database.insert_contract(contract_name, contract);
+                self.global_context.database.insert_contract(&contract_identifier, contract);
                 self.global_context.commit()?;
                 Ok(())
             },
@@ -417,6 +613,7 @@ impl <'a,'b> Environment <'a,'b> {
             }
         }
     }
+
 }
 
 impl <'a> GlobalContext<'a> {
@@ -434,17 +631,17 @@ impl <'a> GlobalContext<'a> {
         self.asset_maps.len() == 0
     }
 
-    pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_name: &str, asset_name: &str, transfered: Value) {
-        let asset_identifier = AssetIdentifier { contract_name: contract_name.to_string(),
-                                                 asset_name: asset_name.to_string() };
+    pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: Value) {
+        let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
+                                                 asset_name: asset_name.clone() };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_asset_transfer(sender, asset_identifier, transfered)
     }
 
-    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_name: &str, asset_name: &str, transfered: i128) -> Result<()> {
-        let asset_identifier = AssetIdentifier { contract_name: contract_name.to_string(),
-                                                 asset_name: asset_name.to_string() };
+    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: u128) -> Result<()> {
+        let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
+                                                 asset_name: asset_name.clone() };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_token_transfer(sender, asset_identifier, transfered)
@@ -520,36 +717,41 @@ impl <'a> GlobalContext<'a> {
                 }
                 Ok(Value::Response(data))
             } else {
-                Err(UncheckedError::ContractMustReturnBoolean.into())
+                Err(CheckErrors::PublicFunctionMustReturnResponse(TypeSignature::type_of(&result)).into())
             }
         } else {
             self.roll_back();
             result
         }
     }
+
+    /// Destroys this context, returning ownership of its database reference.
+    ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
+    ///   because the database is not guaranteed to be in a sane state.
+    pub fn destruct(self) -> Option<ClarityDatabase<'a>> {
+        if self.is_top_level() {
+            Some(self.database)
+        } else {
+            None
+        }
+    }
 }
 
 impl ContractContext {
-    pub fn new(name: String) -> ContractContext {
-        ContractContext {
-            name: name,
+    pub fn new(contract_identifier: QualifiedContractIdentifier) -> Self {
+        Self {
+            contract_identifier,
             variables: HashMap::new(),
             functions: HashMap::new()
         }
     }
 
     pub fn lookup_variable(&self, name: &str) -> Option<Value> {
-        match self.variables.get(name) {
-            Some(value) => Option::Some(value.clone()),
-            None => Option::None
-        }
+        self.variables.get(name).cloned()
     }
 
     pub fn lookup_function(&self, name: &str) -> Option<DefinedFunction> {
-        match self.functions.get(name) {
-            Some(value) => Option::Some(value.clone()),
-            None => Option::None
-        }
+        self.functions.get(name).cloned()
     }
 }
 
@@ -641,17 +843,20 @@ mod test {
 
     #[test]
     fn test_asset_map_abort() {
-        let p1 = PrincipalData::ContractPrincipal("a".to_string());
-        let p2 = PrincipalData::ContractPrincipal("b".to_string());
+        let a_contract_id = QualifiedContractIdentifier::local("a").unwrap();
+        let b_contract_id = QualifiedContractIdentifier::local("b").unwrap();
 
-        let t1 = AssetIdentifier { contract_name: "a".to_string(), asset_name: "a".to_string() };
-        let t2 = AssetIdentifier { contract_name: "b".to_string(), asset_name: "a".to_string() };
+        let p1 = PrincipalData::Contract(a_contract_id.clone());
+        let p2 = PrincipalData::Contract(b_contract_id.clone());
+
+        let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
+        let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
 
         am1.add_token_transfer(&p1, t1.clone(), 1).unwrap();
-        am1.add_token_transfer(&p2, t1.clone(), i128::max_value()).unwrap();
+        am1.add_token_transfer(&p2, t1.clone(), u128::max_value()).unwrap();
         am2.add_token_transfer(&p1, t1.clone(), 1).unwrap();
         am2.add_token_transfer(&p2, t1.clone(), 1).unwrap();
 
@@ -659,27 +864,47 @@ mod test {
 
         let table = am1.to_table();
 
-        assert_eq!(table[&p2][&t1], AssetMapEntry::Token(i128::max_value()));
+        assert_eq!(table[&p2][&t1], AssetMapEntry::Token(u128::max_value()));
         assert_eq!(table[&p1][&t1], AssetMapEntry::Token(1));
     }
 
     #[test]
     fn test_asset_map_combinations() {
-        let p1 = PrincipalData::ContractPrincipal("a".to_string());
-        let p2 = PrincipalData::ContractPrincipal("b".to_string());
-        let p3 = PrincipalData::ContractPrincipal("c".to_string());
+        let a_contract_id = QualifiedContractIdentifier::local("a").unwrap();
+        let b_contract_id = QualifiedContractIdentifier::local("b").unwrap();
+        let c_contract_id = QualifiedContractIdentifier::local("c").unwrap();
+        let d_contract_id = QualifiedContractIdentifier::local("d").unwrap();
+        let e_contract_id = QualifiedContractIdentifier::local("e").unwrap();
+        let f_contract_id = QualifiedContractIdentifier::local("f").unwrap();
+        let g_contract_id = QualifiedContractIdentifier::local("g").unwrap();
 
-        let t1 = AssetIdentifier { contract_name: "a".to_string(), asset_name: "a".to_string() };
-        let t2 = AssetIdentifier { contract_name: "b".to_string(), asset_name: "a".to_string() };
-        let t3 = AssetIdentifier { contract_name: "c".to_string(), asset_name: "a".to_string() };
-        let t4 = AssetIdentifier { contract_name: "d".to_string(), asset_name: "a".to_string() };
-        let t5 = AssetIdentifier { contract_name: "e".to_string(), asset_name: "a".to_string() };
+        let p1 = PrincipalData::Contract(a_contract_id.clone());
+        let p2 = PrincipalData::Contract(b_contract_id.clone());
+        let p3 = PrincipalData::Contract(c_contract_id.clone());
+        let p4 = PrincipalData::Contract(d_contract_id.clone());
+        let p5 = PrincipalData::Contract(e_contract_id.clone());
+        let p6 = PrincipalData::Contract(f_contract_id.clone());
+        let p7 = PrincipalData::Contract(g_contract_id.clone());
+
+        let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
+        let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
+        let t3 = AssetIdentifier { contract_identifier: c_contract_id.clone(), asset_name: "a".into() };
+        let t4 = AssetIdentifier { contract_identifier: d_contract_id.clone(), asset_name: "a".into() };
+        let t5 = AssetIdentifier { contract_identifier: e_contract_id.clone(), asset_name: "a".into() };
+        let t6 = AssetIdentifier::STX();
+        let t7 = AssetIdentifier::STX_burned();
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
 
         am1.add_token_transfer(&p1, t1.clone(), 10).unwrap();
         am2.add_token_transfer(&p1, t1.clone(), 15).unwrap();
+        
+        am1.add_stx_transfer(&p1, 20).unwrap();
+        am2.add_stx_transfer(&p2, 25).unwrap();
+
+        am1.add_stx_burn(&p1, 30).unwrap();
+        am2.add_stx_burn(&p2, 35).unwrap();
 
         // test merging in a token that _didn't_ have an entry in the parent
         am2.add_token_transfer(&p1, t4.clone(), 1).unwrap();
@@ -702,13 +927,21 @@ mod test {
         am2.add_asset_transfer(&p2, t3.clone(), Value::Int(3));
         am2.add_asset_transfer(&p2, t3.clone(), Value::Int(4));
 
+        // test merging in STX transfers
+        am1.add_stx_transfer(&p1, 21).unwrap();
+        am2.add_stx_transfer(&p2, 26).unwrap();
+
+        // test merging in STX burns
+        am1.add_stx_burn(&p1, 31).unwrap();
+        am2.add_stx_burn(&p2, 36).unwrap();
+
         am1.commit_other(am2).unwrap();
 
         let table = am1.to_table();
 
         // 3 Principals
         assert_eq!(table.len(), 3);
-
+        
         assert_eq!(table[&p1][&t1], AssetMapEntry::Token(25));
         assert_eq!(table[&p1][&t4], AssetMapEntry::Token(1));
 
@@ -724,8 +957,13 @@ mod test {
 
         assert_eq!(table[&p3][&t3], AssetMapEntry::Asset(
             vec![Value::Int(10)]));
-    }
 
+        assert_eq!(table[&p1][&t6], AssetMapEntry::STX(20 + 21));
+        assert_eq!(table[&p2][&t6], AssetMapEntry::STX(25 + 26));
+
+        assert_eq!(table[&p1][&t7], AssetMapEntry::Burn(30 + 31));
+        assert_eq!(table[&p2][&t7], AssetMapEntry::Burn(35 + 36));
+    }
 }
 
 

@@ -1,6 +1,6 @@
 use vm::execute as vm_execute;
-use vm::errors::{Error, UncheckedError, RuntimeErrorType};
-use vm::types::{Value, PrincipalData, ResponseData, AssetIdentifier};
+use vm::errors::{Error, CheckErrors, RuntimeErrorType};
+use vm::types::{Value, PrincipalData, ResponseData, QualifiedContractIdentifier, AssetIdentifier};
 use vm::contexts::{OwnedEnvironment, GlobalContext, AssetMap, AssetMapEntry};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
@@ -11,65 +11,65 @@ use vm::tests::{with_memory_environment, with_marfed_environment, symbols_from_v
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))
             (ft-get-balance stackaroos account))
-         (define-public (my-token-transfer (to principal) (amount int))
-            (ft-transfer! stackaroos amount tx-sender to))
+         (define-public (my-token-transfer (to principal) (amount uint))
+            (ft-transfer? stackaroos amount tx-sender to))
          (define-public (faucet)
            (let ((original-sender tx-sender))
-             (as-contract (ft-transfer! stackaroos 1 tx-sender original-sender))))
-         (define-public (mint-after (block-to-release int))
+             (as-contract (ft-transfer? stackaroos u1 tx-sender original-sender))))
+         (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
                (err \"must be in the future\")))
-         (begin (ft-mint! stackaroos 10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-                (ft-mint! stackaroos 200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
-                (ft-mint! stackaroos 4   'CTtokens))";
+         (begin (ft-mint? stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+                (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
+                (ft-mint? stackaroos u4 .tokens))";
 
 const ASSET_NAMES: &str =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name int))
-           (if (< name 100000) 1000 100))
+           (if (< name 100000) u1000 u100))
          
          (define-non-fungible-token names int)
          (define-map preorder-map
            ((name-hash (buff 20)))
-           ((buyer principal) (paid int)))
+           ((buyer principal) (paid uint)))
          
          (define-public (preorder 
                         (name-hash (buff 20))
-                        (name-price int))
-           (let ((xfer-result (contract-call! tokens my-token-transfer
+                        (name-price uint))
+           (let ((xfer-result (contract-call? .tokens my-token-transfer
                                 burn-address name-price)))
-            (if (is-ok? xfer-result)
+            (if (is-ok xfer-result)
                (if
-                 (map-insert! preorder-map
+                 (map-insert preorder-map
                    (tuple (name-hash name-hash))
                    (tuple (paid name-price)
                           (buyer tx-sender)))
                  (ok 0) (err 2))
-               (if (eq? xfer-result (err 1)) ;; not enough balance
+               (if (is-eq xfer-result (err 1)) ;; not enough balance
                    (err 1) (err 3)))))
 
          (define-public (force-mint (name int))
-           (nft-mint! names name tx-sender))
+           (nft-mint? names name tx-sender))
          (define-public (try-bad-transfers)
            (begin
-             (contract-call! tokens my-token-transfer burn-address 50000)
-             (contract-call! tokens my-token-transfer burn-address 1000)
-             (contract-call! tokens my-token-transfer burn-address 1)
+             (contract-call? .tokens my-token-transfer burn-address u50000)
+             (contract-call? .tokens my-token-transfer burn-address u1000)
+             (contract-call? .tokens my-token-transfer burn-address u1)
              (err 0)))
          (define-public (try-bad-transfers-but-ok)
            (begin
-             (contract-call! tokens my-token-transfer burn-address 50000)
-             (contract-call! tokens my-token-transfer burn-address 1000)
-             (contract-call! tokens my-token-transfer burn-address 1)
+             (contract-call? .tokens my-token-transfer burn-address u50000)
+             (contract-call? .tokens my-token-transfer burn-address u1000)
+             (contract-call? .tokens my-token-transfer burn-address u1)
              (ok 0)))
          (define-public (transfer (name int) (recipient principal))
-           (let ((transfer-name-result (nft-transfer! names name tx-sender recipient))
-                 (token-to-contract-result (contract-call! tokens my-token-transfer 'CTnames 1))
-                 (contract-to-burn-result (as-contract (contract-call! tokens my-token-transfer burn-address 1))))
-             (begin (expects! transfer-name-result transfer-name-result)
-                    (expects! token-to-contract-result token-to-contract-result)
-                    (expects! contract-to-burn-result contract-to-burn-result)
+           (let ((transfer-name-result (nft-transfer? names name tx-sender recipient))
+                 (token-to-contract-result (contract-call? .tokens my-token-transfer .names u1))
+                 (contract-to-burn-result (as-contract (contract-call? .tokens my-token-transfer burn-address u1))))
+             (begin (unwrap! transfer-name-result transfer-name-result)
+                    (unwrap! token-to-contract-result token-to-contract-result)
+                    (unwrap! contract-to-burn-result contract-to-burn-result)
                     (ok 0))))
          (define-public (register 
                         (recipient-principal principal)
@@ -77,29 +77,29 @@ const ASSET_NAMES: &str =
                         (salt int))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (expects! (map-get preorder-map
+                   (unwrap! (map-get? preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
                  (name-entry 
-                   (nft-get-owner names name)))
+                   (nft-get-owner? names name)))
              (if (and
-                  (is-none? name-entry)
+                  (is-none name-entry)
                   ;; preorder must have paid enough
                   (<= (price-function name) 
                       (get paid preorder-entry))
                   ;; preorder must have been the current principal
-                  (eq? tx-sender
+                  (is-eq tx-sender
                        (get buyer preorder-entry)))
                   (if (and
-                    (is-ok? (nft-mint! names name recipient-principal))
-                    (map-delete! preorder-map
+                    (is-ok (nft-mint? names name recipient-principal))
+                    (map-delete preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
                     (ok 0)
                     (err 3))
                   (err 4))))";
 
-fn execute_transaction(env: &mut OwnedEnvironment, sender: Value, contract: &str,
+fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_identifier: &QualifiedContractIdentifier,
                        tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap), Error> {
-    env.execute_transaction(sender, contract, tx, args)
+    env.execute_transaction(issuer, contract_identifier.clone(), tx, args)
 }
 
 fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
@@ -109,7 +109,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
     let p1_principal = match p1 {
-        Value::Principal(ref data) => data.clone(),
+        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
         _ => panic!()
     };
 
@@ -118,67 +118,71 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let token_identifier = AssetIdentifier { contract_name: "tokens".to_string(),
-                                             asset_name: "stackaroos".to_string() };
+    let token_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
 
-    let contract_principal = PrincipalData::ContractPrincipal("tokens".to_string());
+    let token_identifier = AssetIdentifier { contract_identifier: token_contract_id.clone(),
+                                             asset_name: "stackaroos".into() };
 
-    owned_env.initialize_contract("tokens", tokens_contract).unwrap();
+    let contract_principal = PrincipalData::Contract(token_contract_id.clone());
 
-    let (result, asset_map) = execute_transaction(
-        owned_env, p2.clone(), "tokens", "my-token-transfer",
-        &symbols_from_values(vec![p1.clone(), Value::Int(210)])).unwrap();
+    owned_env.initialize_contract(token_contract_id.clone(), tokens_contract).unwrap();
+
+    let (result, asset_map) = execute_transaction(owned_env, 
+        p2.clone(), &token_contract_id.clone(), "my-token-transfer",
+        &symbols_from_values(vec![p1.clone(), Value::UInt(210)])).unwrap();
     assert!(!is_committed(&result));
+
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "my-token-transfer",
-        &symbols_from_values(vec![p2.clone(), Value::Int(9000)])).unwrap();
-    
+        p1.clone(), &token_contract_id.clone(), "my-token-transfer",
+        &symbols_from_values(vec![p2.clone(), Value::UInt(9000)])).unwrap();
     assert!(is_committed(&result));
 
     let asset_map = asset_map.to_table();
-    assert_eq!(asset_map[&p1_principal][&token_identifier], AssetMapEntry::Token(9000));
+    assert_eq!(asset_map[&PrincipalData::Standard(p1_principal)][&token_identifier], AssetMapEntry::Token(9000));
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "my-token-transfer",
-        &symbols_from_values(vec![p2.clone(), Value::Int(1001)])).unwrap();
+        p1.clone(), &token_contract_id.clone(), "my-token-transfer",
+        &symbols_from_values(vec![p2.clone(), Value::UInt(1001)])).unwrap();
 
     assert!(is_err_code(&result, 1));
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "my-token-transfer",
-        &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap();
+        p1.clone(), &token_contract_id.clone(), "my-token-transfer",
+        &symbols_from_values(vec![p1.clone(), Value::UInt(1000)])).unwrap();
 
     assert!(is_err_code(&result, 2));
     assert_eq!(asset_map.to_table().len(), 0);
 
-    let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "my-token-transfer",
-        &symbols_from_values(vec![p1.clone(), Value::Int(-1)])).unwrap();
+    let err = execute_transaction(owned_env,
+        p1.clone(), &token_contract_id.clone(), "my-token-transfer",
+        &symbols_from_values(vec![p1.clone(), Value::Int(-1)])).unwrap_err();
 
-    assert!(is_err_code(&result, 3));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!( match err {
+        Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
+        _ => false
+    });
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "my-ft-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
+        p1.clone(), &token_contract_id.clone(), "my-ft-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
 
     assert_eq!(
         result,
-        Value::Int(1000));
+        Value::UInt(1000));
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "my-ft-get-balance", &symbols_from_values(vec![p2.clone()])).unwrap();
+        p1.clone(), &token_contract_id.clone(), "my-ft-get-balance", &symbols_from_values(vec![p2.clone()])).unwrap();
 
     assert_eq!(
         result,
-        Value::Int(9200));
+        Value::UInt(9200));
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "faucet", &vec![]).unwrap();
+        p1.clone(), &token_contract_id.clone(), "faucet", &vec![]).unwrap();
 
     assert!(is_committed(&result));
 
@@ -186,28 +190,28 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map[&contract_principal][&token_identifier], AssetMapEntry::Token(1));
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "faucet", &vec![]).unwrap();
+        p1.clone(), &token_contract_id.clone(), "faucet", &vec![]).unwrap();
 
     let asset_map = asset_map.to_table();
     assert!(is_committed(&result));
     assert_eq!(asset_map[&contract_principal][&token_identifier], AssetMapEntry::Token(1));
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "faucet", &vec![]).unwrap();
+        p1.clone(), &token_contract_id.clone(), "faucet", &vec![]).unwrap();
 
     let asset_map = asset_map.to_table();
     assert!(is_committed(&result));
     assert_eq!(asset_map[&contract_principal][&token_identifier], AssetMapEntry::Token(1));
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "my-ft-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
+        p1.clone(), &token_contract_id.clone(), "my-ft-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
 
     assert_eq!(
         result,
-        Value::Int(1003));
+        Value::UInt(1003));
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap();
+        p1.clone(), &token_contract_id.clone(), "mint-after", &symbols_from_values(vec![Value::UInt(25)])).unwrap();
 
     assert!(!is_committed(&result));
     assert_eq!(asset_map.to_table().len(), 0);
@@ -218,55 +222,56 @@ fn total_supply(owned_env: &mut OwnedEnvironment) {
     let bad_0 = "(define-fungible-token stackaroos (- 5))";
     let bad_1 = "(define-fungible-token stackaroos 'true)";
 
-    let contract = "(define-fungible-token stackaroos 5)
+    let contract = "(define-fungible-token stackaroos u5)
          (define-read-only (get-balance (account principal))
             (ft-get-balance stackaroos account))
-         (define-public (transfer (to principal) (amount int))
-            (ft-transfer! stackaroos amount tx-sender to))
+         (define-public (transfer (to principal) (amount uint))
+            (ft-transfer? stackaroos amount tx-sender to))
          (define-public (faucet)
-            (ft-mint! stackaroos 2 tx-sender))
+            (ft-mint? stackaroos u2 tx-sender))
          (define-public (gated-faucet (x bool))
             (begin (faucet)
                    (if x (ok 1) (err 0))))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-
+    
     let p1_principal = match p1 {
-        Value::Principal(ref data) => data.clone(),
+        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
         _ => panic!()
     };
 
-    let err = owned_env.initialize_contract("tokens", bad_0).unwrap_err();
+    let token_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
+    let err = owned_env.initialize_contract(token_contract_id.clone(), bad_0).unwrap_err();
     assert!( match err {
-        Error::Runtime(RuntimeErrorType::NonPositiveTokenSupply, _) => true,
+        Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
         _ => false
     });
 
-    let err = owned_env.initialize_contract("tokens", bad_1).unwrap_err();
+    let err = owned_env.initialize_contract(token_contract_id.clone(), bad_1).unwrap_err();
     assert!( match err {
-        Error::Unchecked(UncheckedError::TypeError(_, _)) => true,
+        Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
         _ => false
     });
 
-    owned_env.initialize_contract("tokens", contract).unwrap();
+    owned_env.initialize_contract(token_contract_id.clone(), contract).unwrap();
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "gated-faucet",
+        p1.clone(), &token_contract_id.clone(), "gated-faucet",
         &symbols_from_values(vec![Value::Bool(true)])).unwrap();
     assert!(is_committed(&result));
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "gated-faucet",
+        p1.clone(), &token_contract_id.clone(), "gated-faucet",
         &symbols_from_values(vec![Value::Bool(false)])).unwrap();
     assert!(!is_committed(&result));
 
     let (result, asset_map) = execute_transaction(owned_env,
-        p1.clone(), "tokens", "gated-faucet",
+        p1.clone(), &token_contract_id.clone(), "gated-faucet",
         &symbols_from_values(vec![Value::Bool(true)])).unwrap();
     assert!(is_committed(&result));
 
     let err = execute_transaction(owned_env,
-        p1.clone(), "tokens", "gated-faucet",
+        p1.clone(), &token_contract_id.clone(), "gated-faucet",
         &symbols_from_values(vec![Value::Bool(false)])).unwrap_err();
     println!("{}", err);
     assert!( match err {
@@ -284,7 +289,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
     let p1_principal = match p1 {
-        Value::Principal(ref data) => data.clone(),
+        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
         _ => panic!()
     };
 
@@ -293,34 +298,40 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let names_identifier = AssetIdentifier { contract_name: "names".to_string(),
-                                             asset_name: "names".to_string() };
-    let tokens_identifier = AssetIdentifier { contract_name: "tokens".to_string(),
-                                             asset_name: "stackaroos".to_string() };
+    let tokens_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
+
+    let names_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "names".into());
+
+    let names_identifier = AssetIdentifier { contract_identifier: names_contract_id.clone(),
+                                             asset_name: "names".into() };
+    let tokens_identifier = AssetIdentifier { contract_identifier: tokens_contract_id.clone(),
+                                             asset_name: "stackaroos".into() };
 
 
     let name_hash_expensive_0 = execute("(hash160 1)");
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
-    owned_env.initialize_contract("tokens", tokens_contract).unwrap();
-    owned_env.initialize_contract("names", names_contract).unwrap();
+    owned_env.initialize_contract(tokens_contract_id.clone(), tokens_contract).unwrap();
+
+    let names_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "names".into());
+    owned_env.initialize_contract(names_contract_id.clone(), names_contract).unwrap();
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p2.clone(), "names", "preorder",
-        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap();
+        owned_env, p2.clone(), &names_contract_id, "preorder",
+        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap();
 
     assert!(is_err_code(&result, 1));
     
     let (result, asset_map) = execute_transaction(
-        owned_env, p1.clone(), "names", "preorder",
-        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap();
+        owned_env, p1.clone(), &names_contract_id, "preorder",
+        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap();
     
     assert!(is_committed(&result));
     
     let (result, asset_map) = execute_transaction(
-        owned_env, p1.clone(), "names", "preorder",
-        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap();
+        owned_env, p1.clone(), &names_contract_id, "preorder",
+        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap();
 
     assert!(is_err_code(&result, 2));
 
@@ -329,7 +340,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p2.clone(), "names", "register",
+        owned_env, p2.clone(), &names_contract_id, "register",
         &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap();
 
     assert!(is_err_code(&result, 4));
@@ -337,7 +348,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     // should work!
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p1.clone(), "names", "register",
+        owned_env, p1.clone(), &names_contract_id, "register",
         &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap();
             
     assert!(is_committed(&result));
@@ -346,30 +357,30 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     {
         let mut env = owned_env.get_exec_environment(None);
         assert_eq!(
-            env.eval_read_only("names",
-                               "(nft-get-owner names 1)").unwrap(),
+            env.eval_read_only(&names_contract_id.clone(),
+                               "(nft-get-owner? names 1)").unwrap(),
             Value::some(p2.clone()));
     }
 
     // let's try some token-transfers
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p1.clone(), "names", "try-bad-transfers", &vec![]).unwrap();
+        owned_env, p1.clone(), &names_contract_id, "try-bad-transfers", &vec![]).unwrap();
     assert!(is_err_code(&result, 0));
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p1.clone(), "names", "try-bad-transfers-but-ok", &vec![]).unwrap();
+        owned_env, p1.clone(), &names_contract_id, "try-bad-transfers-but-ok", &vec![]).unwrap();
 
     assert!(is_committed(&result));
 
     let asset_map = asset_map.to_table();
-    assert_eq!(asset_map[&p1_principal][&tokens_identifier], AssetMapEntry::Token(1001));
+    assert_eq!(asset_map[&PrincipalData::Standard(p1_principal.clone())][&tokens_identifier], AssetMapEntry::Token(1001));
 
     // let's mint some names
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p1.clone(), "names", "force-mint", 
+        owned_env, p1.clone(), &names_contract_id, "force-mint", 
         &symbols_from_values(vec![Value::Int(1)])).unwrap();
 
     assert!(is_err_code(&result, 1));
@@ -377,7 +388,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p1.clone(), "names", "force-mint", 
+        owned_env, p1.clone(), &names_contract_id, "force-mint", 
         &symbols_from_values(vec![Value::Int(5)])).unwrap();
 
     assert!(is_committed(&result));
@@ -387,47 +398,46 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p1.clone(), "names", "transfer", 
+        owned_env, p1.clone(), &names_contract_id, "transfer", 
         &symbols_from_values(vec![Value::Int(7), p2.clone()])).unwrap();
 
     assert!(is_err_code(&result, 3));
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p1.clone(), "names", "transfer", 
+        owned_env, p1.clone(), &names_contract_id, "transfer", 
         &symbols_from_values(vec![Value::Int(1), p2.clone()])).unwrap();
 
     assert!(is_err_code(&result, 1));
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p2.clone(), "names", "transfer", 
+        owned_env, p2.clone(), &names_contract_id, "transfer", 
         &symbols_from_values(vec![Value::Int(1), p2.clone()])).unwrap();
 
     assert!(is_err_code(&result, 2));
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p1.clone(), "names", "transfer", 
+        owned_env, p1.clone(), &names_contract_id, "transfer", 
         &symbols_from_values(vec![Value::Int(5), p2.clone()])).unwrap();
 
-    println!("{}", asset_map);
     let asset_map = asset_map.to_table();
 
     assert!(is_committed(&result));
-    assert_eq!(asset_map[&p1_principal][&names_identifier], AssetMapEntry::Asset(vec![Value::Int(5)]));
-    assert_eq!(asset_map[&p1_principal][&tokens_identifier], AssetMapEntry::Token(1));
+    assert_eq!(asset_map[&PrincipalData::Standard(p1_principal.clone())][&names_identifier], AssetMapEntry::Asset(vec![Value::Int(5)]));
+    assert_eq!(asset_map[&PrincipalData::Standard(p1_principal)][&tokens_identifier], AssetMapEntry::Token(1));
 
     // try to underpay!
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p2.clone(), "names", "preorder",
-        &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::Int(100)])).unwrap();
+        owned_env, p2.clone(), &names_contract_id, "preorder",
+        &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::UInt(100)])).unwrap();
 
     assert!(is_committed(&result));
     
     let (result, asset_map) = execute_transaction(
-        owned_env, p2.clone(), "names", "register",
+        owned_env, p2.clone(), &names_contract_id, "register",
         &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap();
 
     assert!(is_err_code(&result, 4));
@@ -435,21 +445,21 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     // register a cheap name!
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p2.clone(), "names", "preorder",
-        &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::Int(100)])).unwrap();
+        owned_env, p2.clone(), &names_contract_id, "preorder",
+        &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::UInt(100)])).unwrap();
 
     assert!(is_committed(&result));
 
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p2.clone(), "names", "register",
+        owned_env, p2.clone(), &names_contract_id, "register",
         &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap();
 
     assert!(is_committed(&result));
     
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p2.clone(), "names", "register",
+        owned_env, p2.clone(), &names_contract_id, "register",
         &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap();
 
     // preorder must exist!

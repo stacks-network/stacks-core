@@ -1,4 +1,4 @@
-use vm::parser::parse;
+use vm::ast::parse;
 use vm::analysis::{AnalysisDatabase, mem_type_check};
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{ContractAnalysis, type_check};
@@ -7,13 +7,19 @@ use vm::analysis::{ContractAnalysis, type_check};
 fn test_list_types_must_match() {
     let snippet = "(list 1 'true)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting elements of same type in a list"));
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'int', found 'bool'"));
 }
 
 #[test]
 fn test_type_error() {
     let snippet = "(+ 'true 1)";
     let err = mem_type_check(snippet).unwrap_err();
+    println!("{}", err.diagnostic);
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'int' or 'uint', found 'bool'"));
+
+    let snippet = "(+ 1 'true)";
+    let err = mem_type_check(snippet).unwrap_err();
+    println!("{}", err.diagnostic);
     assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'int', found 'bool'"));
 }
 
@@ -21,42 +27,53 @@ fn test_type_error() {
 fn test_union_type_error() {
     let snippet = "(hash160 'true)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type '(buff 1048576)' or 'int', found 'bool'"));
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type '(buff 1048576)', 'uint' or 'int', found 'bool'"));
 }
 
 #[test]
 fn test_expected_optional_type() {
-    let snippet = "(is-none? 1)";
+    let snippet = "(is-none 1)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'optional', found 'int'"));
 }
 
 #[test]
 fn test_expected_response_type() {
-    let snippet = "(is-ok? 1)";
+    let snippet = "(is-ok 1)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'response', found 'int'"));
 }
 
 #[test]
 fn test_could_not_determine_response_ok_type() {
-    let snippet = "(expects! (err \"error\") 0)";
+    let snippet = "(unwrap! (err \"error\") 0)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"));
 }
 
 #[test]
 fn test_could_not_determine_response_err_type() {
-    let snippet = "(expects-err! (ok 1) 0)";
+    let snippet = "(unwrap-err! (ok 1) 0)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("attempted to obtain 'err' value from response, but 'err' type is indeterminate"));
 }
 
 #[test]
 fn test_bad_tuple_field_name() {
-    let snippet = "(get 1 ((value 100)))";
+    let snippet = "(get 1 (tuple (value 100)))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("invalid tuple field name"));
+}
+
+#[test]
+fn test_bad_function_name_2() {
+    // outside of the legal "implicit" tuple structures,
+    //    things that look like ((value 100)) are evaluated as
+    //    _function applications_, so this should error, since (value 100) isn't a function.
+    let snippet = "(get 1 ((value 100)))";
+    let err = mem_type_check(snippet).unwrap_err();
+    println!("{}", err.diagnostic);
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type function"));
 }
 
 #[test]
@@ -98,12 +115,12 @@ fn test_no_such_variable() {
 fn test_bad_map_name() {
     let snippet = "(define-map 1 ((key int)) ((value int)))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid map name"));
+    assert!(format!("{}", err.diagnostic).contains("expected a name argument"));
 }
 
 #[test]
 fn test_no_such_map() {
-    let snippet = "(map-get unicorn ((key 1)))";
+    let snippet = "(map-get? unicorn ((key 1)))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("use of unresolved map 'unicorn'"));
 }
@@ -140,40 +157,40 @@ fn test_public_function_must_return_response() {
 fn test_define_variable_bad_signature() {
     let snippet = "(define-data-var 1 int 0)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid variable definition"));
+    assert!(format!("{}", err.diagnostic).contains("expected a name argument"));
 }
 
 #[test]
 fn test_return_types_must_match() {
-    let snippet = "(define-private (mismatched) (begin (expects! (ok 1) 'false) 1))";
+    let snippet = "(define-private (mismatched) (begin (unwrap! (ok 1) 'false) 1))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("detected two execution paths, returning two different expression types"));
 }
 
 #[test]
 fn test_no_such_contract() {
-    let snippet = "(contract-map-get unicorn map ((value 0)))";
+    let snippet = "(contract-map-get? .unicorn map ((value 0)))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("use of unresolved contract 'unicorn'"));
+    assert!(format!("{}", err.diagnostic).contains("use of unresolved contract"));
 }
 
 #[test]
 fn test_contract_call_expect_name() {
-    let snippet = "(contract-call! 1 fn)";
+    let snippet = "(contract-call? 1 fn)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("missing contract name for call"));
 }
 
 #[test]
 fn test_no_such_block_info_property() {
-    let snippet = "(get-block-info unicorn 1)";
+    let snippet = "(get-block-info? unicorn 1)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("use of block unknown property 'unicorn'"));
 }
 
 #[test]
 fn test_get_block_info_expect_property_name() {
-    let snippet = "(get-block-info 0 1)";
+    let snippet = "(get-block-info? 0 1)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("missing property name for block info introspection"));
 }
@@ -193,10 +210,10 @@ fn test_non_function_application() {
 }
 
 #[test]
-fn test_expected_list_application() {
+fn test_expected_list_or_buff() {
     let snippet = "(filter not 4)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting expression of type list"));
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'list' or 'buff'"));
 }
 
 #[test]
@@ -250,7 +267,7 @@ fn test_default_types_must_match() {
 
 #[test]
 fn test_write_attempt_in_readonly() {
-    let snippet = "(define-data-var x int 0) (define-read-only (fn) (var-set! x 1))";
+    let snippet = "(define-data-var x int 0) (define-read-only (fn) (var-set x 1))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expecting read-only statements, detected a writing operation"));
 }

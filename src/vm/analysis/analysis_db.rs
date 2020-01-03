@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use vm::types::{TypeSignature, FunctionType};
+use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
 use vm::database::{KeyValueStorage, ClaritySerializable, ClarityDeserializable, RollbackWrapper};
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::analysis::type_checker::{ContractAnalysis};
@@ -24,7 +24,7 @@ impl ClarityDeserializable<ContractAnalysis> for ContractAnalysis {
 }
 
 impl <'a> AnalysisDatabase <'a> {
-    pub fn new(store: Box<KeyValueStorage + 'a>) -> AnalysisDatabase<'a> {
+    pub fn new(store: Box<dyn KeyValueStorage + 'a>) -> AnalysisDatabase<'a> {
         AnalysisDatabase {
             store: RollbackWrapper::new(store)
         }
@@ -58,7 +58,7 @@ impl <'a> AnalysisDatabase <'a> {
         self.store.rollback();
     }
 
-    fn put(&mut self, key: &str, value: &ClaritySerializable) {
+    fn put <T: ClaritySerializable> (&mut self, key: &str, value: &T) {
         self.store.put(&key, &value.serialize());
     }
 
@@ -68,43 +68,44 @@ impl <'a> AnalysisDatabase <'a> {
     }
 
     // Creates the key used to store the given contract in the underlying Key-Value store.
-    fn make_storage_key(contract_name: &str) -> String {
-        format!("analysis::{}", contract_name)
+    fn make_storage_key(prefix: &'static str, contract_identifier: &QualifiedContractIdentifier) -> String {
+        format!("analysis::{}::{}", prefix, contract_identifier)
     }
 
-    fn load_contract(&mut self, contract_name: &str) -> Option<ContractAnalysis> {
-        let key = AnalysisDatabase::make_storage_key(contract_name);
+    fn load_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractAnalysis> {
+        let key = AnalysisDatabase::make_storage_key("types", contract_identifier);
         self.get(&key)
     }
 
-    pub fn insert_contract(&mut self, contract_name: &str, contract: &ContractAnalysis) -> CheckResult<()> {
-        let key = AnalysisDatabase::make_storage_key(contract_name);
+    pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: &ContractAnalysis) -> CheckResult<()> {
+        let key = AnalysisDatabase::make_storage_key("types", contract_identifier);
         if self.store.has_entry(&key) {
-            return Err(CheckError::new(CheckErrors::ContractAlreadyExists(contract_name.to_string())))
+            return Err(CheckError::new(CheckErrors::ContractAlreadyExists(contract_identifier.to_string())))
         }
         self.put(&key, contract);
         Ok(())
     }
 
-    pub fn get_public_function_type(&mut self, contract_name: &str, function_name: &str) -> CheckResult<Option<FunctionType>> {
-        let contract = self.load_contract(contract_name)
-            .ok_or(CheckErrors::NoSuchContract(contract_name.to_string()))?;
+    pub fn get_public_function_type(&mut self, contract_identifier: &QualifiedContractIdentifier, function_name: &str) -> CheckResult<Option<FunctionType>> {
+        let contract = self.load_contract(contract_identifier)
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract.get_public_function_type(function_name)
            .cloned())
     }
 
-    pub fn get_read_only_function_type(&mut self, contract_name: &str, function_name: &str) -> CheckResult<Option<FunctionType>> {
-        let contract = self.load_contract(contract_name)
-            .ok_or(CheckErrors::NoSuchContract(contract_name.to_string()))?;
+    pub fn get_read_only_function_type(&mut self, contract_identifier: &QualifiedContractIdentifier, function_name: &str) -> CheckResult<Option<FunctionType>> {
+        let contract = self.load_contract(contract_identifier)
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract.get_read_only_function_type(function_name)
            .cloned())
     }
 
-    pub fn get_map_type(&mut self, contract_name: &str, map_name: &str) -> CheckResult<(TypeSignature, TypeSignature)> {
-        let contract = self.load_contract(contract_name)
-            .ok_or(CheckErrors::NoSuchContract(contract_name.to_string()))?;
+    pub fn get_map_type(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str) -> CheckResult<(TypeSignature, TypeSignature)> {
+        let contract = self.load_contract(contract_identifier)
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         let map_type = contract.get_map_type(map_name)
             .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
         Ok(map_type.clone())
     }
+
 }

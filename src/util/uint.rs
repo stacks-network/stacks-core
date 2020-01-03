@@ -130,6 +130,18 @@ macro_rules! construct_uint {
                 let ret = [0xffffffffffffffff; $n_words];
                 $name(ret)
             }
+
+            /// as byte array
+            pub fn to_u8_slice(&self) -> [u8; $n_words * 8] {
+                let mut ret = [0u8; $n_words * 8];
+                for i in 0..$n_words {
+                    let bytes = self.0[i].to_le_bytes();
+                    for j in 0..bytes.len() {
+                        ret[i*8 + j] = bytes[j];
+                    }
+                }
+                ret
+            }
         }
 
         impl ::std::ops::Add<$name> for $name {
@@ -376,7 +388,7 @@ macro_rules! construct_uint {
 
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                <fmt::Debug>::fmt(self, f)
+                <dyn fmt::Debug>::fmt(self, f)
             }
         }
     );

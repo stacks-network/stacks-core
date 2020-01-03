@@ -1,17 +1,18 @@
 use vm::analysis::{CheckErrors, mem_type_check as run_analysis_helper};
-use vm::parser::parse;
+use vm::ast::parse;
+use vm::types::QualifiedContractIdentifier;
 use vm::analysis::{CheckResult, AnalysisDatabase};
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
-use vm::analysis::expression_identifier::ExpressionIdentifier;
 use vm::analysis::definition_sorter::DefinitionSorter;
 
 fn run_scoped_analysis_helper(contract: &str) -> CheckResult<ContractAnalysis> {
     let mut db = AnalysisDatabase::memory();
-    let expressions = parse(contract).unwrap();
+    let contract_identifier = QualifiedContractIdentifier::transient();
+
+    let expressions = parse(&contract_identifier, contract).unwrap();
 
     db.execute(|db| {
-        let mut contract_analysis = ContractAnalysis::new(expressions.to_vec());
-        ExpressionIdentifier::run_pass(&mut contract_analysis, db)?;
+        let mut contract_analysis = ContractAnalysis::new(contract_identifier, expressions.to_vec());
         DefinitionSorter::run_pass(&mut contract_analysis, db)?;
         Ok(contract_analysis)
     })
@@ -25,7 +26,7 @@ fn should_succeed_sorting_contract_case_1() {
             (kv-del key))
         (define-private (kv-del (key int))
             (begin 
-                (map-delete! kv-store ((key key)))
+                (map-delete kv-store ((key key)))
                 key))
         (define-map kv-store ((key int)) ((value int)))
     "#;
@@ -109,7 +110,7 @@ fn should_raise_dependency_cycle_case_get() {
 fn should_not_raise_dependency_cycle_case_fetch_entry() {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (map-get kv-store ((foo 1)))) 
+        (define-private (bar (x int)) (map-get? kv-store ((foo 1)))) 
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
@@ -121,7 +122,7 @@ fn should_not_raise_dependency_cycle_case_fetch_entry() {
 fn should_raise_dependency_cycle_case_fetch_entry() {
     let contract = r#"
         (define-private (foo (x int)) (+ (bar x) x))
-        (define-private (bar (x int)) (map-get kv-store ((foo (foo 1))))) 
+        (define-private (bar (x int)) (map-get? kv-store ((foo (foo 1))))) 
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
@@ -133,7 +134,7 @@ fn should_raise_dependency_cycle_case_fetch_entry() {
 fn should_not_raise_dependency_cycle_case_delete_entry() {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (map-delete! kv-store (tuple (foo 1)))) 
+        (define-private (bar (x int)) (map-delete kv-store (tuple (foo 1)))) 
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
@@ -145,7 +146,7 @@ fn should_not_raise_dependency_cycle_case_delete_entry() {
 fn should_raise_dependency_cycle_case_delete_entry() {
     let contract = r#"
         (define-private (foo (x int)) (+ (bar x) x))
-        (define-private (bar (x int)) (map-delete! kv-store (tuple (foo (foo 1))))) 
+        (define-private (bar (x int)) (map-delete kv-store (tuple (foo (foo 1))))) 
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
@@ -157,7 +158,7 @@ fn should_raise_dependency_cycle_case_delete_entry() {
 fn should_not_raise_dependency_cycle_case_set_entry() {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (map-set! kv-store ((foo 1)) ((bar 3)))) 
+        (define-private (bar (x int)) (map-set kv-store ((foo 1)) ((bar 3)))) 
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
@@ -169,7 +170,7 @@ fn should_not_raise_dependency_cycle_case_set_entry() {
 fn should_raise_dependency_cycle_case_set_entry() {
     let contract = r#"
         (define-private (foo (x int)) (+ (bar x) x))
-        (define-private (bar (x int)) (map-set! kv-store ((foo 1)) ((bar (foo 1))))) 
+        (define-private (bar (x int)) (map-set kv-store ((foo 1)) ((bar (foo 1))))) 
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
@@ -181,7 +182,7 @@ fn should_raise_dependency_cycle_case_set_entry() {
 fn should_not_raise_dependency_cycle_case_insert_entry() {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (map-insert! kv-store ((foo 1)) ((bar 3)))) 
+        (define-private (bar (x int)) (map-insert kv-store ((foo 1)) ((bar 3)))) 
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
@@ -193,7 +194,7 @@ fn should_not_raise_dependency_cycle_case_insert_entry() {
 fn should_raise_dependency_cycle_case_insert_entry() {
     let contract = r#"
         (define-private (foo (x int)) (+ (bar x) x))
-        (define-private (bar (x int)) (map-insert! kv-store ((foo (foo 1))) ((bar 3))))
+        (define-private (bar (x int)) (map-insert kv-store ((foo (foo 1))) ((bar 3))))
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
@@ -205,7 +206,7 @@ fn should_raise_dependency_cycle_case_insert_entry() {
 fn should_not_raise_dependency_cycle_case_fetch_contract_entry() {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (contract-map-get c1 kv-store ((foo 1)))) 
+        (define-private (bar (x int)) (contract-map-get? .contract1 kv-store ((foo 1)))) 
     "#;
 
     run_scoped_analysis_helper(contract).unwrap();
@@ -215,7 +216,7 @@ fn should_not_raise_dependency_cycle_case_fetch_contract_entry() {
 fn should_raise_dependency_cycle_case_fetch_contract_entry() {
     let contract = r#"
         (define-private (foo (x int)) (+ (bar x) x))
-        (define-private (bar (x int)) (map-get kv-store ((foo (foo 1))))) 
+        (define-private (bar (x int)) (map-get? kv-store ((foo (foo 1))))) 
     "#;
 
     let err = run_scoped_analysis_helper(contract).unwrap_err();

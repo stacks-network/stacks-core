@@ -1,16 +1,14 @@
 use vm::{eval, execute as vm_execute};
 use vm::database::memory_db;
-use vm::errors::{UncheckedError, RuntimeErrorType, Error};
+use vm::errors::{CheckErrors, ShortReturnType, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
-use vm::types::{TypeSignature, AtomTypeIdentifier, BuffData};
-use vm::parser::parse;
-use util::hash::hex_bytes;
+use vm::types::{TypeSignature, BuffData, QualifiedContractIdentifier};
+use vm::ast::parse;
+use util::hash::{hex_bytes, to_hex};
 
-fn execute(s: &str) -> Value {
-    vm_execute(s).unwrap().unwrap()
-}
+use vm::tests::{execute};
 
 #[test]
 fn test_simple_let() {
@@ -28,8 +26,8 @@ fn test_simple_let() {
                         (let ((z 3))
                              (+ z y))
                         x))";
-
-    if let Ok(parsed_program) = parse(&program) {
+    let contract_id = QualifiedContractIdentifier::transient();
+    if let Ok(parsed_program) = parse(&contract_id, &program) {
         let context = LocalContext::new();
         let mut env = OwnedEnvironment::memory();
 
@@ -63,6 +61,56 @@ fn test_sha256() {
 }
 
 #[test]
+fn test_sha512() {
+    let sha512_evals = [
+        "(sha512 \"\")",
+        "(sha512 0)",
+        "(sha512 \"The quick brown fox jumps over the lazy dog\")",
+    ];
+
+    fn p_to_hex(val: Value) -> String {
+        match val {
+            Value::Buffer(BuffData { data }) => to_hex(&data),
+            _ => panic!("Failed")
+        }
+    }
+
+    let expectations = [
+        "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e",
+        "0b6cbac838dfe7f47ea1bd0df00ec282fdf45510c92161072ccfb84035390c4da743d9c3b954eaa1b0f86fc9861b23cc6c8667ab232c11c686432ebb5c8c3f27",
+        "07e547d9586f6a73f73fbac0435ed76951218fb7d0c8d788a309d785436bbb642e93a252a954f23912547d1e8a3b5ed6e1bfd7097821233fa0538f3db854fee6"
+    ];
+
+    sha512_evals.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation, &p_to_hex(execute(program))));
+}
+
+#[test]
+fn test_sha512trunc256() {
+    let sha512_evals = [
+        "(sha512/256 \"\")",
+        "(sha512/256 0)",
+        "(sha512/256 \"The quick brown fox jumps over the lazy dog\")",
+    ];
+
+    fn p_to_hex(val: Value) -> String {
+        match val {
+            Value::Buffer(BuffData { data }) => to_hex(&data),
+            _ => panic!("Failed")
+        }
+    }
+
+    let expectations = [
+        "c672b8d1ef56ed28ab87c3622c5114069bdd3ad7b8f9737498d0c01ecef0967a",
+        "e41c9660b04714cdf7249f0fd6e6c5556f54a7e04d299958b69a877e0fada2fb",
+        "dd9d67b371519c339ed8dbd25af90e976a1eeefd4ad3d889005e532fc5bef04d",
+    ];
+
+    sha512_evals.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation, &p_to_hex(execute(program))));
+}
+
+#[test]
 fn test_keccak256() {
     let keccak256_evals = [
         "(keccak256 \"\")",
@@ -87,10 +135,10 @@ fn test_keccak256() {
 #[test]
 fn test_buffer_equality() {
     let tests = [
-        "(eq? \"a b c\" \"a b c\")",
-        "(eq? \"\\\" a b d\"
+        "(is-eq \"a b c\" \"a b c\")",
+        "(is-eq \"\\\" a b d\"
                \"\\\" a b d\")",
-        "(not (eq? \"\\\" a b d\"
+        "(not (is-eq \"\\\" a b d\"
                     \" a b d\"))"];
     let expectations = [
         Value::Bool(true),
@@ -104,8 +152,8 @@ fn test_buffer_equality() {
 #[test]
 fn test_principal_equality() {
     let tests = [
-        "(eq? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        "(not (eq? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR
+        "(is-eq 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(not (is-eq 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR
                    'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G))"];
     let expectations = [
         Value::Bool(true),
@@ -119,37 +167,41 @@ fn test_principal_equality() {
 fn test_simple_if_functions() {
     //
     //  test program:
-    //  (define (with_else x) (if (eq? 5 x) 1 0)
-    //  (define (without_else x) (if (eq? 5 x) 1)
+    //  (define (with_else x) (if (is-eq 5 x) 1 0)
+    //  (define (without_else x) (if (is-eq 5 x) 1)
     //  (with_else 5)
     //  (with_else 3)
     //  (without_else 3)
 
     use vm::callables::DefineType::Private;
 
-    let evals = parse(&
+    let contract_id = QualifiedContractIdentifier::transient();
+
+    let evals = parse(&contract_id, &
         "(with_else 5)
          (without_else 3)
          (with_else 3)");
 
-    let function_bodies = parse(&"(if (eq? 5 x) 1 0)
-                                  (if (eq? 5 x) 1 3)");
+    let contract_id = QualifiedContractIdentifier::transient();
+
+    let function_bodies = parse(&contract_id, &"(if (is-eq 5 x) 1 0)
+                                  (if (is-eq 5 x) 1 3)");
 
     if let Ok(parsed_bodies) = function_bodies {
-        let func_args1 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
-        let func_args2 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let func_args1 = vec![("x".into(), TypeSignature::IntType)];
+        let func_args2 = vec![("x".into(), TypeSignature::IntType)];
         let user_function1 = DefinedFunction::new(
-            func_args1, parsed_bodies[0].clone(), Private, &"with_else", &"");
+            func_args1, parsed_bodies[0].clone(), Private, &"with_else".into(), &"");
 
         let user_function2 = DefinedFunction::new(
-            func_args2, parsed_bodies[1].clone(), Private, &"without_else", &"");
+            func_args2, parsed_bodies[1].clone(), Private, &"without_else".into(), &"");
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new(":transient:".to_string());
+        let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
         let mut global_context = GlobalContext::new(memory_db());
 
-        contract_context.functions.insert("with_else".to_string(), user_function1);
-        contract_context.functions.insert("without_else".to_string(), user_function2);
+        contract_context.functions.insert("with_else".into(), user_function1);
+        contract_context.functions.insert("without_else".into(), user_function2);
 
         let mut call_stack = CallStack::new();
         let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None, None);
@@ -176,7 +228,7 @@ fn test_simple_arithmetic_functions() {
          "(mod 51 2)",
          "(- 5 4 1)",
          "(+ 5 4 1)",
-         "(eq? (* 2 3)
+         "(is-eq (* 2 3)
               (+ 2 2 2))",
          "(> 1 2)",
          "(< 1 2)",
@@ -185,6 +237,9 @@ fn test_simple_arithmetic_functions() {
          "(>= 1 1)",
          "(pow 2 16)",
          "(pow 2 32)",
+         "(+ (pow u2 u127) (- (pow u2 u127) u1))",
+         "(+ (to-uint 127) u10)",
+         "(to-int (- (pow u2 u127) u1))",
          "(- (pow 2 32))"];
 
     let expectations = [
@@ -203,6 +258,9 @@ fn test_simple_arithmetic_functions() {
         Value::Bool(true),
         Value::Int(65536),
         Value::Int(u32::max_value() as i128 + 1),
+        Value::UInt(u128::max_value()),
+        Value::UInt(137),
+        Value::Int(i128::max_value()),
         Value::Int(-1 * (u32::max_value() as i128 + 1)),
     ];
 
@@ -228,25 +286,50 @@ fn test_arithmetic_errors() {
         "(xor 1)",
         "(pow 2 (pow 2 32))",
         "(pow 2 (- 1))",
-        "(eq? (some 1) (some 'true))"];
+        "(is-eq (some 1) (some 'true))"];
 
     let expectations: &[Error] = &[
-        UncheckedError::IncorrectArgumentCount(2,1).into(),
-        UncheckedError::TypeError("IntType".to_string(), Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::TypeValueError(TypeSignature::IntType, Value::Bool(true)).into(),
         RuntimeErrorType::DivisionByZero.into(),
         RuntimeErrorType::DivisionByZero.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
         RuntimeErrorType::ArithmeticUnderflow.into(),
-        UncheckedError::IncorrectArgumentCount(1,0).into(),
-        UncheckedError::IncorrectArgumentCount(1,0).into(),
-        UncheckedError::IncorrectArgumentCount(2,1).into(),
-        UncheckedError::IncorrectArgumentCount(2,1).into(),
-        UncheckedError::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::IncorrectArgumentCount(1,0).into(),
+        CheckErrors::IncorrectArgumentCount(1,0).into(),
+        CheckErrors::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::IncorrectArgumentCount(2,1).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
-        UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()
+        CheckErrors::TypeError(TypeSignature::from("bool"), TypeSignature::from("int")).into() 
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+    }
+}
+
+#[test]
+fn test_unsigned_arithmetic() {
+    let tests = [
+        "(- u10)",
+        "(- u10 u11)",
+        "(> u10 80)",
+        "(+ u10 80)",
+        "(to-uint -10)",
+        "(to-int (pow u2 u127))",
+    ];
+
+    let expectations: &[Error] = &[
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType], Value::UInt(10)).into(),
+        CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(80)).into(),
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        RuntimeErrorType::ArithmeticOverflow.into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -257,27 +340,39 @@ fn test_arithmetic_errors() {
 #[test]
 fn test_options_errors() {
     let tests = [
-        "(is-none? 2 1)",
-        "(is-none? 'true)",
-        "(is-ok? 2 1)",
-        "(is-ok? 'true)",
+        "(is-none 2 1)",
+        "(is-none 'true)",
+        "(is-ok 2 1)",
+        "(is-ok 'true)",
+        "(is-err 2 1)",
+        "(is-err 'true)",
+        "(is-some 2 1)",
+        "(is-some 'true)",
         "(ok 2 3)",
         "(some 2 3)",
         "(err 4 5)",
         "(default-to 4 5 7)",
         "(default-to 4 'true)",
+        "(get field-0 (some 1))",
+        "(get field-0 1)",
         ];
 
     let expectations: &[Error] = &[
-        UncheckedError::IncorrectArgumentCount(1,2).into(),
-        UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
-        UncheckedError::IncorrectArgumentCount(1,2).into(),
-        UncheckedError::TypeError("ResponseType".to_string(), Value::Bool(true)).into(),
-        UncheckedError::IncorrectArgumentCount(1,2).into(),
-        UncheckedError::IncorrectArgumentCount(1,2).into(),
-        UncheckedError::IncorrectArgumentCount(1,2).into(),
-        UncheckedError::IncorrectArgumentCount(2,3).into(),
-        UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::ExpectedOptionalValue(Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::ExpectedResponseValue(Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::ExpectedResponseValue(Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::ExpectedOptionalValue(Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::IncorrectArgumentCount(2,3).into(),
+        CheckErrors::ExpectedOptionalValue(Value::Bool(true)).into(),
+        CheckErrors::ExpectedTuple(TypeSignature::IntType).into(),
+        CheckErrors::ExpectedTuple(TypeSignature::IntType).into()
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -288,18 +383,24 @@ fn test_options_errors() {
 #[test]
 fn test_some() {
     let tests = [
-        "(eq? (some 1) (some 1))",
-        "(eq? none none)",
-        "(is-none? (some 1))",
-        "(eq? (some 1) none)",
-        "(eq? none (some 1))",
-        "(eq? (some 1) (some 2))",
+        "(is-eq (some 1) (some 1))",
+        "(is-eq none none)",
+        "(is-none (some 1))",
+        "(is-some (some 1))",
+        "(is-some none)",
+        "(is-none none)",
+        "(is-eq (some 1) none)",
+        "(is-eq none (some 1))",
+        "(is-eq (some 1) (some 2))",
         ];
 
     let expectations = [
         Value::Bool(true),
         Value::Bool(true),
         Value::Bool(false),
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Bool(true),
         Value::Bool(false),
         Value::Bool(false),
         Value::Bool(false),
@@ -310,6 +411,68 @@ fn test_some() {
     }
 }
 
+
+#[test]
+fn test_option_destructs() {
+    let tests = [
+        "(unwrap! (some 1) 2)",
+        "(unwrap-err! (err 1) 2)",
+        "(unwrap-err! (some 2) 2)",
+        "(unwrap! (ok 3) 2)",
+        "(unwrap! (err 3) 2)",
+        "(unwrap-panic (ok 3))",
+        "(unwrap-panic (some 3))",
+        "(unwrap-err-panic (err 3))",
+        "(unwrap-err-panic (ok 3))",
+        "(unwrap-panic none)",
+        "(unwrap-panic (err 3))",
+        "(match (some 1) inner-value (+ 1 inner-value) (/ 1 0))",
+        "(match none inner-value (/ 1 0) (+ 1 8))",
+        "(match (ok 1) ok-val (+ 1 ok-val) err-val (/ err-val 0))",
+        "(match (err 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
+        "(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
+        "(match 2 ok-val (/ ok-val 0) (+ 3 7))",
+        "(try! (err u1))",
+        "(try! (ok 3))",
+        "(try! none)",
+        "(try! (some 'true))",
+        "(try! none 1)",
+        "(try! 1)",
+        ];
+
+    let expectations: &[Result<Value, Error>] = &[
+        Ok(Value::Int(1)),
+        Ok(Value::Int(1)),
+        Err(CheckErrors::ExpectedResponseValue(Value::some(Value::Int(2))).into()),
+        Ok(Value::Int(3)),
+        Err(ShortReturnType::ExpectedValue(Value::Int(2)).into()),
+        Ok(Value::Int(3)),
+        Ok(Value::Int(3)),
+        Ok(Value::Int(3)),
+        Err(RuntimeErrorType::UnwrapFailure.into()),
+        Err(RuntimeErrorType::UnwrapFailure.into()),
+        Err(RuntimeErrorType::UnwrapFailure.into()),
+        Ok(Value::Int(2)),
+        Ok(Value::Int(9)),
+        Ok(Value::Int(2)),
+        Ok(Value::Int(8)),
+        Err(CheckErrors::BadMatchInput(TypeSignature::IntType).into()),
+        Err(CheckErrors::BadMatchInput(TypeSignature::IntType).into()),
+        Err(ShortReturnType::ExpectedValue(Value::UInt(1)).into()),
+        Ok(Value::Int(3)),
+        Err(ShortReturnType::ExpectedValue(Value::none()).into()),
+        Ok(Value::Bool(true)),
+        Err(CheckErrors::IncorrectArgumentCount(1, 2).into()),
+        Err(CheckErrors::ExpectedOptionalOrResponseValue(
+            Value::Int(1)).into()),
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).map(|x| x.unwrap()));
+    }
+}
+
+
 #[test]
 fn test_hash_errors() {
     let tests = [
@@ -319,15 +482,23 @@ fn test_hash_errors() {
         "(sha256 'true)",
         "(keccak256 'true)",
         "(hash160 'true)",
+        "(sha512 'true)",
+        "(sha512 1 2)",
+        "(sha512/256 'true)",
+        "(sha512/256 1 2)",
     ];
 
     let expectations: &[Error] = &[
-        UncheckedError::IncorrectArgumentCount(1, 2).into(),
-        UncheckedError::IncorrectArgumentCount(1, 2).into(),
-        UncheckedError::IncorrectArgumentCount(1, 2).into(),
-        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
-        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
-        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -365,13 +536,13 @@ fn test_bad_lets() {
         "(let ((tx-sender 1)) (+ tx-sender tx-sender))",
         "(let ((* 1)) (+ * *))",
         "(let ((a 1) (a 2)) (+ a a))",
-        "(let ((a 1) (b 2)) (var-set! cursor a) (var-set! cursor (+ b (var-get cursor))) (+ a b))"];
+        "(let ((a 1) (b 2)) (var-set cursor a) (var-set cursor (+ b (var-get cursor))) (+ a b))"];
 
     let expectations: &[Error] = &[
-        UncheckedError::ReservedName("tx-sender".to_string()).into(),
-        UncheckedError::ReservedName("*".to_string()).into(),
-        UncheckedError::VariableDefinedMultipleTimes("a".to_string()).into(),
-        UncheckedError::UndefinedVariable("cursor".to_string()).into()];
+        CheckErrors::NameAlreadyUsed("tx-sender".to_string()).into(),
+        CheckErrors::NameAlreadyUsed("*".to_string()).into(),
+        CheckErrors::NameAlreadyUsed("a".to_string()).into(),
+        CheckErrors::NoSuchDataVariable("cursor".to_string()).into()];
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!((*expectation), vm_execute(program).unwrap_err()));
@@ -381,7 +552,7 @@ fn test_bad_lets() {
 fn test_lets() {
     let tests = [
         "(let ((a 1) (b 2)) (+ a b))",
-        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (var-set! cursor a) (var-set! cursor (+ b (var-get cursor))) (var-get cursor))"];
+        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (var-set cursor a) (var-set cursor (+ b (var-get cursor))) (var-get cursor))"];
 
     let expectations = [
         Value::Int(3),
@@ -389,4 +560,32 @@ fn test_lets() {
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+}
+
+#[test]
+fn test_asserts() {
+    let tests = [
+        "(begin (asserts! (is-eq 1 1) (err 0)) (ok 1))",
+        "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 2) (err 1)) (ok 2))"];
+
+    let expectations = [
+        Value::okay(Value::Int(1)),
+        Value::okay(Value::Int(2))];
+
+    tests.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+}
+
+#[test]
+fn test_asserts_short_circuit() {
+    let tests = [
+        "(begin (asserts! (is-eq 1 0) (err 0)) (ok 1))",
+        "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 1) (err 1)) (ok 2))"];
+
+    let expectations: &[Error] = &[
+        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(0)))),
+        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(1))))];
+
+    tests.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!((*expectation), vm_execute(program).unwrap_err()));
 }

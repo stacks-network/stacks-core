@@ -24,6 +24,7 @@ pub mod hash;
 pub mod pair;
 pub mod secp256k1;
 pub mod uint;
+pub mod strings;
 pub mod vrf;
 
 use std::time;
@@ -70,7 +71,7 @@ impl fmt::Display for HexError {
 }
 
 impl error::Error for HexError {
-    fn cause(&self) -> Option<&error::Error> { None }
+    fn cause(&self) -> Option<&dyn error::Error> { None }
     fn description(&self) -> &str {
         match *self {
             HexError::BadLength(_) => "sha256d hex string non-64 length",
@@ -78,4 +79,3 @@ impl error::Error for HexError {
         }
     }
 }
-

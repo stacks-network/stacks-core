@@ -47,8 +47,6 @@ use chainstate::stacks::StacksBlock;
 use chainstate::stacks::StacksMicroblock;
 use chainstate::stacks::StacksTransaction;
 
-use chainstate::stacks::MAX_BLOCK_SIZE;
-
 use util::hash::DoubleSha256;
 use util::hash::Hash160;
 use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
@@ -60,19 +58,19 @@ use util::db::DBConn;
 use util::log;
 
 use util::secp256k1::Secp256k1PublicKey;
+use util::secp256k1::MessageSignature;
+use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    /// Failed to encode
-    SerializeError,
     /// Failed to decode 
-    DeserializeError,
+    DeserializeError(String),
     /// Failed to recognize message
     UnrecognizedMessageID,
     /// Underflow -- not enough bytes to form the message
-    UnderflowError,
+    UnderflowError(String),
     /// Overflow -- message too big 
-    OverflowError,
+    OverflowError(String),
     /// Array is too big 
     ArrayTooLong,
     /// Receive timed out 
@@ -111,6 +109,8 @@ pub enum Error {
     InvalidHandle,
     /// Invalid handshake 
     InvalidHandshake,
+    /// Stale neighbor
+    StaleNeighbor,
     /// No such neighbor 
     NoSuchNeighbor,
     /// Failed to bind
@@ -136,11 +136,10 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::SerializeError => f.write_str(error::Error::description(self)),
-            Error::DeserializeError => f.write_str(error::Error::description(self)),
+            Error::DeserializeError(ref s) => fmt::Display::fmt(s, f),
             Error::UnrecognizedMessageID => f.write_str(error::Error::description(self)),
-            Error::UnderflowError => f.write_str(error::Error::description(self)),
-            Error::OverflowError => f.write_str(error::Error::description(self)),
+            Error::UnderflowError(ref s) => fmt::Display::fmt(s, f),
+            Error::OverflowError(ref s) => fmt::Display::fmt(s, f),
             Error::ArrayTooLong => f.write_str(error::Error::description(self)),
             Error::RecvTimeout => f.write_str(error::Error::description(self)),
             Error::SigningError(ref s) => fmt::Display::fmt(s, f),
@@ -159,6 +158,7 @@ impl fmt::Display for Error {
             Error::InvalidMessage => f.write_str(error::Error::description(self)),
             Error::InvalidHandle => f.write_str(error::Error::description(self)),
             Error::InvalidHandshake => f.write_str(error::Error::description(self)),
+            Error::StaleNeighbor => f.write_str(error::Error::description(self)),
             Error::NoSuchNeighbor => f.write_str(error::Error::description(self)),
             Error::BindError => f.write_str(error::Error::description(self)),
             Error::PollError => f.write_str(error::Error::description(self)),
@@ -174,13 +174,12 @@ impl fmt::Display for Error {
 }
 
 impl error::Error for Error {
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
-            Error::SerializeError => None,
-            Error::DeserializeError => None,
+            Error::DeserializeError(ref _s) => None,
             Error::UnrecognizedMessageID => None,
-            Error::UnderflowError => None,
-            Error::OverflowError => None,
+            Error::UnderflowError(ref _s) => None,
+            Error::OverflowError(ref _s) => None,
             Error::ArrayTooLong => None,
             Error::RecvTimeout => None,
             Error::SigningError(ref _s) => None,
@@ -199,6 +198,7 @@ impl error::Error for Error {
             Error::InvalidMessage => None,
             Error::InvalidHandle => None,
             Error::InvalidHandshake => None,
+            Error::StaleNeighbor => None,
             Error::NoSuchNeighbor => None,
             Error::BindError => None,
             Error::PollError => None,
@@ -214,11 +214,10 @@ impl error::Error for Error {
 
     fn description(&self) -> &str {
         match *self {
-            Error::SerializeError => "Failed to serialize message payload",
-            Error::DeserializeError => "Failed to deserialize message payload",
+            Error::DeserializeError(ref s) => s.as_str(),
             Error::UnrecognizedMessageID => "Failed to recognize message type",
-            Error::UnderflowError => "Not enough remaining data to parse",
-            Error::OverflowError => "Message is too long",
+            Error::UnderflowError(ref s) => s.as_str(),
+            Error::OverflowError(ref s) => s.as_str(),
             Error::ArrayTooLong => "Array too long",
             Error::RecvTimeout => "Packet receive timeout",
             Error::SigningError(ref s) => s.as_str(),
@@ -238,6 +237,7 @@ impl error::Error for Error {
             Error::InvalidMessage => "invalid message (malformed or bad signature)",
             Error::InvalidHandle => "invalid network handle",
             Error::InvalidHandshake => "invalid handshake from remote peer",
+            Error::StaleNeighbor => "neighbor is too far behind the chain tip",
             Error::NoSuchNeighbor => "no such neighbor",
             Error::BindError => "Failed to bind to the given address",
             Error::PollError => "Failed to poll",
@@ -259,21 +259,6 @@ pub trait StacksMessageCodec {
     fn deserialize(buf: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<Self, Error>
         where Self: Sized;
 }
-
-/// Fixed-length buffer for storing an ECDSA public key signature, as well as
-/// (if space permits) a few bytes of metadata for future use.
-/// Rules:
-/// -- First byte is always the length of the signature.
-/// -- Second - length+1 bytes are the signature data.
-/// -- Remaining bytes can be anything
-/// Notes:
-/// -- secp256k1 signatures are no greater than 75 bytes when DER-encoded
-/// -- eddsa signatures are 2x public key length (64 bytes)
-pub struct MessageSignature([u8; 80]);
-impl_array_newtype!(MessageSignature, u8, 80);
-impl_array_hexstring_fmt!(MessageSignature);
-impl_byte_array_newtype!(MessageSignature, u8, 80);
-pub const MESSAGE_SIGNATURE_ENCODED_SIZE : u32 = 80;
 
 /// A container for an IPv4 or IPv6 address.
 /// Rules:
@@ -369,10 +354,12 @@ impl PeerAddress {
 }
 
 /// A container for public keys (compressed secp256k1 public keys)
-pub struct StacksPublicKeyBuffer([u8; 33]);
+pub struct StacksPublicKeyBuffer(pub [u8; 33]);
 impl_array_newtype!(StacksPublicKeyBuffer, u8, 33);
 impl_array_hexstring_fmt!(StacksPublicKeyBuffer);
 impl_byte_array_newtype!(StacksPublicKeyBuffer, u8, 33);
+
+pub const STACKS_PUBLIC_KEY_ENCODED_SIZE : u32 = 33;
 
 /// Message preamble -- included in all network messages
 #[derive(Debug, Clone, PartialEq)]
@@ -384,7 +371,7 @@ pub struct Preamble {
     pub burn_consensus_hash: ConsensusHash,         // consensus hash at block_height
     pub burn_stable_block_height: u64,              // latest stable block height (e.g. chain tip minus 7)
     pub burn_stable_consensus_hash: ConsensusHash,  // consensus hash for burn_stable_block_height
-    pub additional_data: DoubleSha256,              // RESERVED; pointer to additional data (should be all 0's if not used)
+    pub additional_data: u32,                       // RESERVED; pointer to additional data (should be all 0's if not used)
     pub signature: MessageSignature,                // signature from the peer that sent this
     pub payload_len: u32                            // length of the following payload, including relayers vector
 }
@@ -398,7 +385,7 @@ pub const PREAMBLE_ENCODED_SIZE: u32 =
     CONSENSUS_HASH_ENCODED_SIZE +
     8 +
     CONSENSUS_HASH_ENCODED_SIZE +
-    DOUBLE_SHA256_ENCODED_SIZE +
+    4 +
     MESSAGE_SIGNATURE_ENCODED_SIZE +
     4;
 
@@ -411,16 +398,15 @@ pub struct GetBlocksData {
     pub burn_header_hash_end: BurnchainHeaderHash
 }
 
-/// A sequence of microblocks, relative to the block commit to which it was appended.
+/// The "stream tip" information about a block's trailer microblocks.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MicroblocksInvData {
-    // note -- this has to be list of hashes, since unlike chain-anchored Stacks blocks, 
-    // the peer node doesn't yet know the microblock header hashes.
-    hashes: Vec<BlockHeaderHash>
+    pub last_microblock_hash: BlockHeaderHash,
+    pub last_sequence: u16
 }
 
-/// A bit vector that describes which on-chain blocks this node has data for in a given block
-/// range.  Sent in reply to a GetBlocksData.
+/// A bit vector that describes which block and microblock data node has data for in a given burn
+/// chain block range.  Sent in reply to a GetBlocksData.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksInvData {
     pub bitlen: u16,                            // number of bits represented in bitvec (not to exceed BLOCKS_INV_DATA_MAX_BITLEN)
@@ -499,12 +485,15 @@ pub struct HandshakeData {
 #[repr(C)]
 pub enum ServiceFlags {
     RELAY = 0x01,
+    RPC = 0x02,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HandshakeAcceptData {
     pub handshake: HandshakeData,       // this peer's handshake information
     pub heartbeat_interval: u32,        // hint as to how long this peer will remember you
+
+    // TODO: string with useful data (e.g. RPC endpoints)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -593,7 +582,6 @@ pub const MAX_NEIGHBORS_DATA_LEN : u32 = 128;
 pub const MAX_RELAYERS_LEN : u32 = 16;
 
 // messages can't be bigger than 16MB plus the preamble and relayers
-// (note that MAX_BLOCK_SIZE is less than this)
 pub const MAX_MESSAGE_LEN : u32 = (1 + 16 * 1024 * 1024) + (PREAMBLE_ENCODED_SIZE + MAX_RELAYERS_LEN * RELAY_DATA_ENCODED_SIZE);
 
 // maximum length of a microblock's hash list
@@ -614,16 +602,16 @@ macro_rules! impl_byte_array_message_codec {
             fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<$thing, ::net::Error> {
                 let index = *index_ptr;
                 if index > u32::max_value() - ($len) {
-                    return Err(::net::Error::OverflowError);
+                    return Err(::net::Error::OverflowError(format!("Would overflow when parsing {}", stringify!($thing))));
                 }
                 if index + ($len) > max_size {
-                    return Err(::net::Error::OverflowError);
+                    return Err(::net::Error::OverflowError(format!("Would read beyond end of buffer when parsing {}", stringify!($thing))));
                 }
                 if (buf.len() as u32) < index + ($len) {
-                    return Err(::net::Error::UnderflowError);
+                    return Err(::net::Error::UnderflowError(format!("Not enough bytes remaining to parse {}", stringify!($thing))));
                 }
                 let ret = $thing::from_bytes(&buf[(index as usize)..((index+($len)) as usize)])
-                    .ok_or(::net::Error::UnderflowError)?;
+                    .ok_or(::net::Error::UnderflowError(format!("Not enough bytes to parse {}", stringify!($thing))))?;
 
                 *index_ptr += $len;
                 Ok(ret)
@@ -637,7 +625,7 @@ impl_byte_array_message_codec!(DoubleSha256, 32);
 impl_byte_array_message_codec!(Hash160, 20);
 impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
 impl_byte_array_message_codec!(BlockHeaderHash, 32);
-impl_byte_array_message_codec!(MessageSignature, 80);
+impl_byte_array_message_codec!(MessageSignature, 65);
 impl_byte_array_message_codec!(PeerAddress, 16);
 impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
 
@@ -731,6 +719,7 @@ mod test {
     
     use util::secp256k1::*;
     use util::hash::*;
+    use util::uint::*;
 
     use std::net::*;
     use std::io;
@@ -833,13 +822,14 @@ mod test {
         pub fn default() -> TestPeerConfig {
             let conn_opts = ConnectionOptions::default();
             let start_block = 10000;
+            let burnchain = Burnchain::default_unittest(start_block, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap());
             TestPeerConfig {
-                current_block: start_block + 1,
+                current_block: start_block + (burnchain.consensus_hash_lifetime + 1) as u64,
                 private_key: Secp256k1PrivateKey::new(),
                 private_key_expire: start_block + conn_opts.private_key_lifetime,
                 initial_neighbors: vec![],
                 asn4_entries: vec![],
-                burnchain: Burnchain::default_unittest(start_block, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()),
+                burnchain: burnchain,
                 connection_opts: conn_opts,
                 server_port: 32000,
                 asn: 0,
@@ -886,7 +876,7 @@ mod test {
     pub struct TestPeer {
         pub config: TestPeerConfig,
         pub network: PeerNetwork,
-        pub burndb: Option<BurnDB<BitcoinAddress, BitcoinPublicKey>>
+        pub burndb: Option<BurnDB>
     }
 
     pub fn u64_to_bytes(i: u64) -> [u8; 8] {
@@ -905,28 +895,35 @@ mod test {
     impl TestPeer {
         pub fn new(config: &TestPeerConfig) -> TestPeer {
             let mut peerdb = PeerDB::connect_memory(config.burnchain.network_id, config.private_key_expire, &config.asn4_entries, &config.initial_neighbors).unwrap();
-            let mut burndb = BurnDB::<BitcoinAddress, BitcoinPublicKey>::connect_memory(config.burnchain.first_block_height, &config.burnchain.first_block_hash).unwrap();
+            let mut burndb = BurnDB::connect_memory(config.burnchain.first_block_height, &config.burnchain.first_block_hash).unwrap();
 
-            for i in config.burnchain.first_block_height+1..config.current_block {
-                let i_bytes = u64_to_bytes(i);
-                let i_prev_bytes = u64_to_bytes(i-1);
-                let i_bytes_rev = u64_to_bytes(i.to_be());
-                
-                let burn_header_hash = BurnchainHeaderHash::from_bytes(&DoubleSha256::from_data(&i_bytes)[0..32]).unwrap();
-                let parent_burn_header_hash =
-                    if i == config.burnchain.first_block_height {
-                        config.burnchain.first_block_hash.clone()
-                    }
-                    else {
-                        BurnchainHeaderHash::from_bytes(&DoubleSha256::from_data(&i_prev_bytes)[0..32]).unwrap()
-                    };
+            {
+                let mut tx = burndb.tx_begin().unwrap();
+                let mut prev_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
+                for i in prev_snapshot.block_height..config.current_block {
+                    let mut next_snapshot = prev_snapshot.clone();
 
-                {
-                    let mut tx = burndb.tx_begin().unwrap();
-                    let snapshot = BlockSnapshot::make_snapshot::<BitcoinAddress, BitcoinPublicKey>(&mut tx, &config.burnchain, config.burnchain.first_block_height, i, &burn_header_hash, &parent_burn_header_hash, &vec![]).unwrap();
-                    BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot).unwrap();
-                    tx.commit().unwrap();
+                    next_snapshot.block_height += 1;
+                    
+                    let big_i = Uint256::from_u64(i as u64);
+                    let mut big_i_bytes_32 = [0u8; 32];
+                    big_i_bytes_32.copy_from_slice(&big_i.to_u8_slice());
+
+                    next_snapshot.consensus_hash = ConsensusHash(Hash160::from_sha256(&big_i_bytes_32).into_bytes());
+
+                    next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
+                    next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
+                    next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
+                    next_snapshot.total_burn += 1;
+                    next_snapshot.num_sortitions += 1;
+                    next_snapshot.sortition = true;
+                    next_snapshot.sortition_hash = next_snapshot.sortition_hash.mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
+
+                    let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+                    next_snapshot.index_root = next_index_root;
+                    prev_snapshot = next_snapshot;
                 }
+                tx.commit().unwrap();
             }
 
             let local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), config.server_port);
@@ -954,7 +951,10 @@ mod test {
         pub fn connect_initial(&mut self) -> Result<(), net_error> {
             let local_peer = PeerDB::get_local_peer(self.network.peerdb.conn()).unwrap();
             let chain_view = match self.burndb {
-                Some(ref burndb) => burndb::get_burnchain_view(burndb.conn(), &self.config.burnchain).unwrap(),
+                Some(ref mut burndb) => {
+                    let mut tx = burndb.tx_begin().unwrap();
+                    BurnDB::get_burnchain_view(&mut tx, &self.config.burnchain).unwrap()
+                }
                 None => panic!("Misconfigured peer: no burndb")
             };
 
@@ -966,49 +966,52 @@ mod test {
         }
 
         pub fn step(&mut self) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
-            let burndb = self.burndb.take().unwrap();
-            let ret = self.network.run(burndb.conn(), 1);
+            let mut burndb = self.burndb.take().unwrap();
+            let burnchain_snapshot = {
+                let mut tx = burndb.tx_begin().unwrap();
+                BurnDB::get_burnchain_view(&mut tx, &self.config.burnchain).unwrap()
+            };
+            let ret = self.network.run(&burnchain_snapshot, 1);
             self.burndb = Some(burndb);
             ret
         }
 
-        pub fn empty_burnchain_block(&self, block_height: u64) -> BurnchainBlock<BitcoinAddress, BitcoinPublicKey> {
+        pub fn empty_burnchain_block(&self, block_height: u64) -> BurnchainBlock {
             assert!(block_height + 1 >= self.config.burnchain.first_block_height);
             let prev_block_height = block_height - 1;
-            BurnchainBlock {
-                block_height: block_height,
-                block_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                                                            ((block_height >> 56) & 0xff) as u8,
-                                                            ((block_height >> 48) & 0xff) as u8,
-                                                            ((block_height >> 40) & 0xff) as u8,
-                                                            ((block_height >> 32) & 0xff) as u8,
-                                                            ((block_height >> 24) & 0xff) as u8,
-                                                            ((block_height >> 16) & 0xff) as u8,
-                                                            ((block_height >> 8) & 0xff) as u8,
-                                                            ((block_height) & 0xff) as u8]).unwrap(),
-                parent_block_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                                                            ((prev_block_height >> 56) & 0xff) as u8,
-                                                            ((prev_block_height >> 48) & 0xff) as u8,
-                                                            ((prev_block_height >> 40) & 0xff) as u8,
-                                                            ((prev_block_height >> 32) & 0xff) as u8,
-                                                            ((prev_block_height >> 24) & 0xff) as u8,
-                                                            ((prev_block_height >> 16) & 0xff) as u8,
-                                                            ((prev_block_height >> 8) & 0xff) as u8,
-                                                            ((prev_block_height) & 0xff) as u8]).unwrap(),
+
+            let block_hash_i = Uint256::from_u64(block_height);
+            let mut block_hash_bytes = [0u8; 32];
+            block_hash_bytes.copy_from_slice(&block_hash_i.to_u8_slice());
+            
+            let prev_block_hash_i = Uint256::from_u64(prev_block_height);
+            let mut prev_block_hash_bytes = [0u8; 32];
+            prev_block_hash_bytes.copy_from_slice(&prev_block_hash_i.to_u8_slice());
+
+            BurnchainBlock::Bitcoin(BitcoinBlock {
+                block_height: block_height + 1,
+                block_hash: BurnchainHeaderHash(block_hash_bytes),
+                parent_block_hash: BurnchainHeaderHash(prev_block_hash_bytes),
                 txs: vec![]
-            }
+            })
         }
 
-        pub fn make_burnchain_block(&self, block_height: u64, transactions: &Vec<BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>>) -> BurnchainBlock<BitcoinAddress, BitcoinPublicKey> {
-            let mut block = self.empty_burnchain_block(block_height);
-            block.txs = transactions.clone();
-            block
-        }
-
-        pub fn next_burnchain_block(&mut self, block: &BurnchainBlock<BitcoinAddress, BitcoinPublicKey>) -> () {
+        pub fn next_burnchain_block(&mut self, block: &BurnchainBlock) -> () {
             let mut burndb = self.burndb.take().unwrap();
-            Burnchain::append_block(&mut burndb, &self.config.burnchain, block).unwrap();
+            Burnchain::process_block(&mut burndb, &self.config.burnchain, block).unwrap();
             self.burndb = Some(burndb);
+        }
+
+        pub fn add_empty_burnchain_block(&mut self) -> u64 {
+            let empty_block = {
+                let burndb = self.burndb.take().unwrap();
+                let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();
+                let empty_block = self.empty_burnchain_block(sn.block_height);
+                self.burndb = Some(burndb);
+                empty_block
+            };
+            self.next_burnchain_block(&empty_block);
+            empty_block.block_height()
         }
 
         pub fn to_neighbor(&self) -> Neighbor {

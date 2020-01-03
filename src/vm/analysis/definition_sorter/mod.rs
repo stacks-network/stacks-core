@@ -1,20 +1,19 @@
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
-use vm::representations::{SymbolicExpression};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
+use vm::representations::{SymbolicExpression, ClarityName};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
-
+use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
 use super::AnalysisDatabase;
-use super::errors::{CheckResult, CheckError, CheckErrors};
 
 #[cfg(test)]
 mod tests;
 
 pub struct DefinitionSorter {
     graph: Graph,
-    top_level_expressions_map: HashMap<String, TopLevelExpressionIndex>   
+    top_level_expressions_map: HashMap<ClarityName, TopLevelExpressionIndex>   
 }
 
 impl AnalysisPass for DefinitionSorter {
@@ -35,7 +34,7 @@ impl <'a> DefinitionSorter {
         }
     }
 
-    pub fn run(&mut self, contract_analysis: &'a mut ContractAnalysis) -> CheckResult<()> {
+    pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
 
         let exprs = contract_analysis.expressions[..].to_vec();
         for (expr_index, expr) in exprs.iter().enumerate() {
@@ -58,11 +57,11 @@ impl <'a> DefinitionSorter {
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
         
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
-            let deps_props: Vec<(String, u64, &SymbolicExpression)> = deps.iter().map(|i| {
+            let deps_props: Vec<_> = deps.iter().map(|i| {
                 let exp = &contract_analysis.expressions[*i];
                 self.find_expression_definition(&exp).unwrap()
             }).collect();
-            let functions_names = deps_props.iter().map(|i| i.0.clone()).collect();
+            let functions_names = deps_props.iter().map(|i| i.0.to_string()).collect();
             let exprs = deps_props.iter().map(|i| i.2.clone()).collect();
 
             let mut error = CheckError::new(CheckErrors::CircularReference(functions_names));
@@ -76,7 +75,7 @@ impl <'a> DefinitionSorter {
 
     fn probe_for_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
         match expr.expr {
-            AtomValue(_) => Ok(()),
+            AtomValue(_)  | LiteralValue(_) => Ok(()),
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
@@ -148,13 +147,20 @@ impl <'a> DefinitionSorter {
                                     }
                                     return Ok(());
                                 }
+                                NativeFunctions::Len => {
+                                    // Args: buffer | list
+                                    if function_args.len() == 1 {
+                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
+                                    }
+                                    return Ok(());
+                                },
                                 NativeFunctions::TupleGet => {
                                     // Args: [key-name, expr]: ignore key-name
                                     if function_args.len() == 2 {
                                         self.probe_for_dependencies(&function_args[1], tle_index)?;
                                     }
                                     return Ok(());
-                                }, 
+                                },
                                 NativeFunctions::TupleCons => {
                                     // Args: [(key-name A), (key-name-2 B), ...]: handle as a tuple
                                     self.probe_for_dependencies_in_tuple_list(function_args, tle_index)?;
@@ -193,8 +199,7 @@ impl <'a> DefinitionSorter {
         Ok(())
     }
 
-
-    fn find_expression_definition<'b>(&mut self, exp: &'b SymbolicExpression) -> Option<(String, u64, &'b SymbolicExpression)> {
+    fn find_expression_definition<'b>(&mut self, exp: &'b SymbolicExpression) -> Option<(ClarityName, u64, &'b SymbolicExpression)> {
         let (_define_type, args) = DefineFunctions::try_parse(exp)?;
         let defined_name = match args.get(0)?.match_list() {
             Some(list) => list.get(0)?,

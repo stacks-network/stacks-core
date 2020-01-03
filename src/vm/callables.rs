@@ -1,14 +1,15 @@
 use std::fmt;
 
-use vm::errors::{InterpreterResult as Result, Error, UncheckedError};
-use vm::representations::SymbolicExpression;
+use vm::errors::{InterpreterResult as Result, Error};
+use vm::analysis::errors::CheckErrors;
+use vm::representations::{SymbolicExpression, ClarityName};
 use vm::types::TypeSignature;
 use vm::{eval, Value, LocalContext, Environment};
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
-    NativeFunction(&'static str, &'static Fn(&[Value]) -> Result<Value>),
-    SpecialFunction(&'static str, &'static Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
+    NativeFunction(&'static str, &'static dyn Fn(&[Value]) -> Result<Value>),
+    SpecialFunction(&'static str, &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -23,7 +24,7 @@ pub struct DefinedFunction {
     identifier: FunctionIdentifier,
     arg_types: Vec<TypeSignature>,
     define_type: DefineType,
-    arguments: Vec<String>,
+    arguments: Vec<ClarityName>,
     body: SymbolicExpression
 }
 
@@ -39,8 +40,8 @@ impl fmt::Display for FunctionIdentifier {
 }
 
 impl DefinedFunction {
-    pub fn new(mut arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
-               define_type: DefineType, name: &str, context_name: &str) -> DefinedFunction {
+    pub fn new(mut arguments: Vec<(ClarityName, TypeSignature)>, body: SymbolicExpression,
+               define_type: DefineType, name: &ClarityName, context_name: &str) -> DefinedFunction {
         let (argument_names, types) = arguments.drain(..).unzip();
 
         DefinedFunction {
@@ -54,13 +55,17 @@ impl DefinedFunction {
 
     pub fn execute_apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
         let mut context = LocalContext::new();
+        if args.len() != self.arguments.len() {
+            Err(CheckErrors::IncorrectArgumentCount(self.arguments.len(), args.len()))?
+        }
+
         let arg_iterator = self.arguments.iter().zip(self.arg_types.iter()).zip(args.iter());
         for ((arg, type_sig), value) in arg_iterator {
             if !type_sig.admits(value) {
-                return Err(UncheckedError::TypeError(format!("{}", type_sig), value.clone()).into()) 
+                return Err(CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into())
             }
             if let Some(_) = context.variables.insert(arg.clone(), value.clone()) {
-                return Err(UncheckedError::VariableDefinedMultipleTimes(arg.clone()).into())
+                return Err(CheckErrors::NameAlreadyUsed(arg.to_string()).into())
             }
         }
         let result = eval(&self.body, env, &context);

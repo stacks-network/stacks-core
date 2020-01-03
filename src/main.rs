@@ -1,5 +1,5 @@
 /*
- copyright: (c) 2013-2018 by Blockstack PBC, a public benefit corporation.
+ copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
 
  This file is part of Blockstack.
 
@@ -19,7 +19,6 @@
 
 #![allow(unused_imports)]
 #![allow(unused_assignments)]
-#![allow(unused_variables)]
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -39,7 +38,6 @@ extern crate dirs;
 extern crate regex;
 extern crate byteorder;
 extern crate mio;
-extern crate hashbrown;
 extern crate libc;
 
 #[macro_use] extern crate serde_derive;
@@ -50,25 +48,18 @@ extern crate libc;
 extern crate assert_json_diff;
 
 #[macro_use]
-mod util;
-
-#[macro_use]
-mod chainstate;
-
-mod address;
-mod burnchains;
-mod core;
-mod deps;
-mod net;
-mod vm;
-
-mod clarity;
+extern crate blockstack_lib;
+use blockstack_lib::*;
 
 use std::fs;
 use std::env;
 use std::process;
 
 use util::log;
+
+use net::StacksMessageCodec;
+use chainstate::stacks::*;
+use util::hash::hex_bytes;
 
 fn main() {
 
@@ -80,25 +71,21 @@ fn main() {
         process::exit(1);
     }
 
-    if argv[1] == "read_bitcoin_header" {
+    if argv[1] == "decode-bitcoin-header" {
         if argv.len() < 4 {
-            eprintln!("Usage: {} read_bitcoin_header BLOCK_HEIGHT PATH", argv[0]);
+            eprintln!("Usage: {} decode-bitcoin-header BLOCK_HEIGHT PATH", argv[0]);
             process::exit(1);
         }
 
-        use burnchains::BurnchainHeaderHash;
         use burnchains::bitcoin::spv;
-        use util::hash::to_hex;
-        use deps::bitcoin::network::serialize::BitcoinHash;
 
-        let height = argv[2].parse::<u64>().unwrap();
+        let height = argv[2].parse::<u64>().expect("Invalid block height");
         let headers_path = &argv[3];
 
         let header_opt = spv::SpvClient::read_block_header(headers_path, height).unwrap();
         match header_opt {
             Some(header) => {
-                println!("{:?}", header);
-                println!("{}", to_hex(BurnchainHeaderHash::from_bytes_be(header.header.bitcoin_hash().as_bytes()).unwrap().as_bytes()));
+                println!("{:#?}", header);
                 process::exit(0);
             },
             None => {
@@ -106,6 +93,66 @@ fn main() {
                 process::exit(1);
             }
         }
+    }
+
+    if argv[1] == "decode-tx" {
+        if argv.len() < 3 {
+            eprintln!("Usage: {} decode-tx TRANSACTION", argv[0]);
+            process::exit(1);
+        }
+
+        let tx_str = &argv[2];
+        let tx_bytes = hex_bytes(tx_str).map_err(|_e| {
+            eprintln!("Failed to decode transaction: must be a hex string");
+            process::exit(1);
+        }).unwrap();
+
+        let mut index = 0;
+        let tx = StacksTransaction::deserialize(&tx_bytes, &mut index, tx_bytes.len() as u32).map_err(|_e| {
+            eprintln!("Failed to decode transaction");
+            process::exit(1);
+        }).unwrap();
+
+        println!("{:#?}", &tx);
+        process::exit(0);
+    }
+
+    if argv[1] == "decode-block" {
+        if argv.len() < 3 {
+            eprintln!("Usage: {} decode-block BLOCK_PATH", argv[0]);
+            process::exit(1);
+        }
+
+        let block_path = &argv[2];
+        let block_data = fs::read(block_path).expect(&format!("Failed to open {}", block_path));
+
+        let mut index = 0;
+        let block = StacksBlock::deserialize(&block_data, &mut index, block_data.len() as u32).map_err(|_e| {
+            eprintln!("Failed to decode block");
+            process::exit(1);
+        }).unwrap();
+
+        println!("{:#?}", &block);
+        process::exit(0);
+    }
+
+    if argv[1] == "decode-microblocks" {
+        if argv.len() < 3 {
+            eprintln!("Usage: {} decode-microblocks MICROBLOCK_STREAM_PATH", argv[0]);
+            process::exit(1);
+        }
+
+        let mblock_path = &argv[2];
+        let mblock_data = fs::read(mblock_path).expect(&format!("Failed to open {}", mblock_path));
+
+        let mut index = 0;
+        let mblocks : Vec<StacksMicroblock> = Vec::deserialize(&mblock_data, &mut index, mblock_data.len() as u32).map_err(|_e| {
+            eprintln!("Failed to decode microblocks");
+            process::exit(1);
+        }).unwrap();
+
+        println!("{:#?}", &mblocks);
+        process::exit(0);
     }
 
     if argv[1] == "exec_program" {
