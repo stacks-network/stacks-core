@@ -49,7 +49,7 @@ impl RunLoop {
 
         // Tear-up each node with a mpsc::Sender channeling ops to the burnchain
         for node in self.nodes.iter_mut() {
-            node.tear_up(burnchain_op_tx.clone(), ConsensusHash::empty());
+            node.tear_up(burnchain_op_tx.clone());
         }
 
         // Wait on the genesis block from the burnchain.

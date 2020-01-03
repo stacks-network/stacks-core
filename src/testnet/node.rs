@@ -58,6 +58,7 @@ pub struct Node {
     average_block_time: u64,
     bootstraping_chain: bool,
     burnchain_ops_tx: Option<Sender<BlockstackOperationType>>,
+    burnchain_tip: Option<BlockSnapshot>,
     chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
     config: NodeConfig,
@@ -96,6 +97,7 @@ impl Node {
             mem_pool,
             average_block_time,
             burnchain_ops_tx: None,
+            burnchain_tip: None,
             tx,
             rx,
             nonce: 0,
@@ -103,10 +105,11 @@ impl Node {
     }
     
     /// 
-    pub fn tear_up(&mut self, burnchain_ops_tx: Sender<BlockstackOperationType>, consensus_hash: ConsensusHash) {
+    pub fn tear_up(&mut self, burnchain_ops_tx: Sender<BlockstackOperationType>) {
         // Register a new key
         let vrf_pk = self.keychain.rotate_vrf_keypair();
-        let key_reg_op = self.generate_leader_key_register_op(vrf_pk, consensus_hash);
+        let consensus_hash = ConsensusHash::empty();
+        let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
         let chain_state = match burnchain_ops_tx.send(key_reg_op) {
             Ok(res) => res,
             Err(err) => panic!("Error while transmitting op to the burnchain")
@@ -171,6 +174,9 @@ impl Node {
         if last_sortitioned_block.is_some() {
             self.last_sortitioned_block = last_sortitioned_block;
         }
+
+        // Keep a pointer of the burnchain's chain tip.
+        self.burnchain_tip = Some(block.clone());
 
         (self.last_sortitioned_block.clone(), won_sortition)
     }
@@ -275,7 +281,8 @@ impl Node {
 
         // Naive implementation: we keep registering new keys
         let vrf_pk = self.keychain.rotate_vrf_keypair();
-        let op = self.generate_leader_key_register_op(vrf_pk, parent_block.consensus_hash); // todo(ludo): should we use the consensus hash from the burnchain tip, or last sortitioned block?
+        let burnchain_tip_consensus_hash = self.burnchain_tip.as_ref().unwrap().consensus_hash;
+        let op = self.generate_leader_key_register_op(vrf_pk, &burnchain_tip_consensus_hash);
         ops_tx.send(op).unwrap();
 
         self.burnchain_ops_tx = Some(ops_tx);
@@ -317,13 +324,13 @@ impl Node {
     }
 
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
-    fn generate_leader_key_register_op(&mut self, vrf_public_key: VRFPublicKey, consensus_hash: ConsensusHash) -> BlockstackOperationType {
+    fn generate_leader_key_register_op(&mut self, vrf_public_key: VRFPublicKey, consensus_hash: &ConsensusHash) -> BlockstackOperationType {
 
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: vec![],
             address: self.keychain.get_address(),
-            consensus_hash,
+            consensus_hash: consensus_hash.clone(),
 
             // Props that will be set by the burnchain simulator
             vtxindex: 0,
