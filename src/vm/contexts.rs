@@ -332,32 +332,6 @@ impl AssetMap {
             None => None
         }
     }
-
-    pub fn get_fungible_token_ids(&self, principal: &PrincipalData) -> Vec<AssetIdentifier> {
-        let mut asset_ids = vec![];
-        match self.token_map.get(principal) {
-            Some(ref assets) => {
-                for asset_id in assets.keys() {
-                    asset_ids.push((*asset_id).clone());
-                }
-            },
-            None => {}
-        }
-        asset_ids
-    }
-    
-    pub fn get_nonfungible_token_ids(&self, principal: &PrincipalData) -> Vec<AssetIdentifier> {
-        let mut asset_ids = vec![];
-        match self.asset_map.get(principal) {
-            Some(ref assets) => {
-                for asset_id in assets.keys() {
-                    asset_ids.push((*asset_id).clone());
-                }
-            },
-            None => {}
-        }
-        asset_ids
-    }
 }
 
 impl fmt::Display for AssetMap {
