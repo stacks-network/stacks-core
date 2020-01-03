@@ -31,9 +31,7 @@ use std::io::{
 use std::char::from_digit;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-use hashbrown::HashMap;
-use std::collections::VecDeque;
-use std::collections::HashSet;
+use std::collections::{VecDeque, HashSet, HashMap};
 
 use std::fs;
 use std::path::{
@@ -349,11 +347,12 @@ impl TrieMerkleProof {
         let ancestor_root_hash = read_root_hash(storage)?;
 
         let mut found_backptr = false;
+        let miner_tip = storage.get_miner_tip();
 
-        let ancestor_height = MARF::get_block_height(storage, &ancestor_block_hash, &block_header)?
-            .ok_or_else(|| Error::CorruptionError(format!("Could not find block height of {}", &block_header)))?;
-        let mut current_height = MARF::get_block_height(storage, &block_header, &block_header)?
-            .ok_or_else(|| Error::CorruptionError(format!("Could not find block height of {}", &block_header)))?;
+        let ancestor_height = MARF::get_block_height_miner_tip(storage, &ancestor_block_hash, &block_header, miner_tip.as_ref())?
+            .ok_or_else(|| Error::CorruptionError(format!("Could not find block height of ancestor block {} from {}", &ancestor_block_hash, &block_header)))?;
+        let mut current_height = MARF::get_block_height_miner_tip(storage, &block_header, &block_header, miner_tip.as_ref())?
+            .ok_or_else(|| Error::CorruptionError(format!("Could not find block height of current block {} from {}", &block_header, &block_header)))?;
 
         if current_height == ancestor_height {
             debug!("Already at the ancestor: {} =? {}, heights: {} =? {}", &ancestor_block_hash, &block_header,
@@ -364,12 +363,12 @@ impl TrieMerkleProof {
         // include the ancestor hashes.
         while current_height > ancestor_height && !found_backptr {
             storage.open_block(&block_header)?;
-            let cur_root_hash = read_root_hash(storage)?;
-            trace!("Shunt proof: walk heights {}->{} from {:?} ({:?})", current_height, ancestor_height, &block_header, &cur_root_hash);
+            let _cur_root_hash = read_root_hash(storage)?;
+            trace!("Shunt proof: walk heights {}->{} from {:?} ({:?})", current_height, ancestor_height, &block_header, &_cur_root_hash);
 
             let ancestor_hashes = Trie::get_trie_ancestor_hashes_bytes(storage)?;
 
-            trace!("Ancestors of {:?} ({:?}): {:?}", &block_header, &cur_root_hash, &ancestor_hashes);
+            trace!("Ancestors of {:?} ({:?}): {:?}", &block_header, &_cur_root_hash, &ancestor_hashes);
 
             // did we reach the backptr's root hash?
             found_backptr = ancestor_hashes.contains(&ancestor_root_hash);
@@ -663,7 +662,7 @@ impl TrieMerkleProof {
         let mut hash = node_hash.clone();
         for i in 0..proof.len() {
             let hash_opt = match proof[i] {
-                TrieMerkleProofType::Leaf((ref chr, ref node)) => {
+                TrieMerkleProofType::Leaf((ref _chr, ref node)) => {
                     // special case the leaf hash -- it doesn't
                     //   have any child hashes to check.
                     Some(get_leaf_hash(node))
@@ -702,7 +701,7 @@ impl TrieMerkleProof {
         let mut path_parts = vec![];
         for proof_node in segment_proof {
             match proof_node {
-                TrieMerkleProofType::Leaf((ref chr, ref node)) => {
+                TrieMerkleProofType::Leaf((ref _chr, ref node)) => {
                     // path_parts.push(vec![*chr]);
                     path_parts.push(node.path.clone());
                 },
@@ -1236,7 +1235,7 @@ mod test {
             Err(_) => {}
         };
 
-        let mut m = MARF::from_path(&path).unwrap();
+        let mut m = MARF::from_path(&path, None).unwrap();
 
         let sentinel_block = TrieFileStorage::block_sentinel();
         let block_0 = BlockHeaderHash([0u8; 32]);

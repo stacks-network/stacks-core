@@ -63,7 +63,6 @@ impl ASEntry4 {
 
         loop {
             let next_asn4_opt_res = ASEntry4::read_asn4(fd, &asn4_regex, &asn4_whitespace_regex);
-            line_count += 1;
 
             match next_asn4_opt_res {
                 Ok(next_asn4_opt) => {
@@ -74,8 +73,8 @@ impl ASEntry4 {
                         }
                     }
                 },
-                Err(net_error::DeserializeError) => {
-                    warn!("ASN4 parse error on line {}", line_count);
+                Err(net_error::DeserializeError(msg)) => {
+                    warn!("ASN4 parse error on line {}: {}", line_count, msg);
                     parsed = false;
                 },
                 Err(net_error::PermanentlyDrained) => {
@@ -86,9 +85,11 @@ impl ASEntry4 {
                     return Err(e);
                 }
             }
+            
+            line_count += 1;
         }
         if !parsed {
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError(format!("Failed to parse ASN4 sequence on line {}", line_count)));
         }
 
         asn4.sort_by(|a1, a2| a1.prefix.cmp(&a2.prefix));
@@ -116,14 +117,14 @@ impl ASEntry4 {
         }
 
         let caps = asn4_regex.captures(&buf)
-            .ok_or(net_error::DeserializeError)
+            .ok_or(net_error::DeserializeError("Line does not match ANS4 regex".to_string()))
             .map_err(|e| {
                 debug!("Failed to read line \"{}\"", &buf);
                 e
             })?;
 
         let prefix_octets_str = caps.get(1)
-            .ok_or(net_error::DeserializeError)
+            .ok_or(net_error::DeserializeError("Failed to read ANS4 prefix".to_string()))
             .map_err(|e| {
                 debug!("Failed to get octets of \"{}\"", &buf);
                 e
@@ -131,7 +132,7 @@ impl ASEntry4 {
             .as_str();
 
         let prefix_mask_str = caps.get(2)
-            .ok_or(net_error::DeserializeError)
+            .ok_or(net_error::DeserializeError("Failed to read ASN4 prefix mask".to_string()))
             .map_err(|e| {
                 debug!("Failed to get mask of \"{}\"", &buf);
                 e
@@ -139,7 +140,7 @@ impl ASEntry4 {
             .as_str();
 
         let asn_str = caps.get(3)
-            .ok_or(net_error::DeserializeError)
+            .ok_or(net_error::DeserializeError("Failed to read ASN ID".to_string()))
             .map_err(|e| {
                 debug!("Failed to get ASN of \"{}\"", &buf);
                 e
@@ -149,7 +150,7 @@ impl ASEntry4 {
         let prefix_octets_strs : Vec<&str> = prefix_octets_str.split('.').collect();
         if prefix_octets_strs.len() != 4 {
             debug!("Wrong number of octets in \"{}\"", &prefix_octets_str);
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError("Wrong number of octets".to_string()));
         }
 
         let mut prefix_octets : Vec<u8> = vec![];
@@ -157,7 +158,7 @@ impl ASEntry4 {
             let octet_opt = octet_str.parse::<u8>();
             if octet_opt.is_err() {
                 debug!("Failed to parse octet \"{}\" in \"{}\"", &octet_str, &prefix_octets_str);
-                return Err(net_error::DeserializeError);
+                return Err(net_error::DeserializeError("Failed to parse octet".to_string()));
             }
             prefix_octets.push(octet_opt.unwrap());
         }
@@ -171,18 +172,18 @@ impl ASEntry4 {
         let mask_opt = prefix_mask_str.parse::<u8>();
         if mask_opt.is_err() {
             debug!("Failed to parse mask \"{}\"", &prefix_mask_str);
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError("Failed to parse ASN mask".to_string()));
         }
         let mask = mask_opt.unwrap();
         if mask < 8 || mask > 24 {
             debug!("Invalid mask \"{}\"", mask);
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError(format!("Invalid ASN mask {}", mask)));
         }
 
         let asn_opt = asn_str.parse::<u32>();
         if asn_opt.is_err() {
             debug!("Failed to parse ASN \"{}\"", asn_str);
-            return Err(net_error::DeserializeError);
+            return Err(net_error::DeserializeError("Failed to parse ASN".to_string()));
         }
         let asn = asn_opt.unwrap();
 
@@ -247,22 +248,22 @@ mod test {
             // invalid line
             asn_fixture {
                 text: "1.2.3.4.5/24 100".to_string(),
-                result: Err(net_error::DeserializeError),
+                result: Err(net_error::DeserializeError("Failed to parse ASN4 sequence on line 1".to_string())),
             },
             // invalid prefix 
             asn_fixture {
                 text: "257.0.0.0/8 100".to_string(),
-                result: Err(net_error::DeserializeError),
+                result: Err(net_error::DeserializeError("Failed to parse ASN4 sequence on line 1".to_string())),
             },
             // invalid mask 
             asn_fixture {
                 text: "1.2.3.0/25 100".to_string(),
-                result: Err(net_error::DeserializeError),
+                result: Err(net_error::DeserializeError("Failed to parse ASN4 sequence on line 1".to_string())),
             },
             // invalid asn 
             asn_fixture {
                 text: "1.2.3.0/24 4294967296".to_string(),
-                result: Err(net_error::DeserializeError),
+                result: Err(net_error::DeserializeError("Failed to parse ASN4 sequence on line 1".to_string())),
             },
         ];
 

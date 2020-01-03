@@ -105,14 +105,14 @@ impl Hash160 {
 }
 
 impl Sha512Sum {
-    pub fn from_data(data: &[u8]) -> Self {
-        Self::from(Sha512::digest(data).as_slice())
+    pub fn from_data(data: &[u8]) -> Sha512Sum {
+        Sha512Sum::from(Sha512::digest(data).as_slice())
     }
 }
 
 impl Sha512Trunc256Sum {
-    pub fn from_data(data: &[u8]) -> Self {
-        Self::from(Sha512Trunc256::digest(data).as_slice())
+    pub fn from_data(data: &[u8]) -> Sha512Trunc256Sum {
+        Sha512Trunc256Sum::from(Sha512Trunc256::digest(data).as_slice())
     }
 }
 
@@ -175,6 +175,28 @@ impl MerkleHashFunc for DoubleSha256 {
         tmp2.copy_from_slice(sha2_2.result().as_slice());
 
         DoubleSha256(tmp2)
+    }
+
+    fn bits(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl MerkleHashFunc for Sha512Trunc256Sum {
+    fn empty() -> Sha512Trunc256Sum {
+        Sha512Trunc256Sum([0u8; 32])
+    }
+
+    fn from_tagged_data(tag: u8, data: &[u8]) -> Sha512Trunc256Sum {
+        use sha2::Digest;
+        let mut tmp = [0u8; 32];
+
+        let mut sha2 = Sha512Trunc256::new();
+        sha2.input(&[tag]);
+        sha2.input(data);
+        tmp.copy_from_slice(sha2.result().as_slice());
+
+        Sha512Trunc256Sum(tmp)
     }
 
     fn bits(&self) -> &[u8] {

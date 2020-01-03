@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, BTreeMap};
 use std::fmt;
 use std::convert::TryInto;
 
@@ -13,6 +13,8 @@ use vm::ast;
 use vm::eval;
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
+
+use serde::Serialize;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -35,6 +37,8 @@ pub struct OwnedEnvironment <'a> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AssetMapEntry {
+    STX(u128),
+    Burn(u128),
     Token(u128),
     Asset(Vec<Value>)
 }
@@ -43,8 +47,10 @@ pub enum AssetMapEntry {
  The AssetMap is used to track which assets have been transfered from whom
  during the execution of a transaction.
  */
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AssetMap {
+    stx_map: HashMap<PrincipalData, u128>,
+    burn_map: HashMap<PrincipalData, u128>,
     token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, u128>>,
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>
 }
@@ -64,8 +70,22 @@ pub struct GlobalContext<'a> {
 #[derive(Serialize, Deserialize)]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
+    
+    #[serde(serialize_with = "ordered_map_variables")]
     pub variables: HashMap<ClarityName, Value>,
+    
+    #[serde(serialize_with = "ordered_map_functions")]
     pub functions: HashMap<ClarityName, DefinedFunction>,
+}
+
+fn ordered_map_variables<S: serde::Serializer>(value: &HashMap<ClarityName, Value>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
+}
+
+fn ordered_map_functions<S: serde::Serializer>(value: &HashMap<ClarityName, DefinedFunction>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
 }
 
 pub struct LocalContext <'a> {
@@ -86,9 +106,25 @@ pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
 impl AssetMap {
     pub fn new() -> AssetMap {
         AssetMap {
+            stx_map: HashMap::new(),
+            burn_map: HashMap::new(),
             token_map: HashMap::new(),
             asset_map: HashMap::new()
         }
+    }
+    
+    // This will get the next amount for a (principal, stx) entry in the stx table.
+    fn get_next_stx_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
+        let current_amount = self.stx_map.get(principal).unwrap_or(&0);
+        current_amount.checked_add(amount)
+            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+    }
+    
+    // This will get the next amount for a (principal, stx) entry in the burn table.
+    fn get_next_stx_burn_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
+        let current_amount = self.burn_map.get(principal).unwrap_or(&0);
+        current_amount.checked_add(amount)
+            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
     }
 
     // This will get the next amount for a (principal, asset) entry in the asset table.
@@ -100,6 +136,20 @@ impl AssetMap {
             
         current_amount.checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+    }
+
+    pub fn add_stx_transfer(&mut self, principal: &PrincipalData, amount: u128) -> Result<()> {
+        let next_amount = self.get_next_stx_amount(principal, amount)?;
+        self.stx_map.insert(principal.clone(), next_amount);
+
+        Ok(())
+    }
+    
+    pub fn add_stx_burn(&mut self, principal: &PrincipalData, amount: u128) -> Result<()> {
+        let next_amount = self.get_next_stx_burn_amount(principal, amount)?;
+        self.burn_map.insert(principal.clone(), next_amount);
+
+        Ok(())
     }
 
     pub fn add_asset_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, transfered: Value) {
@@ -136,11 +186,24 @@ impl AssetMap {
     //   aborting _all_ changes in the event of an error, leaving self unchanged
     pub fn commit_other(&mut self, mut other: AssetMap) -> Result<()> {
         let mut to_add = Vec::new();
+        let mut stx_to_add = Vec::new();
+        let mut stx_burn_to_add = Vec::new();
+
         for (principal, mut principal_map) in other.token_map.drain() {
             for (asset, amount) in principal_map.drain() {
                 let next_amount = self.get_next_amount(&principal, &asset, amount)?;
                 to_add.push((principal.clone(), asset, next_amount));
             }
+        }
+
+        for (principal, stx_amount) in other.stx_map.drain() {
+            let next_amount = self.get_next_stx_amount(&principal, stx_amount)?;
+            stx_to_add.push((principal.clone(), next_amount));
+        }
+
+        for (principal, stx_burn_amount) in other.burn_map.drain() {
+            let next_amount = self.get_next_stx_burn_amount(&principal, stx_burn_amount)?;
+            stx_burn_to_add.push((principal.clone(), next_amount));
         }
 
         // After this point, this function will not fail.
@@ -161,6 +224,13 @@ impl AssetMap {
             }
         }
 
+        for (principal, stx_amount) in stx_to_add.drain(..) {
+            self.stx_map.insert(principal, stx_amount);
+        }
+
+        for (principal, stx_burn_amount) in stx_burn_to_add.drain(..) {
+            self.burn_map.insert(principal, stx_burn_amount);
+        }
 
         for (principal, asset, amount) in to_add.drain(..) {
             if !self.token_map.contains_key(&principal) {
@@ -175,7 +245,6 @@ impl AssetMap {
         Ok(())
     }
 
-    #[cfg(test)]
     pub fn to_table(mut self) -> HashMap<PrincipalData, HashMap<AssetIdentifier, AssetMapEntry>> {
         let mut map = HashMap::new();
         for (principal, mut principal_map) in self.token_map.drain() {
@@ -184,6 +253,26 @@ impl AssetMap {
                 output_map.insert(asset, AssetMapEntry::Token(amount));
             }
             map.insert(principal, output_map);
+        }
+
+        for (principal, stx_amount) in self.stx_map.drain() {
+            let output_map = if map.contains_key(&principal) {
+                map.get_mut(&principal).unwrap()
+            } else {
+                map.insert(principal.clone(), HashMap::new());
+                map.get_mut(&principal).unwrap()
+            };
+            output_map.insert(AssetIdentifier::STX(), AssetMapEntry::STX(stx_amount as u128));
+        }
+        
+        for (principal, stx_burned_amount) in self.burn_map.drain() {
+            let output_map = if map.contains_key(&principal) {
+                map.get_mut(&principal).unwrap()
+            } else {
+                map.insert(principal.clone(), HashMap::new());
+                map.get_mut(&principal).unwrap()
+            };
+            output_map.insert(AssetIdentifier::STX_burned(), AssetMapEntry::Burn(stx_burned_amount as u128));
         }
 
         for (principal, mut principal_map) in self.asset_map.drain() {
@@ -200,6 +289,48 @@ impl AssetMap {
         }
 
         return map
+    }
+
+    pub fn get_stx(&self, principal: &PrincipalData) -> Option<u128> {
+        match self.stx_map.get(principal) {
+            Some(value) => Some(*value),
+            None => None
+        }
+    }
+
+    pub fn get_stx_burned(&self, principal: &PrincipalData) -> Option<u128> {
+        match self.burn_map.get(principal) {
+            Some(value) => Some(*value),
+            None => None
+        }
+    }
+
+    pub fn get_stx_burned_total(&self) -> u128 {
+        let mut total : u128 = 0;
+        for principal in self.burn_map.keys() {
+            total = total.checked_add(*self.burn_map.get(principal).unwrap_or(&0u128)).expect("BURN OVERFLOW");
+        }
+        total
+    }
+
+    pub fn get_fungible_tokens(&self, principal: &PrincipalData, asset_identifier: &AssetIdentifier) -> Option<u128> {
+        match self.token_map.get(principal) {
+            Some(ref assets) => match assets.get(asset_identifier) {
+                Some(value) => Some(*value),
+                None => None,
+            },
+            None => None
+        }
+    }
+    
+    pub fn get_nonfungible_tokens(&self, principal: &PrincipalData, asset_identifier: &AssetIdentifier) -> Option<&Vec<Value>> {
+        match self.asset_map.get(principal) {
+            Some(ref assets) => match assets.get(asset_identifier) {
+                Some(values) => Some(values),
+                None => None,
+            },
+            None => None
+        }
     }
 }
 
@@ -219,6 +350,12 @@ impl fmt::Display for AssetMap {
                 }
                 write!(f, "] {}\n", asset)?;
             }
+        }
+        for (principal, stx_amount) in self.stx_map.iter() {
+            write!(f, "{} spent {} microSTX\n", principal, stx_amount)?;
+        }
+        for (principal, stx_burn_amount) in self.burn_map.iter() {
+            write!(f, "{} burned {} microSTX\n", principal, stx_burn_amount)?;
         }
         write!(f, "]")
     }
@@ -281,6 +418,12 @@ impl <'a> OwnedEnvironment <'a> {
                                tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap)> {
         self.execute_in_env(sender, 
                             |exec_env| exec_env.execute_contract(&contract_identifier, tx_name, args))
+    }
+
+    #[cfg(test)]
+    pub fn eval_raw(&mut self, program: &str) -> Result<(Value, AssetMap)> {
+        self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
+                            |exec_env| exec_env.eval_raw(program))
     }
 
     pub fn begin(&mut self) {
@@ -732,24 +875,36 @@ mod test {
         let c_contract_id = QualifiedContractIdentifier::local("c").unwrap();
         let d_contract_id = QualifiedContractIdentifier::local("d").unwrap();
         let e_contract_id = QualifiedContractIdentifier::local("e").unwrap();
+        let f_contract_id = QualifiedContractIdentifier::local("f").unwrap();
+        let g_contract_id = QualifiedContractIdentifier::local("g").unwrap();
 
         let p1 = PrincipalData::Contract(a_contract_id.clone());
         let p2 = PrincipalData::Contract(b_contract_id.clone());
         let p3 = PrincipalData::Contract(c_contract_id.clone());
         let p4 = PrincipalData::Contract(d_contract_id.clone());
         let p5 = PrincipalData::Contract(e_contract_id.clone());
+        let p6 = PrincipalData::Contract(f_contract_id.clone());
+        let p7 = PrincipalData::Contract(g_contract_id.clone());
 
         let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
         let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
         let t3 = AssetIdentifier { contract_identifier: c_contract_id.clone(), asset_name: "a".into() };
         let t4 = AssetIdentifier { contract_identifier: d_contract_id.clone(), asset_name: "a".into() };
         let t5 = AssetIdentifier { contract_identifier: e_contract_id.clone(), asset_name: "a".into() };
+        let t6 = AssetIdentifier::STX();
+        let t7 = AssetIdentifier::STX_burned();
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
 
         am1.add_token_transfer(&p1, t1.clone(), 10).unwrap();
         am2.add_token_transfer(&p1, t1.clone(), 15).unwrap();
+        
+        am1.add_stx_transfer(&p1, 20).unwrap();
+        am2.add_stx_transfer(&p2, 25).unwrap();
+
+        am1.add_stx_burn(&p1, 30).unwrap();
+        am2.add_stx_burn(&p2, 35).unwrap();
 
         // test merging in a token that _didn't_ have an entry in the parent
         am2.add_token_transfer(&p1, t4.clone(), 1).unwrap();
@@ -772,13 +927,21 @@ mod test {
         am2.add_asset_transfer(&p2, t3.clone(), Value::Int(3));
         am2.add_asset_transfer(&p2, t3.clone(), Value::Int(4));
 
+        // test merging in STX transfers
+        am1.add_stx_transfer(&p1, 21).unwrap();
+        am2.add_stx_transfer(&p2, 26).unwrap();
+
+        // test merging in STX burns
+        am1.add_stx_burn(&p1, 31).unwrap();
+        am2.add_stx_burn(&p2, 36).unwrap();
+
         am1.commit_other(am2).unwrap();
 
         let table = am1.to_table();
 
         // 3 Principals
         assert_eq!(table.len(), 3);
-
+        
         assert_eq!(table[&p1][&t1], AssetMapEntry::Token(25));
         assert_eq!(table[&p1][&t4], AssetMapEntry::Token(1));
 
@@ -794,8 +957,13 @@ mod test {
 
         assert_eq!(table[&p3][&t3], AssetMapEntry::Asset(
             vec![Value::Int(10)]));
-    }
 
+        assert_eq!(table[&p1][&t6], AssetMapEntry::STX(20 + 21));
+        assert_eq!(table[&p2][&t6], AssetMapEntry::STX(25 + 26));
+
+        assert_eq!(table[&p1][&t7], AssetMapEntry::Burn(30 + 31));
+        assert_eq!(table[&p2][&t7], AssetMapEntry::Burn(35 + 36));
+    }
 }
 
 

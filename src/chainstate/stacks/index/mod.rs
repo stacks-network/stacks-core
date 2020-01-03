@@ -60,7 +60,7 @@ pub const MARF_VALUE_ENCODED_SIZE : u32 = 40;
 
 impl TrieHash {
     /// TrieHash of zero bytes
-    fn from_empty_data() -> TrieHash {
+    pub fn from_empty_data() -> TrieHash {
         // sha2-512/256 hash of empty string.
         // this is used so frequently it helps performance if we just have a constant for it.
         TrieHash([0xc6, 0x72, 0xb8, 0xd1, 0xef, 0x56, 0xed, 0x28, 0xab, 0x87, 0xc3, 0x62, 0x2c, 0x51, 0x14, 0x06, 0x9b, 0xdd, 0x3a, 0xd7, 0xb8, 0xf9, 0x73, 0x74, 0x98, 0xd0, 0xc0, 0x1e, 0xce, 0xf0, 0x96, 0x7a])
@@ -290,15 +290,15 @@ impl error::Error for Error {
             Error::ExistsError => "Object exists",
             Error::BadSeekValue => "Bad seek value",
             Error::CorruptionError(ref s) => s.as_str(),
-            Error::BlockHashMapCorruptionError(ref opt_e) => "Corrupted MARF BlockHashMap",
+            Error::BlockHashMapCorruptionError(_) => "Corrupted MARF BlockHashMap",
             Error::ReadOnlyError => "Storage is in read-only mode",
             Error::NotDirectoryError => "Not a directory",
             Error::PartialWriteError => "Data is partially written and not yet recovered",
             Error::InProgressError => "Write was in progress",
             Error::WriteNotBegunError => "Write has not begun",
             Error::CursorError(ref e) => e.description(),
-            Error::RestoreMarfBlockError(ref _e) => "Failed to restore previous open block during block header check",
-            Error::NonMatchingForks(ref a, ref b) => "The supplied blocks are not in the same fork",
+            Error::RestoreMarfBlockError(_) => "Failed to restore previous open block during block header check",
+            Error::NonMatchingForks(_, _) => "The supplied blocks are not in the same fork",
         }
     }
 }
@@ -327,7 +327,7 @@ mod test {
     use chainstate::stacks::index::storage::*;
     use chainstate::stacks::index::trie::*;
 
-    use hashbrown::HashMap;
+    use std::collections::HashMap;
     use std::io::{
         Cursor,
         Seek,

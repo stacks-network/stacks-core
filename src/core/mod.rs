@@ -18,28 +18,40 @@
 */
 
 // This module contains the "main loop" that drives everything
-use burnchains::Burnchain;
+use burnchains::{Burnchain, BurnchainHeaderHash};
 use burnchains::Error as burnchain_error;
+use chainstate::burn::BlockHeaderHash;
 use util::log;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
-pub const SYSTEM_FORK_SET_VERSION : [u8; 4] = [21u8, 0u8, 0u8, 0u8];
+pub const SYSTEM_FORK_SET_VERSION : [u8; 4] = [22u8, 0u8, 0u8, 0u8];
 
 // p2p network version 
-pub const PEER_VERSION : u32 = 0x15000000;      // 21.0.0.0
+pub const PEER_VERSION : u32 = 0x16000000;      // 22.0.0.0
 
 // network identifiers
-pub const NETWORK_ID_MAINNET : u32 = 0x15000000;
+pub const NETWORK_ID_MAINNET : u32 = 0x16000000;
 pub const NETWORK_ID_TESTNET : u32 = 0xff000000;
 
 // default port 
 pub const NETWORK_P2P_PORT : u16 = 6265;
 
+// first burnchain block hash 
+pub const FIRST_BURNCHAIN_BLOCK_HASH : BurnchainHeaderHash = BurnchainHeaderHash([0u8; 32]);
+pub const FIRST_BURNCHAIN_BLOCK_HASH_TESTNET : BurnchainHeaderHash = BurnchainHeaderHash([1u8; 32]);
+pub const FIRST_BURNCHAIN_BLOCK_HASH_REGTEST : BurnchainHeaderHash = BurnchainHeaderHash([2u8; 32]);
+
+pub const FIRST_STACKS_BLOCK_HASH : BlockHeaderHash = BlockHeaderHash([0u8; 32]);
+pub const EMPTY_MICROBLOCK_PARENT_HASH : BlockHeaderHash = BlockHeaderHash([0u8; 32]);
+
+pub const BOOT_BLOCK_HASH : BlockHeaderHash = BlockHeaderHash([0xff; 32]);
+pub const BURNCHAIN_BOOT_BLOCK_HASH : BurnchainHeaderHash = BurnchainHeaderHash([0xff; 32]);
+
+pub const CHAINSTATE_VERSION: &'static str = "22.0.0.0";
+
 /// Synchronize burn transactions from the Bitcoin blockchain 
 pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Result<u64, burnchain_error> {
     use burnchains::bitcoin::indexer::BitcoinIndexer;
-    use burnchains::bitcoin::indexer::BitcoinIndexerAddress;
-    use burnchains::bitcoin::indexer::BitcoinIndexerPublicKey;
 
     let mut burnchain = Burnchain::new(working_dir, &"bitcoin".to_string(), network_name)
         .map_err(|e| {
@@ -47,7 +59,7 @@ pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Re
             e
         })?;
 
-    let new_height_res = burnchain.sync::<BitcoinIndexer, BitcoinIndexerAddress, BitcoinIndexerPublicKey>();
+    let new_height_res = burnchain.sync::<BitcoinIndexer>();
     let new_height = new_height_res
         .map_err(|e| {
             error!("Failed to synchronize Bitcoin chain state for {} in {}", network_name, working_dir);
