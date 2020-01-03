@@ -9,7 +9,7 @@ pub use self::run_loop::{RunLoop};
 pub use self::mem_pool::{MemPool, MemPoolFS};
 pub use self::keychain::{Keychain};
 pub use self::node::{Node, SortitionedBlock};
-pub use self::burnchain::{BurnchainSimulator};
+pub use self::burnchain::{BurnchainSimulator, BurnchainState};
 pub use self::tenure::{LeaderTenure};
 
 pub struct Config {

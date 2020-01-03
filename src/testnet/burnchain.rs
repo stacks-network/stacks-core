@@ -21,6 +21,12 @@ pub struct BurnchainSimulator {
     db: Option<Arc<Mutex<BurnDB>>>,
 }
 
+pub struct BurnchainState {
+    pub chain_tip: BlockSnapshot,
+    pub ops: Vec<BlockstackOperationType>,
+    pub db: Arc<Mutex<BurnDB>>
+}
+
 impl BurnchainSimulator {
 
     pub fn new() -> Self {
@@ -30,7 +36,7 @@ impl BurnchainSimulator {
         }
     }
     
-    pub fn start(&mut self, config: &Config) -> (mpsc::Receiver<(BlockSnapshot, Vec<BlockstackOperationType>, Arc<Mutex<BurnDB>>)>, mpsc::Sender<BlockstackOperationType>) {
+    pub fn start(&mut self, config: &Config) -> (mpsc::Receiver<BurnchainState>, mpsc::Sender<BlockstackOperationType>) {
         let (block_tx, block_rx) = mpsc::channel();
         
         let path = config.burnchain_path.clone();
@@ -53,7 +59,13 @@ impl BurnchainSimulator {
                 BurnDB::get_first_block_snapshot(db.conn()).unwrap()
             };
 
-            block_tx.send((chain_tip.clone(), vec![], Arc::clone(&burn_db))).unwrap();    
+            // Transmit genesis state
+            let genesis_state = BurnchainState {
+                chain_tip: chain_tip.clone(),
+                ops: vec![],
+                db: Arc::clone(&burn_db)
+            };
+            block_tx.send(genesis_state).unwrap();    
                 
             loop {
                 thread::sleep(block_time);
@@ -93,7 +105,7 @@ impl BurnchainSimulator {
                     ops.clear();
                 };
                 
-                // Include txs in a    
+                // Include txs in a new block   
                 chain_tip = {
                     let mut db = burn_db.lock().unwrap();
                     let mut burn_tx = db.tx_begin().unwrap();
@@ -107,7 +119,13 @@ impl BurnchainSimulator {
                     new_chain_tip
                 };
         
-                block_tx.send((chain_tip.clone(), ops_to_include, Arc::clone(&burn_db))).unwrap();    
+                // Transmit the new state
+                let new_state = BurnchainState {
+                    chain_tip: chain_tip.clone(),
+                    ops: ops_to_include,
+                    db: Arc::clone(&burn_db)
+                };
+                block_tx.send(new_state).unwrap();    
             };
         });
         

@@ -1,4 +1,4 @@
-use super::{Keychain, MemPool, MemPoolFS, NodeConfig, LeaderTenure};
+use super::{Keychain, MemPool, MemPoolFS, NodeConfig, LeaderTenure, BurnchainState};
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -120,12 +120,13 @@ impl Node {
     }
 
     /// 
-    pub fn process_burnchain_block(&mut self, block: &BlockSnapshot, ops: &Vec<BlockstackOperationType>) -> (Option<SortitionedBlock>, bool) {
+    pub fn process_burnchain_state(&mut self, state: &BurnchainState) -> (Option<SortitionedBlock>, bool) {
         let mut new_key = None;
         let mut last_sortitioned_block = None; 
         let mut won_sortition = false;
+        let chain_tip = state.chain_tip.clone();
 
-        for op in ops {
+        for op in state.ops.iter() {
             match op {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => {
                     if op.address == self.keychain.get_address() {
@@ -138,16 +139,16 @@ impl Node {
                     }
                 },
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                    if op.txid == block.winning_block_txid {
+                    if op.txid == chain_tip.winning_block_txid {
                         last_sortitioned_block = Some(SortitionedBlock {
-                            block_height: block.block_height as u16,
+                            block_height: chain_tip.block_height as u16,
                             op_vtxindex: op.vtxindex as u16,
                             op_txid: op.txid,
-                            sortition_hash: block.sortition_hash,
-                            consensus_hash: block.consensus_hash,
-                            total_burn: block.total_burn,
-                            burn_header_hash: block.burn_header_hash,
-                            parent_burn_header_hash: block.parent_burn_header_hash,
+                            sortition_hash: chain_tip.sortition_hash,
+                            consensus_hash: chain_tip.consensus_hash,
+                            total_burn: chain_tip.total_burn,
+                            burn_header_hash: chain_tip.burn_header_hash,
+                            parent_burn_header_hash: chain_tip.parent_burn_header_hash,
                         });
 
                         // Release current registered key if leader won the sortition
@@ -176,7 +177,7 @@ impl Node {
         }
 
         // Keep a pointer of the burnchain's chain tip.
-        self.burnchain_tip = Some(block.clone());
+        self.burnchain_tip = Some(chain_tip);
 
         (self.last_sortitioned_block.clone(), won_sortition)
     }

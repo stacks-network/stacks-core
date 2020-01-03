@@ -52,33 +52,33 @@ impl RunLoop {
             node.tear_up(burnchain_op_tx.clone());
         }
 
-        // Wait on the genesis block from the burnchain.
-        let (genesis_block, ops, _) = match burnchain_block_rx.recv() {
+        // Wait on the genesis state from the burnchain.
+        let genesis_state = match burnchain_block_rx.recv() {
             Ok(res) => res,
             Err(err) => panic!("Error while expecting genesis block from burnchain: {:?}", err)
         };
 
         // Update each node with the genesis block.
         for node in self.nodes.iter_mut() {
-            node.process_burnchain_block(&genesis_block, &ops);
+            node.process_burnchain_state(&genesis_state);
         }
 
         // When producing an anchored block, we need a block from the burnchain, and its parent.
         // We'll wait on the next block from the burnchain for starting the bootstrap.
-        let (burnchain_block_1, ops, _) = match burnchain_block_rx.recv() {
+        let state_1 = match burnchain_block_rx.recv() {
             Ok(res) => res,
             Err(err) => panic!("Error while expecting block #1 from burnchain: {:?}", err)
         };
 
         // Update each node with this new block.
         for node in self.nodes.iter_mut() {
-            node.process_burnchain_block(&burnchain_block_1, &ops);
+            node.process_burnchain_state(&state_1);
         }
 
         // Bootstrap the chain: the first node (could be random) will start a new tenure,
         // using SortitionHash::genesis for generating a VRF.
         let leader = &mut self.nodes[0];
-        let mut first_tenure = match leader.initiate_genesis_tenure(&genesis_block) {
+        let mut first_tenure = match leader.initiate_genesis_tenure(&genesis_state.chain_tip) {
             Some(res) => res,
             None => panic!("Error while initiating genesis tenure")
         };
@@ -98,21 +98,17 @@ impl RunLoop {
 
         // Bootstraping phase is done. Waiting on the next block from the burnchain, that 
         // will include a block commit op and consequently a sortition.
-        let (burnchain_block, ops, burn_db) = match burnchain_block_rx.recv() {
+        let mut burnchain_state = match burnchain_block_rx.recv() {
             Ok(res) => res,
             Err(err) => panic!("Error while expecting block #2 from burnchain: {:?}", err)
         };
         
-        // Declare and bind some mutable variables, that will be updated on each cycle.  
-        let mut burnchain_block = burnchain_block;
-        let mut ops = ops;
-        let mut burn_db = burn_db;
         let mut leader_tenure = None;
 
         for node in self.nodes.iter_mut() {
             // Have each node process the new block, that should include a sortition thanks to the
             // 1st tenure.
-            let (last_sortitioned_block, won_sortition) = match node.process_burnchain_block(&burnchain_block, &ops) {
+            let (last_sortitioned_block, won_sortition) = match node.process_burnchain_state(&burnchain_state) {
                 (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
                 (None, _) => panic!("Node should have a sortitioned block")
             };
@@ -120,7 +116,7 @@ impl RunLoop {
             // Have each node process the previous tenure.
             // We should have some additional checks here, and ensure that the previous artifacts are legit.
             // Note: we're cloning ARC<burn_db>, not burn_db instances.
-            node.process_tenure(&anchored_block_1, &last_sortitioned_block, microblocks.clone(), burn_db.clone());
+            node.process_tenure(&anchored_block_1, &last_sortitioned_block, microblocks.clone(), burnchain_state.db.clone());
 
             // If the node we're looping on won the sortition, initialize and configure the next tenure
             if won_sortition {
@@ -148,18 +144,15 @@ impl RunLoop {
             }
 
             // Wait on the next block from the burnchain.
-            let (new_block, new_ops, new_db) = match burnchain_block_rx.recv() {
+            burnchain_state = match burnchain_block_rx.recv() {
                 Ok(res) => res,
                 Err(err) => panic!("Error while expecting block from burnchain: {:?}", err)
             };
-            burnchain_block = new_block;
-            ops = new_ops;
-            burn_db = new_db;
             leader_tenure = None;
 
             for node in self.nodes.iter_mut() {
                 // Have each node process the new block, that can include, or not, a sortition.
-                let (last_sortitioned_block, won_sortition) = match node.process_burnchain_block(&burnchain_block, &ops) {
+                let (last_sortitioned_block, won_sortition) = match node.process_burnchain_state(&burnchain_state) {
                     (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
                     (None, _) => panic!("Node should have a sortitioned block")
                 };
@@ -171,7 +164,7 @@ impl RunLoop {
                         // Have each node process the previous tenure.
                         // We should have some additional checks here, and ensure that the previous artifacts are legit.
                         let (anchored_block, microblocks, parent_block) = artifacts;
-                        node.process_tenure(&anchored_block, &last_sortitioned_block, microblocks.to_vec(), burn_db.clone());
+                        node.process_tenure(&anchored_block, &last_sortitioned_block, microblocks.to_vec(), burnchain_state.db.clone());
                     },
                 }
 
