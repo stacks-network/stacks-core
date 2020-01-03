@@ -47,9 +47,9 @@ impl RunLoop {
         // block commits) on the burnchain.
         let (burnchain_block_rx, burnchain_op_tx) = burnchain.start(&self.config);
 
-        // Tear-up each node with a mpsc::Sender channeling ops to the burnchain
+        // Setup each node with a mpsc::Sender used for channeling ops to the burnchain
         for node in self.nodes.iter_mut() {
-            node.tear_up(burnchain_op_tx.clone());
+            node.setup(burnchain_op_tx.clone());
         }
 
         // Wait on the genesis state from the burnchain.

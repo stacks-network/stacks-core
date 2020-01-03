@@ -105,7 +105,7 @@ impl Node {
     }
     
     /// 
-    pub fn tear_up(&mut self, burnchain_ops_tx: Sender<BlockstackOperationType>) {
+    pub fn setup(&mut self, burnchain_ops_tx: Sender<BlockstackOperationType>) {
         // Register a new key
         let vrf_pk = self.keychain.rotate_vrf_keypair();
         let consensus_hash = ConsensusHash::empty();
