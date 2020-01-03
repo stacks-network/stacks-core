@@ -94,7 +94,7 @@ impl RunLoop {
         // while having the option of running multiple tenures concurrently and try different strategies.
         // As a result, once the tenure ran and we have the artifacts (anchored_blocks, microblocks),
         // we have the 1st node (leading) updating its chainstate with the artifacts from its tenure.
-        leader.receive_tenure_artefacts(&anchored_block_1, &parent_block_1);
+        leader.receive_tenure_artifacts(&anchored_block_1, &parent_block_1);
 
         // Bootstraping phase is done. Waiting on the next block from the burnchain, that 
         // will include a block commit op and consequently a sortition.
@@ -141,7 +141,7 @@ impl RunLoop {
                     // Have each node receive artifacts from the current tenure
                     let (anchored_block, _, parent_block) = artifacts;
                     for node in self.nodes.iter_mut() {
-                        node.receive_tenure_artefacts(&anchored_block, &parent_block);                    
+                        node.receive_tenure_artifacts(&anchored_block, &parent_block);                    
                     }    
                 },
                 None => {}

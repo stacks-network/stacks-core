@@ -248,10 +248,10 @@ impl Node {
         Some(tenure)
     }
 
-    /// Handles artefacts coming from an ongoing tenure.
+    /// Handles artifacts coming from an ongoing tenure.
     /// At this point, we're not updating the chainstate, we're simply having the node
     /// candidating for the next tenure.
-    pub fn receive_tenure_artefacts(&mut self, anchored_block_from_ongoing_tenure: &StacksBlock, parent_block: &SortitionedBlock) {
+    pub fn receive_tenure_artifacts(&mut self, anchored_block_from_ongoing_tenure: &StacksBlock, parent_block: &SortitionedBlock) {
         let ops_tx = self.burnchain_ops_tx.take().unwrap();
 
         if self.active_registered_key.is_some() {
@@ -279,7 +279,7 @@ impl Node {
         self.burnchain_ops_tx = Some(ops_tx);
     }
 
-    /// Process artefacts from the tenure.
+    /// Process artifacts from the tenure.
     /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
     pub fn process_tenure(&mut self, anchored_block: &StacksBlock, parent_block: &SortitionedBlock, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
 
