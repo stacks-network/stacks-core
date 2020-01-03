@@ -84,7 +84,6 @@ use vm::types::Value;
 use vm::representations::{ContractName, ClarityName};
 
 const BLOCK_HEIGHT_MAX : u64 = ((1 as u64) << 63) - 1; 
-const SQLITE_ERROR_MSG : &'static str = "FATAL: failed to exeucte Sqlite database operation.  Aborting...";
 
 pub const REWARD_WINDOW_START : u64 = 144 * 15;
 pub const REWARD_WINDOW_END : u64 = 144 * 90 + REWARD_WINDOW_START;
@@ -418,19 +417,6 @@ fn burndb_get_ancestor_block_hash<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, 
     match tx.get_ancestor_block_hash(block_height - first_block_height, &tip_bhh)? {
         Some(bhh) => {
             Ok(Some(BurnchainHeaderHash::from(bhh)))
-        },
-        None => {
-            Ok(None)
-        }
-    }
-}
-
-fn burndb_get_ancestor_block_height<'a>(tx: &mut BurnDBTx<'a>, ancestor_hash: &BurnchainHeaderHash, &tip_block_hash: &BurnchainHeaderHash) -> Result<Option<u64>, db_error> {
-    let ancestor_bhh = BlockHeaderHash::from(ancestor_hash.clone());
-    let tip_bhh = BlockHeaderHash::from(tip_block_hash.clone());
-    match tx.get_ancestor_block_height(&ancestor_bhh, &tip_bhh)? {
-        Some(height_u32) => {
-            Ok(Some((height_u32 as u64) + tx.context.first_block_height))
         },
         None => {
             Ok(None)
