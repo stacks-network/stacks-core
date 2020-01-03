@@ -1,5 +1,5 @@
 use super::{MemPool, MemPoolFS, NodeConfig};
-use super::node::{SortitionedBlock};
+use super::node::{SortitionedBlock, TESTNET_CHAIN_ID};
 
 use std::thread;
 use std::time;
@@ -67,7 +67,7 @@ impl <'a> LeaderTenure {
 
     pub fn run(&mut self) -> Option<(StacksBlock, Vec<StacksMicroblock>, SortitionedBlock)> {
 
-        let mut chain_state = StacksChainState::open(false, 0x80000000, &self.config.path).unwrap();
+        let mut chain_state = StacksChainState::open(false, TESTNET_CHAIN_ID, &self.config.path).unwrap();
 
         let mut clarity_tx = match self.last_sortitioned_block.block_height {
             0 => {

@@ -15,7 +15,7 @@ use net::StacksMessageType;
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
 
-const TESTNET_CHAIN_ID: u32 = 0x80000000;
+pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
 
 #[derive(Clone)]
 struct RegisteredKey {
@@ -77,7 +77,7 @@ impl Node {
         
         let keychain = Keychain::default();
 
-        let chain_state = match StacksChainState::open(false, 0x80000000, &config.path) {
+        let chain_state = match StacksChainState::open(false, TESTNET_CHAIN_ID, &config.path) {
             Ok(res) => res,
             Err(err) => panic!("Error while opening chain state at path {:?}", config.path)
         };
