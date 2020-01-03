@@ -50,7 +50,8 @@ impl StacksMessageCodec for Value {
     fn serialize(&self) -> Vec<u8> {
         let mut res = vec![];
         let mut bytes = vec![];
-        self.serialize_write(&mut bytes);
+        self.serialize_write(&mut bytes)
+            .expect("FATAL: failed to serialize Value to byte Vec");        // should never happen, unless something's seriously wrong
         write_next(&mut res, &bytes);
         res
     }
@@ -866,10 +867,6 @@ impl StacksTransactionSigner {
         else {
             None
         }
-    }
-
-    pub fn get_incomplete_tx(&self) -> StacksTransaction {
-        self.tx.clone()
     }
 }
 
