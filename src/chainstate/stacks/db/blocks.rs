@@ -1538,13 +1538,15 @@ impl StacksChainState {
         }
         
         // does this block match the burnchain state? skip if not
-        let (commit_burn, sortition_burn) = match StacksChainState::validate_anchored_block_burnchain(burn_tx, burn_header_hash, block, self.mainnet, self.chain_id)? {
-            Some((commit_burn, sortition_burn)) => (commit_burn, sortition_burn),
-            None => { 
-                let msg = format!("Invalid block {}: does not correspond to burn chain state", block.block_hash());
-                warn!("{}", &msg);
-
-                return Err(Error::InvalidStacksBlock(msg));
+        let (commit_burn, sortition_burn) = match block.header.is_genesis() {
+            true => (0, 0),
+            false => match StacksChainState::validate_anchored_block_burnchain(burn_tx, burn_header_hash, block, self.mainnet, self.chain_id)? {
+                Some((commit_burn, sortition_burn)) => (commit_burn, sortition_burn),
+                None => { 
+                    let msg = format!("Invalid block {}: does not correspond to burn chain state", block.block_hash());
+                    warn!("{}", &msg);
+                    return Err(Error::InvalidStacksBlock(msg));
+                }
             }
         };
     
