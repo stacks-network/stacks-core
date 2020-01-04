@@ -19,7 +19,7 @@ License: BSD 2-Clause
 This SIP describes the structure, validation, and lifecycle for transactions and blocks in
 the Stacks blockchain, and describes how each peer maintains a materialized view
 of the effects of processing all state-transitions encoded in the blockchain's sequence of
-transactions.  It presents the account actor model for the Stacks blockchain, and
+transactions.  It presents the account model for the Stacks blockchain, and
 describes how accounts authorize and pay for processing transactions on the
 network.
 
@@ -36,7 +36,9 @@ the principal ones being:
 
 * To instantiate a smart contract (see SIP 002)
 * To invoke a public smart contract function
-* To transfer assets between accounts
+* To transfer STX tokens between accounts
+* To punish miners who fork their microblock streams (see SIP 001)
+* To allow miners to perform limited on-chain signaling
 
 Processing transactions is not free.  Each step in the process of validating and
 executing the transaction incurs a non-zero computational cost.  To incentivize 
@@ -57,15 +59,15 @@ the originating account are the same account.
 
 * The **sending account** is the account that identifies _who_ is
   _currently_ executing the transaction. The sending account can
-      change during the course of transaction execution via the Clarity
+  change during the course of transaction execution via the Clarity
   function `as-contract`, which executes the provided code block as
   the _current contract's_ account. Each transaction's initial sending
   account is its originating account -- i.e. the account that
   authorizes the transaction.  Smart contracts determine the sending
   account's principal using the `tx-sender` built-in function.
 
-This document frames accounts in the Stacks blockchain as actors that process
-transactions in order to describe the lifecycle of a transaction.  The tasks
+This document frames accounts in the Stacks blockchain as the unit of agency for 
+processing transactions.  The tasks
 that a transaction carries out are used to inform the decisions on what
 data goes into the transaction, as well as the data that goes into a block.
 As such, understanding blocks and transactions in the Stacks blockchain first
@@ -79,12 +81,15 @@ described by the following information:
 
 * **Address**.  This is a versioned cryptographic hash that uniquely identifies the
   account.  The type of account (described below) determines what information is
-hashed to derive the address.  The address itself contains two fields:
+hashed to derive the address.  The address itself contains two or three fields:
    * A 1-byte **version**, which indicates whether or not the address
      corresponds to a mainnet or testnet account and what kind of hash algorithm
 to use to generate its hash.
    * A 20-byte **public key hash**, which is calculated using the address
      version and the account's owning public key(s).
+   * A variable-length **name**.  This is only used in contract accounts, and it
+     identifies the code body that belongs to this account.  The name
+     may be up to 128 bytes.  Accounts belonging to users do not have this field.
 
 * **Nonce**.  This is a Lamport clock, used for ordering the transactions
   originating from and paying from an account.  The nonce ensures that a transaction
@@ -117,7 +122,7 @@ are all represented in a miner's commitment to its materialized view of the bloc
 The Stacks blockchain supports two kinds of accounts:
 
 * **Standard accounts**.  These are accounts owned by one or more private keys.
-  Only standard accounts can originate transactions.  A transaction originating
+  Only standard accounts can originate and pay for transactions.  A transaction originating
 from a standard account is only valid if a threshold of its private keys sign
 it.  The address for a standard account is the hash of this threshold value and
 all allowed public keys.  Due to the need for backwards compatibility with
@@ -129,14 +134,15 @@ pay-to-witness-script-hash hashing algorithms (see appendix).
 * **Contract accounts**.  These are accounts that are materialized whenever a
 smart contract is instantiated.  Each contract is paired with exactly one contract account.
 It cannot authorize or pay for transactions, but may serve as the sending account
-of a currently-executing transaction, via Clarity's `as-contract` function. 
-Its address is calculated from the hash of the transaction that created it.
-Note that this means that each contract has a unique address, even for contract
-that contain exactly the same code.
+of a currently-executing transaction, via Clarity's `as-contract` function.  A
+contract's address's public key hash matches the public key hash of the standard
+account that created it, and each contract account's address contains a name for
+its code body.  The name is unique within the set of code bodies instantiated by
+the standard account.
 
 Both kinds of accounts may own on-chain assets.  However, the nonce of a
-contract account must always be 0, since it cannot be used to originate a
-transaction.
+contract account must always be 0, since it cannot be used to originate or pay
+for a transaction.
 
 ### Account Assets
 
@@ -190,12 +196,12 @@ paying accounts are distinct, and both accounts must sign the transaction for it
 to be valid (first the origin, then the spender).
 
 The intended use-case for sponsored authorizations is to enable developers
-and/or Blockstack infrastructure operators to pay for users to call into their
+and/or infrastructure operators to pay for users to call into their
 smart contracts, even if users do not have the STX to do so.  The signing flow
 for sponsored transactions would be to have the user first sign the transaction
-with their origin account, and then have the sponsor sign with their paying
-account to pay for the user's transaction fees (and possibly for the movement of
-other assets).
+with their origin account with the intent of it being sponsored (i.e. the user
+must explicitly allow a sponsor to sign), and then have the sponsor sign with their paying
+account to pay for the user's transaction fee.
 
 ### Transaction Payloads
 
@@ -209,9 +215,8 @@ and to provide greater security for the user(s) that own the account.
 
 A type-0 transaction may only transfer a single asset from one account to
 another.  It may not directly execute Clarity code.  A type-0
-transaction can send STX, a fungible token quantity, or a non-fungible token to
-another (different) account.  A type-0 transaction cannot be sponsored -- it's
-origin and paying accounts must be the same.
+transaction can only send STX.  It cannot be sponsored, and it cannot have post-conditions
+(see below).
 
 #### Type-1: Instantiating a Smart Contract
 
@@ -225,7 +230,7 @@ atomically.
 
 A type-2 transaction has restricted access to the Clarity VM.  A
 type-2 transaction may only contain a single public function call (via
-`contract-call!`), and may only supply literals as its
+`contract-call?`), and may only supply Clarity `Value`s as its
 arguments. These transactions do _not_ materialize a contract account.
 
 The intended use-case for a type-2 transaction is to invoke an existing public
@@ -237,7 +242,9 @@ Clarity VM, they are much cheaper to execute compared to a type-1 transaction.
 A type-3 transaction encodes two well-formed, signed, but conflicting
 microblock headers.  That is, the headers are different, but have the same
 sequence number and/or parent block hash.  If mined before the block reward
-matures, this transaction will cause the offending miner to lose their block reward.
+matures, this transaction will cause the offending miner to lose their block reward,
+and cause the sender of this transaction to receive a fraction of the lost
+coinbase as a reward for catching the bad behavior.
 This transaction has no access to the Clarity VM.
 
 #### Type-4: Coinbase
@@ -246,7 +253,8 @@ A type-4 transaction encodes a 32-byte scratch space for a block miner's own
 use, such as signaling for network upgrades or announcing a digest of a set of
 available peers.  This transaction must be the first transaction in an anchored
 block in order for the block to be considered well-formed.  This transaction 
-has no access to the Clarity VM.
+has no access to the Clarity VM.  Only one coinbase transaction may be mined per
+epoch.
 
 ### Transaction Post-Conditions
 
@@ -259,20 +267,21 @@ Transaction post-conditions are a feature meant to limit the damage a bug can
 do in terms of destroying a user's assets.
 
 Post-conditions are intended to be used to force a transaction to abort if the
-transaction would materialize changes to the _originating account_ that are not
-to the user's liking.  For example, a user may append a post-condition saying that
+transaction would cause a principal to send an asset in a way that is not to
+the user's liking.  For example, a user may append a post-condition saying that
 upon successful execution, their account's STX balance should have decreased by no more
-than 1 STX.  If this is not the case, then the transaction would abort
+than 1 STX (excluding the fee).  If this is not the case, then the transaction would abort
 and the account would only pay the transaction fee of processing it.
 As another example, a user purchasing a BNS name may append a post-condition saying that upon
-successful execution, the BNS name should be present in their account asset map.  If it
-isn't, then the transaction aborts, the account is not billed for the name,
+successful execution, the seller will have sent the BNS name.  If it
+did not, then the transaction aborts, the account is not billed for the name,
 and the selling account receives no payment.
 
 Each transaction includes a field that describes zero or more post-conditions
-that must be true over the set of origin account assets in the
-blockchain.  Each post-condition is a triple, containing:
+that must all be true when the transaction finishes running.  Each
+post-condition is a quad that encodes the following information:
 
+* The **principal** that sent the asset.  It can be a standard or contract address.
 * The **asset name**, i.e. the name of one of the assets in the originating
   account's asset map.
 * The **comparator**, described below.
@@ -282,13 +291,17 @@ blockchain.  Each post-condition is a triple, containing:
 
 The Stacks blockchain supports the following two types of comparators:
 
-* **Fungible asset changes** -- that is, a question of _how much_ the account's
-  fungible asset balance increased or decreased as a result of the transaction's
-  execution.  The contract can assert that the quantity of tokens increased,
+* **Fungible asset changes** -- that is, a question of _how much_ of a
+  fungible asset was sent by a given account when the transaction ran.
+  The post-condition can assert that the quantity of tokens increased,
   decreased, or stayed the same.
-* **Non-fungible asset state** -- that is, a question of _whether or not_ the
-  account owns a particular non-fungible asset when the transaction finishes
-  executing.
+* **Non-fungible asset state** -- that is, a question of _whether or not_ an
+  account sent a non-fungible asset when the transaction ran.
+
+In addition, the Stacks blockchain supports an "allow" or "deny" mode for
+evaluating post-conditions:  in "allow" mode, other asset transfers not covered
+by the post-conditions are permitted, but in "deny" mode, no other asset
+transfers are permitted besides those named in the post-conditions.
 
 Post-conditions are meant to be added by the user (or by the user's wallet
 software) at the moment they sign with their origin account.  Because the
@@ -299,37 +312,18 @@ Well-designed wallets would provide an intuitive user interface for
 encoding post-conditions, as well as provide a set of recommended mitigations
 based on whether or not the transaction would interact with a known-buggy smart contract.
 
-Post-conditions apply only to the origin account's assets.  Stacks transactions do not 
-support post-conditions on the spending account if it is distinct from the
-origin account (i.e. in sponsored transactions).
-This is because account owners who sponsor transactions can
-already filter out which transactions they sponsor, and add their own
-programmatic post-conditions in Clarity code directly.  For example, if a
-transaction sponsor wanted to enforce post-conditions on the sponsoring account,
-they would implement post-conditions within a public function in a
-Clarity smart contract, and then only sponsor transactions that call that public
-function.  This not only gives the sponsor account the same kinds of protections as
-post-conditions give to the origin account, but also saves space in the
-blockchain -- the sposnor's post-conditions only need to be written once in a
-contract.
-
-Post-conditions may be used in conjunction with all transaction payload types.  They
-are applied regardless of what the contained payload does, thereby ensuring that
-the origin account owner (i.e. the user) can always keep their assets safe in
-the face of buggy code.
+Post-conditions may be used in conjunction with only contract-calls and smart contract 
+instantiation transaction payloads.
 
 #### Post-Condition Limitations
 
-Treating post-conditions as first-class transaction component strikes a balance
-between the need for complex abort logic and the need for cheap but effective smart contract 
-bug mitigation.  Post-conditions are not free, since validating, evaluating, and storing them
-carries non-zero computational cost that scales linearly in the number of
-post-conditions.  In addition, as mentioned, post-conditions only apply
-to the originating account's assets.  If the user wants post-conditions
-on other accounts or on non-asset state, they would need to be expressed in the Clarity code body.
-Post-conditions are _not_ meant to be (or become) a domain-specific language for
-encoding arbitrary post-conditions on arbitrary accounts -- they are _solely_
-meant to help preserve the safety of the _originating account_'s assets.
+Post-conditions do not consider who _currently owns_ an asset when the
+transaction finishes, nor do they consider the sequence of owners an asset
+had during its execution.  It only encodes who _sent_ an asset, and how much.
+This information is much cheaper to track, and requires no
+I/O to process (rocessing time is _O(n)_ in the number of post-conditions).
+Users who want richer post-conditions are encouraged to deploy their own
+proxy contracts for making such queries.
 
 ### Transaction Encoding
 
@@ -346,7 +340,7 @@ encoded as big-endian.
    * The signature(s) and signature threshold for the origin account.
    * The address of the sponsor account, if this is a sponsored transaction.
    * The signature(s) and signature threshold for the sponsor account, if given.
-* An 8-byte **transaction fee**, denominiated in microSTX.
+   * The **fee rate** to pay, denominated in microSTX/compute unit.
 * A 1-byte **anchor mode**, identifying how the transaction should be mined.  It
   takes one of the following values:
    * `0x01`:  The transaction MUST be included in an anchored block
@@ -383,7 +377,8 @@ main Stacks blockchain MUST have a chain ID of `0x00000000`.
 #### Transaction Authorization
 
 Each transaction contains a transaction authorization structure, which is used
-by the Stacks peer to identify the originating account and sponsored account,
+by the Stacks peer to identify the originating account and sponsored account, to
+determine the maximum fee rate the spending account will pay, and to
 and determine whether or not it is allowed to carry out the encoded state-transition.
 It is encoded as follows:
 
@@ -413,6 +408,7 @@ in Stacks v1 (which uses Bitcoin hashing routines):
 hash uniquely identify the origin account, with the hash mode being used to
 derive the appropriate account version number.
 * An 8-byte **nonce**.
+* An 8-byte **fee rate**.
 * Either a **single-signature spending condition** or a **multisig spending
   condition**, described below.  If the hash mode byte is either `0x00` or
 `0x02`, then a signle-signature spending condition follows.  Otherwise, a
@@ -476,7 +472,7 @@ condition structure uniquely identifies a standard account.
 and can be used to generate its address per the following rules:
 
 | Hash mode | Spending Condition | Mainnet version | Hash algorithm |
---------------------------------------------------------------------
+|----------|---------------------\-----------------|----------------|
 | `0x00` | Single-signature | 22 | Bitcoin P2PKH |
 | `0x01` | Multi-signature | 20 | Bitcoin redeem script P2SH |
 | `0x02` | Single-signature | 20 | Bitcoin P2WPK-P2SH |
@@ -541,18 +537,32 @@ account's fungible tokens.
 account's non-fungible tokens.
 
 A _STX post condition_ body is encoded as follows:
+* A variable-length **principal**, containing the address of the standard account or contract
+  account
 * A 1-byte **fungible condition code**, described below
 * An 8-byte value encoding the literal number of microSTX
 
 A _Fungible token post-condition_ body is encoded as follows:
+* A variable-length **principal**, containing the address of the standard account or contract
+  account
 * A variable-length **asset info** structure that identifies the token type, described below
 * A 1-byte **fungible condition code**
 * An 8-byte value encoding the literal number of token units
 
 A _Non-fungible token post-condition_ body is encoded as follows:
+* A variable-length **principal**, containing the address of the standard account or contract
+  account
 * A variable-length **asset info** structure that identifies the token type
 * A variable-length **asset name** string that names the token instance
 * A 1-byte **non-fungible condition code**
+
+A **principal** structure encodes either a standard account address or a
+contract account address.
+* A standard account address is encoded as a 1-byte version number and a 20-byte
+  Hash160
+* A contract account address is encoded as a 1-byte version number, a 20-byte
+  Hash160, a 1-byte name length, and a variable-length name of up to 128
+characters.  The name characters must be a valid contract name (see below).
 
 An **asset info** structure identifies a token type declared somewhere in an
 earlier-processed Clarity smart contract.  It contains the following fields:
@@ -730,7 +740,7 @@ A _block header_ is encoded as follows:
   that precedes this block in the fork to which this block is to be appended.
 * A 32-byte **parent microblock hash**, which must be the SHA512/256 hash of the last _stremaed_
   block that precedes this block in the fork to which this block is to be appended.
-* A 1-byte **parent microblock sequence number**, which indicates the sequence
+* A 2-byte **parent microblock sequence number**, which indicates the sequence
   number of the parent microblock to which this anchored block is attached.
 * A 32-byte **transaction Merkle root**, the SHA512/256 root hash of a binary Merkle tree
   calculated over the sequence of transactions in this block (described below).
@@ -763,7 +773,7 @@ A _microblock_ is comprised of two fields:
 
 Each _microblock header_ contains the following information:
 * A 1-byte **version number** to describe how to validate the block.
-* A 1-byte **sequence number** as a hint to describe how to order a set of
+* A 2-byte **sequence number** as a hint to describe how to order a set of
   microblocks.
 * A 32-byte **parent microblock hash**, which is the SHA512/256 hash of the previous signed microblock
   in this stream.
@@ -801,8 +811,9 @@ network, the peer must confirm that:
 If any of the above are false, then there is _no way_ that the block can be
 valid, and it is dropped.
 
-Once an block passes this initial test, it is queued up for processing.
-Blocks remain in this queue until there exists a chain tip to which to append
+Once an block passes this initial test, it is queued up for processing in a
+"staging" database.  Blocks remain in this staging database
+until there exists a chain tip to which to append
 the block (where the chain tip in this case refers both to the parent anchored
 block and parent microblock).
 
@@ -925,8 +936,8 @@ debit value will be _less than or equal to_ the advertised fee rate.
 the account by the fee advertised.
 
 If a block is less than _K_% full, _and_ there are enough pending transactions
-in the mempool to fill it to _K_% or higher, then no correct Stacks peer will relay the block
-and the block will not be processed.  However, if a block is less than _K_% full
+in the mempool to fill it to _K_% or higher, then no correct Stacks peer will
+relay the block and no correct miners will build on it.  However, if a block is less than _K_% full
 and there are not enough pending transactions, then correct Stacks peers will
 relay it and process it.  This is to ensure that a leader will pick low-fee transactions even
 if there are few unconfirmed transactions available when the block is mined.
@@ -979,7 +990,8 @@ _fully-qualified name_ of the smart contract to:
 
 The fully-qualified name of a smart contract is composed of the c32check-encoded
 standard account address that created it, as well as an ASCII-encoded string chosen by
-the standard account owner(s) when the contract is instantiated.  Note that all
+the standard account owner(s) when the contract is instantiated (subject to the
+constraints mentioned in the above sections).  Note that all
 fully-qualified smart contract names are globally unique -- the same standard
 account cannot create two smart contracts with the same name.
 
@@ -1017,154 +1029,162 @@ does _not_ include the ASCII period.
 
 #### Clarity Value Representation
 
-Clarity value's are represented through a specific JSON encoding, described with the
-following JSON schema:
+Clarity values are represented through a specific binary encoding.  Each value
+representation is comprised of a 1-byte type ID, and a variable-length
+serialized payload.  The payload itself may be composed of additional Clarity
+values.
 
-```json
-{
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "ClarityValue",
-    "anyOf": [
-        {   "type": "object",
-            "properties": {
-                "type": { "const", "bool"},
-                "value": { "type", "bool }
-            },
-            "required": ["type", "value"],
-            "additionalProperties": false
-        },
-        {
-            "type": "object", 
-            "properties": {
-                "type": { "const": "i128" },
-                "value": { "type": "string" }
-            },
-            "required": ["type", "value"],
-            "additionalProperties": false
-        },
-        {
-            "type": "object", 
-            "properties": {
-                "type": { "const": "u128" },
-                "value": { "type": "string" }
-            },
-            "required": ["type", "value"],
-            "additionalProperties": false
-        },
-        {
-            "type": "object", 
-            "properties": {
-                "type": { "const": "buff" },
-                "value": { "type": "string" }
-            },
-            "required": ["type", "value"],
-            "additionalProperties": false
-        },
-        {
-            "type": "object", 
-            "properties": {
-                "type": { "const": "principal" },
-                "value": { "type": "string" }
-            },
-            "required": ["type", "value"],
-            "additionalProperties": false
-        },
-        {
-            "type": "object", 
-            "properties": {
-                "type": { "const": "contract_principal" },
-                "namespace": { "type": "string" },
-                "name": { "type": "string" }
-            },
-            "required": ["type", "name", "namespace"],
-            "additionalProperties": false
-        },
-        {
-            "type": "object", 
-            "properties": {
-                "type": { "enum": ["ok", "err", "some"] },
-                "value": {"$ref": "ClarityValue"}
-            },
-            "required": ["type", "value"],
-            "additionalProperties": false
-        },
-        {
-            "type": "object", 
-            "properties": {
-                "type": { "const": "none" }
-            },
-            "required": ["type"],
-            "additionalProperties": false
-        },
-        {
-            "type": "object", 
-            "properties": {
-                "type": { "const": "list" },
-                "entries": { "type": "array", "items": { "$ref": "ClarityValue" } }
-            },
-            "required": ["type", "entries"],
-            "additionalProperties": false
-        },
-        {
-            "type": "object", 
-            "properties": {
-                "type": { "const": "tuple" },
-                "entries": {
-                    "type": "object",
-                    "patternProperties": {
-                        "^[A-Za-z_!+=/0-9-]+": { "$ref": "ClarityValue" }
-                    }
-                }
-            },
-            "required": ["type", "entries"],
-            "additionalProperties": false
-        }
-    ]
-}
-```
+The following type IDs indicate the following values:
+* 0x00: 128-bit signed integer
+* 0x01: 128-bit unsigned integer
+* 0x02: buffer
+* 0x03: boolean `'true`
+* 0x04: boolean `'false`
+* 0x05: standard principal
+* 0x06: contract principal
+* 0x07: Ok response
+* 0x08: Err response
+* 0x09: None option
+* 0x0a: Some option
+* 0x0b: List
+* 0x0c: Tuple
 
-JSON objects are created without newlines or tab characters, with a
-single space between field names and their values, a single space
-between commas and subsequent entries, and a single space of padding
-after each `[` or `{` character, and an additional space of padding
-before each `]` or `}` character.
+The serialized payloads are defined as follows:
 
-`u128` and `i128` values are encoded as the hex representation of the
-integer, with a `-` indicator for negative `i128` values. Buffers are
-hex encoded. Principals are c32check-encoded account addresses.
+**128-bit signed integer**
+
+The following 16 bytes are a big-endian 128-bit signed integer
+
+**128-bit unsigned integer**
+
+The following 16 bytes are a big-endian 128-bit unsigned integer
+
+**Buffer**
+
+The following 4 bytes are the buffer length, encoded as a 32-bit unsigned big-endian
+integer.  The remaining bytes are the buffer data.
+
+**Boolean `'true`**
+
+No bytes follow.
+
+**Boolean `'false`**
+
+No bytes follow.
+
+**Standard principal**
+
+The next byte is the address version, and the following 20 bytes are the
+principal's public key(s)' Hash160.
+
+**Contract Principal**
+
+The next byte is the address version, the following 20 bytes are a Hash160, the
+21st byte is the length of the contract name, and the remaining bytes (up to
+128, exclusive) encode the name itself.
+
+**Ok Response**
+
+The following bytes encode a Clarity value.
+
+**Err Response**
+
+The following bytes encode a Clarity value.
+
+**None option**
+
+No bytes follow.
+
+**Some option**
+
+The following bytes encode a Clarity value.
+
+**List**
+
+The following 4 bytes are the list length, encoded as a 32-bit unsigned
+big-endian integer.  The remaining bytes encode the length-given number of
+concatenated Clarity values.
+
+**Tuple**
+
+The following 4 bytes are the tuple length, encoded as a 32-bit unsigned
+big-endian integer.  The remaining bytes are encoded as a concatenation of tuple
+items.  A tuple item's serialized representation is a 
+Clarity name (a 1-byte length and up to 128 bytes (exclusive) of valid Clarity
+name characters) followed by a Clarity value.
 
 #### Calculating the State of an Account
 
-An account's canonical encoding as a key/value pair in the account state
-is as follows:
+An account's canonical encoding is a set of key/value pairs that represent the
+account's nonce, STX tokens, and assets owned.
 
-* Key: The string "account", a period, and a c32check-encoded address.
-* Value: A typed netstring constructed as the concatenation of the
-  encoded-nonce, and the account's sequence of asset/quantity pairs encoded as a list of tuples.
-The sequence of asset/quantity pairs is determined by the order in the chain
-history into which their mapping was materialized.
+The nonce is encoded as follows:
 
-Example:  `"account.SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q"` refers to standard
-account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`.
+* Key: the string `"vm-account::"`, a c32check-encoded address, and the string
+  `"::18"`
+* Value: a serialized Clarity `UInt`
+
+Example: `"vm-account::SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q::18"` refers to
+the nonce of account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`.
+
+The STX balance is encoded as follows:
+
+* Key: the string "vm-account::", a c32check-encoded address, and the string
+  "::19"
+* Value: a serialized Clarity `UInt`
+
+Example: `"vm-account::SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q::19"` refers to
+the STX balance of account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`.
+
+A fungible token balance owned by an account is encoded as follows:
+
+* Key: the string `"vm::"`, the fully-qualified contract identifier, the string `"::2::"`,
+  the name of the token as defined in its Clarity contract, the string `"::"`, and the
+c32check-encoded address of the account.
+* Value: a serialized Clarity `UInt`
+
+Example: `"vm::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract::2::example-token::SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q"`
+refers to the balance of `example-token` -- a fungible token defined in contract `SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract` -- 
+that is owned by account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`.
+
+A non-fungible token owned by an account is encoded as follows:
+
+* Key: the string `"vm::"`, the fully-qualified contract identifier, the string `"::4::"`,
+  the name of the token as defined in its Clarity contract, the string `"::"`,
+and the serialized Clarity value that represents the token.
+* Value: a serialized Clarity standard principal
+
+Example: `"vm::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract::4::example-nft::\x02\x00\x00\x00\x0b\x68\x65\x6c\x6c\x6f\x20\x77\x6f\x72\x6c\x64"` 
+refers to the non-fungible token `"hello world"` (which has type `buff` and is
+comprised of 11 bytes), defined in Clarity contract `SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract`
+as a type of non-fungible token `example-nft`.
 
 #### Calculating the State of a Smart Contract
 
 A smart contract's canonical encoding as a key/value pair in the smart contract
 state is as follows:
 
-* Key: The string "smart-contract", followed by a `.`, followed by the
-  c32check-encoded address of the standard account that created it,
-  followed by a `.`, followed by the ASCII-encoded name of the contract.
-* Value: The transaction ID, encoded as a buffer
+* Key: The string `"vm::"`, the fully-qualified contract identifier, and the
+  string `::9`.
+* Value: A deterministically-generated JSON string that encodes the contract's AST (see below)
 
 Note that _other_ kinds of smart contract data (e.g., analysis data, function bodies, etc.)
 must also be indexed by Stacks peers. However, this data does not need to be included in a
-peer's commitment, is indexed via a secondary MARF structure, and the representation of
-that data is therefore _not_ specified as part of the Stacks protocol. 
+peer's commitment -- it is indexed via a secondary MARF structure.  Therefore, the representation of
+that data is _not_ specified as part of the Stacks protocol. 
 
-Example: `"smart-contract.SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q.my-contract"` refers
-to a smart contract created by standard account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`
-called `my-contract`.
+Example: `"vm::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract::9"`
+refers to the contract AST created by standard principal
+`SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G` and named `example-contract`.
+
+A smart contract's persistent data variables are each encoded as two key/value
+pairs: a pair describing the variable's data type, and a pair describing the
+variable's value.
+
+The variable data type is encoded as follows:
+
+* Key: The string `"vm::"`, the fully-qualified contract identifier, the string
+  `"::6::"`, 
 
 #### Calculating the State of Smart Contract Data
 
