@@ -4,7 +4,8 @@
 
 Title: Blocks, Transactions, and Accounts
 
-Author: Jude Nelson <jude@blockstack.com>
+Authors: Jude Nelson <jude@blockstack.com>, Aaron Blankstein
+<aaron@blockstack.com>
 
 Status: Draft
 
@@ -472,7 +473,7 @@ condition structure uniquely identifies a standard account.
 and can be used to generate its address per the following rules:
 
 | Hash mode | Spending Condition | Mainnet version | Hash algorithm |
-|----------|---------------------\-----------------|----------------|
+|-----------|--------------------\-----------------|----------------|
 | `0x00` | Single-signature | 22 | Bitcoin P2PKH |
 | `0x01` | Multi-signature | 20 | Bitcoin redeem script P2SH |
 | `0x02` | Single-signature | 20 | Bitcoin P2WPK-P2SH |
@@ -889,10 +890,10 @@ the peer must first ensure that:
 * The microblocks are contiguous.  That is:
    * The first microblock's sequence number is 0, and its parent block hash is
      equal to the parent anchored block's hash.
-   * The _i_th microblock's parent block hash is equal to the block hash of the
-     _i-1_th microblock.
-   * The _i_th microblock has a sequence number that is equal to 1 + the
-     sequence number of the _i-1_th microblock.
+   * The *i*th microblock's parent block hash is equal to the block hash of the
+     *i-1*th microblock.
+   * The *i*th microblock has a sequence number that is equal to 1 + the
+     sequence number of the *i-1*th microblock.
    * The last microblock's hash and sequence number match the anchored block's
      parent microblock hash and parent microblock sequence number.
    * There are at most 256 microblocks.
