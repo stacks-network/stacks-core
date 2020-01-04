@@ -473,7 +473,7 @@ condition structure uniquely identifies a standard account.
 and can be used to generate its address per the following rules:
 
 | Hash mode | Spending Condition | Mainnet version | Hash algorithm |
-| --------- | ------------------ \ --------------- | -------------- |
+| --------- | ------------------ | --------------- | -------------- |
 | `0x00` | Single-signature | 22 | Bitcoin P2PKH |
 | `0x01` | Multi-signature | 20 | Bitcoin redeem script P2SH |
 | `0x02` | Single-signature | 20 | Bitcoin P2WPK-P2SH |
