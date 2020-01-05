@@ -37,7 +37,7 @@ use serde::ser::Error as ser_Error;
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
 
-use util::db::FromRow;
+use util::db::FromColumn;
 use util::db::Error as db_error;
 
 use rusqlite::Row;
@@ -252,9 +252,9 @@ impl PublicKey for Secp256k1PublicKey {
 }
 
 /// Make public keys loadable from a sqlite database
-impl FromRow<Secp256k1PublicKey> for Secp256k1PublicKey {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<Secp256k1PublicKey, db_error> {
-        let pubkey_hex : String = row.get(index);
+impl FromColumn<Secp256k1PublicKey> for Secp256k1PublicKey {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PublicKey, db_error> {
+        let pubkey_hex : String = row.get(column_name);
         let pubkey = Secp256k1PublicKey::from_hex(&pubkey_hex)
             .map_err(|_e| db_error::ParseError)?;
         Ok(pubkey)
@@ -357,9 +357,9 @@ impl PrivateKey for Secp256k1PrivateKey {
 }
 
 /// Make private keys loadable from a sqlite database
-impl FromRow<Secp256k1PrivateKey> for Secp256k1PrivateKey {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<Secp256k1PrivateKey, db_error> {
-        let privkey_hex : String = row.get(index);
+impl FromColumn<Secp256k1PrivateKey> for Secp256k1PrivateKey {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PrivateKey, db_error> {
+        let privkey_hex : String = row.get(column_name);
         let privkey = Secp256k1PrivateKey::from_hex(&privkey_hex)
             .map_err(|_e| db_error::ParseError)?;
         Ok(privkey)
