@@ -147,6 +147,12 @@ impl From<blockstack_lib::util::HexError> for CliError {
     }
 }
 
+impl From<blockstack_lib::vm::types::serialization::SerializationError> for CliError {
+    fn from(value: blockstack_lib::vm::types::serialization::SerializationError) -> Self {
+        CliError::Message(format!("Failed to deserialize: {}", value))
+    }
+}
+
 fn make_contract_publish(contract_name: String, contract_content: String) -> Result<TransactionSmartContract, CliError> {
     let name = ContractName::try_from(contract_name)?;
     let code_body = StacksString::from_string(&contract_content)
@@ -245,7 +251,7 @@ fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<
         let input = &val_args[arg_iterator+1];
         let value = match eval_method.as_str() {
             "-x" => {
-                Value::try_deserialize_untyped(input)?
+                Value::try_deserialize_hex_untyped(input)?
             },
             "-e" => {
                 vm::execute(input)?
