@@ -20,6 +20,15 @@ impl KeyValueStorage for HashMap<String, String> {
     fn get(&mut self, key: &str) -> Option<String> {
         (&*self).get(key).cloned()
     }
+
+    fn put_non_consensus(&mut self, key: &str, value: &str) {
+        self.insert(format!("nc::{}", key), value.to_string());
+    }
+    fn get_non_consensus(&mut self, key: &str) -> Option<String> {
+        let key = format!("nc::{}", key);
+        (&*self).get(&key).cloned()
+    }
+
     fn has_entry(&mut self, key: &str) -> bool {
         self.contains_key(key)
     }

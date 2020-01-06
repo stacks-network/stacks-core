@@ -157,6 +157,14 @@ impl <S> KeyValueStorage for &mut MarfedKV <S> where S: KeyValueStorage {
             .expect("ERROR: Unexpected MARF Failure")
     }
 
+    fn put_non_consensus(&mut self, key: &str, value: &str) {
+        panic!("Not implemented");
+    }
+
+    fn get_non_consensus(&mut self, key: &str) -> Option<String> {
+        panic!("Not implemented");
+    }
+
     fn get(&mut self, key: &str) -> Option<String> {
         self.marf.get(&self.chain_tip, key)
             .or_else(|e| {

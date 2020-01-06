@@ -10,6 +10,9 @@ pub trait KeyValueStorage {
     fn get(&mut self, key: &str) -> Option<String>;
     fn has_entry(&mut self, key: &str) -> bool;
 
+    fn put_non_consensus(&mut self, key: &str, value: &str);
+    fn get_non_consensus(&mut self, key: &str) -> Option<String>;
+
     /// begin, commit, rollback a save point identified by key
     ///    not all backends will implement this! this is used to clean up
     ///     any data from aborted blocks (not aborted transactions! that is handled
@@ -33,10 +36,17 @@ pub trait KeyValueStorage {
             self.put(&key, &value);
         }
     }
+
+    fn put_all_non_consensus(&mut self, mut items: Vec<(String, String)>) {
+        for (key, value) in items.drain(..) {
+            self.put_non_consensus(&key, &value);
+        }
+    }
 }
 
 pub struct RollbackContext {
-    edits: Vec<(String, String)>
+    edits: Vec<(String, String)>,
+    non_consensus_edits: Vec<(String, String)>,
 }
 
 pub struct RollbackWrapper <'a> {
@@ -46,6 +56,7 @@ pub struct RollbackWrapper <'a> {
     //   in order of least-recent to most-recent at the tail.
     //   this allows ~ O(1) lookups, and ~ O(1) commits, roll-backs (amortized by # of PUTs).
     lookup_map: HashMap<String, Vec<String>>,
+    non_consensus_lookup_map: HashMap<String, Vec<String>>,
     // stack keeps track of the most recent rollback context, which tells us which
     //   edits were performed by which context. at the moment, each context's edit history
     //   is a separate Vec which must be drained into the parent on commits, meaning that
@@ -56,17 +67,32 @@ pub struct RollbackWrapper <'a> {
     stack: Vec<RollbackContext>
 }
 
+fn rollback_lookup_map(key: &String, value: &String, lookup_map: &mut HashMap<String, Vec<String>>) {
+    let remove_edit_deque = {
+        let key_edit_history = lookup_map.get_mut(key)
+            .expect("ERROR: Clarity VM had edit log entry, but not lookup_map entry");
+        let popped_value = key_edit_history.pop();
+        assert_eq!(popped_value.as_ref(), Some(value));
+        key_edit_history.len() == 0
+    };
+    if remove_edit_deque {
+        lookup_map.remove(key);
+    }
+}
+
 impl <'a> RollbackWrapper <'a> {
     pub fn new(store: Box<dyn KeyValueStorage + 'a>) -> RollbackWrapper {
         RollbackWrapper {
             store: store,
             lookup_map: HashMap::new(),
+            non_consensus_lookup_map: HashMap::new(),
             stack: Vec::new()
         }
     }
 
     pub fn nest(&mut self) {
-        self.stack.push(RollbackContext { edits: Vec::new() });
+        self.stack.push(RollbackContext { edits: Vec::new(),
+                                          non_consensus_edits: Vec::new() });
     }
 
     // Rollback the child's edits.
@@ -77,18 +103,14 @@ impl <'a> RollbackWrapper <'a> {
             .expect("ERROR: Clarity VM attempted to commit past the stack.");
 
         last_item.edits.reverse();
+        last_item.non_consensus_edits.reverse();
 
         for (key, value) in last_item.edits.drain(..) {
-                let remove_edit_deque = {
-                    let key_edit_history = self.lookup_map.get_mut(&key)
-                        .expect("ERROR: Clarity VM had edit log entry, but not lookup_map entry");
-                    let popped_value = key_edit_history.pop();
-                    assert_eq!(popped_value.as_ref(), Some(&value));
-                    key_edit_history.len() == 0
-                };
-                if remove_edit_deque {
-                    self.lookup_map.remove(&key);
-                }
+            rollback_lookup_map(&key, &value, &mut self.lookup_map);
+        }
+
+        for (key, value) in last_item.non_consensus_edits.drain(..) {
+            rollback_lookup_map(&key, &value, &mut self.non_consensus_lookup_map);
         }
     }
 
@@ -105,20 +127,23 @@ impl <'a> RollbackWrapper <'a> {
                 edit_history.reverse();
             }
             for (key, value) in last_item.edits.iter() {
-                let remove_edit_deque = {
-                    let key_edit_history = self.lookup_map.get_mut(key)
-                        .expect("ERROR: Clarity VM had edit log entry, but not lookup_map entry");
-                    let popped_value = key_edit_history.pop();
-                    assert_eq!(popped_value.as_ref(), Some(value));
-                    key_edit_history.len() == 0
-                };
-                if remove_edit_deque {
-                    self.lookup_map.remove(key);
-                }
+                rollback_lookup_map(&key, &value, &mut self.lookup_map);
             }
             assert!(self.lookup_map.len() == 0);
             if last_item.edits.len() > 0 {
                 self.store.put_all(last_item.edits);
+            }
+
+
+            for (_, edit_history) in self.non_consensus_lookup_map.iter_mut() {
+                edit_history.reverse();
+            }
+            for (key, value) in last_item.non_consensus_edits.iter() {
+                rollback_lookup_map(&key, &value, &mut self.lookup_map);
+            }
+            assert!(self.non_consensus_lookup_map.len() == 0);
+            if last_item.non_consensus_edits.len() > 0 {
+                self.store.put_all_non_consensus(last_item.non_consensus_edits);
             }
         } else {
             // bubble up to the next item in the stack
@@ -126,9 +151,21 @@ impl <'a> RollbackWrapper <'a> {
             for (key, value) in last_item.edits.drain(..) {
                 next_up.edits.push((key, value));
             }
+            for (key, value) in last_item.non_consensus_edits.drain(..) {
+                next_up.non_consensus_edits.push((key, value));
+            }
         }
     }
+}
 
+fn inner_put(lookup_map: &mut HashMap<String, Vec<String>>, edits: &mut Vec<(String, String)>, key: &str, value: &str) {
+    if !lookup_map.contains_key(key) {
+        lookup_map.insert(key.to_string(), Vec::new());
+    }
+    let key_edit_deque = lookup_map.get_mut(key).unwrap();
+    key_edit_deque.push(value.to_string());
+
+    edits.push((key.to_string(), value.to_string()));
 }
 
 impl <'a> KeyValueStorage for RollbackWrapper <'a> {
@@ -136,13 +173,14 @@ impl <'a> KeyValueStorage for RollbackWrapper <'a> {
         let current = self.stack.last_mut()
             .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
 
-        if !self.lookup_map.contains_key(key) {
-            self.lookup_map.insert(key.to_string(), Vec::new());
-        }
-        let key_edit_deque = self.lookup_map.get_mut(key).unwrap();
-        key_edit_deque.push(value.to_string());
+        inner_put(&mut self.lookup_map, &mut current.edits, key, value)
+    }
 
-        current.edits.push((key.to_string(), value.to_string()));
+    fn put_non_consensus(&mut self, key: &str, value: &str) {
+        let current = self.stack.last_mut()
+            .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
+
+        inner_put(&mut self.non_consensus_lookup_map, &mut current.non_consensus_edits, key, value)
     }
 
     fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
@@ -153,17 +191,22 @@ impl <'a> KeyValueStorage for RollbackWrapper <'a> {
         self.stack.last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
-        let lookup_result = match self.lookup_map.get(key) {
-            None => None,
-            Some(key_edit_history) => {
-                key_edit_history.last().cloned()
-            },
-        };
-        if lookup_result.is_some() {
-            lookup_result
-        } else {
-            self.store.get(key)
-        }
+        let lookup_result = self.lookup_map.get(key)
+            .and_then(|x| x.last().cloned());
+
+        lookup_result
+            .or_else(|| self.store.get(key))
+    }
+
+    fn get_non_consensus(&mut self, key: &str) -> Option<String> {
+        self.stack.last()
+            .expect("ERROR: Clarity VM attempted GET on non-nested context.");
+
+        let lookup_result = self.non_consensus_lookup_map.get(key)
+            .and_then(|x| x.last().cloned());
+
+        lookup_result
+            .or_else(|| self.store.get_non_consensus(key))
     }
 
     fn has_entry(&mut self, key: &str) -> bool {

@@ -41,6 +41,16 @@ impl KeyValueStorage for SqliteConnection {
         sqlite_get(&self.conn, key)
     }
 
+    fn put_non_consensus(&mut self, key: &str, value: &str) {
+        let key = format!("nc::{}", key);
+        sqlite_put(&self.conn, &key, value)
+    }
+
+    fn get_non_consensus(&mut self, key: &str) -> Option<String> {
+        let key = format!("nc::{}", key);
+        sqlite_get(&self.conn, &key)
+    }
+
     fn has_entry(&mut self, key: &str) -> bool {
         sqlite_has_entry(&self.conn, key)
     }
