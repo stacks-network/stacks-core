@@ -1543,7 +1543,6 @@ impl StacksChainState {
             None => { 
                 let msg = format!("Invalid block {}: does not correspond to burn chain state", block.block_hash());
                 warn!("{}", &msg);
-
                 return Err(Error::InvalidStacksBlock(msg));
             }
         };

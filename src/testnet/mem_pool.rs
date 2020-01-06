@@ -24,8 +24,10 @@ pub struct MemPoolFS {
 
 impl MemPoolFS {
     pub fn new(path: &str) -> Self {
-        
-        fs::create_dir_all(path).unwrap();
+        match fs::create_dir_all(path) {
+            Ok(_) => {},
+            Err(_) => panic!("Error while creating dir at path {}", path)
+        };
 
         Self {
             path: path.to_string(),
@@ -38,7 +40,7 @@ impl MemPoolFS {
 impl MemPool for MemPoolFS {
 
     fn poll(&mut self) -> Vec<StacksTransaction> {
-        let txs_paths = fs::read_dir(self.path.clone()).unwrap();
+        let txs_paths = fs::read_dir(&self.path).unwrap();
         let mut decoded_txs = vec![];
 
         for tx in txs_paths {
@@ -65,15 +67,18 @@ impl MemPool for MemPoolFS {
     }
 
     fn start(&mut self) {
+        // no op - irrelevant in the case of MemPoolFS
     }
 
     fn stop(&mut self) {
+        // no op - irrelevant in the case of MemPoolFS
     }
 
-    fn handle_incoming_tx(&mut self, tx: Txid) {
+    fn handle_incoming_tx(&mut self, _tx: Txid) {
+        // no op - irrelevant in the case of MemPoolFS
     }
 
-    fn archive_tx(&mut self, tx: Txid) {
+    fn archive_tx(&mut self, _tx: Txid) {
         // Remove tx from pending_txs
         // Add tx to archived_txs
         // todo(ludo): remove tx from filesystem

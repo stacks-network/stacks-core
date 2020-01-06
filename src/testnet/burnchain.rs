@@ -21,6 +21,12 @@ pub struct BurnchainSimulator {
     db: Option<Arc<Mutex<BurnDB>>>,
 }
 
+pub struct BurnchainState {
+    pub chain_tip: BlockSnapshot,
+    pub ops: Vec<BlockstackOperationType>,
+    pub db: Arc<Mutex<BurnDB>>
+}
+
 impl BurnchainSimulator {
 
     pub fn new() -> Self {
@@ -30,7 +36,7 @@ impl BurnchainSimulator {
         }
     }
     
-    pub fn start(&mut self, config: &Config) -> (mpsc::Receiver<(BlockSnapshot, Vec<BlockstackOperationType>, Arc<Mutex<BurnDB>>)>, mpsc::Sender<BlockstackOperationType>) {
+    pub fn start(&mut self, config: &Config) -> (mpsc::Receiver<BurnchainState>, mpsc::Sender<BlockstackOperationType>) {
         let (block_tx, block_rx) = mpsc::channel();
         
         let path = config.burnchain_path.clone();
@@ -39,28 +45,44 @@ impl BurnchainSimulator {
         let block_time = time::Duration::from_millis(config.burnchain_block_time);
 
         let ops_dequeuing = Arc::clone(&self.mem_pool);
-        let mut vtxindex = 1;
 
-        let db = BurnDB::connect(&path, 0, &BurnchainHeaderHash([0u8; 32]), true).unwrap();
-        self.db = Some(Arc::new(Mutex::new(db)));
-        let burn_db = Arc::clone(&self.db.as_ref().unwrap());
+        let db = match BurnDB::connect(&path, 0, &BurnchainHeaderHash([0u8; 32]), true) {
+            Ok(db) => Arc::new(Mutex::new(db)),
+            Err(_) => panic!("Error while connecting to burnchain db")
+        };
+
+        let burn_db = Arc::clone(&db);
+        self.db = Some(db);
 
         thread::spawn(move || {
 
-            let chain = Burnchain::new(&path, &chain, &name).unwrap();
-            
-            let mut chain_tip = {
-                let db = burn_db.lock().unwrap();
-                BurnDB::get_first_block_snapshot(db.conn()).unwrap()
+            let chain = match Burnchain::new(&path, &chain, &name) {
+                Ok(res) => res,
+                Err(_) => panic!("Error while instantiating burnchain")
             };
 
-            block_tx.send((chain_tip.clone(), vec![], Arc::clone(&burn_db))).unwrap();    
+            let mut chain_tip = {
+                let db = burn_db.lock().unwrap();
+                match BurnDB::get_first_block_snapshot(db.conn()) {
+                    Ok(res) => res,
+                    Err(_) => panic!("Error while getting genesis block")
+                }
+            };
+
+            // Transmit genesis state
+            let genesis_state = BurnchainState {
+                chain_tip: chain_tip.clone(),
+                ops: vec![],
+                db: Arc::clone(&burn_db)
+            };
+            block_tx.send(genesis_state).unwrap();    
                 
             loop {
                 thread::sleep(block_time);
 
                 // Simulating mining
                 let next_block_header = BurnchainSimulator::build_next_block_header(&chain_tip);
+                let mut vtxindex = 1;
 
                 // Updating ops properties before including them in the new block
                 let mut ops_to_include = vec![];
@@ -72,19 +94,19 @@ impl BurnchainSimulator {
                                 op.block_height = next_block_header.block_height;
                                 op.burn_header_hash = next_block_header.block_hash;
                                 op.vtxindex = vtxindex;
-                                op.txid = Txid(Sha256Sum::from_data(format!("{}", vtxindex).as_bytes()).0);
+                                op.txid = Txid(Sha256Sum::from_data(format!("{}::{}", op.block_height, vtxindex).as_bytes()).0);
                             },
                             BlockstackOperationType::LeaderBlockCommit(ref mut op) => {
                                 op.block_height = next_block_header.block_height;
                                 op.burn_header_hash = next_block_header.block_hash;
                                 op.vtxindex = vtxindex;
-                                op.txid = Txid(Sha256Sum::from_data(format!("{}", vtxindex).as_bytes()).0);
+                                op.txid = Txid(Sha256Sum::from_data(format!("{}::{}", op.block_height, vtxindex).as_bytes()).0);
                             },
                             BlockstackOperationType::UserBurnSupport(ref mut op) => {
                                 op.block_height = next_block_header.block_height;
                                 op.burn_header_hash = next_block_header.block_hash;
                                 op.vtxindex = vtxindex;
-                                op.txid = Txid(Sha256Sum::from_data(format!("{}", vtxindex).as_bytes()).0);
+                                op.txid = Txid(Sha256Sum::from_data(format!("{}::{}", op.block_height, vtxindex).as_bytes()).0);
                             }
                         }
                         ops_to_include.push(op.clone());
@@ -93,7 +115,7 @@ impl BurnchainSimulator {
                     ops.clear();
                 };
                 
-                // Include txs in a    
+                // Include txs in a new block   
                 chain_tip = {
                     let mut db = burn_db.lock().unwrap();
                     let mut burn_tx = db.tx_begin().unwrap();
@@ -107,7 +129,13 @@ impl BurnchainSimulator {
                     new_chain_tip
                 };
         
-                block_tx.send((chain_tip.clone(), ops_to_include, Arc::clone(&burn_db))).unwrap();    
+                // Transmit the new state
+                let new_state = BurnchainState {
+                    chain_tip: chain_tip.clone(),
+                    ops: ops_to_include,
+                    db: Arc::clone(&burn_db)
+                };
+                block_tx.send(new_state).unwrap();    
             };
         });
         

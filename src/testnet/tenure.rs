@@ -1,5 +1,5 @@
 use super::{MemPool, MemPoolFS, NodeConfig};
-use super::node::{SortitionedBlock};
+use super::node::{SortitionedBlock, TESTNET_CHAIN_ID};
 
 use std::thread;
 use std::time;
@@ -7,6 +7,7 @@ use std::time;
 use burnchains::{BurnchainHeaderHash, Txid};
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
 use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
+use chainstate::stacks::{MINER_BLOCK_BURN_HEADER_HASH, MINER_BLOCK_HEADER_HASH};
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use util::vrf::{VRFProof};
 
@@ -41,7 +42,7 @@ impl <'a> LeaderTenure {
         };
 
         let block_builder = match last_sortitioned_block.block_height {
-            0 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, &vrf_proof, &microblock_secret_key),
+            1 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, &vrf_proof, &microblock_secret_key),
             _ => StacksBlockBuilder::from_parent(1, &parent_block, &ratio, &vrf_proof, &microblock_secret_key)
         };
 
@@ -66,21 +67,22 @@ impl <'a> LeaderTenure {
 
     pub fn run(&mut self) -> Option<(StacksBlock, Vec<StacksMicroblock>, SortitionedBlock)> {
 
-        let mut chain_state = StacksChainState::open(false, 0x80000000, &self.config.path).unwrap();
+        let mut chain_state = StacksChainState::open(false, TESTNET_CHAIN_ID, &self.config.path).unwrap();
 
+        println!("====> {:?}", self.last_sortitioned_block.block_height);
         let mut clarity_tx = match self.last_sortitioned_block.block_height {
-            0 => {
+            1 => {
                 chain_state.block_begin(
                 &BurnchainHeaderHash([0u8; 32]),
                 &BlockHeaderHash([0u8; 32]),
-                &BurnchainHeaderHash([1u8; 32]), 
-                &BlockHeaderHash([1u8; 32]))
+                &MINER_BLOCK_BURN_HEADER_HASH, 
+                &MINER_BLOCK_HEADER_HASH)
             },
             _ => chain_state.block_begin(
                 &self.last_sortitioned_block.burn_header_hash, 
                 &self.parent_block.anchored_header.block_hash(), 
-                &BurnchainHeaderHash([1u8; 32]), 
-                &BlockHeaderHash([1u8; 32])),
+                &MINER_BLOCK_BURN_HEADER_HASH, 
+                &MINER_BLOCK_HEADER_HASH),
         };
 
         let mempool_poll_interval = time::Duration::from_millis(250);
@@ -95,7 +97,6 @@ impl <'a> LeaderTenure {
             thread::sleep(mempool_poll_interval);
         }
 
-        let b = self.block_builder.clone();
         let anchored_block = self.block_builder.mine_anchored_block(&mut clarity_tx);
 
         clarity_tx.rollback_block();
