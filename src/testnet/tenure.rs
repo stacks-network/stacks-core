@@ -69,7 +69,6 @@ impl <'a> LeaderTenure {
 
         let mut chain_state = StacksChainState::open(false, TESTNET_CHAIN_ID, &self.config.path).unwrap();
 
-        println!("====> {:?}", self.last_sortitioned_block.block_height);
         let mut clarity_tx = match self.last_sortitioned_block.block_height {
             1 => {
                 chain_state.block_begin(
