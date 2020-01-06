@@ -76,7 +76,7 @@ impl RunLoop {
         }
 
         // Bootstrap the chain: the first node (could be random) will start a new tenure,
-        // using SortitionHash::genesis for generating a VRF.
+        // using the sortition hash from block #1 for generating a VRF.
         let leader = &mut self.nodes[0];
         let mut first_tenure = match leader.initiate_genesis_tenure(&state_1.chain_tip) {
             Some(res) => res,
