@@ -38,12 +38,12 @@ the principal ones being:
 * To instantiate a smart contract (see SIP 002)
 * To invoke a public smart contract function
 * To transfer STX tokens between accounts
-* To punish miners who fork their microblock streams (see SIP 001)
-* To allow miners to perform limited on-chain signaling
+* To punish leaders who fork their microblock streams (see SIP 001)
+* To allow leaders to perform limited on-chain signaling
 
 Processing transactions is not free.  Each step in the process of validating and
 executing the transaction incurs a non-zero computational cost.  To incentivize 
-peers and miners to execute transactions, the transaction's computational costs
+peers and leaders to execute transactions, the transaction's computational costs
 are paid for by an _account_.
 
 An _account_ is the logical entity that executes and/or pays for transactions.  A transaction's
@@ -53,7 +53,7 @@ execution is governed by three accounts, which may or may not be distinct:
   transaction.  This is always an account owned by a user.  Each transaction is
 _authorized_ by its originating account.
 
-* The **paying account** is the account that is billed by the miner for the cost
+* The **paying account** is the account that is billed by the leader for the cost
   of validating and executing the transaction.  This is also always an account
 owned by a user.  If not identified in the transaction, the paying account and
 the originating account are the same account.
@@ -115,7 +115,7 @@ That is, the account state is materialized only once a transaction's state-trans
 an entry into an account's assets mapping for some (possibly zero) quantity of some asset.
 Even if the account depletes all asset holdings, it remains materialized.
 Materialized accounts are distinguished from empty accounts in that the former
-are all represented in a miner's commitment to its materialized view of the blockchain state
+are all represented in a leader's commitment to its materialized view of the blockchain state
 (described below).
 
 ### Account Types
@@ -181,7 +181,7 @@ private keys sign the transaction, attach a _transaction fee_ to it, and
 relay it to the Stacks peer network.  If the transaction is well-formed,
 then it will be propagated to all reachable Stacks peers.
 Eventually, assuming the transaction remains resident in the peers' memories
-for long enough, a Stacks miner will select the transaction for inclusion
+for long enough, a Stacks leader will select the transaction for inclusion
 in the longest fork's next block.  Once this happens, the state-transitions
 encoded by the transaction are materialized in the blockchain state replicas in all
 peers.
@@ -238,19 +238,19 @@ The intended use-case for a type-2 transaction is to invoke an existing public
 smart contract function.  Because they have such restricted access to the
 Clarity VM, they are much cheaper to execute compared to a type-1 transaction.
 
-#### Type-3: Punishing an Equivocating Stacks Miner
+#### Type-3: Punishing an Equivocating Stacks Leader
 
 A type-3 transaction encodes two well-formed, signed, but conflicting
 microblock headers.  That is, the headers are different, but have the same
 sequence number and/or parent block hash.  If mined before the block reward
-matures, this transaction will cause the offending miner to lose their block reward,
+matures, this transaction will cause the offending leader to lose their block reward,
 and cause the sender of this transaction to receive a fraction of the lost
 coinbase as a reward for catching the bad behavior.
 This transaction has no access to the Clarity VM.
 
 #### Type-4: Coinbase
 
-A type-4 transaction encodes a 32-byte scratch space for a block miner's own
+A type-4 transaction encodes a 32-byte scratch space for a block leader's own
 use, such as signaling for network upgrades or announcing a digest of a set of
 available peers.  This transaction must be the first transaction in an anchored
 block in order for the block to be considered well-formed.  This transaction 
@@ -346,7 +346,7 @@ encoded as big-endian.
   takes one of the following values:
    * `0x01`:  The transaction MUST be included in an anchored block
    * `0x02`:  The transaction MUST be included in a microblock
-   * `0x03`:  The miner can choose where to include the transaction.
+   * `0x03`:  The leader can choose where to include the transaction.
 * A 1-byte **post-condition mode**, identifying whether or not post-conditions
   must fully cover all transferred assets.  It can take the following values:
    * `0x01`:  This transaction may affect other assets not listed in the
@@ -698,15 +698,15 @@ contract.
 A _poison microblock payload_ is encoded as follows:
 * Two Stacks microblock headers, such that either the `prev_block` or `sequence`
   values are equal.  When validated, the ECDSA recoverable `signature` fields of both microblocks
-must recover to the same public key, and it must hash to the miner's parent
+must recover to the same public key, and it must hash to the leader's parent
 anchored block's public key hash.  See the following sections for the exact
 encoding of a Stacks microblock header.
 
-This transaction type is sent to punish miners who intentionally equivocate
+This transaction type is sent to punish leaders who intentionally equivocate
 about the microblocks they package, as described in SIP 001.
 
 A _coinbase payload_ is encoded as follows:
-* A 32-byte field called a **coinbase buffer** that the Stacks miner can fill with whatever it wants.
+* A 32-byte field called a **coinbase buffer** that the Stacks leader can fill with whatever it wants.
 
 Note that this must be the first transaction in an anchored block in order for the
 anchored block to be considered well-formed (see below).
@@ -823,7 +823,7 @@ parent anchored block _and_ its parent microblocks are available.
 To accept the anchored block, the peer applies the parent microblock stream's
 transactions to the chain state, followed by the anchored block's transactions.
 If the resulting state root matches the block's state root, then the block is
-valid and the miner is awarded the anchored block's coinbase and 60% of the
+valid and the leader is awarded the anchored block's coinbase and 60% of the
 microblock stream's transaction fees, released over a maturation period
 (per SIP 001).  The microblock stream and anchored block are marked as
 _accepted_ and will be made available for other peers to download.
@@ -839,12 +839,12 @@ When a well-formed microblock arrives from the peer network, the peer
 first confirms that:
 
 * The parent anchored block is either fully accepted, or is queued up.
-* The parent anchored block's miner signed the microblock.
+* The parent anchored block's leader signed the microblock.
 
 If all these are true, then the microblock is queued up for processing.  It will
 be processed when its descendent anchored block is ready for processing.
 
-As discussed in SIP 001, a Stacks miner can equivocate while packaging
+As discussed in SIP 001, a Stacks leader can equivocate while packaging
 transactions as microblocks by deliberately creating a microblock stream fork.
 This will be evidenced by the discovery of either of the following:
 
@@ -854,12 +854,12 @@ This will be evidenced by the discovery of either of the following:
 If such a discovery is made, the microblock stream is truncated to the last
 microblock before the height in the microblock stream of the equivocation, and
 this microblock (or any of its predecessor microblocks in the stream) remain
-viable chain tips for subsequent miners to build off of.  In the mean time,
+viable chain tips for subsequent leaders to build off of.  In the mean time,
 anyone can submit a poison-microblock transaction with both signed headers in
-order to (1) destroy the equivocating miner's coinbase and fees, and (2) receive
+order to (1) destroy the equivocating leader's coinbase and fees, and (2) receive
 5% of the destroyed tokens as a reward, provided that the poison-microblock
 transaction is processed before the block reward becomes spendable by the
-equivocating miner.
+equivocating leader.
 
 Because microblocks are released quickly, it is possible that they will not
 arrive in order, and may even arrive before their parent microblock.  Peers are
@@ -867,7 +867,7 @@ expected to cache well-formed microblocks for some time, in order to help ensure
 they are eventually enqueued for processing if they are legitimate.
 
 Valid microblocks in the parent stream may be orphaned by the child anchored block, i.e. 
-because the miner didn't see them in time to build off of them.
+because the leader didn't see them in time to build off of them.
 If this happens, then the orphaned microblocks are dropped.
 
 ## Block Processing
@@ -896,7 +896,7 @@ the peer must first ensure that:
      sequence number of the *i-1*th microblock.
    * The last microblock's hash and sequence number match the anchored block's
      parent microblock hash and parent microblock sequence number.
-   * There are at most 256 microblocks.
+   * There are at most 65536 microblocks per epoch.
 
 If all of these are true, then the peer may then proceed to process the microblocks' transactions.
 
@@ -912,8 +912,8 @@ microblock:
 leader that produced the current anchored block to build on top of as many
 of the parent's microblocks as possible.
 
-If a microblock contains an invalid transaction, then parent block's miner forfeits their 
-block reward (i.e. is punished).  The deepest valid microblock remains a valid chain tip to which
+If a microblock contains an invalid transaction, then parent block's leader forfeits their 
+block reward.  The deepest valid microblock remains a valid chain tip to which
 subsequent anchored blocks may be attached.
 
 Once the end of the stream is reached, the peer processes the anchored block.
@@ -926,37 +926,36 @@ punished by forfeiting the block reward.
 2. Verify that each paying account has sufficient assets to pay their advertised
    fees.  If one or more do not, then reject the block and its descendent
 microblocks and punish the leader.
-3. Determine the lowest _STX fee rate per computation_ offered by the first _K_% of
-   the transactions, as measured by computational work (if a transaction
-straddles the _K_th percentile boundary, then include it in the first _K_%).
-Use this to calculate the transaction fee for each of the first _K_% of transactions,
-and debit each account the requisite number microSTX.  Note that this
-debit value will be _less than or equal to_ the advertised fee rate.
-4. Determine the fees for the remaining _(1 - K)%_ of the transactions, as
-   measured by computational work.  For each paying account referenced, debit
-the account by the fee advertised.
+3. Determine the *K*-highest offerred _STX fee rate per computation_ from all
+   transactions in the parent microblock stream and the anchored block, as
+measured by computational work.  Use the *K+1*-highest rate to find the price paid by
+these top-*K* transactions, and debit each spending account by this rate
+multiplied by amount of computation used by the transaction.  All other
+transactions' spending accounts are not debited any fee.
 
-If a block is less than _K_% full, _and_ there are enough pending transactions
-in the mempool to fill it to _K_% or higher, then no correct Stacks peer will
-relay the block and no correct miners will build on it.  However, if a block is less than _K_% full
-and there are not enough pending transactions, then correct Stacks peers will
-relay it and process it.  This is to ensure that a leader will pick low-fee transactions even
-if there are few unconfirmed transactions available when the block is mined.
-This strategy also ensures that an underfull block mined by a dishonest leader will be orphaned.
+A Stacks epoch has a fixed budget of "compute units" which the leader fills up.
+The fee mechanism is designed to encourage leaders to fill up their epochs with
+transactions while also encouraging users to bid their honest valuation of the
+compute units (see [1] for details).  To do so, the Stacks peer measures a block
+as *F%* full, where *F* is the fraction of compute units consumed in its epoch.
+If the block consumes less than some protocol-defined fraction of
+the compute units, the block is considered "under-full."
 
-Stacks leaders receive the _(1 - K)%_ of transaction fees exclusively, as well
+Leaders who produce under-full blocks are not given the full coinbase, but
+instead given a fraction of the coinbase determined by how under-full the block
+was (where an empty block receives 0 STX).  In addition, the fee rate assessed
+to each transaction in the epoch is set to a protocol-defined minimum rate,
+equal to the minimum-relay fee rate.  This is to encourage leaders to fill
+up their epochs with unconfirmed transactions, even if they have low fees.
+
+Stacks leaders receive all anchored block transaction fees exclusively, as well
 as 40% of the microblock transaction fees they produce, as well as 60% of the
-microblock transaction fees they validate by building upon.  The _K_% of
-transaction fees from anchored blocks are distributed among the next _B_ Stacks
-leaders, where _B_ is a protocol-defined constant.  In expectation, a Stacks
-leader that produces _b_ out of _B_ blocks produces _b/B_ of the cumulative
-tunable proof score, and will receive _b/B * K_ fraction of the transaction fees
-this way.  This technique, as well as the _K_% and _(1 - K)_% fee calculations, are both
-implemented at the recommendation from [1] in order to both reduce transaction
-fee variance for leaders as well as give users a fairer fee market.
+microblock transaction fees they validate by building upon. 
 
-The values for _K_ and _B_ will be filled into this SIP once the mempool has
-been described in a subsequent SIP.
+Leaders do not receive their block rewards immediately.  Instead, they must
+mature for 100 Stacks epochs.  The block rewards are stored into a special smart
+contract in the chain's "boot code", which the leader can withdraw from once the
+rewards are matured.
 
 ### Calculating the Materialized View
 
@@ -1160,16 +1159,16 @@ refers to the non-fungible token `"hello world"` (which has type `buff` and is
 comprised of 11 bytes), defined in Clarity contract `SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract`
 as a type of non-fungible token `example-nft`.
 
-#### Calculating the State of a Smart Contract
+#### (TBD) Calculating the State of a Smart Contract
 
 A smart contract's canonical encoding as a key/value pair in the smart contract
 state is as follows:
 
 * Key: The string `"vm::"`, the fully-qualified contract identifier, and the
   string `::9`.
-* Value: A deterministically-generated JSON string that encodes the contract's AST (see below)
+* Value: TBD
 
-Note that _other_ kinds of smart contract data (e.g., analysis data, function bodies, etc.)
+(TBD) Note that _other_ kinds of smart contract data (e.g., analysis data, function bodies, etc.)
 must also be indexed by Stacks peers. However, this data does not need to be included in a
 peer's commitment -- it is indexed via a secondary MARF structure.  Therefore, the representation of
 that data is _not_ specified as part of the Stacks protocol. 
@@ -1182,66 +1181,153 @@ A smart contract's persistent data variables are each encoded as two key/value
 pairs: a pair describing the variable's data type, and a pair describing the
 variable's value.
 
-The variable data type is encoded as follows:
+The data type is encoded as follows:
+
+* Key: TBD
+* Value: TBD
+
+Example: TBD
+
+The data value is encoded as follows:
 
 * Key: The string `"vm::"`, the fully-qualified contract identifier, the string
-  `"::6::"`, 
+  `"::1::"`, and the Clarity name of the variable.
+* Value: The serialized Clarity value
 
-#### Calculating the State of Smart Contract Data
+Example: The key `"vm::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract::1::example-var"` 
+refers to the value of a variable named `example-var` instanted in the contract
+`SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract`.
 
-Smart contract data is encoded as follows:
+A smart contract's persistent data map is encoded as a set of N+1 key/value
+pairs -- one key to define the data type of the key/value pair, and N keys to store the
+actual keys and values of the map.
 
-* Key: A string composed of the following elements, joined by `::` 
-  * A string denoting the data type:
-    * "data-variable"
-    * "data-map"
-    * "fungible-token"
-    * "non-fungible-token"
-  * The fully qualified contract name
-  * The ASCII-encoded data name (e.g., the data-map name or variable
-    name)
-  * In the case of a data-map, fungible token, or non-fungible-token,
-    a fourth string:
-    * For data maps: the encoded Clarity value of the data map key.
-    * For non-fungible-tokens: the encoded Clarity value identifying
-      the specific non-fungible token.
-    * For fungible-tokens: the encoded Clarity principal identifying
-      an account entry in the fungible token's ownership table.
+The map's data type is encoded as follows:
 
-* Value: The encoded Clarity Value corresponding to the keyed data:
-  * For data variables and data maps, this is simply the data associated
-    with the variable or a specific key.
-  * For fungible-tokens, it is the balance of the particular address.
-  * For non-fungible-tokens, it is the current owner of the particular
-    non-fungible-token.
+* Key: TBD
+* Value: TBD
 
-Example: `"data-variable.SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q.my-contract.my-var"` 
-refers to a data variable called `my-var`, which was declared in a smart contract called `my-contract`,
-which was in turn created by the standard account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`.
+Example: TBD
+
+Each key/value pair in the data map is encoded as a key-value pair in the
+materialized view.  They are encoded as follows:
+
+* Key: The string `"vm::"`, the fully-qualified contract identifier, the string
+  `"::0::"`, the Clarity name of the data map, the string `"::"`, and the
+serialized Clarity value that encodes the key in the data map.
+* Value: A serialized `(some ...)` Clarity value that contains the actual value.
+
+Example:  The key
+`"vm::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract::0::example-map::\x02\x00\x00\x00\x0b\x68\x65\x6c\x6c\x6f\x20\x77\x6f\x72\x6c\x64"`
+is a key to a data map named `example-map` declared in contract
+`SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract`, whose Clarity
+value is the string `"hello world"` (which has type `(buff 11)`).
 
 ### Cryptographic Commitment
 
 The various key/value sets that make up the materialized view of the fork are
-each indexed within the same MARF.  To finish validating an anchored block,
-the Stacks peer will:
+each indexed within the same MARF.  To validate an anchored block, each Stacks
+peer will:
 
-* Insert an account key/value pair into the MARF whenever an
-  account is materialized or updated (note that this will overwrite the previous
-version of this account's state in the MARF).
-* Insert a smart contract key/value pair into the MARF
-  whenever a smart contract is instantiated.
-* Insert a data variable key/value pair into the MARF
-  whenever a data variable is assigned a value (overwriting the previous value
-commitment).
-* Insert a data map key/value pair into the MARF whenever the
-  mapping is inserted, updated, or deleted.  
+* Load the state of the MARF as of the anchored block's parent anchored block.
+* Process all transactions in the anchored block's parent microblock stream,
+  thereby adding all keys and values described above to the materialized view.
+* Insert a mapping between this anchored block's height and a sentinel anchor 
+  hash (see below)
+* Insert a mapping between the parent anchored block's height and its "anchor
+  hash" derived from both the parent block's hash and the burnchain block that
+  selected it (see below)
+* Process all transactions in the anchored block, thereby adding all keys and
+  values described above to the materialized view.
+* Insert the rewards from the latest now-matured block (i.e. the
+  leader reward for the Stacks block 100 epochs ago in this fork) into the
+leader rewards contract in the Stacks chain boot code.  This rewards the leader
+and all users that burned in support of the leader's block.
 
-Once all transactions have been processed, the root hash of the MARF
-is compared to the state Merkle root hash in the anchored
-block.  If they are equal, then the block is accepted and all changes in both
-its transactions and its parent microblock stream are materialized.  If not,
-then the block and its parent microblock stream are rejected and the previous
-Stacks leader is punished.
+Once this process is complete, the Stacks peer checks the root hash of its MARF
+against the root hash in the anchored block.  If they match, then the block is
+accepted into the chain state.  If they do not match, then the block is invalid.
+
+#### Measuring Block Height
+
+Stacks counts its forks' lengths on a per-fork basis within each fork's MARF.
+To do so, a leader always inserts four key/value pairs into the MARF when it
+starts processing an anchored block:  two to map the block's parent's height to
+its anchor hash and vice versa, and two to map this block's height to a sentinel 
+anchor hash (and vice versa).
+
+The anchored block's _anchor hash_ is the SHA512/256 hash of the anchored block's
+header concatenated with the hash of the underlying burn chain block's header.
+For example, if an anchored block's header's hash is
+`7f3f0c0d5219f51459578305ed2bbc198588758da85d08024c79c1195d1cd611`, and the
+underlying burn chain's block header hash is
+`e258d248fda94c63753607f7c4494ee0fcbe92f1a76bfdac795c9d84101eb317`, then the
+(litte-endian) anchor hash would be
+`7fbeb26cae32d96dbc1329f7e59f821b2c99b0a71943e153c071906ca7205f5f`.  In the case
+where Bitcoin is the burn chain, the block's header hash is the double-SHA256 of
+its header, in little-endian byte order (i.e. the 0's are trailing).
+
+When beginning to process the anchored block (and similarly, when a leader
+begins to produce its anchored block), the peer adds the following key/value
+pairs to the MARF, in this order:
+
+* Key: The string
+  `"_MARF_BLOCK_HEIGHT_TO_HASH::af425f228a92ebe4d7741b129bb2c2f4326179f682da305b030250ccea9d4cd5"`
+* Value: the height of the current Stacks block, encoded as a 4-byte
+  little-endian 32-bit integer
+
+The hash `af425f228a92ebe4d7741b129bb2c2f4326179f682da305b030250ccea9d4cd5` is
+the sentinel anchored hash.  It is the SHA512/256 hash of a 64 `0x01` bytes --
+equivalent to calculating an anchored hash from a Stacks block header and a burn
+chain block header whose hashes were both `0101010101010101010101010101010101010101010101010101010101010101`.
+
+* Key: The string `"_MARF_BLOCK_HASH_TO_HEIGHT::"`, followed by the ASCII string
+  representation of the block height
+* Value: the 32-byte sentinel anchor hash
+
+Example: The key `"_MARF_BLOCK_HEIGHT_TO_HASH:124"` would map to the sentinel
+anchor hash if the Stacks block being appended was the 124th block in the fork.
+
+* Key: The string `"_MARF_BLOCK_HEIGHT_TO_HASH::"`, followed by the ASCII string
+representation of the anchored block's parent's height.  Note that when
+processing an anchored block, the parent's block hash will be known, so the
+sentinel anchor hash is _not_ used.  The only exception is the boot block (see
+below)
+* Value: The 32-byte anchor hash of the block
+
+Example: The key `"_MARF_BLOCK_HEIGHT_TO_HASH::123"` would map to the anchor
+hash of the 123rd anchored Stacks block.
+
+* Key: The string "_MARF_BLOCK_HASH_TO_HEIGHT::"`, followed by 64 characters in
+  the ASCII range `[0-9a-f]`.
+* Value: The little-endian 32-bit block height
+
+Example: The key `"_MARF_BLOCK_HASH_TO_HEIGHT::7fbeb26cae32d96dbc1329f7e59f821b2c99b0a71943e153c071906ca7205f5f"` 
+would map to the height of the block whose anchored hash was
+`7fbeb26cae32d96dbc1329f7e59f821b2c99b0a71943e153c071906ca7205f5f`.
+
+Using these four key/value pairs, the MARF is able to represent the height of
+a fork terminating in a given block hash, and look up the height of a block in a
+fork, given its anchor hash.
+
+### Processing the Boot Block
+
+The first-ever block in the Stacks v2 chain is the **boot block**.  It contains
+a set of smart contracts and initialization code for setting up miner reward
+maturation, for handling BNS names, for migrating BNS state from Stacks v1, and
+so on.
+
+When processing the boot block, the anchor hash will always be
+`8aeecfa0b9f2ac7818863b1362241e4f32d06b100ae9d1c0fbcc4ed61b91b17a`, which is
+equal to the anchor hash calculated from a Stacks block header hash and a
+burnchain block header hash of all 0's.  The `_MARF_BLOCK_HASH_TO_HEIGHT::0` key
+will be mapped to this hash, and `_MARF_BLOCK_HASH_TO_HEIGHT::8aeecfa0b9f2ac7818863b1362241e4f32d06b100ae9d1c0fbcc4ed61b91b17a` 
+will be mapped to `0`.  After these two keys are inserted, the block is
+processed like a normal Stacks anchored block.  The boot block has no parent,
+and so it will not have height-to-hash mappings for one.
+
+When processing a subsequent block that builds directly on top of the boot
+block, the parent Stacks block header hash should be all 0's.
 
 ## Test Vectors
 
