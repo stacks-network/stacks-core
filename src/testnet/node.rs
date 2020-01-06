@@ -299,6 +299,17 @@ impl Node {
                 &parent_block.burn_header_hash,
                 &anchored_block, 
                 &parent_block.parent_burn_header_hash).unwrap();
+
+            // Preprocess the microblocks
+            for microblock in microblocks.iter() {
+                let res = self.chain_state.preprocess_streamed_microblock(
+                    &burn_header_hash, 
+                    &anchored_block.block_hash(), 
+                    microblock).unwrap();
+                if !res {
+                    // Do something
+                }
+            }
         }
 
         let new_chain_tip = {
