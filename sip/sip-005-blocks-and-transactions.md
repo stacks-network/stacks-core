@@ -1230,13 +1230,13 @@ each indexed within the same MARF.  To validate an anchored block, each Stacks
 peer will:
 
 * Load the state of the MARF as of the anchored block's parent anchored block.
-* Process all transactions in the anchored block's parent microblock stream,
-  thereby adding all keys and values described above to the materialized view.
 * Insert a mapping between this anchored block's height and a sentinel anchor 
   hash (see below)
 * Insert a mapping between the parent anchored block's height and its "anchor
   hash" derived from both the parent block's hash and the burnchain block that
   selected it (see below)
+* Process all transactions in this anchored block's parent microblock stream,
+  thereby adding all keys and values described above to the materialized view.
 * Process all transactions in the anchored block, thereby adding all keys and
   values described above to the materialized view.
 * Insert the rewards from the latest now-matured block (i.e. the
@@ -1252,9 +1252,10 @@ accepted into the chain state.  If they do not match, then the block is invalid.
 
 Stacks counts its forks' lengths on a per-fork basis within each fork's MARF.
 To do so, a leader always inserts four key/value pairs into the MARF when it
-starts processing an anchored block:  two to map the block's parent's height to
+starts processing the next cryptographic commitment:  two to map the block's parent's height to
 its anchor hash and vice versa, and two to map this block's height to a sentinel 
-anchor hash (and vice versa).
+anchor hash (and vice versa).  These are always added before processing any
+transactions.
 
 The anchored block's _anchor hash_ is the SHA512/256 hash of the anchored block's
 header concatenated with the hash of the underlying burn chain block's header.
