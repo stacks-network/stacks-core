@@ -42,7 +42,7 @@ impl <'a> LeaderTenure {
         };
 
         let block_builder = match last_sortitioned_block.block_height {
-            0 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, &vrf_proof, &microblock_secret_key),
+            1 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, &vrf_proof, &microblock_secret_key),
             _ => StacksBlockBuilder::from_parent(1, &parent_block, &ratio, &vrf_proof, &microblock_secret_key)
         };
 
@@ -69,8 +69,9 @@ impl <'a> LeaderTenure {
 
         let mut chain_state = StacksChainState::open(false, TESTNET_CHAIN_ID, &self.config.path).unwrap();
 
+        println!("====> {:?}", self.last_sortitioned_block.block_height);
         let mut clarity_tx = match self.last_sortitioned_block.block_height {
-            0 => {
+            1 => {
                 chain_state.block_begin(
                 &BurnchainHeaderHash([0u8; 32]),
                 &BlockHeaderHash([0u8; 32]),

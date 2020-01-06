@@ -31,7 +31,7 @@ pub struct SortitionedBlock {
     consensus_hash: ConsensusHash,
     op_vtxindex: u16,
     op_txid: Txid,
-    parent_burn_header_hash: BurnchainHeaderHash,
+    pub parent_burn_header_hash: BurnchainHeaderHash,
     sortition_hash: SortitionHash,
     total_burn: u64,
 }
@@ -191,7 +191,7 @@ impl Node {
             block_height: block.block_height as u16,
             op_vtxindex: 0,
             op_txid: Txid([0u8; 32]),
-            sortition_hash: SortitionHash::initial(),
+            sortition_hash: block.sortition_hash,
             consensus_hash: block.consensus_hash,
             total_burn: 0,
             burn_header_hash: block.burn_header_hash,
@@ -287,18 +287,18 @@ impl Node {
 
     /// Process artifacts from the tenure.
     /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
-    pub fn process_tenure(&mut self, anchored_block: &StacksBlock, parent_block: &SortitionedBlock, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
+    pub fn process_tenure(&mut self, anchored_block: &StacksBlock, burn_header_hash: &BurnchainHeaderHash, parent_burn_header_hash: &BurnchainHeaderHash, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
 
         {
             let mut db = burn_db.lock().unwrap();
-
             let mut tx = db.tx_begin().unwrap();
 
+            // Preprocess the anchored block
             let res = self.chain_state.preprocess_anchored_block(
                 &mut tx, 
-                &parent_block.burn_header_hash,
+                &burn_header_hash,
                 &anchored_block, 
-                &parent_block.parent_burn_header_hash).unwrap();
+                &parent_burn_header_hash).unwrap();
 
             // Preprocess the microblocks
             for microblock in microblocks.iter() {

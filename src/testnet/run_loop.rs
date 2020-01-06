@@ -78,7 +78,7 @@ impl RunLoop {
         // Bootstrap the chain: the first node (could be random) will start a new tenure,
         // using SortitionHash::genesis for generating a VRF.
         let leader = &mut self.nodes[0];
-        let mut first_tenure = match leader.initiate_genesis_tenure(&genesis_state.chain_tip) {
+        let mut first_tenure = match leader.initiate_genesis_tenure(&state_1.chain_tip) {
             Some(res) => res,
             None => panic!("Error while initiating genesis tenure")
         };
@@ -116,12 +116,18 @@ impl RunLoop {
             // Have each node process the previous tenure.
             // We should have some additional checks here, and ensure that the previous artifacts are legit.
             // Note: we're cloning ARC<burn_db>, not burn_db instances.
-            node.process_tenure(&anchored_block_1, &last_sortitioned_block, microblocks.clone(), burnchain_state.db.clone());
+
+            node.process_tenure(
+                &anchored_block_1, 
+                &last_sortitioned_block.burn_header_hash, 
+                &last_sortitioned_block.parent_burn_header_hash, 
+                microblocks.clone(), 
+                burnchain_state.db.clone());
 
             // If the node we're looping on won the sortition, initialize and configure the next tenure
             if won_sortition {
                 leader_tenure = node.initiate_new_tenure(&last_sortitioned_block);
-            } 
+            }
         }
 
         // Start the (infinite) runloop
@@ -164,7 +170,12 @@ impl RunLoop {
                         // Have each node process the previous tenure.
                         // We should have some additional checks here, and ensure that the previous artifacts are legit.
                         let (anchored_block, microblocks, parent_block) = artifacts;
-                        node.process_tenure(&anchored_block, &last_sortitioned_block, microblocks.to_vec(), burnchain_state.db.clone());
+                        node.process_tenure(
+                            &anchored_block, 
+                            &burnchain_state.chain_tip.burn_header_hash, 
+                            &burnchain_state.chain_tip.parent_burn_header_hash,             
+                            microblocks.to_vec(), 
+                            burnchain_state.db.clone());
                     },
                 }
 
