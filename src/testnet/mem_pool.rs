@@ -2,6 +2,8 @@ use std::thread;
 use std::time;
 use std::fs;
 use std::io::Read;
+use std::io::BufReader;
+use std::io::prelude::*;
 
 use burnchains::{Txid};
 use chainstate::stacks::{StacksTransaction};
@@ -11,15 +13,13 @@ pub trait MemPool {
     fn poll(&mut self) -> Vec<StacksTransaction>;
     fn start(&mut self);
     fn stop(&mut self);
-    fn handle_incoming_tx(&mut self, tx: Txid);
-    fn archive_tx(&mut self, tx: Txid);
+    fn handle_incoming_tx(&mut self, tx: StacksTransaction);
+    fn archive_tx(&mut self, tx: StacksTransaction);
 }
 
 #[derive(Clone)]
 pub struct MemPoolFS {
     path: String,
-    pending_txs: Vec<StacksTransaction>,
-    archived_txs: Vec<StacksTransaction>,
 }
 
 impl MemPoolFS {
@@ -31,8 +31,6 @@ impl MemPoolFS {
 
         Self {
             path: path.to_string(),
-            pending_txs: vec![],
-            archived_txs: vec![]
         }
     }
 }
@@ -49,18 +47,20 @@ impl MemPool for MemPoolFS {
                 if path.is_dir() {
                     continue;
                 }
-                
-                let mut file = fs::File::open(path).unwrap();
-                let mut encoded_tx = vec![];
-                file.read(&mut encoded_tx[..]).unwrap();
 
+                let file = fs::File::open(path.clone()).unwrap();
+                let mut reader = BufReader::new(file);
+                assert!(reader.buffer().is_empty());
+                reader.fill_buf().unwrap();
+                let encoded_tx: Vec<u8> = reader.buffer().to_vec();
                 let mut index = 0;
                 let tx = StacksTransaction::deserialize(&encoded_tx, &mut index, encoded_tx.len() as u32).map_err(|_e| {
-                    eprintln!("Failed to decode transaction");
+                    eprintln!("Failed to decode transaction {:?}", _e);
                     panic!();
                 }).unwrap();
                 
-                decoded_txs.push(tx)
+                decoded_txs.push(tx);
+                fs::remove_file(path).unwrap();
             }
         }
         decoded_txs
@@ -74,13 +74,11 @@ impl MemPool for MemPoolFS {
         // no op - irrelevant in the case of MemPoolFS
     }
 
-    fn handle_incoming_tx(&mut self, _tx: Txid) {
+    fn handle_incoming_tx(&mut self, tx: StacksTransaction) {
         // no op - irrelevant in the case of MemPoolFS
     }
 
-    fn archive_tx(&mut self, _tx: Txid) {
-        // Remove tx from pending_txs
-        // Add tx to archived_txs
-        // todo(ludo): remove tx from filesystem
+    fn archive_tx(&mut self, tx: StacksTransaction) {
+        // no op - irrelevant in the case of MemPoolFS
     }
 }

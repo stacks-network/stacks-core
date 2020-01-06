@@ -15,7 +15,7 @@ use net::StacksMessageType;
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
 
-pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
+pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
 
 #[derive(Clone)]
 struct RegisteredKey {
