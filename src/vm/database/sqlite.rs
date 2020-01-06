@@ -2,7 +2,6 @@ use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row, Savepoint};
 use rusqlite::types::{ToSql, FromSql};
 
 use chainstate::burn::BlockHeaderHash;
-use vm::database::{KeyValueStorage};
 
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, InterpreterResult as Result, IncomparableError};
@@ -32,40 +31,40 @@ fn sqlite_has_entry(conn: &Connection, key: &str) -> bool {
     sqlite_get(conn, key).is_some()
 }
 
-impl KeyValueStorage for SqliteConnection {
-    fn put(&mut self, key: &str, value: &str) {
+impl SqliteConnection {
+    pub fn put(&mut self, key: &str, value: &str) {
         sqlite_put(&self.conn, key, value)
     }
 
-    fn get(&mut self, key: &str) -> Option<String> {
+    pub fn get(&mut self, key: &str) -> Option<String> {
         sqlite_get(&self.conn, key)
     }
 
-    fn put_non_consensus(&mut self, key: &str, value: &str) {
+    pub fn put_non_consensus(&mut self, key: &str, value: &str) {
         let key = format!("nc::{}", key);
         sqlite_put(&self.conn, &key, value)
     }
 
-    fn get_non_consensus(&mut self, key: &str) -> Option<String> {
+    pub fn get_non_consensus(&mut self, key: &str) -> Option<String> {
         let key = format!("nc::{}", key);
         sqlite_get(&self.conn, &key)
     }
 
-    fn has_entry(&mut self, key: &str) -> bool {
+    pub fn has_entry(&mut self, key: &str) -> bool {
         sqlite_has_entry(&self.conn, key)
     }
 
-    fn begin(&mut self, key: &BlockHeaderHash) {
+    pub fn begin(&mut self, key: &BlockHeaderHash) {
         self.conn.execute(&format!("SAVEPOINT SP{};", key.to_hex()), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }
 
-    fn rollback(&mut self, key: &BlockHeaderHash) {
+    pub fn rollback(&mut self, key: &BlockHeaderHash) {
         self.conn.execute(&format!("ROLLBACK TO SAVEPOINT SP{};", key.to_hex()), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }
 
-    fn commit(&mut self, key: &BlockHeaderHash) {
+    pub fn commit(&mut self, key: &BlockHeaderHash) {
         self.conn.execute(&format!("RELEASE SAVEPOINT SP{};", key.to_hex()), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }

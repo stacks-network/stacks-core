@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use vm::errors::{ InterpreterError, InterpreterResult as Result, IncomparableError, RuntimeErrorType };
-use vm::database::{KeyValueStorage, SqliteConnection};
+use vm::database::{KeyValueStorage, SqliteConnection, ClarityDatabase};
+use vm::analysis::{AnalysisDatabase};
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MARFValue, Error as MarfError, TrieHash};
 use chainstate::stacks::index::storage::{TrieFileStorage};
@@ -14,36 +15,20 @@ use chainstate::burn::BlockHeaderHash;
 ///   loop will need to invoke these two methods (begin + commit) outside of the context of the VM.
 ///   NOTE: Clarity will panic if you try to execute it from a non-initialized MarfedKV context.
 ///   (See: vm::tests::with_marfed_environment()) 
-pub struct MarfedKV <S: KeyValueStorage> {
+pub struct MarfedKV {
     chain_tip: BlockHeaderHash,
     marf: MARF,
     // Since the MARF only stores 32 bytes of value,
     //   we need another storage
-    side_store: S
+    side_store: SqliteConnection
 }
 
 #[cfg(test)]
-pub fn temporary_marf() -> MarfedKV<std::collections::HashMap<String, String>> {
-    use std::env;
-    use rand::Rng;
-    use util::hash::to_hex;
-    use std::collections::HashMap;
-
-    let mut path = env::temp_dir();
-    let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
-    path.push(to_hex(&random_bytes));
-
-    let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"), None)
-        .unwrap();
-    let side_store = HashMap::new();
-
-    let chain_tip = TrieFileStorage::block_sentinel();
-
-    MarfedKV { chain_tip, marf, side_store }
+pub fn temporary_marf() -> MarfedKV {
+    in_memory_marf()
 }
 
-#[cfg(test)]
-pub fn in_memory_marf() -> MarfedKV<SqliteConnection> {
+pub fn in_memory_marf() -> MarfedKV {
     use std::env;
     use rand::Rng;
     use util::hash::to_hex;
@@ -62,7 +47,7 @@ pub fn in_memory_marf() -> MarfedKV<SqliteConnection> {
     MarfedKV { chain_tip, marf, side_store }
 }
 
-pub fn sqlite_marf(path_str: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MarfedKV<SqliteConnection>> {
+pub fn sqlite_marf(path_str: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MarfedKV> {
     let mut path = PathBuf::from(path_str);
     std::fs::create_dir_all(&path)
         .map_err(|err| InterpreterError::FailedToCreateDataDirectory)?;
@@ -90,7 +75,15 @@ pub fn sqlite_marf(path_str: &str, miner_tip: Option<&BlockHeaderHash>) -> Resul
     Ok( MarfedKV { chain_tip, marf, side_store } )
 }
 
-impl <S> MarfedKV <S> where S: KeyValueStorage {
+impl MarfedKV {
+    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+        ClarityDatabase::new(self)
+    }
+
+    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+        AnalysisDatabase::new(self)
+    }
+
     pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
         self.marf.begin(current, next)
             .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current.to_hex(), next.to_hex()));
@@ -126,14 +119,14 @@ impl <S> MarfedKV <S> where S: KeyValueStorage {
     }
 
     #[cfg(test)]
-    pub fn get_side_store(&mut self) -> &mut S {
+    pub fn get_side_store(&mut self) -> &mut SqliteConnection {
         &mut self.side_store
     }
 }
 
-impl <S> KeyValueStorage for &mut MarfedKV <S> where S: KeyValueStorage {
+impl MarfedKV {
     /// returns the previous block header hash
-    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+    pub fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
         self.marf.check_ancestor_block_hash(&bhh).map_err(|e| {
             match e {
                 MarfError::NotFoundError => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
@@ -148,7 +141,7 @@ impl <S> KeyValueStorage for &mut MarfedKV <S> where S: KeyValueStorage {
         result
     } 
 
-    fn put(&mut self, key: &str, value: &str) {
+    pub fn put(&mut self, key: &str, value: &str) {
         let marf_value = MARFValue::from_value(value);
 
         self.side_store.put(&marf_value.to_hex(), value);
@@ -157,15 +150,21 @@ impl <S> KeyValueStorage for &mut MarfedKV <S> where S: KeyValueStorage {
             .expect("ERROR: Unexpected MARF Failure")
     }
 
-    fn put_non_consensus(&mut self, key: &str, value: &str) {
+    pub fn put_non_consensus(&mut self, key: &str, value: &str) {
         panic!("Not implemented");
     }
 
-    fn get_non_consensus(&mut self, key: &str) -> Option<String> {
+    pub fn put_all_non_consensus(&mut self, mut items: Vec<(String, String)>) {
+        for (key, value) in items.drain(..) {
+            self.put_non_consensus(&key, &value);
+        }
+    }
+
+    pub fn get_non_consensus(&mut self, key: &str) -> Option<String> {
         panic!("Not implemented");
     }
 
-    fn get(&mut self, key: &str) -> Option<String> {
+    pub fn get(&mut self, key: &str) -> Option<String> {
         self.marf.get(&self.chain_tip, key)
             .or_else(|e| {
                 match e {
@@ -182,11 +181,11 @@ impl <S> KeyValueStorage for &mut MarfedKV <S> where S: KeyValueStorage {
             })
     }
 
-    fn has_entry(&mut self, key: &str) -> bool {
+    pub fn has_entry(&mut self, key: &str) -> bool {
         self.get(key).is_some()
     }
 
-    fn put_all(&mut self, mut items: Vec<(String, String)>) {
+    pub fn put_all(&mut self, mut items: Vec<(String, String)>) {
         let mut keys = Vec::new();
         let mut values = Vec::new();
         for (key, value) in items.drain(..) {

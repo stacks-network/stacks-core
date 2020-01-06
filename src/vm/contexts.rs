@@ -5,7 +5,7 @@ use std::convert::TryInto;
 use vm::errors::{InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result};
 use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
-use vm::database::{ClarityDatabase, memory_db};
+use vm::database::{ClarityDatabase};
 use vm::representations::{SymbolicExpression, ClarityName, ContractName};
 use vm::contracts::Contract;
 use vm::ast::ContractAST;
@@ -369,10 +369,6 @@ impl <'a> OwnedEnvironment <'a> {
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new()
         }
-    }
-
-    pub fn memory<'c>() -> OwnedEnvironment<'c> {
-        OwnedEnvironment::new(memory_db())
     }
 
     pub fn get_exec_environment <'b> (&'b mut self, sender: Option<Value>) -> Environment<'b,'a> {

@@ -30,14 +30,14 @@ use std::fmt;
 ///   begining the next connection (enforced by runtime panics).
 ///
 pub struct ClarityInstance {
-    datastore: Option<MarfedKV<SqliteConnection>>,
+    datastore: Option<MarfedKV>,
 }
 
 ///
 /// A high-level interface for Clarity VM interactions within a single block.
 ///
 pub struct ClarityBlockConnection<'a> {
-    datastore: MarfedKV<SqliteConnection>,
+    datastore: MarfedKV,
     parent: &'a mut ClarityInstance
 }
 
@@ -99,7 +99,7 @@ impl error::Error for Error {
 }
 
 impl ClarityInstance {
-    pub fn new(datastore: MarfedKV<SqliteConnection>) -> ClarityInstance {
+    pub fn new(datastore: MarfedKV) -> ClarityInstance {
         ClarityInstance { datastore: Some(datastore) }
     }
 
@@ -117,7 +117,7 @@ impl ClarityInstance {
         }
     }
 
-    pub fn destroy(mut self) -> MarfedKV<SqliteConnection> {
+    pub fn destroy(mut self) -> MarfedKV {
         let datastore = self.datastore.take()
             .expect("FAIL: attempt to recover database connection from clarity instance which is still open");
 
@@ -176,7 +176,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Do something to the underlying DB that involves writing.
     pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
-        let mut db = ClarityDatabase::new(Box::new(&mut self.datastore));
+        let mut db = ClarityDatabase::new(&mut self.datastore);
         db.begin();
         let result = to_do(&mut db);
         match result {
@@ -194,7 +194,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Do something to the underlying DB that involves only reading.
     pub fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
-        let mut db = ClarityDatabase::new(Box::new(&mut self.datastore));
+        let mut db = ClarityDatabase::new(&mut self.datastore);
         db.begin();
         let result = to_do(&mut db);
         db.roll_back();
@@ -204,7 +204,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
     pub fn analyze_smart_contract(&mut self, identifier: &QualifiedContractIdentifier, contract_content: &str)
                                   -> Result<(ContractAST, ContractAnalysis), Error> {
-        let mut db = AnalysisDatabase::new(Box::new(&mut self.datastore));
+        let mut db = AnalysisDatabase::new(&mut self.datastore);
 
         let mut contract_ast = ast::build_ast(identifier, contract_content)?;
         let contract_analysis = analysis::run_analysis(identifier, &mut contract_ast.expressions,
@@ -215,7 +215,7 @@ impl <'a> ClarityBlockConnection <'a> {
     fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap), Error>
     where A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
           F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap), Error> {
-        let mut db = ClarityDatabase::new(Box::new(&mut self.datastore));
+        let mut db = ClarityDatabase::new(&mut self.datastore);
         // wrap the whole contract-call in a claritydb transaction,
         //   so we can abort on call_back's boolean retun
         db.begin();
@@ -245,7 +245,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// An error here would indicate that something has gone terribly wrong in the processing of a contract insert.
     ///   the caller should likely abort the whole block or panic
     pub fn save_analysis(&mut self, identifier: &QualifiedContractIdentifier, contract_analysis: &ContractAnalysis) -> Result<(), CheckError> {
-        let mut db = AnalysisDatabase::new(Box::new(&mut self.datastore));
+        let mut db = AnalysisDatabase::new(&mut self.datastore);
         db.begin();
         let result = db.insert_contract(identifier, contract_analysis);
         match result {

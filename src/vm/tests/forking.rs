@@ -172,8 +172,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
 
     {
-        let mut clarity_db = ClarityDatabase::new(Box::new(&mut marf_kv));
-        clarity_db.initialize();
+        marf_kv.as_clarity_db().initialize();
     }
 
     marf_kv.commit();
@@ -181,8 +180,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap());
 
     {
-        let clarity_db = ClarityDatabase::new(Box::new(&mut marf_kv));
-        let mut owned_env = OwnedEnvironment::new(clarity_db);
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
         f(&mut owned_env)
     }
 
@@ -194,8 +192,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &BlockHeaderHash::from_bytes(&[2 as u8; 32]).unwrap());
 
     {
-        let clarity_db = ClarityDatabase::new(Box::new(&mut marf_kv));
-        let mut owned_env = OwnedEnvironment::new(clarity_db);
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
         a(&mut owned_env)
     }
 
@@ -205,8 +202,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &BlockHeaderHash::from_bytes(&[3 as u8; 32]).unwrap());
 
     {
-        let clarity_db = ClarityDatabase::new(Box::new(&mut marf_kv));
-        let mut owned_env = OwnedEnvironment::new(clarity_db);
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
         b(&mut owned_env)
     }
 
@@ -217,8 +213,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &BlockHeaderHash::from_bytes(&[4 as u8; 32]).unwrap());
 
     {
-        let clarity_db = ClarityDatabase::new(Box::new(&mut marf_kv));
-        let mut owned_env = OwnedEnvironment::new(clarity_db);
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
         z(&mut owned_env)
     }
 

@@ -9,6 +9,7 @@ pub mod contract_interface_builder;
 pub use self::types::{ContractAnalysis, AnalysisPass};
 use vm::representations::{SymbolicExpression};
 use vm::types::{TypeSignature, QualifiedContractIdentifier};
+use vm::database::in_memory_marf;
 
 pub use self::errors::{CheckResult, CheckError, CheckErrors};
 pub use self::analysis_db::{AnalysisDatabase};
@@ -22,7 +23,8 @@ pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, Cont
     use vm::ast::parse;
     let contract_identifier = QualifiedContractIdentifier::transient();
     let mut contract = parse(&contract_identifier, snippet).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
+    let mut marf = in_memory_marf();
+    let mut analysis_db = marf.as_analysis_db();
     type_check(&QualifiedContractIdentifier::transient(), &mut contract, &mut analysis_db, false)
         .map(|x| {
              // return the first type result of the type checker

@@ -1,3 +1,4 @@
+use super::MarfedKV;
 use vm::errors::{ InterpreterResult as Result };
 use chainstate::burn::BlockHeaderHash;
 use std::collections::{HashMap};
@@ -22,12 +23,12 @@ pub trait KeyValueStorage {
     ///     blockhash would already have committed and no longer exist in the save point stack.
     /// this is a "lower-level" rollback than the roll backs performed in
     ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
-    fn begin(&mut self, key: &BlockHeaderHash) {}
-    fn commit(&mut self, key: &BlockHeaderHash) {}
-    fn rollback(&mut self, key: &BlockHeaderHash) {}
+    fn begin(&mut self, _key: &BlockHeaderHash) {}
+    fn commit(&mut self, _key: &BlockHeaderHash) {}
+    fn rollback(&mut self, _key: &BlockHeaderHash) {}
 
     /// returns the previous block header hash on success
-    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+    fn set_block_hash(&mut self, _bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
         panic!("Attempted to evaluate changed block height with a generic backend");
     } 
 
@@ -37,11 +38,6 @@ pub trait KeyValueStorage {
         }
     }
 
-    fn put_all_non_consensus(&mut self, mut items: Vec<(String, String)>) {
-        for (key, value) in items.drain(..) {
-            self.put_non_consensus(&key, &value);
-        }
-    }
 }
 
 pub struct RollbackContext {
@@ -51,7 +47,7 @@ pub struct RollbackContext {
 
 pub struct RollbackWrapper <'a> {
     // the underlying key-value storage.
-    store: Box<dyn KeyValueStorage + 'a>,
+    store: &'a mut MarfedKV,
     // lookup_map is a history of edits for a given key.
     //   in order of least-recent to most-recent at the tail.
     //   this allows ~ O(1) lookups, and ~ O(1) commits, roll-backs (amortized by # of PUTs).
@@ -81,7 +77,7 @@ fn rollback_lookup_map(key: &String, value: &String, lookup_map: &mut HashMap<St
 }
 
 impl <'a> RollbackWrapper <'a> {
-    pub fn new(store: Box<dyn KeyValueStorage + 'a>) -> RollbackWrapper {
+    pub fn new(store: &'a mut MarfedKV) -> RollbackWrapper {
         RollbackWrapper {
             store: store,
             lookup_map: HashMap::new(),
@@ -168,26 +164,26 @@ fn inner_put(lookup_map: &mut HashMap<String, Vec<String>>, edits: &mut Vec<(Str
     edits.push((key.to_string(), value.to_string()));
 }
 
-impl <'a> KeyValueStorage for RollbackWrapper <'a> {
-    fn put(&mut self, key: &str, value: &str) {
+impl <'a> RollbackWrapper <'a> {
+    pub fn put(&mut self, key: &str, value: &str) {
         let current = self.stack.last_mut()
             .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
 
         inner_put(&mut self.lookup_map, &mut current.edits, key, value)
     }
 
-    fn put_non_consensus(&mut self, key: &str, value: &str) {
+    pub fn put_non_consensus(&mut self, key: &str, value: &str) {
         let current = self.stack.last_mut()
             .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
 
         inner_put(&mut self.non_consensus_lookup_map, &mut current.non_consensus_edits, key, value)
     }
 
-    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+    pub fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
         self.store.set_block_hash(bhh)
     }
 
-    fn get(&mut self, key: &str) -> Option<String> {
+    pub fn get(&mut self, key: &str) -> Option<String> {
         self.stack.last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
@@ -198,7 +194,7 @@ impl <'a> KeyValueStorage for RollbackWrapper <'a> {
             .or_else(|| self.store.get(key))
     }
 
-    fn get_non_consensus(&mut self, key: &str) -> Option<String> {
+    pub fn get_non_consensus(&mut self, key: &str) -> Option<String> {
         self.stack.last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
@@ -209,7 +205,7 @@ impl <'a> KeyValueStorage for RollbackWrapper <'a> {
             .or_else(|| self.store.get_non_consensus(key))
     }
 
-    fn has_entry(&mut self, key: &str) -> bool {
+    pub fn has_entry(&mut self, key: &str) -> bool {
         self.stack.last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
         if self.lookup_map.contains_key(key) {

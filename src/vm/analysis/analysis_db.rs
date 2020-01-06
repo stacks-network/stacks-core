@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
-use vm::database::{KeyValueStorage, ClaritySerializable, ClarityDeserializable, RollbackWrapper};
+use vm::database::{KeyValueStorage, ClaritySerializable, ClarityDeserializable,
+                   RollbackWrapper, MarfedKV, in_memory_marf};
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::analysis::type_checker::{ContractAnalysis};
 
@@ -24,15 +25,10 @@ impl ClarityDeserializable<ContractAnalysis> for ContractAnalysis {
 }
 
 impl <'a> AnalysisDatabase <'a> {
-    pub fn new(store: Box<dyn KeyValueStorage + 'a>) -> AnalysisDatabase<'a> {
+    pub fn new(store: &'a mut MarfedKV) -> AnalysisDatabase<'a> {
         AnalysisDatabase {
             store: RollbackWrapper::new(store)
         }
-    }
-
-    pub fn memory() -> AnalysisDatabase<'a> {
-        let store: HashMap<String, String> = HashMap::new();
-        Self::new(Box::new(store))
     }
 
     pub fn execute <F, T, E> (&mut self, f: F) -> Result<T,E> where F: FnOnce(&mut Self) -> Result<T,E>, {

@@ -1,4 +1,5 @@
 use vm::ast::parse;
+use vm::database::{in_memory_marf};
 use vm::analysis::{type_check, mem_type_check, CheckError, CheckErrors, AnalysisDatabase};
 use vm::types::QualifiedContractIdentifier;
 
@@ -139,7 +140,8 @@ fn test_contract_call_read_only_violations() {
     let mut bad_caller = parse(&contract_bad_caller_id, bad_caller).unwrap();
     let mut ok_caller = parse(&contract_ok_caller_id, ok_caller).unwrap();
 
-    let mut db = AnalysisDatabase::memory();
+    let mut marf = in_memory_marf();
+    let mut db = marf.as_analysis_db();
     db.execute(|db| type_check(&contract_1_id, &mut contract1, db, true)).unwrap();
 
     let err = db.execute(|db| type_check(&contract_bad_caller_id, &mut bad_caller, db, true)).unwrap_err();

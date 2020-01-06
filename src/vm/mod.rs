@@ -28,7 +28,7 @@ use vm::contexts::{ContractContext, LocalContext, Environment, CallStack};
 use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result};
-use vm::database::{memory_db};
+use vm::database::{in_memory_marf};
 use vm::types::QualifiedContractIdentifier;
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
@@ -203,7 +203,8 @@ fn eval_all (expressions: &[SymbolicExpression],
 pub fn execute(program: &str) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone());
-    let conn = memory_db();
+    let mut marf = in_memory_marf();
+    let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(conn);
     global_context.execute(|g| {
         let parsed = ast::parse(&contract_id, program)?;
@@ -214,7 +215,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
-    use vm::database::memory_db;
+    use vm::database::in_memory_marf;
     use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression, CallStack};
     use vm::types::{TypeSignature, QualifiedContractIdentifier};
     use vm::callables::{DefinedFunction, DefineType};
@@ -243,7 +244,9 @@ mod test {
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
-        let mut global_context = GlobalContext::new(memory_db());
+
+        let mut marf = in_memory_marf();
+        let mut global_context = GlobalContext::new(marf.as_clarity_db());
 
         contract_context.variables.insert("a".into(), Value::Int(59));
         contract_context.functions.insert("do_work".into(), user_function);

@@ -7,7 +7,7 @@ use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
-use vm::database::marf::temporary_marf;
+use vm::database::marf::in_memory_marf;
 use vm::database::ClarityDatabase;
 
 use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbols_from_values};
@@ -96,7 +96,8 @@ fn test_get_block_info_eval() {
     ];
 
     for i in 0..contracts.len() {
-        let mut owned_env = OwnedEnvironment::memory();
+        let mut marf = in_memory_marf();
+        let mut owned_env = OwnedEnvironment::new(marf.as_clarity_db());
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
         owned_env.initialize_contract(contract_identifier.clone(), contracts[i]).unwrap();
 
