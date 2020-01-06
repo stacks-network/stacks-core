@@ -77,7 +77,7 @@ impl Node {
 
         let chain_state = match StacksChainState::open(false, TESTNET_CHAIN_ID, &config.path) {
             Ok(res) => res,
-            Err(err) => panic!("Error while opening chain state at path {:?}", config.path)
+            Err(_) => panic!("Error while opening chain state at path {:?}", config.path)
         };
 
         let mem_pool = MemPoolFS::new(&config.mem_pool_path);
@@ -107,7 +107,7 @@ impl Node {
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
         match burnchain_ops_tx.send(key_reg_op) {
             Ok(res) => res,
-            Err(err) => panic!("Error while transmitting op to the burnchain")
+            Err(_) => panic!("Error while transmitting op to the burnchain")
         };
 
         // Keep the burnchain_ops_tx for subsequent ops submissions
@@ -294,7 +294,7 @@ impl Node {
             let mut tx = db.tx_begin().unwrap();
 
             // Preprocess the anchored block
-            let res = self.chain_state.preprocess_anchored_block(
+            self.chain_state.preprocess_anchored_block(
                 &mut tx, 
                 &burn_header_hash,
                 &anchored_block, 

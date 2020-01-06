@@ -169,7 +169,7 @@ impl RunLoop {
                     Some(ref artifacts) => {
                         // Have each node process the previous tenure.
                         // We should have some additional checks here, and ensure that the previous artifacts are legit.
-                        let (anchored_block, microblocks, parent_block) = artifacts;
+                        let (anchored_block, microblocks, _) = artifacts;
                         node.process_tenure(
                             &anchored_block, 
                             &burnchain_state.chain_tip.burn_header_hash, 

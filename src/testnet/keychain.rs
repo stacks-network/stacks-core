@@ -45,7 +45,7 @@ impl Keychain {
         let threshold = 1;
         let hash_mode = AddressHashMode::SerializeP2PKH;
 
-        Keychain::new(vec![secret_key], 1, hash_mode)
+        Keychain::new(vec![secret_key], threshold, hash_mode)
     }
 
     pub fn rotate_vrf_keypair(&mut self) -> VRFPublicKey {
@@ -118,7 +118,7 @@ impl Keychain {
         // Ensure that the proof is valid by verifying
         let is_valid = match VRF::verify(vrf_pk, &proof, &bytes.to_vec()) {
             Ok(v) => v,
-            Err(e) => false
+            Err(_) => false
         };
         assert!(is_valid);
         Some(proof)

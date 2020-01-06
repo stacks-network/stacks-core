@@ -74,11 +74,11 @@ impl MemPool for MemPoolFS {
         // no op - irrelevant in the case of MemPoolFS
     }
 
-    fn handle_incoming_tx(&mut self, tx: Txid) {
+    fn handle_incoming_tx(&mut self, _tx: Txid) {
         // no op - irrelevant in the case of MemPoolFS
     }
 
-    fn archive_tx(&mut self, tx: Txid) {
+    fn archive_tx(&mut self, _tx: Txid) {
         // Remove tx from pending_txs
         // Add tx to archived_txs
         // todo(ludo): remove tx from filesystem
