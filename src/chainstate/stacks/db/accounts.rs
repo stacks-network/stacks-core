@@ -230,7 +230,7 @@ impl StacksChainState {
     }
  
     /// Get the scheduled miner rewards in a particular Stacks fork at a particular height
-    fn get_scheduled_block_rewards_in_fork<'a>(tx: &mut StacksDBTx<'a>, tip: &StacksHeaderInfo, block_height: u64) -> Result<Vec<MinerPaymentSchedule>, Error> {
+    pub fn get_scheduled_block_rewards_in_fork<'a>(tx: &mut StacksDBTx<'a>, tip: &StacksHeaderInfo, block_height: u64) -> Result<Vec<MinerPaymentSchedule>, Error> {
         let ancestor_info = match StacksChainState::get_tip_ancestor(tx, tip, block_height)? {
             Some(info) => info,
             None => {

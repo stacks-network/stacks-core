@@ -40,10 +40,8 @@ pub enum InterpreterError {
     BadFileName,
     FailedToCreateDataDirectory,
     MarfFailure(IncomparableError<MarfError>),
-    DeserializeExpected(TypeSignature),
-    DeserializeUnexpectedTypeField(String),
     FailureConstructingTupleWithType,
-    FailureConstructingListWithType
+    FailureConstructingListWithType,
 }
 
 

@@ -32,7 +32,7 @@ use core::*;
 use net::StacksPublicKeyBuffer;
 
 use util::hash::Sha512Trunc256Sum;
-
+use util::hash::to_hex;
 use util::secp256k1::MessageSignature;
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::ast::build_ast;
@@ -48,21 +48,20 @@ use vm::representations::{
 
 impl StacksMessageCodec for Value {
     fn serialize(&self) -> Vec<u8> {
-        use vm::database::ClaritySerializable;
         let mut res = vec![];
-        let value_str : String = ClaritySerializable::serialize(self);
-        write_next(&mut res, &value_str.as_bytes().to_vec());
+        let mut bytes = vec![];
+        self.serialize_write(&mut bytes)
+            .expect("FATAL: failed to serialize Value to byte Vec");        // should never happen, unless something's seriously wrong
+        write_next(&mut res, &bytes);
         res
     }
 
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<Value, net_error> {
         let mut index = *index_ptr;
         let bytes : Vec<u8> = read_next(buf, &mut index, max_size)?;
-        let bytes_json = String::from_utf8(bytes[..].to_vec())
-            .map_err(|_e| net_error::DeserializeError("Value byte sequence does not decode to utf8 string".to_string()))?;
 
-        let value = Value::try_deserialize_untyped(&bytes_json)
-            .map_err(|e| net_error::DeserializeError(format!("Failed to decode Value from '{}': {:?}", &bytes_json, &e)))?;
+        let value = Value::try_deserialize_bytes_untyped(&bytes)
+            .map_err(|e| net_error::DeserializeError(format!("Failed to decode Value from '{}': {:?}", &to_hex(&bytes), &e)))?;
        
         *index_ptr = index;
         Ok(value)
@@ -881,18 +880,11 @@ impl StacksTransactionSigner {
             None
         }
     }
-
-    pub fn get_incomplete_tx(&self) -> StacksTransaction {
-        self.tx.clone()
-    }
 }
 
 
 #[cfg(test)]
 mod test {
-    // TODO: test with invalid StacksStrings
-    // TODO: test with different tx versions 
-    // TODO: test error values for signing and verifying
     use super::*;
     use chainstate::stacks::*;
     use net::*;
@@ -906,6 +898,8 @@ mod test {
     use util::hash::*;
 
     use vm::representations::{ClarityName, ContractName};
+
+    use std::error::Error;
 
     fn corrupt_auth_field(corrupt_auth_fields: &TransactionAuth, i: usize, corrupt_origin: bool, corrupt_sponsor: bool) -> TransactionAuth {
         let mut new_corrupt_auth_fields = corrupt_auth_fields.clone();
@@ -1543,30 +1537,166 @@ mod test {
 
         check_codec_and_corruption::<TransactionPayload>(&payload, &payload_bytes);
 
-        // TODO: test same sequence, different parent header hash
-        // TODO: test different sequence, same parent header hash
-        // TODO: test deserialization failure 
+        let payload_bytes_bad_parent = vec![
+            // payload type ID
+            TransactionPayloadID::PoisonMicroblock as u8,
+
+            // header_1
+            // version
+            0x12,
+            // sequence
+            0x00, 0x35,
+            // prev block
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // tx merkle root
+            0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+            // signature
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            0x02,
+
+            // header_2
+            // version
+            0x12,
+            // sequence
+            0x00, 0x34,
+            // prev block
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // tx merkle root
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            // signature
+            0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
+            0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
+            0x03
+        ];
+
+        let mut idx = 0;
+        assert!(TransactionPayload::deserialize(&payload_bytes_bad_parent, &mut idx, payload_bytes_bad_parent.len() as u32).unwrap_err().description().find("microblock headers do not identify a fork").is_some());
+        assert_eq!(idx, 0);
+        
+        let payload_bytes_equal = vec![
+            // payload type ID
+            TransactionPayloadID::PoisonMicroblock as u8,
+
+            // header_1
+            // version
+            0x12,
+            // sequence
+            0x00, 0x34,
+            // prev block
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // tx merkle root
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            // signature
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            0x02,
+
+            // header_2
+            // version
+            0x12,
+            // sequence
+            0x00, 0x34,
+            // prev block
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // tx merkle root
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            // signature
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            0x02
+        ];
+
+        let mut idx = 0;
+        assert!(TransactionPayload::deserialize(&payload_bytes_equal, &mut idx, payload_bytes_equal.len() as u32).unwrap_err().description().find("microblock headers match").is_some());
+        assert_eq!(idx, 0);
     }
 
     #[test]
     fn tx_stacks_transaction_payload_invalid() {
-        // test invalid payload type ID 
-        let hello_contract_call = "hello contract call";
-        let mut contract_call_bytes = vec![
-            0x00, 0x00, 0x00, hello_contract_call.len() as u8
-        ];
-        contract_call_bytes.extend_from_slice(hello_contract_call.as_bytes());
-        
-        let mut payload_contract_call = vec![];
-        payload_contract_call.append(&mut contract_call_bytes);
+        let hello_contract_call = "hello-contract-call";
+        let hello_contract_name = "hello-contract-name";
+        let hello_function_name = "hello-function-name";
+
+        let contract_call = TransactionContractCall {
+            address: StacksAddress { version: 1, bytes: Hash160([0xff; 20]) },
+            contract_name: ContractName::try_from(hello_contract_name).unwrap(),
+            function_name: ClarityName::try_from(hello_function_name).unwrap(),
+            function_args: vec![Value::Int(0)]
+        };
+
+        let mut contract_call_bytes = vec![];
+        contract_call_bytes.append(&mut contract_call.address.serialize());
+        contract_call_bytes.append(&mut contract_call.contract_name.serialize());
+        contract_call_bytes.append(&mut contract_call.function_name.serialize());
+        contract_call_bytes.append(&mut contract_call.function_args.serialize());
 
         let mut transaction_contract_call = vec![
-            0xff        // invalid type ID
+            0xff as u8
         ];
-        transaction_contract_call.append(&mut payload_contract_call.clone());
+        transaction_contract_call.append(&mut contract_call_bytes.clone());
 
         let mut idx = 0;
-        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).is_err());
+        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).unwrap_err().description().find("unknown payload ID").is_some());
+        assert_eq!(idx, 0);
+    }
+    
+    #[test]
+    fn tx_stacks_transaction_payload_invalid_contract_name() {
+        // test invalid contract name
+        let address = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
+        let contract_name = "hello\x00contract-name";
+        let function_name = ClarityName::try_from("hello-function-name").unwrap();
+        let function_args = vec![Value::Int(0)];
+        
+        let mut contract_name_bytes = vec![
+            contract_name.len() as u8
+        ];
+        contract_name_bytes.extend_from_slice(contract_name.as_bytes());
+
+        let mut contract_call_bytes = vec![];
+        contract_call_bytes.extend_from_slice(&mut address.serialize());
+        contract_call_bytes.extend_from_slice(&mut contract_name_bytes);
+        contract_call_bytes.extend_from_slice(&mut function_name.serialize());
+        contract_call_bytes.extend_from_slice(&mut function_args.serialize());
+        
+        let mut transaction_contract_call = vec![
+            TransactionPayloadID::ContractCall as u8
+        ];
+        transaction_contract_call.append(&mut contract_call_bytes);
+
+        let mut idx = 0;
+        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).unwrap_err().description().find("Failed to parse Contract name").is_some());
+        assert_eq!(idx, 0);
+    }
+    
+    #[test]
+    fn tx_stacks_transaction_payload_invalid_function_name() {
+        // test invalid contract name
+        let address = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
+        let contract_name = ContractName::try_from("hello-contract-name").unwrap();
+        let hello_function_name = "hello\x00function-name";
+        let mut hello_function_name_bytes = vec![
+            hello_function_name.len() as u8
+        ];
+        hello_function_name_bytes.extend_from_slice(hello_function_name.as_bytes());
+
+        let function_name = ClarityName::try_from("hello-function-name").unwrap();
+        let function_args = vec![Value::Int(0)];
+        
+        let mut contract_call_bytes = vec![];
+        contract_call_bytes.extend_from_slice(&mut address.serialize());
+        contract_call_bytes.extend_from_slice(&mut contract_name.serialize());
+        contract_call_bytes.extend_from_slice(&mut hello_function_name_bytes);
+        contract_call_bytes.extend_from_slice(&mut function_args.serialize());
+        
+        let mut transaction_contract_call = vec![
+            TransactionPayloadID::ContractCall as u8
+        ];
+        transaction_contract_call.append(&mut contract_call_bytes);
+
+        let mut idx = 0;
+        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).unwrap_err().description().find("Failed to parse Clarity name").is_some());
         assert_eq!(idx, 0);
     }
     
@@ -1776,6 +1906,8 @@ mod test {
 
             test_debug!("---------");
             test_debug!("test tx:\n{:?}", &tx);
+            test_debug!("---------");
+            test_debug!("text tx bytes:\n{}", &to_hex(&tx_bytes));
 
             check_codec_and_corruption::<StacksTransaction>(&tx, &tx_bytes);
         }
@@ -3102,4 +3234,7 @@ mod test {
             test_signature_and_corruption(&signed_tx, false, true);
         }
     } 
+    
+    // TODO: test with different tx versions 
+    // TODO: test error values for signing and verifying
 }

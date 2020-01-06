@@ -122,7 +122,7 @@ pub struct StagingUserBurnSupport {
 
 impl StagingBlock {
     pub fn is_genesis(&self) -> bool {
-        self.parent_burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH && self.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH
+        self.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH
     }
 }
 
@@ -1643,13 +1643,13 @@ impl StacksChainState {
         */
         let blocks_per_year = 52596;
         if block_height < blocks_per_year * 5 {
-            500000000
+            500 * 100_000
         }
         else if block_height < blocks_per_year * 10 {
-            400000000
+            400 * 100_000
         }
         else {
-            300000000
+            300 * 100_000
         }
     }
 
@@ -1777,7 +1777,7 @@ impl StacksChainState {
                                 &candidate.parent_burn_header_hash.to_hex(), &candidate.parent_anchored_block_hash.to_hex());
         
                     let can_attach = {
-                        if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH && candidate.parent_burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH {
+                        if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH {
                             // this block's parent is the boot code -- it's the first-ever block,
                             // so it can be processed immediately 
                             true

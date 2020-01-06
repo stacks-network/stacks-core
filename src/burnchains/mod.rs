@@ -464,7 +464,6 @@ pub mod test {
         pub vrf_keys: Vec<VRFPrivateKey>,
         pub vrf_key_map: HashMap<VRFPublicKey, VRFPrivateKey>,
         pub block_commits: Vec<LeaderBlockCommitOp>,
-        pub expected_mining_rewards: u128,
         pub id: usize,
         pub nonce: u64
     }
@@ -485,7 +484,6 @@ pub mod test {
                 vrf_keys: vec![],
                 vrf_key_map: HashMap::new(),
                 block_commits: vec![],
-                expected_mining_rewards: 0,
                 id: 0,
                 nonce: 0
             }
@@ -626,11 +624,6 @@ pub mod test {
             }
 
             self.nonce += 1
-        }
-
-        pub fn expect_mining_reward(&mut self, next_reward: u128) -> u128 {
-            self.expected_mining_rewards += next_reward;
-            self.expected_mining_rewards
         }
     }
 
