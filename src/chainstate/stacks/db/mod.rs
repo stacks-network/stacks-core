@@ -64,8 +64,8 @@ use util::db::{
     IndexDBTx,
     query_rows,
     query_count,
-    RowOrder,
     FromRow,
+    FromColumn,
     db_mkdirs,
 };
 
@@ -161,17 +161,11 @@ impl StacksHeaderInfo {
     }
 }
 
-impl RowOrder for DBConfig {
-    fn row_order() -> Vec<&'static str> {
-        vec!["version", "mainnet", "chain_id"]
-    }
-}
-
 impl FromRow<DBConfig> for DBConfig {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<DBConfig, db_error> {
-        let version : String = row.get(index);
-        let mainnet_i64 : i64 = row.get(index + 1);
-        let chain_id_i64 : i64 = row.get(index + 2);
+    fn from_row<'a>(row: &'a Row) -> Result<DBConfig, db_error> {
+        let version : String = row.get("version");
+        let mainnet_i64 : i64 = row.get("mainnet");
+        let chain_id_i64 : i64 = row.get("chain_id");
 
         let mainnet = mainnet_i64 != 0;
         let chain_id = chain_id_i64 as u32;
@@ -184,20 +178,12 @@ impl FromRow<DBConfig> for DBConfig {
     }
 }
 
-impl RowOrder for StacksHeaderInfo {
-    fn row_order() -> Vec<&'static str> {
-        let mut header_rows = vec!["block_height", "index_root", "burn_header_hash"];
-        header_rows.append(&mut StacksBlockHeader::row_order());
-        header_rows
-    }
-}
-
 impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<StacksHeaderInfo, db_error> {
-        let block_height_i64 : i64 = row.get(index);
-        let index_root = TrieHash::from_row(row, index+1)?;
-        let burn_header_hash = BurnchainHeaderHash::from_row(row, index+2)?;
-        let stacks_header = StacksBlockHeader::from_row(row, index+3)?;
+    fn from_row<'a>(row: &'a Row) -> Result<StacksHeaderInfo, db_error> {
+        let block_height_i64 : i64 = row.get("block_height");
+        let index_root = TrieHash::from_column(row, "index_root")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+        let stacks_header = StacksBlockHeader::from_row(row)?;
         
         if block_height_i64 < 0 {
             return Err(db_error::ParseError);
@@ -520,7 +506,7 @@ impl StacksChainState {
         }
         else {
             // sanity check
-            let rows = query_rows::<DBConfig, _>(&conn, &format!("SELECT {} FROM db_config LIMIT 1", DBConfig::row_order().join(",")), NO_PARAMS)
+            let rows = query_rows::<DBConfig, _>(&conn, &"SELECT * FROM db_config LIMIT 1".to_string(), NO_PARAMS)
                 .map_err(Error::DBError)?;
 
             let db_config = rows[0].clone();

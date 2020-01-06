@@ -17,7 +17,7 @@ use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
 
-use util::db::FromRow;
+use util::db::FromColumn;
 
 use vm::ast::parse;
 use vm::contexts::OwnedEnvironment;
@@ -111,7 +111,7 @@ fn get_cli_chain_tip(conn: &Connection) -> BlockHeaderHash {
     while let Some(row_res) = rows.next() {
         match row_res {
             Ok(row) => {
-                let bhh = friendly_expect(BlockHeaderHash::from_row(&row, 0), "FATAL: could not parse block hash");
+                let bhh = friendly_expect(BlockHeaderHash::from_column(&row, "block_hash"), "FATAL: could not parse block hash");
                 hash_opt = Some(bhh);
                 break;
             },
