@@ -313,13 +313,24 @@ impl Node {
             }
         }
 
-        let new_chain_tip = {
+        self.chain_tip = {
+            // We are intentionally scoping this snippet, in order to limit the scope of the lock.
             let db = burn_db.lock().unwrap();
-            let res = self.chain_state.process_blocks(db.conn(), 1).unwrap();
-            res.first().unwrap().0.as_ref().unwrap().clone() // todo(ludo): yikes
+            let mut res = None;
+            loop {
+                match self.chain_state.process_blocks(db.conn(), 1) {
+                    Err(e) => panic!("Error while processing block - {:?}", e),
+                    Ok(blocks) => {
+                        if blocks.len() == 0 {
+                            break;
+                        } else {
+                            res = Some(blocks[0].clone());
+                        }
+                    }
+                }
+            }
+            res.unwrap().0
         };
-
-        self.chain_tip = Some(new_chain_tip);
 
         // Unset the `bootstraping_chain` flag.
         if self.bootstraping_chain {
