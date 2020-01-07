@@ -266,9 +266,10 @@ impl Node {
                 &registered_key.vrf_public_key, 
                 parent_block.sortition_hash.as_bytes()).unwrap();
 
+            let burn_fee = 1;
             let op = self.generate_block_commit_op(
                 anchored_block_from_ongoing_tenure.header.block_hash(),
-                1, // todo(ludo): fix
+                burn_fee,
                 &registered_key, 
                 &parent_block,
                 VRFSeed::from_proof(&vrf_proof));
