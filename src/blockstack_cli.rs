@@ -364,6 +364,18 @@ mod test {
             "./sample-programs/tokens.clar"];
 
         assert!(main_handler(to_string_vec(&publish_args)).is_ok());
+
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            "./sample-programs/non-existent-tokens.clar"];
+
+        assert!(format!("{}", main_handler(to_string_vec(&publish_args)).unwrap_err())
+                .contains("IO error"));
+
     }
 
     #[test]
@@ -434,7 +446,8 @@ mod test {
             "-e",
         ];
 
-        assert!(main_handler(to_string_vec(&cc_args)).is_err());
+        assert!(format!("{}", main_handler(to_string_vec(&cc_args)).unwrap_err())
+                .contains("arguments must be supplied as"));
 
         let cc_args = [
             "contract-call",
@@ -448,7 +461,8 @@ mod test {
             "(/ 1 0)",
         ];
 
-        assert!(main_handler(to_string_vec(&cc_args)).is_err());
+        assert!(format!("{}", main_handler(to_string_vec(&cc_args)).unwrap_err())
+                .contains("Clarity error"));
 
 
         let cc_args = [
@@ -463,7 +477,8 @@ mod test {
             "1",
         ];
 
-        assert!(main_handler(to_string_vec(&cc_args)).is_err());
+        assert!(format!("{}", main_handler(to_string_vec(&cc_args)).unwrap_err())
+                .contains("parse integer"));
 
         let cc_args = [
             "contract-call",
@@ -477,25 +492,19 @@ mod test {
             "1",
         ];
 
-        assert!(main_handler(to_string_vec(&cc_args)).is_err());
+        assert!(format!("{}", main_handler(to_string_vec(&cc_args)).unwrap_err())
+                .contains("Failed to decode hex"));
+
+
+        let sk = StacksPrivateKey::new();
+        let s = format!("{}", 
+                        sign_transaction_single_sig_standard("01zz", &sk).unwrap_err());
+        println!("{}", s);
+        assert!(s.contains("Bad hex string"));
 
         let cc_args = [
             "contract-call",
-            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000fz",
-            "1",
-            "0",
-            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
-            "foo-contract",
-            "transfer-fookens",
-            "-e",
-            "1",
-        ];
-
-        assert!(main_handler(to_string_vec(&cc_args)).is_err());
-
-        let cc_args = [
-            "contract-call",
-            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000fz",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
             "1",
             "0",
             "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
@@ -505,7 +514,9 @@ mod test {
             "1010",
         ];
 
-        assert!(main_handler(to_string_vec(&cc_args)).is_err());
+        assert!(format!("{}", main_handler(to_string_vec(&cc_args)).unwrap_err())
+                .contains("deserialize"));
+                
 
     }
 
