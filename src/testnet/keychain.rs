@@ -39,9 +39,16 @@ impl Keychain {
         }
     }
 
-    pub fn default() -> Keychain {
-        let seed_hashed = Sha256Sum::from_data(&[0u8; 32]);
-        let secret_key = StacksPrivateKey::from_slice(seed_hashed.as_bytes()).unwrap();
+    pub fn default(seed: Vec<u8>) -> Keychain {
+
+        let mut re_hashed_seed = seed;
+        let secret_key = loop {
+            match StacksPrivateKey::from_slice(&re_hashed_seed[..]) {
+                Ok(sk) => break sk,
+                Err(_) => re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..]).as_bytes().to_vec()
+            }
+        };
+
         let threshold = 1;
         let hash_mode = AddressHashMode::SerializeP2PKH;
 

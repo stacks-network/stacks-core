@@ -73,7 +73,8 @@ impl Node {
     /// Instantiate and initialize a new node, given a config
     pub fn new(config: NodeConfig, average_block_time: u64) -> Self {
         
-        let keychain = Keychain::default();
+        let seed = Sha256Sum::from_data(format!("{}", config.name).as_bytes());
+        let keychain = Keychain::default(seed.as_bytes().to_vec());
 
         let chain_state = match StacksChainState::open(false, TESTNET_CHAIN_ID, &config.path) {
             Ok(res) => res,
