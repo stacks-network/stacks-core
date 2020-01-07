@@ -28,7 +28,7 @@ const USAGE: &str = "blockstack-cli (options) [method] [args...]
 This CLI allows you to generate simple signed transactions for blockstack-core
 to process.
 
-This CLI has two methods:
+This CLI has these methods:
 
   publish          used to generate and sign a contract publish transaction
   contract-call    used to generate and sign a contract-call transaction
@@ -59,11 +59,11 @@ of the value serialization format. The method for supplying arguments is chosen 
 prefacing each argument with a flag:
 
   -e  indicates the argument should be _evaluated_
-  -x  indicates the argument is supplied as a hexstring of the value serialization
+  -x  indicates the argument that a serialized Clarity value is being passed (hex-serialized)
 
 e.g.,
 
-   blockstack-cli contract-call $secret_key SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4 10 0 foo-contract \\
+   blockstack-cli contract-call $secret_key 10 0 SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4 foo-contract \\
       transfer-fookens -e \\'SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4 \\
                        -e \"(+ 1 2)\" \\
                        -x 0000000000000000000000000000000001 \\
