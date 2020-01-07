@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError};
-use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, QualifiedContractIdentifier, NONE};
+use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, StandardPrincipalData, QualifiedContractIdentifier, NONE};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -21,11 +21,22 @@ use vm::database::{
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
 
+#[repr(u8)]
 pub enum StoreType {
-    DataMap, Variable, FungibleToken, CirculatingSupply, NonFungibleToken,
-    DataMapMeta, VariableMeta, FungibleTokenMeta, NonFungibleTokenMeta,
-    Contract,
-    SimmedBlock, SimmedBlockHeight
+    DataMap = 0x00,
+    Variable = 0x01,
+    FungibleToken = 0x02,
+    CirculatingSupply = 0x03,
+    NonFungibleToken = 0x04,
+    DataMapMeta = 0x05,
+    VariableMeta = 0x06,
+    FungibleTokenMeta = 0x07,
+    NonFungibleTokenMeta = 0x08,
+    Contract = 0x09,
+    SimmedBlock = 0x10,
+    SimmedBlockHeight = 0x11,
+    Nonce = 0x12,
+    STXBalance = 0x13
 }
 
 pub struct ClarityDatabase<'a> {
@@ -73,7 +84,7 @@ impl <'a> ClarityDatabase <'a> {
         self.store.set_block_hash(bhh)
     }
 
-    fn put <T: ClaritySerializable> (&mut self, key: &str, value: &T) {
+    pub fn put <T: ClaritySerializable> (&mut self, key: &str, value: &T) {
         self.store.put(&key, &value.serialize());
     }
 
@@ -82,7 +93,7 @@ impl <'a> ClarityDatabase <'a> {
             .map(|x| T::deserialize(&x))
     }
 
-    fn get_value (&mut self, key: &str, expected: &TypeSignature) -> Option<Value> {
+    pub fn get_value (&mut self, key: &str, expected: &TypeSignature) -> Option<Value> {
         self.store.get(&key)
             .map(|json| Value::deserialize(&json, expected))
     }
@@ -203,7 +214,7 @@ impl <'a> ClarityDatabase <'a> {
 
         let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::VariableMeta, variable_name);
 
-        assert!(!self.store.has_entry(&key), "Clarity VM attempted to initialize existing variable");
+        assert!(!self.store.has_entry(&key), format!("Clarity VM attempted to initialize existing variable '{}'", variable_name));
 
         self.put(&key, &variable_data);
     }
@@ -453,5 +464,48 @@ impl <'a> ClarityDatabase <'a> {
         self.put(&key, principal);
 
         Ok(())
+    }
+}
+
+// load/store STX token state and account nonces
+impl<'a> ClarityDatabase<'a> {
+    fn make_key_for_account(principal: &PrincipalData, data: StoreType) -> String {
+        format!("vm-account::{}::{}", principal, data as u8)
+    }
+
+    pub fn make_key_for_account_balance(principal: &PrincipalData) -> String {
+        ClarityDatabase::make_key_for_account(principal, StoreType::STXBalance)
+    }
+
+    pub fn make_key_for_account_nonce(principal: &PrincipalData) -> String {
+        ClarityDatabase::make_key_for_account(principal, StoreType::Nonce)
+    }
+
+    pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> u128 {
+        let key = ClarityDatabase::make_key_for_account_balance(principal);
+        let result = self.get(&key);
+        match result {
+            None => 0,
+            Some(balance) => balance
+        }
+    }
+
+    pub fn set_account_stx_balance(&mut self, principal: &PrincipalData, balance: u128) {
+        let key = ClarityDatabase::make_key_for_account_balance(principal);
+        self.put(&key, &balance);
+    }
+
+    pub fn get_account_nonce(&mut self, principal: &PrincipalData) -> u64 {
+        let key = ClarityDatabase::make_key_for_account_nonce(principal);
+        let result = self.get(&key);
+        match result {
+            None => 0,
+            Some(nonce) => nonce
+        }
+    }
+
+    pub fn set_account_nonce(&mut self, principal: &PrincipalData, nonce: u64) {
+        let key = ClarityDatabase::make_key_for_account_nonce(principal);
+        self.put(&key, &nonce);
     }
 }

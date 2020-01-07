@@ -10,13 +10,18 @@ use vm::ast;
 use vm::analysis;
 
 use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::index::marf::MARF;
+use chainstate::stacks::index::TrieHash;
+
+use std::error;
+use std::fmt;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
 ///
 /// ClarityInstance takes ownership of a MARF + Sqlite store used for
 ///   it's data operations.
-/// The ClarityInstance defines a `begin_block(bhh, bhh) -> ClarityBlockConnection`
+/// The ClarityInstance defines a `begin_block(bhh, bhh, bhh) -> ClarityBlockConnection`
 ///    function.
 /// ClarityBlockConnections are used for executing transactions within the context of 
 ///    a single block.
@@ -41,6 +46,7 @@ pub enum Error {
     Analysis(CheckError),
     Parse(ParseError),
     Interpreter(InterpreterError),
+    BadTransaction(String)
 }
 
 impl From<CheckError> for Error {
@@ -58,6 +64,37 @@ impl From<InterpreterError> for Error {
 impl From<ParseError> for Error {
     fn from(e: ParseError) -> Self {
         Error::Parse(e)
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::Analysis(ref e) => fmt::Display::fmt(e, f),
+            Error::Parse(ref e) => fmt::Display::fmt(e, f),
+            Error::Interpreter(ref e) => fmt::Display::fmt(e, f),
+            Error::BadTransaction(ref s) => fmt::Display::fmt(s, f)
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn cause(&self) -> Option<&dyn error::Error> {
+        match *self {
+            Error::Analysis(ref e) => Some(e),
+            Error::Parse(ref e) => Some(e),
+            Error::Interpreter(ref e) => Some(e),
+            Error::BadTransaction(ref _s) => None
+        }
+    }
+
+    fn description(&self) -> &str {
+        match *self {
+            Error::Analysis(ref e) => e.description(),
+            Error::Parse(ref e) => e.description(),
+            Error::Interpreter(ref e) => e.description(),
+            Error::BadTransaction(ref s) => s.as_str()
+        }
     }
 }
 
@@ -95,6 +132,7 @@ impl <'a> ClarityBlockConnection <'a> {
     pub fn rollback_block(mut self) {
         // this is a "lower-level" rollback than the roll backs performed in
         //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
+        debug!("Commit Clarity datastore");
         self.datastore.rollback();
 
         self.parent.datastore.replace(self.datastore);
@@ -102,11 +140,65 @@ impl <'a> ClarityBlockConnection <'a> {
 
     /// Commits all changes in the current block by
     /// (1) committing the current MARF tip to storage,
-    /// (2) committing side-storage
+    /// (2) committing side-storage.
+    /// Returns the MARF root hash
     pub fn commit_block(mut self) {
+        debug!("Commit Clarity datastore");
         self.datastore.commit();
 
         self.parent.datastore.replace(self.datastore);
+    }
+    
+    /// Commits all changes in the current block by
+    /// (1) committing the current MARF tip to storage,
+    /// (2) committing side-storage.  Commits to a different 
+    /// block hash than the one opened (i.e. since the caller
+    /// may not have known the "real" block hash at the 
+    /// time of opening).
+    /// Returns the MARF root hash
+    pub fn commit_to_block(mut self, final_bhh: &BlockHeaderHash) {
+        debug!("Commit Clarity datastore to {}", final_bhh.to_hex());
+        self.datastore.commit_to(final_bhh);
+
+        self.parent.datastore.replace(self.datastore);
+    }
+
+    /// Get the MARF root hash
+    pub fn get_root_hash(&mut self) -> TrieHash {
+        self.datastore.get_root_hash()
+    }
+
+    /// Get the inner MARF
+    pub fn get_marf(&mut self) -> &mut MARF {
+        self.datastore.get_marf()
+    }
+
+    /// Do something to the underlying DB that involves writing.
+    pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
+    where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
+        let mut db = ClarityDatabase::new(Box::new(&mut self.datastore));
+        db.begin();
+        let result = to_do(&mut db);
+        match result {
+            Ok(r) => {
+                db.commit();
+                Ok(r)
+            },
+            Err(e) => {
+                db.roll_back();
+                Err(e)
+            }
+        }
+    }
+    
+    /// Do something to the underlying DB that involves only reading.
+    pub fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> Result<R, Error>
+    where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
+        let mut db = ClarityDatabase::new(Box::new(&mut self.datastore));
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
     }
 
     /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
@@ -120,7 +212,7 @@ impl <'a> ClarityBlockConnection <'a> {
         Ok((contract_ast, contract_analysis))
     }
 
-    fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<R, Error>
+    fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap), Error>
     where A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
           F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap), Error> {
         let mut db = ClarityDatabase::new(Box::new(&mut self.datastore));
@@ -139,7 +231,7 @@ impl <'a> ClarityBlockConnection <'a> {
                 } else {
                     db.commit();
                 }
-                Ok(value)
+                Ok((value, asset_map))
             },
             Err(e) => {
                 db.roll_back();
@@ -156,12 +248,16 @@ impl <'a> ClarityBlockConnection <'a> {
         let mut db = AnalysisDatabase::new(Box::new(&mut self.datastore));
         db.begin();
         let result = db.insert_contract(identifier, contract_analysis);
-        if result.is_err() {
-            db.roll_back();
-        } else {
-            db.commit();
+        match result {
+            Ok(_) => {
+                db.commit();
+                Ok(())
+            },
+            Err(e) => {
+                db.roll_back();
+                Err(e)
+            }
         }
-        result
     }
 
     /// Execute a contract call in the current block.
@@ -170,7 +266,7 @@ impl <'a> ClarityBlockConnection <'a> {
     ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     pub fn run_contract_call <F> (&mut self, sender: &PrincipalData, contract: &QualifiedContractIdentifier, public_function: &str,
-                                  args: &[Value], abort_call_back: F) -> Result<Value, Error>
+                                  args: &[Value], abort_call_back: F) -> Result<(Value, AssetMap), Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
         let expr_args: Vec<_> = args.iter().map(|x| SymbolicExpression::atom_value(x.clone())).collect();
 
@@ -185,12 +281,22 @@ impl <'a> ClarityBlockConnection <'a> {
     /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
     ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
-    pub fn initialize_smart_contract <F> (&mut self, identifier: &QualifiedContractIdentifier, contract_ast: &ContractAST, abort_call_back: F) -> Result<(), Error>
+    pub fn initialize_smart_contract <F> (&mut self, identifier: &QualifiedContractIdentifier, contract_ast: &ContractAST, abort_call_back: F) -> Result<AssetMap, Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
-        self.with_abort_callback(
+        let (_, asset_map) = self.with_abort_callback(
             |vm_env| { vm_env.initialize_contract_from_ast(identifier.clone(), contract_ast)
                        .map_err(Error::from) },
-            abort_call_back)
+            abort_call_back)?;
+        Ok(asset_map)
+    }
+
+    /// Evaluate a raw Clarity snippit
+    #[cfg(test)]
+    pub fn clarity_eval_raw(&mut self, code: &str) -> Result<Value, Error> {
+        let (result, _) = self.with_abort_callback(
+            |vm_env| { vm_env.eval_raw(code).map_err(Error::from) },
+            |_, _| { false })?;
+        Ok(result)
     }
 }
 
@@ -224,7 +330,7 @@ mod tests {
             
             assert_eq!(
                 conn.run_contract_call(&StandardPrincipalData::transient().into(), &contract_identifier, "foo", &[Value::Int(1)],
-                                       |_, _| false).unwrap(),
+                                       |_, _| false).unwrap().0,
                 Value::okay(Value::Int(2)));
             
             conn.commit_block();
@@ -278,7 +384,7 @@ mod tests {
             (define-data-var bar int 0)
             (define-public (get-bar) (ok (var-get bar)))
             (define-public (set-bar (x int) (y int))
-              (begin (var-set! bar (/ x y)) (ok (var-get bar))))";
+              (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
             conn.initialize_smart_contract(
@@ -287,23 +393,23 @@ mod tests {
 
             assert_eq!(
                 conn.run_contract_call(&sender, &contract_identifier, "get-bar", &[],
-                                       |_, _| false).unwrap(),
+                                       |_, _| false).unwrap().0,
                 Value::okay(Value::Int(0)));
 
             assert_eq!(
                 conn.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(1), Value::Int(1)],
-                                       |_, _| false).unwrap(),
+                                       |_, _| false).unwrap().0,
                 Value::okay(Value::Int(1)));
 
             assert_eq!(
                 conn.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(10), Value::Int(1)],
-                                       |_, _| true).unwrap(),
+                                       |_, _| true).unwrap().0,
                 Value::okay(Value::Int(10)));
 
             // prior transaction should have rolled back due to abort call back!
             assert_eq!(
                 conn.run_contract_call(&sender, &contract_identifier, "get-bar", &[],
-                                       |_, _| false).unwrap(),
+                                       |_, _| false).unwrap().0,
                 Value::okay(Value::Int(1)));
 
             assert!(
@@ -315,7 +421,7 @@ mod tests {
             // prior transaction should have rolled back due to runtime error
             assert_eq!(
                 conn.run_contract_call(&StandardPrincipalData::transient().into(), &contract_identifier, "get-bar", &[],
-                                       |_, _| false).unwrap(),
+                                       |_, _| false).unwrap().0,
                 Value::okay(Value::Int(1)));
 
             

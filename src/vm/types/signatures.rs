@@ -5,7 +5,7 @@ use std::convert::{TryFrom, TryInto};
 use std::collections::BTreeMap;
 
 use address::c32;
-use vm::types::{Value, MAX_VALUE_SIZE, QualifiedContractIdentifier};
+use vm::types::{Value, MAX_VALUE_SIZE, QualifiedContractIdentifier, StandardPrincipalData};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 use vm::errors::{RuntimeErrorType, CheckErrors, IncomparableError, Error as VMError};
 use util::hash;
@@ -16,6 +16,22 @@ type Result <R> = std::result::Result<R, CheckErrors>;
 pub struct AssetIdentifier {
     pub contract_identifier: QualifiedContractIdentifier,
     pub asset_name: ClarityName
+}
+
+impl AssetIdentifier {
+    pub fn STX() -> AssetIdentifier {
+        AssetIdentifier {
+            contract_identifier: QualifiedContractIdentifier::new(StandardPrincipalData(0, [0u8; 20]), ContractName::try_from("STX".to_string()).unwrap()),
+            asset_name: ClarityName::try_from("STX".to_string()).unwrap()
+        }
+    }
+
+    pub fn STX_burned() -> AssetIdentifier {
+        AssetIdentifier {
+            contract_identifier: QualifiedContractIdentifier::new(StandardPrincipalData(0, [0u8; 20]), ContractName::try_from("BURNED".to_string()).unwrap()),
+            asset_name: ClarityName::try_from("BURNED".to_string()).unwrap()
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

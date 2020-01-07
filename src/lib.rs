@@ -19,7 +19,6 @@
 
 #![allow(unused_imports)]
 #![allow(unused_assignments)]
-#![allow(unused_variables)]
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -39,7 +38,6 @@ extern crate dirs;
 extern crate regex;
 extern crate byteorder;
 extern crate mio;
-extern crate hashbrown;
 extern crate libc;
 
 #[macro_use] extern crate serde_derive;
@@ -53,13 +51,15 @@ extern crate assert_json_diff;
 pub mod util;
 
 #[macro_use]
+pub mod net;
+
+#[macro_use]
 pub mod chainstate;
 
 pub mod address;
 pub mod burnchains;
 pub mod core;
 pub mod deps;
-pub mod net;
 pub mod vm;
 
 pub mod clarity;

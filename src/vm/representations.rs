@@ -6,7 +6,7 @@ use regex::{Regex};
 use vm::types::{Value};
 use vm::errors::{RuntimeErrorType};
 
-const MAX_STRING_LEN: u8 = 128;
+pub const MAX_STRING_LEN: u8 = 128;
 
 macro_rules! guarded_string {
     ($Name:ident, $Label:literal, $Regex:expr) => {
@@ -29,6 +29,16 @@ macro_rules! guarded_string {
             }
         }
 
+        impl $Name {
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+
+            pub fn len(&self) -> u8 {
+                u8::try_from(self.as_str().len()).unwrap()
+            }
+        }
+
         impl Deref for $Name {
             type Target = str;
             fn deref(&self) -> &Self::Target {
@@ -38,7 +48,7 @@ macro_rules! guarded_string {
 
         impl Borrow<str> for $Name {
             fn borrow(&self) -> &str {
-                &self.0
+                self.as_str()
             }
         }
 
@@ -78,15 +88,15 @@ pub struct PreSymbolicExpression {
 
 impl PreSymbolicExpression {
     #[cfg(feature = "developer-mode")]
-    fn cons() -> Self {
-        Self {
+    fn cons() -> PreSymbolicExpression {
+        PreSymbolicExpression {
             span: Span::zero(),
             pre_expr: PreSymbolicExpressionType::AtomValue(Value::Bool(false))
         }
     }
     #[cfg(not(feature = "developer-mode"))]
-    fn cons() -> Self {
-        Self {
+    fn cons() -> PreSymbolicExpression {
+        PreSymboilcExpression {
             pre_expr: PreSymbolicExpressionType::AtomValue(Value::Bool(false))
         }
     }
@@ -167,16 +177,16 @@ pub struct SymbolicExpression {
 
 impl SymbolicExpression {
     #[cfg(feature = "developer-mode")]
-    fn cons() -> Self {
-        Self {
+    fn cons() -> SymbolicExpression {
+        SymbolicExpression {
             id: 0,
             span: Span::zero(),
             expr: SymbolicExpressionType::AtomValue(Value::Bool(false))
         }
     }
     #[cfg(not(feature = "developer-mode"))]
-    fn cons() -> Self {
-        Self {
+    fn cons() -> SymbolicExpression {
+        SymbolicExpression {
             id: 0,
             expr: SymbolicExpressionType::AtomValue(Value::Bool(false))
         }

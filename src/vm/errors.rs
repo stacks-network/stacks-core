@@ -40,10 +40,8 @@ pub enum InterpreterError {
     BadFileName,
     FailedToCreateDataDirectory,
     MarfFailure(IncomparableError<MarfError>),
-    DeserializeExpected(TypeSignature),
-    DeserializeUnexpectedTypeField(String),
     FailureConstructingTupleWithType,
-    FailureConstructingListWithType
+    FailureConstructingListWithType,
 }
 
 
@@ -75,7 +73,8 @@ pub enum RuntimeErrorType {
     AttemptToFetchInTransientContext,
     BadNameValue(&'static str, String),
     UnknownBlockHeaderHash(BlockHeaderHash),
-    BadBlockHash(Vec<u8>)
+    BadBlockHash(Vec<u8>),
+    UnwrapFailure,
 }
 
 #[derive(Debug, PartialEq)]

@@ -14,6 +14,11 @@ pub enum CheckErrors {
     ValueTooLarge,
     ExpectedName,
 
+    // match errors
+    BadMatchOptionSyntax(Box<CheckErrors>),
+    BadMatchResponseSyntax(Box<CheckErrors>),
+    BadMatchInput(TypeSignature),
+
     // list typing errors
     UnknownListConstructionFailure,
     ListTypesMustMatch,
@@ -34,10 +39,14 @@ pub enum CheckErrors {
 
     ExpectedOptionalType(TypeSignature),
     ExpectedResponseType(TypeSignature),
+    ExpectedOptionalOrResponseType(TypeSignature),
     ExpectedOptionalValue(Value),
     ExpectedResponseValue(Value),
+    ExpectedOptionalOrResponseValue(Value),
     CouldNotDetermineResponseOkType,
     CouldNotDetermineResponseErrType,
+
+    CouldNotDetermineMatchTypes,
 
     // Checker runtime failures
     TypeAlreadyAnnotatedFailure,
@@ -86,7 +95,7 @@ pub enum CheckErrors {
     ContractAlreadyExists(String),
     ContractCallExpectName,
 
-    // get-block-info errors
+    // get-block-info? errors
     NoSuchBlockInfoProperty(String),
     GetBlockInfoExpectPropertyName,
 
@@ -113,6 +122,7 @@ pub enum CheckErrors {
     RequiresAtLeastArguments(usize, usize),
     IncorrectArgumentCount(usize, usize),
     IfArmsMustMatch(TypeSignature, TypeSignature),
+    MatchArmsMustMatch(TypeSignature, TypeSignature),
     DefaultTypesMustMatch(TypeSignature, TypeSignature),
     TooManyExpressions,
     IllegalOrUnknownFunctionApplication(String),
@@ -154,10 +164,16 @@ impl CheckError {
     }
 }
 
+impl fmt::Display for CheckErrors {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl fmt::Display for CheckError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.err {
-            _ =>  write!(f, "{:?}", self.err)
+            _ =>  write!(f, "{}", self.err)
         }?;
 
         if let Some(ref e) = self.expressions {
@@ -170,9 +186,13 @@ impl fmt::Display for CheckError {
 
 impl error::Error for CheckError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match self.err {
-            _ => None
-        }
+        None
+    }
+}
+
+impl error::Error for CheckErrors {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        None
     }
 }
 
@@ -215,6 +235,14 @@ impl DiagnosableError for CheckErrors {
 
     fn message(&self) -> String {
         match &self {
+            CheckErrors::BadMatchOptionSyntax(source) =>
+                format!("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",
+                        source.message()),
+            CheckErrors::BadMatchResponseSyntax(source) =>
+                format!("match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: {}",
+                        source.message()),
+            CheckErrors::BadMatchInput(t) =>
+                format!("match requires an input of either a response or optional, found input: '{}'", t),
             CheckErrors::TypeAnnotationExpectedFailure => "analysis expected type to already be annotated for expression".into(),
             CheckErrors::CostOverflow => "contract execution cost overflowed cost counter".into(),
             CheckErrors::InvalidTypeDescription => "supplied type description is invalid".into(),
@@ -233,11 +261,14 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::UnionTypeError(expected_types, found_type) => format!("expecting expression of type {}, found '{}'", formatted_expected_types(expected_types), found_type),
             CheckErrors::UnionTypeValueError(expected_types, found_type) => format!("expecting expression of type {}, found '{}'", formatted_expected_types(expected_types), found_type),
             CheckErrors::ExpectedOptionalType(found_type) => format!("expecting expression of type 'optional', found '{}'", found_type),
+            CheckErrors::ExpectedOptionalOrResponseType(found_type) => format!("expecting expression of type 'optional' or 'response', found '{}'", found_type),
+            CheckErrors::ExpectedOptionalOrResponseValue(found_type) =>  format!("expecting expression of type 'optional' or 'response', found '{}'", found_type),
             CheckErrors::ExpectedResponseType(found_type) => format!("expecting expression of type 'response', found '{}'", found_type),
             CheckErrors::ExpectedOptionalValue(found_type) => format!("expecting expression of type 'optional', found '{}'", found_type),
             CheckErrors::ExpectedResponseValue(found_type) => format!("expecting expression of type 'response', found '{}'", found_type),
             CheckErrors::CouldNotDetermineResponseOkType => format!("attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"),
             CheckErrors::CouldNotDetermineResponseErrType => format!("attempted to obtain 'err' value from response, but 'err' type is indeterminate"),
+            CheckErrors::CouldNotDetermineMatchTypes => format!("attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead."),
             CheckErrors::BadTupleFieldName => format!("invalid tuple field name"),
             CheckErrors::ExpectedTuple(type_signature) => format!("expecting tuple, found '{}'", type_signature),
             CheckErrors::NoSuchTupleField(field_name, tuple_signature) => format!("cannot find field '{}' in tuple '{}'", field_name, tuple_signature),
@@ -275,6 +306,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::RequiresAtLeastArguments(expected, found) => format!("expecting >= {} argument, got {}", expected, found),
             CheckErrors::IncorrectArgumentCount(expected_count, found_count) => format!("expecting {} arguments, got {}", expected_count, found_count),
             CheckErrors::IfArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'if' must match (got '{}' and '{}')", type_1, type_2),
+            CheckErrors::MatchArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'match' must match (got '{}' and '{}')", type_1, type_2),
             CheckErrors::DefaultTypesMustMatch(type_1, type_2) => format!("expression types passed in 'default-to' must match (got '{}' and '{}')", type_1, type_2),
             CheckErrors::TooManyExpressions => format!("reached limit of expressions"),
             CheckErrors::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{}", function_name),

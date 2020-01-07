@@ -33,9 +33,7 @@ use sha2::Digest;
 use std::char::from_digit;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-use hashbrown::HashMap;
-use std::collections::VecDeque;
-use std::collections::HashSet;
+use std::collections::{VecDeque, HashMap, HashSet};
 
 use chainstate::burn::{BlockHeaderHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
 

@@ -48,10 +48,8 @@ pub trait BurnchainBlockDownloader {
 
 pub trait BurnchainBlockParser {
     type D: BurnchainBlockDownloader + Sync + Send;
-    type A: Address + Send + Sync + Clone;
-    type K: PublicKey + Send + Sync + Clone;
     
-    fn parse(&mut self, block: &<<Self as BurnchainBlockParser>::D as BurnchainBlockDownloader>::B) -> Result<BurnchainBlock<Self::A, Self::K>, burnchain_error>;
+    fn parse(&mut self, block: &<<Self as BurnchainBlockParser>::D as BurnchainBlockDownloader>::B) -> Result<BurnchainBlock, burnchain_error>;
 }
 
 pub trait BurnchainIndexer {

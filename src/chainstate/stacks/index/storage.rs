@@ -32,8 +32,7 @@ use std::io::{
 use std::char::from_digit;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-use hashbrown::{HashMap, HashSet};
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap, HashSet};
 
 use std::fs;
 use std::path::{
@@ -144,6 +143,16 @@ impl BlockHashMap {
 
     pub fn iter(&self) -> std::slice::Iter<BlockHeaderHash> {
         self.map.iter()
+    }
+
+    // TODO: make more efficient with a hash table
+    pub fn find_id(&self, target_bhh: &BlockHeaderHash) -> Option<u32> {
+        for i in 0..self.map.len() {
+            if self.map[i] == *target_bhh {
+                return Some(i as u32);
+            }
+        }
+        return None;
     }
 
     pub fn get_block_header_hash(&self, identifier: u32) -> Option<&BlockHeaderHash> {
@@ -340,7 +349,7 @@ impl TrieRAM {
             self.dump_traverse(f, &root, &hash)
         }
         else {
-            trace!("Failed to dump {:?}: not the current block", bhh);
+            error!("Failed to dump {:?}: not the current block", bhh);
             Err(Error::NotFoundError)
         }
     }
@@ -364,7 +373,7 @@ impl TrieRAM {
     pub fn read_node_hash(&self, ptr: &TriePtr) -> Result<TrieHash, Error> {
         let (_, node_trie_hash) = self.data.get(ptr.ptr() as usize)
             .ok_or_else(|| {
-                trace!("TrieRAM: Failed to read node bytes: {} >= {}", ptr.ptr(), self.data.len());
+                error!("TrieRAM: Failed to read node bytes: {} >= {}", ptr.ptr(), self.data.len());
                 Error::NotFoundError
             })?;
 
@@ -386,7 +395,7 @@ impl TrieRAM {
         }
 
         if (ptr.ptr() as u64) >= (self.data.len() as u64) {
-            trace!("TrieRAM: Failed to read node: {} >= {}", ptr.ptr(), self.data.len());
+            error!("TrieRAM read_nodetype({:?}): Failed to read node {:?}: {} >= {}", &self.block_header, ptr, ptr.ptr(), self.data.len());
             Err(Error::NotFoundError)
         }
         else {
@@ -422,7 +431,7 @@ impl TrieRAM {
             Ok(())
         }
         else {
-            trace!("Failed to write node bytes: off the end of the buffer");
+            error!("Failed to write node bytes: off the end of the buffer");
             Err(Error::NotFoundError)
         }
     }
@@ -437,7 +446,7 @@ impl NodeHashReader for TrieRAM {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
         let (_, node_trie_hash) = self.data.get(ptr.ptr() as usize)
             .ok_or_else(|| {
-                trace!("TrieRAM: Failed to read node bytes: {} >= {}", ptr.ptr(), self.data.len());
+                error!("TrieRAM: Failed to read node bytes: {} >= {}", ptr.ptr(), self.data.len());
                 Error::NotFoundError
             })?;
         w.write_all(node_trie_hash.as_bytes())?;
@@ -481,6 +490,8 @@ pub struct TrieFileStorage {
 
     pub trie_ancestor_hash_bytes_cache: Option<(BlockHeaderHash, Vec<TrieHash>)>,
 
+    miner_tip: Option<BlockHeaderHash>,
+
     // used in testing in order to short-circuit block-height lookups
     //   when the trie struct is tested outside of marf.rs usage
     #[cfg(test)]
@@ -511,7 +522,8 @@ impl TrieFileStorage {
             return Err(Error::PartialWriteError);
         }
 
-        let (block_map, chain_tips) = TrieFileStorage::read_block_hash_map(&dir_path, &TrieFileStorage::block_sentinel())?;
+        let (block_map, chain_tips) = TrieFileStorage::read_block_hash_map(&dir_path)?;
+        test_debug!("Opened TrieFileStorage {}; {} blocks", dir_path, block_map.len());
 
         let ret = TrieFileStorage {
             dir_path,
@@ -536,7 +548,8 @@ impl TrieFileStorage {
             block_path_cache: HashMap::new(),
             trie_ancestor_hash_bytes_cache: None,
   
-
+            miner_tip: None,
+            
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
             #[cfg(test)]
@@ -544,6 +557,14 @@ impl TrieFileStorage {
         };
 
         Ok(ret)
+    }
+
+    pub fn set_miner_tip(&mut self, miner_tip: BlockHeaderHash) {
+        self.miner_tip = Some(miner_tip)
+    }
+
+    pub fn get_miner_tip(&self) -> Option<BlockHeaderHash> {
+        self.miner_tip.clone()
     }
 
     pub fn set_cached_ancestor_hashes_bytes(&mut self, bhh: &BlockHeaderHash, bytes: Vec<TrieHash>) {
@@ -764,7 +785,7 @@ impl TrieFileStorage {
         Ok(())
     }
 
-    fn read_block_hash_map(dir_path: &String, root_hash: &BlockHeaderHash) -> Result<(BlockHashMap, HashSet<BlockHeaderHash>), Error> {
+    fn read_block_hash_map(dir_path: &String) -> Result<(BlockHashMap, HashSet<BlockHeaderHash>), Error> {
         let mut blocks = vec![];
 
         let mut parents = HashSet::new();
@@ -974,6 +995,11 @@ impl TrieFileStorage {
     }
 
     pub fn open_block(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+        if *bhh == self.cur_block && self.cur_block_fd.is_some() {
+            // no-op
+            return Ok(())
+        }
+
         let sentinel = TrieFileStorage::block_sentinel();
         if *bhh == sentinel {
             // just reset to newly opened state
@@ -1000,7 +1026,7 @@ impl TrieFileStorage {
                     .open(&block_path)
                     .map_err(|e| {
                         if e.kind() == io::ErrorKind::NotFound {
-                            trace!("File not found: {:?}", &block_path);
+                            debug!("File not found: {:?}", &block_path);
                             Error::NotFoundError
                         }
                         else {
@@ -1010,6 +1036,7 @@ impl TrieFileStorage {
 
         self.cur_block = bhh.clone();
         self.cur_block_fd = Some(fd);
+
         Ok(())
     }
 
@@ -1033,11 +1060,14 @@ impl TrieFileStorage {
 
     pub fn get_block_from_local_id(&self, local_id: u32) -> Result<&BlockHeaderHash, Error> {
         self.block_map.get_block_header_hash(local_id)
-            .ok_or_else(|| Error::NotFoundError)
+            .ok_or_else(|| {
+                error!("Failed to get block header hash of local ID {} (only {} present)", local_id, self.block_map.len());
+                Error::NotFoundError
+            })
     }
 
     pub fn root_ptr(&self) -> u32 {
-        if let Some((ref last_extended, ref last_extended_trie)) = self.last_extended {
+        if let Some((ref last_extended, _)) = self.last_extended {
             if &self.cur_block == last_extended {
                 return 0
             }
@@ -1057,6 +1087,8 @@ impl TrieFileStorage {
     }
 
     pub fn format(&mut self) -> Result<(), Error> {
+        debug!("Format TrieFileStorage {}", &self.dir_path);
+
         // blow away and recreate the Trie directory
         fs::remove_dir_all(self.dir_path.clone())
             .map_err(Error::IOError)?;
@@ -1112,7 +1144,11 @@ impl TrieFileStorage {
 
         // otherwise, the current block is open as an FD
         let hash_reader = self.cur_block_fd.as_mut()
-            .ok_or(Error::NotFoundError)?;
+            .ok_or_else(|| {
+                error!("Failed to get cur block fd as hash reader");
+                Error::NotFoundError
+            })?;
+
         TrieFileStorage::inner_write_children_hashes(hash_reader, block_map, node, w)
     }
 
@@ -1133,7 +1169,10 @@ impl TrieFileStorage {
                 //   the back_pointer's consensus bytes uses this block_hash instead of a back_block
                 //   integer. This means that it would _always_ be included the node's hash computation.
                 let block_hash = block_map.get_block_header_hash(ptr.back_block())
-                    .ok_or_else(|| Error::NotFoundError)?;
+                    .ok_or_else(|| {
+                        error!("Failed to look up block at {}", ptr.back_block());
+                        Error::NotFoundError
+                    })?;
                 w.write_all(block_hash.as_bytes())?;
             }
         }
@@ -1156,7 +1195,7 @@ impl TrieFileStorage {
                     .map(TrieHash)
             },
             None => {
-                trace!("Not found (no file is open)");
+                error!("Not found (no file is open)");
                 Err(Error::NotFoundError)
             }
         }
@@ -1190,7 +1229,7 @@ impl TrieFileStorage {
         match self.cur_block_fd {
             Some(ref mut f) => read_nodetype(f, &clear_ptr),
             None => {
-                trace!("Not found (no file is open)");
+                error!("Not found (no file is open)");
                 Err(Error::NotFoundError)
             }
         }
@@ -1223,16 +1262,64 @@ impl TrieFileStorage {
         let node_type = node.as_trie_node_type();
         self.write_nodetype(ptr, &node_type, hash)
     }
+
+    /// If we opened a block with a given hash, but want to store it as a block with a *different*
+    /// hash, then call this method to update the internal storage state to make it so.  This is
+    /// necessary for validating blocks in the blockchain, since the miner will always build a
+    /// block whose hash is all 0's (since it can't know the final block hash).  As such, a peer
+    /// will process a block as if it's hash is all 0's (in order to validate the state root), and
+    /// then use this method to switch over the block hash to the "real" block hash.
+    fn block_retarget(&mut self, cur_bhh: &BlockHeaderHash, new_bhh: &BlockHeaderHash) -> Result<(), Error> {
+        debug!("Retarget block {} to {}", cur_bhh.to_hex(), new_bhh.to_hex());
+
+        // switch over state
+        let block_dir = TrieFileStorage::block_dir(&self.dir_path, new_bhh);
+        fs::create_dir_all(block_dir)
+            .map_err(Error::IOError)?;
+
+        // make it as if we had inserted this block the whole time
+        if self.chain_tips.contains(cur_bhh) {
+            self.chain_tips.remove(cur_bhh);
+        }
+        self.chain_tips.insert(new_bhh.clone());
+
+        let block_id_opt = self.block_map.find_id(cur_bhh);
+        match block_id_opt {
+            Some(id) => self.block_map.set_block(new_bhh.clone(), id),
+            None => {
+                panic!("Block {} was never in the block map", cur_bhh);
+            }
+        }
+
+        self.trie_ancestor_hash_bytes_cache = None;
+
+        self.cur_block = new_bhh.clone();
+        Ok(())
+    }
     
-    pub fn flush(&mut self) -> Result<(), Error> {
-        // save the currently-bufferred Trie to disk, and atomically put it into place.
-        // Idempotent.
-        // Panics on I/O error.
+    pub fn flush_to(&mut self, final_bhh: Option<&BlockHeaderHash>) -> Result<(), Error> {
+        // save the currently-bufferred Trie to disk, and atomically put it into place (possibly to
+        // a different block than the one opened, as indicated by final_bhh).
+        // Runs once -- subsequent calls are no-ops.
+        // Panics on a failure to rename the Trie file into place (i.e. if the the actual commitment
+        // fails).
+        // TODO: this needs to be more robust.  Also fsync the parent directory itself, before and
+        // after.  Turns out rename(2) isn't crash-consistent, and turns out syscalls can get
+        // reordered.
         if let Some((ref bhh, ref mut trie_ram)) = self.last_extended.take() {
             let block_path_tmp = TrieFileStorage::block_path_tmp(&self.dir_path, bhh);
-            let block_path = self.cached_block_path(bhh);
-                
-            trace!("Flush {:?} to {:?} and then rename to {:?}", bhh, &block_path_tmp, block_path);
+            let (block_path, real_bhh) = match final_bhh {
+                Some(real_bhh) => {
+                    if *real_bhh != *bhh {
+                        self.block_retarget(bhh, real_bhh)?;
+                        assert_eq!(self.block_map.find_id(real_bhh), Some(trie_ram.identifier));
+                    }
+                    (self.cached_block_path(real_bhh), real_bhh.clone())
+                }
+                None => (self.cached_block_path(bhh), bhh.clone())
+            };
+            
+            debug!("Flush {:?} to {:?}", bhh, block_path);
 
             // wrap in context to force the FD to _close_ before we execute
             //   a rename. would never be an issue in linux, but might cause problems
@@ -1253,19 +1340,17 @@ impl TrieFileStorage {
                                 }
                             })?);
 
-                trace!("Flush: identifier of {:?} is {:?}", bhh, trie_ram.identifier);
+                debug!("Flush: identifier of {:?} is {:?}", real_bhh, trie_ram.identifier);
                 trie_ram.dump(&mut writer, bhh)?;
 
                 // this OS-generic fsync's.
                 let fd = writer.into_inner()
                     .map_err(|e| { io::Error::from(e) })?;
                 fd.sync_all()?;
-            }
-
-                
+            }   
 
             // atomically put this trie file in place
-            trace!("Rename {:?} to {:?}", &block_path_tmp, &block_path);
+            debug!("Rename {:?} to {:?}", &block_path_tmp, &block_path);
             fs::rename(&block_path_tmp, &block_path)
                 .unwrap_or_else(|_| panic!("Failed to rename {:?} to {:?}", &block_path_tmp, &block_path));
         }
@@ -1273,7 +1358,27 @@ impl TrieFileStorage {
         Ok(())
     }
 
+    pub fn flush(&mut self) -> Result<(), Error> {
+        self.flush_to(None)
+    }
+
     pub fn drop_extending_trie(&mut self) {
+        if let Some((ref bhh, _)) = self.last_extended.take() {
+            let block_path_tmp = TrieFileStorage::block_path_tmp(&self.dir_path, bhh);
+            match fs::metadata(&block_path_tmp) {
+                Ok(_md) => {
+                    let res = fs::remove_file(&block_path_tmp);
+                    match res {
+                        Ok(_) => {},
+                        Err(e) => {
+                            warn!("Failed to remove '{:?}': {:?}", &block_path_tmp, &e);
+                        }
+                    };
+                },
+                Err(_) => {}
+            }
+        }
+
         self.last_extended = None;
     }
 

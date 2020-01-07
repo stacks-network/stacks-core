@@ -49,7 +49,7 @@ const GENESIS_BLOCK_MERKLE_ROOT_TESTNET: &'static str = "4a5e1e4baab89f3a32518a8
 pub const BLOCK_DIFFICULTY_CHUNK_SIZE: u64 = 2016;
 const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60;   // two weeks, in seconds
 
-
+// TODO: write all headers to a sqlite db, since reliable file I/O can be perilous
 pub struct SpvClient {
     pub headers_path: String,
     pub start_block_height: u64,

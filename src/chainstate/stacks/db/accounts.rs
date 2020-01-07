@@ -1,0 +1,890 @@
+/*
+ copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
+
+ This file is part of Blockstack.
+
+ Blockstack is free software. You may redistribute or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License or
+ (at your option) any later version.
+
+ Blockstack is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY, including without the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License
+ along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
+*/
+
+use rusqlite::Row;
+use rusqlite::types::ToSql;
+
+use burnchains::Address;
+
+use chainstate::stacks::Error;
+use chainstate::stacks::*;
+use chainstate::stacks::db::*;
+use chainstate::stacks::db::blocks::*;
+use vm::database::*;
+use vm::database::marf::*;
+
+use vm::types::*;
+
+use util::db::*;
+use util::db::Error as db_error;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MinerReward {
+    pub address: StacksAddress,
+    pub coinbase: u128,
+    pub tx_fees_anchored_shared: u128,
+    pub tx_fees_anchored_exclusive: u128,
+    pub tx_fees_streamed_produced: u128,
+    pub tx_fees_streamed_confirmed: u128,
+    pub vtxindex: u32       // will be 0 for the reward to the miner, and >0 for user burn supports
+}
+
+impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
+    fn from_row<'a>(row: &'a Row) -> Result<MinerPaymentSchedule, db_error> {
+        let address = StacksAddress::from_column(row, "address")?;
+        let block_hash = BlockHeaderHash::from_column(row, "block_hash")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+        let parent_block_hash = BlockHeaderHash::from_column(row, "parent_block_hash")?;
+        let parent_burn_header_hash = BurnchainHeaderHash::from_column(row, "parent_burn_header_hash")?;
+        
+        let coinbase_text : String = row.get("coinbase");
+        let tx_fees_anchored_text : String = row.get("tx_fees_anchored");
+        let tx_fees_streamed_text : String = row.get("tx_fees_streamed");
+        let burns_text : String = row.get("stx_burns");
+        let burnchain_commit_burn_i64 : i64 = row.get("burnchain_commit_burn");
+        let burnchain_sortition_burn_i64 : i64 = row.get("burnchain_sortition_burn");
+        let fill_text : String = row.get("fill");
+        let miner : bool = row.get("miner");
+        let block_height_i64 : i64 = row.get("stacks_block_height");
+        let vtxindex : u32 = row.get("vtxindex");
+
+        if burnchain_commit_burn_i64 < 0 || burnchain_sortition_burn_i64 < 0 {
+            return Err(db_error::ParseError);
+        }
+
+        let coinbase = coinbase_text.parse::<u128>().map_err(|_e| db_error::ParseError)?;
+        let tx_fees_anchored = tx_fees_anchored_text.parse::<u128>().map_err(|_e| db_error::ParseError)?;
+        let tx_fees_streamed = tx_fees_streamed_text.parse::<u128>().map_err(|_e| db_error::ParseError)?;
+        let stx_burns = burns_text.parse::<u128>().map_err(|_e| db_error::ParseError)?;
+        let burnchain_commit_burn = burnchain_commit_burn_i64 as u64;
+        let burnchain_sortition_burn = burnchain_sortition_burn_i64 as u64;
+        let fill = fill_text.parse::<u64>().map_err(|_e| db_error::ParseError)?;
+        let stacks_block_height = block_height_i64 as u64;
+
+        let payment_data = MinerPaymentSchedule {
+            address,
+            block_hash,
+            burn_header_hash,
+            parent_block_hash,
+            parent_burn_header_hash,
+            coinbase,
+            tx_fees_anchored,
+            tx_fees_streamed,
+            stx_burns,
+            burnchain_commit_burn,
+            burnchain_sortition_burn,
+            fill,
+            miner,
+            stacks_block_height,
+            vtxindex
+        };
+        Ok(payment_data)
+    }
+}
+
+impl MinerReward {
+    pub fn empty_miner(address: &StacksAddress) -> MinerReward {
+        MinerReward {
+            address: address.clone(),
+            coinbase: 0,
+            tx_fees_anchored_shared: 0,
+            tx_fees_anchored_exclusive: 0,
+            tx_fees_streamed_produced: 0,
+            tx_fees_streamed_confirmed: 0,
+            vtxindex: 0
+        }
+    }
+    
+    pub fn empty_user(address: &StacksAddress, vtxindex: u32) -> MinerReward {
+        MinerReward {
+            address: address.clone(),
+            coinbase: 0,
+            tx_fees_anchored_shared: 0,
+            tx_fees_anchored_exclusive: 0,
+            tx_fees_streamed_produced: 0,
+            tx_fees_streamed_confirmed: 0,
+            vtxindex: vtxindex
+        }
+    }
+
+    pub fn total(&self) -> u128 {
+        self.coinbase + self.tx_fees_anchored_shared + self.tx_fees_anchored_exclusive + self.tx_fees_streamed_produced + self.tx_fees_streamed_confirmed
+    }
+}
+
+impl StacksChainState {
+    pub fn get_account<'a>(clarity_tx: &mut ClarityTx<'a>, principal: &PrincipalData) -> StacksAccount {
+        clarity_tx.connection().with_clarity_db_readonly(|ref mut db| {
+            let stx_balance = db.get_account_stx_balance(principal);
+            let nonce = db.get_account_nonce(principal);
+            Ok(StacksAccount {
+                principal: principal.clone(),
+                stx_balance,
+                nonce
+            })
+        }).expect("FATAL: failed to query account")
+    }
+
+    pub fn get_account_ft<'a>(clarity_tx: &mut ClarityTx<'a>, contract_id: &QualifiedContractIdentifier, token_name: &str, principal: &PrincipalData) -> Result<u128, Error> {
+        clarity_tx.connection().with_clarity_db_readonly(|ref mut db| {
+            let ft_balance = db.get_ft_balance(contract_id, token_name, principal)?;
+            Ok(ft_balance)
+        })
+        .map_err(Error::ClarityError)
+    }
+
+    pub fn get_account_nft<'a>(clarity_tx: &mut ClarityTx<'a>, contract_id: &QualifiedContractIdentifier, token_name: &str, token_value: &Value) -> Result<PrincipalData, Error> {
+        clarity_tx.connection().with_clarity_db_readonly(|ref mut db| {
+            let nft_owner = db.get_nft_owner(contract_id, token_name, token_value)?;
+            Ok(nft_owner)
+        })
+        .map_err(Error::ClarityError)
+    }
+
+    /// Called each time a transaction is invoked from this principal, to e.g.
+    /// debit the STX-denominated tx fee or transfer/burn STX.
+    /// DOES NOT UPDATE THE NONCE
+    pub fn account_debit<'a>(clarity_tx: &mut ClarityTx<'a>, principal: &PrincipalData, amount: u64) {
+        clarity_tx.connection().with_clarity_db(|ref mut db| {
+            let cur_balance = db.get_account_stx_balance(principal);
+            
+            // last line of defense: if we don't have sufficient funds, panic.
+            // This should be checked by the block validation logic.
+            if cur_balance < (amount as u128) {
+                panic!("Tried to debit {} from account {} (which only has {})", amount, principal, cur_balance);
+            }
+
+            let final_balance = cur_balance - (amount as u128);
+            db.set_account_stx_balance(principal, final_balance);
+            Ok(())
+        }).expect("FATAL: failed to debit account")
+    }
+
+    /// Called each time a transaction sends STX to this principal.
+    /// No nonce update is needed, since the transfer action is not taken by the principal.
+    pub fn account_credit<'a>(clarity_tx: &mut ClarityTx<'a>, principal: &PrincipalData, amount: u64) {
+        clarity_tx.connection().with_clarity_db(|ref mut db| {
+            let cur_balance = db.get_account_stx_balance(principal);
+            let final_balance = cur_balance.checked_add(amount as u128).expect("FATAL: account balance overflow");
+            db.set_account_stx_balance(principal, final_balance as u128);
+            Ok(())
+        }).expect("FATAL: failed to credit account")
+    }
+   
+    /// Increment an account's nonce
+    pub fn update_account_nonce<'a>(clarity_tx: &mut ClarityTx<'a>, account: &StacksAccount) {
+        clarity_tx.connection().with_clarity_db(|ref mut db| {
+            let next_nonce = account.nonce.checked_add(1).expect("OUT OF NONCES");
+            db.set_account_nonce(&account.principal, next_nonce);
+            Ok(())
+        }).expect("FATAL: failed to set account nonce")
+    }
+
+    /// Schedule a miner payment in the future.
+    /// Schedules payments out to both miners and users that support them.
+    pub fn insert_miner_payment_schedule<'a>(tx: &mut StacksDBTx<'a>, block_reward: &MinerPaymentSchedule, user_burns: &Vec<StagingUserBurnSupport>) -> Result<(), Error> {
+        assert!(block_reward.burnchain_commit_burn < i64::max_value() as u64);
+        assert!(block_reward.burnchain_sortition_burn < i64::max_value() as u64);
+
+        tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex) \
+                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                    &[&block_reward.address.to_string(), &block_reward.block_hash.to_hex(), &block_reward.burn_header_hash.to_hex(), &block_reward.parent_block_hash.to_hex(), &block_reward.parent_burn_header_hash.to_hex(),
+                    &format!("{}", block_reward.coinbase), &format!("{}", block_reward.tx_fees_anchored), &format!("{}", block_reward.tx_fees_streamed), &format!("{}", block_reward.stx_burns), 
+                    &(block_reward.burnchain_commit_burn as i64) as &dyn ToSql, &(block_reward.burnchain_sortition_burn as i64) as &dyn ToSql, &format!("{}", block_reward.fill), &(block_reward.stacks_block_height as i64) as &dyn ToSql, 
+                    &true as &dyn ToSql, &0i64 as &dyn ToSql])
+            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+
+        for user_support in user_burns.iter() {
+            tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex) \
+                        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                        &[&user_support.address.to_string(), &block_reward.block_hash.to_hex(), &block_reward.burn_header_hash.to_hex(), &block_reward.parent_block_hash.to_hex(), &block_reward.parent_burn_header_hash.to_hex(),
+                        &format!("{}", block_reward.coinbase), &"0".to_string(), &"0".to_string(), &"0".to_string(),
+                        &(user_support.burn_amount as i64) as &dyn ToSql, &(block_reward.burnchain_sortition_burn as i64) as &dyn ToSql, &format!("{}", block_reward.fill), &(block_reward.stacks_block_height as i64) as &dyn ToSql,
+                        &false as &dyn ToSql, &user_support.vtxindex as &dyn ToSql])
+                .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        }
+
+        Ok(())
+    }
+ 
+    /// Get the scheduled miner rewards in a particular Stacks fork at a particular height
+    pub fn get_scheduled_block_rewards_in_fork<'a>(tx: &mut StacksDBTx<'a>, tip: &StacksHeaderInfo, block_height: u64) -> Result<Vec<MinerPaymentSchedule>, Error> {
+        let ancestor_info = match StacksChainState::get_tip_ancestor(tx, tip, block_height)? {
+            Some(info) => info,
+            None => {
+                test_debug!("No ancestor at height {}", block_height);
+                return Ok(vec![]);
+            }
+        };
+
+        let qry = "SELECT * FROM payments WHERE block_hash = ?1 AND burn_header_hash = ?2 ORDER BY vtxindex ASC".to_string();
+        let args = [&ancestor_info.anchored_header.block_hash().to_hex(), &ancestor_info.burn_header_hash.to_hex()];
+        let rows = query_rows::<MinerPaymentSchedule, _>(tx, &qry, &args).map_err(Error::DBError)?;
+        Ok(rows)
+    }
+
+    /// Calculate the total reward for a miner (or user burn support), given a sample of scheduled miner payments.
+    /// The scheduled miner payments must be in order by block height (sample[0] is the oldest).
+    /// The first tuple item is the miner's reward; the second tuple item is the list of
+    /// user-support burns that helped the miner win.
+    ///
+    /// There must be MINER_REWARD_WINDOW items in the sample.
+    ///
+    /// TODO: this is incomplete -- it does not calculate transaction fees.  This is just stubbed
+    /// out for now -- it only grants miners and user burn supports their coinbases.
+    fn calculate_miner_reward(miner: &MinerPaymentSchedule, sample: &Vec<(MinerPaymentSchedule, Vec<MinerPaymentSchedule>)>) -> MinerReward {
+        assert!(miner.burnchain_sortition_burn > 0);        // don't call this method if there was no sortition for this block!
+        for i in 0..sample.len() {
+            assert!(sample[i].0.miner);
+            for u in sample[i].1.iter() {
+                assert!(!u.miner);
+            }
+        }
+
+        // how many blocks this miner mined or supported
+        let mut num_mined : u128 = 0;
+
+        // this miner gets (r*b)/(R*B) of the coinbases over the reward window, where:
+        // * r is the number of tokens added by the blocks mined (or supported) by this miner
+        // * R is the number of tokens added by all blocks mined in this interval
+        // * b is the amount of burn tokens destroyed by this miner 
+        // * B is the total amount of burn tokens destroyed over this interval
+        let mut coinbase_reward : u128 = 0;
+        
+        ////////////////////// number of blocks this miner mined or supported //////
+        for i in 0..sample.len() {
+            let block_miner = &sample[i].0;
+            let user_supports = &sample[i].1;
+
+            if block_miner.address == miner.address {
+                num_mined += 1;
+            }
+            else {
+                // considering a user's share of the coinbase (count the block's miner as another
+                // user, distinct from this one)
+                for user_support in user_supports.iter() {
+                    if user_support.address == miner.address {
+                        num_mined += 1;
+                        break;
+                    }
+                }
+            }
+        }
+
+        ////////////////////// coinbase reward total /////////////////////////////////
+        let (this_burn_total, other_burn_total) = {
+            let block_miner = &sample[0].0;
+            let user_supports = &sample[0].1;
+
+            if block_miner.address == miner.address {
+                let mut total_user : u128 = 0;
+                for user_support in user_supports.iter() {
+                    total_user = total_user.checked_add(user_support.burnchain_commit_burn as u128).expect("FATAL: user support burn overflow");
+                }
+                (block_miner.burnchain_commit_burn as u128, total_user)
+            }
+            else {
+                let mut this_user : u128 = 0;
+                let mut total_other : u128 = block_miner.burnchain_commit_burn as u128;
+                for user_support in user_supports.iter() {
+                    if user_support.address != miner.address {
+                        total_other = total_other.checked_add(user_support.burnchain_commit_burn as u128).expect("FATAL: user support burn overflow");
+                    }
+                    else {
+                        this_user = user_support.burnchain_commit_burn as u128;
+                    }
+                }
+                (this_user, total_other)
+            }
+        };
+
+        coinbase_reward = 
+            if num_mined == 0 {
+                // this miner didn't help at all
+                0
+            }
+            else {
+                let burn_total = other_burn_total.checked_add(this_burn_total).expect("FATAL: combined burns exceed u128");
+                test_debug!("{}: Coinbase reward = {} * ({}/{})", miner.address.to_string(), miner.coinbase, this_burn_total, burn_total);
+                miner.coinbase.checked_mul(this_burn_total as u128).expect("FATAL: STX coinbase reward overflow") / (burn_total as u128)
+            };
+
+        // TODO: missing transaction fee calculation
+        let miner_reward = MinerReward {
+            address: miner.address.clone(),
+            coinbase: coinbase_reward,
+            tx_fees_anchored_shared: 0,
+            tx_fees_anchored_exclusive: 0,
+            tx_fees_streamed_produced: 0,
+            tx_fees_streamed_confirmed: 0,
+            vtxindex: miner.vtxindex
+        };
+        miner_reward
+    }
+
+    /// Find the latest miner reward to mature, assuming that there are mature rewards.
+    /// Returns a list of payments to make to each address -- miners and user-support burners
+    pub fn find_mature_miner_rewards<'a>(tx: &mut StacksDBTx<'a>, tip: &StacksHeaderInfo) -> Result<Option<Vec<MinerReward>>, Error> {
+        if tip.block_height < MINER_REWARD_MATURITY + MINER_REWARD_WINDOW {
+            // no mature rewards exist
+            return Ok(None);
+        }
+
+        let matured_miners = StacksChainState::get_scheduled_block_rewards_in_fork(tx, tip, tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW)?;
+        assert!(matured_miners.len() > 0);
+
+        let mut scheduled_payments = vec![];
+        for i in 0..MINER_REWARD_WINDOW {
+            let height = tip.block_height - MINER_REWARD_MATURITY - MINER_REWARD_WINDOW + i;      // safe due to the above check
+            let scheduled_rewards = 
+                if i == 0 {
+                    matured_miners.clone()
+                }
+                else {
+                    StacksChainState::get_scheduled_block_rewards_in_fork(tx, tip, height)?
+                };
+
+            assert!(scheduled_rewards.len() > 0);
+
+            let mut miner_reward_opt = None;
+            for reward in scheduled_rewards.iter() {
+                if reward.miner {
+                    miner_reward_opt = Some(reward.clone());
+                    break;
+                }
+            }
+            
+            let miner_reward = miner_reward_opt.expect(&format!("FATAL: missing miner reward for block {}", height));
+            let mut user_burns = vec![];
+            for reward in scheduled_rewards.iter() {
+                if !reward.miner {
+                    user_burns.push(reward.clone());
+                }
+            }
+
+            assert_eq!(user_burns.len(), scheduled_rewards.len() - 1);
+            scheduled_payments.push((miner_reward, user_burns));
+        }
+
+        let mut rewards = vec![];
+        for matured_miner in matured_miners {
+            let reward = StacksChainState::calculate_miner_reward(&matured_miner, &scheduled_payments);
+            rewards.push(reward);
+        }
+        Ok(Some(rewards))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use burnchains::*;
+    use chainstate::burn::*;
+    use chainstate::stacks::*;
+    use chainstate::stacks::db::test::*;
+    use util::hash::*;
+
+    fn make_dummy_miner_payment_schedule(addr: &StacksAddress, coinbase: u128, tx_fees_anchored: u128, tx_fees_streamed: u128, commit_burn: u64, sortition_burn: u64) -> MinerPaymentSchedule {
+        MinerPaymentSchedule {
+            address: addr.clone(),
+            block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
+            burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            parent_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
+            parent_burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            coinbase,
+            tx_fees_anchored,
+            tx_fees_streamed, 
+            stx_burns: 0,
+            burnchain_commit_burn: commit_burn,
+            burnchain_sortition_burn: sortition_burn, 
+            fill: 0xffffffffffffffff,
+            miner: true,
+            stacks_block_height: 0,
+            vtxindex: 0
+        }
+    }
+    
+    fn make_dummy_user_payment_schedule(addr: &StacksAddress, coinbase: u128, tx_fees_anchored: u128, tx_fees_streamed: u128, commit_burn: u64, sortition_burn: u64, vtxindex: u32) -> MinerPaymentSchedule {
+        let mut sched = make_dummy_miner_payment_schedule(addr, coinbase, tx_fees_anchored, tx_fees_streamed, commit_burn, sortition_burn);
+        sched.miner = false;
+        sched.vtxindex = vtxindex;
+        sched
+    }
+
+    impl StagingUserBurnSupport {
+        pub fn from_miner_payment_schedule(user: &MinerPaymentSchedule) -> StagingUserBurnSupport {
+            StagingUserBurnSupport {
+                burn_header_hash: user.burn_header_hash.clone(),
+                anchored_block_hash: user.block_hash.clone(),
+                address: user.address.clone(),
+                burn_amount: user.burnchain_commit_burn,
+                vtxindex: user.vtxindex
+            }
+        }
+    }
+
+    fn advance_tip(chainstate: &mut StacksChainState, parent_header_info: &StacksHeaderInfo, block_reward: &mut MinerPaymentSchedule, user_burns: &mut Vec<StagingUserBurnSupport>) -> StacksHeaderInfo {
+        let mut new_tip = parent_header_info.clone();
+
+        new_tip.anchored_header.parent_block = parent_header_info.anchored_header.block_hash();
+        new_tip.anchored_header.microblock_pubkey_hash = Hash160::from_data(&parent_header_info.anchored_header.microblock_pubkey_hash.0);
+        new_tip.anchored_header.total_work.work = parent_header_info.anchored_header.total_work.work + 1;
+        new_tip.microblock_tail = None;
+        new_tip.block_height = parent_header_info.block_height + 1;
+        new_tip.burn_header_hash = BurnchainHeaderHash(Sha512Trunc256Sum::from_data(&parent_header_info.burn_header_hash.0).0);
+
+        block_reward.parent_burn_header_hash = parent_header_info.burn_header_hash.clone();
+        block_reward.parent_block_hash = parent_header_info.anchored_header.block_hash().clone();
+        block_reward.block_hash = new_tip.anchored_header.block_hash();
+        block_reward.burn_header_hash = new_tip.burn_header_hash.clone();
+
+        for ref mut user_burn in user_burns.iter_mut() {
+            user_burn.anchored_block_hash = new_tip.anchored_header.block_hash();
+            user_burn.burn_header_hash = new_tip.burn_header_hash.clone();
+        }
+        
+        let mut tx = chainstate.headers_tx_begin().unwrap();
+        let tip = StacksChainState::advance_tip(&mut tx, &parent_header_info.anchored_header, &parent_header_info.burn_header_hash, &new_tip.anchored_header, &new_tip.burn_header_hash, new_tip.microblock_tail.clone(), &block_reward, &user_burns).unwrap();
+        tx.commit().unwrap();
+        tip
+    }
+    
+    #[test]
+    fn get_tip_ancestor() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "load_store_miner_payment_schedule");
+        let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
+        let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
+        let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
+       
+        // dummy reward
+        let mut tip_reward = make_dummy_miner_payment_schedule(&StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 0, 0, 0, 0, 0);
+        
+        let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
+        let mut user_supports = vec![user_support];
+
+        {
+            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &StacksHeaderInfo::genesis(), 0).unwrap();
+            assert!(ancestor_0.is_none());
+        }
+
+        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis(), &mut miner_reward, &mut user_supports);
+
+        {
+            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 0).unwrap();
+            let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 1).unwrap();
+            
+            assert!(ancestor_1.is_none());
+            assert!(ancestor_0.is_some());
+            assert_eq!(ancestor_0.unwrap().block_height, 2);    // block 1 is the boot block
+        }
+
+        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
+        
+        {
+            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let ancestor_2 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 2).unwrap();
+            let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 1).unwrap();
+            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
+            
+            assert!(ancestor_2.is_none());
+            assert!(ancestor_1.is_some());
+            assert_eq!(ancestor_1.unwrap().block_height, 3);    // block 1 is the boot block
+            assert!(ancestor_0.is_some());
+            assert_eq!(ancestor_0.unwrap().block_height, 2);    // block 1 is the boot block
+        }
+    }
+
+    #[test]
+    fn load_store_miner_payment_schedule() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "load_store_miner_payment_schedule");
+        let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
+        let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
+
+        let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
+
+        let initial_tip = StacksHeaderInfo::genesis();
+        
+        let user_support = StagingUserBurnSupport::from_miner_payment_schedule(&user_reward);
+        let mut user_supports = vec![user_support];
+
+        let parent_tip = advance_tip(&mut chainstate, &StacksHeaderInfo::genesis(), &mut miner_reward, &mut user_supports);
+
+        // dummy reward
+        let mut tip_reward = make_dummy_miner_payment_schedule(&StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 0, 0, 0, 0, 0);
+        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
+        
+        {
+            let mut tx = chainstate.headers_tx_begin().unwrap();
+            let payments_0 = StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 0).unwrap();
+            let payments_1 = StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 1).unwrap();
+            let payments_2 = StacksChainState::get_scheduled_block_rewards_in_fork(&mut tx, &tip, 2).unwrap();
+
+            let mut expected_user_support = user_reward.clone();
+            expected_user_support.burn_header_hash = miner_reward.burn_header_hash.clone();
+            expected_user_support.parent_burn_header_hash = miner_reward.parent_burn_header_hash.clone();
+            expected_user_support.block_hash = miner_reward.block_hash.clone();
+            expected_user_support.parent_block_hash = miner_reward.parent_block_hash.clone();
+
+            assert_eq!(payments_0, vec![miner_reward, expected_user_support]);
+            assert_eq!(payments_1, vec![tip_reward]);
+            assert_eq!(payments_2, vec![]);
+        };
+    }
+
+    #[test]
+    fn miner_reward_one_miner_no_tx_fees_no_users() {
+        let mut sample = vec![];
+        let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
+        let participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        sample.push((participant.clone(), vec![]));
+
+        for i in 0..9 {
+            let next_participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        }
+
+        let reward = StacksChainState::calculate_miner_reward(&participant, &sample);
+        
+        // miner should have received the entire coinbase
+        assert_eq!(reward.coinbase, 500);
+        assert_eq!(reward.tx_fees_anchored_shared, 0);
+        assert_eq!(reward.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward.tx_fees_streamed_produced, 0);
+        assert_eq!(reward.tx_fees_streamed_confirmed, 0);
+    }
+    
+    #[test]
+    fn miner_reward_two_miners_no_tx_fees_no_users() {
+        let mut sample = vec![];
+        let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
+        let participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        sample.push((participant.clone(), vec![]));
+
+        for i in 0..9 {
+            let next_participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+            sample.push((next_participant, vec![]));
+        }
+
+        let reward = StacksChainState::calculate_miner_reward(&participant, &sample);
+        
+        // miner should have received the entire coinbase
+        assert_eq!(reward.coinbase, 500);
+        assert_eq!(reward.tx_fees_anchored_shared, 0);
+        assert_eq!(reward.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward.tx_fees_streamed_produced, 0);
+        assert_eq!(reward.tx_fees_streamed_confirmed, 0);
+    }
+    
+    #[test]
+    fn miner_reward_one_miner_one_user_no_tx_fees() {
+        let mut sample = vec![];
+        let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
+        let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
+        let participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 250, 1000);
+        let user = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
+        sample.push((participant.clone(), vec![user.clone()]));
+
+        for i in 0..9 {
+            let next_participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+            sample.push((next_participant, vec![]));
+        }
+
+        let reward_miner_1 = StacksChainState::calculate_miner_reward(&participant, &sample);
+        let reward_user_1 = StacksChainState::calculate_miner_reward(&user, &sample);
+        
+        // miner should have received 1/4 the coinbase
+        assert_eq!(reward_miner_1.coinbase, 125);
+        assert_eq!(reward_miner_1.tx_fees_anchored_shared, 0);
+        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
+        assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
+        
+        // user should have received 3/4 the coinbase
+        assert_eq!(reward_user_1.coinbase, 375);
+        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
+        assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
+
+    }
+    
+    /*
+    // TODO: broken; needs to be rewritten once transaction fee processing is added
+    #[test]
+    fn miner_reward_one_miner_one_user_anchored_tx_fees_unfull() {
+        let mut sample = vec![];
+        let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
+        let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
+        let mut participant = make_dummy_miner_payment_schedule(&miner_1, 500, 100, 0, 250, 1000);
+        let mut user = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
+
+        // blocks are NOT full
+        let fill_cutoff = (((MINER_FEE_MINIMUM_BLOCK_USAGE as u128) << 64) / 100u128) as u64;
+        participant.fill = fill_cutoff - 1;
+        user.fill = fill_cutoff - 1;
+
+        sample.push((participant.clone(), vec![user.clone()]));
+
+        for i in 0..9 {
+            let mut next_participant = make_dummy_miner_payment_schedule(&miner_1, 250, 100, 0, 250, 1000);
+            let mut next_user = make_dummy_user_payment_schedule(&user_1, 750, 0, 0, 750, 1000, 1);
+
+            next_participant.fill = fill_cutoff - 1;
+            next_user.fill = fill_cutoff - 1;
+
+            sample.push((next_participant, vec![next_user]));
+        }
+
+        let reward_miner_1 = StacksChainState::calculate_miner_reward(&participant, &sample);
+        let reward_user_1 = StacksChainState::calculate_miner_reward(&user, &sample);
+        
+        // miner should have received 1/4 the coinbase, and miner should have received only shared
+        assert_eq!(reward_miner_1.coinbase, 125);
+        assert_eq!(reward_miner_1.tx_fees_anchored_shared, 1000);        // same miner, so they get everything
+        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
+        assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
+        
+        // user should have received 3/4 the coinbase, but no tx fees
+        assert_eq!(reward_user_1.coinbase, 375);
+        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
+        assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
+    }
+    
+    // TODO: broken; needs to be rewritten once transaction fee processing is added
+    #[test]
+    fn miner_reward_two_miners_one_user_anchored_tx_fees_unfull() {
+        let mut sample = vec![];
+        let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
+        let miner_2 = StacksAddress::from_string(&"SP8WWTGMNCCSB88QF4VYWN69PAMQRMF34FCT498G".to_string()).unwrap();
+        let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
+        let mut participant_1 = make_dummy_miner_payment_schedule(&miner_1, 500, 100, 0, 250, 1000);
+        let mut participant_2 = make_dummy_miner_payment_schedule(&miner_2, 500, 0, 0, 1000, 1000);
+        let mut user = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
+
+        // blocks are NOT full
+        let fill_cutoff = (((MINER_FEE_MINIMUM_BLOCK_USAGE as u128) << 64) / 100u128) as u64;
+        participant_1.fill = fill_cutoff - 1;
+        participant_2.fill = fill_cutoff - 1;
+        user.fill = fill_cutoff - 1;
+
+        sample.push((participant_1.clone(), vec![user.clone()]));
+
+        for i in 0..4 {
+            let mut next_participant = make_dummy_miner_payment_schedule(&miner_1, 250, 100, 0, 250, 1000);
+            let mut next_user = make_dummy_user_payment_schedule(&user_1, 750, 0, 0, 750, 1000, 1);
+
+            next_participant.fill = fill_cutoff - 1;
+            next_user.fill = fill_cutoff - 1;
+
+            sample.push((next_participant, vec![next_user]));
+        }
+        
+        for i in 0..5 {
+            let mut next_participant = make_dummy_miner_payment_schedule(&miner_2, 250, 100, 0, 250, 1000);
+            let mut next_user = make_dummy_user_payment_schedule(&user_1, 750, 0, 0, 750, 1000, 1);
+
+            next_participant.fill = fill_cutoff - 1;
+            next_user.fill = fill_cutoff - 1;
+
+            sample.push((next_participant, vec![next_user]));
+        }
+
+        let reward_miner_1 = StacksChainState::calculate_miner_reward(&participant_1, &sample);
+        let reward_miner_2 = StacksChainState::calculate_miner_reward(&participant_2, &sample);
+        let reward_user_1 = StacksChainState::calculate_miner_reward(&user, &sample);
+        
+        // if miner 1 won, then it should have received 1/4 the coinbase, and miner should have received only shared tx fees
+        assert_eq!(reward_miner_1.coinbase, 125);
+        assert_eq!(reward_miner_1.tx_fees_anchored_shared, 500);        // did half the work over the sample
+        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
+        assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
+      
+        // miner 2 didn't mine this block
+        assert_eq!(reward_miner_2.coinbase, 0);
+        assert_eq!(reward_miner_2.tx_fees_anchored_shared, 500);        // did half the work over the sample
+        assert_eq!(reward_miner_2.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_miner_2.tx_fees_streamed_produced, 0);
+        assert_eq!(reward_miner_2.tx_fees_streamed_confirmed, 0);
+        
+        // user should have received 3/4 the coinbase, but no tx fees
+        assert_eq!(reward_user_1.coinbase, 375);
+        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
+        assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
+    }
+    
+    // TODO: broken; needs to be rewritten once transaction fee processing is added
+    #[test]
+    fn miner_reward_two_miners_one_user_anchored_tx_fees_full() {
+        let mut sample = vec![];
+        let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
+        let miner_2 = StacksAddress::from_string(&"SP8WWTGMNCCSB88QF4VYWN69PAMQRMF34FCT498G".to_string()).unwrap();
+        let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
+        let mut participant_1 = make_dummy_miner_payment_schedule(&miner_1, 500, 100, 0, 250, 1000);
+        let mut participant_2 = make_dummy_miner_payment_schedule(&miner_2, 500, 0, 0, 1000, 1000);
+        let mut user = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
+
+        let fill_cutoff = ((MINER_FEE_MINIMUM_BLOCK_USAGE as u128) << 64) / 100u128;
+
+        // blocks are full to 90%
+        let fill = ((90u128 << 64) / (100u128)) as u64;
+        participant_1.fill = fill;
+        participant_2.fill = fill;
+        user.fill = fill;
+
+        sample.push((participant_1.clone(), vec![user.clone()]));
+
+        for i in 0..4 {
+            let mut next_participant = make_dummy_miner_payment_schedule(&miner_1, 250, 100, 0, 250, 1000);
+            let mut next_user = make_dummy_user_payment_schedule(&user_1, 750, 0, 0, 750, 1000, 1);
+
+            next_participant.fill = fill;
+            next_user.fill = fill;
+
+            sample.push((next_participant, vec![next_user]));
+        }
+        
+        for i in 0..5 {
+            let mut next_participant = make_dummy_miner_payment_schedule(&miner_2, 250, 100, 0, 250, 1000);
+            let mut next_user = make_dummy_user_payment_schedule(&user_1, 750, 0, 0, 750, 1000, 1);
+
+            next_participant.fill = fill;
+            next_user.fill = fill;
+
+            sample.push((next_participant, vec![next_user]));
+        }
+
+        let reward_miner_1 = StacksChainState::calculate_miner_reward(&participant_1, &sample);
+        let reward_miner_2 = StacksChainState::calculate_miner_reward(&participant_2, &sample);
+        let reward_user_1 = StacksChainState::calculate_miner_reward(&user, &sample);
+
+        let expected_shared = 
+            if (500 * fill_cutoff) & 0x0000000000000000ffffffffffffffff > 0x00000000000000007fffffffffffffff {
+                ((500 * fill_cutoff) >> 64) + 1
+            }
+            else {
+                (500 * fill_cutoff) >> 64
+            };
+        
+        // miner 1 should have received 1/4 the coinbase
+        assert_eq!(reward_miner_1.coinbase, 125);
+        assert_eq!(reward_miner_1.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
+        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 500 - expected_shared);
+        assert_eq!(reward_miner_1.tx_fees_streamed_produced, 0);
+        assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 0);
+      
+        // miner 2 didn't win this block, so it gets no coinbase
+        assert_eq!(reward_miner_2.coinbase, 0);
+        assert_eq!(reward_miner_2.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
+        assert_eq!(reward_miner_2.tx_fees_anchored_exclusive, 500 - expected_shared);
+        assert_eq!(reward_miner_2.tx_fees_streamed_produced, 0);
+        assert_eq!(reward_miner_2.tx_fees_streamed_confirmed, 0);
+        
+        // user should have received 3/4 the coinbase, but no tx fees
+        assert_eq!(reward_user_1.coinbase, 375);
+        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
+        assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
+    }
+    
+    // TODO: broken; needs to be rewritten once transaction fee processing is added
+    #[test]
+    fn miner_reward_two_miners_one_user_anchored_tx_fees_full_streamed() {
+        let mut sample = vec![];
+        let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
+        let miner_2 = StacksAddress::from_string(&"SP8WWTGMNCCSB88QF4VYWN69PAMQRMF34FCT498G".to_string()).unwrap();
+        let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
+        let mut participant_1 = make_dummy_miner_payment_schedule(&miner_1, 500, 100, 100, 250, 1000);
+        let mut participant_2 = make_dummy_miner_payment_schedule(&miner_2, 500, 0, 0, 1000, 1000);
+        let mut user = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
+
+        let fill_cutoff = ((MINER_FEE_MINIMUM_BLOCK_USAGE as u128) << 64) / 100u128;
+
+        // blocks are full to 90%
+        let fill = ((90u128 << 64) / (100u128)) as u64;
+        participant_1.fill = fill;
+        participant_2.fill = fill;
+        user.fill = fill;
+
+        sample.push((participant_1.clone(), vec![user.clone()]));
+
+        for i in 0..4 {
+            let mut next_participant = make_dummy_miner_payment_schedule(&miner_1, 250, 100, 100, 250, 1000);
+            let mut next_user = make_dummy_user_payment_schedule(&user_1, 750, 0, 0, 750, 1000, 1);
+
+            next_participant.fill = fill;
+            next_user.fill = fill;
+
+            sample.push((next_participant, vec![next_user]));
+        }
+        
+        for i in 0..5 {
+            let mut next_participant = make_dummy_miner_payment_schedule(&miner_2, 250, 100, 100, 250, 1000);
+            let mut next_user = make_dummy_user_payment_schedule(&user_1, 750, 0, 0, 750, 1000, 1);
+
+            next_participant.fill = fill;
+            next_user.fill = fill;
+
+            sample.push((next_participant, vec![next_user]));
+        }
+
+        let reward_miner_1 = StacksChainState::calculate_miner_reward(&participant_1, &sample);
+        let reward_miner_2 = StacksChainState::calculate_miner_reward(&participant_2, &sample);
+        let reward_user_1 = StacksChainState::calculate_miner_reward(&user, &sample);
+
+        let expected_shared = 
+            if (500 * fill_cutoff) & 0x0000000000000000ffffffffffffffff > 0x00000000000000007fffffffffffffff {
+                ((500 * fill_cutoff) >> 64) + 1
+            }
+            else {
+                (500 * fill_cutoff) >> 64
+            };
+        
+        // miner 1 produced this block with the help from users 3x as interested, so it gets 1/4 of the coinbase
+        assert_eq!(reward_miner_1.coinbase, 125);
+        assert_eq!(reward_miner_1.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
+        assert_eq!(reward_miner_1.tx_fees_anchored_exclusive, 500 - expected_shared);
+        assert_eq!(reward_miner_1.tx_fees_streamed_produced, 240);                  // produced half of the microblocks, should get half the 2/5 of the reward
+        assert_eq!(reward_miner_1.tx_fees_streamed_confirmed, 240);                 // confirmed half of the microblocks, should get half of the 3/5 reward
+      
+        // miner 2 didn't produce this block, so no coinbase
+        assert_eq!(reward_miner_2.coinbase, 0);
+        assert_eq!(reward_miner_2.tx_fees_anchored_shared, expected_shared);        // did half the work over the sample
+        assert_eq!(reward_miner_2.tx_fees_anchored_exclusive, 500 - expected_shared);
+        assert_eq!(reward_miner_2.tx_fees_streamed_produced, 200);
+        assert_eq!(reward_miner_2.tx_fees_streamed_confirmed, 300);
+        
+        // user should have received 3/4 the coinbase, but no tx fees
+        assert_eq!(reward_user_1.coinbase, 375);
+        assert_eq!(reward_user_1.tx_fees_anchored_shared, 0);
+        assert_eq!(reward_user_1.tx_fees_anchored_exclusive, 0);
+        assert_eq!(reward_user_1.tx_fees_streamed_produced, 0);
+        assert_eq!(reward_user_1.tx_fees_streamed_confirmed, 0);
+    }
+    */
+}

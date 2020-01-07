@@ -348,6 +348,10 @@ pub struct Preamble {
     /// hash calculated for the stable_block_height above.
     pub stable_burn_consensus_hash: ConsensusHash,
 
+    /// This is a pointer to additional data that follows the payload.
+    /// This is a reserved field; for now, it should all be 0's.
+    pub additional_data: u32,
+
     /// This is a signature over the entire message (preamble and payload).
     /// When generating this value, the signature bytes below must all be 0's.
     pub signature: MessageSignature;
@@ -511,8 +515,9 @@ pub struct BlocksInvData {
 }
 
 pub struct MicroblocksInvData {
-    /// The sequence of microblock hashes.
-    pub hashes: Vec<BlockHeaderHash>
+    // the "tail" of the last anchored block's microblock stream
+    pub last_microblock_hash: BlockHeaderHash,
+    pub last_sequence: u8
 }
 ```
 
@@ -520,7 +525,7 @@ Notes:
 
 * `BlocksInvData.bitlen` will never exceed 4096
 * `BlocksInvData.bitvec` will have length `ceil(BlocksInvData.bitlen / 8)`
-* `MicroblocksInvData.hashes` will never have more than 4096 elements.
+* `BlocksInvData.microblocks_inventory` will never have more than 256 elements.
 
 **GetBlocks**
 

@@ -58,6 +58,31 @@ macro_rules! define_named_enum {
     }
 }
 
+/// Define a "u8" enum
+///  gives you a try_from(u8) -> Option<Self> function
+macro_rules! define_u8_enum {
+    ($Name:ident { $($Variant:ident,)* }) =>
+    {
+        #[derive(PartialEq)]
+        #[repr(u8)]
+        enum $Name {
+            $($Variant),*,
+        }
+        impl $Name {
+            pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
+
+            pub fn from_u8(v: u8) -> Option<Self> {
+                match v {
+                    $(
+                        v if v == $Name::$Variant as u8 => Some($Name::$Variant),
+                    )*
+                    _ => None
+                }
+            }
+        }
+    }
+}
+
 /// Borrowed from Andrew Poelstra's rust-bitcoin
 macro_rules! impl_array_newtype {
     ($thing:ident, $ty:ty, $len:expr) => {
