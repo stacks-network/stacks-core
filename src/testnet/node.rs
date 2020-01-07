@@ -307,7 +307,7 @@ impl Node {
                     &anchored_block.block_hash(), 
                     microblock).unwrap();
                 if !res {
-                    // Do something
+                    warn!("Unhandled error while pre-processing microblock {}", microblock.header.block_hash());
                 }
             }
         }
