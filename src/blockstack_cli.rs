@@ -411,6 +411,24 @@ mod test {
             "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
             "foo-contract",
             "transfer-fookens",
+            "-x",
+            "0000000000000000000000000000000001",
+            "-x",
+            "0000000000000000000000000000000002"
+        ];
+
+        let exec_3 = main_handler(to_string_vec(&cc_args)).unwrap();
+
+        assert_eq!(exec_2, exec_3);
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
             "-e",
             "(+ 0 1)",
             "-e",
@@ -428,6 +446,63 @@ mod test {
             "transfer-fookens",
             "-e",
             "(/ 1 0)",
+        ];
+
+        assert!(main_handler(to_string_vec(&cc_args)).is_err());
+
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "quryey",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "-e",
+            "1",
+        ];
+
+        assert!(main_handler(to_string_vec(&cc_args)).is_err());
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000fz",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "-e",
+            "1",
+        ];
+
+        assert!(main_handler(to_string_vec(&cc_args)).is_err());
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000fz",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "-e",
+            "1",
+        ];
+
+        assert!(main_handler(to_string_vec(&cc_args)).is_err());
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000fz",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "-x",
+            "1010",
         ];
 
         assert!(main_handler(to_string_vec(&cc_args)).is_err());
