@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     pub fn simple_test() {
-        let marf = marf::in_memory_marf();
+        let marf = marf::temporary_marf();
         let mut clarity_instance = ClarityInstance::new(marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     pub fn test_block_roll_back() {
-        let marf = marf::in_memory_marf();
+        let marf = marf::temporary_marf();
         let mut clarity_instance = ClarityInstance::new(marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     pub fn test_tx_roll_backs() {
-        let marf = marf::in_memory_marf();
+        let marf = marf::temporary_marf();
         let mut clarity_instance = ClarityInstance::new(marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();

@@ -21,7 +21,7 @@ use util::db::FromRow;
 
 use vm::ast::parse;
 use vm::contexts::OwnedEnvironment;
-use vm::database::{ClarityDatabase, SqliteConnection, KeyValueStorage,
+use vm::database::{ClarityDatabase, SqliteConnection,
                    MarfedKV, in_memory_marf, sqlite_marf};
 use vm::errors::{InterpreterResult};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
@@ -547,6 +547,9 @@ mod test {
         
         eprintln!("initialize");
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
+
+        eprintln!("check tokens");
+        invoke_command("test", &["check".to_string(), "sample-programs/tokens.clar".to_string()]);
         
         eprintln!("check tokens");
         invoke_command("test", &["check".to_string(), "sample-programs/tokens.clar".to_string(), db_name.clone()]);

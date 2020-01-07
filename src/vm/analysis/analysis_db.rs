@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
-use vm::database::{KeyValueStorage, ClaritySerializable, ClarityDeserializable,
+use vm::database::{ClaritySerializable, ClarityDeserializable,
                    RollbackWrapper, MarfedKV, in_memory_marf};
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::analysis::type_checker::{ContractAnalysis};

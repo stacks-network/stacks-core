@@ -3,43 +3,6 @@ use vm::errors::{ InterpreterResult as Result };
 use chainstate::burn::BlockHeaderHash;
 use std::collections::{HashMap};
 
-// These functions _do not_ return errors, rather, any errors in the underlying storage
-//    will _panic_. The rationale for this is that under no condition should the interpreter
-//    attempt to continue processing in the event of an unexpected storage error.
-pub trait KeyValueStorage {
-    fn put(&mut self, key: &str, value: &str);
-    fn get(&mut self, key: &str) -> Option<String>;
-    fn has_entry(&mut self, key: &str) -> bool;
-
-    fn put_non_consensus(&mut self, key: &str, value: &str);
-    fn get_non_consensus(&mut self, key: &str) -> Option<String>;
-
-    /// begin, commit, rollback a save point identified by key
-    ///    not all backends will implement this! this is used to clean up
-    ///     any data from aborted blocks (not aborted transactions! that is handled
-    ///      by the clarity vm directly).
-    /// The block header hash is used for identifying savepoints.
-    ///     this _cannot_ be used to rollback to arbitrary prior block hash, because that
-    ///     blockhash would already have committed and no longer exist in the save point stack.
-    /// this is a "lower-level" rollback than the roll backs performed in
-    ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
-    fn begin(&mut self, _key: &BlockHeaderHash) {}
-    fn commit(&mut self, _key: &BlockHeaderHash) {}
-    fn rollback(&mut self, _key: &BlockHeaderHash) {}
-
-    /// returns the previous block header hash on success
-    fn set_block_hash(&mut self, _bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
-        panic!("Attempted to evaluate changed block height with a generic backend");
-    } 
-
-    fn put_all(&mut self, mut items: Vec<(String, String)>) {
-        for (key, value) in items.drain(..) {
-            self.put(&key, &value);
-        }
-    }
-
-}
-
 pub struct RollbackContext {
     edits: Vec<(String, String)>,
     non_consensus_edits: Vec<(String, String)>,

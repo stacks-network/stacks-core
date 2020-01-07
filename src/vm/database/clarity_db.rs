@@ -15,9 +15,7 @@ use vm::database::structures::{
     DataMapMetadata, DataVariableMetadata, ClaritySerializable, SimmedBlock,
     ClarityDeserializable,
 };
-use vm::database::{
-    KeyValueStorage, RollbackWrapper
-};
+use vm::database::RollbackWrapper;
 
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
