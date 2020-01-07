@@ -59,6 +59,7 @@ setup(
         'cryptography>=2.6',
         'pyparsing>=2.2.0',     # not required, but causes problems if not installed properly,
         'requests>=2.20',
+        'cachetools==2.0.0'
     ],
     classifiers=[
         'Intended Audience :: Developers',
