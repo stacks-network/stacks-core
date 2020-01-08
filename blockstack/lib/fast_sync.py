@@ -180,6 +180,33 @@ def fast_sync_sign_snapshot( snapshot_path, private_key, first=False ):
     return True
 
 
+def which_tools(tools):
+    for tool in tools:
+        rc = os.system("which {} > /dev/null".format(tool))
+        if rc != 0:
+            log.error("'{}' command not found".format(tool))
+            return False
+
+    return True
+
+
+def native_fast_sync_snapshot_compress(snapshot_dir, export_path):
+    """
+    Shell out to `tar` and `bzip2` if available.
+    They're much faster.
+    """
+    log.debug("Try native tar/bzip2 compression")
+    tools = ['tar', 'bzip2', 'mv']
+    if not which_tools(tools):
+        return False
+
+    cmd = "tar cf '{}' -C '{}' . && bzip2 '{}' && mv '{}.bz2' '{}'".format(export_path, snapshot_dir, export_path, export_path, export_path)
+    
+    log.debug(cmd)
+    rc = os.system(cmd)
+    return rc == 0
+
+
 def fast_sync_snapshot_compress( snapshot_dir, export_path ):
     """
     Given the path to a directory, compress it and export it to the
@@ -194,6 +221,11 @@ def fast_sync_snapshot_compress( snapshot_dir, export_path ):
     if os.path.exists(export_path):
         return {'error': 'Snapshot path exists: {}'.format(export_path)}
 
+    rc = native_fast_sync_snapshot_compress(snapshot_dir, export_path)
+    if rc:
+        return {'status': True}
+
+    log.debug("Fall back to Python tarfile")
     old_dir = os.getcwd()
     
     count_ref = [0]
@@ -220,6 +252,21 @@ def fast_sync_snapshot_compress( snapshot_dir, export_path ):
     return {'status': True}
 
 
+def native_fast_sync_snapshot_decompress(snapshot_path, output_dir):
+    """
+    Decompress and extract a snapshot file using native tools, if they're present
+    """
+    log.debug("Try decompressing with native tools")
+    tools = ['tar', 'bunzip2']
+    if not which_tools(tools):
+        return False
+
+    cmd = "tar xf '{}' -C '{}'".format(snapshot_path, output_dir)
+    log.debug(cmd)
+    rc = os.system(cmd)
+    return rc == 0
+
+
 def fast_sync_snapshot_decompress( snapshot_path, output_dir ):
     """
     Given the path to a snapshot file, decompress it and 
@@ -231,6 +278,10 @@ def fast_sync_snapshot_decompress( snapshot_path, output_dir ):
     if not tarfile.is_tarfile(snapshot_path):
         return {'error': 'Not a tarfile-compatible archive: {}'.format(snapshot_path)}
 
+    rc = native_fast_sync_snapshot_decompress(snapshot_path, output_dir)
+    if rc:
+        return {'status': True}
+        
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -310,11 +361,8 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number ):
 
     # make sure we have the apppriate tools
     tools = ['sqlite3']
-    for tool in tools:
-        rc = os.system("which {} > /dev/null".format(tool))
-        if rc != 0:
-            log.error("'{}' command not found".format(tool))
-            return False
+    if not which_tools(tools):
+        return False
 
     if not os.path.exists(working_dir):
         log.error("No such directory {}".format(working_dir))
@@ -391,7 +439,7 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number ):
     export_path = os.path.abspath(export_path)
     res = fast_sync_snapshot_compress(tmpdir, export_path)
     if 'error' in res:
-        log.error("Faield to compress {} to {}: {}".format(tmpdir, export_path, res['error']))
+        log.error("Failed to compress {} to {}: {}".format(tmpdir, export_path, res['error']))
         _cleanup(tmpdir)
         return False
 
