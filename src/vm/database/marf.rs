@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use vm::errors::{InterpreterError, InterpreterResult as Result, IncomparableError, RuntimeErrorType};
+use vm::types::{QualifiedContractIdentifier};
+use vm::errors::{InterpreterError, CheckErrors, InterpreterResult as Result, IncomparableError, RuntimeErrorType};
 use vm::database::{SqliteConnection, ClarityDatabase};
 use vm::analysis::{AnalysisDatabase};
 use chainstate::stacks::index::marf::MARF;
@@ -94,8 +95,7 @@ impl MarfedKV {
 
     /// begin, commit, rollback a save point identified by key
     ///    this is used to clean up any data from aborted blocks
-    ///     (not aborted transactions! that is handled
-    ///                       by the clarity vm directly).
+    ///     (NOT aborted transactions that is handled by the clarity vm directly).
     /// The block header hash is used for identifying savepoints.
     ///     this _cannot_ be used to rollback to arbitrary prior block hash, because that
     ///     blockhash would already have committed and no longer exist in the save point stack.
@@ -117,11 +117,15 @@ impl MarfedKV {
         self.chain_tip = TrieFileStorage::block_sentinel();
     }
     pub fn commit(&mut self) {
+        // AARON: I'm not sure this path should be considered 'legal' anymore,
+        //     and may want to delete or panic.
+        self.side_store.commit_metadata_to(&self.chain_tip);
         self.side_store.commit(&self.chain_tip);
         self.marf.as_mut().unwrap().commit()
             .expect("ERROR: Failed to commit MARF block");
     }
     pub fn commit_to(&mut self, final_bhh: &BlockHeaderHash) {
+        self.side_store.commit_metadata_to(final_bhh);
         self.side_store.commit(&self.chain_tip);
         self.marf.as_mut().unwrap().commit_to(final_bhh)
             .expect("ERROR: Failed to commit MARF block");
@@ -186,18 +190,57 @@ impl MarfedKV {
         }
     }
 
-    pub fn put_non_consensus(&mut self, key: &str, value: &str) {
-        panic!("Not implemented");
-    }
-
-    pub fn put_all_non_consensus(&mut self, mut items: Vec<(String, String)>) {
-        for (key, value) in items.drain(..) {
-            self.put_non_consensus(&key, &value);
+    pub fn get_with_bhh(&mut self, key: &str) -> Option<(BlockHeaderHash, String)> {
+        match self.marf {
+            Some(ref mut marf) => {
+                marf.get_with_bhh(&self.chain_tip, key)
+                    .or_else(|e| {
+                        match e {
+                            MarfError::NotFoundError => Ok(None),
+                            _ => Err(e)
+                        }
+                    })
+                    .expect("ERROR: Unexpected MARF Failure on GET")
+                    .map(|(marf_value, bhh)| {
+                        let side_key = marf_value.to_hex();
+                        (bhh, 
+                         self.side_store.get(&side_key)
+                         .expect(&format!("ERROR: MARF contained value_hash not found in side storage: {}",
+                                          side_key)))
+                    })
+            },
+            None => {
+                panic!("Attempted to fetch the block header hash from a MARF-less context.")
+            }
         }
     }
 
-    pub fn get_non_consensus(&mut self, key: &str) -> Option<String> {
-        panic!("Not implemented");
+
+    pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
+        format!("clarity-contract::{}", contract)
+    }
+
+    pub fn get_contract_hash(&mut self, contract: &QualifiedContractIdentifier) -> Result<(BlockHeaderHash, String)> {
+        let key = MarfedKV::make_contract_hash_key(contract);
+        self.get_with_bhh(&key)
+            .ok_or_else(|| { CheckErrors::NoSuchContract(contract.to_string()).into() })
+    }
+
+    pub fn get_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str) -> Option<String> {
+        let (bhh, contract_hash) = self.get_contract_hash(contract).ok()?;
+        self.side_store.get_metadata(&bhh, &contract_hash, key)
+    }
+
+    pub fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) -> bool {
+        let (_, contract_hash) = self.get_contract_hash(contract)
+            .expect("Failed to obtain contract hash for metadata on insertion");
+        self.side_store.insert_metadata(&contract_hash, key, value)
+    }
+
+    pub fn put_all_metadata(&mut self, mut items: Vec<((QualifiedContractIdentifier, String), String)>) {
+        for ((contract, key), value) in items.drain(..) {
+            self.insert_metadata(&contract, &key, &value);
+        }
     }
 
     pub fn get(&mut self, key: &str) -> Option<String> {
@@ -222,7 +265,6 @@ impl MarfedKV {
                 self.side_store.get(key)
             }
         }
-
     }
 
     pub fn has_entry(&mut self, key: &str) -> bool {

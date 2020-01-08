@@ -224,7 +224,7 @@ impl Graph {
         Self { adjacency_list: Vec::new() }
     }
 
-    fn add_node(&mut self, expr_index: usize) {
+    fn add_node(&mut self, _expr_index: usize) {
         self.adjacency_list.push(vec![]);
     }
 

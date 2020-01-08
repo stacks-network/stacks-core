@@ -503,9 +503,15 @@ impl MARF {
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     pub fn get(&mut self, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<MARFValue>, Error> {
         MARF::get_by_key(&mut self.storage, block_hash, key)
+            .map(|opt_result| opt_result.map(|(leaf, _)| leaf))
     }
 
-    pub fn get_by_key(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<MARFValue>, Error> {
+    /// Resolve a key from the MARF to a MARFValue with respect to the given block height, returning the block header in which it was found
+    pub fn get_with_bhh(&mut self, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<(MARFValue, BlockHeaderHash)>, Error> {
+        MARF::get_by_key(&mut self.storage, block_hash, key)
+    }
+
+    pub fn get_by_key(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<(MARFValue, BlockHeaderHash)>, Error> {
         let cur_block_hash = storage.get_cur_block();
 
         let path = TriePath::from_key(key);
@@ -516,10 +522,14 @@ impl MARF {
                 _ => Err(e)
             });
 
+        let opened_block = storage.get_cur_block();
+
         // restore
         storage.open_block(&cur_block_hash)?;
 
-        result.map(|option_result| option_result.map(|leaf| leaf.data))        
+        result.map(|option_result| option_result.map(|leaf| {
+            (leaf.data, opened_block)
+        }))
     }
 
     pub fn get_block_height_miner_tip(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash, miner_tip: Option<&BlockHeaderHash>) -> Result<Option<u32>, Error> {
@@ -533,7 +543,7 @@ impl MARF {
         }
 
         match MARF::get_by_key(storage, current_block_hash, &hash_key)? {
-            Some(marf_value) => {
+            Some((marf_value, _)) => {
                 let height = u32::from(marf_value);
                 Ok(Some(height))
             },
@@ -544,7 +554,7 @@ impl MARF {
                         // sentinel value instead
                         let miner_hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, miner_tip);
                         match MARF::get_by_key(storage, current_block_hash, &miner_hash_key)? {
-                            Some(marf_value) => {
+                            Some((marf_value, _)) => {
                                 let height = u32::from(marf_value);
                                 Ok(Some(height))
                             },
@@ -584,7 +594,7 @@ impl MARF {
 
         MARF::get_by_key(storage, current_block_hash, &height_key)
             .map(|option_result| {
-                option_result.map( |marf_value| { 
+                option_result.map( |(marf_value, _)| { 
                     let block_hash = BlockHeaderHash::from(marf_value);
                     block_hash
                 })

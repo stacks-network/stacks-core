@@ -594,6 +594,13 @@ impl <'a,'b> Environment <'a,'b> {
 
     pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &ContractAST) -> Result<()> {
         self.global_context.begin();
+
+        // first, store the contract _content hash_ in the data store.
+        //    this is necessary before creating and accessing metadata fields in the data store,
+        //      --or-- storing any analysis metadata in the data store.
+        // TODO: pass the actual string data in.
+        self.global_context.database.insert_contract_hash(&contract_identifier, &format!("{:?}", contract_content))?;
+
         let result = Contract::initialize_from_ast(contract_identifier.clone(), 
                                                    contract_content,
                                                    &mut self.global_context);
