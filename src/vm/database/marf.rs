@@ -227,9 +227,9 @@ impl MarfedKV {
             .ok_or_else(|| { CheckErrors::NoSuchContract(contract.to_string()).into() })
     }
 
-    pub fn get_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str) -> Option<String> {
-        let (bhh, _) = self.get_contract_hash(contract).ok()?;
-        self.side_store.get_metadata(&bhh, &contract.to_string(), key)
+    pub fn get_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str) -> Result<Option<String>> {
+        let (bhh, _) = self.get_contract_hash(contract)?;
+        Ok(self.side_store.get_metadata(&bhh, &contract.to_string(), key))
     }
 
     pub fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) -> bool {

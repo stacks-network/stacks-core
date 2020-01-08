@@ -168,7 +168,9 @@ impl <'a> RollbackWrapper <'a> {
         inner_put(&mut self.metadata_lookup_map, &mut current.metadata_edits, metadata_key, value.to_string())
     }
 
-    pub fn get_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str) -> Option<String> {
+    // Throws a NoSuchContract error if contract doesn't exist,
+    //   returns None if there is no such metadata field.
+    pub fn get_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str) -> Result<Option<String>> {
         self.stack.last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
@@ -178,8 +180,12 @@ impl <'a> RollbackWrapper <'a> {
         let lookup_result = self.metadata_lookup_map.get(&metadata_key)
             .and_then(|x| x.last().cloned());
 
-        lookup_result
-            .or_else(|| self.store.get_metadata(contract, key))
+        match lookup_result {
+            Some(x) => Ok(Some(x)),
+            None => {
+                self.store.get_metadata(contract, key)
+            }
+        }
     }
 
     pub fn has_entry(&mut self, key: &str) -> bool {
@@ -193,6 +199,9 @@ impl <'a> RollbackWrapper <'a> {
     }
 
     pub fn has_metadata_entry(&mut self, contract: &QualifiedContractIdentifier, key: &str) -> bool {
-        self.get_metadata(contract, key).is_some()
+        match self.get_metadata(contract, key) {
+            Ok(Some(_)) => true,
+            _ => false
+        }
     }
 }

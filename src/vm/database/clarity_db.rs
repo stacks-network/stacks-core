@@ -125,8 +125,8 @@ impl <'a> ClarityDatabase <'a> {
 
     fn fetch_metadata <T> (&mut self, contract_identifier: &QualifiedContractIdentifier, key: &str) -> Result<Option<T>>
     where T: ClarityDeserializable<T> {
-        Ok(self.store.get_metadata(contract_identifier, key)
-           .map(|x| T::deserialize(&x)))
+        self.store.get_metadata(contract_identifier, key)
+            .map(|x_opt| x_opt.map(|x| T::deserialize(&x)))
     }
 
     pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: Contract) {
