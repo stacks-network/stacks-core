@@ -22,7 +22,7 @@ mod contracts;
 pub fn with_memory_environment<F>(f: F, top_level: bool)
 where F: FnOnce(&mut OwnedEnvironment) -> ()
 {
-    let mut marf_kv = in_memory_marf();
+/*    let mut marf_kv = in_memory_marf();
 
     let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
     // start an initial transaction.
@@ -30,7 +30,7 @@ where F: FnOnce(&mut OwnedEnvironment) -> ()
         owned_env.begin();
     }
 
-    f(&mut owned_env)
+    f(&mut owned_env)*/
 }
 
 pub fn with_marfed_environment<F>(f: F, top_level: bool)

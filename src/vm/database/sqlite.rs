@@ -41,8 +41,10 @@ impl SqliteConnection {
         sqlite_get(&self.conn, key)
     }
 
-    pub fn insert_metadata(&mut self, contract_hash: &str, key: &str, value: &str) -> bool {
-        let blockhash: Option<String> = None;
+    pub fn insert_metadata(&mut self, bhh: &BlockHeaderHash, contract_hash: &str, key: &str, value: &str) -> bool {
+        println!("insert_metadata: {}, {}", contract_hash, key);
+
+        let blockhash = bhh.to_hex();
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 3] = [&blockhash, &key, &value.to_string()];
 
@@ -59,20 +61,22 @@ impl SqliteConnection {
         }
     }
 
-    pub fn commit_metadata_to(&mut self, bhh: &BlockHeaderHash) {
-        let bhh = Some(bhh.to_hex());
-        let params = [&bhh];
+    pub fn commit_metadata_to(&mut self, from: &BlockHeaderHash, to: &BlockHeaderHash) {
+        let params = [to.to_hex(), from.to_hex()];
         let rows_updated = self.conn.execute(
-            "UPDATE metadata_table SET blockhash = ? WHERE blockhash IS NULL",
+            "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             &params)
             .expect(SQL_FAIL_MESSAGE);
-        debug!("{} metadata rows committed to blockhash: {}", rows_updated, bhh.unwrap());
+        debug!("{} metadata rows committed to blockhash: {} => {}", rows_updated, from, to);
     }
 
     pub fn get_metadata(&mut self, bhh: &BlockHeaderHash, contract_hash: &str, key: &str) -> Option<String> {
-        let bhh = Some(bhh.to_hex());
+        println!("get_metadata: {}, {}, {}", bhh, contract_hash, key);
+
+        let bhh = bhh.to_hex();
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 2] = [&bhh, &key];
+
         self.conn.query_row(
             "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
             &params,
@@ -119,8 +123,8 @@ impl SqliteConnection {
             .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
 
         contract_db.conn.execute("CREATE TABLE IF NOT EXISTS metadata_table
-                      (key TEXT NOT NULL, blockhash TEXT, value TEXT)
-                      UNIQUE (key, blockhash)", NO_PARAMS)
+                      (key TEXT NOT NULL, blockhash TEXT, value TEXT,
+                       UNIQUE (key, blockhash))", NO_PARAMS)
             .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
 
         contract_db.check_schema()?;

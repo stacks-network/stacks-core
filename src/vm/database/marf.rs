@@ -119,13 +119,12 @@ impl MarfedKV {
     pub fn commit(&mut self) {
         // AARON: I'm not sure this path should be considered 'legal' anymore,
         //     and may want to delete or panic.
-        self.side_store.commit_metadata_to(&self.chain_tip);
         self.side_store.commit(&self.chain_tip);
         self.marf.as_mut().unwrap().commit()
             .expect("ERROR: Failed to commit MARF block");
     }
     pub fn commit_to(&mut self, final_bhh: &BlockHeaderHash) {
-        self.side_store.commit_metadata_to(final_bhh);
+        self.side_store.commit_metadata_to(&self.chain_tip, final_bhh);
         self.side_store.commit(&self.chain_tip);
         self.marf.as_mut().unwrap().commit_to(final_bhh)
             .expect("ERROR: Failed to commit MARF block");
@@ -210,7 +209,9 @@ impl MarfedKV {
                     })
             },
             None => {
-                panic!("Attempted to fetch the block header hash from a MARF-less context.")
+                self.get(key).map(|x| {
+                    (TrieFileStorage::block_sentinel(), x)
+                })
             }
         }
     }
@@ -227,14 +228,21 @@ impl MarfedKV {
     }
 
     pub fn get_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str) -> Option<String> {
-        let (bhh, contract_hash) = self.get_contract_hash(contract).ok()?;
-        self.side_store.get_metadata(&bhh, &contract_hash, key)
+        let (bhh, _) = self.get_contract_hash(contract).ok()?;
+        self.side_store.get_metadata(&bhh, &contract.to_string(), key)
     }
 
     pub fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) -> bool {
-        let (_, contract_hash) = self.get_contract_hash(contract)
-            .expect("Failed to obtain contract hash for metadata on insertion");
-        self.side_store.insert_metadata(&contract_hash, key, value)
+        match self.marf {
+            Some(ref marf) => {
+                let bhh = marf.get_open_chain_tip().expect("Metadata write attempted on unopened MARF");
+                self.side_store.insert_metadata(bhh, &contract.to_string(), key, value)
+            },
+            None => {
+                let bhh = TrieFileStorage::block_sentinel();
+                self.side_store.insert_metadata(&bhh, &contract.to_string(), key, value)
+            }
+        }
     }
 
     pub fn put_all_metadata(&mut self, mut items: Vec<((QualifiedContractIdentifier, String), String)>) {

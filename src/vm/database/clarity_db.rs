@@ -131,7 +131,7 @@ impl <'a> ClarityDatabase <'a> {
 
     pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: Contract) {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
-        self.insert_metadata(contract_identifier, &key, &contract);
+       self.insert_metadata(contract_identifier, &key, &contract);
     }
 
     pub fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Contract> {
