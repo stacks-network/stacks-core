@@ -786,21 +786,21 @@ and `false` if it is a `(some ...)`.",
 const IS_ERR_API: SpecialAPI = SpecialAPI {
     input_type: "(response A B)",
     output_type: "bool",
-    signature: "(is-err? value)",
-    description: "`is-err?` tests a supplied response value, returning `true` if the response was an `err`,
+    signature: "(is-err value)",
+    description: "`is-err` tests a supplied response value, returning `true` if the response was an `err`,
 and `false` if it was an `ok`.",
-    example: "(is-err? (ok 1)) ;; Returns 'false
-(is-err? (err 1)) ;; Returns 'true",
+    example: "(is-err (ok 1)) ;; Returns 'false
+(is-err (err 1)) ;; Returns 'true",
 };
 
 const IS_SOME_API: SpecialAPI = SpecialAPI {
     input_type: "(optional A)",
     output_type: "bool",
-    signature: "(is-some? value)",
-    description: "`is-some?` tests a supplied option value, returning `true` if the option value is `(some ...)`,
+    signature: "(is-some value)",
+    description: "`is-some` tests a supplied option value, returning `true` if the option value is `(some ...)`,
 and `false` if it is a `none`.",
-    example: "(is-some? (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 'true
-(is-some? (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 'false"
+    example: "(is-some (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 'true
+(is-some (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 'false"
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
