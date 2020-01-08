@@ -291,7 +291,7 @@ def fast_sync_snapshot_decompress( snapshot_path, output_dir ):
     return {'status': True}
 
 
-def fast_sync_snapshot(working_dir, export_path, private_key, block_number ):
+def fast_sync_snapshot(working_dir, export_path, private_key, block_number, tmpfile_dir=None):
     """
     Export all the local state for fast-sync.
     If block_number is given, then the name database
@@ -397,7 +397,7 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number ):
         return False
 
     try:
-        tmpdir = tempfile.mkdtemp(prefix='.blockstack-export-')
+        tmpdir = tempfile.mkdtemp(prefix='.blockstack-export-', dir=tmpfile_dir)
     except Exception, e:
         log.exception(e)
         return False
