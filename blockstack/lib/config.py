@@ -27,6 +27,8 @@ import copy
 import socket
 import stun
 import jsonschema
+import hashlib
+from .c32 import b58ToC32
 from ConfigParser import SafeConfigParser
 
 from ..version import __version__
@@ -260,6 +262,8 @@ GENESIS_BLOCK_INSTANTIATED = False
 GENESIS_BLOCK_STAGES_INSTANTIATED = False
 GENESIS_BLOCK_PATCHES = None
 GENESIS_BLOCK_PATCHES_INSTANTIATED = False
+GENESIS_BLOCK_PATCHES_FILES = {}
+GENESIS_BLOCK_PATCHES_FILES_INSTANTIATED = False
 
 try:
     # use built-in one 
@@ -267,6 +271,7 @@ try:
     GENESIS_BLOCK = genesis_block.GENESIS_BLOCK
     GENESIS_BLOCK_STAGES = genesis_block.GENESIS_BLOCK_STAGES
     GENESIS_BLOCK_PATCHES = genesis_block.GENESIS_BLOCK_PATCHES
+    GENESIS_BLOCK_PATCHES_FILES = genesis_block.GENESIS_BLOCK_PATCHES_FILES
 except:
     if not BLOCKSTACK_TEST:
         print >> sys.stderr, 'FATAL: no genesis block defined'
@@ -284,8 +289,118 @@ def get_genesis_block_stages():
 def get_all_genesis_block_patches():
     return GENESIS_BLOCK_PATCHES
 
+def load_genesis_bulk_address_lines(path, line_start, line_end):
+    """
+    Read a list of lines from a file, from the given starting line (inclusive) to the given ending line (exclusive).
+    The file should be a sequence of newline-separated b58check addresses.
+    Aborts on failure.
+    """
+    if not os.path.exists(path):
+        print >> sys.stderr, 'FATAL: no such file or directory: "{}"'.format(path)
+        os.abort()
+
+    f = open(path, 'r')
+    line_ptr = 0
+    ret = []
+    while True:
+        line = f.readline()
+        if len(line) == 0:
+            # EOF
+            break
+
+        if line_ptr >= line_start and line_ptr < line_end:
+            line = line.strip()
+            addr = b58ToC32(line)
+            ret.append(addr)
+        
+        line_ptr += 1
+        if line_ptr >= line_end:
+            break
+
+    if line_ptr != line_end:
+        # underrun
+        print >> sys.stderr, 'FATAL: underrun reading from "{}": EOF at line {}, expected {}'.format(path, line_ptr, line_end)
+        os.abort()
+
+    f.close()
+    return ret
+
+def check_genesis_bulk_patch_integrity(path, expected_sha256):
+    h = hashlib.new('sha256')
+    f = open(path, 'r')
+    while True:
+        buf = f.read(65536)
+        if len(buf) == 0:
+            break
+
+        h.update(buf)
+
+    return h.hexdigest() == expected_sha256
+
+def load_genesis_bulk_patch(file_patch):
+    from schemas import GENESIS_BLOCK_ROW_SCHEMA
+
+    # format: {'path': '/path/to/patch', 'sha256': ..., 'line_start': start_line, 'line_end': end_line, 'receive_whitelisted': ..., 'lock_send': ..., 'metadata': ..., 'type': ..., 'value': ..., 'vesting': ..., 'vesting_total': ...}
+    for key in ['path', 'sha256', 'line_start', 'line_end', 'lock_send', 'metadata', 'type', 'value', 'vesting', 'vesting_total']:
+        if key not in file_patch:
+            print >> sys.stderr, 'FATAL: invalid genesis bulk patch "{}": missing "{}"'.format(file_patch, key)
+            os.abort()
+
+    # hash of file must match file patch 
+    patch_rows = []
+    path = file_patch['path']
+    
+    log.debug("Load patch from '{}' ({})".format(path, file_patch['sha256']))
+    if not check_genesis_bulk_patch_integrity(path, file_patch['sha256']):
+        print >> sys.stderr, 'FATAL: invalid genesis bulk patch "{}": does not have SHA256 hash "{}"'.format(path, file_patch['sha256'])
+        os.abort()
+
+    line_start = int(file_patch['line_start'])
+    line_end = int(file_patch['line_end'])
+    addresses = load_genesis_bulk_address_lines(path, line_start, line_end)
+
+    log.debug("Grant allocations to addresses #{} to #{} in '{}'".format(line_start, line_end, path))
+    for addr in addresses:
+        allocation = {
+            "address": addr,
+            'receive_whitelisted': file_patch['receive_whitelisted'],
+            'metadata': file_patch['metadata'],
+            'lock_send': file_patch['lock_send'],
+            'metadata': file_patch['metadata'],
+            'type': file_patch['type'],
+            'value': file_patch['value'],
+            'vesting': file_patch['vesting'],
+            'vesting_total': file_patch['vesting_total']
+        }
+
+        patch_rows.append(allocation)
+
+    patch = {
+        'db_version': VERSION,
+        'add': patch_rows,
+        'del': []
+    }
+    return patch
+
 def get_genesis_block_patches(block_height):
-    return GENESIS_BLOCK_PATCHES.get(block_height, None)
+    patch = GENESIS_BLOCK_PATCHES.get(block_height, None)
+    patch_file = GENESIS_BLOCK_PATCHES_FILES.get(block_height, None)
+    if patch is None and patch_file is None:
+        # no patch to apply at this block height
+        return None
+
+    elif patch is not None and patch_file is not None:
+        # should never happen -- either a patch is present, or a patch file is
+        print >> sys.stderr, "FATAL: patch and patch file both exist at block {}".format(block_height)
+        os.abort()
+
+    if patch:
+        # direct patch
+        return patch
+
+    # file patch
+    patch = load_genesis_bulk_patch(patch_file)
+    return patch
 
 def set_genesis_block(new_genesis_block):
     global GENESIS_BLOCK, GENESIS_BLOCK_INSTANTIATED
@@ -310,6 +425,14 @@ def set_genesis_block_patches(new_patches):
 
     GENESIS_BLOCK_PATCHES = new_patches
     GENESIS_BLOCK_PATCHES_INSTANTIATED = True
+
+def set_genesis_block_patches_files(new_patches):
+    global GENESIS_BLOCK_PATCHES_FILES, GENESIS_BLOCK_PATCHES_FILES_INSTANTIATED
+    if GENESIS_BLOCK_PATCHES_FILES_INSTANTIATED:
+        assert BLOCKSTACK_TEST, 'Cannot set genesis block file patches in production mode'
+
+    GENESIS_BLOCK_PATCHES_FILES = new_patches
+    GENESIS_BLOCK_PATCHES_FILES_INSTANTIATED = True
 
 def is_genesis_block_instantiated():
     return GENESIS_BLOCK_INSTANTIATED
