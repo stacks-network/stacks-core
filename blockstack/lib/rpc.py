@@ -1394,6 +1394,27 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(info)
 
 
+    def GET_meminfo(self, path_info):
+        """
+        get mem_top info if mem_top is installed
+        """
+        if path_info.get('client_address', (None, None))[0] not in ['localhost', '127.0.0.1', '::1']:
+            return self._reply_json({'error': 'Forbidden'}, status_code=403)
+
+        status_code = 500
+        message = "Internal server error: mem_top is not installed"
+        try:
+            import mem_top
+            message = mem_top.mem_top(limit=100, width=200)
+            status_code = 200
+        except:
+            pass
+
+        self._send_headers(status_code=status_code, content_type='text/plain')
+        self.wfile.write(message)
+        return
+
+
     def _dispatch(self, method_name):
         """
         Top-level dispatch method
@@ -1409,6 +1430,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             r'^/v1/info$': {
                 'routes': {
                     'GET': self.GET_getinfo,
+                },
+            },
+            r'^/v1/meminfo$': {
+                'routes': {
+                    'GET': self.GET_meminfo
                 },
             },
             r'^/v1/addresses/({}{{1,256}})/({}{{1,40}})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
@@ -1618,6 +1644,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if 'error' in path_info:
             self._send_headers(status_code=400, content_type='text/plain')
             return
+
+        path_info['client_address'] = self.client_address
 
         qs_values = path_info['qs_values']
 
