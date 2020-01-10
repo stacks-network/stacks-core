@@ -148,7 +148,7 @@ fn test_at_block_missing_defines() {
         |_| {},
         |env| {
             let err = initialize_3(env);
-            assert_eq!(err, CheckErrors::NoSuchContract("'S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()).into());
+            assert_eq!(err, CheckErrors::NoSuchMap("datum".into()).into());
         });
 
 }

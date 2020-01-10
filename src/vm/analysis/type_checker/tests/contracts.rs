@@ -396,7 +396,10 @@ fn test_names_tokens_contracts_bad() {
     let mut marf = in_memory_marf();
     let mut db = marf.as_analysis_db();
 
-    db.execute(|db| type_check(&tokens_contract_id, &mut tokens_contract, db, true)).unwrap();
+    db.execute(|db| {
+        db.test_insert_contract_hash(&tokens_contract_id);
+        type_check(&tokens_contract_id, &mut tokens_contract, db, true)
+    }).unwrap();
 
     let err = db.execute(|db| type_check(&names_contract_id, &mut names_contract, db, true)).unwrap_err();
     assert!(match &err.err {
@@ -429,7 +432,10 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
     let mut marf = in_memory_marf();
     let mut db = marf.as_analysis_db();
 
-    db.execute(|db| type_check(&tokens_contract_id, &mut tokens_contract, db, true)).unwrap();
+    db.execute(|db| {
+        db.test_insert_contract_hash(&tokens_contract_id);
+        type_check(&tokens_contract_id, &mut tokens_contract, db, true)
+    }).unwrap();
 
     let err = db.execute(|db| type_check(&names_contract_id, &mut names_contract, db, true)).unwrap_err();
     assert!(match &err.err {

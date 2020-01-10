@@ -224,6 +224,15 @@ impl <'a> ClarityDatabase <'a> {
     }
 }
 
+// this is used so that things like load_map, load_var, load_nft, etc.
+//   will throw NoSuchFoo errors instead of NoSuchContract errors.
+fn map_no_contract_as_none <T> (res: Result<Option<T>>) -> Result<Option<T>> {
+    res.or_else(|e| match e {
+        Error::Unchecked(CheckErrors::NoSuchContract(_)) => Ok(None),
+        x => Err(x)
+    })
+}
+
 // Variable Functions...
 impl <'a> ClarityDatabase <'a> {
     pub fn create_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str, value_type: TypeSignature) {
@@ -236,7 +245,8 @@ impl <'a> ClarityDatabase <'a> {
     fn load_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str) -> Result<DataVariableMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
-        self.fetch_metadata(contract_identifier, &key)?
+        map_no_contract_as_none(
+            self.fetch_metadata(contract_identifier, &key))?
             .ok_or(CheckErrors::NoSuchDataVariable(variable_name.to_string()).into())
     }
 
@@ -282,7 +292,8 @@ impl <'a> ClarityDatabase <'a> {
     fn load_map(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str) -> Result<DataMapMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
 
-        self.fetch_metadata(contract_identifier, &key)?
+        map_no_contract_as_none(
+            self.fetch_metadata(contract_identifier, &key))?
             .ok_or(CheckErrors::NoSuchMap(map_name.to_string()).into())
     }
 
@@ -377,7 +388,8 @@ impl <'a> ClarityDatabase <'a> {
     fn load_ft(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str) -> Result<FungibleTokenMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::FungibleTokenMeta, token_name);
 
-        self.fetch_metadata(contract_identifier, &key)?
+        map_no_contract_as_none(
+            self.fetch_metadata(contract_identifier, &key))?
             .ok_or(CheckErrors::NoSuchFT(token_name.to_string()).into())
     }
 
@@ -394,7 +406,8 @@ impl <'a> ClarityDatabase <'a> {
     fn load_nft(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str) -> Result<NonFungibleTokenMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
 
-        self.fetch_metadata(contract_identifier, &key)?
+        map_no_contract_as_none(
+            self.fetch_metadata(contract_identifier, &key))?
             .ok_or(CheckErrors::NoSuchNFT(token_name.to_string()).into())
     }
 

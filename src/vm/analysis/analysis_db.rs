@@ -54,31 +54,32 @@ impl <'a> AnalysisDatabase <'a> {
         self.store.rollback();
     }
 
-    fn put <T: ClaritySerializable> (&mut self, key: &str, value: &T) {
-        self.store.put(&key, &value.serialize());
+    fn storage_key() -> &'static str {
+        "analysis"
     }
 
-    fn get <T> (&mut self, key: &str) -> Option<T> where T: ClarityDeserializable<T> {
-        self.store.get(&key)
-            .map(|x| T::deserialize(&x))
-    }
-
-    // Creates the key used to store the given contract in the underlying Key-Value store.
-    fn make_storage_key(prefix: &'static str, contract_identifier: &QualifiedContractIdentifier) -> String {
-        format!("analysis::{}::{}", prefix, contract_identifier)
+    // used by tests to ensure that
+    //   the contract -> contract hash key exists in the marf
+    //    even if the contract isn't published.
+    #[cfg(test)]
+    pub fn test_insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier) {
+        self.store.prepare_for_contract_metadata(contract_identifier, "");
     }
 
     fn load_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractAnalysis> {
-        let key = AnalysisDatabase::make_storage_key("types", contract_identifier);
-        self.get(&key)
+        self.store.get_metadata(contract_identifier, AnalysisDatabase::storage_key())
+            // treat NoSuchContract error thrown by get_metadata as an Option::None --
+            //    the analysis will propagate that as a CheckError anyways.
+            .ok()?
+            .map(|x| ContractAnalysis::deserialize(&x))
     }
 
     pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: &ContractAnalysis) -> CheckResult<()> {
-        let key = AnalysisDatabase::make_storage_key("types", contract_identifier);
-        if self.store.has_entry(&key) {
-            return Err(CheckError::new(CheckErrors::ContractAlreadyExists(contract_identifier.to_string())))
+        let key = AnalysisDatabase::storage_key();
+        if self.store.has_metadata_entry(contract_identifier, key) {
+            return Err(CheckErrors::ContractAlreadyExists(contract_identifier.to_string()).into())
         }
-        self.put(&key, contract);
+        self.store.insert_metadata(contract_identifier, key, &contract.serialize());
         Ok(())
     }
 

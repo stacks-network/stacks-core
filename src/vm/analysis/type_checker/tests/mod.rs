@@ -1533,6 +1533,7 @@ fn test_fetch_contract_entry_matching_type_signatures() {
 
     let mut kv_store_contract = parse(&contract_id, &kv_store_contract_src).unwrap();
     analysis_db.execute(|db| {
+        db.test_insert_contract_hash(&contract_id);
         type_check(&contract_id, &mut kv_store_contract, db, true)
     }).unwrap();
 
@@ -1570,6 +1571,7 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
 
     let mut kv_store_contract = parse(&contract_id, &kv_store_contract_src).unwrap();
     analysis_db.execute(|db| {
+        db.test_insert_contract_hash(&contract_id);
         type_check(&contract_id, &mut kv_store_contract, db, true)
     }).unwrap();
     
@@ -1614,6 +1616,7 @@ fn test_fetch_contract_entry_unbound_variables() {
 
     let mut kv_store_contract = parse(&contract_id, &kv_store_contract_src).unwrap();
     analysis_db.execute(|db| {
+        db.test_insert_contract_hash(&contract_id);
         type_check(&contract_id, &mut kv_store_contract, db, true)
     }).unwrap();
     
