@@ -58,6 +58,7 @@ pub fn in_memory_marf() -> MarfedKV {
 
 pub fn sqlite_marf(path_str: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MarfedKV> {
     let mut path = PathBuf::from(path_str);
+
     std::fs::create_dir_all(&path)
         .map_err(|err| InterpreterError::FailedToCreateDataDirectory)?;
 
@@ -117,13 +118,25 @@ impl MarfedKV {
         self.chain_tip = TrieFileStorage::block_sentinel();
     }
     pub fn commit(&mut self) {
+        debug!("_metadata_ COMMIT()"); 
         // AARON: I'm not sure this path should be considered 'legal' anymore,
         //     and may want to delete or panic.
         self.side_store.commit(&self.chain_tip);
         self.marf.as_mut().unwrap().commit()
             .expect("ERROR: Failed to commit MARF block");
     }
+    // This is used by miners, before renaming their committed blocks.
+    //   so that the block validation and processing logic doesn't
+    //   reprocess the same data as if it were already loaded
+    pub fn commit_for_move(&mut self, will_move_to: &str) {
+        debug!("commit_for_move: ({}->{})", &self.chain_tip, will_move_to); 
+        self.side_store.move_metadata_to(&self.chain_tip, will_move_to);
+        self.side_store.commit(&self.chain_tip);
+        self.marf.as_mut().unwrap().commit()
+            .expect("ERROR: Failed to commit MARF block");
+    }
     pub fn commit_to(&mut self, final_bhh: &BlockHeaderHash) {
+        debug!("commit_to({})", final_bhh); 
         self.side_store.commit_metadata_to(&self.chain_tip, final_bhh);
         self.side_store.commit(&self.chain_tip);
         self.marf.as_mut().unwrap().commit_to(final_bhh)

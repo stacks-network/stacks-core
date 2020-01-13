@@ -276,12 +276,13 @@ impl StacksBlockBuilder {
 
         // clear out the block trie we just created, so the block validator logic doesn't step all
         // over it.
+        let moved_filename = format!("{}.mined", index_block_hash.to_hex());
         let block_pathbuf = tx.get_block_path(&new_burn_hash, &new_block_hash);
         let mut mined_block_pathbuf = block_pathbuf.clone();
-        mined_block_pathbuf.set_file_name(format!("{}.mined", index_block_hash.to_hex()));
+        mined_block_pathbuf.set_file_name(&moved_filename);
 
         // write out the trie...
-        tx.commit_block();
+        tx.commit_block_will_move(&moved_filename);
 
         // ...and move it (possibly overwriting)
         // TODO: this is atomic but _not_ crash-consistent!

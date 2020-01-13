@@ -250,8 +250,13 @@ impl<'a> ClarityTx<'a> {
         self.block.get_root_hash()
     }
 
+    #[cfg(test)]
     pub fn commit_block(self) -> () {
         self.block.commit_block()
+    }
+
+    pub fn commit_block_will_move(self, will_move: &str) -> () {
+        self.block.commit_block_will_move(will_move)
     }
 
     pub fn commit_to_block(self, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> () {
