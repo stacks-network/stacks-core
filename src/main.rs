@@ -187,7 +187,7 @@ fn main() {
             testnet_name: "testnet".to_string(),
             chain: "bitcoin".to_string(),
             burnchain_path: format!("/tmp/{}/burnchain", testnet_id),
-            burnchain_block_time:2000,
+            burnchain_block_time: 2000,
             node_config: vec![testnet::NodeConfig {
                 name: "L1".to_string(),
                 path: format!("/tmp/{}/L1", testnet_id),
@@ -196,7 +196,8 @@ fn main() {
         };
         
         let mut run_loop = testnet::RunLoop::new(conf);
-        run_loop.start();
+        let num_round = 0; // Infinite number of rounds
+        run_loop.start(num_round);
         return
     }
 
