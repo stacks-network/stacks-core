@@ -24,7 +24,7 @@ pub struct BurnchainSimulator {
 pub struct BurnchainState {
     pub chain_tip: BlockSnapshot,
     pub ops: Vec<BlockstackOperationType>,
-    pub db: Arc<Mutex<BurnDB>>
+    pub db: Arc<Mutex<BurnDB>>,
 }
 
 impl BurnchainSimulator {
@@ -146,9 +146,13 @@ impl BurnchainSimulator {
         thread::spawn(move || {
             loop {
                 // Handling incoming operations
-                let op = op_rx.recv().unwrap();
-                let mut ops = ops_enqueuing.lock().unwrap();
-                ops.push(op);
+                if let Ok(op) = op_rx.recv() {
+                    let mut ops = ops_enqueuing.lock().unwrap();
+                    ops.push(op);    
+                } else {
+                    debug!("Burnchain stopped handling ops");
+                    break;
+                }
             }
         });
 
