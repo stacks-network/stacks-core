@@ -292,10 +292,11 @@ impl <'a> ClarityBlockConnection <'a> {
     /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
     ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
-    pub fn initialize_smart_contract <F> (&mut self, identifier: &QualifiedContractIdentifier, contract_ast: &ContractAST, abort_call_back: F) -> Result<AssetMap, Error>
+    pub fn initialize_smart_contract <F> (&mut self, identifier: &QualifiedContractIdentifier, contract_ast: &ContractAST,
+                                          contract_str: &str, abort_call_back: F) -> Result<AssetMap, Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
         let (_, asset_map) = self.with_abort_callback(
-            |vm_env| { vm_env.initialize_contract_from_ast(identifier.clone(), contract_ast)
+            |vm_env| { vm_env.initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str)
                        .map_err(Error::from) },
             abort_call_back)?;
         Ok(asset_map)
@@ -335,7 +336,7 @@ mod tests {
             
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
             conn.initialize_smart_contract(
-                &contract_identifier, &ct_ast, |_,_| false).unwrap();
+                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
             conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
             
             assert_eq!(
@@ -363,7 +364,7 @@ mod tests {
 
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
             conn.initialize_smart_contract(
-                &contract_identifier, &ct_ast, |_,_| false).unwrap();
+                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
             conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
             
             conn.rollback_block();
@@ -398,7 +399,7 @@ mod tests {
 
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
             conn.initialize_smart_contract(
-                &contract_identifier, &ct_ast, |_,_| false).unwrap();
+                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
             conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
 
             assert_eq!(

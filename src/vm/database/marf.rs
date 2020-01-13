@@ -8,6 +8,8 @@ use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MARFValue, Error as MarfError, TrieHash};
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
+use std::convert::TryInto;
+use util::hash::{to_hex, hex_bytes};
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -27,10 +29,28 @@ pub struct MarfedKV {
     side_store: SqliteConnection
 }
 
+struct ContractCommitment {
+    pub hash: [u8; 32],
+    pub block_height: u32
+}
+
+impl ContractCommitment {
+    pub fn serialize(&self) -> String {
+        format!("{}{}", to_hex(&self.hash), to_hex(&self.block_height.to_be_bytes()))
+    }
+    pub fn deserialize(input: &str) -> ContractCommitment {
+        assert_eq!(input.len(), 72);
+        let hash_bytes = hex_bytes(&input[0..64]).expect("Hex decode fail.");
+        let height_bytes = hex_bytes(&input[64..72]).expect("Hex decode fail.");
+        let hash = hash_bytes.as_slice().try_into().unwrap();
+        let block_height = u32::from_be_bytes(height_bytes.as_slice().try_into().unwrap());
+        ContractCommitment { hash, block_height }
+    }
+}
+
 pub fn temporary_marf() -> MarfedKV {
     use std::env;
     use rand::Rng;
-    use util::hash::to_hex;
 
     let mut path = env::temp_dir();
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
@@ -229,15 +249,35 @@ impl MarfedKV {
         }
     }
 
-
     pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
         format!("clarity-contract::{}", contract)
     }
 
+    pub fn make_contract_commitment(&mut self, contract_hash: [u8; 32]) -> String {
+        let block_height = match self.marf {
+            None => 0,
+            Some(ref marf) => marf.get_open_chain_tip_height().expect("Metadata write attempted on unopened MARF")
+        };
+        let cc = ContractCommitment { hash: contract_hash, block_height };
+        cc.serialize()
+    }
+
     pub fn get_contract_hash(&mut self, contract: &QualifiedContractIdentifier) -> Result<(BlockHeaderHash, String)> {
         let key = MarfedKV::make_contract_hash_key(contract);
-        self.get_with_bhh(&key)
-            .ok_or_else(|| { CheckErrors::NoSuchContract(contract.to_string()).into() })
+        let contract_commitment = self.get(&key).map(|x| ContractCommitment::deserialize(&x))
+            .ok_or_else(|| { CheckErrors::NoSuchContract(contract.to_string()) })?;
+        let ContractCommitment { block_height, hash: contract_hash } = contract_commitment;
+        let bhh = match self.marf {
+            Some(ref mut marf) => {
+                marf.get_bhh_at_height(&self.chain_tip, block_height)
+                    .expect("Should always be able to map from height to block hash.")
+                    .expect("Should always be able to map from height to block hash.")
+            },
+            None => {
+                TrieFileStorage::block_sentinel()
+            }
+        };
+        Ok((bhh, to_hex(&contract_hash)))
     }
 
     pub fn get_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str) -> Result<Option<String>> {

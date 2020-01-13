@@ -154,9 +154,10 @@ impl <'a> RollbackWrapper <'a> {
             .or_else(|| self.store.get(key))
     }
 
-    pub fn prepare_for_contract_metadata(&mut self, contract: &QualifiedContractIdentifier, content_hash: &str) {
+    pub fn prepare_for_contract_metadata(&mut self, contract: &QualifiedContractIdentifier, content_hash: [u8; 32]) {
         let key = MarfedKV::make_contract_hash_key(contract);
-        self.put(&key, content_hash)
+        let value = self.store.make_contract_commitment(content_hash);
+        self.put(&key, &value)
     }
 
     pub fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {

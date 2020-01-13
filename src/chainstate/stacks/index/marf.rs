@@ -506,6 +506,10 @@ impl MARF {
             .map(|opt_result| opt_result.map(|(leaf, _)| leaf))
     }
 
+    pub fn get_bhh_at_height(&mut self, block_hash: &BlockHeaderHash, height: u32) -> Result<Option<BlockHeaderHash>, Error> {
+        MARF::get_block_at_height(&mut self.storage, height, block_hash)
+    }
+
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height, returning the block header in which it was found
     pub fn get_with_bhh(&mut self, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<(MARFValue, BlockHeaderHash)>, Error> {
         MARF::get_by_key(&mut self.storage, block_hash, key)
@@ -788,6 +792,12 @@ impl MARF {
     pub fn get_open_chain_tip(&self) -> Option<&BlockHeaderHash> {
         self.open_chain_tip.as_ref()
             .map(|x| &x.block_hash)
+    }
+
+    /// Get open chain tip
+    pub fn get_open_chain_tip_height(&self) -> Option<u32> {
+        self.open_chain_tip.as_ref()
+            .map(|x| x.height)
     }
 
     /// Get all known chain tips
