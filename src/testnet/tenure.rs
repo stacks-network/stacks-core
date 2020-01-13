@@ -6,7 +6,7 @@ use std::time;
 
 use burnchains::{BurnchainHeaderHash, Txid};
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
-use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
+use chainstate::stacks::{StacksPrivateKey, StacksBlock, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
 use chainstate::stacks::{MINER_BLOCK_BURN_HEADER_HASH, MINER_BLOCK_HEADER_HASH};
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use util::vrf::{VRFProof};

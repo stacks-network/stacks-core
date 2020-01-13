@@ -4,7 +4,7 @@ use std::time;
 use std::thread;
 
 use chainstate::burn::{ConsensusHash};
-use chainstate::stacks::db::{StacksHeaderInfo};
+use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState};
 
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
@@ -14,7 +14,7 @@ pub struct RunLoop {
     nodes: Vec<Node>,
     new_burnchain_state_callback: Option<fn(u8, &BurnchainState)>,
     new_tenure_callback: Option<fn(u8, &LeaderTenure)>,
-    new_block_callback: Option<fn(u8, &StacksHeaderInfo)>,
+    new_chain_state_callback: Option<fn(u8, &StacksChainState)>,
 }
 
 impl RunLoop {
@@ -34,7 +34,7 @@ impl RunLoop {
             nodes,
             new_burnchain_state_callback: None,
             new_tenure_callback: None,
-            new_block_callback: None,        
+            new_chain_state_callback: None,        
         }
     }
 
@@ -78,9 +78,6 @@ impl RunLoop {
             Ok(res) => res,
             Err(err) => panic!("Error while expecting block #1 from burnchain: {:?}", err)
         };
-        if let Some(cb) = self.new_burnchain_state_callback {
-            cb(round_index, &state_1);
-        }        
 
         // Update each node with this new block.
         for node in self.nodes.iter_mut() {
@@ -118,7 +115,7 @@ impl RunLoop {
             Ok(res) => res,
             Err(err) => panic!("Error while expecting block #2 from burnchain: {:?}", err)
         };
-        round_index = 1;
+
         if let Some(cb) = self.new_burnchain_state_callback {
             cb(round_index, &burnchain_state);
         }        
@@ -144,6 +141,10 @@ impl RunLoop {
                 microblocks.clone(), 
                 burnchain_state.db.clone());
 
+            if let Some(cb) = self.new_chain_state_callback {
+                cb(round_index, &node.chain_state);
+            }
+
             // If the node we're looping on won the sortition, initialize and configure the next tenure
             if won_sortition {
                 leader_tenure = node.initiate_new_tenure(&last_sortitioned_block);
@@ -151,11 +152,12 @@ impl RunLoop {
         }
 
         // Start the runloop
+        round_index = 1;
         loop {
             if expected_num_rounds == round_index {
                 return;
             }
-            
+
             // Run the last initialized tenure
             let artifacts_from_tenure = match leader_tenure {
                 Some(mut tenure) => {
@@ -183,7 +185,6 @@ impl RunLoop {
                 Ok(res) => res,
                 Err(err) => panic!("Error while expecting block from burnchain: {:?}", err)
             };
-            round_index += 1;
             if let Some(cb) = self.new_burnchain_state_callback {
                 cb(round_index, &burnchain_state);
             }        
@@ -212,12 +213,17 @@ impl RunLoop {
                             burnchain_state.db.clone());
                     },
                 }
+                if let Some(cb) = self.new_chain_state_callback {
+                    cb(round_index, &node.chain_state);
+                }
 
                 // If the node we're looping on won the sortition, initialize and configure the next tenure
                 if won_sortition {
                     leader_tenure = node.initiate_new_tenure(&last_sortitioned_block);
                 } 
             }
+            
+            round_index += 1;
         }
     }
 
@@ -229,7 +235,7 @@ impl RunLoop {
         self.new_tenure_callback = Some(f);
     }
     
-    pub fn apply_on_new_blocks(&mut self, f: fn(u8, &StacksHeaderInfo)) {
-        self.new_block_callback = Some(f);
+    pub fn apply_on_new_chain_states(&mut self, f: fn(u8, &StacksChainState)) {
+        self.new_chain_state_callback = Some(f);
     }
 }

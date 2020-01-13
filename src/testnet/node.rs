@@ -59,7 +59,7 @@ pub struct Node {
     bootstraping_chain: bool,
     burnchain_ops_tx: Option<Sender<BlockstackOperationType>>,
     burnchain_tip: Option<BlockSnapshot>,
-    chain_state: StacksChainState,
+    pub chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
     config: NodeConfig,
     keychain: Keychain,
