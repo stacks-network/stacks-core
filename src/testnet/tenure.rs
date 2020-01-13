@@ -61,7 +61,11 @@ impl <'a> LeaderTenure {
 
     pub fn handle_txs(&mut self, clarity_tx: &mut ClarityTx<'a>, txs: Vec<StacksTransaction>) {
         for tx in txs {
-            self.block_builder.try_mine_tx(clarity_tx, &tx).unwrap();
+            let res = self.block_builder.try_mine_tx(clarity_tx, &tx);
+            match res {
+                Err(e) => error!("Failed mining transaction - {}", e),
+                Ok(_) => {},
+            };
         }
     }
 
