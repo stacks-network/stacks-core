@@ -1,15 +1,20 @@
-use super::{Config, Node, BurnchainSimulator};
+use super::{Config, Node, BurnchainSimulator, BurnchainState, LeaderTenure};
 
 use std::time;
 use std::thread;
 
 use chainstate::burn::{ConsensusHash};
+use chainstate::stacks::db::{StacksHeaderInfo};
+
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
 pub struct RunLoop {
     config: Config,
     nodes: Vec<Node>,
+    new_burnchain_state_callback: Option<fn(u8, &BurnchainState)>,
+    new_tenure_callback: Option<fn(u8, &LeaderTenure)>,
+    new_block_callback: Option<fn(u8, &StacksHeaderInfo)>,
 }
 
 impl RunLoop {
@@ -27,6 +32,9 @@ impl RunLoop {
         Self {
             config,
             nodes,
+            new_burnchain_state_callback: None,
+            new_tenure_callback: None,
+            new_block_callback: None,        
         }
     }
 
@@ -36,7 +44,7 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and 
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self) {
+    pub fn start(&mut self, expected_num_rounds: u8) {
 
         // Initialize and start the burnchain.
         let mut burnchain = BurnchainSimulator::new();
@@ -65,10 +73,14 @@ impl RunLoop {
 
         // Waiting on the 1st block (post-genesis) from the burnchain, containing the first key registrations 
         // that will be used for bootstraping the chain.
+        let mut round_index = 0;
         let state_1 = match burnchain_block_rx.recv() {
             Ok(res) => res,
             Err(err) => panic!("Error while expecting block #1 from burnchain: {:?}", err)
         };
+        if let Some(cb) = self.new_burnchain_state_callback {
+            cb(round_index, &state_1);
+        }        
 
         // Update each node with this new block.
         for node in self.nodes.iter_mut() {
@@ -82,6 +94,10 @@ impl RunLoop {
             Some(res) => res,
             None => panic!("Error while initiating genesis tenure")
         };
+        if let Some(cb) = self.new_tenure_callback {
+            cb(round_index, &first_tenure);
+        }        
+
         // Run the tenure, keep the artifacts
         let artifacts_from_1st_tenure = match first_tenure.run() {
             Some(res) => res,
@@ -102,7 +118,11 @@ impl RunLoop {
             Ok(res) => res,
             Err(err) => panic!("Error while expecting block #2 from burnchain: {:?}", err)
         };
-        
+        round_index = 1;
+        if let Some(cb) = self.new_burnchain_state_callback {
+            cb(round_index, &burnchain_state);
+        }        
+
         let mut leader_tenure = None;
 
         for node in self.nodes.iter_mut() {
@@ -130,11 +150,20 @@ impl RunLoop {
             }
         }
 
-        // Start the (infinite) runloop
+        // Start the runloop
         loop {
+            if expected_num_rounds == round_index {
+                return;
+            }
+            
             // Run the last initialized tenure
             let artifacts_from_tenure = match leader_tenure {
-                Some(mut tenure) => tenure.run(),
+                Some(mut tenure) => {
+                    if let Some(cb) = self.new_tenure_callback {
+                        cb(round_index, &tenure);
+                    }        
+                    tenure.run()
+                },
                 None => None
             };
 
@@ -154,6 +183,11 @@ impl RunLoop {
                 Ok(res) => res,
                 Err(err) => panic!("Error while expecting block from burnchain: {:?}", err)
             };
+            round_index += 1;
+            if let Some(cb) = self.new_burnchain_state_callback {
+                cb(round_index, &burnchain_state);
+            }        
+    
             leader_tenure = None;
 
             for node in self.nodes.iter_mut() {
@@ -185,5 +219,17 @@ impl RunLoop {
                 } 
             }
         }
+    }
+
+    pub fn apply_on_new_burnchain_states(&mut self, f: fn(u8, &BurnchainState)) {
+        self.new_burnchain_state_callback = Some(f);
+    }
+
+    pub fn apply_on_new_tenures(&mut self, f: fn(u8, &LeaderTenure)) {
+        self.new_tenure_callback = Some(f);
+    }
+    
+    pub fn apply_on_new_blocks(&mut self, f: fn(u8, &StacksHeaderInfo)) {
+        self.new_block_callback = Some(f);
     }
 }
