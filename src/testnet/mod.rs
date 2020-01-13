@@ -26,3 +26,6 @@ pub struct NodeConfig {
     pub path: String,
     pub mem_pool_path: String,
 }
+
+#[cfg(test)]
+mod tests;
