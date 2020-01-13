@@ -4,6 +4,8 @@ use std::fs;
 use std::io::Read;
 use std::io::BufReader;
 use std::io::prelude::*;
+use rand::RngCore;
+use util::hash::{to_hex};
 
 use burnchains::{Txid};
 use chainstate::stacks::{StacksTransaction};
@@ -14,6 +16,7 @@ pub trait MemPool {
     fn start(&mut self);
     fn stop(&mut self);
     fn handle_incoming_tx(&mut self, tx: StacksTransaction);
+    fn submit(&self, tx: Vec<u8>);
     fn archive_tx(&mut self, tx: StacksTransaction);
 }
 
@@ -63,6 +66,16 @@ impl MemPool for MemPoolFS {
             }
         }
         decoded_txs
+    }
+
+    fn submit(&self, tx: Vec<u8>) {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 8];
+        rng.fill_bytes(&mut buf);
+        let tx_file = format!("{}/{}.tx", self.path, to_hex(&buf));
+    
+        let mut file = fs::File::create(tx_file).unwrap();
+        file.write_all(&tx).unwrap();    
     }
 
     fn start(&mut self) {

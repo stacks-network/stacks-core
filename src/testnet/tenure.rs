@@ -17,7 +17,7 @@ pub struct LeaderTenure {
     coinbase_tx: StacksTransaction,
     config: NodeConfig,
     last_sortitioned_block: SortitionedBlock,
-    mem_pool: MemPoolFS,
+    pub mem_pool: MemPoolFS,
     parent_block: StacksHeaderInfo,
     started_at: std::time::Instant,
     vrf_seed: VRFSeed,
