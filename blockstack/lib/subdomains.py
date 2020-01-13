@@ -1588,6 +1588,9 @@ class SubdomainDB(object):
         """.format(self.subdomain_table)
         db_query_execute(cursor, create_cmd, ())
 
+        index_cmd = "CREATE INDEX IF NOT EXISTS subdomain_owners on {}(owner,fully_qualified_subdomain);".format(self.subdomain_table)
+        db_query_execute(cursor, index_cmd, ())
+
         # set up a queue as well
         queue_con = queuedb_open(self.queue_path)
         queue_con.close()
