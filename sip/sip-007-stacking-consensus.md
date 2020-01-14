@@ -302,7 +302,7 @@ blocks.
 
 This places an additional requirement on anchor block selection. In
 addition to an anchor block needing to reach a certain number of miner
-confirmations, it must also pass some thresh hold `t` of valid Stacker
+confirmations, it must also pass some threshold `t` of valid Stacker
 support message signals. This places an additional burden on an anchor
 block attack --- not only must the attacker collude amongst a large
 fraction of mining power, but they must also collude amongst a
