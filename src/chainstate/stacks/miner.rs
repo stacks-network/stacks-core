@@ -875,6 +875,8 @@ pub mod test {
         ret
     }
 
+    /*
+    // TODO: can't use this until we stop using get_simmed_block_height
     fn clarity_get_block_hash<'a>(clarity_tx: &mut ClarityTx<'a>, block_height: u64) -> Option<BlockHeaderHash> {
         let block_hash_value = clarity_tx.connection().clarity_eval_raw(&format!("(get-block-info? header-hash u{})", &block_height)).unwrap();
 
@@ -890,6 +892,7 @@ pub mod test {
             }
         }
     }
+    */
 
     /// Simplest end-to-end test: create 1 fork of N Stacks epochs, mined on 1 burn chain fork,
     /// all from the same miner.
@@ -2280,21 +2283,6 @@ pub mod test {
         (stacks_block, vec![])
     }
     
-    fn mine_empty_anchored_block_order_invariant<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
-        // unlike the above, this doesn't depend on the chain state being valid.
-        miner.set_nonce(burnchain_height as u64);
-
-        // make a coinbase for this miner
-        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
-
-        builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
-
-        let stacks_block = builder.mine_anchored_block(clarity_tx);
-        
-        test_debug!("Produce anchored stacks block at burnchain height {} stacks height {}", burnchain_height, stacks_block.header.total_work.work);
-        (stacks_block, vec![])
-    }
-
     fn make_smart_contract<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize) -> StacksTransaction {
         // make a smart contract
         let contract = "
@@ -2326,23 +2314,6 @@ pub mod test {
         let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
                                                           miner.as_transaction_auth().unwrap(),
                                                           TransactionPayload::new_contract_call(addr.clone(), &format!("hello-world-{}-{}", burnchain_height, builder.header.total_work.work), "set-bar", vec![Value::Int(arg1), Value::Int(arg2)]).unwrap());
-
-        tx_contract_call.chain_id = 0x80000000;
-        tx_contract_call.auth.set_origin_nonce(miner.get_nonce());
-        tx_contract_call.set_fee_rate(0);
-
-        let mut tx_signer = StacksTransactionSigner::new(&tx_contract_call);
-        miner.sign_as_origin(&mut tx_signer);
-        let tx_contract_call_signed = tx_signer.get_tx().unwrap();
-        tx_contract_call_signed
-    }
-    
-    /// paired with make_smart_contract
-    fn make_contract_call_at<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, stacks_height: usize, arg1: i128, arg2: i128) -> StacksTransaction {
-        let addr = miner.origin_address().unwrap();
-        let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
-                                                          miner.as_transaction_auth().unwrap(),
-                                                          TransactionPayload::new_contract_call(addr.clone(), &format!("hello-world-{}-{}", burnchain_height, stacks_height), "set-bar", vec![Value::Int(arg1), Value::Int(arg2)]).unwrap());
 
         tx_contract_call.chain_id = 0x80000000;
         tx_contract_call.auth.set_origin_nonce(miner.get_nonce());

@@ -507,13 +507,6 @@ mod tests {
         result: T
     }
 
-    struct ScriptPubkeyFixture {
-        keys: Vec<BitcoinPublicKey>,
-        num_required: usize,
-        segwit: bool,
-        result: Vec<u8>
-    }
-
     #[test]
     fn tx_input_singlesig() {
         let tx_input_singlesig_fixtures = vec![

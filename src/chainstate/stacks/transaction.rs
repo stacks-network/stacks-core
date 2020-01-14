@@ -50,7 +50,8 @@ impl StacksMessageCodec for Value {
     fn serialize(&self) -> Vec<u8> {
         let mut res = vec![];
         let mut bytes = vec![];
-        self.serialize_write(&mut bytes);
+        self.serialize_write(&mut bytes)
+            .expect("FATAL: failed to serialize Value to byte Vec");        // should never happen, unless something's seriously wrong
         write_next(&mut res, &bytes);
         res
     }
@@ -491,6 +492,18 @@ impl StacksMessageCodec for StacksTransaction {
     }
 }
 
+impl From<TransactionSmartContract> for TransactionPayload {
+    fn from(value: TransactionSmartContract) -> Self {
+        TransactionPayload::SmartContract(value)
+    }
+}
+
+impl From<TransactionContractCall> for TransactionPayload {
+    fn from(value: TransactionContractCall) -> Self {
+        TransactionPayload::ContractCall(value)
+    }
+}
+
 impl StacksTransaction {
     /// Create a new, unsigned transaction and an empty STX fee with no post-conditions.
     pub fn new(version: TransactionVersion, auth: TransactionAuth, payload: TransactionPayload) -> StacksTransaction {
@@ -866,10 +879,6 @@ impl StacksTransactionSigner {
         else {
             None
         }
-    }
-
-    pub fn get_incomplete_tx(&self) -> StacksTransaction {
-        self.tx.clone()
     }
 }
 
