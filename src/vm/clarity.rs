@@ -141,6 +141,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Commits all changes in the current block by
     /// (1) committing the current MARF tip to storage,
     /// (2) committing side-storage.
+    #[cfg(test)]
     pub fn commit_block(mut self) {
         debug!("Commit Clarity datastore");
         self.datastore.commit();

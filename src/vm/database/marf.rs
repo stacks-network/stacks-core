@@ -219,40 +219,15 @@ impl MarfedKV {
             None => {
                 self.side_store.put(key, value);
             }
-        }
-    }
-
-    pub fn get_with_bhh(&mut self, key: &str) -> Option<(BlockHeaderHash, String)> {
-        match self.marf {
-            Some(ref mut marf) => {
-                marf.get_with_bhh(&self.chain_tip, key)
-                    .or_else(|e| {
-                        match e {
-                            MarfError::NotFoundError => Ok(None),
-                            _ => Err(e)
-                        }
-                    })
-                    .expect("ERROR: Unexpected MARF Failure on GET")
-                    .map(|(marf_value, bhh)| {
-                        let side_key = marf_value.to_hex();
-                        (bhh, 
-                         self.side_store.get(&side_key)
-                         .expect(&format!("ERROR: MARF contained value_hash not found in side storage: {}",
-                                          side_key)))
-                    })
-            },
-            None => {
-                self.get(key).map(|x| {
-                    (TrieFileStorage::block_sentinel(), x)
-                })
-            }
-        }
+        }  
     }
 
     pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
         format!("clarity-contract::{}", contract)
     }
 
+    /// The contract commitment is the hash of the contract, plus the block height in
+    ///   which the contract was initialized.
     pub fn make_contract_commitment(&mut self, contract_hash: [u8; 32]) -> String {
         let block_height = match self.marf {
             None => 0,
@@ -262,6 +237,9 @@ impl MarfedKV {
         cc.serialize()
     }
 
+    /// This function is used to obtain a committed contract hash, and the block header hash of the block
+    ///   in which the contract was initialized. This data is used to store contract metadata in the side
+    ///   store.
     pub fn get_contract_hash(&mut self, contract: &QualifiedContractIdentifier) -> Result<(BlockHeaderHash, String)> {
         let key = MarfedKV::make_contract_hash_key(contract);
         let contract_commitment = self.get(&key).map(|x| ContractCommitment::deserialize(&x))
