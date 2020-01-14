@@ -63,7 +63,7 @@ impl <'a> AnalysisDatabase <'a> {
     //    even if the contract isn't published.
     #[cfg(test)]
     pub fn test_insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier) {
-        self.store.prepare_for_contract_metadata(contract_identifier, "");
+        self.store.prepare_for_contract_metadata(contract_identifier, [0; 32]);
     }
 
     fn load_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractAnalysis> {
