@@ -317,6 +317,7 @@ impl <'a> ClarityBlockConnection <'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm::analysis::errors::CheckErrors;
     use vm::types::{Value, StandardPrincipalData};
     use vm::database::marf;
     use chainstate::stacks::index::storage::{TrieFileStorage};
@@ -348,7 +349,7 @@ mod tests {
             conn.commit_block();
         }
         let mut marf = clarity_instance.destroy();
-//        assert!((&mut marf).has_entry(&ClarityDatabase::make_contract_key(&contract_identifier)));
+        assert!(marf.get_contract_hash(&contract_identifier).is_ok());
     }
 
     #[test]
@@ -373,7 +374,8 @@ mod tests {
 
         let mut marf = clarity_instance.destroy();
         // should not be in the marf.
-//        assert!(! (&mut marf).has_entry(&ClarityDatabase::make_contract_key(&contract_identifier)));
+        assert_eq!(marf.get_contract_hash(&contract_identifier).unwrap_err(),
+                   CheckErrors::NoSuchContract(contract_identifier.to_string()).into());
         let sql = marf.get_side_store();
         // sqlite should not have any entries
         assert_eq!(0,
