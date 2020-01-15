@@ -58,7 +58,6 @@ where command is one of:
   repl               to typecheck and evaluate expressions in a stdin/stdout loop.
   execute            to execute a public function of a defined contract.
   generate_address   to generate a random Stacks public address for testing purposes.
-
 ", invoked_by);
     panic_test!()
 }
@@ -530,25 +529,26 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "mine_block" => {
             // TODO: add optional args for specifying timestamps and number of blocks to mine.
             if args.len() < 3 {
-                eprintln!("Usage: {} {} [block time] [vm-state.db]", invoked_by, args[0]);
+                eprintln!("Usage: {} {} [block numbers] [vm-state.db]", invoked_by, args[0]);
                 panic_test!();
             }
 
-            let block_time: u64 = friendly_expect(args[1].parse(), "Failed to parse block time");
+            let number_of_blocks: u32 = friendly_expect(args[1].parse(), "Failed to parse number of blocks");
 
-            let db = match SqliteConnection::open(&args[2]) {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n{}", error);
-                    panic_test!();
-                }
-            };
+            let vm_filename = &args[2];
 
-            let mut db = ClarityDatabase::new(Box::new(db));
-            db.begin();
-            db.sim_mine_block_with_time(block_time);
-            db.commit();
-            println!("Simulated block mine!");
+            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
+            in_block(vm_filename, marf_kv, |mut kv| {
+                { 
+                    let mut db = clarity_db(&mut kv);
+                    db.begin();
+                    db.sim_mine_blocks(number_of_blocks);
+                    db.commit();
+                    println!("Simulated mining of {} blocks.", number_of_blocks);
+                };
+                (kv, ())
+            });
+
         },
         "get_block_height" => {
             if args.len() < 2 {
@@ -556,19 +556,19 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 panic_test!();
             }
 
-            let db = match SqliteConnection::open(&args[1]) {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n{}", error);
-                    panic_test!();
-                }
-            };
+            let vm_filename = &args[1];
 
-            let mut db = ClarityDatabase::new(Box::new(db));
-            db.begin();
-            let blockheight = db.get_simmed_block_height();
-            println!("Simulated block height: \n{}", blockheight);
-            db.roll_back();
+            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
+            in_block(vm_filename, marf_kv, |mut kv| {
+                { 
+                    let mut db = clarity_db(&mut kv);
+                    db.begin();
+                    let blockheight = db.get_simmed_block_height();
+                    db.roll_back();
+                    println!("Simulated block height: \n{}", blockheight)
+                };
+                (kv, ())
+            });
         },
         _ => {
             print_usage(invoked_by)

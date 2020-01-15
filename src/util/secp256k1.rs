@@ -332,7 +332,11 @@ impl Secp256k1PrivateKey {
     }
 
     pub fn to_hex(&self) -> String {
-        to_hex(&self.key[..].to_vec())
+        let mut bytes = self.key[..].to_vec();
+        if self.compress_public {
+            bytes.push(1);
+        }
+        to_hex(&bytes)
     }
 }
 
@@ -424,6 +428,32 @@ mod tests {
         data: &'static str,
         signature: &'static str,
         result: R
+    }
+
+    #[test]
+    fn test_parse_serialize_compressed() {
+        let mut t1 = Secp256k1PrivateKey::new();
+        t1.set_compress_public(true);
+        let h_comp = t1.to_hex();
+        t1.set_compress_public(false);
+        let h_uncomp = t1.to_hex();
+
+        assert!(&h_comp != &h_uncomp);
+        assert_eq!(h_comp.len(), 66);
+        assert_eq!(h_uncomp.len(), 64);
+
+        let (uncomp, comp_value) = h_comp.split_at(64);
+        assert_eq!(comp_value, "01");
+        assert_eq!(uncomp, &h_uncomp);
+
+        assert!(Secp256k1PrivateKey::from_hex(&h_comp).unwrap().compress_public());
+        assert!(! Secp256k1PrivateKey::from_hex(&h_uncomp).unwrap().compress_public());
+
+        assert_eq!(Secp256k1PrivateKey::from_hex(&h_uncomp), Ok(t1));
+
+        t1.set_compress_public(true);
+
+        assert_eq!(Secp256k1PrivateKey::from_hex(&h_comp), Ok(t1));
     }
 
     #[test]
