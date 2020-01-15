@@ -442,6 +442,10 @@ mod tests {
         assert_eq!(h_comp.len(), 66);
         assert_eq!(h_uncomp.len(), 64);
 
+        let (uncomp, comp_value) = h_comp.split_at(64);
+        assert_eq!(comp_value, "01");
+        assert_eq!(uncomp, &h_uncomp);
+
         assert!(Secp256k1PrivateKey::from_hex(&h_comp).unwrap().compress_public());
         assert!(! Secp256k1PrivateKey::from_hex(&h_uncomp).unwrap().compress_public());
 
