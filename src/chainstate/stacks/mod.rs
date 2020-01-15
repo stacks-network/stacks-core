@@ -42,7 +42,7 @@ use util::hash::HASH160_ENCODED_SIZE;
 use util::strings::StacksString;
 use util::secp256k1::MessageSignature;
 
-pub use address::AddressHashMode;
+use address::AddressHashMode;
 use burnchains::Txid;
 use burnchains::BurnchainHeaderHash;
 

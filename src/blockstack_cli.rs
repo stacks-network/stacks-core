@@ -16,11 +16,12 @@ use blockstack_lib::vm;
 use blockstack_lib::vm::{
     Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
 use blockstack_lib::chainstate::stacks::{
-    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
     StacksPublicKey, TransactionPayload, StacksTransactionSigner,
     StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress };
 use blockstack_lib::burnchains::Address;
+use blockstack_lib::address::AddressHashMode;
 use blockstack_lib::net::{Error as NetError, StacksMessageCodec};
 
 const USAGE: &str = "blockstack-cli (options) [method] [args...]
