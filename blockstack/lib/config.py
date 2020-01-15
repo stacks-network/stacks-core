@@ -337,6 +337,16 @@ def check_genesis_bulk_patch_integrity(path, expected_sha256):
 
     return h.hexdigest() == expected_sha256
 
+
+def get_genesis_bulk_address_path(path):
+    """
+    Get the absolute path to a data file, given its path's name
+    """
+    import blockstack.data
+    dirname = os.path.dirname(blockstack.data.__file__)
+    return os.path.join(dirname, path)
+    
+
 def load_genesis_bulk_patch(file_patch):
     from schemas import GENESIS_BLOCK_ROW_SCHEMA
 
@@ -348,7 +358,7 @@ def load_genesis_bulk_patch(file_patch):
 
     # hash of file must match file patch 
     patch_rows = []
-    path = file_patch['path']
+    path = get_genesis_bulk_address_path(file_patch['path'])
     
     log.debug("Load patch from '{}' ({})".format(path, file_patch['sha256']))
     if not check_genesis_bulk_patch_integrity(path, file_patch['sha256']):
