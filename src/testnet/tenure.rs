@@ -73,20 +73,7 @@ impl <'a> LeaderTenure {
 
         let mut chain_state = StacksChainState::open(false, TESTNET_CHAIN_ID, &self.config.path).unwrap();
 
-        let mut clarity_tx = match self.last_sortitioned_block.block_height {
-            1 => {
-                chain_state.block_begin(
-                &BurnchainHeaderHash([0u8; 32]),
-                &BlockHeaderHash([0u8; 32]),
-                &MINER_BLOCK_BURN_HEADER_HASH, 
-                &MINER_BLOCK_HEADER_HASH)
-            },
-            _ => chain_state.block_begin(
-                &self.last_sortitioned_block.burn_header_hash, 
-                &self.parent_block.anchored_header.block_hash(), 
-                &MINER_BLOCK_BURN_HEADER_HASH, 
-                &MINER_BLOCK_HEADER_HASH),
-        };
+        let mut clarity_tx = self.block_builder.epoch_begin(&mut chain_state).unwrap();
 
         let mempool_poll_interval = time::Duration::from_millis(250);
         let tenure_duration = time::Duration::from_millis(self.average_block_time * 1 / 2);
