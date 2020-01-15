@@ -93,7 +93,7 @@ def scenario( wallets, **kw ):
             assert namedb.namedb_get_account_balance(acct) == 100 * 10**6
         cur.execute('END')
         
-        print "Pocessing time: {}".format(t2 - t1)
+        print "Processing time: {}".format(t2 - t1)
         times.append(t2 - t1)
         db.close()
 
