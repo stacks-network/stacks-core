@@ -28,10 +28,10 @@ use net::*;
 use net::codec::*;
 
 use net::StacksMessage;
-
-use net::connection::Connection;
+use net::StacksP2P;
+use net::connection::ConnectionP2P;
+use net::connection::ReplyHandleP2P;
 use net::connection::ConnectionOptions;
-use net::connection::NetworkReplyHandle;
 
 use net::poll::NetworkState;
 use net::poll::NetworkPollState;
@@ -164,8 +164,9 @@ impl NeighborStats {
     }
 }
 
+/// P2P ongoing conversation with another Stacks peer
 pub struct Conversation {
-    pub connection: Connection,
+    pub connection: ConnectionP2P,
     pub conn_id: usize,
 
     pub burnchain: Burnchain,                   // copy of our burnchain config
@@ -315,7 +316,7 @@ impl Conversation {
     /// Create an unconnected conversation
     pub fn new(burnchain: &Burnchain, peer_addr: &SocketAddr, conn_opts: &ConnectionOptions, outbound: bool, conn_id: usize) -> Conversation {
         Conversation {
-            connection: Connection::new(conn_opts, None),
+            connection: ConnectionP2P::new(conn_opts, None),
             conn_id: conn_id,
             seq: 0,
             heartbeat: conn_opts.heartbeat,
@@ -341,7 +342,7 @@ impl Conversation {
     pub fn from_peer_reset(convo: &Conversation, conn_opts: &ConnectionOptions) -> Conversation {
         let stats = convo.stats.clone();
         Conversation {
-            connection: Connection::new(conn_opts, None),
+            connection: ConnectionP2P::new(conn_opts, None),
             conn_id: convo.conn_id,
             seq: 0,
             heartbeat: conn_opts.heartbeat,
@@ -364,6 +365,10 @@ impl Conversation {
                 ..stats
             }
         }
+    }
+
+    pub fn set_public_key(&mut self, pubkey_opt: Option<Secp256k1PublicKey>) -> () {
+        self.connection.set_public_key(pubkey_opt);
     }
 
     pub fn to_neighbor_key(&self) -> NeighborKey {
@@ -471,7 +476,7 @@ impl Conversation {
     }
     
     /// Queue up this message to this peer, and update our stats.  Expect a reply.
-    pub fn send_signed_message(&mut self, msg: StacksMessage, ttl: u64) -> Result<NetworkReplyHandle, net_error> {
+    pub fn send_signed_message(&mut self, msg: StacksMessage, ttl: u64) -> Result<ReplyHandleP2P, net_error> {
         let rh = self.connection.send_signed_message(msg, ttl)?;
         self.stats.msgs_tx += 1;
         Ok(rh)
@@ -750,7 +755,7 @@ impl Conversation {
                             Ok(None)
                         },
                         _ => {
-                            test_debug!("{:?}: Got a message (type {})", &self, message_type_to_str(&msg.payload));
+                            test_debug!("{:?}: Got a message (type {})", &self, msg.payload.get_message_name());
                             Ok(None)       // nothing to reply to at this time
                         }
                     }
@@ -794,7 +799,7 @@ impl Conversation {
                             Ok(None)
                         }
                         _ => {
-                            test_debug!("{:?}: Got unauthenticated message (type {})", &self, message_type_to_str(&msg.payload));
+                            test_debug!("{:?}: Got unauthenticated message (type {})", &self, msg.payload.get_message_name());
                             let nack_payload = StacksMessageType::Nack(NackData::new(NackErrorCodes::HandshakeRequired));
                             let nack = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, burnchain_view, nack_payload);
 
@@ -811,7 +816,7 @@ impl Conversation {
                 None => {},
                 Some(mut reply) => {
                     // send back this message to the remote peer
-                    test_debug!("{:?}: Send automatic reply type {}", &self, message_type_to_str(&reply.payload));
+                    test_debug!("{:?}: Send automatic reply type {}", &self, reply.payload.get_message_name());
                     reply.sign(msg.preamble.seq, &local_peer.private_key)?;
                     self.relay_signed_message(reply)?;
                 }
@@ -823,7 +828,7 @@ impl Conversation {
                     self.stats.first_contact_time = now;
                 }
 
-                let msg_id = message_type_to_id(&msg.payload);
+                let msg_id = msg.payload.get_message_id();
                 let count = match self.stats.msg_rx_counts.get(&msg_id) {
                     None => 1,
                     Some(c) => c + 1
@@ -840,7 +845,7 @@ impl Conversation {
                 self.stats.msgs_rx_unsolicited += 1;
             }
 
-            let msgtype = message_type_to_str(&msg.payload).to_owned();
+            let msgtype = msg.payload.get_message_name().to_owned();
 
             // Is there someone else waiting for this message?  If so, pass it along.
             let fulfill_opt = self.connection.fulfill_request(msg);
