@@ -1,5 +1,5 @@
 use vm::{eval, execute as vm_execute};
-use vm::database::in_memory_marf;
+use vm::database::MemoryBackingStore;
 use vm::errors::{CheckErrors, ShortReturnType, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
@@ -29,7 +29,7 @@ fn test_simple_let() {
     let contract_id = QualifiedContractIdentifier::transient();
     if let Ok(parsed_program) = parse(&contract_id, &program) {
         let context = LocalContext::new();
-        let mut marf = in_memory_marf();
+        let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db());
 
         assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env.get_exec_environment(None), &context));
@@ -199,7 +199,7 @@ fn test_simple_if_functions() {
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
-        let mut marf = in_memory_marf();
+        let mut marf = MemoryBackingStore::new();
         let mut global_context = GlobalContext::new(marf.as_clarity_db());
 
         contract_context.functions.insert("with_else".into(), user_function1);

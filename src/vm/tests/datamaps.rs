@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use vm::errors::{Error, CheckErrors, RuntimeErrorType, ShortReturnType};
 use vm::types::{Value, TupleData, TypeSignature, QualifiedContractIdentifier, StandardPrincipalData, ListData, TupleTypeSignature};
 use vm::contexts::{OwnedEnvironment};
-use vm::database::in_memory_marf;
+use vm::database::MemoryBackingStore;
 use vm::execute;
 
 fn assert_executes(expected: Result<Value, Error>, input: &str) {
@@ -195,7 +195,7 @@ fn test_fetch_contract_entry() {
             (let ((t (tuple (key 42))))
             (unwrap! (get value (contract-map-get? .kv-store-contract kv-store t)) 0)))"#;
 
-    let mut marf = in_memory_marf();
+    let mut marf = MemoryBackingStore::new();
     let mut owned_env = OwnedEnvironment::new(marf.as_clarity_db());
 
     let sender = StandardPrincipalData::transient().into();

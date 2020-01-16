@@ -3,7 +3,7 @@ use vm::analysis::errors::{CheckErrors};
 use vm::types::{Value};
 use vm::contexts::{OwnedEnvironment};
 use vm::representations::SymbolicExpression;
-use vm::database::marf::temporary_marf;
+use vm::database::marf::MarfedKV;
 use vm::database::ClarityDatabase;
 use vm::types::{QualifiedContractIdentifier, PrincipalData};
 
@@ -167,7 +167,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
       F2: FnOnce(&mut OwnedEnvironment),
       F3: FnOnce(&mut OwnedEnvironment)
 {
-    let mut marf_kv = temporary_marf();
+    let mut marf_kv = MarfedKV::temporary();
     marf_kv.begin(&TrieFileStorage::block_sentinel(),
                   &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
 

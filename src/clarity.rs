@@ -22,7 +22,7 @@ use util::db::FromColumn;
 use vm::ast::parse;
 use vm::contexts::OwnedEnvironment;
 use vm::database::{ClarityDatabase, SqliteConnection,
-                   MarfedKV, in_memory_marf, sqlite_marf};
+                   MarfedKV, MemoryBackingStore};
 use vm::errors::{InterpreterResult};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::analysis::{AnalysisDatabase, run_analysis};
@@ -199,7 +199,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 panic_test!();
             }
 
-            let marf_kv = friendly_expect(sqlite_marf(&args[1], None), "Failed to open VM database.");
+            let marf_kv = friendly_expect(MarfedKV::open(&args[1], None), "Failed to open VM database.");
             in_block(&args[1], marf_kv, |mut kv| {
                 { let mut db = ClarityDatabase::new(&mut kv);
                   db.initialize() };
@@ -230,7 +230,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let contract_analysis = {
                 if args.len() >= 3 {
                     // use a persisted marf
-                    let marf_kv = friendly_expect(sqlite_marf(&args[2], None), "Failed to open VM database.");
+                    let marf_kv = friendly_expect(MarfedKV::open(&args[2], None), "Failed to open VM database.");
                     let result = at_chaintip(
                         &args[2],
                         marf_kv,
@@ -241,7 +241,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         });
                     result
                 } else {
-                    let mut analysis_marf = in_memory_marf();
+                    let mut analysis_marf = MemoryBackingStore::new();
                     let mut db = analysis_marf.as_analysis_db();
                     run_analysis(&contract_id, &mut ast, &mut db, false)
                 }
@@ -260,11 +260,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
         },
         "repl" => {
-            let mut marf = in_memory_marf();
+            let mut marf = MemoryBackingStore::new();
             let mut vm_env = OwnedEnvironment::new(marf.as_clarity_db());
             let mut exec_env = vm_env.get_exec_environment(None);
 
-            let mut analysis_marf = in_memory_marf();
+            let mut analysis_marf = MemoryBackingStore::new();
             let mut analysis_db = analysis_marf.as_analysis_db();
 
             let contract_id = QualifiedContractIdentifier::transient();
@@ -323,10 +323,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 buffer
             };
 
-            let mut analysis_marf = in_memory_marf();
+            let mut analysis_marf = MemoryBackingStore::new();
             let mut analysis_db = analysis_marf.as_analysis_db();
 
-            let mut marf = in_memory_marf();
+            let mut marf = MemoryBackingStore::new();
             let mut vm_env = OwnedEnvironment::new(marf.as_clarity_db());
  
             
@@ -381,7 +381,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[1]), "Failed to parse contract identifier.");
 
-            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
+            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = ClarityDatabase::new(&mut marf);
@@ -415,7 +415,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                                                            &format!("Error reading file: {}", args[2]));
 
             let mut ast = friendly_expect(parse(&contract_identifier, &contract_content), "Failed to parse program.");
-            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
+            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
             let result = in_block(
                 vm_filename,
                 marf_kv,
@@ -466,7 +466,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 panic_test!();
             }
             let vm_filename = &args[1];
-            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
+            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
 
             let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[2]), "Failed to parse contract identifier.");
 

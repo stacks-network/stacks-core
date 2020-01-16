@@ -1,4 +1,4 @@
-use vm::database::in_memory_marf;
+use vm::database::MemoryBackingStore;
 use vm::types::{TypeSignature, QualifiedContractIdentifier};
 use vm::ast::parse;
 use vm::analysis::errors::CheckErrors;
@@ -84,7 +84,7 @@ fn test_names_tokens_contracts() {
 
     let mut tokens_contract = parse(&tokens_contract_id, FIRST_CLASS_TOKENS).unwrap();
     let mut names_contract = parse(&names_contract_id, ASSET_NAMES).unwrap();
-    let mut marf = in_memory_marf();
+    let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
     db.execute(|db| {

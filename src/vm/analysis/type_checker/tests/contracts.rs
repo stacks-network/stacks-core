@@ -4,7 +4,7 @@ use serde_json;
 use vm::ast::parse;
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{AnalysisDatabase, contract_interface_builder::build_contract_interface};
-use vm::database::in_memory_marf;
+use vm::database::MemoryBackingStore;
 use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
 use vm::types::QualifiedContractIdentifier;
@@ -363,7 +363,7 @@ fn test_names_tokens_contracts() {
 
     let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS).unwrap();
     let mut names_contract = parse(&names_contract_id, SIMPLE_NAMES).unwrap();
-    let mut marf = in_memory_marf();
+    let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
     db.execute(|db| {
@@ -393,7 +393,7 @@ fn test_names_tokens_contracts_bad() {
 
     let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS).unwrap();
     let mut names_contract = parse(&names_contract_id, &names_contract).unwrap();
-    let mut marf = in_memory_marf();
+    let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
     db.execute(|db| {
@@ -429,7 +429,7 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
 
     let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS).unwrap();
     let mut names_contract = parse(&names_contract_id, &names_contract).unwrap();
-    let mut marf = in_memory_marf();
+    let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
     db.execute(|db| {

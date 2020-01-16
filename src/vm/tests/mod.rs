@@ -5,7 +5,7 @@ use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
-use vm::database::marf::{ in_memory_marf, temporary_marf };
+use vm::database::marf::{ MarfedKV, MemoryBackingStore };
 use vm::database::ClarityDatabase;
 
 use chainstate::stacks::index::storage::{TrieFileStorage};
@@ -22,7 +22,7 @@ mod contracts;
 pub fn with_memory_environment<F>(f: F, top_level: bool)
 where F: FnOnce(&mut OwnedEnvironment) -> ()
 {
-    let mut marf_kv = in_memory_marf();
+    let mut marf_kv = MemoryBackingStore::new();
 
     let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
     // start an initial transaction.
@@ -36,7 +36,7 @@ where F: FnOnce(&mut OwnedEnvironment) -> ()
 pub fn with_marfed_environment<F>(f: F, top_level: bool)
 where F: FnOnce(&mut OwnedEnvironment) -> ()
 {
-    let mut marf_kv = temporary_marf();
+    let mut marf_kv = MarfedKV::temporary();
     marf_kv.begin(&TrieFileStorage::block_sentinel(),
                   &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
 

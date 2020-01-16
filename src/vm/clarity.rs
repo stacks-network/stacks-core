@@ -319,13 +319,13 @@ mod tests {
     use super::*;
     use vm::analysis::errors::CheckErrors;
     use vm::types::{Value, StandardPrincipalData};
-    use vm::database::{marf, ClarityBackingStore};
+    use vm::database::marf::{ClarityBackingStore, MarfedKV};
     use chainstate::stacks::index::storage::{TrieFileStorage};
     use rusqlite::NO_PARAMS;
 
     #[test]
     pub fn simple_test() {
-        let marf = marf::temporary_marf();
+        let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     pub fn test_block_roll_back() {
-        let marf = marf::temporary_marf();
+        let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     pub fn test_tx_roll_backs() {
-        let marf = marf::temporary_marf();
+        let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();

@@ -1,5 +1,5 @@
 use vm::ast::parse;
-use vm::database::{in_memory_marf};
+use vm::database::{MemoryBackingStore};
 use vm::analysis::{type_check, mem_type_check, CheckError, CheckErrors, AnalysisDatabase};
 use vm::types::QualifiedContractIdentifier;
 
@@ -140,7 +140,7 @@ fn test_contract_call_read_only_violations() {
     let mut bad_caller = parse(&contract_bad_caller_id, bad_caller).unwrap();
     let mut ok_caller = parse(&contract_ok_caller_id, ok_caller).unwrap();
 
-    let mut marf = in_memory_marf();
+    let mut marf = MemoryBackingStore::new();
 
     let mut db = marf.as_analysis_db();
     db.execute(|db| {

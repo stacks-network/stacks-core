@@ -109,63 +109,54 @@ impl ContractCommitment {
     }
 }
 
-pub fn temporary_marf() -> MarfedKV {
-    use std::env;
-    use rand::Rng;
-
-    let mut path = env::temp_dir();
-    let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
-    path.push(to_hex(&random_bytes));
-
-    let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"), None)
-        .unwrap();
-    let side_store = SqliteConnection::memory().unwrap();
-
-    let chain_tip = TrieFileStorage::block_sentinel();
-
-    MarfedKV { marf, chain_tip, side_store }
-}
-
-pub fn in_memory_marf() -> MemoryBackingStore {
-    let side_store = SqliteConnection::memory().unwrap();
-
-    let mut memory_marf = MemoryBackingStore { side_store };
-
-    memory_marf.as_clarity_db().initialize();
-
-    memory_marf
-}
-
-pub fn sqlite_marf(path_str: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MarfedKV> {
-    let mut path = PathBuf::from(path_str);
-
-    std::fs::create_dir_all(&path)
-        .map_err(|err| InterpreterError::FailedToCreateDataDirectory)?;
-
-    path.push("marf");
-    let marf_path = path.to_str()
-        .ok_or_else(|| InterpreterError::BadFileName)?
-        .to_string();
-
-    path.pop();
-    path.push("data.sqlite");
-    let data_path = path.to_str()
-        .ok_or_else(|| InterpreterError::BadFileName)?
-        .to_string();
-
-    let side_store = SqliteConnection::initialize(&data_path)?;
-    let marf = MARF::from_path(&marf_path, miner_tip)
-        .map_err(|err| InterpreterError::MarfFailure(IncomparableError{ err }))?;
-
-    let chain_tip = match miner_tip {
-        Some(ref miner_tip) => *miner_tip.clone(),
-        None => TrieFileStorage::block_sentinel()
-    };
-
-    Ok( MarfedKV { marf, chain_tip, side_store } )
-}
-
 impl MarfedKV {
+    pub fn open(path_str: &str, miner_tip: Option<&BlockHeaderHash>) -> Result<MarfedKV> {
+        let mut path = PathBuf::from(path_str);
+
+        std::fs::create_dir_all(&path)
+            .map_err(|err| InterpreterError::FailedToCreateDataDirectory)?;
+
+        path.push("marf");
+        let marf_path = path.to_str()
+            .ok_or_else(|| InterpreterError::BadFileName)?
+            .to_string();
+
+        path.pop();
+        path.push("data.sqlite");
+        let data_path = path.to_str()
+            .ok_or_else(|| InterpreterError::BadFileName)?
+            .to_string();
+
+        let side_store = SqliteConnection::initialize(&data_path)?;
+        let marf = MARF::from_path(&marf_path, miner_tip)
+            .map_err(|err| InterpreterError::MarfFailure(IncomparableError{ err }))?;
+
+        let chain_tip = match miner_tip {
+            Some(ref miner_tip) => *miner_tip.clone(),
+            None => TrieFileStorage::block_sentinel()
+        };
+
+        Ok( MarfedKV { marf, chain_tip, side_store } )
+    }
+
+    #[cfg(test)]
+    pub fn temporary() -> MarfedKV {
+        use std::env;
+        use rand::Rng;
+
+        let mut path = env::temp_dir();
+        let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+        path.push(to_hex(&random_bytes));
+
+        let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"), None)
+            .unwrap();
+        let side_store = SqliteConnection::memory().unwrap();
+
+        let chain_tip = TrieFileStorage::block_sentinel();
+
+        MarfedKV { marf, chain_tip, side_store }
+    }
+
     pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
         ClarityDatabase::new(self)
     }
@@ -319,6 +310,16 @@ impl ClarityBackingStore for MarfedKV {
 
 
 impl MemoryBackingStore {
+    pub fn new() -> MemoryBackingStore {
+        let side_store = SqliteConnection::memory().unwrap();
+
+        let mut memory_marf = MemoryBackingStore { side_store };
+
+        memory_marf.as_clarity_db().initialize();
+
+        memory_marf
+    }
+
     pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
         ClarityDatabase::new(self)
     }
