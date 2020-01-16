@@ -14,6 +14,7 @@ pub enum LexItem {
     LiteralValue(usize, Value),
     UnexpandedContractName(usize, ContractName),
     Variable(String),
+    Generic(String),
     Whitespace
 }
 
@@ -22,7 +23,7 @@ enum TokenType {
     LParens, RParens, Whitespace,
     StringLiteral, HexStringLiteral,
     UIntLiteral, IntLiteral, QuoteLiteral,
-    Variable, PrincipalLiteral,
+    Variable, Generic, PrincipalLiteral,
     QualifiedContractPrincipalLiteral,
     UnexpandedContractNameLiteral
 }
@@ -72,6 +73,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
+        LexMatcher::new("<(?P<value>([[:word:]])+)>", TokenType::Generic),
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
@@ -196,6 +198,14 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
+                    TokenType::Generic => {
+                        let value = get_value_or_err(current_slice, captures)?;
+                        if value.contains("#") { // todo(ludo): re-evaluate this branch
+                            Err(ParseError::new(ParseErrors::IllegalVariableName(value)))
+                        } else {
+                            Ok(LexItem::Generic(value))
+                        }
+                    },
                     TokenType::HexStringLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let byte_vec = hex_bytes(&str_value)
@@ -276,6 +286,19 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     Some((ref mut list, _, _)) => list.push(pre_expr)
                 };
             },
+            LexItem::Generic(value) => {
+                let end_column = column_pos + (value.len() as u32) - 1;
+                let value = value.clone().try_into()
+                    .map_err(|_| { ParseError::new(ParseErrors::IllegalVariableName(value.to_string())) })?;
+                let mut pre_expr = PreSymbolicExpression::generic(value);
+                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
+
+                match parse_stack.last_mut() {
+                    None => output_list.push(pre_expr),
+                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                };
+
+            }
             LexItem::LiteralValue(length, value) => {
                 let mut end_column = column_pos + (length as u32);
                 // Avoid underflows on cases like empty strings
@@ -410,6 +433,24 @@ r#"z (let ((x 1) (y 2))
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract-a";
         let parsed = ast::parser::parse(&input).unwrap();
 
+        let x1 = &parsed[0];
+        assert!( match x1.match_atom_value() {
+            Some(Value::Principal(PrincipalData::Contract(identifier))) => {
+                format!("{}", 
+                    PrincipalData::Standard(identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
+                    identifier.name == "contract-a".into()
+            },
+            _ => false
+        });
+    }
+
+    #[test]
+    fn test_parse_generics() {
+        use vm::types::PrincipalData;
+        let input = "(define-public (meth (contract <a>)))";
+        let parsed = ast::parser::parse(&input).unwrap();
+
+        panic!("{:?}", parsed);
         let x1 = &parsed[0];
         assert!( match x1.match_atom_value() {
             Some(Value::Principal(PrincipalData::Contract(identifier))) => {

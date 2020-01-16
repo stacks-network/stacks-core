@@ -74,6 +74,7 @@ guarded_string!(ContractName, "ContractName", Regex::new("^[a-zA-Z]([a-zA-Z0-9]|
 pub enum PreSymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
+    Generic(ClarityName),
     List(Box<[PreSymbolicExpression]>),
     UnexpandedContractName(ContractName)
 }
@@ -125,6 +126,13 @@ impl PreSymbolicExpression {
     pub fn atom_value(val: Value) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::AtomValue(val),
+            .. PreSymbolicExpression::cons()
+        }
+    }
+
+    pub fn generic(val: ClarityName) -> PreSymbolicExpression {
+        PreSymbolicExpression {
+            pre_expr: PreSymbolicExpressionType::Generic(val),
             .. PreSymbolicExpression::cons()
         }
     }

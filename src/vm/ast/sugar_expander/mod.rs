@@ -40,6 +40,9 @@ impl SugarExpander {
                 PreSymbolicExpressionType::Atom(content) => {
                     SymbolicExpression::atom(content)
                 },
+                PreSymbolicExpressionType::Generic(content) => {
+                    SymbolicExpression::atom(content)
+                },
                 PreSymbolicExpressionType::UnexpandedContractName(contract_name) => {
                     let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name);
                     SymbolicExpression::literal_value(Value::Principal(PrincipalData::Contract(contract_identifier)))
