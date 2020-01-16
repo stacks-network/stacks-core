@@ -110,7 +110,7 @@ impl <'a> ClarityDatabase <'a> {
     }
 
     pub fn insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
-        let hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes()).0;
+        let hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
         self.store.prepare_for_contract_metadata(contract_identifier, hash);
         Ok(())
     }

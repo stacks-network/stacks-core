@@ -9,7 +9,7 @@ use chainstate::stacks::index::{MARFValue, Error as MarfError, TrieHash};
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
 use std::convert::TryInto;
-use util::hash::{to_hex, hex_bytes};
+use util::hash::{to_hex, hex_bytes, Sha512Trunc256Sum};
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -54,7 +54,7 @@ pub trait ClarityBackingStore {
 
     /// The contract commitment is the hash of the contract, plus the block height in
     ///   which the contract was initialized.
-    fn make_contract_commitment(&mut self, contract_hash: [u8; 32]) -> String {
+    fn make_contract_commitment(&mut self, contract_hash: Sha512Trunc256Sum) -> String {
         let block_height = self.get_open_chain_tip_height();
         let cc = ContractCommitment { hash: contract_hash, block_height };
         cc.serialize()
@@ -70,7 +70,7 @@ pub trait ClarityBackingStore {
         let ContractCommitment { block_height, hash: contract_hash } = contract_commitment;
         let bhh = self.get_block_at_height(block_height)
             .expect("Should always be able to map from height to block hash when looking up contract information.");
-        Ok((bhh, to_hex(&contract_hash)))
+        Ok((bhh, contract_hash.to_hex()))
     }
 
     fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
@@ -91,19 +91,18 @@ pub trait ClarityBackingStore {
 }
 
 struct ContractCommitment {
-    pub hash: [u8; 32],
+    pub hash: Sha512Trunc256Sum,
     pub block_height: u32
 }
 
 impl ContractCommitment {
     pub fn serialize(&self) -> String {
-        format!("{}{}", to_hex(&self.hash), to_hex(&self.block_height.to_be_bytes()))
+        format!("{}{}", self.hash.to_hex(), to_hex(&self.block_height.to_be_bytes()))
     }
     pub fn deserialize(input: &str) -> ContractCommitment {
         assert_eq!(input.len(), 72);
-        let hash_bytes = hex_bytes(&input[0..64]).expect("Hex decode fail.");
+        let hash = Sha512Trunc256Sum::from_hex(&input[0..64]).expect("Hex decode fail.");
         let height_bytes = hex_bytes(&input[64..72]).expect("Hex decode fail.");
-        let hash = hash_bytes.as_slice().try_into().unwrap();
         let block_height = u32::from_be_bytes(height_bytes.as_slice().try_into().unwrap());
         ContractCommitment { hash, block_height }
     }
@@ -323,15 +322,6 @@ impl MemoryBackingStore {
 
     pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
         AnalysisDatabase::new(self)
-    }
-
-    pub fn get_contract_hash(&mut self, contract: &QualifiedContractIdentifier) -> Result<(BlockHeaderHash, String)> {
-        let key = MarfedKV::make_contract_hash_key(contract);
-        let contract_commitment = self.get(&key).map(|x| ContractCommitment::deserialize(&x))
-            .ok_or_else(|| { CheckErrors::NoSuchContract(contract.to_string()) })?;
-        let ContractCommitment { block_height, hash: contract_hash } = contract_commitment;
-        let bhh = TrieFileStorage::block_sentinel();
-        Ok((bhh, to_hex(&contract_hash)))
     }
 }
 

@@ -2,6 +2,7 @@ use super::{MarfedKV, ClarityBackingStore};
 use vm::errors::{ InterpreterResult as Result };
 use chainstate::burn::BlockHeaderHash;
 use std::collections::{HashMap};
+use util::hash::{Sha512Trunc256Sum};
 use vm::types::QualifiedContractIdentifier;
 use std::{cmp::Eq, hash::Hash, clone::Clone};
 
@@ -154,7 +155,7 @@ impl <'a> RollbackWrapper <'a> {
             .or_else(|| self.store.get(key))
     }
 
-    pub fn prepare_for_contract_metadata(&mut self, contract: &QualifiedContractIdentifier, content_hash: [u8; 32]) {
+    pub fn prepare_for_contract_metadata(&mut self, contract: &QualifiedContractIdentifier, content_hash: Sha512Trunc256Sum) {
         let key = MarfedKV::make_contract_hash_key(contract);
         let value = self.store.make_contract_commitment(content_hash);
         self.put(&key, &value)
