@@ -17,7 +17,9 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::mem::size_of;
+use std::io;
+use std::io::prelude::*;
+use std::io::Read;
 
 use burnchains::BurnchainHeaderHash;
 use burnchains::PrivateKey;
@@ -34,7 +36,7 @@ use chainstate::stacks::StacksTransaction;
 use util::hash::DoubleSha256;
 use util::hash::Hash160;
 use util::hash::MerkleHashFunc;
-use util::secp256k1::Secp256k1PublicKey;
+use util::secp256k1::{Secp256k1PublicKey, Secp256k1PrivateKey};
 
 use net::*;
 use net::Error as net_error;
@@ -60,20 +62,20 @@ macro_rules! BITVEC_LEN {
 
 // serialize helper 
 pub fn write_next<T: StacksMessageCodec>(buf: &mut Vec<u8>, item: &T) {
-    let mut item_buf = item.serialize();
+    let mut item_buf = item.consensus_serialize();
     buf.append(&mut item_buf);
 }
 
 // deserialize helper 
-pub fn read_next<T: StacksMessageCodec>(buf: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<T, net_error> {
-    let item: T = T::deserialize(buf, index, max_size)?;
+pub fn read_next<T: StacksMessageCodec>(buf: &[u8], index: &mut u32, max_size: u32) -> Result<T, net_error> {
+    let item: T = T::consensus_deserialize(buf, index, max_size)?;
     Ok(item)
 }
 
 // deserialize helper for bound-sized vectors
 // Parse `max_items` or `num_items` items of an array, up to `max_size_bytes` consumed.
 // Parse exactly `num_items` if max_items = 0.  Otherwise, ignore num_items
-fn read_next_vec<T: StacksMessageCodec + Sized>(buf: &Vec<u8>, index_ptr: &mut u32, max_size_bytes: u32, num_items: u32, max_items: u32) -> Result<Vec<T>, net_error> {
+fn read_next_vec<T: StacksMessageCodec + Sized>(buf: &[u8], index_ptr: &mut u32, max_size_bytes: u32, num_items: u32, max_items: u32) -> Result<Vec<T>, net_error> {
     let index = *index_ptr;
     if index > u32::max_value() - 4 {
         return Err(net_error::OverflowError(format!("Would overflow u32 when parsing array length (index {})", index)));
@@ -89,7 +91,7 @@ fn read_next_vec<T: StacksMessageCodec + Sized>(buf: &Vec<u8>, index_ptr: &mut u
     let mut vec_index : u32 = 0;
 
     let len_buf = buf[(index as usize)..((index+4) as usize)].to_vec();
-    let len = u32::deserialize(&len_buf, &mut len_index, 4)?;
+    let len = u32::consensus_deserialize(&len_buf, &mut len_index, 4)?;
 
     if max_items > 0 {
         if len > max_items {
@@ -108,7 +110,7 @@ fn read_next_vec<T: StacksMessageCodec + Sized>(buf: &Vec<u8>, index_ptr: &mut u
 
     let mut ret = vec![];
     for _i in 0..len {
-        let next_item = T::deserialize(buf, &mut vec_index, max_size_bytes)?;
+        let next_item = T::consensus_deserialize(buf, &mut vec_index, max_size_bytes)?;
         ret.push(next_item);
     }
 
@@ -116,19 +118,20 @@ fn read_next_vec<T: StacksMessageCodec + Sized>(buf: &Vec<u8>, index_ptr: &mut u
     Ok(ret)
 }
 
-pub fn read_next_at_most<T: StacksMessageCodec + Sized>(buf: &Vec<u8>, index_ptr: &mut u32, max_size_bytes: u32, max_items: u32) -> Result<Vec<T>, net_error> {
+pub fn read_next_at_most<T: StacksMessageCodec + Sized>(buf: &[u8], index_ptr: &mut u32, max_size_bytes: u32, max_items: u32) -> Result<Vec<T>, net_error> {
     read_next_vec::<T>(buf, index_ptr, max_size_bytes, 0, max_items)
 }
 
-pub fn read_next_exact<T: StacksMessageCodec + Sized>(buf: &Vec<u8>, index_ptr: &mut u32, max_size_bytes: u32, num_items: u32) -> Result<Vec<T>, net_error> {
+pub fn read_next_exact<T: StacksMessageCodec + Sized>(buf: &[u8], index_ptr: &mut u32, max_size_bytes: u32, num_items: u32) -> Result<Vec<T>, net_error> {
     read_next_vec::<T>(buf, index_ptr, max_size_bytes, num_items, 0)
 }
 
 impl StacksMessageCodec for u8 {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         vec![*self]
     }
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<u8, net_error> {
+
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<u8, net_error> {
         let index = *index_ptr;
         if index > u32::max_value() - 1 {
             return Err(net_error::OverflowError("Would overflow u32 to read 1 byte".to_string()));
@@ -149,11 +152,12 @@ impl StacksMessageCodec for u8 {
 }
 
 impl StacksMessageCodec for u16 {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         // big-endian 
         self.to_be_bytes().to_vec()
     }
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<u16, net_error> {
+
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<u16, net_error> {
         let index = *index_ptr;
         if index > u32::max_value() - 2 {
             return Err(net_error::OverflowError("Would overflow u32 to read 2 bytes".to_string()));
@@ -176,12 +180,12 @@ impl StacksMessageCodec for u16 {
 }
 
 impl StacksMessageCodec for u32 {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         // big-endian 
         self.to_be_bytes().to_vec()
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<u32, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<u32, net_error> {
         let index = *index_ptr;
         if index > u32::max_value() - 4 {
             return Err(net_error::OverflowError("Would overflow u32 to read 4 bytes".to_string()));
@@ -204,12 +208,12 @@ impl StacksMessageCodec for u32 {
 }
 
 impl StacksMessageCodec for u64 {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         // big-endian
         self.to_be_bytes().to_vec()
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<u64, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<u64, net_error> {
         let index = *index_ptr;
         if index > u32::max_value() - 8 {
             return Err(net_error::OverflowError("Would overflow u32 to read 8 bytes".to_string()));
@@ -249,24 +253,24 @@ impl<T> StacksMessageCodec for Vec<T>
 where
     T: StacksMessageCodec + Sized
 {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         if self.len() >= ARRAY_MAX_LEN as usize {
             // over 4.1 billion entries -- this is not okay
             panic!("FATAL ERROR array too long");
         }
         
         let mut ret = vec![];
-        let mut size_buf = (self.len() as u32).serialize();
+        let mut size_buf = (self.len() as u32).consensus_serialize();
         ret.append(&mut size_buf);
 
         for i in 0..self.len() {
-            let mut byte_list = self[i].serialize();
+            let mut byte_list = self[i].consensus_serialize();
             ret.append(&mut byte_list);
         }
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<Vec<T>, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<Vec<T>, net_error> {
         read_next_at_most::<T>(buf, index_ptr, max_size, u32::max_value())
     }
 }
@@ -290,17 +294,14 @@ impl Preamble {
 
     /// Given the serialized message type and bits, sign the resulting message and store the
     /// signature.  message_bits includes the relayers, payload type, and payload.
-    pub fn sign<PK>(&mut self, message_bits: &[u8], privkey: &PK) -> Result<(), net_error>
-    where
-        PK: PrivateKey
-    {
+    pub fn sign(&mut self, message_bits: &[u8], privkey: &Secp256k1PrivateKey) -> Result<(), net_error> {
         let mut digest_bits = [0u8; 32];
         let mut sha2 = Sha512Trunc256::new();
 
         // serialize the premable with a blank signature
         let old_signature = self.signature.clone();
         self.signature = MessageSignature::empty();
-        let preamble_bits = self.serialize();
+        let preamble_bits = self.consensus_serialize();
         self.signature = old_signature;
 
         sha2.input(&preamble_bits[..]);
@@ -317,17 +318,14 @@ impl Preamble {
 
     /// Given the serialized message type and bits, verify the signature.
     /// message_bits includes the relayers, payload type, and payload
-    pub fn verify<PUBK>(&mut self, message_bits: &[u8], pubkey: &PUBK) -> Result<(), net_error>
-    where
-        PUBK: PublicKey
-    {
+    pub fn verify(&mut self, message_bits: &[u8], pubkey: &Secp256k1PublicKey) -> Result<(), net_error> {
         let mut digest_bits = [0u8; 32];
         let mut sha2 = Sha512Trunc256::new();
 
         // serialize the preamble with a blank signature 
         let sig_bits = self.signature.clone();
         self.signature = MessageSignature::empty();
-        let preamble_bits = self.serialize();
+        let preamble_bits = self.consensus_serialize();
         self.signature = sig_bits;
 
         sha2.input(&preamble_bits[..]);
@@ -348,7 +346,7 @@ impl Preamble {
 }
 
 impl StacksMessageCodec for Preamble {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.peer_version);
         write_next(&mut ret, &self.network_id);
@@ -363,7 +361,7 @@ impl StacksMessageCodec for Preamble {
         ret
     }
     
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<Preamble, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<Preamble, net_error> {
         let mut index = *index_ptr;
         let peer_version: u32                           = read_next(buf, &mut index, max_size)?;
         let network_id: u32                             = read_next(buf, &mut index, max_size)?;
@@ -412,7 +410,7 @@ impl StacksMessageCodec for Preamble {
 }
 
 impl StacksMessageCodec for GetBlocksData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.burn_height_start);
         write_next(&mut ret, &self.burn_header_hash_start);
@@ -421,7 +419,7 @@ impl StacksMessageCodec for GetBlocksData {
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<GetBlocksData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<GetBlocksData, net_error> {
         let mut index = *index_ptr;
         let burn_height_start : u64                         = read_next(buf, &mut index, max_size)?;
         let burn_header_hash_start : BurnchainHeaderHash    = read_next(buf, &mut index, max_size)?;
@@ -445,14 +443,14 @@ impl StacksMessageCodec for GetBlocksData {
 }
 
 impl StacksMessageCodec for MicroblocksInvData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.last_microblock_hash);
         write_next(&mut ret, &self.last_sequence);
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<MicroblocksInvData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<MicroblocksInvData, net_error> {
         let mut index = *index_ptr;
 
         let last_microblock_hash : BlockHeaderHash = read_next(buf, &mut index, max_size)?;
@@ -468,7 +466,7 @@ impl StacksMessageCodec for MicroblocksInvData {
 }
 
 impl StacksMessageCodec for BlocksInvData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.bitlen);
         write_next(&mut ret, &self.bitvec);
@@ -476,7 +474,7 @@ impl StacksMessageCodec for BlocksInvData {
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<BlocksInvData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<BlocksInvData, net_error> {
         let mut index = *index_ptr;
 
         let bitlen : u16                                     = read_next(buf, &mut index, max_size)?;
@@ -498,13 +496,13 @@ impl StacksMessageCodec for BlocksInvData {
 }
 
 impl StacksMessageCodec for BlocksData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.blocks);
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<BlocksData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<BlocksData, net_error> {
         let mut index = *index_ptr;
         
         let blocks : Vec<StacksBlock> = read_next(buf, &mut index, max_size)?;
@@ -518,7 +516,7 @@ impl StacksMessageCodec for BlocksData {
 }
 
 impl StacksMessageCodec for GetMicroblocksData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.burn_header_height);
         write_next(&mut ret, &self.burn_header_hash);
@@ -527,7 +525,7 @@ impl StacksMessageCodec for GetMicroblocksData {
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<GetMicroblocksData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<GetMicroblocksData, net_error> {
         let mut index = *index_ptr;
 
         let burn_header_height: u64                     = read_next(buf, &mut index, max_size)?;
@@ -547,13 +545,13 @@ impl StacksMessageCodec for GetMicroblocksData {
 }
 
 impl StacksMessageCodec for MicroblocksData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.microblocks);
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<MicroblocksData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<MicroblocksData, net_error> {
         let mut index = *index_ptr;
 
         let microblocks : Vec<StacksMicroblock> = read_next(buf, &mut index, max_size)?;
@@ -577,7 +575,7 @@ impl NeighborAddress {
 }
 
 impl StacksMessageCodec for NeighborAddress {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.addrbytes);
         write_next(&mut ret, &self.port);
@@ -585,7 +583,7 @@ impl StacksMessageCodec for NeighborAddress {
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<NeighborAddress, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<NeighborAddress, net_error> {
         let mut index = *index_ptr;
 
         let addrbytes: PeerAddress      = read_next(buf, &mut index, max_size)?;
@@ -603,13 +601,13 @@ impl StacksMessageCodec for NeighborAddress {
 }
 
 impl StacksMessageCodec for NeighborsData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.neighbors);
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<NeighborsData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<NeighborsData, net_error> {
         // don't allow list of more than the pre-set number of neighbors
         let mut index = *index_ptr;
         
@@ -636,7 +634,7 @@ impl HandshakeData {
 }
 
 impl StacksMessageCodec for HandshakeData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.addrbytes);
         write_next(&mut ret, &self.port);
@@ -646,7 +644,7 @@ impl StacksMessageCodec for HandshakeData {
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<HandshakeData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<HandshakeData, net_error> {
         let mut index = *index_ptr;
 
         let addrbytes: PeerAddress                  = read_next(buf, &mut index, max_size)?;
@@ -677,14 +675,14 @@ impl HandshakeAcceptData {
 }
 
 impl StacksMessageCodec for HandshakeAcceptData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.handshake);
         write_next(&mut ret, &self.heartbeat_interval);
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<HandshakeAcceptData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<HandshakeAcceptData, net_error> {
         let mut index = *index_ptr;
 
         let handshake : HandshakeData               = read_next(buf, &mut index, max_size)?;
@@ -708,13 +706,13 @@ impl NackData {
 }
 
 impl StacksMessageCodec for NackData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.error_code);
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<NackData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<NackData, net_error> {
         let mut index = *index_ptr;
         let error_code : u32 = read_next(buf, &mut index, max_size)?;
         *index_ptr = index;
@@ -736,13 +734,13 @@ impl PingData {
 }
 
 impl StacksMessageCodec for PingData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.nonce);
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<PingData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<PingData, net_error> {
         let mut index = *index_ptr;
         let nonce : u32 = read_next(buf, &mut index, max_size)?;
         *index_ptr = index;
@@ -762,13 +760,13 @@ impl PongData {
 }
 
 impl StacksMessageCodec for PongData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.nonce);
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<PongData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<PongData, net_error> {
         let mut index = *index_ptr;
         let nonce: u32 = read_next(buf, &mut index, max_size)?;
         *index_ptr = index;
@@ -780,7 +778,7 @@ impl StacksMessageCodec for PongData {
 }
 
 impl StacksMessageCodec for RelayData {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.peer);
         write_next(&mut ret, &self.seq);
@@ -788,7 +786,7 @@ impl StacksMessageCodec for RelayData {
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<RelayData, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<RelayData, net_error> {
         let mut index = *index_ptr;
 
         let peer : NeighborAddress          = read_next(buf, &mut index, max_size)?;
@@ -805,116 +803,133 @@ impl StacksMessageCodec for RelayData {
     }
 }
 
-/// Serialize a Stacks message to its wireformat.
-pub fn message_serialize(msg: &StacksMessageType) -> Vec<u8> {
-    match msg {
-        StacksMessageType::Handshake(ref m) => m.serialize(),
-        StacksMessageType::HandshakeAccept(ref m) => m.serialize(),
-        StacksMessageType::HandshakeReject => vec![],
-        StacksMessageType::GetNeighbors => vec![],
-        StacksMessageType::Neighbors(ref m) => m.serialize(),
-        StacksMessageType::GetBlocksInv(ref m) => m.serialize(),
-        StacksMessageType::BlocksInv(ref m) => m.serialize(),
-        StacksMessageType::GetBlocks(ref m) => m.serialize(),
-        StacksMessageType::Blocks(ref m) => m.serialize(),
-        StacksMessageType::GetMicroblocks(ref m) => m.serialize(),
-        StacksMessageType::Microblocks(ref m) => m.serialize(),
-        StacksMessageType::Transaction(ref m) => m.serialize(),
-        StacksMessageType::Nack(ref m) => m.serialize(),
-        StacksMessageType::Ping(ref m) => m.serialize(),
-        StacksMessageType::Pong(ref m) => m.serialize()
+impl StacksMessageType {
+    pub fn get_message_id(&self) -> u8 {
+        let msgtype = match *self {
+            StacksMessageType::Handshake(ref _m) => StacksMessageID::Handshake,
+            StacksMessageType::HandshakeAccept(ref _m) => StacksMessageID::HandshakeAccept,
+            StacksMessageType::HandshakeReject => StacksMessageID::HandshakeReject,
+            StacksMessageType::GetNeighbors => StacksMessageID::GetNeighbors,
+            StacksMessageType::Neighbors(ref _m) => StacksMessageID::Neighbors,
+            StacksMessageType::GetBlocksInv(ref _m) => StacksMessageID::GetBlocksInv,
+            StacksMessageType::BlocksInv(ref _m) => StacksMessageID::BlocksInv,
+            StacksMessageType::GetBlocks(ref _m) => StacksMessageID::GetBlocks,
+            StacksMessageType::Blocks(ref _m) => StacksMessageID::Blocks,
+            StacksMessageType::GetMicroblocks(ref _m) => StacksMessageID::GetMicroblocks,
+            StacksMessageType::Microblocks(ref _m) => StacksMessageID::Microblocks,
+            StacksMessageType::Transaction(ref _m) => StacksMessageID::Transaction,
+            StacksMessageType::Nack(ref _m) => StacksMessageID::Nack,
+            StacksMessageType::Ping(ref _m) => StacksMessageID::Ping,
+            StacksMessageType::Pong(ref _m) => StacksMessageID::Pong
+        };
+        msgtype as u8
+    }
+
+    pub fn get_message_name(&self) -> &'static str {
+        match *self {
+            StacksMessageType::Handshake(ref _m) => "Handshake",
+            StacksMessageType::HandshakeAccept(ref _m) => "HandshakeAccept",
+            StacksMessageType::HandshakeReject => "HandshakeReject",
+            StacksMessageType::GetNeighbors => "GetNeighbors",
+            StacksMessageType::Neighbors(ref _m) => "Neighbors",
+            StacksMessageType::GetBlocksInv(ref _m) => "GetBlocksInv",
+            StacksMessageType::BlocksInv(ref _m) => "BlocksInv",
+            StacksMessageType::GetBlocks(ref _m) => "GetBlocks",
+            StacksMessageType::Blocks(ref _m) => "Blocks",
+            StacksMessageType::GetMicroblocks(ref _m) => "GetMicroblocks",
+            StacksMessageType::Microblocks(ref _m) => "Microblocks",
+            StacksMessageType::Transaction(ref _m) => "Transaction",
+            StacksMessageType::Nack(ref _m) => "Nack",
+            StacksMessageType::Ping(ref _m) => "Ping",
+            StacksMessageType::Pong(ref _m) => "Pong"
+        }
     }
 }
 
-/// Deserialize a Stacks message from its wireformat
-pub fn message_deserialize(message_id: u8, bits: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<StacksMessageType, net_error> {
-    match message_id {
-        StacksMessageID::Handshake => { let m = HandshakeData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Handshake(m)) },
-        StacksMessageID::HandshakeAccept => { let m = HandshakeAcceptData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::HandshakeAccept(m)) },
-        StacksMessageID::HandshakeReject => { Ok(StacksMessageType::HandshakeReject) },
-        StacksMessageID::GetNeighbors => { Ok(StacksMessageType::GetNeighbors) },
-        StacksMessageID::Neighbors => { let m = NeighborsData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Neighbors(m)) },
-        StacksMessageID::GetBlocksInv => { let m = GetBlocksData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::GetBlocksInv(m)) },
-        StacksMessageID::BlocksInv => { let m = BlocksInvData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::BlocksInv(m)) },
-        StacksMessageID::GetBlocks => { let m = GetBlocksData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::GetBlocks(m)) },
-        StacksMessageID::Blocks => { let m = BlocksData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Blocks(m)) },
-        StacksMessageID::GetMicroblocks => { let m = GetMicroblocksData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::GetMicroblocks(m)) },
-        StacksMessageID::Microblocks => { let m = MicroblocksData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Microblocks(m)) },
-        StacksMessageID::Transaction => { let m = StacksTransaction::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Transaction(m)) },
-        StacksMessageID::Nack => { let m = NackData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Nack(m)) },
-        StacksMessageID::Ping => { let m = PingData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Ping(m)) },
-        StacksMessageID::Pong => { let m = PongData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Pong(m)) },
-        _ => { Err(net_error::UnrecognizedMessageID) }
+impl StacksMessageCodec for StacksMessageType {
+    fn consensus_serialize(&self) -> Vec<u8> {
+        let mut ret = vec![];
+        write_next(&mut ret, &(self.get_message_id() as u8));
+        let mut body = match *self {
+            StacksMessageType::Handshake(ref m) => m.consensus_serialize(),
+            StacksMessageType::HandshakeAccept(ref m) => m.consensus_serialize(),
+            StacksMessageType::HandshakeReject => vec![],
+            StacksMessageType::GetNeighbors => vec![],
+            StacksMessageType::Neighbors(ref m) => m.consensus_serialize(),
+            StacksMessageType::GetBlocksInv(ref m) => m.consensus_serialize(),
+            StacksMessageType::BlocksInv(ref m) => m.consensus_serialize(),
+            StacksMessageType::GetBlocks(ref m) => m.consensus_serialize(),
+            StacksMessageType::Blocks(ref m) => m.consensus_serialize(),
+            StacksMessageType::GetMicroblocks(ref m) => m.consensus_serialize(),
+            StacksMessageType::Microblocks(ref m) => m.consensus_serialize(),
+            StacksMessageType::Transaction(ref m) => m.consensus_serialize(),
+            StacksMessageType::Nack(ref m) => m.consensus_serialize(),
+            StacksMessageType::Ping(ref m) => m.consensus_serialize(),
+            StacksMessageType::Pong(ref m) => m.consensus_serialize()
+        };
+        ret.append(&mut body);
+        ret
     }
-}
 
-/// Match up a message type to its message ID 
-pub fn message_type_to_id(msg: &StacksMessageType) -> u8 {
-    match msg {
-        StacksMessageType::Handshake(ref _m) => StacksMessageID::Handshake,
-        StacksMessageType::HandshakeAccept(ref _m) => StacksMessageID::HandshakeAccept,
-        StacksMessageType::HandshakeReject => StacksMessageID::HandshakeReject,
-        StacksMessageType::GetNeighbors => StacksMessageID::GetNeighbors,
-        StacksMessageType::Neighbors(ref _m) => StacksMessageID::Neighbors,
-        StacksMessageType::GetBlocksInv(ref _m) => StacksMessageID::GetBlocksInv,
-        StacksMessageType::BlocksInv(ref _m) => StacksMessageID::BlocksInv,
-        StacksMessageType::GetBlocks(ref _m) => StacksMessageID::GetBlocks,
-        StacksMessageType::Blocks(ref _m) => StacksMessageID::Blocks,
-        StacksMessageType::GetMicroblocks(ref _m) => StacksMessageID::GetMicroblocks,
-        StacksMessageType::Microblocks(ref _m) => StacksMessageID::Microblocks,
-        StacksMessageType::Transaction(ref _m) => StacksMessageID::Transaction,
-        StacksMessageType::Nack(ref _m) => StacksMessageID::Nack,
-        StacksMessageType::Ping(ref _m) => StacksMessageID::Ping,
-        StacksMessageType::Pong(ref _m) => StacksMessageID::Pong
-    }
-}
-
-/// Match up a message type to its string representation 
-pub fn message_type_to_str(msg: &StacksMessageType) -> &str {
-    match msg {
-        StacksMessageType::Handshake(ref _m) => "Handshake",
-        StacksMessageType::HandshakeAccept(ref _m) => "HandshakeAccept",
-        StacksMessageType::HandshakeReject => "HandshakeReject",
-        StacksMessageType::GetNeighbors => "GetNeighbors",
-        StacksMessageType::Neighbors(ref _m) => "Neighbors",
-        StacksMessageType::GetBlocksInv(ref _m) => "GetBlocksInv",
-        StacksMessageType::BlocksInv(ref _m) => "BlocksInv",
-        StacksMessageType::GetBlocks(ref _m) => "GetBlocks",
-        StacksMessageType::Blocks(ref _m) => "Blocks",
-        StacksMessageType::GetMicroblocks(ref _m) => "GetMicroblocks",
-        StacksMessageType::Microblocks(ref _m) => "Microblocks",
-        StacksMessageType::Transaction(ref _m) => "Transaction",
-        StacksMessageType::Nack(ref _m) => "Nack",
-        StacksMessageType::Ping(ref _m) => "Ping",
-        StacksMessageType::Pong(ref _m) => "Pong"
+    fn consensus_deserialize(bits: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<StacksMessageType, net_error> {
+        let mut index = *index_ptr;
+        let message_id : u8 = read_next(bits, &mut index, max_size)?;
+        let message = match message_id {
+            x if x == StacksMessageID::Handshake as u8 => { let m = HandshakeData::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::Handshake(m) },
+            x if x == StacksMessageID::HandshakeAccept as u8 => { let m = HandshakeAcceptData::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::HandshakeAccept(m) },
+            x if x == StacksMessageID::HandshakeReject as u8 => { StacksMessageType::HandshakeReject },
+            x if x == StacksMessageID::GetNeighbors as u8 => { StacksMessageType::GetNeighbors },
+            x if x == StacksMessageID::Neighbors as u8 => { let m = NeighborsData::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::Neighbors(m) },
+            x if x == StacksMessageID::GetBlocksInv as u8 => { let m = GetBlocksData::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::GetBlocksInv(m) },
+            x if x == StacksMessageID::BlocksInv as u8 => { let m = BlocksInvData::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::BlocksInv(m) },
+            x if x == StacksMessageID::GetBlocks as u8 => { let m = GetBlocksData::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::GetBlocks(m) },
+            x if x == StacksMessageID::Blocks as u8 => { let m = BlocksData::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::Blocks(m) },
+            x if x == StacksMessageID::GetMicroblocks as u8 => { let m = GetMicroblocksData::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::GetMicroblocks(m) },
+            x if x == StacksMessageID::Microblocks as u8 => { let m = MicroblocksData::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::Microblocks(m) },
+            x if x == StacksMessageID::Transaction as u8 => { let m = StacksTransaction::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::Transaction(m) },
+            x if x == StacksMessageID::Nack as u8 => { let m = NackData::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::Nack(m) },
+            x if x == StacksMessageID::Ping as u8 => { let m = PingData::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::Ping(m) },
+            x if x == StacksMessageID::Pong as u8 => { let m = PongData::consensus_deserialize(bits, &mut index, max_size)?; StacksMessageType::Pong(m) },
+            _ => { return Err(net_error::DeserializeError("Unrecognized message ID".to_string())); }
+        };
+        *index_ptr = index;
+        Ok(message)
     }
 }
 
 impl StacksMessageCodec for StacksMessage {
-    fn serialize(&self) -> Vec<u8> {
-        let message_id : u8 = message_type_to_id(&self.payload);
-        
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
         write_next(&mut ret, &self.preamble);
         write_next(&mut ret, &self.relayers);
-        write_next(&mut ret, &message_id);
-
-        let mut payload_bits = message_serialize(&self.payload);
-        ret.append(&mut payload_bits);
+        write_next(&mut ret, &self.payload);
         ret
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMessage, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<StacksMessage, net_error> {
         let mut index = *index_ptr;
-        let mut preamble: Preamble = read_next(buf, &mut index, max_size)?;
-        let msg = StacksMessage::payload_parse(&mut preamble, buf, &mut index, max_size)?;
+        let preamble: Preamble = read_next(buf, &mut index, max_size)?;
+        if preamble.payload_len > MAX_MESSAGE_LEN - PREAMBLE_ENCODED_SIZE {
+            return Err(net_error::DeserializeError("Message would be too big".to_string()));
+        }
+
+        let max_payload_size = if index + preamble.payload_len < max_size { index + preamble.payload_len } else { max_size };
+        let relayers: Vec<RelayData> = read_next_at_most::<RelayData>(buf, &mut index, max_payload_size, MAX_RELAYERS_LEN)?;
+        let payload : StacksMessageType = read_next(buf, &mut index, max_payload_size)?;
+
+        let message = StacksMessage {
+            preamble,
+            relayers,
+            payload
+        };
+
         *index_ptr = index;
-        Ok(msg)
+        Ok(message)
     }
 }
 
 impl StacksMessage {
-    /// Create an unsigned Stacks message
+    /// Create an unsigned Stacks p2p message
     pub fn new(peer_version: u32, network_id: u32, block_height: u64, consensus_hash: &ConsensusHash, stable_block_height: u64, stable_consensus_hash: &ConsensusHash, message: StacksMessageType) -> StacksMessage {
         let preamble = Preamble::new(peer_version, network_id, block_height, consensus_hash, stable_block_height, stable_consensus_hash, 0);
         StacksMessage {
@@ -939,12 +954,11 @@ impl StacksMessage {
         }
     }
 
-    /// Sign the stacks message 
-    fn do_sign<PRIVK: PrivateKey>(&mut self, private_key: &PRIVK) -> Result<(), net_error> {
+    /// Sign the stacks message
+    fn do_sign(&mut self, private_key: &Secp256k1PrivateKey) -> Result<(), net_error> {
         let mut message_bits = vec![];
-        message_bits.append(&mut self.relayers.serialize());
-        message_bits.push(message_type_to_id(&self.payload));
-        message_bits.append(&mut message_serialize(&self.payload));
+        message_bits.append(&mut self.relayers.consensus_serialize());
+        message_bits.append(&mut self.payload.consensus_serialize());
 
         self.preamble.payload_len = message_bits.len() as u32;
         self.preamble.sign(&message_bits[..], private_key)
@@ -952,7 +966,7 @@ impl StacksMessage {
 
     /// Sign the StacksMessage.  The StacksMessage must _not_ have any relayers (i.e. we're
     /// originating this messsage).
-    pub fn sign<PRIVK: PrivateKey>(&mut self, seq: u32, private_key: &PRIVK) -> Result<(), net_error> {
+    pub fn sign(&mut self, seq: u32, private_key: &Secp256k1PrivateKey) -> Result<(), net_error> {
         if self.relayers.len() > 0 {
             return Err(net_error::InvalidMessage);
         }
@@ -962,7 +976,7 @@ impl StacksMessage {
 
     /// Sign the StacksMessage and add ourselves as a relayer.
     /// Fails if the relayers vector would be too long 
-    pub fn sign_relay<PRIVK: PrivateKey>(&mut self, private_key: &PRIVK, our_seq: u32, our_addr: &NeighborAddress) -> Result<(), net_error> {
+    pub fn sign_relay(&mut self, private_key: &Secp256k1PrivateKey, our_seq: u32, our_addr: &NeighborAddress) -> Result<(), net_error> {
         if self.relayers.len() >= (MAX_RELAYERS_LEN as usize) {
             return Err(net_error::InvalidMessage);
         }
@@ -986,51 +1000,30 @@ impl StacksMessage {
         self.do_sign(private_key)
     }
 
-    fn do_payload_deserialize<PUBK: PublicKey>(public_key_opt: Option<&PUBK>, preamble: &mut Preamble, buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMessage, net_error> {
+    pub fn deserialize_body(buf: &[u8], index_ptr: &mut u32, payload_len: u32, max_size: u32) -> Result<(Vec<RelayData>, StacksMessageType), net_error> {
         let mut index = *index_ptr;
 
         // don't numeric overflow
-        if index > u32::max_value() - preamble.payload_len {
-            return Err(net_error::OverflowError(format!("Would overflow u32 to read {} bytes of Preamble", preamble.payload_len)));
+        if index > u32::max_value() - payload_len {
+            return Err(net_error::OverflowError(format!("Would overflow u32 to read {} bytes of message body", payload_len)));
         }
 
-        if index + preamble.payload_len > max_size {
-            return Err(net_error::OverflowError(format!("Would read beyond end of buffer to read {} bytes of Preamble", preamble.payload_len)));
+        if index + payload_len > max_size {
+            return Err(net_error::OverflowError(format!("Would read beyond end of buffer to read {} bytes of message body", payload_len)));
         }
 
         // don't read over the buffer 
-        if index + preamble.payload_len > (buf.len() as u32) {
-            return Err(net_error::UnderflowError(format!("Not enough bytes to read a Preamble (need {}, have {})", index + preamble.payload_len, buf.len())));
+        if index + payload_len > (buf.len() as u32) {
+            return Err(net_error::UnderflowError(format!("Not enough bytes to read a message body (need {}, have {})", index + payload_len, buf.len())));
         }
-
-        // verify signature
-        if public_key_opt.is_some() {
-            let payload_len = preamble.payload_len;
-            preamble.verify(&buf[(index as usize)..((index + payload_len) as usize)], public_key_opt.unwrap())?;
-        }
-
-        let max_payload_size = if index + preamble.payload_len < max_size { index + preamble.payload_len } else { max_size };
-
-        // consume the rest of the message
+        
+        let max_payload_size = if index + payload_len < max_size { index + payload_len } else { max_size };
+        
         let relayers: Vec<RelayData>    = read_next_at_most::<RelayData>(buf, &mut index, max_payload_size, MAX_RELAYERS_LEN)?;
-        let message_id : u8             = read_next(buf, &mut index, max_payload_size)?;
-        let payload: StacksMessageType  = message_deserialize(message_id, buf, &mut index, max_payload_size)?;
+        let payload : StacksMessageType = read_next(buf, &mut index, max_payload_size)?;
 
         *index_ptr = index;
-
-        Ok(StacksMessage {
-            preamble: preamble.clone(),
-            relayers: relayers,
-            payload: payload,
-        })
-    }
-    
-    pub fn payload_deserialize<PUBK: PublicKey>(public_key: &PUBK, preamble: &mut Preamble, buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMessage, net_error> {
-        StacksMessage::do_payload_deserialize(Some(public_key), preamble, buf, index_ptr, max_size)
-    }
-
-    pub fn payload_parse(preamble: &mut Preamble, buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMessage, net_error> {
-        StacksMessage::do_payload_deserialize::<Secp256k1PublicKey>(None, preamble, buf, index_ptr, max_size)
+        Ok((relayers, payload))
     }
 
     /// Verify this message by treating the public key buffer as a secp256k1 public key.
@@ -1039,15 +1032,60 @@ impl StacksMessage {
     /// * the buffer doesn't encode a secp256k1 public key
     pub fn verify_secp256k1(&mut self, public_key: &StacksPublicKeyBuffer) -> Result<(), net_error> {
         let secp256k1_pubkey = public_key.to_public_key()?;
-
+        
         let mut message_bits = vec![];
-        message_bits.append(&mut self.relayers.serialize());
-        message_bits.push(message_type_to_id(&self.payload));
-        message_bits.append(&mut message_serialize(&self.payload));
+        message_bits.append(&mut self.relayers.consensus_serialize());
+        message_bits.append(&mut self.payload.consensus_serialize());
+
+        self.preamble.verify(&message_bits, &secp256k1_pubkey).and_then(|_m| Ok(()))
+    }
+}
+
+impl MessageSequence for StacksMessage {
+    fn request_id(&self) -> u32 {
+        self.preamble.seq
+    }
+
+    fn get_message_name(&self) -> &'static str {
+        self.payload.get_message_name()
+    }
+}
+
+impl ProtocolFamily for StacksP2P {
+    type Message = StacksMessage;
+
+    /// How big can a P2P preamble get?
+    fn preamble_size_hint() -> usize {
+        PREAMBLE_ENCODED_SIZE as usize
+    }
+
+    /// StacksP2P deals with Preambles
+    fn read_preamble(buf: &[u8]) -> Result<(NetworkPreamble, usize), net_error> {
+        if buf.len() < PREAMBLE_ENCODED_SIZE as usize {
+            return Err(net_error::UnderflowError("Not enough bytes to form a P2P preamble".to_string()));
+        }
 
         let mut index = 0;
-        StacksMessage::payload_deserialize::<Secp256k1PublicKey>(&secp256k1_pubkey, &mut self.preamble, &message_bits, &mut index, MAX_MESSAGE_LEN)
-            .and_then(|_m| Ok(()))
+        let preamble = Preamble::consensus_deserialize(buf, &mut index, buf.len() as u32)?;
+        Ok((NetworkPreamble::P2P(preamble), index as usize))
+    }
+
+    /// StacksP2P deals with StacksMessages
+    fn read_payload(preamble: &NetworkPreamble, buf: &[u8]) -> Result<StacksMessage, net_error> {
+        match preamble {
+            NetworkPreamble::P2P(p2p_preamble) => {
+                let (relayers, payload) = StacksMessage::deserialize_body(buf, &mut 0, p2p_preamble.payload_len, buf.len() as u32)?;
+                let message = StacksMessage {
+                    preamble: p2p_preamble.clone(),
+                    relayers: relayers,
+                    payload: payload
+                };
+                Ok(message)
+            },
+            _ => {
+                Err(net_error::WrongProtocolFamily)
+            }
+        }
     }
 }
 
@@ -1060,20 +1098,32 @@ pub mod test {
 
     fn check_overflow<T>(r: Result<T, net_error>) -> bool {
         match r {
-            Ok(_) => false,
+            Ok(_) => {
+                test_debug!("did not get an overflow error, or any error");
+                false
+            },
             Err(e) => match e {
                 net_error::OverflowError(_) => true,
-                _ => false
+                _ => {
+                    test_debug!("did not get an overflow error, but got {:?}", &e);
+                    false
+                }
             }
         }
     }
 
     fn check_underflow<T>(r: Result<T, net_error>)  -> bool {
         match r {
-            Ok(_) => false,
+            Ok(_) => {
+                test_debug!("did not get an underflow error, or any error");
+                false
+            },
             Err(e) => match e {
                 net_error::UnderflowError(_) => true,
-                _ => false
+                _ => {
+                    test_debug!("did not get an underflow error, but got {:?}", &e);
+                    false
+                }
             }
         }
     }
@@ -1095,10 +1145,10 @@ pub mod test {
         let c : u32 = 0x04050607;
         let d : u64 = 0x08090a0b0c0d0e0f;
 
-        let a_bits = a.serialize();
-        let b_bits = b.serialize();
-        let c_bits = c.serialize();
-        let d_bits = d.serialize();
+        let a_bits = a.consensus_serialize();
+        let b_bits = b.consensus_serialize();
+        let c_bits = c.consensus_serialize();
+        let d_bits = d.consensus_serialize();
 
         assert_eq!(a_bits, [0x01]);
         assert_eq!(b_bits, [0x02, 0x03]);
@@ -1106,64 +1156,64 @@ pub mod test {
         assert_eq!(d_bits, [0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]);
 
         let mut index : u32 = 0;
-        assert_eq!(u8::deserialize(&a_bits, &mut index, 1).unwrap(), a);
+        assert_eq!(u8::consensus_deserialize(&a_bits, &mut index, 1).unwrap(), a);
         assert_eq!(index, 1);
 
         index = 0;
-        assert_eq!(u16::deserialize(&b_bits, &mut index, 2).unwrap(), b);
+        assert_eq!(u16::consensus_deserialize(&b_bits, &mut index, 2).unwrap(), b);
         assert_eq!(index, 2);
 
         index = 0;
-        assert_eq!(u32::deserialize(&c_bits, &mut index, 4).unwrap(), c);
+        assert_eq!(u32::consensus_deserialize(&c_bits, &mut index, 4).unwrap(), c);
         assert_eq!(index, 4);
 
         index = 0;
-        assert_eq!(u64::deserialize(&d_bits, &mut index, 8).unwrap(), d);
+        assert_eq!(u64::consensus_deserialize(&d_bits, &mut index, 8).unwrap(), d);
         assert_eq!(index, 8);
 
         index = 0;
 
         // overflowing maximum allowed size
-        assert!(check_overflow(u8::deserialize(&a_bits, &mut index, 0)));
+        assert!(check_overflow(u8::consensus_deserialize(&a_bits, &mut index, 0)));
         assert_eq!(index, 0);
 
-        assert!(check_overflow(u16::deserialize(&b_bits, &mut index, 1)));
+        assert!(check_overflow(u16::consensus_deserialize(&b_bits, &mut index, 1)));
         assert_eq!(index, 0);
 
-        assert!(check_overflow(u32::deserialize(&c_bits, &mut index, 3)));
+        assert!(check_overflow(u32::consensus_deserialize(&c_bits, &mut index, 3)));
         assert_eq!(index, 0);
 
-        assert!(check_overflow(u64::deserialize(&d_bits, &mut index, 7)));
+        assert!(check_overflow(u64::consensus_deserialize(&d_bits, &mut index, 7)));
         assert_eq!(index, 0);
 
         // buffer is too short
-        assert!(check_underflow(u8::deserialize(&vec![], &mut index, 1)));
+        assert!(check_underflow(u8::consensus_deserialize(&vec![], &mut index, 1)));
         assert_eq!(index, 0);
 
-        assert!(check_underflow(u16::deserialize(&b_bits[0..1].to_vec(), &mut index, 2)));
+        assert!(check_underflow(u16::consensus_deserialize(&b_bits[0..1].to_vec(), &mut index, 2)));
         assert_eq!(index, 0);
 
-        assert!(check_underflow(u32::deserialize(&c_bits[0..3].to_vec(), &mut index, 4)));
+        assert!(check_underflow(u32::consensus_deserialize(&c_bits[0..3].to_vec(), &mut index, 4)));
         assert_eq!(index, 0);
 
-        assert!(check_underflow(u64::deserialize(&d_bits[0..6].to_vec(), &mut index, 8)));
+        assert!(check_underflow(u64::consensus_deserialize(&d_bits[0..6].to_vec(), &mut index, 8)));
         assert_eq!(index, 0);
 
         // index would overflow 
         index = u32::max_value();
-        assert!(check_overflow(u8::deserialize(&a_bits, &mut index, 1)));
+        assert!(check_overflow(u8::consensus_deserialize(&a_bits, &mut index, 1)));
         assert_eq!(index, u32::max_value());
 
         index = u32::max_value() - 1;
-        assert!(check_overflow(u16::deserialize(&b_bits, &mut index, 2)));
+        assert!(check_overflow(u16::consensus_deserialize(&b_bits, &mut index, 2)));
         assert_eq!(index, u32::max_value() - 1);
 
         index = u32::max_value() - 3;
-        assert!(check_overflow(u32::deserialize(&c_bits, &mut index, 4)));
+        assert!(check_overflow(u32::consensus_deserialize(&c_bits, &mut index, 4)));
         assert_eq!(index, u32::max_value() - 3);
 
         index = u32::max_value() - 7;
-        assert!(check_overflow(u64::deserialize(&d_bits, &mut index, 8)));
+        assert!(check_overflow(u64::consensus_deserialize(&d_bits, &mut index, 8)));
         assert_eq!(index, u32::max_value() - 7);
     }
 
@@ -1232,132 +1282,132 @@ pub mod test {
                                 0x18, 0x28, 0x38, 0x48, 0x58, 0x68, 0x78, 0x88];
 
         // serialize
-        assert_eq!(v1.serialize(), r1);
-        assert_eq!(v2.serialize(), r2);
-        assert_eq!(v3.serialize(), r3);
-        assert_eq!(v4.serialize(), r4);
-        assert_eq!(v5.serialize(), r5);
-        assert_eq!(v6.serialize(), r6);
-        assert_eq!(v7.serialize(), r7);
-        assert_eq!(v8.serialize(), r8);
+        assert_eq!(v1.consensus_serialize(), r1);
+        assert_eq!(v2.consensus_serialize(), r2);
+        assert_eq!(v3.consensus_serialize(), r3);
+        assert_eq!(v4.consensus_serialize(), r4);
+        assert_eq!(v5.consensus_serialize(), r5);
+        assert_eq!(v6.consensus_serialize(), r6);
+        assert_eq!(v7.consensus_serialize(), r7);
+        assert_eq!(v8.consensus_serialize(), r8);
 
         let mut index = 0;
         
         // deserialize
-        assert_eq!(Vec::<u8>::deserialize(&r1, &mut index, 4).unwrap(), v1);
+        assert_eq!(Vec::<u8>::consensus_deserialize(&r1, &mut index, 4).unwrap(), v1);
         assert_eq!(index, 4);
         
         index = 0;
-        assert_eq!(Vec::<u8>::deserialize(&r2, &mut index, (4 + v2.len()) as u32).unwrap(), v2);
+        assert_eq!(Vec::<u8>::consensus_deserialize(&r2, &mut index, (4 + v2.len()) as u32).unwrap(), v2);
         assert_eq!(index, (4 + v2.len()) as u32);
 
         index = 0;
-        assert_eq!(Vec::<u16>::deserialize(&r3, &mut index, 4).unwrap(), v3);
+        assert_eq!(Vec::<u16>::consensus_deserialize(&r3, &mut index, 4).unwrap(), v3);
         assert_eq!(index, 4);
         
         index = 0;
-        assert_eq!(Vec::<u16>::deserialize(&r4, &mut index, (4 + v4.len() * 2) as u32).unwrap(), v4);
+        assert_eq!(Vec::<u16>::consensus_deserialize(&r4, &mut index, (4 + v4.len() * 2) as u32).unwrap(), v4);
         assert_eq!(index, (4 + v4.len() * 2) as u32);
 
         index = 0;
-        assert_eq!(Vec::<u32>::deserialize(&r5, &mut index, 4).unwrap(), v5);
+        assert_eq!(Vec::<u32>::consensus_deserialize(&r5, &mut index, 4).unwrap(), v5);
         assert_eq!(index, 4);
 
         index = 0;
-        assert_eq!(Vec::<u32>::deserialize(&r6, &mut index, (4 + v6.len() * 4) as u32).unwrap(), v6);
+        assert_eq!(Vec::<u32>::consensus_deserialize(&r6, &mut index, (4 + v6.len() * 4) as u32).unwrap(), v6);
         assert_eq!(index, (4 + v6.len() * 4) as u32);
 
         index = 0;
-        assert_eq!(Vec::<u64>::deserialize(&r7, &mut index, 4).unwrap(), v7);
+        assert_eq!(Vec::<u64>::consensus_deserialize(&r7, &mut index, 4).unwrap(), v7);
         assert_eq!(index, 4);
 
         index = 0;
-        assert_eq!(Vec::<u64>::deserialize(&r8, &mut index, (4 + v8.len() * 8) as u32).unwrap(), v8);
+        assert_eq!(Vec::<u64>::consensus_deserialize(&r8, &mut index, (4 + v8.len() * 8) as u32).unwrap(), v8);
         assert_eq!(index, (4 + v8.len() * 8) as u32);
         
         index = 0;
 
         // overflow maximum allowed size
-        assert!(check_overflow(Vec::<u8>::deserialize(&r1, &mut index, 3)));
+        assert!(check_overflow(Vec::<u8>::consensus_deserialize(&r1, &mut index, 3)));
         assert_eq!(index, 0);
 
-        assert!(check_overflow(Vec::<u8>::deserialize(&r2, &mut index, (4 + v2.len() - 1) as u32)));
+        assert!(check_overflow(Vec::<u8>::consensus_deserialize(&r2, &mut index, (4 + v2.len() - 1) as u32)));
         assert_eq!(index, 0);
 
-        assert!(check_overflow(Vec::<u16>::deserialize(&r3, &mut index, 3)));
+        assert!(check_overflow(Vec::<u16>::consensus_deserialize(&r3, &mut index, 3)));
         assert_eq!(index, 0);
 
-        assert!(check_overflow(Vec::<u16>::deserialize(&r4, &mut index, (4 + v4.len() * 2 - 1) as u32)));
+        assert!(check_overflow(Vec::<u16>::consensus_deserialize(&r4, &mut index, (4 + v4.len() * 2 - 1) as u32)));
         assert_eq!(index, 0);
 
-        assert!(check_overflow(Vec::<u32>::deserialize(&r5, &mut index, 3)));
+        assert!(check_overflow(Vec::<u32>::consensus_deserialize(&r5, &mut index, 3)));
         assert_eq!(index, 0);
 
-        assert!(check_overflow(Vec::<u32>::deserialize(&r6, &mut index, (4 + v6.len() * 4 - 1) as u32)));
+        assert!(check_overflow(Vec::<u32>::consensus_deserialize(&r6, &mut index, (4 + v6.len() * 4 - 1) as u32)));
         assert_eq!(index, 0);
 
-        assert!(check_overflow(Vec::<u64>::deserialize(&r7, &mut index, 3)));
+        assert!(check_overflow(Vec::<u64>::consensus_deserialize(&r7, &mut index, 3)));
         assert_eq!(index, 0);
         
-        assert!(check_overflow(Vec::<u64>::deserialize(&r8, &mut index, (4 + v8.len() * 8 - 1) as u32)));
+        assert!(check_overflow(Vec::<u64>::consensus_deserialize(&r8, &mut index, (4 + v8.len() * 8 - 1) as u32)));
         assert_eq!(index, 0);
 
         // underflow the input buffer
-        assert!(check_underflow(Vec::<u8>::deserialize(&r1[0..2].to_vec(), &mut index, 4)));
+        assert!(check_underflow(Vec::<u8>::consensus_deserialize(&r1[0..2].to_vec(), &mut index, 4)));
         assert_eq!(index, 0);
 
-        assert!(check_underflow(Vec::<u8>::deserialize(&r2[0..r2.len()-1].to_vec(), &mut index, (4 + v2.len()) as u32)));
+        assert!(check_underflow(Vec::<u8>::consensus_deserialize(&r2[0..r2.len()-1].to_vec(), &mut index, (4 + v2.len()) as u32)));
         assert_eq!(index, 0);
 
-        assert!(check_underflow(Vec::<u16>::deserialize(&r3[0..2].to_vec(), &mut index, 4)));
+        assert!(check_underflow(Vec::<u16>::consensus_deserialize(&r3[0..2].to_vec(), &mut index, 4)));
         assert_eq!(index, 0);
 
-        assert!(check_underflow(Vec::<u16>::deserialize(&r4[0..r4.len()-1].to_vec(), &mut index, (4 + v4.len() * 2) as u32)));
+        assert!(check_underflow(Vec::<u16>::consensus_deserialize(&r4[0..r4.len()-1].to_vec(), &mut index, (4 + v4.len() * 2) as u32)));
         assert_eq!(index, 0);
 
-        assert!(check_underflow(Vec::<u32>::deserialize(&r5[0..2].to_vec(), &mut index, 4)));
+        assert!(check_underflow(Vec::<u32>::consensus_deserialize(&r5[0..2].to_vec(), &mut index, 4)));
         assert_eq!(index, 0);
 
-        assert!(check_underflow(Vec::<u32>::deserialize(&r6[0..r6.len()-1].to_vec(), &mut index, (4 + v6.len() * 4) as u32)));
+        assert!(check_underflow(Vec::<u32>::consensus_deserialize(&r6[0..r6.len()-1].to_vec(), &mut index, (4 + v6.len() * 4) as u32)));
         assert_eq!(index, 0);
 
-        assert!(check_underflow(Vec::<u64>::deserialize(&r7[0..2].to_vec(), &mut index, 4)));
+        assert!(check_underflow(Vec::<u64>::consensus_deserialize(&r7[0..2].to_vec(), &mut index, 4)));
         assert_eq!(index, 0);
         
-        assert!(check_underflow(Vec::<u64>::deserialize(&r8[0..r8.len()-1].to_vec(), &mut index, (4 + v8.len() * 8) as u32)));
+        assert!(check_underflow(Vec::<u64>::consensus_deserialize(&r8[0..r8.len()-1].to_vec(), &mut index, (4 + v8.len() * 8) as u32)));
         assert_eq!(index, 0);
 
         // index would overflow
         index = u32::max_value() - 3;
-        assert!(check_overflow(Vec::<u8>::deserialize(&r1, &mut index, 4)));
+        assert!(check_overflow(Vec::<u8>::consensus_deserialize(&r1, &mut index, 4)));
         assert_eq!(index, u32::max_value() - 3);
 
         index = u32::max_value() - ((4 + v2.len() - 1) as u32);
-        assert!(check_overflow(Vec::<u8>::deserialize(&r2, &mut index, (4 + v2.len()) as u32)));
+        assert!(check_overflow(Vec::<u8>::consensus_deserialize(&r2, &mut index, (4 + v2.len()) as u32)));
         assert_eq!(index, u32::max_value() - ((4 + v2.len() - 1) as u32));
 
         index = u32::max_value() - 3;
-        assert!(check_overflow(Vec::<u16>::deserialize(&r3, &mut index, 4)));
+        assert!(check_overflow(Vec::<u16>::consensus_deserialize(&r3, &mut index, 4)));
         assert_eq!(index, u32::max_value() - 3);
 
         index = u32::max_value() - ((4 + v2.len()*2 - 1) as u32);
-        assert!(check_overflow(Vec::<u16>::deserialize(&r4, &mut index, (4 + v4.len() * 2) as u32)));
+        assert!(check_overflow(Vec::<u16>::consensus_deserialize(&r4, &mut index, (4 + v4.len() * 2) as u32)));
         assert_eq!(index, u32::max_value() - ((4 + v2.len()*2 - 1) as u32));
 
         index = u32::max_value() - 3;
-        assert!(check_overflow(Vec::<u32>::deserialize(&r5, &mut index, 4)));
+        assert!(check_overflow(Vec::<u32>::consensus_deserialize(&r5, &mut index, 4)));
         assert_eq!(index, u32::max_value() - 3);
 
         index = u32::max_value() - ((4 + v2.len()*4 - 1) as u32);
-        assert!(check_overflow(Vec::<u32>::deserialize(&r6, &mut index, (4 + v6.len() * 4) as u32)));
+        assert!(check_overflow(Vec::<u32>::consensus_deserialize(&r6, &mut index, (4 + v6.len() * 4) as u32)));
         assert_eq!(index, u32::max_value() - ((4 + v2.len()*4 - 1) as u32));
 
         index = u32::max_value() - 3;
-        assert!(check_overflow(Vec::<u64>::deserialize(&r7, &mut index, 4)));
+        assert!(check_overflow(Vec::<u64>::consensus_deserialize(&r7, &mut index, 4)));
         assert_eq!(index, u32::max_value() - 3);
         
         index = u32::max_value() - ((4 + v2.len()*8 - 1) as u32);
-        assert!(check_overflow(Vec::<u64>::deserialize(&r8, &mut index, (4 + v8.len() * 8) as u32)));
+        assert!(check_overflow(Vec::<u64>::consensus_deserialize(&r8, &mut index, (4 + v8.len() * 8) as u32)));
         assert_eq!(index, u32::max_value() - ((4 + v2.len()*8 - 1) as u32));
     }
 
@@ -1403,67 +1453,72 @@ pub mod test {
 
         // correct decode
         let mut index = 0;
-        assert_eq!(Vec::<u32>::deserialize(&r, &mut index, 20).unwrap(), v);
+        assert_eq!(Vec::<u32>::consensus_deserialize(&r, &mut index, 20).unwrap(), v);
         assert_eq!(index, 20);
 
         // correct decode, but underrun
         index = 0;
-        assert_eq!(Vec::<u32>::deserialize(&r_length_too_short, &mut index, 20).unwrap(), vec![0x01020304, 0x05060708, 0x090a0b0c]);
+        assert_eq!(Vec::<u32>::consensus_deserialize(&r_length_too_short, &mut index, 20).unwrap(), vec![0x01020304, 0x05060708, 0x090a0b0c]);
         assert_eq!(index, 16);
         
         index = 0;
 
         // overflow -- tried to read past max_size
-        assert!(check_overflow(Vec::<u32>::deserialize(&r_length_too_long, &mut index, 20)));
+        assert!(check_overflow(Vec::<u32>::consensus_deserialize(&r_length_too_long, &mut index, 20)));
         assert_eq!(index, 0);
         
         // underflow -- ran out of bytes to read
-        assert!(check_underflow(Vec::<u32>::deserialize(&r_length_too_long, &mut index, 24)));
+        assert!(check_underflow(Vec::<u32>::consensus_deserialize(&r_length_too_long, &mut index, 24)));
         assert_eq!(index, 0);
 
         // overflow -- tried to read past max size
-        assert!(check_overflow(Vec::<u32>::deserialize(&r_bytes_not_aligned, &mut index, 19)));
+        assert!(check_overflow(Vec::<u32>::consensus_deserialize(&r_bytes_not_aligned, &mut index, 19)));
         assert_eq!(index, 0);
         
         // underflow -- ran out of bytes to read
-        assert!(check_underflow(Vec::<u32>::deserialize(&r_bytes_not_aligned, &mut index, 20)));
+        assert!(check_underflow(Vec::<u32>::consensus_deserialize(&r_bytes_not_aligned, &mut index, 20)));
         assert_eq!(index, 0);
 
         // overflow -- tried to read past max size
-        assert!(check_overflow(Vec::<u32>::deserialize(&r_huge_length, &mut index, 20)));
+        assert!(check_overflow(Vec::<u32>::consensus_deserialize(&r_huge_length, &mut index, 20)));
         assert_eq!(index, 0);
         
         // underflow -- ran out of bytes to read
-        assert!(check_underflow(Vec::<u32>::deserialize(&r_huge_length, &mut index, 0xffffffff)));
+        assert!(check_underflow(Vec::<u32>::consensus_deserialize(&r_huge_length, &mut index, 0xffffffff)));
         assert_eq!(index, 0);
     }
 
     pub fn check_codec_and_corruption<T : StacksMessageCodec + fmt::Debug + Clone + PartialEq>(obj: &T, bytes: &Vec<u8>) -> () {
-        assert_eq!(obj.serialize(), *bytes);
+        assert_eq!(obj.consensus_serialize(), *bytes);
         
         let mut index = 0;
-        assert_eq!(T::deserialize(bytes, &mut index, bytes.len() as u32).unwrap(), *obj);
+        let res = T::consensus_deserialize(bytes, &mut index, bytes.len() as u32);
+        if res.is_err() {
+            test_debug!("\nFailed to parse to {:?}: {:?}", obj, bytes);
+            test_debug!("error: {:?}", &res);
+            assert!(false);
+        }
         assert_eq!(index, bytes.len() as u32);
 
         // corrupt 
         index = 0;
-        let underflow_res = T::deserialize(&bytes[0..((bytes.len()-1) as usize)].to_vec(), &mut index, bytes.len() as u32);
+        let underflow_res = T::consensus_deserialize(&bytes[0..((bytes.len()-1) as usize)].to_vec(), &mut index, bytes.len() as u32);
         if underflow_res.is_ok() {
             test_debug!("\nMissing Underflow: Parsed {:?}\nFrom {:?}\nindex = {}; remaining = {:?}\n", &underflow_res.unwrap(), &bytes[0..((bytes.len()-1) as usize)].to_vec(), index, &bytes[index as usize..bytes.len()].to_vec());
         }
         
         index = 0;
-        let underflow_cmp = T::deserialize(&bytes[0..((bytes.len()-1) as usize)].to_vec(), &mut index, bytes.len() as u32);
+        let underflow_cmp = T::consensus_deserialize(&bytes[0..((bytes.len()-1) as usize)].to_vec(), &mut index, bytes.len() as u32);
         assert!(check_underflow(underflow_cmp));
         assert_eq!(index, 0);
 
-        let overflow_res = T::deserialize(bytes, &mut index, (bytes.len() - 1) as u32);
+        let overflow_res = T::consensus_deserialize(bytes, &mut index, (bytes.len() - 1) as u32);
         if overflow_res.is_ok() {
             test_debug!("\nMissing Overflow: Parsed {:?}\nFrom {:?}\nindex = {}; max_size = {}; remaining = {:?}\n", &overflow_res.unwrap(), &bytes, index, bytes.len() - 1, &bytes[index as usize..bytes.len()].to_vec());
         }
 
         index = 0;
-        let overflow_cmp = T::deserialize(bytes, &mut index, (bytes.len() - 1) as u32);
+        let overflow_cmp = T::consensus_deserialize(bytes, &mut index, (bytes.len() - 1) as u32);
         assert!(check_overflow(overflow_cmp));
         assert_eq!(index, 0);
     }
@@ -1508,19 +1563,19 @@ pub mod test {
             0x00, 0x00, 0x07, 0xff
         ];
 
-        assert_eq!(preamble.serialize(), preamble_bytes);
+        assert_eq!(preamble.consensus_serialize(), preamble_bytes);
         assert_eq!(preamble_bytes.len() as u32, PREAMBLE_ENCODED_SIZE);
 
         let mut index = 0;
-        assert_eq!(Preamble::deserialize(&preamble_bytes, &mut index, PREAMBLE_ENCODED_SIZE).unwrap(), preamble);
+        assert_eq!(Preamble::consensus_deserialize(&preamble_bytes, &mut index, PREAMBLE_ENCODED_SIZE).unwrap(), preamble);
         assert_eq!(index, PREAMBLE_ENCODED_SIZE);
 
         // corrupt 
         index = 0;
-        assert!(check_underflow(Preamble::deserialize(&preamble_bytes[0..((PREAMBLE_ENCODED_SIZE-1) as usize)].to_vec(), &mut index, PREAMBLE_ENCODED_SIZE)));
+        assert!(check_underflow(Preamble::consensus_deserialize(&preamble_bytes[0..((PREAMBLE_ENCODED_SIZE-1) as usize)].to_vec(), &mut index, PREAMBLE_ENCODED_SIZE)));
         assert_eq!(index, 0);
 
-        assert!(check_overflow(Preamble::deserialize(&preamble_bytes, &mut index, PREAMBLE_ENCODED_SIZE - 1)));
+        assert!(check_overflow(Preamble::consensus_deserialize(&preamble_bytes, &mut index, PREAMBLE_ENCODED_SIZE - 1)));
         assert_eq!(index, 0);
     }
 
@@ -1554,10 +1609,10 @@ pub mod test {
             burn_header_hash_end: BurnchainHeaderHash::from_bytes(&hex_bytes("6666666666666666666666666666666666666666666666666666666666666666").unwrap()).unwrap(),
         };
 
-        let bytes = getblocksdata_range_too_big.serialize();
+        let bytes = getblocksdata_range_too_big.consensus_serialize();
 
         let mut index = 0;
-        assert!(check_deserialize(GetBlocksData::deserialize(&bytes, &mut index, bytes.len() as u32)));
+        assert!(check_deserialize(GetBlocksData::consensus_deserialize(&bytes, &mut index, bytes.len() as u32)));
     }
 
     #[test]
@@ -1608,7 +1663,7 @@ pub mod test {
             microblocks_inventory: maximal_microblocks_inventory.clone()
         };
 
-        let maximal_microblocks_inventory_bytes = maximal_microblocks_inventory.serialize();
+        let maximal_microblocks_inventory_bytes = maximal_microblocks_inventory.consensus_serialize();
         let mut maximal_blocksinvdata_bytes : Vec<u8> = vec![];
         // bitlen 
         maximal_blocksinvdata_bytes.append(&mut vec![0x00, 0x1f]);
@@ -1630,9 +1685,9 @@ pub mod test {
             bitvec: too_big_bitvec.clone(),
             microblocks_inventory: too_big_microblocks_inventory.clone(),
         };
-        let too_big_blocksinvdata_bytes = too_big_blocksinvdata.serialize();
+        let too_big_blocksinvdata_bytes = too_big_blocksinvdata.consensus_serialize();
 
-        assert!(check_deserialize(BlocksInvData::deserialize(&too_big_blocksinvdata_bytes, &mut index, too_big_blocksinvdata_bytes.len() as u32)));
+        assert!(check_deserialize(BlocksInvData::consensus_deserialize(&too_big_blocksinvdata_bytes, &mut index, too_big_blocksinvdata_bytes.len() as u32)));
         assert_eq!(index, 0);
 
         // should fail to decode if the bitlen doesn't match the bitvec
@@ -1650,9 +1705,9 @@ pub mod test {
                 },
             ]
         };
-        let long_bitlen_bytes = long_bitlen.serialize();
+        let long_bitlen_bytes = long_bitlen.consensus_serialize();
 
-        assert!(check_deserialize(BlocksInvData::deserialize(&long_bitlen_bytes, &mut index, long_bitlen_bytes.len() as u32)));
+        assert!(check_deserialize(BlocksInvData::consensus_deserialize(&long_bitlen_bytes, &mut index, long_bitlen_bytes.len() as u32)));
         assert_eq!(index, 0);
 
         let short_bitlen = BlocksInvData {
@@ -1697,9 +1752,9 @@ pub mod test {
                 },
             ]
         };
-        let short_bitlen_bytes = short_bitlen.serialize();
+        let short_bitlen_bytes = short_bitlen.consensus_serialize();
         
-        assert!(check_deserialize(BlocksInvData::deserialize(&short_bitlen_bytes, &mut index, short_bitlen_bytes.len() as u32)));
+        assert!(check_deserialize(BlocksInvData::consensus_deserialize(&short_bitlen_bytes, &mut index, short_bitlen_bytes.len() as u32)));
         assert_eq!(index, 0);
 
         // should fail if microblocks inventory doesn't match bitlen 
@@ -1713,9 +1768,9 @@ pub mod test {
                 },
             ]
         };
-        let wrong_microblocks_inv_bytes = wrong_microblocks_inv.serialize();
+        let wrong_microblocks_inv_bytes = wrong_microblocks_inv.consensus_serialize();
 
-        assert!(check_deserialize(BlocksInvData::deserialize(&wrong_microblocks_inv_bytes, &mut index, wrong_microblocks_inv_bytes.len() as u32)));
+        assert!(check_deserialize(BlocksInvData::consensus_deserialize(&wrong_microblocks_inv_bytes, &mut index, wrong_microblocks_inv_bytes.len() as u32)));
         assert_eq!(index, 0);
 
         // empty 
@@ -2019,13 +2074,13 @@ pub mod test {
             signature: MessageSignature::from_raw(&vec![0x44; 65]),
         });
 
-        let relayers_bytes = maximal_relayers.serialize();
-        let too_many_relayer_bytes = too_many_relayers.serialize();
+        let relayers_bytes = maximal_relayers.consensus_serialize();
+        let too_many_relayer_bytes = too_many_relayers.consensus_serialize();
 
         for payload in &payloads {
             // just testing codec; don't worry about signatures
             // (only payload_len must be valid)
-            let payload_bytes = message_serialize(&payload);
+            let payload_bytes = payload.consensus_serialize();
 
             let preamble = Preamble {
                 peer_version: 0x01020304,
@@ -2037,7 +2092,7 @@ pub mod test {
                 burn_stable_consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                 additional_data: 0x33333333,
                 signature: MessageSignature::from_raw(&vec![0x44; 65]),
-                payload_len: (relayers_bytes.len() + payload_bytes.len() + 1) as u32,
+                payload_len: (relayers_bytes.len() + payload_bytes.len()) as u32,
             };
 
             let stacks_message = StacksMessage {
@@ -2047,9 +2102,8 @@ pub mod test {
             };
 
             let mut stacks_message_bytes : Vec<u8> = vec![];
-            stacks_message_bytes.append(&mut preamble.serialize());
+            stacks_message_bytes.append(&mut preamble.consensus_serialize());
             stacks_message_bytes.append(&mut relayers_bytes.clone());
-            stacks_message_bytes.append(&mut vec![message_type_to_id(&payload)]);
             stacks_message_bytes.append(&mut payload_bytes.clone());
 
             test_debug!("Test {:?}", &payload);
@@ -2066,10 +2120,10 @@ pub mod test {
                 relayers: maximal_relayers.clone(),
                 payload: payload.clone()
             };
-            let stacks_message_short_len_bytes = stacks_message_short_len.serialize();
+            let stacks_message_short_len_bytes = stacks_message_short_len.consensus_serialize();
 
             // expect overflow error, since index will exceed the expected maximum size
-            assert!(check_overflow(StacksMessage::deserialize(&stacks_message_short_len_bytes, &mut index, stacks_message_short_len_bytes.len() as u32)));
+            assert!(check_overflow(StacksMessage::consensus_deserialize(&stacks_message_short_len_bytes, &mut index, stacks_message_short_len_bytes.len() as u32)));
             assert_eq!(index, 0);
 
             // can't have too many relayers 
@@ -2081,9 +2135,9 @@ pub mod test {
                 relayers: too_many_relayers.clone(),
                 payload: payload.clone()
             };
-            let stacks_message_too_many_relayers_bytes = stacks_message_too_many_relayers.serialize();
+            let stacks_message_too_many_relayers_bytes = stacks_message_too_many_relayers.consensus_serialize();
 
-            assert!(check_deserialize(StacksMessage::deserialize(&stacks_message_too_many_relayers_bytes, &mut index, stacks_message_too_many_relayers_bytes.len() as u32)));
+            assert!(check_deserialize(StacksMessage::consensus_deserialize(&stacks_message_too_many_relayers_bytes, &mut index, stacks_message_too_many_relayers_bytes.len() as u32)));
             assert_eq!(index, 0);
         }
     }
