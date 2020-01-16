@@ -27,7 +27,7 @@ use rusqlite::Transaction;
 use std::fs;
 use std::convert::From;
 
-use util::db::{FromRow, RowOrder, query_rows, query_count};
+use util::db::{FromRow, FromColumn, query_rows, query_count};
 use util::db::Error as db_error;
 use util::db::DBConn;
 
@@ -58,9 +58,9 @@ pub const PEERDB_VERSION : &'static str = "21.0.0.0";
 
 const NUM_SLOTS : usize = 8;
 
-impl FromRow<PeerAddress> for PeerAddress {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<PeerAddress, db_error> {
-        let addrbytes_hex : String = row.get(index);
+impl FromColumn<PeerAddress> for PeerAddress {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<PeerAddress, db_error> {
+        let addrbytes_hex : String = row.get(column_name);
         let addrbytes = hex_bytes(&addrbytes_hex)
             .map_err(|_e| {
                 error!("Unparseable peer address {}", addrbytes_hex);
@@ -127,21 +127,15 @@ impl LocalPeer {
     }
 }
 
-impl RowOrder for LocalPeer {
-    fn row_order() -> Vec<&'static str> {
-        vec!["network_id", "nonce", "private_key", "private_key_expire", "addrbytes", "port", "services"]
-    }
-}
-
 impl FromRow<LocalPeer> for LocalPeer {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<LocalPeer, db_error> {
-        let network_id : u32 = row.get(index);
-        let nonce_hex : String = row.get(index + 1);
-        let privkey = Secp256k1PrivateKey::from_row(row, index + 2)?;
-        let privkey_expire_i64 : i64 = row.get(index + 3);
-        let addrbytes : PeerAddress = PeerAddress::from_row(row, index + 4)?;
-        let port : u16 = row.get(index + 5);
-        let services : u16 = row.get(index + 6);
+    fn from_row<'a>(row: &'a Row) -> Result<LocalPeer, db_error> {
+        let network_id : u32 = row.get("network_id");
+        let nonce_hex : String = row.get("nonce");
+        let privkey = Secp256k1PrivateKey::from_column(row, "private_key")?;
+        let privkey_expire_i64 : i64 = row.get("private_key_expire");
+        let addrbytes : PeerAddress = PeerAddress::from_column(row, "addrbytes")?;
+        let port : u16 = row.get("port");
+        let services : u16 = row.get("services");
 
         let nonce_bytes = hex_bytes(&nonce_hex)
             .map_err(|_e| {
@@ -173,18 +167,12 @@ impl FromRow<LocalPeer> for LocalPeer {
     }
 }
 
-impl RowOrder for ASEntry4 {
-    fn row_order() -> Vec<&'static str> {
-        vec!["prefix", "mask", "asn", "org"]
-    }
-}
-
 impl FromRow<ASEntry4> for ASEntry4 {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<ASEntry4, db_error> {
-        let prefix : u32 = row.get(index);
-        let mask : u8 = row.get(index+1);
-        let asn : u32 = row.get(index+2);
-        let org : u32 = row.get(index+3);
+    fn from_row<'a>(row: &'a Row) -> Result<ASEntry4, db_error> {
+        let prefix : u32 = row.get("prefix");
+        let mask : u8 = row.get("mask");
+        let asn : u32 = row.get("asn");
+        let org : u32 = row.get("org");
 
         Ok(ASEntry4 {
             prefix,
@@ -195,27 +183,21 @@ impl FromRow<ASEntry4> for ASEntry4 {
     }
 }
 
-impl RowOrder for Neighbor {
-    fn row_order() -> Vec<&'static str> {
-        vec!["peer_version", "network_id", "addrbytes", "port", "public_key", "expire_block_height", "last_contact_time", "asn", "org", "whitelisted", "blacklisted", "in_degree", "out_degree"]
-    }
-}
-
 impl FromRow<Neighbor> for Neighbor {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<Neighbor, db_error> {
-        let peer_version : u32 = row.get(index);
-        let network_id : u32 = row.get(index+1);
-        let addrbytes : PeerAddress = PeerAddress::from_row(row, index+2)?;
-        let port : u16 = row.get(index+3);
-        let public_key : Secp256k1PublicKey = Secp256k1PublicKey::from_row(row, index+4)?;
-        let expire_block_height_i64 : i64 = row.get(index+5);
-        let last_contact_time_i64 : i64 = row.get(index+6);
-        let asn : u32 = row.get(index+7);
-        let org : u32 = row.get(index+8);
-        let whitelisted : i64 = row.get(index+9);
-        let blacklisted : i64 = row.get(index+10);
-        let in_degree_i64 : i64 = row.get(index+11);
-        let out_degree_i64 : i64 = row.get(index+12);
+    fn from_row<'a>(row: &'a Row) -> Result<Neighbor, db_error> {
+        let peer_version : u32 = row.get("peer_version");
+        let network_id : u32 = row.get("network_id");
+        let addrbytes : PeerAddress = PeerAddress::from_column(row, "addrbytes")?;
+        let port : u16 = row.get("port");
+        let public_key : Secp256k1PublicKey = Secp256k1PublicKey::from_column(row, "public_key")?;
+        let expire_block_height_i64 : i64 = row.get("expire_block_height");
+        let last_contact_time_i64 : i64 = row.get("last_contact_time");
+        let asn : u32 = row.get("asn");
+        let org : u32 = row.get("org");
+        let whitelisted : i64 = row.get("whitelisted");
+        let blacklisted : i64 = row.get("blacklisted");
+        let in_degree_i64 : i64 = row.get("in_degree");
+        let out_degree_i64 : i64 = row.get("out_degree");
 
         if expire_block_height_i64 < 0 {
             error!("Invalid expore block height {}", expire_block_height_i64);
@@ -443,9 +425,8 @@ impl PeerDB {
 
     /// Read the local peer record 
     pub fn get_local_peer(conn: &DBConn) -> Result<LocalPeer, db_error> {
-        let row_order = LocalPeer::row_order().join(",");
-        let qry = format!("SELECT {} FROM local_peer LIMIT 1", row_order);
-        let rows = query_rows::<LocalPeer, _>(conn, &qry.to_string(), NO_PARAMS)?;
+        let qry = "SELECT * FROM local_peer LIMIT 1".to_string();
+        let rows = query_rows::<LocalPeer, _>(conn, &qry, NO_PARAMS)?;
 
         match rows.len() {
             1 => Ok(rows[0].clone()),
@@ -542,10 +523,9 @@ impl PeerDB {
     /// Do we have this neighbor already?  If so, look it up.
     /// Panics if the peer was inserted twice -- this shouldn't happen.
     pub fn get_peer(conn: &DBConn, network_id: u32, peer_addr: &PeerAddress, peer_port: u16) -> Result<Option<Neighbor>, db_error> {
-        let row_order = Neighbor::row_order().join(",");
-        let qry = format!("SELECT {} FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3", row_order);
+        let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3".to_string();
         let args = [&network_id as &dyn ToSql, &peer_addr.to_hex() as &dyn ToSql, &peer_port as &dyn ToSql];
-        let rows = query_rows::<Neighbor, _>(conn, &qry.to_string(), &args)?;
+        let rows = query_rows::<Neighbor, _>(conn, &qry, &args)?;
 
         match rows.len() {
             0 => Ok(None),
@@ -559,10 +539,9 @@ impl PeerDB {
 
     /// Get a peer record at a particular slot
     pub fn get_peer_at(conn: &DBConn, network_id: u32, slot: u32) -> Result<Option<Neighbor>, db_error> {
-        let row_order = Neighbor::row_order().join(",");
-        let qry = format!("SELECT {} FROM frontier WHERE network_id = ?1 AND slot = ?2", row_order);
+        let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND slot = ?2".to_string();
         let args = [&network_id as &dyn ToSql, &slot as &dyn ToSql];
-        let rows = query_rows::<Neighbor, _>(conn, &qry.to_string(), &args)?;
+        let rows = query_rows::<Neighbor, _>(conn, &qry, &args)?;
 
         match rows.len() {
             0 => Ok(None),
@@ -688,13 +667,11 @@ impl PeerDB {
             return Err(db_error::Overflow);
         }
 
-        let neighbor_row_order = Neighbor::row_order().join(",");
-
         if always_include_whitelisted {
             // always include whitelisted neighbors, freshness be damned
-            let whitelist_qry = format!("SELECT {} FROM frontier WHERE network_id = ?1 AND blacklisted < ?2 AND (whitelisted < 0 OR ?3 < whitelisted)", neighbor_row_order);
+            let whitelist_qry = "SELECT * FROM frontier WHERE network_id = ?1 AND blacklisted < ?2 AND (whitelisted < 0 OR ?3 < whitelisted)".to_string();
             let whitelist_args = [&network_id as &dyn ToSql, &(now_secs as i64) as &dyn ToSql, &(now_secs as i64) as &dyn ToSql];
-            let mut whitelist_rows = query_rows::<Neighbor, _>(conn, &whitelist_qry.to_string(), &whitelist_args)?;
+            let mut whitelist_rows = query_rows::<Neighbor, _>(conn, &whitelist_qry, &whitelist_args)?;
 
             if whitelist_rows.len() >= (count as usize) {
                 // return a random subset 
@@ -709,16 +686,16 @@ impl PeerDB {
         // fill in with non-whitelisted, randomly-chosen, fresh peers 
         let random_peers_qry = 
             if always_include_whitelisted {
-                format!("SELECT {} FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND blacklisted < ?3 AND \
-                        (whitelisted >= 0 AND whitelisted <= $4) ORDER BY RANDOM() LIMIT ?5", neighbor_row_order)
+                "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND blacklisted < ?3 AND \
+                 (whitelisted >= 0 AND whitelisted <= $4) ORDER BY RANDOM() LIMIT ?5".to_string()
             }
             else {
-                format!("SELECT {} FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND blacklisted < ?3 AND \
-                        (whitelisted < 0 OR (whitelisted >= 0 AND whitelisted <= $4)) ORDER BY RANDOM() LIMIT ?5", neighbor_row_order)
+                "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND blacklisted < ?3 AND \
+                 (whitelisted < 0 OR (whitelisted >= 0 AND whitelisted <= $4)) ORDER BY RANDOM() LIMIT ?5".to_string()
             };
 
         let random_peers_args = [&network_id as &dyn ToSql, &(block_height as i64) as &dyn ToSql, &(now_secs as i64) as &dyn ToSql, &(now_secs as i64) as &dyn ToSql, &(count - (ret.len() as u32)) as &dyn ToSql];
-        let mut random_peers = query_rows::<Neighbor, _>(conn, &random_peers_qry.to_string(), &random_peers_args)?;
+        let mut random_peers = query_rows::<Neighbor, _>(conn, &random_peers_qry, &random_peers_args)?;
 
         ret.append(&mut random_peers);
         Ok(ret)
@@ -781,24 +758,23 @@ impl PeerDB {
 
     /// Count the number of nodes in a given AS
     pub fn asn_count(conn: &DBConn, asn: u32) -> Result<u64, db_error> {
-        let qry = "SELECT COUNT(*) FROM frontier WHERE asn = ?1";
+        let qry = "SELECT COUNT(*) FROM frontier WHERE asn = ?1".to_string();
         let args = [&asn as &dyn ToSql];
-        let count = query_count(conn, &qry.to_string(), &args)?;
+        let count = query_count(conn, &qry, &args)?;
         Ok(count as u64)
     }
     
     pub fn get_frontier_size(conn: &DBConn) -> Result<u64, db_error> {
-        let qry = "SELECT COUNT(*) FROM frontier";
-        let count = query_count(conn, &qry.to_string(), NO_PARAMS)?;
+        let qry = "SELECT COUNT(*) FROM frontier".to_string();
+        let count = query_count(conn, &qry, NO_PARAMS)?;
         Ok(count as u64)
     }
 
     /// used only in testing 
     #[cfg(test)]
     pub fn get_all_peers(conn: &DBConn) -> Result<Vec<Neighbor>, db_error> {
-        let row_order = Neighbor::row_order().join(",");
-        let qry = format!("SELECT {} FROM frontier ORDER BY addrbytes ASC, port ASC", row_order);
-        let rows = query_rows::<Neighbor, _>(conn, &qry.to_string(), NO_PARAMS)?;
+        let qry = "SELECT * FROM frontier ORDER BY addrbytes ASC, port ASC".to_string();
+        let rows = query_rows::<Neighbor, _>(conn, &qry, NO_PARAMS)?;
         Ok(rows)
     }
 }

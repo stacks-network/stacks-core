@@ -25,31 +25,6 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-extern crate rand;
-extern crate ini;
-extern crate secp256k1;
-extern crate serde;
-extern crate rusqlite;
-extern crate curve25519_dalek;
-extern crate ed25519_dalek;
-extern crate httparse;
-#[macro_use] extern crate lazy_static;
-extern crate sha2;
-extern crate sha3;
-extern crate ripemd160;
-extern crate regex;
-extern crate time;
-extern crate byteorder;
-extern crate mio;
-
-#[macro_use] extern crate serde_derive;
-#[macro_use] extern crate serde_json;
-
-#[cfg(test)]
-#[macro_use]
-extern crate assert_json_diff;
-
-#[macro_use]
 extern crate blockstack_lib;
 
 use std::env;

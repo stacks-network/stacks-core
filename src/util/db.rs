@@ -135,19 +135,19 @@ impl error::Error for Error {
     }
 }
 
-pub trait RowOrder {
-    fn row_order() -> Vec<&'static str>;
-}
-
 pub trait FromRow<T> {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<T, Error>;
+    fn from_row<'a>(row: &'a Row) -> Result<T, Error>;
 }
 
-macro_rules! impl_byte_array_from_row {
+pub trait FromColumn<T> {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<T, Error>;
+}
+
+macro_rules! impl_byte_array_from_column {
     ($thing:ident) => {
-        impl FromRow<$thing> for $thing {
-            fn from_row<'a>(row: &'a Row, index: usize) -> Result<$thing, ::util::db::Error> {
-                let hex_str : String = row.get(index);
+        impl FromColumn<$thing> for $thing {
+            fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<$thing, ::util::db::Error> {
+                let hex_str : String = row.get(column_name);
                 let byte_str = hex_bytes(&hex_str)
                     .map_err(|_e| ::util::db::Error::ParseError)?;
                 let inst = $thing::from_bytes(&byte_str)
@@ -176,7 +176,37 @@ where
     while let Some(row_res) = rows.next() {
         match row_res {
             Ok(row) => {
-                let next_row = T::from_row(&row, 0)?;
+                let next_row = T::from_row(&row)?;
+                row_data.push(next_row);
+            },
+            Err(e) => {
+                return Err(Error::SqliteError(e));
+            }
+        };
+    }
+
+    Ok(row_data)
+}
+
+/// boilerplate code for querying a column out of a sequence of rows
+pub fn query_row_columns<T, P>(conn: &Connection, sql_query: &String, sql_args: P, column_name: &str) -> Result<Vec<T>, Error>
+where
+    P: IntoIterator,
+    P::Item: ToSql,
+    T: FromColumn<T>
+{
+    let mut stmt = conn.prepare(sql_query)
+        .map_err(Error::SqliteError)?;
+
+    let mut rows = stmt.query(sql_args)
+        .map_err(Error::SqliteError)?;
+
+    // gather 
+    let mut row_data = vec![];
+    while let Some(row_res) = rows.next() {
+        match row_res {
+            Ok(row) => {
+                let next_row = T::from_column(&row, column_name)?;
                 row_data.push(next_row);
             },
             Err(e) => {

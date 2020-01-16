@@ -45,30 +45,24 @@ pub struct MinerReward {
     pub vtxindex: u32       // will be 0 for the reward to the miner, and >0 for user burn supports
 }
 
-impl RowOrder for MinerPaymentSchedule {
-    fn row_order() -> Vec<&'static str> {
-        vec!["address","block_hash","burn_header_hash","parent_block_hash","parent_burn_header_hash","coinbase","tx_fees_anchored","tx_fees_streamed","stx_burns","burnchain_commit_burn","burnchain_sortition_burn","fill","miner","stacks_block_height","vtxindex"]
-    }
-}
-
 impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<MinerPaymentSchedule, db_error> {
-        let address = StacksAddress::from_row(row, 0 + index)?;
-        let block_hash = BlockHeaderHash::from_row(row, 1 + index)?;
-        let burn_header_hash = BurnchainHeaderHash::from_row(row, 2 + index)?;
-        let parent_block_hash = BlockHeaderHash::from_row(row, 3 + index)?;
-        let parent_burn_header_hash = BurnchainHeaderHash::from_row(row, 4 + index)?;
+    fn from_row<'a>(row: &'a Row) -> Result<MinerPaymentSchedule, db_error> {
+        let address = StacksAddress::from_column(row, "address")?;
+        let block_hash = BlockHeaderHash::from_column(row, "block_hash")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+        let parent_block_hash = BlockHeaderHash::from_column(row, "parent_block_hash")?;
+        let parent_burn_header_hash = BurnchainHeaderHash::from_column(row, "parent_burn_header_hash")?;
         
-        let coinbase_text : String = row.get(5 + index);
-        let tx_fees_anchored_text : String = row.get(6 + index);
-        let tx_fees_streamed_text : String = row.get(7 + index);
-        let burns_text : String = row.get(8 + index);
-        let burnchain_commit_burn_i64 : i64 = row.get(9 + index);
-        let burnchain_sortition_burn_i64 : i64 = row.get(10 + index);
-        let fill_text : String = row.get(11 + index);
-        let miner : bool = row.get(12 + index);
-        let block_height_i64 : i64 = row.get(13 + index);
-        let vtxindex : u32 = row.get(14 + index);
+        let coinbase_text : String = row.get("coinbase");
+        let tx_fees_anchored_text : String = row.get("tx_fees_anchored");
+        let tx_fees_streamed_text : String = row.get("tx_fees_streamed");
+        let burns_text : String = row.get("stx_burns");
+        let burnchain_commit_burn_i64 : i64 = row.get("burnchain_commit_burn");
+        let burnchain_sortition_burn_i64 : i64 = row.get("burnchain_sortition_burn");
+        let fill_text : String = row.get("fill");
+        let miner : bool = row.get("miner");
+        let block_height_i64 : i64 = row.get("stacks_block_height");
+        let vtxindex : u32 = row.get("vtxindex");
 
         if burnchain_commit_burn_i64 < 0 || burnchain_sortition_burn_i64 < 0 {
             return Err(db_error::ParseError);
@@ -239,8 +233,7 @@ impl StacksChainState {
             }
         };
 
-        let row_order = MinerPaymentSchedule::row_order().join(",");
-        let qry = format!("SELECT {} FROM payments WHERE block_hash = ?1 AND burn_header_hash = ?2 ORDER BY vtxindex ASC", row_order);
+        let qry = "SELECT * FROM payments WHERE block_hash = ?1 AND burn_header_hash = ?2 ORDER BY vtxindex ASC".to_string();
         let args = [&ancestor_info.anchored_header.block_hash().to_hex(), &ancestor_info.burn_header_hash.to_hex()];
         let rows = query_rows::<MinerPaymentSchedule, _>(tx, &qry, &args).map_err(Error::DBError)?;
         Ok(rows)

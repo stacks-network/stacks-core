@@ -64,3 +64,4 @@ pub mod deps;
 pub mod vm;
 
 pub mod clarity;
+pub mod testnet;
