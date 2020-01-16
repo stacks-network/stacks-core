@@ -22,6 +22,7 @@ pub mod chat;
 pub mod codec;
 pub mod connection;
 pub mod db;
+pub mod http;
 pub mod neighbors;
 pub mod p2p;
 pub mod poll;
@@ -31,13 +32,22 @@ use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::error;
-use std::io;
 use std::net::SocketAddr;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
+use std::collections::HashMap;
+use std::io::prelude::*;
+use std::io;
+use std::str::FromStr;
+
+use serde_json;
+use serde::{Serialize, Deserialize};
+
+use regex::Regex;
 
 use burnchains::BurnchainHeaderHash;
+use burnchains::Txid;
 
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::CONSENSUS_HASH_ENCODED_SIZE;
@@ -61,16 +71,19 @@ use util::secp256k1::Secp256k1PublicKey;
 use util::secp256k1::MessageSignature;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
+use serde::ser::Error as ser_Error;
+use serde::de::Error as de_Error;
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// Failed to decode 
     DeserializeError(String),
-    /// Failed to recognize message
-    UnrecognizedMessageID,
     /// Underflow -- not enough bytes to form the message
     UnderflowError(String),
     /// Overflow -- message too big 
     OverflowError(String),
+    /// Wrong protocol family 
+    WrongProtocolFamily,
     /// Array is too big 
     ArrayTooLong,
     /// Receive timed out 
@@ -137,9 +150,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::DeserializeError(ref s) => fmt::Display::fmt(s, f),
-            Error::UnrecognizedMessageID => f.write_str(error::Error::description(self)),
             Error::UnderflowError(ref s) => fmt::Display::fmt(s, f),
             Error::OverflowError(ref s) => fmt::Display::fmt(s, f),
+            Error::WrongProtocolFamily => f.write_str(error::Error::description(self)),
             Error::ArrayTooLong => f.write_str(error::Error::description(self)),
             Error::RecvTimeout => f.write_str(error::Error::description(self)),
             Error::SigningError(ref s) => fmt::Display::fmt(s, f),
@@ -177,9 +190,9 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::DeserializeError(ref _s) => None,
-            Error::UnrecognizedMessageID => None,
             Error::UnderflowError(ref _s) => None,
             Error::OverflowError(ref _s) => None,
+            Error::WrongProtocolFamily => None,
             Error::ArrayTooLong => None,
             Error::RecvTimeout => None,
             Error::SigningError(ref _s) => None,
@@ -215,9 +228,9 @@ impl error::Error for Error {
     fn description(&self) -> &str {
         match *self {
             Error::DeserializeError(ref s) => s.as_str(),
-            Error::UnrecognizedMessageID => "Failed to recognize message type",
             Error::UnderflowError(ref s) => s.as_str(),
             Error::OverflowError(ref s) => s.as_str(),
+            Error::WrongProtocolFamily => "Wrong protocol family",
             Error::ArrayTooLong => "Array too long",
             Error::RecvTimeout => "Packet receive timeout",
             Error::SigningError(ref s) => s.as_str(),
@@ -252,11 +265,11 @@ impl error::Error for Error {
     }
 }
 
-// helper trait for various primitive types that make up Stacks messages
+/// Helper trait for various primitive types that make up Stacks messages
 pub trait StacksMessageCodec {
-    fn serialize(&self) -> Vec<u8>
+    fn consensus_serialize(&self) -> Vec<u8>
         where Self: Sized;
-    fn deserialize(buf: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<Self, Error>
+    fn consensus_deserialize(buf: &[u8], index: &mut u32, max_size: u32) -> Result<Self, Error>
         where Self: Sized;
 }
 
@@ -269,6 +282,23 @@ impl_array_newtype!(PeerAddress, u8, 16);
 impl_array_hexstring_fmt!(PeerAddress);
 impl_byte_array_newtype!(PeerAddress, u8, 16);
 pub const PEER_ADDRESS_ENCODED_SIZE : u32 = 16;
+
+impl Serialize for PeerAddress {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let inst = format!("{}", self.to_socketaddr(0).ip());
+        s.serialize_str(inst.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for PeerAddress {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<PeerAddress, D::Error> {
+        let inst = String::deserialize(d)?;
+        let ip = inst.parse::<IpAddr>()
+            .map_err(de_Error::custom)?;
+
+        Ok(PeerAddress::from_ip(&ip))
+    }
+}
 
 impl PeerAddress {
     /// Is this an IPv4 address?
@@ -328,7 +358,12 @@ impl PeerAddress {
 
     /// Convert from socket address 
     pub fn from_socketaddr(addr: &SocketAddr) -> PeerAddress {
-        match addr.ip() {
+        PeerAddress::from_ip(&addr.ip())
+    }
+
+    /// Convert from IP address
+    pub fn from_ip(addr: &IpAddr) -> PeerAddress {
+        match addr {
             IpAddr::V4(ref addr) => {
                 let octets = addr.octets();
                 PeerAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, octets[0], octets[1], octets[2], octets[3]])
@@ -361,7 +396,77 @@ impl_byte_array_newtype!(StacksPublicKeyBuffer, u8, 33);
 
 pub const STACKS_PUBLIC_KEY_ENCODED_SIZE : u32 = 33;
 
-/// Message preamble -- included in all network messages
+/// supported HTTP content types
+#[derive(Debug, Clone, PartialEq)]
+pub enum HttpContentType {
+    Bytes,
+    Text,
+    JSON
+}
+
+impl fmt::Display for HttpContentType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            HttpContentType::Bytes => {
+                write!(f, "application/octet-stream")
+            },
+            HttpContentType::Text => {
+                write!(f, "text/plain")
+            },
+            HttpContentType::JSON => {
+                write!(f, "application/json")
+            }
+        }
+    }
+}
+
+impl FromStr for HttpContentType {
+    type Err = Error;
+
+    fn from_str(header: &str) -> Result<HttpContentType, Error> {
+        let s = header.to_string().to_lowercase();
+        if s == "application/octet-stream" {
+            Ok(HttpContentType::Bytes)
+        }
+        else if s == "text/plain" {
+            Ok(HttpContentType::Text)
+        }
+        else if s == "application/json" {
+            Ok(HttpContentType::JSON)
+        }
+        else {
+            Err(Error::DeserializeError("Unsupported HTTP content type".to_string()))
+        }
+    }
+}
+
+/// HTTP request preamble
+#[derive(Debug, Clone, PartialEq)]
+pub struct HttpRequestPreamble {
+    pub verb: String,
+    pub path: String,
+    pub host: PeerHost,
+    pub request_id: u32,               // optional header as X-Request-ID
+    pub content_type: Option<HttpContentType>,
+    pub headers: HashMap<String, String>
+}
+
+/// HTTP response preamble
+#[derive(Debug, Clone, PartialEq)]
+pub struct HttpResponsePreamble {
+    pub status_code: u16,
+    pub reason: String,
+    pub content_length: u32,             // required header
+    pub content_type: HttpContentType,   // required header
+    pub request_id: u32,                 // paired with an HTTP request (X-Request-ID)
+    pub request_path: String,            // paired with an HTTP request (X-Request-Path)
+    pub headers: HashMap<String, String>
+}
+
+/// Maximum size an HTTP request or response preamble can be (within reason)
+pub const HTTP_PREAMBLE_MAX_ENCODED_SIZE : u32 = 4096;
+
+/// P2P message preamble -- included in all p2p network messages
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preamble {
     pub peer_version: u32,                          // software version
@@ -376,7 +481,7 @@ pub struct Preamble {
     pub payload_len: u32                            // length of the following payload, including relayers vector
 }
 
-// addands correspond to fields above
+/// P2P preamble length (addands correspond to fields above)
 pub const PREAMBLE_ENCODED_SIZE: u32 = 
     4 +
     4 +
@@ -436,8 +541,9 @@ pub struct MicroblocksData {
 }
 
 /// A descriptor of a peer
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NeighborAddress {
+    #[serde(rename = "ip")]
     pub addrbytes: PeerAddress,
     pub port: u16,
     pub public_key_hash: Hash160        // used as a hint; useful for when a node trusts another node to be honest about this
@@ -445,13 +551,13 @@ pub struct NeighborAddress {
 
 impl fmt::Display for NeighborAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}://{:?}:{}", &self.public_key_hash, &self.addrbytes, self.port)
+        write!(f, "{:?}://{:?}", &self.public_key_hash, &self.addrbytes.to_socketaddr(self.port))
     }
 }
 
 impl fmt::Debug for NeighborAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}://{:?}:{}", &self.public_key_hash, &self.addrbytes, self.port)
+        write!(f, "{:?}://{:?}", &self.public_key_hash, &self.addrbytes.to_socketaddr(self.port))
     }
 }
 
@@ -461,7 +567,7 @@ pub const NEIGHBOR_ADDRESS_ENCODED_SIZE : u32 =
     HASH160_ENCODED_SIZE;
 
 /// A descriptor of a list of known peers
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NeighborsData {
     pub neighbors: Vec<NeighborAddress>
 }
@@ -520,11 +626,13 @@ pub struct RelayData {
     pub seq: u32,
     pub signature: MessageSignature
 }
+
 pub const RELAY_DATA_ENCODED_SIZE : u32 =
     NEIGHBOR_ADDRESS_ENCODED_SIZE +
     4 +
     MESSAGE_SIGNATURE_ENCODED_SIZE;
 
+/// All P2P message types
 #[derive(Debug, Clone, PartialEq)]
 pub enum StacksMessageType {
     Handshake(HandshakeData),
@@ -544,33 +652,204 @@ pub enum StacksMessageType {
     Pong(PongData)
 }
 
-// I would do this as an enum, but there's no easy way to match on an enum's numeric representation
-pub mod StacksMessageID {
-    pub const Handshake : u8 = 0;
-    pub const HandshakeAccept : u8 = 1;
-    pub const HandshakeReject : u8 = 2;
-    pub const GetNeighbors : u8 = 3;
-    pub const Neighbors : u8 = 4;
-    pub const GetBlocksInv : u8 = 5;
-    pub const BlocksInv : u8 = 6;
-    pub const GetBlocks : u8 = 7;
-    pub const Blocks : u8 = 8;
-    pub const GetMicroblocks : u8 = 9;
-    pub const Microblocks : u8 = 10;
-    pub const Transaction : u8 = 11;
-    pub const Nack : u8 = 12;
-    pub const Ping : u8 = 13;
-    pub const Pong : u8 = 14;
-    pub const Reserved : u8 = 255;
+/// Peer address variants
+#[derive(Clone, PartialEq)]
+pub enum PeerHost {
+    DNS(String, u16),
+    IP(PeerAddress, u16)
 }
 
-/// Container for all Stacks network messages
+impl fmt::Display for PeerHost {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PeerHost::DNS(ref s, ref p) => write!(f, "{}:{}", s, p),
+            PeerHost::IP(ref a, ref p) => write!(f, "{}", a.to_socketaddr(*p))
+        }
+    }
+}
+
+impl fmt::Debug for PeerHost {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PeerHost::DNS(ref s, ref p) => write!(f, "PeerHost::DNS({},{})", s, p),
+            PeerHost::IP(ref a, ref p) => write!(f, "PeerHost::IP({:?},{})", a, p)
+        }
+    }
+}
+
+impl PeerHost {
+    pub fn hostname(&self) -> String {
+        match *self {
+            PeerHost::DNS(ref s, _) => s.clone(),
+            PeerHost::IP(ref a, ref p) => format!("{}", a.to_socketaddr(*p).ip())
+        }
+    }
+    
+    pub fn port(&self) -> u16 {
+        match *self {
+            PeerHost::DNS(_, ref p) => *p,
+            PeerHost::IP(_, ref p) => *p
+        }
+    }
+
+    pub fn from_host_port(host: String, port: u16) -> PeerHost {
+        // try as IP, and fall back to DNS 
+        match host.parse::<IpAddr>() {
+            Ok(addr) => PeerHost::IP(PeerAddress::from_ip(&addr), port),
+            Err(_) => PeerHost::DNS(host, port)
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HttpRequestMetadata {
+    pub peer: PeerHost,
+    pub request_id: u32
+}
+
+impl HttpRequestMetadata {
+    pub fn from_preamble(preamble: &HttpRequestPreamble) -> HttpRequestMetadata {
+        HttpRequestMetadata {
+            peer: preamble.get_host(),
+            request_id: preamble.request_id
+        }
+    }
+}
+
+/// All HTTP request paths we support, and the arguments they carry in their paths
+#[derive(Debug, Clone, PartialEq)]
+pub enum HttpRequestType {
+    GetNeighbors(HttpRequestMetadata),
+    GetBlock(HttpRequestMetadata, BlockHeaderHash),
+    GetMicroblocks(HttpRequestMetadata, BlockHeaderHash),
+    PostTransaction(HttpRequestMetadata, StacksTransaction)
+}
+
+/// The fields that Actually Matter to http responses
+#[derive(Debug, Clone, PartialEq)]
+pub struct HttpResponseMetadata {
+    pub request_id: u32,
+    pub request_path: String
+}
+
+impl HttpResponseMetadata {
+    pub fn new(request_id: u32, request_path: String) -> HttpResponseMetadata {
+        HttpResponseMetadata {
+            request_id: request_id,
+            request_path: request_path
+        }
+    }
+
+    pub fn from_preamble(preamble: &HttpResponsePreamble) -> HttpResponseMetadata {
+        HttpResponseMetadata {
+            request_id: preamble.request_id,
+            request_path: preamble.request_path.clone()
+        }
+    }
+}
+
+/// All data-plane message types a peer can reply with.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HttpResponseType {
+    Neighbors(HttpResponseMetadata, NeighborsData),
+    Block(HttpResponseMetadata, StacksBlock),
+    Microblocks(HttpResponseMetadata, Vec<StacksMicroblock>),
+    TransactionID(HttpResponseMetadata, Txid),
+    
+    // peer-given error responses
+    BadRequest(HttpResponseMetadata, String),
+    Unauthorized(HttpResponseMetadata, String),
+    PaymentRequired(HttpResponseMetadata, String),
+    Forbidden(HttpResponseMetadata, String),
+    NotFound(HttpResponseMetadata, String),
+    ServerError(HttpResponseMetadata, String),
+    ServiceUnavailable(HttpResponseMetadata, String),
+    Error(HttpResponseMetadata, u16, String)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
+pub enum StacksMessageID {
+    Handshake = 0,
+    HandshakeAccept = 1,
+    HandshakeReject = 2,
+    GetNeighbors = 3,
+    Neighbors = 4,
+    GetBlocksInv = 5,
+    BlocksInv = 6,
+    GetBlocks = 7,
+    Blocks = 8,
+    GetMicroblocks = 9,
+    Microblocks = 10,
+    Transaction = 11,
+    Nack = 12,
+    Ping = 13,
+    Pong = 14,
+    Reserved = 255
+}
+
+/// Message type for all P2P Stacks network messages
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksMessage {
     pub preamble: Preamble,
     pub relayers: Vec<RelayData>,
     pub payload: StacksMessageType,
 }
+
+/// Message type for HTTP
+#[derive(Debug, Clone, PartialEq)]
+pub enum StacksHttpMessage {
+    Request(HttpRequestType),
+    Response(HttpResponseType),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum NetworkPreamble {
+    P2P(Preamble),
+    HttpRequest(HttpRequestPreamble),
+    HttpResponse(HttpResponsePreamble)
+}
+
+impl NetworkPreamble {
+    pub fn payload_length(&self) -> usize {
+        match *self {
+            NetworkPreamble::P2P(ref preamble) => preamble.payload_len as usize,
+            NetworkPreamble::HttpRequest(ref preamble) => preamble.get_content_length() as usize,
+            NetworkPreamble::HttpResponse(ref preamble) => preamble.content_length as usize
+        }
+    }
+
+    pub fn request_id(&self) -> u32 {
+        match *self {
+            NetworkPreamble::P2P(ref preamble) => preamble.seq,
+            NetworkPreamble::HttpRequest(ref preamble) => preamble.request_id,
+            NetworkPreamble::HttpResponse(ref preamble) => preamble.request_id
+        }
+    }
+   
+    pub fn verify_payload(&mut self, payload_bytes: &[u8], pubk: &Secp256k1PublicKey) -> Result<(), Error> {
+        match *self {
+            NetworkPreamble::P2P(ref mut preamble) => preamble.verify(payload_bytes, pubk),
+            _ => Ok(())
+        }
+    }
+}
+
+pub trait MessageSequence {
+    fn request_id(&self) -> u32;
+    fn get_message_name(&self) -> &'static str;
+}
+
+pub trait ProtocolFamily {
+    type Message : StacksMessageCodec + MessageSequence + Send + Sync + Clone + std::fmt::Debug;
+    fn preamble_size_hint() -> usize;
+    fn read_preamble(buf: &[u8]) -> Result<(NetworkPreamble, usize), Error>;
+    fn read_payload(preamble: &NetworkPreamble, buf: &[u8]) -> Result<Self::Message, Error>;
+}
+
+// these implement the ProtocolFamily trait 
+pub struct StacksP2P {}
+pub struct StacksHttp {}
 
 // an array in our protocol can't exceed this many items
 pub const ARRAY_MAX_LEN : u32 = u32::max_value();
@@ -596,10 +875,10 @@ pub const HEARTBEAT_PING_THRESHOLD : u64 = 600;
 macro_rules! impl_byte_array_message_codec {
     ($thing:ident, $len:expr) => {
         impl StacksMessageCodec for $thing {
-            fn serialize(&self) -> Vec<u8> {
+            fn consensus_serialize(&self) -> Vec<u8> {
                 self.as_bytes().to_vec()
             }
-            fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<$thing, ::net::Error> {
+            fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<$thing, ::net::Error> {
                 let index = *index_ptr;
                 if index > u32::max_value() - ($len) {
                     return Err(::net::Error::OverflowError(format!("Would overflow when parsing {}", stringify!($thing))));
@@ -664,9 +943,7 @@ impl fmt::Display for NeighborKey {
 
 impl fmt::Debug for NeighborKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let peer_version_str = if self.peer_version > 0 { format!("{:08x}", self.peer_version).to_string() } else { "UNKNOWN".to_string() };
-        let network_id_str = if self.network_id > 0 { format!("{:08x}", self.network_id).to_string() } else { "UNKNOWN".to_string() };
-        write!(f, "{}+{}://{:?}:{}", peer_version_str, network_id_str, &self.addrbytes, self.port)
+        fmt::Display::fmt(self, f)
     }
 }
 
