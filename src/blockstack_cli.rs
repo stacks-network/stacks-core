@@ -184,7 +184,7 @@ fn make_standard_single_sig_tx(version: TransactionVersion, payload: Transaction
 }
 
 fn sign_transaction_single_sig_standard(transaction: &str, secret_key: &StacksPrivateKey) -> Result<StacksTransaction, CliError> {
-    let transaction = StacksTransaction::deserialize(&hex_bytes(transaction)?, &mut 0, u32::max_value())?;
+    let transaction = StacksTransaction::consensus_deserialize(&hex_bytes(transaction)?, &mut 0, u32::max_value())?;
 
     let mut tx_signer = StacksTransactionSigner::new(&transaction);
     tx_signer.sign_origin(secret_key)?;
@@ -220,9 +220,9 @@ fn handle_contract_publish(args: &[String], version: TransactionVersion) -> Resu
     let unsigned_tx = make_standard_single_sig_tx(version, payload.into(), &StacksPublicKey::from_private(&sk_publisher),
                                                   nonce, fee_rate);
     let signed_tx = sign_transaction_single_sig_standard(
-        &to_hex(&unsigned_tx.serialize()), &sk_publisher)?;
+        &to_hex(&unsigned_tx.consensus_serialize()), &sk_publisher)?;
 
-    Ok(to_hex(&signed_tx.serialize()))
+    Ok(to_hex(&signed_tx.consensus_serialize()))
 }
 
 fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
@@ -273,9 +273,9 @@ fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<
     let unsigned_tx = make_standard_single_sig_tx(version, payload.into(), &StacksPublicKey::from_private(&sk_origin),
                                                   nonce, fee_rate);
     let signed_tx = sign_transaction_single_sig_standard(
-        &to_hex(&unsigned_tx.serialize()), &sk_origin)?;
+        &to_hex(&unsigned_tx.consensus_serialize()), &sk_origin)?;
 
-    Ok(to_hex(&signed_tx.serialize()))
+    Ok(to_hex(&signed_tx.consensus_serialize()))
 }
 
 fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
