@@ -26,9 +26,8 @@ use net::asn::ASEntry4;
 
 use net::*;
 
-use net::connection::Connection;
 use net::connection::ConnectionOptions;
-use net::connection::NetworkReplyHandle;
+use net::connection::ReplyHandleP2P;
 
 use net::chat::Conversation;
 use net::chat::NeighborStats;
@@ -80,7 +79,7 @@ use rand::thread_rng;
 use mio;
 use mio::net as mio_net;
 
-/// inter-thread request to send a message from another thread in this program.
+/// inter-thread request to send a p2p message from another thread in this program.
 pub struct NetworkRequest {
     neighbors: Vec<NeighborKey>,
     message: Option<StacksMessage>,
@@ -89,24 +88,24 @@ pub struct NetworkRequest {
     connect: bool,                      // if true, then only connect to the neighbor.
 }
 
-/// Handle for other threads to use to issue network requests.
+/// Handle for other threads to use to issue p2p network requests.
 /// The "main loop" for sending/receiving data is a select/poll loop, and runs outside of other
 /// threads that need a synchronous RPC or a multi-RPC interface.  This object gives those threads
 /// a way to issue commands and hear back replies from them.
 pub struct NetworkHandle {
     chan_in: SyncSender<NetworkRequest>,
-    chan_out: Receiver<Result<Option<NetworkReplyHandle>, net_error>>
+    chan_out: Receiver<Result<Option<ReplyHandleP2P>, net_error>>
 }
 
 /// Internal handle for receiving requests from a NetworkHandle.
 /// This is the 'other end' of a NetworkHandle inside the peer network struct.
 struct NetworkHandleServer {
     chan_in: Receiver<NetworkRequest>,
-    chan_out: SyncSender<Result<Option<NetworkReplyHandle>, net_error>>
+    chan_out: SyncSender<Result<Option<ReplyHandleP2P>, net_error>>
 }
 
 impl NetworkHandle {
-    pub fn new(chan_in: SyncSender<NetworkRequest>, chan_out: Receiver<Result<Option<NetworkReplyHandle>, net_error>>) -> NetworkHandle {
+    pub fn new(chan_in: SyncSender<NetworkRequest>, chan_out: Receiver<Result<Option<ReplyHandleP2P>, net_error>>) -> NetworkHandle {
         NetworkHandle {
             chan_in: chan_in,
             chan_out: chan_out
@@ -149,7 +148,7 @@ impl NetworkHandle {
 
     /// Sends the message to the p2p network thread and gets back a reply handle the calling thread
     /// can wait on.
-    pub fn send_signed_message(&mut self, neighbor_key: &NeighborKey, msg: StacksMessage, ttl: u64) -> Result<NetworkReplyHandle, net_error> {
+    pub fn send_signed_message(&mut self, neighbor_key: &NeighborKey, msg: StacksMessage, ttl: u64) -> Result<ReplyHandleP2P, net_error> {
         let req = NetworkRequest {
             neighbors: vec![(*neighbor_key).clone()],
             message: Some(msg),
@@ -163,7 +162,7 @@ impl NetworkHandle {
             Ok(handle_opt) => {
                 match handle_opt {
                     Some(handle) => Ok(handle),
-                    None => panic!("Did not receive a NetworkReplyHandle as expected")
+                    None => panic!("Did not receive a ReplyHandleP2P as expected")
                 }
             },
             Err(e) => Err(e)
@@ -206,7 +205,7 @@ impl NetworkHandle {
 }
 
 impl NetworkHandleServer {
-    pub fn new(chan_in: Receiver<NetworkRequest>, chan_out: SyncSender<Result<Option<NetworkReplyHandle>, net_error>>) -> NetworkHandleServer {
+    pub fn new(chan_in: Receiver<NetworkRequest>, chan_out: SyncSender<Result<Option<ReplyHandleP2P>, net_error>>) -> NetworkHandleServer {
         NetworkHandleServer {
             chan_in: chan_in,
             chan_out: chan_out
@@ -248,7 +247,7 @@ pub struct PeerNetwork {
     pub walk_count: u64,
 
     // re-key state 
-    pub rekey_handles: Option<HashMap<usize, NetworkReplyHandle>>,
+    pub rekey_handles: Option<HashMap<usize, ReplyHandleP2P>>,
 
     // how often we pruned a given inbound/outbound peer
     pub prune_outbound_counts: HashMap<NeighborKey, u64>,
@@ -302,7 +301,7 @@ impl PeerNetwork {
     }
 
     /// Send a message to a peer
-    pub fn send_message(&mut self, neighbor_key: &NeighborKey, message: StacksMessage, ttl: u64) -> Result<NetworkReplyHandle, net_error> {
+    pub fn send_message(&mut self, neighbor_key: &NeighborKey, message: StacksMessage, ttl: u64) -> Result<ReplyHandleP2P, net_error> {
         let event_id_opt = self.events.get(&neighbor_key);
         if event_id_opt.is_none() {
             warn!("Not connected to {:?}", &neighbor_key);
@@ -428,7 +427,7 @@ impl PeerNetwork {
 
     /// Dispatch a single request from another thread.
     /// Returns an option for a reply handle if the caller expects the peer to reply.
-    fn dispatch_request(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, request: NetworkRequest) -> Result<Option<NetworkReplyHandle>, net_error> {
+    fn dispatch_request(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, request: NetworkRequest) -> Result<Option<ReplyHandleP2P>, net_error> {
         let mut reply_handle = None;
         let mut send_error = None;
 
@@ -629,10 +628,14 @@ impl PeerNetwork {
                 network.register(event_id, &socket)?;
                 match existing_convo {
                     None => {
-                        Conversation::new(&self.burnchain, &client_addr, &self.connection_opts, outbound, event_id)
+                        let mut new_convo = Conversation::new(&self.burnchain, &client_addr, &self.connection_opts, outbound, event_id);
+                        new_convo.set_public_key(pubkey_opt);
+                        new_convo
                     },
                     Some(ref convo) => {
-                        Conversation::from_peer_reset(convo, &self.connection_opts)
+                        let mut existing_convo = Conversation::from_peer_reset(convo, &self.connection_opts);
+                        existing_convo.set_public_key(pubkey_opt);
+                        existing_convo
                     }
                 }
             }
