@@ -50,8 +50,6 @@ use deps::bitcoin::network::serialize::BitcoinHash;
 
 use util::log;
 
-use dirs;
-
 pub const USER_AGENT: &'static str = "Blockstack Core v21";
 
 pub const BITCOIN_MAINNET: u32 = 0xD9B4BEF9;
@@ -154,9 +152,6 @@ impl BitcoinIndexerConfig {
        if !conf_path.is_file() {
            return Err(btc_error::ConfigError("Failed to load BitcoinIndexerConfig file: No such file or directory".to_string()));
        }
-
-       let mut home_pathbuf = PathBuf::from(dirs::home_dir().unwrap());
-       home_pathbuf.push(".stacks");
 
        let default_config = BitcoinIndexerConfig::default();
 
