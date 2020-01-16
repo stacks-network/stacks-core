@@ -7,7 +7,7 @@ This repo provides the packaged reference implementation of a [Blockstack](https
 
 | Blockstack Topic/Tech | Where to learn more more |
 |---------------------------------|------------------------------------------------------------------------------|
-| Stacks blockchain v1 | [master branch](https://github.com/blockstack/blockstack-core/tree/mast) |
+| Stacks blockchain v1 | [master branch](https://github.com/blockstack/blockstack-core/tree/master) |
 | Stacks blockchain v2 | [develop branch](https://github.com/blockstack/blockstack-core/tree/develop) |
 | Clarity smart contract language (preview) | [develop branch](https://github.com/blockstack/blockstack-core/tree/develop) |
 | Use the package | [our core docs](https://docs.blockstack.org/core/naming/introduction.html) |
