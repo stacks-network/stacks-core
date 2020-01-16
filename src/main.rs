@@ -31,14 +31,15 @@ extern crate serde;
 extern crate rusqlite;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
+extern crate httparse;
+#[macro_use] extern crate lazy_static;
 extern crate sha2;
 extern crate sha3;
 extern crate ripemd160;
-extern crate dirs;
 extern crate regex;
+extern crate time;
 extern crate byteorder;
 extern crate mio;
-extern crate libc;
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;
@@ -108,7 +109,7 @@ fn main() {
         }).unwrap();
 
         let mut index = 0;
-        let tx = StacksTransaction::deserialize(&tx_bytes, &mut index, tx_bytes.len() as u32).map_err(|_e| {
+        let tx = StacksTransaction::consensus_deserialize(&tx_bytes, &mut index, tx_bytes.len() as u32).map_err(|_e| {
             eprintln!("Failed to decode transaction");
             process::exit(1);
         }).unwrap();
@@ -127,7 +128,7 @@ fn main() {
         let block_data = fs::read(block_path).expect(&format!("Failed to open {}", block_path));
 
         let mut index = 0;
-        let block = StacksBlock::deserialize(&block_data, &mut index, block_data.len() as u32).map_err(|_e| {
+        let block = StacksBlock::consensus_deserialize(&block_data, &mut index, block_data.len() as u32).map_err(|_e| {
             eprintln!("Failed to decode block");
             process::exit(1);
         }).unwrap();
@@ -146,7 +147,7 @@ fn main() {
         let mblock_data = fs::read(mblock_path).expect(&format!("Failed to open {}", mblock_path));
 
         let mut index = 0;
-        let mblocks : Vec<StacksMicroblock> = Vec::deserialize(&mblock_data, &mut index, mblock_data.len() as u32).map_err(|_e| {
+        let mblocks : Vec<StacksMicroblock> = Vec::consensus_deserialize(&mblock_data, &mut index, mblock_data.len() as u32).map_err(|_e| {
             eprintln!("Failed to decode microblocks");
             process::exit(1);
         }).unwrap();
