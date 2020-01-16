@@ -24,9 +24,7 @@ use net::p2p::*;
 
 use net::Error as net_error;
 
-use net::connection::Connection;
 use net::connection::ConnectionOptions;
-use net::connection::NetworkReplyHandle;
 
 use net::chat::Conversation;
 use net::chat::NeighborStats;
