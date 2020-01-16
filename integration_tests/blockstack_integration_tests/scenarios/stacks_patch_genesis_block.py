@@ -227,7 +227,8 @@ genesis_patches = {
                 "vesting_total": 200045
             },
         ],
-        "del": []
+        "del": [],
+        "db_version": "22.0.0.0"
     },
 }
 
