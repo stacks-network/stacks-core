@@ -63,14 +63,14 @@ pub trait ClarityBackingStore {
     /// This function is used to obtain a committed contract hash, and the block header hash of the block
     ///   in which the contract was initialized. This data is used to store contract metadata in the side
     ///   store.
-    fn get_contract_hash(&mut self, contract: &QualifiedContractIdentifier) -> Result<(BlockHeaderHash, String)> {
+    fn get_contract_hash(&mut self, contract: &QualifiedContractIdentifier) -> Result<(BlockHeaderHash, Sha512Trunc256Sum)> {
         let key = MarfedKV::make_contract_hash_key(contract);
         let contract_commitment = self.get(&key).map(|x| ContractCommitment::deserialize(&x))
             .ok_or_else(|| { CheckErrors::NoSuchContract(contract.to_string()) })?;
         let ContractCommitment { block_height, hash: contract_hash } = contract_commitment;
         let bhh = self.get_block_at_height(block_height)
             .expect("Should always be able to map from height to block hash when looking up contract information.");
-        Ok((bhh, contract_hash.to_hex()))
+        Ok((bhh, contract_hash))
     }
 
     fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
