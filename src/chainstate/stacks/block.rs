@@ -1040,17 +1040,19 @@ mod test {
         let mut block = make_codec_test_block(100000000);
         block.header.version = 0x24;
 
-        let ph = block.block_hash().as_bytes().to_vec();
-        let mh = parent_microblock_header.block_hash().as_bytes().to_vec();
+        let ph = block.header.parent_block.as_bytes().to_vec();
+        let mh = block.header.parent_microblock.as_bytes().to_vec();
         let tr = block.header.tx_merkle_root.as_bytes().to_vec();
+        let sr = block.header.state_index_root.as_bytes().to_vec();
+        let pk = block.header.microblock_pubkey_hash.as_bytes().to_vec();
 
         let mut block_bytes = vec![
             // header
             // version
             0x24,
             // work score (parent work score + current work score)
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 123,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 200,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 234,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 55,
             // proof
             0x92, 0x75, 0xdf, 0x67, 0xa6, 0x8c, 0x87, 0x45, 0xc0, 0xff, 0x97, 0xb4, 0x82, 0x01, 0xee, 0x6d, 0xb4, 0x47, 0xf7, 0xc9, 
             0x3b, 0x23, 0xae, 0x24, 0xcd, 0xc2, 0x40, 0x0f, 0x52, 0xfd, 0xb0, 0x8a, 0x1a, 0x6a, 0xc7, 0xec, 0x71, 0xbf, 0x9c, 0x9c, 
@@ -1061,13 +1063,13 @@ mod test {
             // parent microblock
             mh[0], mh[1], mh[2], mh[3], mh[4], mh[5], mh[6], mh[7], mh[8], mh[9], mh[10], mh[11], mh[12], mh[13], mh[14], mh[15], mh[16], mh[17], mh[18], mh[19], mh[20], mh[21], mh[22], mh[23], mh[24], mh[25], mh[26], mh[27], mh[28], mh[29], mh[30], mh[31],
             // parent microblock sequence
-            0x00, 0x34,
+            0x00, 0x04,
             // tx merkle root
             tr[0], tr[1], tr[2], tr[3], tr[4], tr[5], tr[6], tr[7], tr[8], tr[9], tr[10], tr[11], tr[12], tr[13], tr[14], tr[15], tr[16], tr[17], tr[18], tr[19], tr[20], tr[21], tr[22], tr[23], tr[24], tr[25], tr[26], tr[27], tr[28], tr[29], tr[30], tr[31],
             // state index root
-            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            sr[0], sr[1], sr[2], sr[3], sr[4], sr[5], sr[6], sr[7], sr[8], sr[9], sr[10], sr[11], sr[12], sr[13], sr[14], sr[15], sr[16], sr[17], sr[18], sr[19], sr[20], sr[21], sr[22], sr[23], sr[24], sr[25], sr[26], sr[27], sr[28], sr[29], sr[30], sr[31],
             // public key hash buf
-            0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
+            pk[0], pk[1], pk[2], pk[3], pk[4], pk[5], pk[6], pk[7], pk[8], pk[9], pk[10], pk[11], pk[12], pk[13], pk[14], pk[15], pk[16], pk[17], pk[18], pk[19]
         ];
 
         check_codec_and_corruption::<StacksBlockHeader>(&block.header, &block_bytes);
