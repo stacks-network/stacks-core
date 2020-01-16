@@ -68,13 +68,13 @@ impl DerefMut for StacksString {
 }
 
 impl StacksMessageCodec for StacksString {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut res = vec![];
         write_next(&mut res, &self.0);
         res
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksString, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<StacksString, net_error> {
         let mut index = *index_ptr;
         let bytes : Vec<u8> = read_next(buf, &mut index, max_size)?;
 
@@ -96,7 +96,7 @@ impl StacksMessageCodec for StacksString {
     }
 }
 
-fn read_clarity_string_bytes(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<Vec<u8>, net_error> {
+fn read_clarity_string_bytes(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<Vec<u8>, net_error> {
     let mut index = *index_ptr;
     let len_byte : u8 = read_next(buf, &mut index, max_size)?;
     let len = len_byte as u32;
@@ -119,7 +119,7 @@ fn read_clarity_string_bytes(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) 
 }
 
 impl StacksMessageCodec for ClarityName {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut res = vec![];
         // ClarityName can't be longer than vm::representations::MAX_STRING_LEN, which itself is
         // a u8, so we should be good here.
@@ -129,7 +129,7 @@ impl StacksMessageCodec for ClarityName {
         res
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<ClarityName, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<ClarityName, net_error> {
         let mut index = *index_ptr;
         let bytes = read_clarity_string_bytes(buf, &mut index, max_size)?;
 
@@ -145,7 +145,7 @@ impl StacksMessageCodec for ClarityName {
 }
 
 impl StacksMessageCodec for ContractName {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut res = vec![];
         // ContractName can't be longer than vm::representations::MAX_STRING_LEN, which itself is
         // a u8, so we should be good here.
@@ -155,7 +155,7 @@ impl StacksMessageCodec for ContractName {
         res
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<ContractName, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<ContractName, net_error> {
         let mut index = *index_ptr;
         let bytes = read_clarity_string_bytes(buf, &mut index, max_size)?;
         
@@ -266,7 +266,7 @@ mod test {
         assert_eq!(s2.to_string(), s.to_string());
 
         // stacks strings have a 4-byte length prefix
-        let b = stacks_str.serialize();
+        let b = stacks_str.consensus_serialize();
         let mut bytes = vec![0x00, 0x00, 0x00, s.len() as u8];
         bytes.extend_from_slice(s.as_bytes());
 
