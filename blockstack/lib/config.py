@@ -299,41 +299,40 @@ def load_genesis_bulk_address_lines(path, line_start, line_end):
         print >> sys.stderr, 'FATAL: no such file or directory: "{}"'.format(path)
         os.abort()
 
-    f = open(path, 'r')
-    line_ptr = 0
     ret = []
-    while True:
-        line = f.readline()
-        if len(line) == 0:
-            # EOF
-            break
+    with open(path, 'r') as f:
+        line_ptr = 0
+        while True:
+            line = f.readline()
+            if len(line) == 0:
+                # EOF
+                break
 
-        if line_ptr >= line_start and line_ptr < line_end:
-            line = line.strip()
-            addr = b58ToC32(line)
-            ret.append(addr)
-        
-        line_ptr += 1
-        if line_ptr >= line_end:
-            break
+            if line_ptr >= line_start and line_ptr < line_end:
+                line = line.strip()
+                addr = b58ToC32(line)
+                ret.append(addr)
+            
+            line_ptr += 1
+            if line_ptr >= line_end:
+                break
 
-    if line_ptr != line_end:
-        # underrun
-        print >> sys.stderr, 'FATAL: underrun reading from "{}": EOF at line {}, expected {}'.format(path, line_ptr, line_end)
-        os.abort()
+        if line_ptr != line_end:
+            # underrun
+            print >> sys.stderr, 'FATAL: underrun reading from "{}": EOF at line {}, expected {}'.format(path, line_ptr, line_end)
+            os.abort()
 
-    f.close()
     return ret
 
 def check_genesis_bulk_patch_integrity(path, expected_sha256):
     h = hashlib.new('sha256')
-    f = open(path, 'r')
-    while True:
-        buf = f.read(65536)
-        if len(buf) == 0:
-            break
+    with open(path, 'r') as f:
+        while True:
+            buf = f.read(65536)
+            if len(buf) == 0:
+                break
 
-        h.update(buf)
+            h.update(buf)
 
     return h.hexdigest() == expected_sha256
 
@@ -350,7 +349,22 @@ def get_genesis_bulk_address_path(path):
 def load_genesis_bulk_patch(file_patch):
     from schemas import GENESIS_BLOCK_ROW_SCHEMA
 
-    # format: {'path': '/path/to/patch', 'sha256': ..., 'line_start': start_line, 'line_end': end_line, 'receive_whitelisted': ..., 'lock_send': ..., 'metadata': ..., 'type': ..., 'value': ..., 'vesting': ..., 'vesting_total': ...}
+    """
+    format:
+    {
+        'path': '/path/to/patch', 
+        'sha256': ..., 
+        'line_start': start_line, 
+        'line_end': end_line, 
+        'receive_whitelisted': ..., 
+        'lock_send': ..., 
+        'metadata': ..., 
+        'type': ..., 
+        'value': ..., 
+        'vesting': ..., 
+        'vesting_total': ...
+    }
+    """
     for key in ['path', 'sha256', 'line_start', 'line_end', 'lock_send', 'metadata', 'type', 'value', 'vesting', 'vesting_total']:
         if key not in file_patch:
             print >> sys.stderr, 'FATAL: invalid genesis bulk patch "{}": missing "{}"'.format(file_patch, key)
