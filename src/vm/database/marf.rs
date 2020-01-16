@@ -187,13 +187,10 @@ impl MarfedKV {
         self.side_store.rollback(&self.chain_tip);
         self.chain_tip = TrieFileStorage::block_sentinel();
     }
-    pub fn commit(&mut self) {
-        debug!("_metadata_ COMMIT()"); 
-        // AARON: I'm not sure this path should be considered 'legal' anymore,
-        //     and may want to delete or panic.
-        self.side_store.commit(&self.chain_tip);
-        self.marf.commit()
-            .expect("ERROR: Failed to commit MARF block");
+    #[cfg(test)]
+    pub fn test_commit(&mut self) {
+        let bhh = self.chain_tip.clone();
+        self.commit_to(&bhh);
     }
     // This is used by miners, before renaming their committed blocks.
     //   so that the block validation and processing logic doesn't

@@ -175,7 +175,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
         marf_kv.as_clarity_db().initialize();
     }
 
-    marf_kv.commit();
+    marf_kv.test_commit();
     marf_kv.begin(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
                   &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap());
 
@@ -184,7 +184,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
         f(&mut owned_env)
     }
 
-    marf_kv.commit();
+    marf_kv.test_commit();
 
     // Now, we can do our forking.
 
@@ -196,7 +196,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
         a(&mut owned_env)
     }
 
-    marf_kv.commit();
+    marf_kv.test_commit();
 
     marf_kv.begin(&BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
                   &BlockHeaderHash::from_bytes(&[3 as u8; 32]).unwrap());
@@ -206,7 +206,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
         b(&mut owned_env)
     }
 
-    marf_kv.commit();
+    marf_kv.test_commit();
 
 
     marf_kv.begin(&BlockHeaderHash::from_bytes(&[2 as u8; 32]).unwrap(),
@@ -217,7 +217,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
         z(&mut owned_env)
     }
 
-    marf_kv.commit();
+    marf_kv.test_commit();
     
 }
 

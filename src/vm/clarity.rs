@@ -144,7 +144,7 @@ impl <'a> ClarityBlockConnection <'a> {
     #[cfg(test)]
     pub fn commit_block(mut self) {
         debug!("Commit Clarity datastore");
-        self.datastore.commit();
+        self.datastore.test_commit();
 
         self.parent.datastore.replace(self.datastore);
     }

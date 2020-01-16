@@ -44,7 +44,7 @@ where F: FnOnce(&mut OwnedEnvironment) -> ()
         marf_kv.as_clarity_db().initialize();
     }
 
-    marf_kv.commit();
+    marf_kv.test_commit();
     marf_kv.begin(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
                   &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap());
 

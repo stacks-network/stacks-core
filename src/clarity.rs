@@ -160,7 +160,7 @@ where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
     let (from, to) = advance_cli_chain_tip(&cli_db_path);
     marf_kv.begin(&from, &to);
     let (mut marf_return, result) = f(marf_kv);
-    marf_return.commit();
+    marf_return.commit_to(&to);
     result
 }
 
