@@ -14,7 +14,6 @@ pub enum LexItem {
     LiteralValue(usize, Value),
     UnexpandedContractName(usize, ContractName),
     Variable(String),
-    Generic(String),
     Whitespace
 }
 
@@ -23,7 +22,7 @@ enum TokenType {
     LParens, RParens, Whitespace,
     StringLiteral, HexStringLiteral,
     UIntLiteral, IntLiteral, QuoteLiteral,
-    Variable, Generic, PrincipalLiteral,
+    Variable, GenericLiteral, PrincipalLiteral,
     QualifiedContractPrincipalLiteral,
     UnexpandedContractNameLiteral
 }
@@ -73,7 +72,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
-        LexMatcher::new("<(?P<value>([[:word:]])+)>", TokenType::Generic),
+        LexMatcher::new("<(?P<value>([[:word:]])+)>", TokenType::GenericLiteral),
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
@@ -198,13 +197,12 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
-                    TokenType::Generic => {
-                        let value = get_value_or_err(current_slice, captures)?;
-                        if value.contains("#") { // todo(ludo): re-evaluate this branch
-                            Err(ParseError::new(ParseErrors::IllegalVariableName(value)))
-                        } else {
-                            Ok(LexItem::Generic(value))
-                        }
+                    TokenType::GenericLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let data = str_value.clone().try_into()
+                            .map_err(|_| { ParseError::new(ParseErrors::IllegalVariableName(str_value.to_string())) })?;
+                        let value = Value::generic_from(data);
+                        Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
                     TokenType::HexStringLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
@@ -286,19 +284,6 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     Some((ref mut list, _, _)) => list.push(pre_expr)
                 };
             },
-            LexItem::Generic(value) => {
-                let end_column = column_pos + (value.len() as u32) - 1;
-                let value = value.clone().try_into()
-                    .map_err(|_| { ParseError::new(ParseErrors::IllegalVariableName(value.to_string())) })?;
-                let mut pre_expr = PreSymbolicExpression::generic(value);
-                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
-
-                match parse_stack.last_mut() {
-                    None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _)) => list.push(pre_expr)
-                };
-
-            }
             LexItem::LiteralValue(length, value) => {
                 let mut end_column = column_pos + (length as u32);
                 // Avoid underflows on cases like empty strings
