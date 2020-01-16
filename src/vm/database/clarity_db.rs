@@ -9,11 +9,11 @@ use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
 
 use util::hash::{Sha256Sum, Sha512Trunc256Sum};
-use vm::database::MarfedKV;
+use vm::database::{MarfedKV, ClarityBackingStore};
 use vm::database::structures::{
     FungibleTokenMetadata, NonFungibleTokenMetadata, ContractMetadata,
     DataMapMetadata, DataVariableMetadata, ClaritySerializable, SimmedBlock,
-    ClarityDeserializable,
+    ClarityDeserializable
 };
 use vm::database::RollbackWrapper;
 
@@ -43,7 +43,7 @@ pub struct ClarityDatabase<'a> {
 }
 
 impl <'a> ClarityDatabase <'a> {
-    pub fn new(store: &'a mut MarfedKV) -> ClarityDatabase<'a> {
+    pub fn new(store: &'a mut dyn ClarityBackingStore) -> ClarityDatabase<'a> {
         ClarityDatabase {
             store: RollbackWrapper::new(store)
         }

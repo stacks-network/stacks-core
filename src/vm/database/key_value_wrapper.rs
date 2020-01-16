@@ -1,4 +1,4 @@
-use super::MarfedKV;
+use super::{MarfedKV, ClarityBackingStore};
 use vm::errors::{ InterpreterResult as Result };
 use chainstate::burn::BlockHeaderHash;
 use std::collections::{HashMap};
@@ -12,7 +12,7 @@ pub struct RollbackContext {
 
 pub struct RollbackWrapper <'a> {
     // the underlying key-value storage.
-    store: &'a mut MarfedKV,
+    store: &'a mut dyn ClarityBackingStore,
     // lookup_map is a history of edits for a given key.
     //   in order of least-recent to most-recent at the tail.
     //   this allows ~ O(1) lookups, and ~ O(1) commits, roll-backs (amortized by # of PUTs).
@@ -43,7 +43,7 @@ where T: Eq + Hash + Clone {
 }
 
 impl <'a> RollbackWrapper <'a> {
-    pub fn new(store: &'a mut MarfedKV) -> RollbackWrapper {
+    pub fn new(store: &'a mut dyn ClarityBackingStore) -> RollbackWrapper {
         RollbackWrapper {
             store: store,
             lookup_map: HashMap::new(),

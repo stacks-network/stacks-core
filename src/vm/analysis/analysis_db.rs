@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
 use vm::database::{ClaritySerializable, ClarityDeserializable,
-                   RollbackWrapper, MarfedKV, in_memory_marf};
+                   RollbackWrapper, MarfedKV, ClarityBackingStore};
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::analysis::type_checker::{ContractAnalysis};
 
@@ -25,7 +25,7 @@ impl ClarityDeserializable<ContractAnalysis> for ContractAnalysis {
 }
 
 impl <'a> AnalysisDatabase <'a> {
-    pub fn new(store: &'a mut MarfedKV) -> AnalysisDatabase<'a> {
+    pub fn new(store: &'a mut dyn ClarityBackingStore) -> AnalysisDatabase<'a> {
         AnalysisDatabase {
             store: RollbackWrapper::new(store)
         }

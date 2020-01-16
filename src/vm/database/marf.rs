@@ -20,13 +20,74 @@ use util::hash::{to_hex, hex_bytes};
 ///   (See: vm::tests::with_marfed_environment()) 
 pub struct MarfedKV {
     chain_tip: BlockHeaderHash,
-    // the MARF is option'ed, if None, then this KV is "marfless".
-    //    this is used for raw evals, testing --- use cases formerly that used a generic datastore.
-    // functions which _assume_ a MARF present will panic if the MARF is None.
-    marf: Option<MARF>,
+    marf: MARF,
     // Since the MARF only stores 32 bytes of value,
     //   we need another storage
     side_store: SqliteConnection
+}
+
+pub struct MemoryBackingStore {
+    side_store: SqliteConnection
+}
+
+// These functions generally _do not_ return errors, rather, any errors in the underlying storage
+//    will _panic_. The rationale for this is that under no condition should the interpreter
+//    attempt to continue processing in the event of an unexpected storage error.
+pub trait ClarityBackingStore {
+    /// put K-V data into the committed datastore
+    fn put_all(&mut self, items: Vec<(String, String)>);
+    /// fetch K-V out of the committed datastore
+    fn get(&mut self, key: &str) -> Option<String>;
+    fn has_entry(&mut self, key: &str) -> bool {
+        self.get(key).is_some()
+    }
+
+    /// change the current MARF context to service reads from a different chain_tip
+    ///   used to implement time-shifted evaluation.
+    /// returns the previous block header hash on success
+    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash>;
+
+    fn get_block_at_height(&mut self, height: u32) -> Option<BlockHeaderHash>;
+    fn get_open_chain_tip_height(&mut self) -> u32;
+    fn get_open_chain_tip(&mut self) -> BlockHeaderHash;
+    fn get_side_store(&mut self) -> &mut SqliteConnection;
+
+    /// The contract commitment is the hash of the contract, plus the block height in
+    ///   which the contract was initialized.
+    fn make_contract_commitment(&mut self, contract_hash: [u8; 32]) -> String {
+        let block_height = self.get_open_chain_tip_height();
+        let cc = ContractCommitment { hash: contract_hash, block_height };
+        cc.serialize()
+    }
+
+    /// This function is used to obtain a committed contract hash, and the block header hash of the block
+    ///   in which the contract was initialized. This data is used to store contract metadata in the side
+    ///   store.
+    fn get_contract_hash(&mut self, contract: &QualifiedContractIdentifier) -> Result<(BlockHeaderHash, String)> {
+        let key = MarfedKV::make_contract_hash_key(contract);
+        let contract_commitment = self.get(&key).map(|x| ContractCommitment::deserialize(&x))
+            .ok_or_else(|| { CheckErrors::NoSuchContract(contract.to_string()) })?;
+        let ContractCommitment { block_height, hash: contract_hash } = contract_commitment;
+        let bhh = self.get_block_at_height(block_height)
+            .expect("Should always be able to map from height to block hash when looking up contract information.");
+        Ok((bhh, to_hex(&contract_hash)))
+    }
+
+    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
+        let bhh = self.get_open_chain_tip();
+        self.get_side_store().insert_metadata(&bhh, &contract.to_string(), key, value)
+    }
+
+    fn get_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str) -> Result<Option<String>> {
+        let (bhh, _) = self.get_contract_hash(contract)?;
+        Ok(self.get_side_store().get_metadata(&bhh, &contract.to_string(), key))
+    }
+
+    fn put_all_metadata(&mut self, mut items: Vec<((QualifiedContractIdentifier, String), String)>) {
+        for ((contract, key), value) in items.drain(..) {
+            self.insert_metadata(&contract, &key, &value);
+        }
+    }
 }
 
 struct ContractCommitment {
@@ -62,14 +123,13 @@ pub fn temporary_marf() -> MarfedKV {
 
     let chain_tip = TrieFileStorage::block_sentinel();
 
-    MarfedKV { marf: Some(marf), chain_tip, side_store }
+    MarfedKV { marf, chain_tip, side_store }
 }
 
-pub fn in_memory_marf() -> MarfedKV {
+pub fn in_memory_marf() -> MemoryBackingStore {
     let side_store = SqliteConnection::memory().unwrap();
-    let chain_tip = TrieFileStorage::block_sentinel();
 
-    let mut memory_marf = MarfedKV { marf: None, chain_tip, side_store };
+    let mut memory_marf = MemoryBackingStore { side_store };
 
     memory_marf.as_clarity_db().initialize();
 
@@ -102,7 +162,7 @@ pub fn sqlite_marf(path_str: &str, miner_tip: Option<&BlockHeaderHash>) -> Resul
         None => TrieFileStorage::block_sentinel()
     };
 
-    Ok( MarfedKV { marf: Some(marf), chain_tip, side_store } )
+    Ok( MarfedKV { marf, chain_tip, side_store } )
 }
 
 impl MarfedKV {
@@ -124,16 +184,15 @@ impl MarfedKV {
     ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
 
     pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
-        let marf = self.marf.as_mut().unwrap();
-        marf.begin(current, next)
+        self.marf.begin(current, next)
             .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current.to_hex(), next.to_hex()));
-        self.chain_tip = marf.get_open_chain_tip()
+        self.chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Failed to get open MARF")
             .clone();
         self.side_store.begin(&self.chain_tip);
     }
     pub fn rollback(&mut self) {
-        self.marf.as_mut().unwrap().drop_current();
+        self.marf.drop_current();
         self.side_store.rollback(&self.chain_tip);
         self.chain_tip = TrieFileStorage::block_sentinel();
     }
@@ -142,7 +201,7 @@ impl MarfedKV {
         // AARON: I'm not sure this path should be considered 'legal' anymore,
         //     and may want to delete or panic.
         self.side_store.commit(&self.chain_tip);
-        self.marf.as_mut().unwrap().commit()
+        self.marf.commit()
             .expect("ERROR: Failed to commit MARF block");
     }
     // This is used by miners, before renaming their committed blocks.
@@ -152,14 +211,14 @@ impl MarfedKV {
         debug!("commit_for_move: ({}->{})", &self.chain_tip, will_move_to); 
         self.side_store.move_metadata_to(&self.chain_tip, will_move_to);
         self.side_store.commit(&self.chain_tip);
-        self.marf.as_mut().unwrap().commit()
+        self.marf.commit()
             .expect("ERROR: Failed to commit MARF block");
     }
     pub fn commit_to(&mut self, final_bhh: &BlockHeaderHash) {
         debug!("commit_to({})", final_bhh); 
         self.side_store.commit_metadata_to(&self.chain_tip, final_bhh);
         self.side_store.commit(&self.chain_tip);
-        self.marf.as_mut().unwrap().commit_to(final_bhh)
+        self.marf.commit_to(final_bhh)
             .expect("ERROR: Failed to commit MARF block");
     }
     pub fn get_chain_tip(&self) -> &BlockHeaderHash {
@@ -169,30 +228,35 @@ impl MarfedKV {
     // This function *should not* be called by
     //   a smart-contract, rather it should only be used by the VM
     pub fn get_root_hash(&mut self) -> TrieHash {
-        self.marf.as_mut().unwrap()
+        self.marf
             .get_root_hash_at(&self.chain_tip)
             .expect("FATAL: Failed to read MARF root hash")
     }
 
     pub fn get_marf(&mut self) -> &mut MARF {
-        self.marf.as_mut().unwrap()
+        &mut self.marf
     }
 
-    #[cfg(test)]
-    pub fn get_side_store(&mut self) -> &mut SqliteConnection {
-        &mut self.side_store
+    pub fn put(&mut self, key: &str, value: &str) {
+        let marf_value = MARFValue::from_value(value);
+        self.side_store.put(&marf_value.to_hex(), value);
+
+        self.marf.insert(key, marf_value)
+            .expect("ERROR: Unexpected MARF Failure")
+    }
+
+    pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
+        format!("clarity-contract::{}", contract)
     }
 }
 
-// These functions _do not_ return errors, rather, any errors in the underlying storage
-//    will _panic_. The rationale for this is that under no condition should the interpreter
-//    attempt to continue processing in the event of an unexpected storage error.
-impl MarfedKV {
-    /// returns the previous block header hash on success
-    pub fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
-        let marf = self.marf.as_mut().ok_or_else(|| RuntimeErrorType::UnknownBlockHeaderHash(bhh))?;
+impl ClarityBackingStore for MarfedKV {
+    fn get_side_store(&mut self) -> &mut SqliteConnection {
+        &mut self.side_store
+    }
 
-        marf.check_ancestor_block_hash(&bhh).map_err(|e| {
+    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+        self.marf.check_ancestor_block_hash(&bhh).map_err(|e| {
             match e {
                 MarfError::NotFoundError => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
                 MarfError::NonMatchingForks(_,_) => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
@@ -204,132 +268,107 @@ impl MarfedKV {
         self.chain_tip = bhh;
 
         result
-    } 
-
-    pub fn put(&mut self, key: &str, value: &str) {
-        match self.marf {
-            Some(ref mut marf) => {
-                let marf_value = MARFValue::from_value(value);
-
-                self.side_store.put(&marf_value.to_hex(), value);
-
-                marf.insert(key, marf_value)
-                    .expect("ERROR: Unexpected MARF Failure")
-            },
-            None => {
-                self.side_store.put(key, value);
-            }
-        }  
     }
 
-    pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
-        format!("clarity-contract::{}", contract)
+    fn get_block_at_height(&mut self, block_height: u32) -> Option<BlockHeaderHash> {
+        self.marf.get_bhh_at_height(&self.chain_tip, block_height)
+            .expect("Unexpected MARF failure.")
     }
 
-    /// The contract commitment is the hash of the contract, plus the block height in
-    ///   which the contract was initialized.
-    pub fn make_contract_commitment(&mut self, contract_hash: [u8; 32]) -> String {
-        let block_height = match self.marf {
-            None => 0,
-            Some(ref marf) => marf.get_open_chain_tip_height().expect("Metadata write attempted on unopened MARF")
-        };
-        let cc = ContractCommitment { hash: contract_hash, block_height };
-        cc.serialize()
+    fn get_open_chain_tip(&mut self) -> BlockHeaderHash {
+        self.marf.get_open_chain_tip()
+            .expect("Attempted to get the open chain tip from an unopened context.")
+            .clone()
     }
 
-    /// This function is used to obtain a committed contract hash, and the block header hash of the block
-    ///   in which the contract was initialized. This data is used to store contract metadata in the side
-    ///   store.
+    fn get_open_chain_tip_height(&mut self) -> u32 {
+        self.marf.get_open_chain_tip_height()
+            .expect("Attempted to get the open chain tip from an unopened context.")
+    }
+
+    fn get(&mut self, key: &str) -> Option<String> {
+        self.marf.get(&self.chain_tip, key)
+            .or_else(|e| {
+                match e {
+                    MarfError::NotFoundError => Ok(None),
+                    _ => Err(e)
+                }
+            })
+            .expect("ERROR: Unexpected MARF Failure on GET")
+            .map(|marf_value| {
+                let side_key = marf_value.to_hex();
+                self.side_store.get(&side_key)
+                    .expect(&format!("ERROR: MARF contained value_hash not found in side storage: {}",
+                                     side_key))
+            })
+    }
+
+    fn put_all(&mut self, mut items: Vec<(String, String)>) {
+        let mut keys = Vec::new();
+        let mut values = Vec::new();
+        for (key, value) in items.drain(..) {
+            let marf_value = MARFValue::from_value(&value);
+            self.side_store.put(&marf_value.to_hex(), &value);
+            keys.push(key);
+            values.push(marf_value);
+        }
+        self.marf.insert_batch(&keys, values)
+            .expect("ERROR: Unexpected MARF Failure");
+    }
+}
+
+
+impl MemoryBackingStore {
+    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+        ClarityDatabase::new(self)
+    }
+
+    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+        AnalysisDatabase::new(self)
+    }
+
     pub fn get_contract_hash(&mut self, contract: &QualifiedContractIdentifier) -> Result<(BlockHeaderHash, String)> {
         let key = MarfedKV::make_contract_hash_key(contract);
         let contract_commitment = self.get(&key).map(|x| ContractCommitment::deserialize(&x))
             .ok_or_else(|| { CheckErrors::NoSuchContract(contract.to_string()) })?;
         let ContractCommitment { block_height, hash: contract_hash } = contract_commitment;
-        let bhh = match self.marf {
-            Some(ref mut marf) => {
-                marf.get_bhh_at_height(&self.chain_tip, block_height)
-                    .expect("Should always be able to map from height to block hash.")
-                    .expect("Should always be able to map from height to block hash.")
-            },
-            None => {
-                TrieFileStorage::block_sentinel()
-            }
-        };
+        let bhh = TrieFileStorage::block_sentinel();
         Ok((bhh, to_hex(&contract_hash)))
     }
+}
 
-    pub fn get_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str) -> Result<Option<String>> {
-        let (bhh, _) = self.get_contract_hash(contract)?;
-        Ok(self.side_store.get_metadata(&bhh, &contract.to_string(), key))
+impl ClarityBackingStore for MemoryBackingStore {
+    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+        Err(RuntimeErrorType::UnknownBlockHeaderHash(bhh).into())
     }
 
-    pub fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) -> bool {
-        match self.marf {
-            Some(ref marf) => {
-                let bhh = marf.get_open_chain_tip().expect("Metadata write attempted on unopened MARF");
-                self.side_store.insert_metadata(bhh, &contract.to_string(), key, value)
-            },
-            None => {
-                let bhh = TrieFileStorage::block_sentinel();
-                self.side_store.insert_metadata(&bhh, &contract.to_string(), key, value)
-            }
+    fn get(&mut self, key: &str) -> Option<String> {
+        self.side_store.get(key)
+    }
+
+    fn get_side_store(&mut self) -> &mut SqliteConnection {
+        &mut self.side_store
+    }
+
+    fn get_block_at_height(&mut self, height: u32) -> Option<BlockHeaderHash> {
+        if height == 0 {
+            Some(TrieFileStorage::block_sentinel())
+        } else {
+            None
         }
     }
 
-    pub fn put_all_metadata(&mut self, mut items: Vec<((QualifiedContractIdentifier, String), String)>) {
-        for ((contract, key), value) in items.drain(..) {
-            self.insert_metadata(&contract, &key, &value);
+    fn get_open_chain_tip(&mut self) -> BlockHeaderHash {
+        TrieFileStorage::block_sentinel()
+    }
+
+    fn get_open_chain_tip_height(&mut self) -> u32 {
+        0
+    }
+
+    fn put_all(&mut self, mut items: Vec<(String, String)>) {
+        for (key, value) in items.drain(..) {
+            self.side_store.put(&key, &value);
         }
     }
-
-    pub fn get(&mut self, key: &str) -> Option<String> {
-        match self.marf {
-            Some(ref mut marf) => {
-                marf.get(&self.chain_tip, key)
-                    .or_else(|e| {
-                        match e {
-                            MarfError::NotFoundError => Ok(None),
-                            _ => Err(e)
-                        }
-                    })
-                    .expect("ERROR: Unexpected MARF Failure on GET")
-                    .map(|marf_value| {
-                        let side_key = marf_value.to_hex();
-                        self.side_store.get(&side_key)
-                            .expect(&format!("ERROR: MARF contained value_hash not found in side storage: {}",
-                                             side_key))
-                    })
-            },
-            None => {
-                self.side_store.get(key)
-            }
-        }
-    }
-
-    pub fn has_entry(&mut self, key: &str) -> bool {
-        self.get(key).is_some()
-    }
-
-    pub fn put_all(&mut self, mut items: Vec<(String, String)>) {
-        match self.marf {
-            None => {
-                for (key, value) in items.drain(..) {
-                    self.side_store.put(&key, &value);
-                }
-            },
-            Some(ref mut marf) => {
-                let mut keys = Vec::new();
-                let mut values = Vec::new();
-                for (key, value) in items.drain(..) {
-                    let marf_value = MARFValue::from_value(&value);
-                    self.side_store.put(&marf_value.to_hex(), &value);
-                    keys.push(key);
-                    values.push(marf_value);
-                }
-                marf.insert_batch(&keys, values)
-                    .expect("ERROR: Unexpected MARF Failure");
-            }
-        }
-    }
-
 }

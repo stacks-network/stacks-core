@@ -41,24 +41,15 @@ impl SqliteConnection {
         sqlite_get(&self.conn, key)
     }
 
-    pub fn insert_metadata(&mut self, bhh: &BlockHeaderHash, contract_hash: &str, key: &str, value: &str) -> bool {
+    pub fn insert_metadata(&mut self, bhh: &BlockHeaderHash, contract_hash: &str, key: &str, value: &str) {
         debug!("insert_metadata: {}, {}, {}", bhh, contract_hash, key);
 
         let blockhash = bhh.to_hex();
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 3] = [&blockhash, &key, &value.to_string()];
 
-        match self.conn.execute("INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)", &params) {
-            Ok(_) => true,
-            Err(SqliteError::SqliteFailure(e, _)) => {
-                if e.code == SqliteErrorCode::ConstraintViolation {
-                    false
-                } else {
-                    panic!(SQL_FAIL_MESSAGE)
-                }
-            },
-            _ => panic!(SQL_FAIL_MESSAGE)
-        }
+        self.conn.execute("INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)", &params)
+            .expect(SQL_FAIL_MESSAGE);
     }
 
     pub fn commit_metadata_to(&mut self, from: &BlockHeaderHash, to: &BlockHeaderHash) {
