@@ -30,9 +30,8 @@ use net::asn::ASEntry4;
 use net::*;
 use net::codec::*;
 
-use net::connection::Connection;
 use net::connection::ConnectionOptions;
-use net::connection::NetworkReplyHandle;
+use net::connection::ReplyHandleP2P;
 
 use net::db::LocalPeer;
 
@@ -231,23 +230,23 @@ pub struct NeighborWalk {
     new_frontier: HashMap<NeighborKey, Neighbor>,
 
     // pending request to cur_neighbor to handshake 
-    handshake_request: Option<NetworkReplyHandle>,
+    handshake_request: Option<ReplyHandleP2P>,
 
     // pending request to cur_neighbor to get _its_ neighbors
-    getneighbors_request: Option<NetworkReplyHandle>,
+    getneighbors_request: Option<ReplyHandleP2P>,
 
     // outstanding requests to handshake with our cur_neighbor's neighbors.
     resolved_handshake_neighbors: HashMap<NeighborAddress, Neighbor>,
-    unresolved_handshake_neighbors: HashMap<NeighborAddress, NetworkReplyHandle>,
+    unresolved_handshake_neighbors: HashMap<NeighborAddress, ReplyHandleP2P>,
 
     // outstanding requests to get the neighbors of our cur_neighbor's neighbors
     resolved_getneighbors_neighbors: HashMap<NeighborKey, Vec<NeighborAddress>>,
-    unresolved_getneighbors_neighbors: HashMap<NeighborKey, NetworkReplyHandle>,
+    unresolved_getneighbors_neighbors: HashMap<NeighborKey, ReplyHandleP2P>,
 
     // outstanding requests to ping existing neighbors to be replaced in the frontier
     neighbor_replacements: HashMap<NeighborKey, Neighbor>,
     replaced_neighbors: HashMap<NeighborKey, u32>,
-    unresolved_neighbor_pings: HashMap<NeighborKey, NetworkReplyHandle>,
+    unresolved_neighbor_pings: HashMap<NeighborKey, ReplyHandleP2P>,
 
     // neighbor walk result we build up incrementally 
     result: NeighborWalkResult,
@@ -360,7 +359,7 @@ impl NeighborWalk {
     }
 
     /// Begin handshaking with our current neighbor 
-    pub fn handshake_begin(&mut self, local_peer: &LocalPeer, req: Option<NetworkReplyHandle>) -> () {
+    pub fn handshake_begin(&mut self, local_peer: &LocalPeer, req: Option<ReplyHandleP2P>) -> () {
         assert!(self.state == NeighborWalkState::HandshakeBegin);
 
         self.handshake_request = req;
@@ -450,7 +449,7 @@ impl NeighborWalk {
     }
 
     /// Begin refreshing our knowledge of peer in/out degrees
-    pub fn getneighbors_begin(&mut self, local_peer: &LocalPeer, req: Option<NetworkReplyHandle>) -> () {
+    pub fn getneighbors_begin(&mut self, local_peer: &LocalPeer, req: Option<ReplyHandleP2P>) -> () {
         assert!(self.state == NeighborWalkState::GetNeighborsBegin);
         
         self.resolved_handshake_neighbors.clear();
@@ -577,8 +576,8 @@ impl NeighborWalk {
     }
 
     /// Begin getting the neighors of cur_neighbor's neighbors.
-    /// NetworkReplyHandles should be reply handles for Handshake requests.
-    pub fn neighbor_handshakes_begin(&mut self, local_peer: &LocalPeer, mut handshake_handles: HashMap<NeighborAddress, NetworkReplyHandle>) -> () {
+    /// ReplyHandleP2Ps should be reply handles for Handshake requests.
+    pub fn neighbor_handshakes_begin(&mut self, local_peer: &LocalPeer, mut handshake_handles: HashMap<NeighborAddress, ReplyHandleP2P>) -> () {
         assert!(self.state == NeighborWalkState::GetHandshakesBegin);
 
         // advance state!
@@ -763,7 +762,7 @@ impl NeighborWalk {
 
     /// Begin asking remote neighbors for their neighbors in order to estimate cur_neighbor's
     /// in-degree. 
-    pub fn getneighbors_neighbors_begin(&mut self, local_peer: &LocalPeer, mut getneighbors_handles: HashMap<NeighborKey, NetworkReplyHandle>) -> () {
+    pub fn getneighbors_neighbors_begin(&mut self, local_peer: &LocalPeer, mut getneighbors_handles: HashMap<NeighborKey, ReplyHandleP2P>) -> () {
         assert!(self.state == NeighborWalkState::GetNeighborsNeighborsBegin);
 
         // advance state!
@@ -800,7 +799,7 @@ impl NeighborWalk {
                             },
                             _ => {
                                 // unexpected reply
-                                debug!("Neighbor {:?} replied an out-of-sequence message (type {}); assuming broken", &nkey, message_type_to_id(&message.payload));
+                                debug!("Neighbor {:?} replied an out-of-sequence message (type {}); assuming broken", &nkey, message.get_message_name());
                                 self.result.add_broken(nkey);
                             }
                         }
@@ -978,7 +977,7 @@ impl NeighborWalk {
 
     // proceed to ping _existing_ neighbors that would be replaced by the discovery of a new
     // neighbor
-    pub fn ping_existing_neighbors_begin(&mut self, local_peer: &LocalPeer, mut network_handles: HashMap<NeighborKey, NetworkReplyHandle>) -> () {
+    pub fn ping_existing_neighbors_begin(&mut self, local_peer: &LocalPeer, mut network_handles: HashMap<NeighborKey, ReplyHandleP2P>) -> () {
         assert!(self.state == NeighborWalkState::NeighborsPingBegin);
 
         self.unresolved_neighbor_pings.clear();
@@ -1027,7 +1026,7 @@ impl NeighborWalk {
                         },
                         _ => {
                             // unexpected reply -- this peer is misbehaving and should be replaced
-                            debug!("Neighbor {:?} replied an out-of-sequence message (type {}); will replace", &nkey, message_type_to_id(&message.payload));
+                            debug!("Neighbor {:?} replied an out-of-sequence message (type {}); will replace", &nkey, message.get_message_name());
                             self.result.add_broken(nkey);
                         }
                     };
@@ -1109,7 +1108,7 @@ impl PeerNetwork {
     }
 
     /// Connect to a remote peer and begin to handshake with it.
-    fn connect_and_handshake(&mut self, walk: &mut NeighborWalk, local_peer: &LocalPeer, chain_view: &BurnchainView, nk: &NeighborKey) -> Result<NetworkReplyHandle, net_error> {
+    fn connect_and_handshake(&mut self, walk: &mut NeighborWalk, local_peer: &LocalPeer, chain_view: &BurnchainView, nk: &NeighborKey) -> Result<ReplyHandleP2P, net_error> {
         if !self.is_registered(nk) {
             let con_res = self.connect_peer(&local_peer, chain_view, nk);
             match con_res {
@@ -1161,6 +1160,18 @@ impl PeerNetwork {
         Ok(())
     }
 
+    fn with_walk_state<F, R>(network: &mut PeerNetwork, handler: F) -> Result<R, net_error>
+    where
+        F: FnOnce(&mut PeerNetwork, &mut NeighborWalk) -> Result<R, net_error>
+    {
+        let mut walk = network.walk.take();
+        let res = match walk {
+            None => Err(net_error::NotConnected),
+            Some(ref mut walk) => handler(network, walk)
+        };
+        network.walk = walk;
+        res
+    }
 
     /// Begin walking the peer graph by reaching out to a neighbor and handshaking with it.
     /// Return an error to reset the walk.
@@ -1168,70 +1179,40 @@ impl PeerNetwork {
         if self.walk.is_none() {
             self.instantiate_walk(chain_view)?;
         }
-        
-        // We have to jump thru a few hoops to access self and walk mutably.
-        // also, we want "try/catch"-like behavior, where we can capture
-        // an error returned by the `?` operator.  To do this, we put the
-        // body of this method in a closure as follows.
-        let mut walk = self.walk.take();
-        let res = {
-            let mut trycatch = |my_walk: &mut Option<NeighborWalk>| {
-                match my_walk {
-                    None => unreachable!(),
-                    Some(ref mut walk) => {
-                        match walk.handshake_request {
-                            Some(_) => {
-                                // in progress already
-                                Ok(())
-                            },
-                            None => {
-                                let my_addr = walk.cur_neighbor.addr.clone();
-                                walk.clear_state();
+       
+        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+            match walk.handshake_request {
+                Some(_) => {
+                    // in progress already
+                    Ok(())
+                },
+                None => {
+                    let my_addr = walk.cur_neighbor.addr.clone();
+                    walk.clear_state();
 
-                                let handle = self.connect_and_handshake(walk, local_peer, chain_view, &my_addr)?;
-                                walk.handshake_begin(local_peer, Some(handle));
-                                Ok(())
-                            }
-                        }
-                    }
+                    let handle = network.connect_and_handshake(walk, local_peer, chain_view, &my_addr)?;
+                    walk.handshake_begin(local_peer, Some(handle));
+                    Ok(())
                 }
-            };
-            trycatch(&mut walk)
-        };
-
-        self.walk = walk;
-        res
+            }
+        })
     }
 
     /// Try to finish handshaking with our current neighbor
     pub fn walk_handshake_try_finish(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView) -> Result<Option<Neighbor>, net_error> {
-        let mut walk = self.walk.take();
-        let res = {
-            let mut trycatch = |my_walk: &mut Option<NeighborWalk>| {
-                match my_walk {
-                    None => {
-                        panic!("Invalid neighbor-walk state reached -- cannot finish getting neighbors when the walk state is not instantiated");
-                    },
-                    Some(ref mut walk) => {
-                        let neighbor_opt = {
-                            let mut tx = self.peerdb.tx_begin()
-                                .map_err(|_e| net_error::DBError)?;
+        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+            let neighbor_opt = {
+                let mut tx = network.peerdb.tx_begin()
+                    .map_err(|_e| net_error::DBError)?;
 
-                            let res = walk.handshake_try_finish(&mut tx, local_peer, chain_view.burn_block_height, chain_view.burn_stable_block_height)?;
-                            tx.commit()
-                                .map_err(|_e| net_error::DBError)?;
+                let res = walk.handshake_try_finish(&mut tx, local_peer, chain_view.burn_block_height, chain_view.burn_stable_block_height)?;
+                tx.commit()
+                    .map_err(|_e| net_error::DBError)?;
 
-                            res
-                        };
-                        Ok(neighbor_opt)
-                    }
-                }
+                res
             };
-            trycatch(&mut walk)
-        };
-
-        self.walk = walk;
-        res
+            Ok(neighbor_opt)
+        })
     }
 
     /// Begin walking the peer graph by reaching out to a neighbor, connecting to _it's_ neighbors,
@@ -1239,303 +1220,232 @@ impl PeerNetwork {
     /// and then stepping to one of the neighbor's neighbors.
     /// Return an error to reset the walk.
     pub fn walk_getneighbors_begin(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView) -> Result<(), net_error> {
-        let mut walk = self.walk.take();
-        let res = {
-            let mut trycatch = |my_walk: &mut Option<NeighborWalk>| {
-                match my_walk {
-                    None => {
-                        panic!("Invalid neighbor-walk state reached -- cannot finish getting our neighbor's neighbors when the walk state is not instantiated");
-                    },
-                    Some(ref mut walk) => {
-                        match walk.getneighbors_request {
-                            Some(_) => {
-                                Ok(())
-                            },
-                            None => {
-                                test_debug!("{:?}: send GetNeighbors to {:?}", &local_peer, &walk.cur_neighbor);
+        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+            match walk.getneighbors_request {
+                Some(_) => {
+                    Ok(())
+                },
+                None => {
+                    test_debug!("{:?}: send GetNeighbors to {:?}", &local_peer, &walk.cur_neighbor);
 
-                                let msg = self.sign_for_peer(local_peer, chain_view, &walk.cur_neighbor.addr, StacksMessageType::GetNeighbors)?;
-                                let req_res = self.send_message(&walk.cur_neighbor.addr, msg, get_epoch_time_secs() + NEIGHBOR_REQUEST_TIMEOUT);
-                                match req_res {
-                                    Ok(handle) => {
-                                        walk.getneighbors_begin(local_peer, Some(handle));
-                                        Ok(())
-                                    },
-                                    Err(e) => {
-                                        debug!("Not connected: {:?} ({:?}", &walk.cur_neighbor.addr, &e);
-                                        Err(e)
-                                    }
-                                }
-                            }
+                    let msg = network.sign_for_peer(local_peer, chain_view, &walk.cur_neighbor.addr, StacksMessageType::GetNeighbors)?;
+                    let req_res = network.send_message(&walk.cur_neighbor.addr, msg, get_epoch_time_secs() + NEIGHBOR_REQUEST_TIMEOUT);
+                    match req_res {
+                        Ok(handle) => {
+                            walk.getneighbors_begin(local_peer, Some(handle));
+                            Ok(())
+                        },
+                        Err(e) => {
+                            debug!("Not connected: {:?} ({:?}", &walk.cur_neighbor.addr, &e);
+                            Err(e)
                         }
                     }
                 }
-            };
-            trycatch(&mut walk)
-        };
-
-        self.walk = walk;
-        res
+            }
+        })
     }
 
     /// Make progress completing the pending getneighbor request, and if it completes,
     /// proceed to handshake with all its neighbors that we don't know about.
     /// Return an error to reset the walk.
     pub fn walk_getneighbors_try_finish(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView) -> Result<(), net_error> {
-        let my_pubkey_hash = Hash160::from_data(&Secp256k1PublicKey::from_private(&local_peer.private_key).to_bytes()[..]);
+        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+            let my_pubkey_hash = Hash160::from_data(&Secp256k1PublicKey::from_private(&local_peer.private_key).to_bytes()[..]);
+            let cur_neighbor_pubkey_hash = Hash160::from_data(&walk.cur_neighbor.public_key.to_bytes_compressed()[..]);
+            let neighbor_addrs_opt = walk.getneighbors_try_finish(network.peerdb.conn(), local_peer, chain_view.burn_block_height)?;
+            match neighbor_addrs_opt {
+                None => {
+                    // nothing to do -- not done yet
+                    Ok(())
+                },
+                Some(neighbor_addrs) => {
+                    // got neighbors -- proceed to ask each one for *its* neighbors so we can
+                    // estimate cur_neighbor's in-degree and grow our frontier.
+                    let mut pending_handshakes = HashMap::new();
+                    let now = get_epoch_time_secs();
 
-        let mut walk = self.walk.take();
-        let res = {
-            let mut trycatch = |my_walk: &mut Option<NeighborWalk>| {
-                match my_walk {
-                    None => {
-                        panic!("Invalid neighbor-walk state reached -- cannot finish getting neighbors when the walk state is not instantiated");
-                    },
-                    Some(ref mut walk) => {
-                        let cur_neighbor_pubkey_hash = Hash160::from_data(&walk.cur_neighbor.public_key.to_bytes_compressed()[..]);
-                        let neighbor_addrs_opt = walk.getneighbors_try_finish(self.peerdb.conn(), local_peer, chain_view.burn_block_height)?;
-                        match neighbor_addrs_opt {
-                            None => {
-                                // nothing to do -- not done yet
-                                Ok(())
-                            },
-                            Some(neighbor_addrs) => {
-                                // got neighbors -- proceed to ask each one for *its* neighbors so we can
-                                // estimate cur_neighbor's in-degree and grow our frontier.
-                                let mut pending_handshakes = HashMap::new();
-                                let now = get_epoch_time_secs();
+                    for na in neighbor_addrs {
+                        // don't talk to myself if we're listed as a neighbor of this
+                        // remote peer.
+                        if na.public_key_hash == my_pubkey_hash {
+                            continue;
+                        }
 
-                                for na in neighbor_addrs {
-                                    // don't talk to myself if we're listed as a neighbor of this
-                                    // remote peer.
-                                    if na.public_key_hash == my_pubkey_hash {
-                                        continue;
-                                    }
+                        // don't handshake with cur_neighbor, if for some reason it gets listed
+                        // in the neighbors reply
+                        if na.public_key_hash == cur_neighbor_pubkey_hash {
+                            continue;
+                        }
 
-                                    // don't handshake with cur_neighbor, if for some reason it gets listed
-                                    // in the neighbors reply
-                                    if na.public_key_hash == cur_neighbor_pubkey_hash {
-                                        continue;
-                                    }
-
-                                    let nk = NeighborKey::from_neighbor_address(self.burnchain.peer_version, self.burnchain.network_id, &na);
-                                    let handle_res = self.connect_and_handshake(walk, local_peer, chain_view, &nk);
-                                    match handle_res {
-                                        Ok(handle) => {
-                                            pending_handshakes.insert(na, handle);
-                                        }
-                                        Err(e) => {
-                                            continue;
-                                        }
-                                    }
-                                }
-
-                                walk.neighbor_handshakes_begin(local_peer, pending_handshakes);
-                                Ok(())
+                        let nk = NeighborKey::from_neighbor_address(network.burnchain.peer_version, network.burnchain.network_id, &na);
+                        let handle_res = network.connect_and_handshake(walk, local_peer, chain_view, &nk);
+                        match handle_res {
+                            Ok(handle) => {
+                                pending_handshakes.insert(na, handle);
+                            }
+                            Err(e) => {
+                                continue;
                             }
                         }
                     }
-                }
-            };
-            trycatch(&mut walk)
-        };
 
-        self.walk = walk;
-        res
+                    walk.neighbor_handshakes_begin(local_peer, pending_handshakes);
+                    Ok(())
+                }
+            }
+        })
     }
 
     /// Make progress on completing handshakes with all our neighbors.  If we finish, proceed to
     /// ask them for their neighbors in order to estimate cur_neighbor's in/out degrees.
     /// Return an error to reset the walk.
     pub fn walk_neighbor_handshakes_try_finish(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView) -> Result<(), net_error> {
-        let mut walk = self.walk.take();
-        let res = {
-            let mut trycatch = |my_walk: &mut Option<NeighborWalk>| {
-                match my_walk {
-                    None => {
-                        panic!("Invalid neighbor-walk state reached -- cannot finish handshaking with neighbor's frontier when the walk state is not instantiated");
-                    },
-                    Some(ref mut walk) => {
-                        let neighbor_keys_opt = {
-                            let mut tx = self.peerdb.tx_begin()
-                                .map_err(|_e| net_error::DBError)?;
+        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+            let neighbor_keys_opt = {
+                let mut tx = network.peerdb.tx_begin()
+                    .map_err(|_e| net_error::DBError)?;
 
-                            let res = walk.neighbor_handshakes_try_finish(&mut tx, local_peer, chain_view.burn_block_height, chain_view.burn_stable_block_height)?;
-                            tx.commit()
-                                .map_err(|_e| net_error::DBError)?;
-                            res
-                        };
+                let res = walk.neighbor_handshakes_try_finish(&mut tx, local_peer, chain_view.burn_block_height, chain_view.burn_stable_block_height)?;
+                tx.commit()
+                    .map_err(|_e| net_error::DBError)?;
+                res
+            };
 
-                        match neighbor_keys_opt {
-                            None => {
-                                // nothing to do -- still working 
-                                Ok(())
-                            },
-                            Some(neighbor_keys) => {
-                                // finished handshaking.  Proceed to estimate cur_neighbor's in-degree
-                                let mut pending_getneighbors = HashMap::new();
-                                let now = get_epoch_time_secs();
+            match neighbor_keys_opt {
+                None => {
+                    // nothing to do -- still working 
+                    Ok(())
+                },
+                Some(neighbor_keys) => {
+                    // finished handshaking.  Proceed to estimate cur_neighbor's in-degree
+                    let mut pending_getneighbors = HashMap::new();
+                    let now = get_epoch_time_secs();
 
-                                for nk in neighbor_keys {
-                                    if !self.is_registered(&nk) {
-                                        // not connected to this neighbor -- can't ask for neighbors 
-                                        warn!("Not connected to {:?}", &nk);
-                                        continue;
-                                    }
+                    for nk in neighbor_keys {
+                        if !network.is_registered(&nk) {
+                            // not connected to this neighbor -- can't ask for neighbors 
+                            warn!("Not connected to {:?}", &nk);
+                            continue;
+                        }
 
-                                    test_debug!("{:?}: send GetNeighbors to {:?}", &local_peer, &nk);
+                        test_debug!("{:?}: send GetNeighbors to {:?}", &local_peer, &nk);
 
-                                    let msg = self.sign_for_peer(local_peer, chain_view, &nk, StacksMessageType::GetNeighbors)?;
-                                    let rh_res = self.send_message(&nk, msg, now + NEIGHBOR_REQUEST_TIMEOUT);
-                                    match rh_res {
-                                        Ok(rh) => {
-                                            pending_getneighbors.insert(nk, rh);
-                                        }
-                                        Err(e) => {
-                                            // failed to begin getneighbors 
-                                            debug!("Not connected to {:?}: {:?}", &nk, &e);
-                                            continue;
-                                        }
-                                    }
-                                }
-
-                                walk.getneighbors_neighbors_begin(local_peer, pending_getneighbors);
-                                Ok(())
+                        let msg = network.sign_for_peer(local_peer, chain_view, &nk, StacksMessageType::GetNeighbors)?;
+                        let rh_res = network.send_message(&nk, msg, now + NEIGHBOR_REQUEST_TIMEOUT);
+                        match rh_res {
+                            Ok(rh) => {
+                                pending_getneighbors.insert(nk, rh);
+                            }
+                            Err(e) => {
+                                // failed to begin getneighbors 
+                                debug!("Not connected to {:?}: {:?}", &nk, &e);
+                                continue;
                             }
                         }
                     }
-                }
-            };
-            trycatch(&mut walk)
-        };
 
-        self.walk = walk;
-        res
+                    walk.getneighbors_neighbors_begin(local_peer, pending_getneighbors);
+                    Ok(())
+                }
+            }
+        })
     }
 
     /// Make progress on completing getneighbors requests to all of cur_neighbor's neighbors.  If
     /// we finish, proceed to update our knowledge of these neighbors and take a step in the peer
     /// graph.
     pub fn walk_getneighbors_neighbors_try_finish(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView) -> Result<Option<Neighbor>, net_error> {
-        let mut walk = self.walk.take();
-        let res = {
-            let mut trycatch = |my_walk: &mut Option<NeighborWalk>| {
-                match my_walk {
-                    None => {
-                        panic!("Invalid neighbor-walk state reached -- cannot finish gathering neighbor's frontier's GetNeighbors replies when the walk state is not instantiated");
-                    },
-                    Some(ref mut walk) => {
-                        let neighbor_opt = {
-                            let mut tx = self.peerdb.tx_begin()
-                                .map_err(|_e| net_error::DBError)?;
-                            
-                            let neighbor_opt = walk.getneighbors_neighbors_try_finish(&mut tx, local_peer, chain_view.burn_stable_block_height)?;
-                            tx.commit()
-                                .map_err(|_e| net_error::DBError)?;
+        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+            let neighbor_opt = {
+                let mut tx = network.peerdb.tx_begin()
+                    .map_err(|_e| net_error::DBError)?;
+                
+                let neighbor_opt = walk.getneighbors_neighbors_try_finish(&mut tx, local_peer, chain_view.burn_stable_block_height)?;
+                tx.commit()
+                    .map_err(|_e| net_error::DBError)?;
 
-                            neighbor_opt
-                        };
-
-                        match neighbor_opt {
-                            None => {
-                                // not done yet 
-                                Ok(None)
-                            },
-                            Some(_neighbor) => {
-                                // finished calculating this neighbor's in/out degree.
-                                // walk to the next neighbor.
-                                let next_neighbor_opt = walk.step(self.peerdb.conn());
-                                let mut ping_handles = HashMap::new();
-
-                                // proceed to ping/handshake neighbors we need to replace
-                                for (nk, slot) in walk.replaced_neighbors.iter() {
-                                    test_debug!("{:?}: send Handshake to replaceable neighbor {:?}", &local_peer, nk);
-
-                                    let handshake_data = HandshakeData::from_local_peer(local_peer);
-                                    let msg = self.sign_for_peer(local_peer, chain_view, nk, StacksMessageType::Handshake(handshake_data))?;
-                                    let req_res = self.send_message(nk, msg, get_epoch_time_secs() + NEIGHBOR_REQUEST_TIMEOUT);
-                                    match req_res {
-                                        Ok(handle) => {
-                                            ping_handles.insert((*nk).clone(), handle);
-                                        }
-                                        Err(e) => {
-                                            debug!("Not connected to {:?}: ({:?}", nk, &e);
-                                        }
-                                    };
-                                }
-
-                                walk.ping_existing_neighbors_begin(local_peer, ping_handles);
-                                Ok(next_neighbor_opt)
-                            }
-                        }
-                    }
-                }
+                neighbor_opt
             };
-            trycatch(&mut walk)
-        };
 
-        self.walk = walk;
-        res
+            match neighbor_opt {
+                None => {
+                    // not done yet 
+                    Ok(None)
+                },
+                Some(_neighbor) => {
+                    // finished calculating this neighbor's in/out degree.
+                    // walk to the next neighbor.
+                    let next_neighbor_opt = walk.step(network.peerdb.conn());
+                    let mut ping_handles = HashMap::new();
+
+                    // proceed to ping/handshake neighbors we need to replace
+                    for (nk, slot) in walk.replaced_neighbors.iter() {
+                        test_debug!("{:?}: send Handshake to replaceable neighbor {:?}", &local_peer, nk);
+
+                        let handshake_data = HandshakeData::from_local_peer(local_peer);
+                        let msg = network.sign_for_peer(local_peer, chain_view, nk, StacksMessageType::Handshake(handshake_data))?;
+                        let req_res = network.send_message(nk, msg, get_epoch_time_secs() + NEIGHBOR_REQUEST_TIMEOUT);
+                        match req_res {
+                            Ok(handle) => {
+                                ping_handles.insert((*nk).clone(), handle);
+                            }
+                            Err(e) => {
+                                debug!("Not connected to {:?}: ({:?}", nk, &e);
+                            }
+                        };
+                    }
+
+                    walk.ping_existing_neighbors_begin(local_peer, ping_handles);
+                    Ok(next_neighbor_opt)
+                }
+            }
+        })
     }
 
     /// Make progress on completing pings to existing neighbors we'd like to replace.  If we
     /// finish, proceed to update our peer database.
     /// Return the result of the peer walk, and reset the walk state.
     pub fn walk_ping_existing_neighbors_try_finish(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView) -> Result<Option<NeighborWalkResult>, net_error> {
-        let mut walk = self.walk.take();
-        let res = {
-            let mut trycatch = |my_walk: &mut Option<NeighborWalk>| {
-                match my_walk {
-                    None => {
-                        panic!("Invalid neighbor-walk state reached -- cannot finish pinging stale neighbors when walk state is not instantiated");
-                    },
-                    Some(ref mut walk) => {
-                        let replaced_opt = {
-                            let mut tx = self.peerdb.tx_begin()
-                                .map_err(|_e| net_error::DBError)?;
+        PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
+            let replaced_opt = {
+                let mut tx = network.peerdb.tx_begin()
+                    .map_err(|_e| net_error::DBError)?;
 
-                            let res = walk.ping_existing_neighbors_try_finish(&mut tx, local_peer, self.burnchain.network_id)?;
-                            tx.commit()
-                                .map_err(|_e| net_error::DBError)?;
+                let res = walk.ping_existing_neighbors_try_finish(&mut tx, local_peer, network.burnchain.network_id)?;
+                tx.commit()
+                    .map_err(|_e| net_error::DBError)?;
 
-                            res
-                        };
+                res
+            };
 
-                        match replaced_opt {
+            match replaced_opt {
+                None => {
+                    // still working
+                    Ok(None)
+                },
+                Some(_) => {
+                    // finished!
+                    // extract the walk result
+                    let neighbor_walk_result = {
+                        let mut next_neighbor_opt = walk.next_neighbor.take();
+                        match next_neighbor_opt {
+                            Some(ref mut next_neighbor) => {
+                                test_debug!("Stepped to {:?}", &next_neighbor.addr);
+                                walk.reset(&next_neighbor.clone())
+                            }
                             None => {
-                                // still working
-                                Ok(None)
-                            },
-                            Some(_) => {
-                                // finished!
-                                // extract the walk result
-                                let neighbor_walk_result = {
-                                    let mut next_neighbor_opt = walk.next_neighbor.take();
-                                    match next_neighbor_opt {
-                                        Some(ref mut next_neighbor) => {
-                                            test_debug!("Stepped to {:?}", &next_neighbor.addr);
-                                            walk.reset(&next_neighbor.clone())
-                                        }
-                                        None => {
-                                            // need to select a random new neighbor 
-                                            let next_neighbors = self.get_random_neighbors(1, chain_view.burn_block_height)?;
-                                            test_debug!("Did not step to any neighbor; resetting walk to {:?}", &next_neighbors[0].addr);
-                                            walk.reset(&next_neighbors[0])
-                                        }
-                                    }
-                                };
-
-                                Ok(Some(neighbor_walk_result))
+                                // need to select a random new neighbor 
+                                let next_neighbors = network.get_random_neighbors(1, chain_view.burn_block_height)?;
+                                test_debug!("Did not step to any neighbor; resetting walk to {:?}", &next_neighbors[0].addr);
+                                walk.reset(&next_neighbors[0])
                             }
                         }
-                    }
-                }
-            };
-            trycatch(&mut walk)
-        };
+                    };
 
-        self.walk = walk;
-        res
+                    Ok(Some(neighbor_walk_result))
+                }
+            }
+        })
     }
 
     /// Update the state of our peer graph walk.
@@ -2516,8 +2426,8 @@ mod test {
         // no nacks or handshake-rejects
         for i in 0..PEER_COUNT {
             for (_, convo) in peers[i].network.peers.iter() {
-                assert!(*convo.stats.msg_rx_counts.get(&StacksMessageID::Nack).unwrap_or(&0) == 0);
-                assert!(*convo.stats.msg_rx_counts.get(&StacksMessageID::HandshakeReject).unwrap_or(&0) == 0);
+                assert!(*convo.stats.msg_rx_counts.get(&(StacksMessageID::Nack as u8)).unwrap_or(&0) == 0);
+                assert!(*convo.stats.msg_rx_counts.get(&(StacksMessageID::HandshakeReject as u8)).unwrap_or(&0) == 0);
             }
         }
 
@@ -2645,8 +2555,8 @@ mod test {
         // no nacks or handshake-rejects
         for i in 0..PEER_COUNT {
             for (_, convo) in peers[i].network.peers.iter() {
-                assert!(*convo.stats.msg_rx_counts.get(&StacksMessageID::Nack).unwrap_or(&0) == 0);
-                assert!(*convo.stats.msg_rx_counts.get(&StacksMessageID::HandshakeReject).unwrap_or(&0) == 0);
+                assert!(*convo.stats.msg_rx_counts.get(&(StacksMessageID::Nack as u8)).unwrap_or(&0) == 0);
+                assert!(*convo.stats.msg_rx_counts.get(&(StacksMessageID::HandshakeReject as u8)).unwrap_or(&0) == 0);
             }
         }
 
@@ -2765,8 +2675,8 @@ mod test {
         // no nacks or handshake-rejects
         for i in 0..PEER_COUNT {
             for (_, convo) in peers[i].network.peers.iter() {
-                assert!(*convo.stats.msg_rx_counts.get(&StacksMessageID::Nack).unwrap_or(&0) == 0);
-                assert!(*convo.stats.msg_rx_counts.get(&StacksMessageID::HandshakeReject).unwrap_or(&0) == 0);
+                assert!(*convo.stats.msg_rx_counts.get(&(StacksMessageID::Nack as u8)).unwrap_or(&0) == 0);
+                assert!(*convo.stats.msg_rx_counts.get(&(StacksMessageID::HandshakeReject as u8)).unwrap_or(&0) == 0);
             }
         }
 
