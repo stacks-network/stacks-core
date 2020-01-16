@@ -1157,7 +1157,7 @@ mod test {
     fn test_parse_http_request_preamble_err() {
         let tests = vec![
             ("GET /foo HTTP/1.1\r\n",
-            "Not enough bytes"),
+            "Would read beyond"),
             ("GET /foo HTTP/1.1\r\n\r\n",
              "Missing Host header"),
             ("GET /foo HTTP/1.1\r\nFoo: Bar\r\n\r\n",
@@ -1165,23 +1165,22 @@ mod test {
             ("GET /foo HTTP/\r\n\r\n",
              "Failed to parse HTTP request"),
             ("GET /foo HTTP/1.0\r\nHost:",
-             "Not enough bytes"),
+             "Would read beyond"),
             ("GET /foo HTTP/1.1\r\nHost: foo:80\r\nHost: bar:80\r\n\r\n",
             "duplicate header"),
-            ("GET /foo HTTP/1.1\r\nHost: foo:ffff\r\n\r\n",
-            "Invalid Host header"),
             ("GET /foo HTTP/1.1\r\nHost: localhost:6270\r\nfoo: \u{2764}\r\n\r\n",
             "header value is not ASCII-US"),
             ("Get /foo HTTP/1.1\r\nHost: localhost:666666\r\n\r\n",
-             "invalid port")
+             "Missing Host header")
         ];
 
         for (data, errstr) in tests.iter() {
             let mut index = 0;
             let res = HttpRequestPreamble::consensus_deserialize(&data.as_bytes().to_vec(), &mut index, data.len() as u32);
             test_debug!("Expect '{}'", errstr);
-            assert!(res.is_err(), format!("{:?}", &res));
-            assert!(res.unwrap_err().description().find(errstr).is_some());
+            let expected_errstr = format!("{:?}", &res);
+            assert!(res.is_err(), expected_errstr);
+            assert!(res.unwrap_err().description().find(errstr).is_some(), expected_errstr);
             assert_eq!(index, 0);
         }
     }
@@ -1246,13 +1245,13 @@ mod test {
     fn test_parse_http_response_preamble_err() {
         let tests = vec![
             ("HTTP/1.1 200",
-             "Not enough bytes"),
+            "Would read beyond"),
             ("HTTP/1.1 200 OK\r\nfoo: \u{2764}\r\n\r\n",
             "header value is not ASCII-US"),
             ("HTTP/1.1 200 OK\r\nfoo: bar\r\nfoo: bar\r\n\r\n",
              "duplicate header"),
             ("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n",
-             "Unsupported Content-Type"),
+             "Unsupported HTTP content type"),
             ("HTTP/1.1 200 OK\r\nContent-Length: foo\r\n\r\n",
              "Invalid Content-Length"),
             ("HTTP/1.1 200 OK\r\nContent-Length: 123\r\n\r\n",
