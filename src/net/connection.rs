@@ -18,6 +18,7 @@
 */
 
 use std::net;
+use std::io;
 use std::io::{Read, Write};
 use std::io::ErrorKind as IoErrorKind;
 use std::ops::Deref;
@@ -38,13 +39,16 @@ use mio::net as mio_net;
 use net::Error as net_error;
 use net::StacksMessageCodec;
 use net::Preamble;
+use net::HttpRequestPreamble;
+use net::HttpResponsePreamble;
+use net::NetworkPreamble;
 use net::RelayData;
-use net::StacksMessage;
-use net::StacksMessageType;
-use net::StacksMessageID;
 use net::PeerAddress;
+use net::ProtocolFamily;
+use net::StacksP2P;
+use net::MessageSequence;
 use net::codec::*;
-use net::PREAMBLE_ENCODED_SIZE;
+use net::MAX_MESSAGE_LEN;
 
 use chainstate::burn::ConsensusHash;
 
@@ -58,14 +62,14 @@ use util::hash::to_hex;
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
 /// in another thread) via the given `receiver_input` channel.
 #[derive(Debug)]
-struct ReceiverNotify {
+struct ReceiverNotify<P: ProtocolFamily> {
     expected_seq: u32,
-    receiver_input: SyncSender<StacksMessage>,
+    receiver_input: SyncSender<P::Message>,
     ttl: u64        // absolute deadline by which this message needs a reply (in seconds since the epoch)
 }
 
-impl ReceiverNotify {
-    pub fn new(seq: u32, input: SyncSender<StacksMessage>, ttl: u64) -> ReceiverNotify {
+impl<P: ProtocolFamily> ReceiverNotify<P> {
+    pub fn new(seq: u32, input: SyncSender<P::Message>, ttl: u64) -> ReceiverNotify<P> {
         ReceiverNotify {
             expected_seq: seq,
             receiver_input: input,
@@ -75,7 +79,7 @@ impl ReceiverNotify {
 
     /// Send this message to the waiting receiver, consuming this notification handle.
     /// May fail silently.
-    pub fn send(self, msg: StacksMessage) -> () {
+    pub fn send(self, msg: P::Message) -> () {
         match self.receiver_input.send(msg) {
             Ok(_) => {},
             Err(e) => {}
@@ -85,12 +89,12 @@ impl ReceiverNotify {
 
 /// Opaque structure for waiting or a reply.  Contains the other end of a ReceiverNotify.
 #[derive(Debug)]
-pub struct NetworkReplyHandle {
-    receiver_output: Receiver<StacksMessage>
+pub struct NetworkReplyHandle<P: ProtocolFamily> {
+    receiver_output: Receiver<P::Message>
 }
 
-impl NetworkReplyHandle {
-    pub fn new(output: Receiver<StacksMessage>) -> NetworkReplyHandle {
+impl<P: ProtocolFamily> NetworkReplyHandle<P> {
+    pub fn new(output: Receiver<P::Message>) -> NetworkReplyHandle<P> {
         NetworkReplyHandle {
             receiver_output: output
         }
@@ -99,7 +103,7 @@ impl NetworkReplyHandle {
     /// Poll on this handle.
     /// Consumes this handle if it succeeds in getting a message.
     /// Returns itself if there is no pending message.
-    pub fn try_recv(self) -> Result<StacksMessage, Result<NetworkReplyHandle, net_error>> {
+    pub fn try_recv(self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
         let res = self.receiver_output.try_recv();
         match res {
             Ok(message) => Ok(message),
@@ -111,7 +115,7 @@ impl NetworkReplyHandle {
     /// Receive the outstanding message from our peer within the allotted time (pass -1 for "wait forever").
     /// Destroys the NetworkReplyHandle in the process.  You can only call this once!
     /// Timeout is in seconds.
-    pub fn recv(self, timeout: i64) -> Result<StacksMessage, net_error> {
+    pub fn recv(self, timeout: i64) -> Result<P::Message, net_error> {
         if timeout < 0 {
             self.receiver_output.recv()
                 .map_err(|_e| net_error::ConnectionBroken)
@@ -126,35 +130,35 @@ impl NetworkReplyHandle {
 /// In-flight message to a remote peer.
 /// When a reply is received, it may be forwarded along to an optional ReceiverNotify.
 #[derive(Debug)]
-struct InflightMessage {
-    message: StacksMessage,
-    notify: Option<ReceiverNotify>
+struct InflightMessage<P: ProtocolFamily> {
+    message: P::Message,
+    notify: Option<ReceiverNotify<P>>
 }
 
 #[derive(Debug)]
-struct ConnectionInbox {
+struct ConnectionInbox<P: ProtocolFamily> {
     public_key: Option<Secp256k1PublicKey>,
 
     // completely-parsed incoming messages that do _not_ get sent out to a waiting receiver 
-    inbox: VecDeque<StacksMessage>,
+    inbox: VecDeque<P::Message>,
     inbox_maxlen: usize,    // this is a _soft_ limit -- it's possible for inbox to exceed this by a fixed quantity
 
     // partially-parsed incoming messages
-    preamble: Option<Preamble>,
-    payload_data: Vec<u8>,
-    preamble_buf: Vec<u8>,
+    preamble: Option<NetworkPreamble>,
+    preamble_data: Vec<u8>,
+    message_data: Vec<u8>,
 }
 
 #[derive(Debug)]
-struct ConnectionOutbox {
+struct ConnectionOutbox<P: ProtocolFamily> {
     // message to send
-    outbox: VecDeque<InflightMessage>,
+    outbox: VecDeque<InflightMessage<P>>,
     outbox_maxlen: usize,
     socket_out_buf: Vec<u8>,
     socket_out_ptr: u32,
 
     // in-flight messages 
-    inflight: VecDeque<ReceiverNotify>
+    inflight: VecDeque<ReceiverNotify<P>>
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -203,157 +207,125 @@ impl std::default::Default for ConnectionOptions {
 }
 
 #[derive(Debug)]
-pub struct Connection {
+pub struct NetworkConnection<P: ProtocolFamily> {
     pub options: ConnectionOptions,
 
-    inbox: ConnectionInbox,
-    outbox: ConnectionOutbox
+    inbox: ConnectionInbox<P>,
+    outbox: ConnectionOutbox<P>
 }
 
-impl ConnectionInbox {
-    pub fn new(max_messages: usize, public_key_opt: Option<Secp256k1PublicKey> ) -> ConnectionInbox {
+impl<P: ProtocolFamily> ConnectionInbox<P> {
+    pub fn new(max_messages: usize, public_key_opt: Option<Secp256k1PublicKey>) -> ConnectionInbox<P> {
         ConnectionInbox {
             public_key: public_key_opt,
             inbox: VecDeque::with_capacity(max_messages),
             inbox_maxlen: max_messages,
             preamble: None,
-            payload_data: vec![],
-            preamble_buf: vec![],
+            preamble_data: vec![],
+            message_data: vec![]
         }
     }
 
-    /// consume data to form a message preamble.
-    /// Returns how many bytes were consumed from buf.
-    fn consume_preamble(&mut self, buf: &[u8]) -> Result<usize, net_error> {
-        if self.preamble.is_none() {
-            let data_to_read = 
-                if self.preamble_buf.len() + buf.len() < (PREAMBLE_ENCODED_SIZE as usize) {
-                    buf.len()
-                }
-                else {
-                    (PREAMBLE_ENCODED_SIZE as usize) - self.preamble_buf.len()
-                };
+    /// Fill up the preamble buffer, up to P::preamble_size_hint().
+    /// Return the number of bytes consumed.
+    fn buffer_preamble_bytes(&mut self, bytes: &[u8]) -> usize {
+        let max_preamble_len = P::preamble_size_hint();
+        if self.preamble_data.len() >= max_preamble_len {
+            return 0;
+        }
 
-            let data_left = buf.len() - data_to_read;
-
-            // test_debug!("preamble_buf.len() = {}, buf.len() = {}", self.preamble_buf.len(), buf.len());
-            // test_debug!("Consume {} bytes for preamble, leaving {} bytes for payload", data_to_read, data_left);
-
-            self.preamble_buf.extend_from_slice(&buf[0..data_to_read]);
-
-            // enough to parse a preamble?
-            if self.preamble_buf.len() >= (PREAMBLE_ENCODED_SIZE as usize) {
-                
-                let mut index = 0;
-                let preamble_res = Preamble::deserialize(&self.preamble_buf, &mut index, PREAMBLE_ENCODED_SIZE);
-                match preamble_res {
-                    Ok(preamble) => {
-                        // got a preamble!
-                        self.preamble = Some(preamble);
-                        self.preamble_buf.clear();
-
-                        // test_debug!("Consumed {} bytes for preamble", index);
-                    },
-                    Err(_) => {
-                        // invalid message
-                        debug!("Invalid message preamble");
-                        return Err(net_error::InvalidMessage);
-                    }
-                }
+        let to_consume = 
+            if self.preamble_data.len() + bytes.len() <= max_preamble_len {
+                bytes.len()
             }
-            return Ok(data_to_read);
+            else {
+                max_preamble_len - self.preamble_data.len() 
+            };
+
+        self.preamble_data.extend_from_slice(&bytes[0..to_consume]);
+        to_consume
+    }
+
+    /// try to consume buffered data to form a message preamble.
+    /// returns an option of the preamble consumed and the number of bytes used from the bytes slice
+    fn consume_preamble(&mut self, bytes: &[u8]) -> Result<(Option<NetworkPreamble>, usize), net_error> {
+        let bytes_consumed = self.buffer_preamble_bytes(bytes);
+        let preamble_opt = match P::read_preamble(&self.preamble_data) {
+            Ok((preamble, preamble_len)) => {
+                assert!((preamble_len as u32) < MAX_MESSAGE_LEN);
+                if preamble.payload_length() as u32 >= MAX_MESSAGE_LEN - (preamble_len as u32) {
+                    // message would be too big
+                    return Err(net_error::DeserializeError(format!("Preamble payload length {} is too big", preamble.payload_length())));
+                }
+
+                // buffer up next message 
+                self.message_data.extend_from_slice(&self.preamble_data[preamble_len..]);
+                self.preamble_data.clear();
+                Some(preamble)
+            },
+            Err(net_error::DeserializeError(errmsg)) => {
+                // will never be valid
+                debug!("Invalid message preamble: {}", &errmsg);
+                return Err(net_error::InvalidMessage);
+            },
+            Err(net_error::UnderflowError(_)) => {
+                // not enough data to form a preamble
+                if bytes_consumed == 0 {
+                    // preamble is too long
+                    return Err(net_error::DeserializeError("Preamble size would exceed maximum allowed size".to_string()));
+                }
+
+                None
+            },
+            Err(e) => {
+                // other
+                return Err(e);
+            }
+        };
+        Ok((preamble_opt, bytes_consumed))
+    }
+
+    /// buffer up bytes for a message
+    fn buffer_message_bytes(&mut self, bytes: &[u8], message_len: usize) -> usize {
+        let to_consume = 
+            if self.message_data.len() + bytes.len() <= message_len {
+                bytes.len()
+            }
+            else {
+                message_len - self.message_data.len()
+            };
+
+        self.message_data.extend_from_slice(&bytes[0..to_consume]);
+        to_consume
+    }
+
+    /// Try to consume bufferred data to form a message
+    fn consume_payload(&mut self, preamble: &mut NetworkPreamble, bytes: &[u8]) -> Result<(Option<P::Message>, usize), net_error> {
+        let bytes_consumed = self.buffer_message_bytes(bytes, preamble.payload_length());
+        assert!(self.message_data.len() <= preamble.payload_length());
+
+        if self.message_data.len() == preamble.payload_length() {
+            if let Some(ref pubk) = self.public_key {
+                preamble.verify_payload(&self.message_data[0..preamble.payload_length()], pubk)?;
+            }
+            let message = match P::read_payload(preamble, &self.message_data) {
+                Ok(message) => {
+                    self.message_data.clear();
+                    message
+                },
+                Err(e) => {
+                    // will never be valid, even if underflowed, since the premable ought to have
+                    // told us the message length
+                    debug!("Invalid message payload: {:?}", &e);
+                    return Err(net_error::InvalidMessage);
+                }
+            };
+            Ok((Some(message), bytes_consumed))
         }
         else {
-            // nothing to do -- already have a preamble
-            // test_debug!("Already have preamble; leaving {} bytes for payload", buf.len());
-            return Ok(0);
+            // not enough data yet
+            Ok((None, bytes_consumed))
         }
-    }
-    
-    /// consume data to form a payload buffer 
-    /// Returns how many bytes were consumed from buf 
-    fn consume_payload(&mut self, buf: &[u8]) -> Result<usize, net_error> {
-        let mut got_message = false;
-        let mut data_to_read = 0;
-        match self.preamble {
-            Some(ref mut preamble) => {
-                // how much data to save?
-                data_to_read =
-                    if self.payload_data.len() + buf.len() < (preamble.payload_len as usize) {
-                        buf.len()
-                    }
-                    else {
-                        (preamble.payload_len as usize) - self.payload_data.len()
-                    };
-
-                let data_left = buf.len() - data_to_read;
-
-                // test_debug!("Consume {} bytes for payload, leaving {} bytes for next message", data_to_read, data_left);
-
-                self.payload_data.extend_from_slice(&buf[0..data_to_read]);
-
-                if self.payload_data.len() >= (preamble.payload_len as usize) {
-                    let mut index = 0;
-                    let max_len = preamble.payload_len;
-                    let message_res = 
-                        match self.public_key {
-                            Some(ref pubk) => {
-                                StacksMessage::payload_deserialize(pubk, preamble, &self.payload_data, &mut index, max_len)
-                            }
-                            None => {
-                                StacksMessage::payload_parse(preamble, &self.payload_data, &mut index, max_len)
-                            }
-                        };
-
-                    match message_res {
-                        Ok(message) => {
-                            // got a message!
-                            test_debug!("Consumed {} bytes to form a '{}' message (seq {})", index, message_type_to_str(&message.payload).to_owned(), message.preamble.seq);
-
-                            self.inbox.push_back(message);
-                            got_message = true;
-                        },
-                        Err(e) => {
-                            // invalid message 
-                            match self.public_key {
-                                None => {
-                                    test_debug!("Failed to parse: {:?}", e);
-                                    debug!("Invalid message payload: failed to parse");
-                                },
-                                Some(ref pubk) => {
-                                    test_debug!("Failed to deserialize: {:?}", e);
-                                    debug!("Invalid message payload: failed to deserialize (key was {:?})", &to_hex(&pubk.to_bytes_compressed()));
-
-                                    #[cfg(test)]
-                                    {
-                                        let mut i2 = index;
-                                        let mr = StacksMessage::payload_parse(preamble, &self.payload_data, &mut i2, max_len);
-                                        match mr {
-                                            Ok(m) => {
-                                                test_debug!("Parsed message: {:?}", &m);
-                                            },
-                                            Err(_) => {}
-                                        }
-                                    }
-                                }
-                            };
-                            return Err(net_error::InvalidMessage);
-                        }
-                    }
-                }
-            },
-            None => {
-                // nothing to do -- no preamble 
-                // test_debug!("Leaving {} bytes for next preamble", buf.len());
-            }
-        }
-
-        if got_message {
-            self.preamble = None;
-            self.payload_data.clear();
-        }
-
-        return Ok(data_to_read);
     }
 
     /// Consume messages while we have space in our inbox.
@@ -365,23 +337,63 @@ impl ConnectionInbox {
     ///
     /// Returns nothing on success, and enqueues zero or more messages into our inbox.
     /// Returns net_error::InvalidMessage if a message could not be parsed or authenticated.
-    fn consume_messages(&mut self, buf: &[u8]) -> Result<usize, net_error> {
+    fn consume_messages(&mut self, buf: &[u8]) -> Result<(), net_error> {
         let mut offset = 0;
         loop {
-            let num_bytes_preamble_remaining = self.consume_preamble(&buf[offset..])?;
-            if num_bytes_preamble_remaining == 0 {
-                break;
+            if self.inbox.len() > self.inbox_maxlen {
+                return Err(net_error::InboxOverflow);
             }
+
+            let bytes_consumed_preamble = 
+                if self.preamble.is_none() {
+                    let (preamble_opt, bytes_consumed) = self.consume_preamble(&buf[offset..])?;
+                    self.preamble = preamble_opt;
+                    bytes_consumed
+                }
+                else {
+                    0
+                };
             
-            offset += num_bytes_preamble_remaining;
-            let num_bytes_payload_remaining = self.consume_payload(&buf[offset..])?;
-            if num_bytes_payload_remaining == 0 {
+            offset += bytes_consumed_preamble;
+            if offset == buf.len() {
                 break;
             }
 
-            offset += num_bytes_payload_remaining;
+            let mut consumed_message = false;
+            let bytes_consumed_message = {
+                let mut preamble_opt = self.preamble.take();
+                let bytes_consumed =
+                    if let Some(ref mut preamble) = preamble_opt {
+                        let (message_opt, bytes_consumed) = self.consume_payload(preamble, &buf[offset..])?;
+                        match message_opt {
+                            Some(message) => {
+                                // queue up
+                                self.inbox.push_back(message);
+                                consumed_message = true;
+                            },
+                            None => {}
+                        };
+                        
+                        bytes_consumed
+                    }
+                    else {
+                        0
+                    };
+
+                self.preamble = preamble_opt;
+                bytes_consumed
+            };
+
+            if consumed_message {
+                self.preamble = None;
+            }
+
+            offset += bytes_consumed_message;
+            if offset == buf.len() {
+                break;
+            }
         }
-        return Ok(offset);
+        Ok(())
     }
 
     /// Read bytes from an input stream, and enqueue them into our inbox.
@@ -398,25 +410,22 @@ impl ConnectionInbox {
         while !blocked {
             // get the next bytes
             let mut buf = [0u8; 4096];
-
-            let num_read_res = fd.read(&mut buf);
-            let num_read =
-                match num_read_res {
-                    Ok(0) => {
-                        // remote fd is closed
-                        Err(net_error::RecvError(format!("Remote endpoint is closed")))
-                    },
-                    Ok(count) => Ok(count),
-                    Err(e) => {
-                        if e.kind() == IoErrorKind::WouldBlock {
-                            Ok(0)
-                        }
-                        else {
-                            debug!("Failed to read from fd: {:?}", &e);
-                            Err(net_error::RecvError(format!("Failed to read")))
-                        }
+            let num_read = match fd.read(&mut buf) {
+                Ok(0) => {
+                    // remote fd is closed
+                    Err(net_error::RecvError(format!("Remote endpoint is closed")))
+                },
+                Ok(count) => Ok(count),
+                Err(e) => {
+                    if e.kind() == IoErrorKind::WouldBlock {
+                        Ok(0)
                     }
-                }?;
+                    else {
+                        debug!("Failed to read from fd: {:?}", &e);
+                        Err(net_error::RecvError(format!("Failed to read: {:?}", &e)))
+                    }
+                }
+            }?;
 
             total_read += num_read;
             test_debug!("read {} bytes; {} total", num_read, total_read);
@@ -433,7 +442,7 @@ impl ConnectionInbox {
     }
 
     /// Get the oldest message received in the inbox 
-    pub fn next_message(&mut self) -> Option<StacksMessage> {
+    pub fn next_message(&mut self) -> Option<P::Message> {
         self.inbox.pop_front()
     }
 
@@ -443,8 +452,8 @@ impl ConnectionInbox {
     }
 }
 
-impl ConnectionOutbox {
-    pub fn new(outbox_maxlen: usize) -> ConnectionOutbox {
+impl<P: ProtocolFamily> ConnectionOutbox<P> {
+    pub fn new(outbox_maxlen: usize) -> ConnectionOutbox<P> {
         ConnectionOutbox {
             outbox: VecDeque::with_capacity(outbox_maxlen),
             outbox_maxlen: outbox_maxlen,
@@ -455,13 +464,13 @@ impl ConnectionOutbox {
     }
 
     /// queue up a message to be sent 
-    fn queue_message(&mut self, m: StacksMessage, r: Option<ReceiverNotify>) -> Result<(), net_error> {
+    fn queue_message(&mut self, m: P::Message, r: Option<ReceiverNotify<P>>) -> Result<(), net_error> {
         if self.outbox.len() > self.outbox_maxlen {
             test_debug!("Outbox is full! has {} items", self.outbox.len());
             return Err(net_error::OutboxOverflow);
         }
 
-        test_debug!("Push to outbox: {}", message_type_to_str(&m.payload).to_owned());
+        test_debug!("Push to outbox: {:?}", &m);
         self.outbox.push_back(InflightMessage {
             message: m,
             notify: r
@@ -491,13 +500,14 @@ impl ConnectionOutbox {
                     break;
                 }
 
-                // fill in the next message
+                // fill in the next message (but don't pop it yet -- need its notification to
+                // persist until we're done sending it).
                 let message = &self.outbox.get(0).unwrap().message;
-                let mut serialized_message = message.serialize();
+                let mut serialized_message = message.consensus_serialize();
                 self.socket_out_buf.append(&mut serialized_message);
                 self.socket_out_ptr = 0;
                 test_debug!("Queue next message ({} seq {}): socket_buf_ptr = {}, socket_out_buf.len() = {}", 
-                            message_type_to_str(&message.payload).to_owned(), message.preamble.seq, self.socket_out_ptr, self.socket_out_buf.len());
+                            message.get_message_name(), message.request_id(), self.socket_out_ptr, self.socket_out_buf.len());
             }
 
             // send as many bytes as we can
@@ -557,9 +567,9 @@ impl ConnectionOutbox {
     }
 }
 
-impl Connection {
-    pub fn new(options: &ConnectionOptions, public_key_opt: Option<Secp256k1PublicKey>) -> Connection {
-        Connection {
+impl<P: ProtocolFamily> NetworkConnection<P> {
+    pub fn new(options: &ConnectionOptions, public_key_opt: Option<Secp256k1PublicKey>) -> NetworkConnection<P> {
+        NetworkConnection {
             options: (*options).clone(),
 
             inbox: ConnectionInbox::new(options.inbox_maxlen, public_key_opt),
@@ -568,11 +578,11 @@ impl Connection {
     }
 
     /// Determine if a (possibly unauthenticated) message was solicited 
-    pub fn is_solicited(&self, msg: &StacksMessage) -> bool {
+    pub fn is_solicited(&self, msg: &P::Message) -> bool {
         let mut solicited = false;
         for i in 0..self.outbox.inflight.len() {
             let inflight = self.outbox.inflight.get(i).unwrap();
-            if inflight.expected_seq == msg.preamble.seq {
+            if inflight.expected_seq == msg.request_id() {
                 // this message is in reply to this inflight message
                 solicited = true;
                 break;
@@ -584,13 +594,13 @@ impl Connection {
 
     /// Fulfill an outstanding request with a message.
     /// Return the message itself if the message was unsolicited
-    pub fn fulfill_request(&mut self, msg: StacksMessage) -> Option<StacksMessage> {
+    pub fn fulfill_request(&mut self, msg: P::Message) -> Option<P::Message> {
         // relay to next waiting receiver 
         let mut outbox_index = 0;
         let mut solicited = false;
         for i in 0..self.outbox.inflight.len() {
             let inflight = self.outbox.inflight.get(i).unwrap();
-            if inflight.expected_seq == msg.preamble.seq {
+            if inflight.expected_seq == msg.request_id() {
                 // this message is in reply to this inflight message
                 outbox_index = i;
                 solicited = true;
@@ -611,7 +621,7 @@ impl Connection {
     /// Send any messages we got to waiting receivers.
     /// Used mainly for testing.
     /// Return the list of unsolicited messages (such as blocks and transactions).
-    pub fn drain_inbox(&mut self) -> Vec<StacksMessage> {
+    pub fn drain_inbox(&mut self) -> Vec<P::Message> {
         let inflight_index = 0;
         let mut unsolicited = vec![];
         loop {
@@ -669,9 +679,9 @@ impl Connection {
     } 
 
     /// Send a signed message and expect a reply.
-    pub fn send_signed_message(&mut self, message: StacksMessage, ttl: u64) -> Result<NetworkReplyHandle, net_error> {
+    pub fn send_signed_message(&mut self, message: P::Message, ttl: u64) -> Result<NetworkReplyHandle<P>, net_error> {
         let (send_ch, recv_ch) = sync_channel(1);
-        let recv_notify = ReceiverNotify::new(message.preamble.seq, send_ch, ttl);
+        let recv_notify = ReceiverNotify::new(message.request_id(), send_ch, ttl);
         let recv_handle = NetworkReplyHandle::new(recv_ch);
 
         self.outbox.queue_message(message, Some(recv_notify))?;
@@ -679,7 +689,7 @@ impl Connection {
     }
 
     /// Forward a signed message to a peer, expecting no reply 
-    pub fn relay_signed_message(&mut self, message: StacksMessage) -> Result<(), net_error> {
+    pub fn relay_signed_message(&mut self, message: P::Message) -> Result<(), net_error> {
         self.outbox.queue_message(message, None)?;
         Ok(())
     }
@@ -705,7 +715,7 @@ impl Connection {
     }
 
     /// get the next inbox message 
-    pub fn next_inbox_message(&mut self) -> Option<StacksMessage> {
+    pub fn next_inbox_message(&mut self) -> Option<P::Message> {
         self.inbox.next_message()
     }
     
@@ -727,6 +737,9 @@ impl Connection {
         self.inbox.public_key.is_some()
     }
 }
+
+pub type ConnectionP2P = NetworkConnection<StacksP2P>;
+pub type ReplyHandleP2P = NetworkReplyHandle<StacksP2P>;
 
 #[cfg(test)]
 mod test {
@@ -762,7 +775,7 @@ mod test {
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
 
-        let mut conn = Connection::new(&conn_opts, None);
+        let mut conn = ConnectionP2P::new(&conn_opts, None);
 
         // send
         let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
@@ -788,7 +801,7 @@ mod test {
         }
 
         // size of one ping 
-        let ping_size = (PREAMBLE_ENCODED_SIZE + 4 + 1 + 4) as usize;
+        let ping_size = ping.consensus_serialize().len();
         let mut ping_vec = vec![0; ping_size];
 
         let mut write_buf = NetCursor::new(ping_vec.as_mut_slice());
@@ -808,7 +821,7 @@ mod test {
 
         // 1 message serialized and bufferred out, and it should be our ping.
         let mut index = 0;
-        assert_eq!(StacksMessage::deserialize(&write_buf.get_ref().to_vec(), &mut index, write_buf.get_ref().len() as u32).unwrap(), ping);
+        assert_eq!(StacksMessage::consensus_deserialize(&write_buf.get_ref().to_vec(), &mut index, write_buf.get_ref().len() as u32).unwrap(), ping);
 
         // relay 1.5 pings
         let mut ping_buf_15 = vec![0; ping_size + (ping_size/2)];
@@ -826,7 +839,7 @@ mod test {
         assert_eq!(conn.outbox.socket_out_ptr, (ping_size / 2) as u32);
 
         // the (ping_size / 2) bytes should be half a ping 
-        let serialized_ping = ping.serialize();
+        let serialized_ping = ping.consensus_serialize();
         assert_eq!(conn.outbox.socket_out_buf[0..(conn.outbox.socket_out_ptr as usize)], serialized_ping[0..(conn.outbox.socket_out_ptr as usize)]);
 
         let mut half_ping = conn.outbox.socket_out_buf.clone()[0..(conn.outbox.socket_out_ptr as usize)].to_vec();
@@ -879,10 +892,11 @@ mod test {
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
 
-        let mut conn = Connection::new(&conn_opts, Some(neighbor.public_key));
+        let mut conn = ConnectionP2P::new(&conn_opts, Some(neighbor.public_key));
 
         // send
         let mut ping_vec = vec![];
+        let mut ping_size = 0;
         for i in 0..5 {
             let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                               12345 + i,
@@ -892,13 +906,13 @@ mod test {
                                               StacksMessageType::Ping(PingData { nonce: 0x01020304 }));
 
             ping.sign(i as u32, &privkey).unwrap();
-            
+            ping_size = ping.consensus_serialize().len();
+
             conn.relay_signed_message(ping.clone()).unwrap();
             ping_vec.push(ping);
         }
         
         // buffer to send/receive everything
-        let ping_size = (PREAMBLE_ENCODED_SIZE + 4 + 1 + 4) as usize;
         let mut ping_buf = vec![0u8; 5*ping_size];
 
         {
@@ -945,11 +959,12 @@ mod test {
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
         
-        let mut conn = Connection::new(&conn_opts, Some(neighbor.public_key));
+        let mut conn = ConnectionP2P::new(&conn_opts, Some(neighbor.public_key));
 
         // send
         let mut ping_vec = vec![];
         let mut handle_vec = vec![];
+        let mut ping_size = 0;
         for i in 0..5 {
             let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                               12345 + i,
@@ -960,13 +975,13 @@ mod test {
 
             ping.sign(i as u32, &privkey).unwrap();
             
+            ping_size = ping.consensus_serialize().len();
             let handle = conn.send_signed_message(ping.clone(), get_epoch_time_secs() + 60).unwrap();
             handle_vec.push(handle);
             ping_vec.push(ping);
         }
         
         // buffer to send/receive everything
-        let ping_size = (PREAMBLE_ENCODED_SIZE + 4 + 1 + 4) as usize;
         let mut ping_buf = vec![0u8; 5*ping_size];
 
         {
@@ -1022,11 +1037,12 @@ mod test {
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
         
-        let mut conn = Connection::new(&conn_opts, Some(neighbor.public_key));
+        let mut conn = ConnectionP2P::new(&conn_opts, Some(neighbor.public_key));
 
         // send
         let mut ping_vec = vec![];
         let mut handle_vec = vec![];
+        let mut ping_size = 0;
         for i in 0..5 {
             let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                               12345 + i,
@@ -1036,6 +1052,7 @@ mod test {
                                               StacksMessageType::Ping(PingData { nonce: (0x01020304 + i) as u32 }));
 
             ping.sign(i as u32, &privkey).unwrap();
+            ping_size = ping.consensus_serialize().len();
             
             let handle = conn.send_signed_message(ping.clone(), get_epoch_time_secs() + 1).unwrap();
             handle_vec.push(handle);
@@ -1043,7 +1060,6 @@ mod test {
         }
         
         // buffer to send/receive everything
-        let ping_size = (PREAMBLE_ENCODED_SIZE + 4 + 1 + 4) as usize;
         let mut ping_buf = vec![0u8; 5*ping_size];
 
         {
