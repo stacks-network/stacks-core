@@ -50,14 +50,14 @@ use vm::types::{
 
 
 impl StacksMessageCodec for StacksAddress {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut res = vec![];
         write_next(&mut res, &self.version);
         res.extend_from_slice(self.bytes.as_bytes());
         res
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksAddress, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<StacksAddress, net_error> {
         let mut index = *index_ptr;
 
         // serialized as 1-byte version + 20-byte hash160

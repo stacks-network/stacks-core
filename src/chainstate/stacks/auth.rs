@@ -55,7 +55,7 @@ use util::secp256k1::MessageSignature;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
 impl StacksMessageCodec for TransactionAuthField {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut res = vec![];
         match *self {
             TransactionAuthField::PublicKey(ref pubk) => {
@@ -88,7 +88,7 @@ impl StacksMessageCodec for TransactionAuthField {
         res
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<TransactionAuthField, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<TransactionAuthField, net_error> {
         let mut index = *index_ptr;
         let field_id : u8 = read_next(buf, &mut index, max_size)?;
         let field = match field_id {
@@ -126,7 +126,7 @@ impl StacksMessageCodec for TransactionAuthField {
 }
 
 impl StacksMessageCodec for MultisigSpendingCondition {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut res = vec![];
        
         write_next(&mut res, &(self.hash_mode.clone() as u8));
@@ -139,7 +139,7 @@ impl StacksMessageCodec for MultisigSpendingCondition {
         res
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<MultisigSpendingCondition, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<MultisigSpendingCondition, net_error> {
         let mut index = *index_ptr;
 
         let hash_mode_u8 : u8 = read_next(buf, &mut index, max_size)?;
@@ -279,7 +279,7 @@ impl MultisigSpendingCondition {
 }
 
 impl StacksMessageCodec for SinglesigSpendingCondition {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut res = vec![];
        
         write_next(&mut res, &(self.hash_mode.clone() as u8));
@@ -291,7 +291,7 @@ impl StacksMessageCodec for SinglesigSpendingCondition {
         res
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<SinglesigSpendingCondition, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<SinglesigSpendingCondition, net_error> {
         let mut index = *index_ptr;
         let hash_mode_u8 : u8 = read_next(buf, &mut index, max_size)?;
         let hash_mode = SinglesigHashMode::from_u8(hash_mode_u8)
@@ -388,14 +388,14 @@ impl SinglesigSpendingCondition {
 }
 
 impl StacksMessageCodec for TransactionSpendingCondition {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         match *self {
-            TransactionSpendingCondition::Singlesig(ref data) => data.serialize(),
-            TransactionSpendingCondition::Multisig(ref data) => data.serialize()
+            TransactionSpendingCondition::Singlesig(ref data) => data.consensus_serialize(),
+            TransactionSpendingCondition::Multisig(ref data) => data.consensus_serialize()
         }
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<TransactionSpendingCondition, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<TransactionSpendingCondition, net_error> {
         let mut index = *index_ptr;
 
         if (buf.len() as u32) <= index {
@@ -407,11 +407,11 @@ impl StacksMessageCodec for TransactionSpendingCondition {
         let hash_mode_u8 = buf[index as usize];
         let cond = match hash_mode_u8 {
             x if x == SinglesigHashMode::P2PKH as u8 || x == SinglesigHashMode::P2WPKH as u8 => {
-                let cond = SinglesigSpendingCondition::deserialize(buf, &mut index, max_size)?;
+                let cond = SinglesigSpendingCondition::consensus_deserialize(buf, &mut index, max_size)?;
                 TransactionSpendingCondition::Singlesig(cond)
             }
             x if x == MultisigHashMode::P2SH as u8 || x == MultisigHashMode::P2WSH as u8 => {
-                let cond = MultisigSpendingCondition::deserialize(buf, &mut index, max_size)?;
+                let cond = MultisigSpendingCondition::consensus_deserialize(buf, &mut index, max_size)?;
                 TransactionSpendingCondition::Multisig(cond)
             }
             _ => {
@@ -697,7 +697,7 @@ impl TransactionSpendingCondition {
 }
 
 impl StacksMessageCodec for TransactionAuth {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize(&self) -> Vec<u8> {
         let mut res = vec![];
         match *self {
             TransactionAuth::Standard(ref origin_condition) => {
@@ -713,7 +713,7 @@ impl StacksMessageCodec for TransactionAuth {
         res
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<TransactionAuth, net_error> {
+    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<TransactionAuth, net_error> {
         let mut index = *index_ptr;
         
         let type_id : u8 = read_next(buf, &mut index, max_size)?;
@@ -1262,8 +1262,8 @@ mod test {
         ];
 
         for i in 0..spending_conditions.len() {
-            let spending_condition_bytes = spending_conditions[i].serialize();
-            let spending_condition_2_bytes = spending_conditions[(i+1) % spending_conditions.len()].serialize();
+            let spending_condition_bytes = spending_conditions[i].consensus_serialize();
+            let spending_condition_2_bytes = spending_conditions[(i+1) % spending_conditions.len()].consensus_serialize();
 
             let auth_standard = TransactionAuth::Standard(spending_conditions[i].clone());
             let mut auth_standard_bytes = vec![
@@ -1488,38 +1488,38 @@ mod test {
         ];
 
         // we can serialize the invalid p2wpkh uncompressed condition, but we can't deserialize it
-        assert_eq!(bad_p2wpkh_uncompressed.serialize(), bad_p2wpkh_uncompressed_bytes);
+        assert_eq!(bad_p2wpkh_uncompressed.consensus_serialize(), bad_p2wpkh_uncompressed_bytes);
         
         // we can serialize the invalid p2wsh uncompressed condition, but we can't deserialize it
-        assert_eq!(bad_p2wsh_uncompressed.serialize(), bad_p2wsh_uncompressed_bytes);
+        assert_eq!(bad_p2wsh_uncompressed.consensus_serialize(), bad_p2wsh_uncompressed_bytes);
 
         let mut index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_public_key_count_bytes, &mut index, bad_public_key_count_bytes.len() as u32).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&bad_public_key_count_bytes, &mut index, bad_public_key_count_bytes.len() as u32).is_err());
         assert_eq!(index, 0);
         
         let mut index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_public_key_count_bytes_2, &mut index, bad_public_key_count_bytes_2.len() as u32).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&bad_public_key_count_bytes_2, &mut index, bad_public_key_count_bytes_2.len() as u32).is_err());
         assert_eq!(index, 0);
 
         index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_hash_mode_bytes, &mut index, bad_hash_mode_bytes.len() as u32).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&bad_hash_mode_bytes, &mut index, bad_hash_mode_bytes.len() as u32).is_err());
         assert_eq!(index, 0);
 
         index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_hash_mode_multisig_bytes, &mut index, bad_hash_mode_multisig_bytes.len() as u32).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&bad_hash_mode_multisig_bytes, &mut index, bad_hash_mode_multisig_bytes.len() as u32).is_err());
         assert_eq!(index, 0);
         
         index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_p2wpkh_uncompressed_bytes, &mut index, bad_p2wpkh_uncompressed_bytes.len() as u32).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&bad_p2wpkh_uncompressed_bytes, &mut index, bad_p2wpkh_uncompressed_bytes.len() as u32).is_err());
         assert_eq!(index, 0);
         
         index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_p2wsh_uncompressed_bytes, &mut index, bad_p2wsh_uncompressed_bytes.len() as u32).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&bad_p2wsh_uncompressed_bytes, &mut index, bad_p2wsh_uncompressed_bytes.len() as u32).is_err());
         assert_eq!(index, 0);
         
         // corrupt but will parse with trailing bits
         index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_hash_mode_singlesig_bytes_parseable, &mut index, bad_hash_mode_singlesig_bytes_parseable.len() as u32).is_ok());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&bad_hash_mode_singlesig_bytes_parseable, &mut index, bad_hash_mode_singlesig_bytes_parseable.len() as u32).is_ok());
         assert!(index < bad_hash_mode_singlesig_bytes_parseable.len() as u32);   // should be trailing bytes, which isn't allowed
     }
 

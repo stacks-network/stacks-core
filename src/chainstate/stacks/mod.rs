@@ -425,14 +425,14 @@ pub struct TransactionSmartContract {
 }
 
 /// A coinbase commits to 32 bytes of control-plane information
-pub struct CoinbasePayload([u8; 32]);
+pub struct CoinbasePayload(pub [u8; 32]);
 impl_byte_array_message_codec!(CoinbasePayload, 32);
 impl_array_newtype!(CoinbasePayload, u8, 32);
 impl_array_hexstring_fmt!(CoinbasePayload);
 impl_byte_array_newtype!(CoinbasePayload, u8, 32);
 pub const CONIBASE_PAYLOAD_ENCODED_SIZE : u32 = 32;
 
-pub struct TokenTransferMemo([u8; 34]);        // same length as it is in stacks v1
+pub struct TokenTransferMemo(pub [u8; 34]);        // same length as it is in stacks v1
 impl_byte_array_message_codec!(TokenTransferMemo, 34);
 impl_array_newtype!(TokenTransferMemo, u8, 34);
 impl_array_hexstring_fmt!(TokenTransferMemo);
@@ -708,6 +708,7 @@ pub mod test {
     use chainstate::stacks::StacksPublicKey as PubKey;
 
     use util::log;
+    use util::hash::*;
 
     use vm::representations::{ClarityName, ContractName};
 
@@ -922,5 +923,71 @@ pub mod test {
             }
         }
         all_txs
+    }
+    
+    pub fn make_codec_test_block(num_txs: usize) -> StacksBlock {
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
+        let origin_auth = TransactionAuth::Standard(TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk)).unwrap());
+        let mut tx_coinbase = StacksTransaction::new(TransactionVersion::Mainnet,
+                                                     origin_auth.clone(),
+                                                     TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
+
+        tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
+
+        let mut all_txs = codec_all_transactions(&TransactionVersion::Testnet, 0x80000000, &TransactionAnchorMode::OnChainOnly, &TransactionPostConditionMode::Allow);
+        
+        // remove all coinbases, except for an initial coinbase
+        let mut txs_anchored = vec![];
+        txs_anchored.push(tx_coinbase);
+
+        for tx in all_txs.drain(..) {
+            match tx.payload {
+                TransactionPayload::Coinbase(_) => {
+                    continue;
+                },
+                _ => {}
+            }
+            txs_anchored.push(tx);
+            if txs_anchored.len() >= num_txs {
+                break;
+            }
+        }
+
+        let txid_vecs = txs_anchored
+            .iter()
+            .map(|tx| tx.txid().as_bytes().to_vec())
+            .collect();
+
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+        let tx_merkle_root = merkle_tree.root();
+        let tr = tx_merkle_root.as_bytes().to_vec();
+
+        let work_score = StacksWorkScore {
+            burn: 123,
+            work: 456
+        };
+
+        let header = StacksBlockHeader {
+            version: 0x01,
+            total_work: StacksWorkScore {
+                burn: 234,
+                work: 567,
+            },
+            proof: proof.clone(),
+            parent_block: BlockHeaderHash([5u8; 32]),
+            parent_microblock: BlockHeaderHash([6u8; 32]),
+            parent_microblock_sequence: 4,
+            tx_merkle_root: tx_merkle_root,
+            state_index_root: TrieHash([8u8; 32]),
+            microblock_pubkey_hash: Hash160([9u8; 20])
+        };
+
+        StacksBlock {
+            header: header,
+            txs: txs_anchored
+        }
     }
 }
