@@ -72,7 +72,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
-        LexMatcher::new("<(?P<value>([[:word:]])+)>", TokenType::GenericLiteral),
+        LexMatcher::new("<(?P<value>([[:word:]]|[-])+)>", TokenType::GenericLiteral),
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
@@ -432,10 +432,9 @@ r#"z (let ((x 1) (y 2))
     #[test]
     fn test_parse_generics() {
         use vm::types::PrincipalData;
-        let input = "(define-public (meth (contract <a>)))";
+        let input = "(define-public (will-dynamic-dispatch (contract <a>)))";
         let parsed = ast::parser::parse(&input).unwrap();
 
-        panic!("{:?}", parsed);
         let x1 = &parsed[0];
         assert!( match x1.match_atom_value() {
             Some(Value::Principal(PrincipalData::Contract(identifier))) => {
