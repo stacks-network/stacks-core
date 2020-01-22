@@ -5,14 +5,15 @@ use regex::{Regex, Captures};
 use address::c32::c32_address_decode;
 use vm::ast::errors::{ParseResult, ParseErrors, ParseError};
 use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
-use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, ContractName};
-use vm::types::{Value, PrincipalData, QualifiedContractIdentifier};
+use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, ContractName, ClarityName};
+use vm::types::{Value, PrincipalData, FieldData, QualifiedContractIdentifier};
 
 pub enum LexItem {
     LeftParen,
     RightParen,
     LiteralValue(usize, Value),
-    UnexpandedContractName(usize, ContractName),
+    SugaredContractIdentifier(usize, ContractName),
+    SugaredFieldIdentifier(usize, ContractName, ClarityName),
     Variable(String),
     Whitespace
 }
@@ -22,9 +23,11 @@ enum TokenType {
     LParens, RParens, Whitespace,
     StringLiteral, HexStringLiteral,
     UIntLiteral, IntLiteral, QuoteLiteral,
-    Variable, TraitLiteral, PrincipalLiteral,
+    Variable, TraitReferenceLiteral, PrincipalLiteral,
     SugaredContractIdentifierLiteral,
     FullyQualifiedContractIdentifierLiteral,
+    SugaredFieldIdentifierLiteral,
+    FullyQualifiedFieldIdentifierLiteral,
 }
 
 struct LexMatcher {
@@ -72,11 +75,13 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
-        LexMatcher::new("<(?P<value>([[:word:]]|[-])+)>", TokenType::GenericLiteral),
+        LexMatcher::new("<(?P<value>([[:word:]]|[-])+)>", TokenType::TraitReferenceLiteral),
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
+        LexMatcher::new(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}(\.)([[:alnum:]]|[-]){5,40}(\.)([[:alnum:]]|[-]){5,40})"#, TokenType::FullyQualifiedFieldIdentifierLiteral),
+        LexMatcher::new(r#"(?P<value>(\.)([[:alnum:]]|[-]){5,40}(\.)([[:alnum:]]|[-]){5,40})"#, TokenType::SugaredFieldIdentifierLiteral),
         LexMatcher::new(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}(\.)([[:alnum:]]|[-]){5,40})"#, TokenType::FullyQualifiedContractIdentifierLiteral),
         LexMatcher::new(r#"(?P<value>(\.)([[:alnum:]]|[-]){5,40})"#, TokenType::SugaredContractIdentifierLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
@@ -181,13 +186,29 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
-                    TokenType::SemiQualifiedContractIdentifierLiteral => {
+                    TokenType::SugaredContractIdentifierLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match str_value[1..].to_string().try_into() {
                             Ok(parsed) => Ok(parsed),
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone())))
                         }?;
-                        Ok(LexItem::UnexpandedContractName(str_value.len(), value))
+                        Ok(LexItem::SugaredContractIdentifier(str_value.len(), value))
+                    },
+                    TokenType::FullyQualifiedFieldIdentifierLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let value = match FieldData::parse(&str_value) {
+                            Ok(parsed) => Ok(Value::Field(parsed)),
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone()))) // todo(ludo): fix error
+                        }?;
+                        Ok(LexItem::LiteralValue(str_value.len(), value))
+                    },
+                    TokenType::SugaredFieldIdentifierLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let (contract_name, field_name) = match FieldData::parse_sugared_syntax(&str_value) {
+                            Ok((contract_name, field_name)) => Ok((contract_name, field_name)),
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone()))) // todo(ludo): fix error
+                        }?;
+                        Ok(LexItem::SugaredFieldIdentifier(str_value.len(), contract_name, field_name))
                     },
                     TokenType::PrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
@@ -197,11 +218,11 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
-                    TokenType::GenericLiteral => {
+                    TokenType::TraitReferenceLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let data = str_value.clone().try_into()
                             .map_err(|_| { ParseError::new(ParseErrors::IllegalVariableName(str_value.to_string())) })?;
-                        let value = Value::generic_from(data);
+                        let value = Value::trait_reference_from(data);
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
                     TokenType::HexStringLiteral => {
@@ -298,13 +319,27 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     Some((ref mut list, _, _)) => list.push(pre_expr)
                 };
             },
-            LexItem::UnexpandedContractName(length, value) => {
+            LexItem::SugaredContractIdentifier(length, value) => {
                 let mut end_column = column_pos + (length as u32);
                 // Avoid underflows on cases like empty strings
                 if length > 0 {
                     end_column = end_column - 1;
                 }
-                let mut pre_expr = PreSymbolicExpression::unexpanded_contract_name(value);
+                let mut pre_expr = PreSymbolicExpression::sugared_contract_identifier(value);
+                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
+
+                match parse_stack.last_mut() {
+                    None => output_list.push(pre_expr),
+                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                };
+            },
+            LexItem::SugaredFieldIdentifier(length, contract_name, name) => { // todo(ludo): DRY this enumerations
+                let mut end_column = column_pos + (length as u32);
+                // Avoid underflows on cases like empty strings
+                if length > 0 {
+                    end_column = end_column - 1;
+                }
+                let mut pre_expr = PreSymbolicExpression::sugared_field_identifier(contract_name, name);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
 
                 match parse_stack.last_mut() {

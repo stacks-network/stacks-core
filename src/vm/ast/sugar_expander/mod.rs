@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, SymbolicExpression, SymbolicExpressionType};
-use vm::types::{QualifiedContractIdentifier, Value, PrincipalData, StandardPrincipalData};
+use vm::types::{QualifiedContractIdentifier, Value, PrincipalData, StandardPrincipalData, FieldData};
 use vm::ast::types::{ContractAST, BuildASTPass};
 use vm::ast::errors::{ParseResult, ParseError, ParseErrors};
 use vm::functions::NativeFunctions;
@@ -40,17 +40,21 @@ impl SugarExpander {
                 PreSymbolicExpressionType::Atom(content) => {
                     SymbolicExpression::atom(content)
                 },
-                PreSymbolicExpressionType::Generic(content) => {
-                    SymbolicExpression::atom(content)
-                },
-                PreSymbolicExpressionType::UnexpandedContractName(contract_name) => {
-                    let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name);
-                    SymbolicExpression::literal_value(Value::Principal(PrincipalData::Contract(contract_identifier)))
-                },
                 PreSymbolicExpressionType::List(pre_exprs) => {
                     let exprs = self.transform(&mut pre_exprs.to_vec());
                     SymbolicExpression::list(exprs.into_boxed_slice())
                 }
+                PreSymbolicExpressionType::SugaredContractIdentifier(contract_name) => {
+                    let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name);
+                    SymbolicExpression::literal_value(Value::Principal(PrincipalData::Contract(contract_identifier)))
+                },
+                PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, name) => {
+                    let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name);
+                    SymbolicExpression::literal_value(Value::Field(FieldData { name, contract_identifier}))
+                },
+                PreSymbolicExpressionType::SugaredTraitReference(content) => {
+                    SymbolicExpression::literal_value(content)
+                },
             };
             expr.span = pre_expr.span.clone();
             expressions.push(expr);
@@ -87,8 +91,8 @@ mod test {
         e
     }
 
-    fn make_unexpanded_contract_name(x: ContractName, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> PreSymbolicExpression {
-        let mut e = PreSymbolicExpression::unexpanded_contract_name(x);
+    fn make_sugared_contract_identifier(x: ContractName, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> PreSymbolicExpression {
+        let mut e = PreSymbolicExpression::sugared_contract_identifier(x);
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
@@ -183,9 +187,9 @@ mod test {
     }
 
     #[test]
-    fn test_transform_unexpanded_contract_name() {
+    fn test_transform_sugared_contract_identifier() {
         let contract_name = "tokens".into();
-        let mut pre_ast = vec![make_unexpanded_contract_name(contract_name, 1, 1, 1, 1)];
+        let mut pre_ast = vec![make_sugared_contract_identifier(contract_name, 1, 1, 1, 1)];
         let unsugared_contract_id = QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.tokens").unwrap();
         let ast = vec![make_literal_value(Value::Principal(PrincipalData::Contract(unsugared_contract_id)), 1, 1, 1, 1)];
 
