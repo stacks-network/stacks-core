@@ -1,7 +1,7 @@
 use vm::representations::SymbolicExpression;
 use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use vm::contexts::{OwnedEnvironment, AssetMap};
-use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection};
+use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection, HeadersDB};
 use vm::analysis::{AnalysisDatabase};
 use vm::errors::{Error as InterpreterError};
 use vm::ast::{ContractAST, errors::ParseError};
@@ -38,7 +38,8 @@ pub struct ClarityInstance {
 ///
 pub struct ClarityBlockConnection<'a> {
     datastore: MarfedKV,
-    parent: &'a mut ClarityInstance
+    parent: &'a mut ClarityInstance,
+    header_db: &'a dyn HeadersDB,
 }
 
 #[derive(Debug)]
@@ -103,7 +104,8 @@ impl ClarityInstance {
         ClarityInstance { datastore: Some(datastore) }
     }
 
-    pub fn begin_block(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) -> ClarityBlockConnection {
+    pub fn begin_block<'a> (&'a mut self, current: &BlockHeaderHash, next: &BlockHeaderHash,
+                            header_db: &'a dyn HeadersDB) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
             //   doesn't restore it's parent's datastore
@@ -112,7 +114,8 @@ impl ClarityInstance {
         datastore.begin(current, next);
 
         ClarityBlockConnection {
-            datastore: datastore,
+            datastore,
+            header_db,
             parent: self
         }
     }
@@ -188,7 +191,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Do something to the underlying DB that involves writing.
     pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
-        let mut db = ClarityDatabase::new(&mut self.datastore);
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
         db.begin();
         let result = to_do(&mut db);
         match result {
@@ -206,7 +209,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Do something to the underlying DB that involves only reading.
     pub fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
-        let mut db = ClarityDatabase::new(&mut self.datastore);
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
         db.begin();
         let result = to_do(&mut db);
         db.roll_back();
@@ -227,7 +230,7 @@ impl <'a> ClarityBlockConnection <'a> {
     fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap), Error>
     where A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
           F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap), Error> {
-        let mut db = ClarityDatabase::new(&mut self.datastore);
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
         // wrap the whole contract-call in a claritydb transaction,
         //   so we can abort on call_back's boolean retun
         db.begin();

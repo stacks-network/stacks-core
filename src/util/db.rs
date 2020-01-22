@@ -155,6 +155,13 @@ macro_rules! impl_byte_array_from_column {
                 Ok(inst)
             }
         }
+
+        impl rusqlite::types::ToSql for $thing {
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput> {
+                let hex_str = self.to_hex();
+                Ok(hex_str.into())
+            }
+        }
     }
 }
 

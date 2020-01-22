@@ -786,20 +786,22 @@ impl StacksChainState {
     }
 
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
-    pub fn chainstate_block_begin<'a>(chainstate_tx: &mut ChainstateTx<'a>, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
+    pub fn chainstate_block_begin<'a>(chainstate_tx: &'a ChainstateTx<'a>, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
         let conf = chainstate_tx.config.clone();
-        StacksChainState::inner_clarity_tx_begin(conf, clarity_instance, parent_burn_hash, parent_block, new_burn_hash, new_block)
+        StacksChainState::inner_clarity_tx_begin(conf, chainstate_tx.headers_tx.deref().deref(),
+                                                 clarity_instance, parent_burn_hash, parent_block, new_burn_hash, new_block)
     }
     
     /// Begin a transaction against the Clarity VM, _outside of_ the context of a chainstate
     /// transaction.  Used by the miner for producing blocks.
     pub fn block_begin<'a>(&'a mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
         let conf = self.config();
-        StacksChainState::inner_clarity_tx_begin(conf, &mut self.clarity_state, parent_burn_hash, parent_block, new_burn_hash, new_block)
+        StacksChainState::inner_clarity_tx_begin(conf, &self.headers_db, &mut self.clarity_state,
+                                                 parent_burn_hash, parent_block, new_burn_hash, new_block)
     }
 
     /// Create a Clarity VM database transaction
-    fn inner_clarity_tx_begin<'a>(conf: DBConfig, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
+    fn inner_clarity_tx_begin<'a>(conf: DBConfig, headers_db: &'a Connection, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
         // mix burn header hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the burn header hash _is_).
         let parent_index_block = 
@@ -824,7 +826,7 @@ impl StacksChainState {
         test_debug!("Child MARF index root:  {} = {} + {}", new_index_block.to_hex(), new_burn_hash.to_hex(), new_block.to_hex());
         test_debug!("Parent MARF index root: {} = {} + {}", parent_index_block.to_hex(), parent_burn_hash.to_hex(), parent_block.to_hex());
 
-        let inner_clarity_tx = clarity_instance.begin_block(&parent_index_block, &new_index_block);
+        let inner_clarity_tx = clarity_instance.begin_block(&parent_index_block, &new_index_block, headers_db);
 
         test_debug!("Got clarity TX!");
         ClarityTx {

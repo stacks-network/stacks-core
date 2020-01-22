@@ -214,12 +214,12 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
         x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x))
     }?;
 
-    let height_value = match u64::try_from(height_value) {
+    let height_value = match u32::try_from(height_value) {
         Ok(result) => result,
         _ => return Ok(Value::none())
     };
 
-    let current_block_height = env.global_context.database.get_simmed_block_height();
+    let current_block_height = env.global_context.database.get_current_block_height();
     if height_value >= current_block_height {
         return Ok(Value::none())
     }
@@ -230,15 +230,15 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
             Value::UInt(block_time as u128)
         },
         BlockInfoProperty::VrfSeed => {
-            let vrf_seed = env.global_context.database.get_simmed_block_vrf_seed(height_value);
+            let vrf_seed = env.global_context.database.get_block_vrf_seed(height_value);
             Value::Buffer(BuffData { data: vrf_seed.as_bytes().to_vec() })
         },
         BlockInfoProperty::HeaderHash => {
-            let header_hash = env.global_context.database.get_simmed_block_header_hash(height_value);
+            let header_hash = env.global_context.database.get_block_header_hash(height_value);
             Value::Buffer(BuffData { data: header_hash.as_bytes().to_vec() })
         },
         BlockInfoProperty::BurnchainHeaderHash => {
-            let burnchain_header_hash = env.global_context.database.get_simmed_burnchain_block_header_hash(height_value);
+            let burnchain_header_hash = env.global_context.database.get_burnchain_block_header_hash(height_value);
             Value::Buffer(BuffData { data: burnchain_header_hash.as_bytes().to_vec() })
         },
     };

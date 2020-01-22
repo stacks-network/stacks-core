@@ -155,6 +155,14 @@ impl <'a> RollbackWrapper <'a> {
             .or_else(|| self.store.get(key))
     }
 
+    pub fn get_current_block_height(&mut self) -> u32 {
+        self.store.get_current_block_height()
+    }
+
+    pub fn get_block_header_hash(&mut self, block_height: u32) -> Option<BlockHeaderHash> {
+        self.store.get_block_at_height(block_height)
+    }
+
     pub fn prepare_for_contract_metadata(&mut self, contract: &QualifiedContractIdentifier, content_hash: Sha512Trunc256Sum) {
         let key = MarfedKV::make_contract_hash_key(contract);
         let value = self.store.make_contract_commitment(content_hash);

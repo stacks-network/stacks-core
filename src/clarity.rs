@@ -22,7 +22,7 @@ use util::db::FromColumn;
 use vm::ast::parse;
 use vm::contexts::OwnedEnvironment;
 use vm::database::{ClarityDatabase, SqliteConnection,
-                   MarfedKV, MemoryBackingStore};
+                   MarfedKV, MemoryBackingStore, marf::NULL_HEADER_DB};
 use vm::errors::{InterpreterResult};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::analysis::{AnalysisDatabase, run_analysis};
@@ -200,7 +200,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let marf_kv = friendly_expect(MarfedKV::open(&args[1], None), "Failed to open VM database.");
             in_block(&args[1], marf_kv, |mut kv| {
-                { let mut db = ClarityDatabase::new(&mut kv);
+                { let mut db = kv.as_clarity_db(&NULL_HEADER_DB);
                   db.initialize() };
                 (kv, ())
             });
@@ -383,7 +383,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = ClarityDatabase::new(&mut marf);
+                    let db = marf.as_clarity_db(&NULL_HEADER_DB);
                     let mut vm_env = OwnedEnvironment::new(db);
                     vm_env.get_exec_environment(None)
                         .eval_read_only(&contract_identifier, &content)
@@ -429,7 +429,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         Err(e) => (marf, Err(e)),
                         Ok(analysis) => {
                             let result = {
-                                let db = ClarityDatabase::new(&mut marf);
+                                let db = marf.as_clarity_db(&NULL_HEADER_DB);
                                 let mut vm_env = OwnedEnvironment::new(db);
                                 vm_env.initialize_contract(contract_identifier, &contract_content)
                             };
@@ -499,7 +499,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = ClarityDatabase::new(&mut marf);
+                    let db = marf.as_clarity_db(&NULL_HEADER_DB);
                     let mut vm_env = OwnedEnvironment::new(db);
                     vm_env.execute_transaction(Value::Principal(sender), contract_identifier, &tx_name, &arguments) };
                 (marf, result)

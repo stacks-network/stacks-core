@@ -780,6 +780,13 @@ impl MARF {
         Ok(())
     }
 
+    pub fn get_block_height_of(&mut self, bhh: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
+        if Some(bhh) == self.get_open_chain_tip() {
+            return Ok(self.get_open_chain_tip_height())
+        }
+        MARF::get_block_height(&mut self.storage, bhh, current_block_hash)
+    }
+
     /// Get open chain tip
     pub fn get_open_chain_tip(&self) -> Option<&BlockHeaderHash> {
         self.open_chain_tip.as_ref()
