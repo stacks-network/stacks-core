@@ -22,9 +22,9 @@ enum TokenType {
     LParens, RParens, Whitespace,
     StringLiteral, HexStringLiteral,
     UIntLiteral, IntLiteral, QuoteLiteral,
-    Variable, GenericLiteral, PrincipalLiteral,
-    QualifiedContractPrincipalLiteral,
-    UnexpandedContractNameLiteral
+    Variable, TraitLiteral, PrincipalLiteral,
+    SugaredContractIdentifierLiteral,
+    FullyQualifiedContractIdentifierLiteral,
 }
 
 struct LexMatcher {
@@ -77,8 +77,8 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
-        LexMatcher::new(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}(\.)([[:alnum:]]|[-]){5,40})"#, TokenType::QualifiedContractPrincipalLiteral),
-        LexMatcher::new(r#"(?P<value>(\.)([[:alnum:]]|[-]){5,40})"#, TokenType::UnexpandedContractNameLiteral),
+        LexMatcher::new(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}(\.)([[:alnum:]]|[-]){5,40})"#, TokenType::FullyQualifiedContractIdentifierLiteral),
+        LexMatcher::new(r#"(?P<value>(\.)([[:alnum:]]|[-]){5,40})"#, TokenType::SugaredContractIdentifierLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("(?P<value>([[:word:]]|[-!?+<>=/*])+)", TokenType::Variable),
     ];
@@ -173,7 +173,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
-                    TokenType::QualifiedContractPrincipalLiteral => {
+                    TokenType::FullyQualifiedContractIdentifierLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match PrincipalData::parse_qualified_contract_principal(&str_value) {
                             Ok(parsed) => Ok(Value::Principal(parsed)),
@@ -181,7 +181,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
-                    TokenType::UnexpandedContractNameLiteral => {
+                    TokenType::SemiQualifiedContractIdentifierLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match str_value[1..].to_string().try_into() {
                             Ok(parsed) => Ok(parsed),
