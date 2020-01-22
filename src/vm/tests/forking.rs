@@ -3,8 +3,7 @@ use vm::analysis::errors::{CheckErrors};
 use vm::types::{Value};
 use vm::contexts::{OwnedEnvironment};
 use vm::representations::SymbolicExpression;
-use vm::database::marf::MarfedKV;
-use vm::database::ClarityDatabase;
+use vm::database::{MarfedKV, ClarityDatabase, NULL_HEADER_DB};
 use vm::types::{QualifiedContractIdentifier, PrincipalData};
 
 use vm::tests::{symbols_from_values, execute, is_err_code, is_committed};
@@ -172,7 +171,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
 
     {
-        marf_kv.as_clarity_db().initialize();
+        marf_kv.as_clarity_db(&NULL_HEADER_DB).initialize();
     }
 
     marf_kv.test_commit();
@@ -180,7 +179,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap());
 
     {
-        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
         f(&mut owned_env)
     }
 
@@ -192,7 +191,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &BlockHeaderHash::from_bytes(&[2 as u8; 32]).unwrap());
 
     {
-        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
         a(&mut owned_env)
     }
 
@@ -202,7 +201,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &BlockHeaderHash::from_bytes(&[3 as u8; 32]).unwrap());
 
     {
-        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
         b(&mut owned_env)
     }
 
@@ -213,7 +212,7 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &BlockHeaderHash::from_bytes(&[4 as u8; 32]).unwrap());
 
     {
-        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
         z(&mut owned_env)
     }
 

@@ -314,6 +314,14 @@ impl <'a> ClarityBlockConnection <'a> {
             |_, _| { false })?;
         Ok(result)
     }
+
+    #[cfg(test)]
+    pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, code: &str) -> Result<Value, Error> {
+        let (result, _) = self.with_abort_callback(
+            |vm_env| { vm_env.eval_read_only(contract, code).map_err(Error::from) },
+            |_, _| { false })?;
+        Ok(result)
+    }
 }
 
 
@@ -322,7 +330,7 @@ mod tests {
     use super::*;
     use vm::analysis::errors::CheckErrors;
     use vm::types::{Value, StandardPrincipalData};
-    use vm::database::marf::{ClarityBackingStore, MarfedKV};
+    use vm::database::{NULL_HEADER_DB, ClarityBackingStore, MarfedKV};
     use chainstate::stacks::index::storage::{TrieFileStorage};
     use rusqlite::NO_PARAMS;
 
@@ -335,7 +343,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
             
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
             
@@ -363,7 +372,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
 
@@ -395,7 +405,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
 
             let contract = "
             (define-data-var bar int 0)

@@ -98,8 +98,6 @@ impl <'a> ClarityDatabase <'a> {
     }
 
     pub fn initialize(&mut self) {
-        self.begin();
-        self.commit();
     }
 
     pub fn begin(&mut self) {

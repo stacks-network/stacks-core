@@ -10,4 +10,4 @@ pub use self::key_value_wrapper::{RollbackWrapper};
 pub use self::clarity_db::{ClarityDatabase, HeadersDB};
 pub use self::structures::{ClaritySerializable, ClarityDeserializable};
 pub use self::sqlite::{SqliteConnection};
-pub use self::marf::{MemoryBackingStore, MarfedKV, ClarityBackingStore};
+pub use self::marf::{MemoryBackingStore, MarfedKV, ClarityBackingStore, NULL_HEADER_DB};
