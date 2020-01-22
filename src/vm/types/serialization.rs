@@ -84,6 +84,8 @@ define_u8_enum!(TypePrefix {
     ResponseErr,
     OptionalNone,
     OptionalSome,
+    TraitReference,
+    Field,
     List,
     Tuple,
 });
@@ -287,6 +289,12 @@ impl Value {
                 };
 
                 Ok(Value::some(Value::deserialize_read(r, expect_contained_type)?))
+            },
+            TypePrefix::TraitReference => {
+                Ok(Value::none()) // todo(ludo): fix
+            },
+            TypePrefix::Field => {
+                Ok(Value::none()) // todo(ludo): fix
             }
             TypePrefix::List => {
                 let mut len = [0; 4];
@@ -383,6 +391,12 @@ impl Value {
             Principal(Contract(contract_identifier)) => {
                 contract_identifier.issuer.serialize_write(w)?;
                 contract_identifier.name.serialize_write(w)?;
+            },
+            Field(field_data) => {
+                field_data.name.serialize_write(w)? // todo(ludo): add contract_identifier
+            },
+            TraitReference(name) => {
+                name.serialize_write(w)? // todo(ludo): add contract_identifier
             },
             Response(response) => {
                 response.data.serialize_write(w)?

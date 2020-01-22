@@ -35,7 +35,7 @@ pub struct ListData {
     pub type_signature: ListTypeData
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
 impl StandardPrincipalData {
@@ -45,7 +45,7 @@ impl StandardPrincipalData {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct QualifiedContractIdentifier {
     pub issuer: StandardPrincipalData,
     pub name: ContractName
@@ -115,6 +115,53 @@ pub struct ResponseData {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct FieldData {
+    pub name: ClarityName,
+    pub contract_identifier: QualifiedContractIdentifier,
+}
+
+impl FieldData {
+
+    pub fn new(issuer: StandardPrincipalData, contract_name: ContractName, name: ClarityName) -> FieldData {
+        Self { 
+            name, 
+            contract_identifier: QualifiedContractIdentifier {
+                issuer,
+                name: contract_name
+            }
+        }
+    }
+
+    // todo(ludo): DRY parse / parse_sugared_syntax
+    pub fn parse(literal: &str) -> Result<FieldData> {
+        let split: Vec<_> = literal.splitn(3, ".").collect();
+        if split.len() != 3 {
+            return Err(RuntimeErrorType::ParseError(
+                "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
+        }
+
+        let issuer = PrincipalData::parse_standard_principal(split[0])?;
+        let contract_name = split[1].to_string().try_into()?;
+        let name = split[2].to_string().try_into()?;
+
+        Ok(FieldData::new(issuer, contract_name, name))
+    }
+
+    pub fn parse_sugared_syntax(literal: &str) -> Result<(ContractName, ClarityName)> {
+        let split: Vec<_> = literal.splitn(3, ".").collect();
+        if split.len() != 3 {
+            return Err(RuntimeErrorType::ParseError(
+                "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
+        }
+
+        let contract_name = split[1].to_string().try_into()?;
+        let name = split[2].to_string().try_into()?;
+
+        Ok((contract_name, name))
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     Int(i128),
     UInt(u128),
@@ -124,7 +171,9 @@ pub enum Value {
     Principal(PrincipalData),
     Tuple(TupleData),
     Optional(OptionalData),
-    Response(ResponseData)
+    Response(ResponseData),
+    Field(FieldData),
+    TraitReference(ClarityName),
 }
 
 define_named_enum!(BlockInfoProperty {
@@ -249,6 +298,14 @@ impl Value {
     pub fn buff_from_byte(byte: u8) -> Value {
         Value::Buffer(BuffData { data: vec![byte] })
     }
+
+    pub fn field_from(name: ClarityName, contract_identifier: QualifiedContractIdentifier) -> Value {
+        Value::Field(FieldData { name, contract_identifier })
+    }
+
+    pub fn trait_reference_from(name: ClarityName) -> Value {
+        Value::TraitReference(name)
+    }
 }
 
 impl BuffData {
@@ -292,6 +349,8 @@ impl fmt::Display for Value {
             Value::Principal(principal_data) => write!(f, "{}", principal_data),
             Value::Optional(opt_data) => write!(f, "{}", opt_data),
             Value::Response(res_data) => write!(f, "{}", res_data),
+            Value::Field(field_data) => write!(f, "{:?}", field_data.name), // todo(ludo): fix
+            Value::TraitReference(name) => write!(f, "{:?}", name), // todo(ludo): fix
             Value::List(list_data) => {
                 write!(f, "(")?;
                 for (ix, v) in list_data.data.iter().enumerate() {

@@ -367,10 +367,11 @@ pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
 
 #[cfg(test)]
 mod test {
-    use vm::representations::{PreSymbolicExpression};
+    use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
     use vm::{Value, ast};
-    use vm::types::{QualifiedContractIdentifier};
+    use vm::types::{QualifiedContractIdentifier, PrincipalData};
     use vm::ast::errors::{ParseErrors, ParseError};
+    use vm::types::{FieldData};
 
     fn make_atom(x: &str, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::atom(x.into());
@@ -449,7 +450,6 @@ r#"z (let ((x 1) (y 2))
 
     #[test]
     fn test_parse_contract_principals() {
-        use vm::types::PrincipalData;
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract-a";
         let parsed = ast::parser::parse(&input).unwrap();
 
@@ -466,16 +466,42 @@ r#"z (let ((x 1) (y 2))
 
     #[test]
     fn test_parse_generics() {
-        use vm::types::PrincipalData;
-        let input = "(define-public (will-dynamic-dispatch (contract <a>)))";
+        let input = "<a>";
         let parsed = ast::parser::parse(&input).unwrap();
 
         let x1 = &parsed[0];
         assert!( match x1.match_atom_value() {
-            Some(Value::Principal(PrincipalData::Contract(identifier))) => {
-                format!("{}", 
-                    PrincipalData::Standard(identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
-                    identifier.name == "contract-a".into()
+            Some(Value::TraitReference(trait_name)) => *trait_name == "a".into(),
+            _ => false
+        });
+    }
+
+    #[test]
+    fn test_parse_field_identifiers() {
+        use vm::types::PrincipalData;
+        let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.my-contract.my-trait";
+        let parsed = ast::parser::parse(&input).unwrap();
+
+        let x1 = &parsed[0];
+        assert!( match x1.match_atom_value() {
+            Some(Value::Field(data)) => {
+                format!("{}", PrincipalData::Standard(data.contract_identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
+                    data.contract_identifier.name == "my-contract".into() &&
+                    data.name == "my-trait".into()
+            },
+            _ => false
+        });
+    }
+
+    #[test]
+    fn test_parse_sugared_field_identifiers() {
+        let input = ".my-contract.my-trait";
+        let parsed = ast::parser::parse(&input).unwrap();
+
+        let x1 = &parsed[0];
+        assert!( match &x1.pre_expr {
+            PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, field_name) => {
+                *contract_name == "my-contract".into() && *field_name == "my-trait".into()
             },
             _ => false
         });
