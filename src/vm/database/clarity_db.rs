@@ -61,15 +61,18 @@ fn get_stacks_header_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<Sta
 
 impl HeadersDB for DBConn {
     fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
-        panic!("Not implemented");
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| x.anchored_header.block_hash())
     }
     
     fn get_burn_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
-        panic!("Not implemented");
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| x.burn_header_hash)
     }
 
     fn get_vrf_proof(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed> {
-        panic!("Not implemented");
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
     }
 }
 
