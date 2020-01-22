@@ -74,9 +74,9 @@ guarded_string!(ContractName, "ContractName", Regex::new("^[a-zA-Z]([a-zA-Z0-9]|
 pub enum PreSymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
-    Generic(ClarityName),
     List(Box<[PreSymbolicExpression]>),
-    UnexpandedContractName(ContractName)
+    SugaredContractIdentifier(ContractName),
+    SugaredFieldIdentifier(ContractName, ClarityName),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -116,9 +116,16 @@ impl PreSymbolicExpression {
     pub fn set_span(&mut self, _start_line: u32, _start_column: u32, _end_line: u32, _end_column: u32) {
     }
 
-    pub fn unexpanded_contract_name(val: ContractName) -> PreSymbolicExpression {
+    pub fn sugared_contract_identifier(val: ContractName) -> PreSymbolicExpression {
         PreSymbolicExpression {
-            pre_expr: PreSymbolicExpressionType::UnexpandedContractName(val),
+            pre_expr: PreSymbolicExpressionType::SugaredContractIdentifier(val),
+            .. PreSymbolicExpression::cons()
+        }
+    }
+
+    pub fn sugared_field_identifier(contract_name: ContractName, name: ClarityName) -> PreSymbolicExpression {
+        PreSymbolicExpression {
+            pre_expr: PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, name),
             .. PreSymbolicExpression::cons()
         }
     }
@@ -126,13 +133,6 @@ impl PreSymbolicExpression {
     pub fn atom_value(val: Value) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::AtomValue(val),
-            .. PreSymbolicExpression::cons()
-        }
-    }
-
-    pub fn generic(val: ClarityName) -> PreSymbolicExpression {
-        PreSymbolicExpression {
-            pre_expr: PreSymbolicExpressionType::Generic(val),
             .. PreSymbolicExpression::cons()
         }
     }
