@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use vm::{SymbolicExpression, ClarityName};
 use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
 use vm::analysis::analysis_db::{AnalysisDatabase};
@@ -30,6 +30,8 @@ pub struct ContractAnalysis {
     pub top_level_expression_sorting: Option<Vec<usize>>,
     #[serde(skip)]
     pub expressions: Vec<SymbolicExpression>,
+    #[serde(skip)]
+    pub trait_usages: Option<TraitUsages>,
 }
 
 impl ContractAnalysis {
@@ -46,7 +48,8 @@ impl ContractAnalysis {
             persisted_variable_types: BTreeMap::new(),
             top_level_expression_sorting: Some(Vec::new()),
             fungible_tokens: BTreeSet::new(),
-            non_fungible_tokens: BTreeMap::new()
+            non_fungible_tokens: BTreeMap::new(),
+            trait_usages: None,
         }
     }
 
@@ -142,4 +145,12 @@ impl <'a> Iterator for ExpressionsIterator <'a> {
         self.index += 1;
         Some(result)
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct TraitUsages {
+    pub defined_traits: HashMap<ClarityName, SymbolicExpression>,
+    pub imported_traits: HashMap<ClarityName, SymbolicExpression>,
+    pub referenced_traits: HashMap<ClarityName, SymbolicExpression>,
+    pub orphan_traits: Vec<ClarityName>,
 }
