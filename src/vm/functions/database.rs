@@ -241,6 +241,10 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
             let burnchain_header_hash = env.global_context.database.get_burnchain_block_header_hash(height_value);
             Value::Buffer(BuffData { data: burnchain_header_hash.as_bytes().to_vec() })
         },
+        BlockInfoProperty::IdentityHeaderHash => {
+            let id_header_hash = env.global_context.database.get_index_block_header_hash(height_value);
+            Value::Buffer(BuffData { data: id_header_hash.as_bytes().to_vec() })            
+        },
     };
 
     Ok(Value::some(result))

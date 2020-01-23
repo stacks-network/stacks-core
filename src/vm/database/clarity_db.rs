@@ -186,7 +186,7 @@ impl <'a> ClarityDatabase <'a> {
             .expect("Failed to obtain the block for the given block height.")
     }
 
-    fn get_index_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
+    pub fn get_index_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
         self.store.get_block_header_hash(block_height)
         // the caller is responsible for ensuring that the block_height given
         //  is < current_block_height, so this should _always_ return a value.

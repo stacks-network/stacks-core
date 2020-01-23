@@ -42,8 +42,6 @@ impl SqliteConnection {
     }
 
     pub fn insert_metadata(&mut self, bhh: &BlockHeaderHash, contract_hash: &str, key: &str, value: &str) {
-        debug!("insert_metadata: {}, {}, {}", bhh, contract_hash, key);
-
         let blockhash = bhh.to_hex();
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 3] = [&blockhash, &key, &value.to_string()];
@@ -58,7 +56,6 @@ impl SqliteConnection {
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             &params)
             .expect(SQL_FAIL_MESSAGE);
-        debug!("commit_metadata {} rows committed to blockhash: {} => {}", rows_updated, from, to);
     }
 
     pub fn move_metadata_to(&mut self, from: &BlockHeaderHash, to: &str) {
@@ -67,12 +64,9 @@ impl SqliteConnection {
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             &params)
             .expect(SQL_FAIL_MESSAGE);
-        debug!("move_metadata {} rows moved to: {} => {}", rows_updated, from, to);
     }
 
     pub fn get_metadata(&mut self, bhh: &BlockHeaderHash, contract_hash: &str, key: &str) -> Option<String> {
-        debug!("get_metadata: {}, {}, {}", bhh, contract_hash, key);
-
         let bhh = bhh.to_hex();
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 2] = [&bhh, &key];
