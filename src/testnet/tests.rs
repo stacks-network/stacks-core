@@ -6,7 +6,7 @@ use chainstate::stacks::db::{StacksChainState};
 use super::node::{TESTNET_CHAIN_ID};
 use chainstate::stacks::{TransactionPayload, CoinbasePayload};
 
-fn new_test_conf() -> testnet::Config {
+pub fn new_test_conf() -> testnet::Config {
     // Testnet's name
     let mut rng = rand::thread_rng();
     let mut buf = [0u8; 8];
@@ -63,7 +63,7 @@ fn should_succeed_mining_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, chain_state| {
+    run_loop.apply_on_new_chain_states(|round, chain_state, _| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.
@@ -239,7 +239,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, chain_state| {
+    run_loop.apply_on_new_chain_states(|round, chain_state, _| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.

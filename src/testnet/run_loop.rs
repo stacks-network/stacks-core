@@ -5,7 +5,7 @@ use std::thread;
 
 use chainstate::burn::{ConsensusHash};
 use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState};
-
+use chainstate::burn::{BlockHeaderHash};
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
@@ -14,7 +14,7 @@ pub struct RunLoop {
     nodes: Vec<Node>,
     new_burnchain_state_callback: Option<fn(u8, &BurnchainState)>,
     new_tenure_callback: Option<fn(u8, &LeaderTenure)>,
-    new_chain_state_callback: Option<fn(u8, &StacksChainState)>,
+    new_chain_state_callback: Option<fn(u8, &mut StacksChainState, &BlockHeaderHash)>,
 }
 
 impl RunLoop {
@@ -142,7 +142,9 @@ impl RunLoop {
                 burnchain_state.db.clone());
 
             if let Some(cb) = self.new_chain_state_callback {
-                cb(round_index, &node.chain_state);
+                let index_bhh = anchored_block_1.header.index_block_hash(
+                    &last_sortitioned_block.burn_header_hash);
+                cb(round_index, &mut node.chain_state, &index_bhh);
             }
 
             // If the node we're looping on won the sortition, initialize and configure the next tenure
@@ -211,12 +213,14 @@ impl RunLoop {
                             &burnchain_state.chain_tip.parent_burn_header_hash,             
                             microblocks.to_vec(), 
                             burnchain_state.db.clone());
+                        if let Some(cb) = self.new_chain_state_callback {
+                            let index_bhh = anchored_block.header.index_block_hash(
+                                &burnchain_state.chain_tip.burn_header_hash);
+                            cb(round_index, &mut node.chain_state, &index_bhh);
+                        }
                     },
-                }
-                if let Some(cb) = self.new_chain_state_callback {
-                    cb(round_index, &node.chain_state);
-                }
-
+                };
+                
                 // If the node we're looping on won the sortition, initialize and configure the next tenure
                 if won_sortition {
                     leader_tenure = node.initiate_new_tenure(&last_sortitioned_block);
@@ -235,7 +239,7 @@ impl RunLoop {
         self.new_tenure_callback = Some(f);
     }
     
-    pub fn apply_on_new_chain_states(&mut self, f: fn(u8, &StacksChainState)) {
+    pub fn apply_on_new_chain_states(&mut self, f: fn(u8, &mut StacksChainState, &BlockHeaderHash)) {
         self.new_chain_state_callback = Some(f);
     }
 }

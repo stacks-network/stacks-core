@@ -28,4 +28,4 @@ pub struct NodeConfig {
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

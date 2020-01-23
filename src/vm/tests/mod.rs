@@ -11,6 +11,7 @@ use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
 
+mod integrations;
 mod forking;
 mod assets;
 mod iterables;

@@ -84,6 +84,7 @@ use util::log;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
+pub const OWN_BLOCK_HEIGHT_KEY: &str = "__MARF_BLOCK_HEIGHT_SELF";
 
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
 pub struct MARF {
@@ -538,36 +539,18 @@ impl MARF {
             }
         }
 
-        match MARF::get_by_key(storage, current_block_hash, &hash_key)? {
-            Some(marf_value) => {
-                let height = u32::from(marf_value);
-                Ok(Some(height))
-            },
-            None => {
-                if *block_hash == *current_block_hash {
-                    if let Some(miner_tip) = miner_tip {
-                        // the miner cannot have inserted the hash of this block, so use the miner
-                        // sentinel value instead
-                        let miner_hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, miner_tip);
-                        match MARF::get_by_key(storage, current_block_hash, &miner_hash_key)? {
-                            Some(marf_value) => {
-                                let height = u32::from(marf_value);
-                                Ok(Some(height))
-                            },
-                            None => {
-                                Ok(None)
-                            }
-                        }
-                    }
-                    else {
-                        Ok(None)
-                    }
+        let marf_value =
+            if block_hash == current_block_hash {
+                MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY)?
+                    .expect("Corruption: block does not have 'own height' value.")
+            } else {
+                match MARF::get_by_key(storage, current_block_hash, &hash_key)? {
+                    Some(x) => x,
+                    None => { return Ok(None) }
                 }
-                else {
-                    Ok(None)
-                }
-            }
-        }
+            };
+
+        Ok(Some(u32::from(marf_value)))
     }
     
     pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
@@ -584,6 +567,13 @@ impl MARF {
                     _ => {}
                 }
             }
+        }
+
+        let current_block_height = MARF::get_block_height(storage, current_block_hash, current_block_hash)?
+            .expect("Corruption: block does not have 'own height' value.");
+
+        if height == current_block_height {
+            return Ok(Some(current_block_hash.clone()))
         }
 
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
@@ -606,6 +596,9 @@ impl MARF {
 
         test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, next_block_hash.to_hex());
         test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash.to_hex(), height);
+
+        keys.push(OWN_BLOCK_HEIGHT_KEY.to_string());
+        values.push(MARFValue::from(height));
 
         keys.push(height_key);
         values.push(MARFValue::from(next_block_hash.clone()));
@@ -783,8 +776,10 @@ impl MARF {
     pub fn get_block_height_of(&mut self, bhh: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
         if Some(bhh) == self.get_open_chain_tip() {
             return Ok(self.get_open_chain_tip_height())
+        } else {
+            let miner_tip = self.storage.get_miner_tip();
+            MARF::get_block_height_miner_tip(&mut self.storage, bhh, current_block_hash, miner_tip.as_ref())
         }
-        MARF::get_block_height(&mut self.storage, bhh, current_block_hash)
     }
 
     /// Get open chain tip

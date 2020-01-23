@@ -785,6 +785,13 @@ impl StacksChainState {
         Ok((chainstate_tx, clarity_instance))
     }
 
+    #[cfg(test)]
+    pub fn clarity_eval_read_only(&mut self, parent_id_bhh: &BlockHeaderHash,
+                                  contract: &QualifiedContractIdentifier, code: &str) -> Value {
+        let result = self.clarity_state.eval_read_only(parent_id_bhh, &self.headers_db, contract, code);
+        result.unwrap()
+    }
+
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
     pub fn chainstate_block_begin<'a>(chainstate_tx: &'a ChainstateTx<'a>, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
         let conf = chainstate_tx.config.clone();

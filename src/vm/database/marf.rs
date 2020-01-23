@@ -219,6 +219,11 @@ impl MarfedKV {
         &self.chain_tip
     }
 
+    #[cfg(test)]
+    pub fn set_chain_tip(&mut self, bhh: &BlockHeaderHash) {
+        self.chain_tip = bhh.clone();
+    }
+
     // This function *should not* be called by
     //   a smart-contract, rather it should only be used by the VM
     pub fn get_root_hash(&mut self) -> TrieHash {

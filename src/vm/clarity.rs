@@ -120,6 +120,19 @@ impl ClarityInstance {
         }
     }
 
+    #[cfg(test)]
+    pub fn eval_read_only(&mut self, at_block: &BlockHeaderHash, header_db: &dyn HeadersDB,
+                          contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
+        self.datastore.as_mut().unwrap()
+            .set_chain_tip(at_block);
+        let clarity_db = self.datastore.as_mut().unwrap()
+            .as_clarity_db(header_db);
+        let mut env = OwnedEnvironment::new(clarity_db);
+        env.eval_read_only(contract, program)
+            .map(|(x, _)| x)
+            .map_err(Error::from)
+    }
+
     pub fn destroy(mut self) -> MarfedKV {
         let datastore = self.datastore.take()
             .expect("FAIL: attempt to recover database connection from clarity instance which is still open");

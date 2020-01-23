@@ -52,7 +52,7 @@ pub trait HeadersDB {
 }
 
 fn get_stacks_header_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<StacksHeaderInfo> {
-    conn.query_row("SELECT * FROM block_headers WHERE state_index_root = ?",
+    conn.query_row("SELECT * FROM block_headers WHERE index_block_hash = ?",
                    [id_bhh].iter(),
                    |x| StacksHeaderInfo::from_row(x).expect("Bad stacks header info in database"))
         .optional()
