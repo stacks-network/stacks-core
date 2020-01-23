@@ -22,7 +22,7 @@ use util::db::FromColumn;
 use vm::ast::parse;
 use vm::contexts::OwnedEnvironment;
 use vm::database::{ClarityDatabase, SqliteConnection,
-                   MarfedKV, MemoryBackingStore, marf::NULL_HEADER_DB};
+                   MarfedKV, MemoryBackingStore, NULL_HEADER_DB};
 use vm::errors::{InterpreterResult};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::analysis::{AnalysisDatabase, run_analysis};

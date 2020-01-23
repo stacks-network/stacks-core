@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use vm::types::{QualifiedContractIdentifier};
 use vm::errors::{InterpreterError, CheckErrors, InterpreterResult as Result, IncomparableError, RuntimeErrorType};
-use vm::database::{SqliteConnection, ClarityDatabase, HeadersDB};
+use vm::database::{SqliteConnection, ClarityDatabase, HeadersDB, NULL_HEADER_DB};
 use vm::analysis::{AnalysisDatabase};
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MARFValue, Error as MarfError, TrieHash};
@@ -319,22 +319,6 @@ impl ClarityBackingStore for MarfedKV {
         }
         self.marf.insert_batch(&keys, values)
             .expect("ERROR: Unexpected MARF Failure");
-    }
-}
-
-pub struct NullHeadersDB {}
-
-pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
-
-impl HeadersDB for NullHeadersDB {
-    fn get_burn_header_hash_for_block(&self, bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
-        None
-    }
-    fn get_vrf_proof(&self, bhh: &BlockHeaderHash) -> Option<VRFSeed> {
-        None
-    }
-    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
-        None
     }
 }
 

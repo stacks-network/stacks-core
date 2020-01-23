@@ -48,7 +48,8 @@ pub struct ClarityDatabase<'a> {
 pub trait HeadersDB {
     fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash>;
     fn get_burn_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash>;
-    fn get_vrf_proof(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed>;
+    fn get_vrf_seed_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed>;
+    fn get_burn_block_time_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<u64>;
 }
 
 fn get_stacks_header_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<StacksHeaderInfo> {
@@ -70,12 +71,15 @@ impl HeadersDB for DBConn {
             .map(|x| x.burn_header_hash)
     }
 
-    fn get_vrf_proof(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+    fn get_burn_block_time_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<u64> {
+        panic!("Block time data not available in burn header db")
+    }
+
+    fn get_vrf_seed_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed> {
         get_stacks_header_info(self, id_bhh)
             .map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
     }
 }
-
 
 impl HeadersDB for &dyn HeadersDB {
     fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
@@ -84,8 +88,30 @@ impl HeadersDB for &dyn HeadersDB {
     fn get_burn_header_hash_for_block(&self, bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
         (*self).get_burn_header_hash_for_block(bhh)
     }
-    fn get_vrf_proof(&self, bhh: &BlockHeaderHash) -> Option<VRFSeed> {
-        (*self).get_vrf_proof(bhh)
+    fn get_vrf_seed_for_block(&self, bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+        (*self).get_vrf_seed_for_block(bhh)
+    }
+    fn get_burn_block_time_for_block(&self, bhh: &BlockHeaderHash) -> Option<u64> {
+        (*self).get_burn_block_time_for_block(bhh)
+    }
+}
+
+pub struct NullHeadersDB {}
+
+pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
+
+impl HeadersDB for NullHeadersDB {
+    fn get_burn_header_hash_for_block(&self, _bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
+        None
+    }
+    fn get_vrf_seed_for_block(&self, _bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+        None
+    }
+    fn get_stacks_block_header_hash_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+        None
+    }
+    fn get_burn_block_time_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<u64> {
+        None
     }
 }
 
@@ -176,16 +202,9 @@ impl <'a> ClarityDatabase <'a> {
     }
 }
 
-// Simulating blocks
+// Get block information
 
 impl <'a> ClarityDatabase <'a> {
-    fn get_simmed_block(&mut self, block_height: u64) -> SimmedBlock {
-        let key = ClarityDatabase::make_key_for_trip(
-            &QualifiedContractIdentifier::transient(), StoreType::SimmedBlock, &block_height.to_string());
-        self.get(&key)
-            .expect("Failed to obtain the block for the given block height.")
-    }
-
     pub fn get_index_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
         self.store.get_block_header_hash(block_height)
         // the caller is responsible for ensuring that the block_height given
@@ -203,8 +222,10 @@ impl <'a> ClarityDatabase <'a> {
             .expect("Failed to get block data.")
     }
 
-    pub fn get_simmed_block_time(&mut self, block_height: u32) -> u64 {
-        panic!("deprecated")
+    pub fn get_block_time(&mut self, block_height: u32) -> u64 {
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db.get_burn_block_time_for_block(&id_bhh)
+            .expect("Failed to get block data.")
     }
 
     pub fn get_burnchain_block_header_hash(&mut self, block_height: u32) -> BurnchainHeaderHash {
@@ -215,7 +236,7 @@ impl <'a> ClarityDatabase <'a> {
 
     pub fn get_block_vrf_seed(&mut self, block_height: u32) -> VRFSeed {
         let id_bhh = self.get_index_block_header_hash(block_height);
-        self.headers_db.get_vrf_proof(&id_bhh)
+        self.headers_db.get_vrf_seed_for_block(&id_bhh)
             .expect("Failed to get block data.")
     }
 }

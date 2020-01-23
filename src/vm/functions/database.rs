@@ -226,7 +226,7 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
 
     let result = match block_info_prop {
         BlockInfoProperty::Time => {
-            let block_time = env.global_context.database.get_simmed_block_time(height_value);
+            let block_time = env.global_context.database.get_block_time(height_value);
             Value::UInt(block_time as u128)
         },
         BlockInfoProperty::VrfSeed => {

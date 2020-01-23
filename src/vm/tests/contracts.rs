@@ -8,8 +8,7 @@ use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
-use vm::database::marf::{MemoryBackingStore, MarfedKV, NULL_HEADER_DB};
-use vm::database::ClarityDatabase;
+use vm::database::{MemoryBackingStore, MarfedKV, NULL_HEADER_DB, ClarityDatabase};
 use vm::clarity::ClarityInstance;
 use vm::ast;
 
