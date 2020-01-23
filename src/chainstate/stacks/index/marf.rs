@@ -2056,14 +2056,9 @@ mod test {
             assert_eq!(MARF::get_block_height_miner_tip(marf.borrow_storage_backend(), block, &block_header, Some(&target_block)).unwrap(),
                        Some(i as u32));
 
-            if i == num_blocks_created {
-                assert_eq!(MARF::get_block_at_height(marf.borrow_storage_backend(), i as u32, &block_header).unwrap(),
-                           Some(target_block.clone()));
-            }
-            else {
-                assert_eq!(MARF::get_block_at_height(marf.borrow_storage_backend(), i as u32, &block_header).unwrap(),
-                           Some(block.clone()));
-            }
+            // get_block_at_height should now always return the correct block_header
+            assert_eq!(MARF::get_block_at_height(marf.borrow_storage_backend(), i as u32, &block_header).unwrap(),
+                       Some(block.clone()));
         }
 
         root_table_cache = None;
