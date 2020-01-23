@@ -414,8 +414,13 @@ impl MARF {
     pub fn get_path(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<Option<TrieLeaf>, Error> {
         trace!("MARF::get_path({:?}) {:?}", block_hash, path);
 
+        // a NotFoundError _here_ means that a block didn't exist
         storage.open_block(block_hash)?;
+        // a NotFoundError _here_ means that the key doesn't exist in this view
         let (cursor, node) = MARF::walk(storage, block_hash, path)?;
+        // both of these get caught by get_by_key and turned into Ok(None)
+        //   and a lot of downstream code seems to depend on that behavior, but
+        //   should these two different cases be differentiable?
 
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("cursor.block_hashes = {:?}", &cursor.block_hashes);
@@ -542,15 +547,11 @@ impl MARF {
         let marf_value =
             if block_hash == current_block_hash {
                 MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY)?
-                    .expect("Corruption: block does not have 'own height' value.")
             } else {
-                match MARF::get_by_key(storage, current_block_hash, &hash_key)? {
-                    Some(x) => x,
-                    None => { return Ok(None) }
-                }
+                MARF::get_by_key(storage, current_block_hash, &hash_key)?
             };
 
-        Ok(Some(u32::from(marf_value)))
+        Ok(marf_value.map(u32::from))
     }
     
     pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
@@ -569,8 +570,10 @@ impl MARF {
             }
         }
 
-        let current_block_height = MARF::get_block_height(storage, current_block_hash, current_block_hash)?
-            .expect("Corruption: block does not have 'own height' value.");
+        let current_block_height = match MARF::get_block_height(storage, current_block_hash, current_block_hash)? {
+            Some(x) => x,
+            None => return Ok(None)
+        };
 
         if height == current_block_height {
             return Ok(Some(current_block_hash.clone()))
