@@ -33,7 +33,7 @@ impl TraitChecker {
         let trait_usages = self.find_trait_usages(&exprs)?;
         
         // Presence of orphaned traits should throw
-        if let Some(t) = trait_usages.orphan_traits.first() {
+        if let Some(t) = trait_usages.orphan_trait_references.first() {
             return Err(CheckErrors::UnknownTrait(t.to_string()).into());
         }
 
@@ -80,10 +80,10 @@ impl TraitChecker {
             };
         }
 
-        let mut orphan_traits = vec![];
+        let mut orphan_trait_references = vec![];
         for (trait_name, _) in &referenced_traits {
             if !imported_traits.contains_key(trait_name) && !defined_traits.contains_key(trait_name) {
-                orphan_traits.push(trait_name.clone());
+                orphan_trait_references.push(trait_name.clone());
             }
         }
 
@@ -91,7 +91,7 @@ impl TraitChecker {
             defined_traits,
             imported_traits,
             referenced_traits,
-            orphan_traits,        
+            orphan_trait_references,        
         })
     }
 
