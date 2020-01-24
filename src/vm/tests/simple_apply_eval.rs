@@ -383,6 +383,29 @@ fn test_options_errors() {
 }
 
 #[test]
+fn test_stx_ops_errors() {
+    let tests = [
+        "(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-transfer? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-transfer? u4 u3 u2)",
+        "(stx-burn? u4)",
+        "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+    ];
+
+    let expectations: &[Error] = &[
+        CheckErrors::IncorrectArgumentCount(3,2).into(),
+        CheckErrors::BadTransferSTXArguments.into(),
+        CheckErrors::BadTransferSTXArguments.into(),
+        CheckErrors::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::BadTransferSTXArguments.into(),
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+    }
+}
+
+#[test]
 fn test_some() {
     let tests = [
         "(is-eq (some 1) (some 1))",

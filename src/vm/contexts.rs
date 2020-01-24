@@ -420,6 +420,16 @@ impl <'a> OwnedEnvironment <'a> {
     }
 
     #[cfg(test)]
+    pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
+        self.execute_in_env(recipient.clone().into(),
+                            |env| {
+                                let bal = env.global_context.database.get_account_stx_balance(recipient);
+                                env.global_context.database.set_account_stx_balance(recipient, bal + amount);
+                                Ok(())
+                            }).unwrap();
+    }
+
+    #[cfg(test)]
     pub fn eval_raw(&mut self, program: &str) -> Result<(Value, AssetMap)> {
         self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
                             |exec_env| exec_env.eval_raw(program))

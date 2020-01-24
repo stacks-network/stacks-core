@@ -102,6 +102,133 @@ fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_ident
     env.execute_transaction(issuer, contract_identifier.clone(), tx, args)
 }
 
+fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
+    let contract = "(define-public (burn-stx (amount uint) (p principal)) (stx-burn? amount p))
+                    (define-public (xfer-stx (amount uint) (p principal) (t principal)) (stx-transfer? amount p t))";
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+    let p3 = execute("'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY");
+
+    let p1_principal = match p1 {
+        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!()
+    };
+
+    let p2_principal = match p2 {
+        Value::Principal(ref data) => data.clone(),
+        _ => panic!()
+    };
+
+    let p3_principal = match p3 {
+        Value::Principal(ref data) => data.clone(),
+        _ => panic!()
+    };
+
+    let token_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
+
+    owned_env.initialize_contract(token_contract_id.clone(), contract).unwrap();
+    owned_env.stx_faucet(&(p1_principal.clone().into()), u128::max_value() - 1);
+    owned_env.stx_faucet(&p2_principal, 1000);
+
+    // test 1: send 0
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p1.clone(), &token_contract_id, "xfer-stx",
+        &symbols_from_values(vec![Value::UInt(0), p1.clone(), p2.clone()])).unwrap();
+
+    assert!(is_err_code(&result, 3));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p1.clone(), &token_contract_id, "burn-stx",
+        &symbols_from_values(vec![Value::UInt(0), p1.clone()])).unwrap();
+
+    assert!(is_err_code(&result, 3));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    // test 2: from = to
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p2.clone(), &token_contract_id, "xfer-stx",
+        &symbols_from_values(vec![Value::UInt(50), p2.clone(), p2.clone()])).unwrap();
+
+    assert!(is_err_code(&result, 2));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    // test 3: sender is not tx-sender
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p2.clone(), &token_contract_id, "xfer-stx",
+        &symbols_from_values(vec![Value::UInt(50), p1.clone(), p2.clone()])).unwrap();
+
+    assert!(is_err_code(&result, 4));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p2.clone(), &token_contract_id, "burn-stx",
+        &symbols_from_values(vec![Value::UInt(50), p1.clone()])).unwrap();
+
+    assert!(is_err_code(&result, 4));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    // test 4: amount > balance
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p2.clone(), &token_contract_id, "xfer-stx",
+        &symbols_from_values(vec![Value::UInt(1001), p2.clone(), p3.clone()])).unwrap();
+
+    assert!(is_err_code(&result, 1));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p2.clone(), &token_contract_id, "burn-stx",
+        &symbols_from_values(vec![Value::UInt(1001), p2.clone()])).unwrap();
+
+    assert!(is_err_code(&result, 1));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    // test 5: overflow
+
+    assert_eq!(
+        execute_transaction(
+            owned_env, p2.clone(), &token_contract_id, "xfer-stx",
+            &symbols_from_values(vec![Value::UInt(2), p2.clone(), p1.clone()])).unwrap_err(),
+        RuntimeErrorType::ArithmeticOverflow.into());
+
+    // now, let's actually do a couple transfers/burns and check the asset maps.
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p2.clone(), &token_contract_id, "burn-stx",
+        &symbols_from_values(vec![Value::UInt(10), p2.clone()])).unwrap();
+
+    assert!(is_committed(&result));
+    let table = asset_map.to_table();
+    assert_eq!(table.get(&p2_principal).unwrap()
+               .get(&AssetIdentifier::STX_burned()).unwrap(),
+               &AssetMapEntry::Burn(10));
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p2.clone(), &token_contract_id, "xfer-stx",
+        &symbols_from_values(vec![Value::UInt(500), p2.clone(), p3.clone()])).unwrap();
+
+    assert!(is_committed(&result));
+    let table = asset_map.to_table();
+    assert_eq!(table.get(&p2_principal).unwrap()
+               .get(&AssetIdentifier::STX()).unwrap(),
+               &AssetMapEntry::STX(500));
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p3.clone(), &token_contract_id, "xfer-stx",
+        &symbols_from_values(vec![Value::UInt(1), p3.clone(), p1.clone()])).unwrap();
+
+    assert!(is_committed(&result));
+    let table = asset_map.to_table();
+    assert_eq!(table.get(&p3_principal).unwrap()
+               .get(&AssetIdentifier::STX()).unwrap(),
+               &AssetMapEntry::STX(1));
+
+}
+
 fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     let tokens_contract = FIRST_CLASS_TOKENS;
 
@@ -469,7 +596,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
 #[test]
 fn test_all() {
-    let to_test = [test_simple_token_system, test_simple_naming_system, total_supply];
+    let to_test = [test_simple_token_system, test_simple_naming_system, total_supply, test_native_stx_ops];
     for test in to_test.iter() {
         with_memory_environment(test, true);
         with_marfed_environment(test, true);
