@@ -49,8 +49,6 @@ fn print_usage(invoked_by: &str) {
 where command is one of:
 
   initialize         to initialize a local VM state database.
-  mine_block         to simulated mining a new block.
-  get_block_height   to print the simulated block height.
   check              to typecheck a potential contract definition.
   launch             to launch a initialize a new contract in the local state database.
   eval               to evaluate (in read-only mode) a program in a given contract context.
@@ -522,14 +520,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     panic_test!();
                 }
             }
-        },
-        // TODO :: need to rework a bunch of how this simulation works.
-        //         get block info items will need to consult the marf
-        "mine_block" => {
-            panic!("Not implemented")
-        },
-        "get_block_height" => {
-            panic!("Not implemented")
         },
         _ => {
             print_usage(invoked_by)
