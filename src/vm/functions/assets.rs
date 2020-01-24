@@ -10,6 +10,94 @@ enum MintAssetErrorCodes { ALREADY_EXIST = 1 }
 enum MintTokenErrorCodes { NON_POSITIVE_AMOUNT = 1 }
 enum TransferAssetErrorCodes { NOT_OWNED_BY = 1, SENDER_IS_RECIPIENT = 2, DOES_NOT_EXIST = 3 }
 enum TransferTokenErrorCodes { NOT_ENOUGH_BALANCE = 1, SENDER_IS_RECIPIENT = 2, NON_POSITIVE_AMOUNT = 3 }
+enum StxErrorCodes { NOT_ENOUGH_BALANCE = 1, SENDER_IS_RECIPIENT = 2, NON_POSITIVE_AMOUNT = 3, SENDER_IS_NOT_TX_SENDER = 4 }
+
+macro_rules! clarity_ecode {
+    ($thing:expr) => {
+        Ok(Value::error(Value::UInt($thing as u128)))
+    }
+}
+
+pub fn special_stx_transfer(args: &[SymbolicExpression],
+                            env: &mut Environment,
+                            context: &LocalContext) -> Result<Value> {
+    check_argument_count(3, args)?;
+
+    let amount_val = eval(&args[0], env, context)?;
+    let from_val   = eval(&args[1], env, context)?;
+    let to_val     = eval(&args[2], env, context)?;
+
+    if let (Value::Principal(ref from), Value::Principal(ref to), Value::UInt(amount)) = (&from_val, to_val, amount_val) {
+        if amount <= 0 {
+            return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT)
+        }
+
+        if from == to {
+            return clarity_ecode!(StxErrorCodes::SENDER_IS_RECIPIENT)
+        }
+
+        if Some(&from_val) != env.sender.as_ref() {
+            return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER)
+        }
+
+        let from_bal = env.global_context.database.get_account_stx_balance(&from);
+        let to_bal = env.global_context.database.get_account_stx_balance(&to);
+
+        if from_bal < amount {
+            return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE)
+        }
+
+        let final_from_bal = from_bal - amount;
+        let final_to_bal = to_bal.checked_add(amount)
+            .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+
+        env.global_context.database.set_account_stx_balance(&from, final_from_bal);
+        env.global_context.database.set_account_stx_balance(&to,   final_to_bal);
+
+        env.global_context.log_stx_transfer(&from, amount)?;
+
+        Ok(Value::okay(Value::Bool(true)))
+
+    } else {
+        Err(CheckErrors::BadTransferSTXArguments.into())
+    }
+}
+
+pub fn special_stx_burn(args: &[SymbolicExpression],
+                        env: &mut Environment,
+                        context: &LocalContext) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    let amount_val = eval(&args[0], env, context)?;
+    let from_val   = eval(&args[1], env, context)?;
+
+    if let (Value::Principal(ref from), Value::UInt(amount)) = (&from_val, amount_val) {
+        if amount <= 0 {
+            return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT)
+        }
+
+        if Some(&from_val) != env.sender.as_ref() {
+            return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER)
+        }
+
+        let from_bal = env.global_context.database.get_account_stx_balance(&from);
+
+        if from_bal < amount {
+            return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE)
+        }
+
+        let final_from_bal = from_bal - amount;
+
+        env.global_context.database.set_account_stx_balance(&from, final_from_bal);
+
+        env.global_context.log_stx_burn(&from, amount)?;
+
+        Ok(Value::okay(Value::Bool(true)))
+
+    } else {
+        Err(CheckErrors::BadTransferSTXArguments.into())
+    }
+}
 
 pub fn special_mint_token(args: &[SymbolicExpression],
                           env: &mut Environment,
@@ -25,7 +113,7 @@ pub fn special_mint_token(args: &[SymbolicExpression],
     if let (Value::UInt(amount),
             Value::Principal(ref to_principal)) = (amount, to) {
         if amount <= 0 {
-            return Ok(Value::error(Value::Int(MintTokenErrorCodes::NON_POSITIVE_AMOUNT as i128)));
+            return clarity_ecode!(MintTokenErrorCodes::NON_POSITIVE_AMOUNT);
         }
 
         env.global_context.database.checked_increase_token_supply(
@@ -64,7 +152,7 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
     if let Value::Principal(ref to_principal) = to {
         match env.global_context.database.get_nft_owner(&env.contract_context.contract_identifier, asset_name, &asset) {
             Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
-            Ok(_owner) => return Ok(Value::error(Value::Int(MintAssetErrorCodes::ALREADY_EXIST as i128))),
+            Ok(_owner) => return clarity_ecode!(MintAssetErrorCodes::ALREADY_EXIST),
             Err(e) => Err(e)
         }?;
 
@@ -98,20 +186,20 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
             Value::Principal(ref to_principal)) = (from, to) {
 
         if from_principal == to_principal {
-            return Ok(Value::error(Value::Int(TransferAssetErrorCodes::SENDER_IS_RECIPIENT as i128)))
+            return clarity_ecode!(TransferAssetErrorCodes::SENDER_IS_RECIPIENT)
         }
 
         let current_owner = match env.global_context.database.get_nft_owner(&env.contract_context.contract_identifier, asset_name, &asset) {
             Ok(owner) => Ok(owner),
             Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
-                return Ok(Value::error(Value::Int(TransferAssetErrorCodes::DOES_NOT_EXIST as i128)))
+                return clarity_ecode!(TransferAssetErrorCodes::DOES_NOT_EXIST)
             },
             Err(e) => Err(e)
         }?;
             
 
         if current_owner != *from_principal {
-            return Ok(Value::error(Value::Int(TransferAssetErrorCodes::NOT_OWNED_BY as i128)))
+            return clarity_ecode!(TransferAssetErrorCodes::NOT_OWNED_BY)
         }
 
         env.global_context.database.set_nft_owner(&env.contract_context.contract_identifier, asset_name, &asset, to_principal)?;
@@ -140,17 +228,17 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
             Value::Principal(ref from_principal),
             Value::Principal(ref to_principal)) = (amount, from, to) {
         if amount <= 0 {
-            return Ok(Value::error(Value::Int(TransferTokenErrorCodes::NON_POSITIVE_AMOUNT as i128)))
+            return clarity_ecode!(TransferTokenErrorCodes::NON_POSITIVE_AMOUNT)
         }
 
         if from_principal == to_principal {
-            return Ok(Value::error(Value::Int(TransferTokenErrorCodes::SENDER_IS_RECIPIENT as i128)))
+            return clarity_ecode!(TransferTokenErrorCodes::SENDER_IS_RECIPIENT)
         }
 
         let from_bal = env.global_context.database.get_ft_balance(&env.contract_context.contract_identifier, token_name, from_principal)?;
 
         if from_bal < amount {
-            return Ok(Value::error(Value::Int(TransferTokenErrorCodes::NOT_ENOUGH_BALANCE as i128)))
+            return clarity_ecode!(TransferTokenErrorCodes::NOT_ENOUGH_BALANCE)
         }
 
         let final_from_bal = from_bal - amount;

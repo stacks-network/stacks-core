@@ -644,20 +644,33 @@ impl <'a> GlobalContext<'a> {
         self.asset_maps.len() == 0
     }
 
+    fn get_asset_map(&mut self) -> &mut AssetMap {
+        self.asset_maps.last_mut()
+            .expect("Failed to obtain asset map")
+    }
+
     pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: Value) {
         let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
                                                  asset_name: asset_name.clone() };
-        self.asset_maps.last_mut()
-            .expect("Failed to obtain asset map")
+        self.get_asset_map()
             .add_asset_transfer(sender, asset_identifier, transfered)
     }
 
     pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: u128) -> Result<()> {
         let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
                                                  asset_name: asset_name.clone() };
-        self.asset_maps.last_mut()
-            .expect("Failed to obtain asset map")
+        self.get_asset_map()
             .add_token_transfer(sender, asset_identifier, transfered)
+    }
+
+    pub fn log_stx_transfer(&mut self, sender: &PrincipalData, transfered: u128) -> Result<()> {
+        self.get_asset_map()
+            .add_stx_transfer(sender, transfered)
+    }
+
+    pub fn log_stx_burn(&mut self, sender: &PrincipalData, transfered: u128) -> Result<()> {
+        self.get_asset_map()
+            .add_stx_burn(sender, transfered)
     }
 
     pub fn execute <F, T> (&mut self, f: F) -> Result<T> where F: FnOnce(&mut Self) -> Result<T>, {

@@ -45,9 +45,9 @@ const ASSET_NAMES: &str =
                    (tuple (name-hash name-hash))
                    (tuple (paid name-price)
                           (buyer tx-sender)))
-                 (ok 0) (err 2))
-               (if (is-eq xfer-result (err 1)) ;; not enough balance
-                   (err 1) (err 3)))))
+                 (ok 0) (err u2))
+               (if (is-eq xfer-result (err u1)) ;; not enough balance
+                   (err u1) (err u3)))))
 
          (define-public (force-mint (name int))
            (nft-mint? names name tx-sender))
@@ -56,7 +56,7 @@ const ASSET_NAMES: &str =
              (contract-call? .tokens my-token-transfer burn-address u50000)
              (contract-call? .tokens my-token-transfer burn-address u1000)
              (contract-call? .tokens my-token-transfer burn-address u1)
-             (err 0)))
+             (err u0)))
          (define-public (try-bad-transfers-but-ok)
            (begin
              (contract-call? .tokens my-token-transfer burn-address u50000)
@@ -78,7 +78,7 @@ const ASSET_NAMES: &str =
            (let ((preorder-entry
                    ;; preorder entry must exist!
                    (unwrap! (map-get? preorder-map
-                                  (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
+                                  (tuple (name-hash (hash160 (xor name salt))))) (err u5)))
                  (name-entry 
                    (nft-get-owner? names name)))
              (if (and
@@ -94,8 +94,8 @@ const ASSET_NAMES: &str =
                     (map-delete preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
                     (ok 0)
-                    (err 3))
-                  (err 4))))";
+                    (err u3))
+                  (err u4))))";
 
 fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_identifier: &QualifiedContractIdentifier,
                        tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap), Error> {

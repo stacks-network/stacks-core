@@ -78,12 +78,12 @@ fn is_committed(v: &Value) -> bool {
     }
 }
 
-fn is_err_code(v: &Value, e: i128) -> bool {
+fn is_err_code(v: &Value, e: u128) -> bool {
     eprintln!("is_err_code?: {}", v);
     match v {
         Value::Response(ref data) => {
             !data.committed &&
-                *data.data == Value::Int(e)
+                *data.data == Value::UInt(e)
         },
         _ => false
     }

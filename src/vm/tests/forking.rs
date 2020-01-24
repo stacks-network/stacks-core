@@ -235,7 +235,7 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
            (ft-get-balance stackaroos p))
          (define-public (destroy (x uint))
            (if (< (ft-get-balance stackaroos tx-sender) x)
-               (err -1)
+               (err u30)
                (ft-transfer? stackaroos x tx-sender burn-address)))
          (ft-mint? stackaroos u10 {})", p1_str);
 
@@ -278,7 +278,7 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
     if expect_success {
         assert!(is_committed(&result))
     } else {
-        assert!(is_err_code(&result, -1))
+        assert!(is_err_code(&result, 30))
     }
 }
 

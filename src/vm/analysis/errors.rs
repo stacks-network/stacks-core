@@ -60,6 +60,7 @@ pub enum CheckErrors {
     NoSuchNFT(String),
     NoSuchFT(String),
 
+    BadTransferSTXArguments,
     BadTransferFTArguments,
     BadTransferNFTArguments,
     BadMintFTArguments,
@@ -275,6 +276,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::BadTupleConstruction => format!("invalid tuple syntax, expecting list of pair"),
             CheckErrors::TupleExpectsPairs => format!("invalid tuple syntax, expecting pair"),
             CheckErrors::NoSuchDataVariable(var_name) => format!("use of unresolved persisted variable '{}'", var_name),
+            CheckErrors::BadTransferSTXArguments => format!("STX transfer expects an int amount, from principal, to principal"),
             CheckErrors::BadTransferFTArguments => format!("transfer expects an int amount, from principal, to principal"),
             CheckErrors::BadTransferNFTArguments => format!("transfer expects an asset, from principal, to principal"),
             CheckErrors::BadMintFTArguments => format!("mint expects an int amount and from principal"),
