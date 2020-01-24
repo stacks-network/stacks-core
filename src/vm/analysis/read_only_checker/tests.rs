@@ -106,7 +106,12 @@ fn test_simple_read_only_violations() {
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (func1) (begin (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) (list 1 2)))
          (define-read-only (not-reading-only)
-            (as-max-len? (func1) 3))"];
+            (as-max-len? (func1) 3))",
+        "(define-read-only (not-reading-only)
+            (stx-burn? u10 tx-sender))",
+        "(define-read-only (not-reading-only)
+            (stx-transfer? u10 tx-sender tx-sender))",
+    ];
 
     for contract in bad_contracts.iter() {
         let err = mem_type_check(contract).unwrap_err();

@@ -11,7 +11,7 @@ use vm::types::{Value, PrincipalData, TypeSignature, FunctionType, FixedFunction
                 QualifiedContractIdentifier};
 
 use vm::database::MemoryBackingStore;
-use vm::types::TypeSignature::{IntType, BoolType, BufferType, UIntType};
+use vm::types::TypeSignature::{IntType, BoolType, BufferType, UIntType, PrincipalType};
 use std::convert::TryInto;
 
 mod assets;
@@ -43,6 +43,40 @@ fn test_get_block_info(){
                          CheckErrors::TypeError(UIntType, BoolType),
                          CheckErrors::TypeError(UIntType, IntType),
                          CheckErrors::RequiresAtLeastArguments(2, 1) ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+    
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_stx_ops(){
+    let good = ["(stx-burn? u10 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)",
+                "(stx-transfer? u10 tx-sender 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"];
+    let expected = [ "(response bool uint)", "(response bool uint)" ];
+
+    let bad = [
+        "(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-transfer? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-transfer? u4 u3  'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'true)",
+        "(stx-burn? u4)",
+        "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-burn? u4 'true)",
+        "(stx-burn? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+    ];
+    let bad_expected = [ CheckErrors::IncorrectArgumentCount(3,2),
+                         CheckErrors::TypeError(UIntType, IntType),
+                         CheckErrors::TypeError(PrincipalType, UIntType),
+                         CheckErrors::TypeError(PrincipalType, BoolType),
+                         CheckErrors::IncorrectArgumentCount(2,1),
+                         CheckErrors::TypeError(UIntType, IntType),
+                         CheckErrors::TypeError(PrincipalType, BoolType),
+                         CheckErrors::IncorrectArgumentCount(2,3) ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
