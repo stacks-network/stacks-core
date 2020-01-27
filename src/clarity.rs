@@ -132,7 +132,7 @@ fn advance_cli_chain_tip(path: &String) -> (BlockHeaderHash, BlockHeaderHash) {
     let next_block_hash  = friendly_expect_opt(BlockHeaderHash::from_bytes(&random_bytes),
                                               "Failed to generate random block header.");
 
-    friendly_expect(tx.execute("INSERT INTO cli_chain_tips (block_hash) VALUES (?1)", &[&next_block_hash.to_hex() as &dyn ToSql]), 
+    friendly_expect(tx.execute("INSERT INTO cli_chain_tips (block_hash) VALUES (?1)", &[&next_block_hash]), 
                     &format!("FATAL: failed to store next block hash in '{}'", path));
 
     friendly_expect(tx.commit(), &format!("FATAL: failed to commit new chain tip to '{}'", path));

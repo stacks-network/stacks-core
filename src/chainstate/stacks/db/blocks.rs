@@ -491,7 +491,7 @@ impl StacksChainState {
         
         for (burn_hash, block_hash) in blocks.drain(..) {
             let list_microblock_sql = "SELECT * FROM staging_microblocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 ORDER BY sequence".to_string();
-            let list_microblock_args = [&block_hash.to_hex() as &dyn ToSql, &burn_hash.to_hex() as &dyn ToSql];
+            let list_microblock_args: [&dyn ToSql; 2] = [&block_hash, &burn_hash];
             let mut microblocks = query_rows::<StagingMicroblock, _>(blocks_conn, &list_microblock_sql, &list_microblock_args)
                 .map_err(Error::DBError)?;
 
@@ -643,7 +643,7 @@ impl StacksChainState {
     /// Treat an empty array as None.
     fn inner_load_staging_block_bytes(block_conn: &DBConn, table: &str, block_hash: &BlockHeaderHash) -> Result<Option<Vec<u8>>, Error> {
         let sql = format!("SELECT block_data FROM {} WHERE block_hash = ?1", table);
-        let args = [&block_hash.to_hex() as &dyn ToSql];
+        let args = [&block_hash];
         let mut blobs = StacksChainState::load_block_data_blobs(block_conn, &sql, &args)?;
         let len = blobs.len();
         match len {
@@ -675,8 +675,8 @@ impl StacksChainState {
     /// Load up a preprocessed (queued) but still unprocessed block.
     pub fn load_staging_block(block_conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<StagingBlock>, Error> {
         let sql = "SELECT * FROM staging_blocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 AND orphaned = 0".to_string();
-        let args = [&block_hash.to_hex() as &dyn ToSql, &burn_header_hash.to_hex() as &dyn ToSql];
-        let mut rows = query_rows::<StagingBlock, _>(block_conn, &sql, &args).map_err(Error::DBError)?;
+        let args: &[&dyn ToSql] = &[&block_hash, &burn_header_hash];
+        let mut rows = query_rows::<StagingBlock, _>(block_conn, &sql, args).map_err(Error::DBError)?;
         let len = rows.len();
         match len {
             0 => {
@@ -717,16 +717,16 @@ impl StacksChainState {
     /// Load up the list of users who burned for an unprocessed block.
     fn load_staging_block_user_supports(block_conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Vec<StagingUserBurnSupport>, Error> {
         let sql = "SELECT * FROM staging_user_burn_support WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2".to_string();
-        let args = [&block_hash.to_hex() as &dyn ToSql, &burn_header_hash.to_hex() as &dyn ToSql];
-        let rows = query_rows::<StagingUserBurnSupport, _>(block_conn, &sql, &args).map_err(Error::DBError)?;
+        let args: &[&dyn ToSql] = &[&block_hash, &burn_header_hash];
+        let rows = query_rows::<StagingUserBurnSupport, _>(block_conn, &sql, args).map_err(Error::DBError)?;
         Ok(rows)
     }
     
     /// Load up a queued block's queued pubkey hash
     fn load_staging_block_pubkey_hash(block_conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<Hash160>, Error> {
         let sql = format!("SELECT microblock_pubkey_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 AND processed = 0 AND orphaned = 0");
-        let args = [&block_hash.to_hex() as &dyn ToSql, &burn_header_hash.to_hex() as &dyn ToSql];
-        let rows = query_row_columns::<Hash160, _>(block_conn, &sql, &args, "microblock_pubkey_hash").map_err(Error::DBError)?;
+        let args: &[&dyn ToSql] = &[&block_hash, &burn_header_hash];
+        let rows = query_row_columns::<Hash160, _>(block_conn, &sql, args, "microblock_pubkey_hash").map_err(Error::DBError)?;
         match rows.len() {
             0 => {
                 Ok(None)
@@ -744,8 +744,8 @@ impl StacksChainState {
     /// Load up a preprocessed but still unprocessed microblock.
     pub fn load_staging_microblock(blocks_conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<Option<StagingMicroblock>, Error> {
         let sql = "SELECT * FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND microblock_hash = ?3 AND orphaned = 0".to_string();
-        let args = [&burn_header_hash.to_hex() as &dyn ToSql, &block_hash.to_hex() as &dyn ToSql, &microblock_hash.to_hex() as &dyn ToSql];
-        let mut rows = query_rows::<StagingMicroblock, _>(blocks_conn, &sql, &args).map_err(Error::DBError)?;
+        let args: &[&dyn ToSql] = &[&block_hash, &burn_header_hash, &microblock_hash];
+        let mut rows = query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args).map_err(Error::DBError)?;
         let len = rows.len();
         match len {
             0 => {
@@ -833,8 +833,8 @@ impl StacksChainState {
     /// then this method goes and fetches them as well.
     pub fn load_staging_microblock_stream(blocks_conn: &DBConn, blocks_path: &String, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, last_seq: u16) -> Result<Option<Vec<StacksMicroblock>>, Error> {
         let sql = "SELECT * FROM staging_microblocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 AND sequence <= ?3 AND orphaned = 0 ORDER BY sequence".to_string();
-        let args = [&anchored_block_hash.to_hex() as &dyn ToSql, &burn_header_hash.to_hex() as &dyn ToSql, &last_seq as &dyn ToSql];
-        let mut staging_microblocks = query_rows::<StagingMicroblock, _>(blocks_conn, &sql, &args)
+        let args: &[&dyn ToSql] = &[&anchored_block_hash, &burn_header_hash, &last_seq];
+        let mut staging_microblocks = query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args)
             .map_err(Error::DBError)?;
 
         if staging_microblocks.len() == 0 {
@@ -875,8 +875,8 @@ impl StacksChainState {
         let attacheable = {
             // if this block has an unprocessed staging parent, then it's not attacheable until its parent is.
             let has_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2 AND processed = 0 AND orphaned = 0 LIMIT 1".to_string();
-            let has_parent_args = [&block.header.parent_block.to_hex() as &dyn ToSql, &parent_burn_header_hash.to_hex() as &dyn ToSql];
-            let rows = query_row_columns::<BlockHeaderHash, _>(&tx, &has_parent_sql, &has_parent_args, "anchored_block_hash").map_err(Error::DBError)?;
+            let has_parent_args: &[&dyn ToSql] = &[&block.header.parent_block, &parent_burn_header_hash];
+            let rows = query_row_columns::<BlockHeaderHash, _>(&tx, &has_parent_sql, has_parent_args, "anchored_block_hash").map_err(Error::DBError)?;
             if rows.len() > 0 {
                 // still have unprocessed parent -- this block is not attacheable
                 0
@@ -891,26 +891,27 @@ impl StacksChainState {
         let sql = "INSERT OR REPLACE INTO staging_blocks \
                    (anchored_block_hash, parent_anchored_block_hash, burn_header_hash, parent_burn_header_hash, parent_microblock_hash, parent_microblock_seq, microblock_pubkey_hash, attacheable, processed, orphaned, commit_burn, sortition_burn) \
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
-        let args = [&block_hash.to_hex() as &dyn ToSql, &block.header.parent_block.to_hex() as &dyn ToSql, &burn_hash.to_hex() as &dyn ToSql, &parent_burn_header_hash.to_hex() as &dyn ToSql,
-                    &block.header.parent_microblock.to_hex() as &dyn ToSql, &block.header.parent_microblock_sequence as &dyn ToSql,
-                    &block.header.microblock_pubkey_hash.to_hex() as &dyn ToSql, &attacheable as &dyn ToSql, &0 as &dyn ToSql, &0 as &dyn ToSql, &(commit_burn as i64) as &dyn ToSql, &(sortition_burn as i64) as &dyn ToSql];
+        let args: &[&dyn ToSql] = &[
+            &block_hash, &block.header.parent_block, &burn_hash, &parent_burn_header_hash,
+            &block.header.parent_microblock, &block.header.parent_microblock_sequence,
+            &block.header.microblock_pubkey_hash, &attacheable, &0, &0, &(commit_burn as i64), &(sortition_burn as i64)];
 
-        tx.execute(&sql, &args)
+        tx.execute(&sql, args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         // store block bytes
         let block_sql = "INSERT OR REPLACE INTO staging_blocks_data \
                          (block_hash, block_data)
                          VALUES (?1, ?2)";
-        let block_args = [&block_hash.to_hex() as &dyn ToSql, &block_bytes as &dyn ToSql];
+        let block_args: &[&dyn ToSql] = &[&block_hash, &block_bytes];
 
-        tx.execute(&block_sql, &block_args)
+        tx.execute(&block_sql, block_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         // mark all children of this new block as unattacheable -- need to attach this block first!
         // this should be done across all burnchains.
         let children_sql = "UPDATE staging_blocks SET attacheable = 0 WHERE parent_anchored_block_hash = ?1";
-        let children_args = [&block_hash.to_hex() as &dyn ToSql];
+        let children_args = [&block_hash];
 
         tx.execute(&children_sql, &children_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -929,18 +930,18 @@ impl StacksChainState {
 
         // store microblock metadata
         let sql = "INSERT OR REPLACE INTO staging_microblocks (anchored_block_hash, burn_header_hash, microblock_hash, sequence, processed, orphaned) VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
-        let args = [&anchored_block_hash.to_hex() as &dyn ToSql, &burn_header_hash.to_hex() as &dyn ToSql, &microblock.block_hash().to_hex() as &dyn ToSql, &microblock.header.sequence as &dyn ToSql, &0 as &dyn ToSql, &0 as &dyn ToSql];
+        let args: &[&dyn ToSql] = &[&anchored_block_hash, &burn_header_hash, &microblock.block_hash(), &microblock.header.sequence, &0, &0];
 
-        tx.execute(&sql, &args)
+        tx.execute(&sql, args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
         
         // store microblock bytes
         let block_sql = "INSERT OR REPLACE INTO staging_microblocks_data \
                          (block_hash, block_data)
                          VALUES (?1, ?2)";
-        let block_args = [&microblock.block_hash().to_hex() as &dyn ToSql, &microblock_bytes as &dyn ToSql];
+        let block_args: &[&dyn ToSql] = &[&microblock.block_hash(), &microblock_bytes];
 
-        tx.execute(&block_sql, &block_args)
+        tx.execute(&block_sql, block_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
@@ -954,9 +955,9 @@ impl StacksChainState {
 
         for burn_support in burn_supports.iter() {
             let sql = "INSERT OR REPLACE INTO staging_user_burn_support (anchored_block_hash, burn_header_hash, address, burn_amount, vtxindex) VALUES (?1, ?2, ?3, ?4, ?5)";
-            let args = [&burn_hash.to_hex() as &dyn ToSql, &block_hash.to_hex() as &dyn ToSql, &burn_support.address.to_string() as &dyn ToSql, &(burn_support.burn_fee as i64) as &dyn ToSql, &burn_support.vtxindex as &dyn ToSql];
+            let args: &[&dyn ToSql] = &[&burn_hash, &block_hash, &burn_support.address.to_string(), &(burn_support.burn_fee as i64), &burn_support.vtxindex];
 
-            tx.execute(&sql, &args)
+            tx.execute(&sql, args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
         }
 
@@ -968,9 +969,9 @@ impl StacksChainState {
     /// Return None if the block is not queued up
     fn get_staging_block_status(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<bool>, Error> {
         let sql = "SELECT processed FROM staging_blocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2".to_string();
-        let args = [&block_hash.to_hex() as &dyn ToSql, &burn_hash.to_hex() as &dyn ToSql];
+        let args: &[&dyn ToSql] = &[&block_hash, &burn_hash];
 
-        let processed_i64 = match query_int::<_>(blocks_conn, &sql, &args) {
+        let processed_i64 = match query_int::<_>(blocks_conn, &sql, args) {
             Ok(processed) => processed,
             Err(e) => {
                 match e {
@@ -992,9 +993,9 @@ impl StacksChainState {
     /// Return None if the microblock is not queued up
     fn get_staging_microblock_status(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<Option<bool>, Error> {
         let sql = "SELECT processed FROM staging_microblocks WHERE anchored_block_hash = ?1 AND microblock_hash = ?2 AND burn_header_hash = ?3".to_string();
-        let args = [&block_hash.to_hex() as &dyn ToSql, &microblock_hash.to_hex() as &dyn ToSql, &burn_hash.to_hex() as &dyn ToSql];
+        let args: &[&dyn ToSql] = &[&block_hash, &microblock_hash, &burn_hash];
 
-        let processed_i64 = match query_int::<_>(blocks_conn, &sql, &args) {
+        let processed_i64 = match query_int::<_>(blocks_conn, &sql, args) {
             Ok(processed) => processed,
             Err(e) => {
                 match e {
@@ -1014,8 +1015,8 @@ impl StacksChainState {
     /// What's the first microblock hash in a stream?
     fn get_microblock_stream_head_hash(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, anchored_header_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
         let sql = "SELECT * FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND sequence = 0 AND orphaned = 0".to_string();
-        let args = [&burn_hash.to_hex() as &dyn ToSql, &anchored_header_hash.to_hex() as &dyn ToSql];
-        let staging_microblocks = query_rows::<StagingMicroblock, _>(blocks_conn, &sql, &args).map_err(Error::DBError)?;
+        let args: &[&dyn ToSql] = &[&burn_hash, &anchored_header_hash];
+        let staging_microblocks = query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args).map_err(Error::DBError)?;
         match staging_microblocks.len() {
             0 => Ok(None),
             1 => Ok(Some(staging_microblocks[0].microblock_hash.clone())),
@@ -1039,7 +1040,7 @@ impl StacksChainState {
     fn inner_delete_staging_block_data<'a>(tx: &mut BlocksDBTx<'a>, table_name: &str, block_hash: &BlockHeaderHash) -> Result<(), Error> {
         // clear out the block data from staging
         let clear_sql = format!("DELETE FROM {} WHERE block_hash = ?1", table_name);
-        let clear_args = [&block_hash.to_hex() as &dyn ToSql];
+        let clear_args = [&block_hash];
 
         tx.execute(&clear_sql, &clear_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1077,22 +1078,22 @@ impl StacksChainState {
     fn delete_orphaned_epoch_data<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<(), Error> {
         // This block is orphaned
         let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attacheable = 0 WHERE anchored_block_hash = ?1".to_string();
-        let update_block_args = [&anchored_block_hash.to_hex() as &dyn ToSql];
+        let update_block_args = [&anchored_block_hash];
 
         // All descendents of this processed block are never attacheable.
         // Indicate this by marking all children as orphaned (but not procesed), across all burnchain forks.
         let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attacheable = 0 WHERE parent_anchored_block_hash = ?1".to_string();
-        let update_children_args = [&anchored_block_hash.to_hex() as &dyn ToSql];
+        let update_children_args = [&anchored_block_hash];
         
         // find all orphaned microblocks hashes, and delete the block data
         let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE anchored_block_hash = ?1".to_string();
-        let find_orphaned_microblocks_args = [&anchored_block_hash.to_hex() as &dyn ToSql];
+        let find_orphaned_microblocks_args = [&anchored_block_hash];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(tx, &find_orphaned_microblocks_sql, &find_orphaned_microblocks_args, "microblock_hash")
             .map_err(Error::DBError)?;
         
         // drop microblocks (this processes them)
         let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE anchored_block_hash = ?1".to_string();
-        let update_microblock_children_args = [&anchored_block_hash.to_hex() as &dyn ToSql];
+        let update_microblock_children_args = [&anchored_block_hash];
 
         tx.execute(&update_block_sql, &update_block_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1122,18 +1123,18 @@ impl StacksChainState {
     /// Idempotent.
     fn set_block_processed<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, accept: bool) -> Result<(), Error> {
         let sql = "SELECT * FROM staging_blocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 0".to_string();
-        let args = [&burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql];
+        let args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash];
       
         let has_stored_block = StacksChainState::has_stored_block(tx.get_blocks_path(), burn_hash, anchored_block_hash)?;
         let block_path = StacksChainState::make_block_dir(tx.get_blocks_path(), burn_hash, anchored_block_hash)?;
 
-        let rows = query_rows::<StagingBlock, _>(tx, &sql, &args).map_err(Error::DBError)?;
+        let rows = query_rows::<StagingBlock, _>(tx, &sql, args).map_err(Error::DBError)?;
         let block = match rows.len() {
             0 => {
                 // not an error if this block was already orphaned
                 let orphan_sql = "SELECT * FROM staging_blocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 1".to_string();
-                let orphan_args = [&burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql];
-                let orphan_rows = query_rows::<StagingBlock, _>(tx, &orphan_sql, &orphan_args).map_err(Error::DBError)?;
+                let orphan_args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash];
+                let orphan_rows = query_rows::<StagingBlock, _>(tx, &orphan_sql, orphan_args).map_err(Error::DBError)?;
                 if orphan_rows.len() == 1 {
                     return Ok(());
                 }
@@ -1170,16 +1171,16 @@ impl StacksChainState {
         }
 
         let update_sql = "UPDATE staging_blocks SET processed = 1 WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2".to_string();
-        let update_args = [&burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql];
+        let update_args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash];
 
-        tx.execute(&update_sql, &update_args)
+        tx.execute(&update_sql, update_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
        
         if accept {
             // if we accepted this block, then children of this processed block are now attacheable.
             // Applies across all burnchain forks
             let update_children_sql = "UPDATE staging_blocks SET attacheable = 1 WHERE parent_anchored_block_hash = ?1".to_string();
-            let update_children_args = [&anchored_block_hash.to_hex() as &dyn ToSql];
+            let update_children_args = [&anchored_block_hash];
 
             tx.execute(&update_children_sql, &update_children_args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1198,8 +1199,8 @@ impl StacksChainState {
     fn drop_staging_microblocks<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, invalid_block_hash: &BlockHeaderHash) -> Result<(), Error> {
         // find offending sequence
         let seq_sql = "SELECT sequence FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND microblock_hash = ?3 AND processed = 0 AND orphaned = 0".to_string();
-        let seq_args = [&burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql, &invalid_block_hash.to_hex() as &dyn ToSql];
-        let seq = match query_int::<_>(tx, &seq_sql, &seq_args) {
+        let seq_args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash, &invalid_block_hash];
+        let seq = match query_int::<_>(tx, &seq_sql, seq_args) {
             Ok(seq) => seq,
             Err(e) => match e {
                 db_error::NotFoundError => {
@@ -1216,15 +1217,15 @@ impl StacksChainState {
 
         // drop staging children at and beyond the invalid block
         let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE anchored_block_hash = ?1 AND sequence >= ?2".to_string();
-        let update_microblock_children_args = [&anchored_block_hash.to_hex() as &dyn ToSql, &seq as &dyn ToSql];
-            
-        tx.execute(&update_microblock_children_sql, &update_microblock_children_args)
+        let update_microblock_children_args: &[&dyn ToSql] = &[&anchored_block_hash, &seq];
+
+        tx.execute(&update_microblock_children_sql, update_microblock_children_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         // find all orphaned microblocks hashes, and delete the block data
         let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE anchored_block_hash = ?1 AND sequence >= ?2".to_string();
-        let find_orphaned_microblocks_args = [&anchored_block_hash.to_hex() as &dyn ToSql, &seq as &dyn ToSql];
-        let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(tx, &find_orphaned_microblocks_sql, &find_orphaned_microblocks_args, "microblock_hash")
+        let find_orphaned_microblocks_args: &[&dyn ToSql] = &[&anchored_block_hash, &seq];
+        let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(tx, &find_orphaned_microblocks_sql, find_orphaned_microblocks_args, "microblock_hash")
             .map_err(Error::DBError)?;
             
         for mblock_hash in orphaned_microblock_hashes.iter() {
@@ -1234,7 +1235,7 @@ impl StacksChainState {
         for mblock_hash in orphaned_microblock_hashes.iter() {
             // orphan any staging blocks that build on the now-invalid microblocks
             let update_block_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attacheable = 0 WHERE parent_microblock_hash = ?1".to_string();
-            let update_block_children_args = [&mblock_hash.to_hex() as &dyn ToSql];
+            let update_block_children_args = [&mblock_hash];
             
             tx.execute(&update_block_children_sql, &update_block_children_args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1249,8 +1250,8 @@ impl StacksChainState {
     /// All the corresponding blocks must have been validated and proven contiguous.
     fn set_microblocks_confirmed<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, last_seq: u16) -> Result<(), Error> {
         let sql = "SELECT * FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND sequence <= ?3 AND orphaned = 0 ORDER BY sequence ASC".to_string();
-        let args = [&burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql, &last_seq as &dyn ToSql];
-        let mut staging_microblocks = query_rows::<StagingMicroblock, _>(tx, &sql, &args).map_err(Error::DBError)?;
+        let args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash, &last_seq];
+        let mut staging_microblocks = query_rows::<StagingMicroblock, _>(tx, &sql, args).map_err(Error::DBError)?;
 
         // load associated staging microblock data, if present 
         for i in 0..staging_microblocks.len() {
@@ -1278,9 +1279,9 @@ impl StacksChainState {
 
         // clear out of staging
         let sql = "UPDATE staging_microblocks SET processed = 1 WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND sequence <= ?3".to_string();
-        let args = [&burn_hash.to_hex() as &dyn ToSql, &anchored_block_hash.to_hex() as &dyn ToSql, &last_seq as &dyn ToSql];
+        let args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash, &last_seq];
 
-        tx.execute(&sql, &args)
+        tx.execute(&sql, args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         for i in 0..microblocks.len() {
@@ -1757,7 +1758,8 @@ impl StacksChainState {
                             // not the first-ever block.  Does this connect to a previously-accepted
                             // block in the headers database?
                             let hdr_sql = "SELECT * FROM block_headers WHERE block_hash = ?1 AND burn_header_hash = ?2".to_string();
-                            let hdr_rows = query_rows::<StacksHeaderInfo, _>(headers_conn, &hdr_sql, &[&candidate.parent_anchored_block_hash.to_hex() as &dyn ToSql, &candidate.parent_burn_header_hash.to_hex() as &dyn ToSql])
+                            let hdr_args: &[&dyn ToSql] = &[&candidate.parent_anchored_block_hash, &candidate.parent_burn_header_hash];
+                            let hdr_rows = query_rows::<StacksHeaderInfo, _>(headers_conn, &hdr_sql, hdr_args)
                                 .map_err(Error::DBError)?;
 
                             match hdr_rows.len() {
