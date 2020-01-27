@@ -139,12 +139,6 @@ impl BlockHeaderHash {
     }
 }
 
-impl fmt::Display for BlockHeaderHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", to_hex(&self.0))
-    }
-}
-
 impl SortitionHash {
     /// Calculate a new sortition hash from the given burn header hash
     pub fn initial() -> SortitionHash {
