@@ -30,14 +30,14 @@ use std::fmt;
 ///   begining the next connection (enforced by runtime panics).
 ///
 pub struct ClarityInstance {
-    datastore: Option<MarfedKV<SqliteConnection>>,
+    datastore: Option<MarfedKV>,
 }
 
 ///
 /// A high-level interface for Clarity VM interactions within a single block.
 ///
 pub struct ClarityBlockConnection<'a> {
-    datastore: MarfedKV<SqliteConnection>,
+    datastore: MarfedKV,
     parent: &'a mut ClarityInstance
 }
 
@@ -99,7 +99,7 @@ impl error::Error for Error {
 }
 
 impl ClarityInstance {
-    pub fn new(datastore: MarfedKV<SqliteConnection>) -> ClarityInstance {
+    pub fn new(datastore: MarfedKV) -> ClarityInstance {
         ClarityInstance { datastore: Some(datastore) }
     }
 
@@ -117,7 +117,7 @@ impl ClarityInstance {
         }
     }
 
-    pub fn destroy(mut self) -> MarfedKV<SqliteConnection> {
+    pub fn destroy(mut self) -> MarfedKV {
         let datastore = self.datastore.take()
             .expect("FAIL: attempt to recover database connection from clarity instance which is still open");
 
@@ -132,7 +132,7 @@ impl <'a> ClarityBlockConnection <'a> {
     pub fn rollback_block(mut self) {
         // this is a "lower-level" rollback than the roll backs performed in
         //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
-        debug!("Commit Clarity datastore");
+        debug!("Rollback Clarity datastore");
         self.datastore.rollback();
 
         self.parent.datastore.replace(self.datastore);
@@ -141,10 +141,10 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Commits all changes in the current block by
     /// (1) committing the current MARF tip to storage,
     /// (2) committing side-storage.
-    /// Returns the MARF root hash
+    #[cfg(test)]
     pub fn commit_block(mut self) {
         debug!("Commit Clarity datastore");
-        self.datastore.commit();
+        self.datastore.test_commit();
 
         self.parent.datastore.replace(self.datastore);
     }
@@ -155,10 +155,22 @@ impl <'a> ClarityBlockConnection <'a> {
     /// block hash than the one opened (i.e. since the caller
     /// may not have known the "real" block hash at the 
     /// time of opening).
-    /// Returns the MARF root hash
     pub fn commit_to_block(mut self, final_bhh: &BlockHeaderHash) {
         debug!("Commit Clarity datastore to {}", final_bhh.to_hex());
         self.datastore.commit_to(final_bhh);
+
+        self.parent.datastore.replace(self.datastore);
+    }
+
+    /// Commits all changes in the current block by
+    /// (1) committing the current MARF tip to storage,
+    /// (2) committing side-storage.
+    ///    before this saves, it updates the metadata headers in
+    ///    the sidestore so that they don't get stepped on after
+    ///    a miner re-executes a constructed block.
+    pub fn commit_block_will_move(mut self, will_move: &str) {
+        debug!("Commit Clarity datastore to {}", will_move);
+        self.datastore.commit_for_move(will_move);
 
         self.parent.datastore.replace(self.datastore);
     }
@@ -176,7 +188,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Do something to the underlying DB that involves writing.
     pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
-        let mut db = ClarityDatabase::new(Box::new(&mut self.datastore));
+        let mut db = ClarityDatabase::new(&mut self.datastore);
         db.begin();
         let result = to_do(&mut db);
         match result {
@@ -194,7 +206,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Do something to the underlying DB that involves only reading.
     pub fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
-        let mut db = ClarityDatabase::new(Box::new(&mut self.datastore));
+        let mut db = ClarityDatabase::new(&mut self.datastore);
         db.begin();
         let result = to_do(&mut db);
         db.roll_back();
@@ -204,7 +216,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
     pub fn analyze_smart_contract(&mut self, identifier: &QualifiedContractIdentifier, contract_content: &str)
                                   -> Result<(ContractAST, ContractAnalysis), Error> {
-        let mut db = AnalysisDatabase::new(Box::new(&mut self.datastore));
+        let mut db = AnalysisDatabase::new(&mut self.datastore);
 
         let mut contract_ast = ast::build_ast(identifier, contract_content)?;
         let contract_analysis = analysis::run_analysis(identifier, &mut contract_ast.expressions,
@@ -215,7 +227,7 @@ impl <'a> ClarityBlockConnection <'a> {
     fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap), Error>
     where A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
           F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap), Error> {
-        let mut db = ClarityDatabase::new(Box::new(&mut self.datastore));
+        let mut db = ClarityDatabase::new(&mut self.datastore);
         // wrap the whole contract-call in a claritydb transaction,
         //   so we can abort on call_back's boolean retun
         db.begin();
@@ -245,7 +257,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// An error here would indicate that something has gone terribly wrong in the processing of a contract insert.
     ///   the caller should likely abort the whole block or panic
     pub fn save_analysis(&mut self, identifier: &QualifiedContractIdentifier, contract_analysis: &ContractAnalysis) -> Result<(), CheckError> {
-        let mut db = AnalysisDatabase::new(Box::new(&mut self.datastore));
+        let mut db = AnalysisDatabase::new(&mut self.datastore);
         db.begin();
         let result = db.insert_contract(identifier, contract_analysis);
         match result {
@@ -281,10 +293,11 @@ impl <'a> ClarityBlockConnection <'a> {
     /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
     ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
-    pub fn initialize_smart_contract <F> (&mut self, identifier: &QualifiedContractIdentifier, contract_ast: &ContractAST, abort_call_back: F) -> Result<AssetMap, Error>
+    pub fn initialize_smart_contract <F> (&mut self, identifier: &QualifiedContractIdentifier, contract_ast: &ContractAST,
+                                          contract_str: &str, abort_call_back: F) -> Result<AssetMap, Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
         let (_, asset_map) = self.with_abort_callback(
-            |vm_env| { vm_env.initialize_contract_from_ast(identifier.clone(), contract_ast)
+            |vm_env| { vm_env.initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str)
                        .map_err(Error::from) },
             abort_call_back)?;
         Ok(asset_map)
@@ -304,15 +317,15 @@ impl <'a> ClarityBlockConnection <'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm::analysis::errors::CheckErrors;
     use vm::types::{Value, StandardPrincipalData};
-    use vm::database::marf;
+    use vm::database::marf::{ClarityBackingStore, MarfedKV};
     use chainstate::stacks::index::storage::{TrieFileStorage};
-    use vm::database::KeyValueStorage;
     use rusqlite::NO_PARAMS;
 
     #[test]
     pub fn simple_test() {
-        let marf = marf::in_memory_marf();
+        let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
@@ -325,7 +338,7 @@ mod tests {
             
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
             conn.initialize_smart_contract(
-                &contract_identifier, &ct_ast, |_,_| false).unwrap();
+                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
             conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
             
             assert_eq!(
@@ -336,12 +349,12 @@ mod tests {
             conn.commit_block();
         }
         let mut marf = clarity_instance.destroy();
-        assert!((&mut marf).has_entry(&ClarityDatabase::make_contract_key(&contract_identifier)));
+        assert!(marf.get_contract_hash(&contract_identifier).is_ok());
     }
 
     #[test]
     pub fn test_block_roll_back() {
-        let marf = marf::in_memory_marf();
+        let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -353,7 +366,7 @@ mod tests {
 
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
             conn.initialize_smart_contract(
-                &contract_identifier, &ct_ast, |_,_| false).unwrap();
+                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
             conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
             
             conn.rollback_block();
@@ -361,7 +374,8 @@ mod tests {
 
         let mut marf = clarity_instance.destroy();
         // should not be in the marf.
-        assert!(! (&mut marf).has_entry(&ClarityDatabase::make_contract_key(&contract_identifier)));
+        assert_eq!(marf.get_contract_hash(&contract_identifier).unwrap_err(),
+                   CheckErrors::NoSuchContract(contract_identifier.to_string()).into());
         let sql = marf.get_side_store();
         // sqlite should not have any entries
         assert_eq!(0,
@@ -371,7 +385,7 @@ mod tests {
 
     #[test]
     pub fn test_tx_roll_backs() {
-        let marf = marf::in_memory_marf();
+        let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
@@ -388,7 +402,7 @@ mod tests {
 
             let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
             conn.initialize_smart_contract(
-                &contract_identifier, &ct_ast, |_,_| false).unwrap();
+                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
             conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
 
             assert_eq!(

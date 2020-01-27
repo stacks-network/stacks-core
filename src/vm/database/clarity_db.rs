@@ -8,15 +8,14 @@ use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, Principa
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
 
-use util::hash::Sha256Sum;
+use util::hash::{Sha256Sum, Sha512Trunc256Sum};
+use vm::database::{MarfedKV, ClarityBackingStore};
 use vm::database::structures::{
     FungibleTokenMetadata, NonFungibleTokenMetadata, ContractMetadata,
     DataMapMetadata, DataVariableMetadata, ClaritySerializable, SimmedBlock,
-    ClarityDeserializable,
+    ClarityDeserializable
 };
-use vm::database::{
-    KeyValueStorage, RollbackWrapper
-};
+use vm::database::RollbackWrapper;
 
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
@@ -44,7 +43,7 @@ pub struct ClarityDatabase<'a> {
 }
 
 impl <'a> ClarityDatabase <'a> {
-    pub fn new(store: Box<dyn KeyValueStorage + 'a>) -> ClarityDatabase<'a> {
+    pub fn new(store: &'a mut dyn ClarityBackingStore) -> ClarityDatabase<'a> {
         ClarityDatabase {
             store: RollbackWrapper::new(store)
         }
@@ -102,27 +101,45 @@ impl <'a> ClarityDatabase <'a> {
         format!("vm::{}::{}::{}", contract_identifier, data as u8, var_name)
     }
 
+    pub fn make_metadata_key(data: StoreType, var_name: &str) -> String {
+        format!("vm-metadata::{}::{}", data as u8, var_name)
+    }
+
     pub fn make_key_for_quad(contract_identifier: &QualifiedContractIdentifier, data: StoreType, var_name: &str, key_value: String) -> String {
         format!("vm::{}::{}::{}::{}", contract_identifier, data as u8, var_name, key_value)
     }
 
-    pub fn make_contract_key(contract_identifier: &QualifiedContractIdentifier) -> String {
-        format!("vm::{}::{}", contract_identifier, StoreType::Contract as u8)
+    pub fn insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
+        let hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
+        self.store.prepare_for_contract_metadata(contract_identifier, hash);
+        Ok(())
     }
 
-    pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: Contract) {
-        let key = ClarityDatabase::make_contract_key(contract_identifier);
-        if self.store.has_entry(&key) {
-            panic!("Contract already exists {}", contract_identifier);
+    fn insert_metadata <T: ClaritySerializable> (&mut self, contract_identifier: &QualifiedContractIdentifier, key: &str, data: &T) {
+        if self.store.has_metadata_entry(contract_identifier, key) {
+            panic!("Metadata entry '{}' already exists for contract: {}", key, contract_identifier);
         } else {
-            self.put(&key, &contract);
+            self.store.insert_metadata(contract_identifier, key, &data.serialize());
         }
     }
 
+    fn fetch_metadata <T> (&mut self, contract_identifier: &QualifiedContractIdentifier, key: &str) -> Result<Option<T>>
+    where T: ClarityDeserializable<T> {
+        self.store.get_metadata(contract_identifier, key)
+            .map(|x_opt| x_opt.map(|x| T::deserialize(&x)))
+    }
+
+    pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: Contract) {
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
+       self.insert_metadata(contract_identifier, &key, &contract);
+    }
+
     pub fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Contract> {
-        let key = ClarityDatabase::make_contract_key(contract_identifier);
-        self.get(&key)
-            .ok_or_else(|| { CheckErrors::NoSuchContract(contract_identifier.to_string()).into() })
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
+        let data = self.fetch_metadata(contract_identifier, &key)?
+            .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
+        Ok(data)
+
     }
 }
 
@@ -201,31 +218,36 @@ impl <'a> ClarityDatabase <'a> {
     }
 
     pub fn sim_mine_blocks(&mut self, count: u32) {
-        for i in 0..count {
+        for _i in 0..count {
             self.sim_mine_block();
         }
     }
+}
+
+// this is used so that things like load_map, load_var, load_nft, etc.
+//   will throw NoSuchFoo errors instead of NoSuchContract errors.
+fn map_no_contract_as_none <T> (res: Result<Option<T>>) -> Result<Option<T>> {
+    res.or_else(|e| match e {
+        Error::Unchecked(CheckErrors::NoSuchContract(_)) => Ok(None),
+        x => Err(x)
+    })
 }
 
 // Variable Functions...
 impl <'a> ClarityDatabase <'a> {
     pub fn create_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str, value_type: TypeSignature) {
         let variable_data = DataVariableMetadata { value_type };
+        let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::VariableMeta, variable_name);
-
-        assert!(!self.store.has_entry(&key), format!("Clarity VM attempted to initialize existing variable '{}'", variable_name));
-
-        self.put(&key, &variable_data);
+        self.insert_metadata(contract_identifier, &key, &variable_data)
     }
 
     fn load_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str) -> Result<DataVariableMetadata> {
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::VariableMeta, variable_name);
+        let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
-        let data = self.get(&key)
-            .ok_or(CheckErrors::NoSuchDataVariable(variable_name.to_string()))?;
-
-        Ok(data)
+        map_no_contract_as_none(
+            self.fetch_metadata(contract_identifier, &key))?
+            .ok_or(CheckErrors::NoSuchDataVariable(variable_name.to_string()).into())
     }
 
     pub fn set_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str, value: Value) -> Result<Value> {
@@ -263,20 +285,16 @@ impl <'a> ClarityDatabase <'a> {
 
         let data = DataMapMetadata { key_type, value_type };
 
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::DataMapMeta, map_name);
-
-        assert!(!self.store.has_entry(&key), "Clarity VM attempted to initialize existing data map");
-
-        self.store.put(&key, &data.serialize());
+        let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
+        self.insert_metadata(contract_identifier, &key, &data)
     }
 
     fn load_map(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str) -> Result<DataMapMetadata> {
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::DataMapMeta, map_name);
+        let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
 
-        let data = self.get(&key)
-            .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
-
-        Ok(data)
+        map_no_contract_as_none(
+            self.fetch_metadata(contract_identifier, &key))?
+            .ok_or(CheckErrors::NoSuchMap(map_name.to_string()).into())
     }
 
     pub fn fetch_entry(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str, key_value: &Value) -> Result<Value> {
@@ -355,31 +373,30 @@ impl <'a> ClarityDatabase <'a> {
 
 impl <'a> ClarityDatabase <'a> {
     pub fn create_fungible_token(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, total_supply: &Option<u128>) {
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::FungibleTokenMeta, token_name);
         let data = FungibleTokenMetadata { total_supply: total_supply.clone() };
 
-        assert!(!self.store.has_entry(&key), "Clarity VM attempted to initialize existing token");
+        let key = ClarityDatabase::make_metadata_key(StoreType::FungibleTokenMeta, token_name);
+        self.insert_metadata(contract_identifier, &key, &data);
 
+        // total supply _is_ included in the consensus hash
         if total_supply.is_some() {
             let supply_key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::CirculatingSupply, token_name);
             self.put(&supply_key, &(0 as u128));
         }
-
-        self.put(&key, &data);
     }
 
     fn load_ft(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str) -> Result<FungibleTokenMetadata> {
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::FungibleTokenMeta, token_name);
+        let key = ClarityDatabase::make_metadata_key(StoreType::FungibleTokenMeta, token_name);
 
-        let data = self.get(&key)
-            .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?;
-
-        Ok(data)
+        map_no_contract_as_none(
+            self.fetch_metadata(contract_identifier, &key))?
+            .ok_or(CheckErrors::NoSuchFT(token_name.to_string()).into())
     }
 
     pub fn create_non_fungible_token(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, key_type: &TypeSignature) {
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::NonFungibleTokenMeta, token_name);
         let data = NonFungibleTokenMetadata { key_type: key_type.clone() };
+        let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
+        self.insert_metadata(contract_identifier, &key, &data);
 
         assert!(!self.store.has_entry(&key), "Clarity VM attempted to initialize existing token");
 
@@ -387,12 +404,11 @@ impl <'a> ClarityDatabase <'a> {
     }
 
     fn load_nft(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str) -> Result<NonFungibleTokenMetadata> {
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::NonFungibleTokenMeta, token_name);
+        let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
 
-        let data = self.get(&key)
-            .ok_or(CheckErrors::NoSuchNFT(token_name.to_string()))?;
-
-        Ok(data)
+        map_no_contract_as_none(
+            self.fetch_metadata(contract_identifier, &key))?
+            .ok_or(CheckErrors::NoSuchNFT(token_name.to_string()).into())
     }
 
     pub fn checked_increase_token_supply(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, amount: u128) -> Result<()> {

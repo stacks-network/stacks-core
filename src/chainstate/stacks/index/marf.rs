@@ -505,6 +505,10 @@ impl MARF {
         MARF::get_by_key(&mut self.storage, block_hash, key)
     }
 
+    pub fn get_bhh_at_height(&mut self, block_hash: &BlockHeaderHash, height: u32) -> Result<Option<BlockHeaderHash>, Error> {
+        MARF::get_block_at_height(&mut self.storage, height, block_hash)
+    }
+
     pub fn get_by_key(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<MARFValue>, Error> {
         let cur_block_hash = storage.get_cur_block();
 
@@ -519,7 +523,9 @@ impl MARF {
         // restore
         storage.open_block(&cur_block_hash)?;
 
-        result.map(|option_result| option_result.map(|leaf| leaf.data))        
+        result.map(|option_result| option_result.map(|leaf| {
+            leaf.data
+        }))
     }
 
     pub fn get_block_height_miner_tip(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash, miner_tip: Option<&BlockHeaderHash>) -> Result<Option<u32>, Error> {
@@ -584,7 +590,7 @@ impl MARF {
 
         MARF::get_by_key(storage, current_block_hash, &height_key)
             .map(|option_result| {
-                option_result.map( |marf_value| { 
+                option_result.map(|marf_value| { 
                     let block_hash = BlockHeaderHash::from(marf_value);
                     block_hash
                 })
@@ -778,6 +784,12 @@ impl MARF {
     pub fn get_open_chain_tip(&self) -> Option<&BlockHeaderHash> {
         self.open_chain_tip.as_ref()
             .map(|x| &x.block_hash)
+    }
+
+    /// Get open chain tip
+    pub fn get_open_chain_tip_height(&self) -> Option<u32> {
+        self.open_chain_tip.as_ref()
+            .map(|x| x.height)
     }
 
     /// Get all known chain tips

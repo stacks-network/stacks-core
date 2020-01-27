@@ -10,6 +10,7 @@ use vm::contexts::{OwnedEnvironment};
 use vm::types::{Value, PrincipalData, TypeSignature, FunctionType, FixedFunction, BUFF_32, BUFF_64,
                 QualifiedContractIdentifier};
 
+use vm::database::MemoryBackingStore;
 use vm::types::TypeSignature::{IntType, BoolType, BufferType, UIntType};
 use std::convert::TryInto;
 
@@ -1525,12 +1526,14 @@ fn test_fetch_contract_entry_matching_type_signatures() {
             (unwrap! (get value (map-get? kv-store ((key key)))) 0))
         (begin (map-insert kv-store ((key 42)) ((value 42))))"#;
 
-    let mut analysis_db = AnalysisDatabase::memory();
+    let mut marf = MemoryBackingStore::new();
+    let mut analysis_db = marf.as_analysis_db();
 
     let contract_id = QualifiedContractIdentifier::local("kv-store-contract").unwrap();
 
     let mut kv_store_contract = parse(&contract_id, &kv_store_contract_src).unwrap();
     analysis_db.execute(|db| {
+        db.test_insert_contract_hash(&contract_id);
         type_check(&contract_id, &mut kv_store_contract, db, true)
     }).unwrap();
 
@@ -1563,9 +1566,12 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
         (begin (map-insert kv-store ((key 42)) ((value 42))))"#;
 
     let contract_id = QualifiedContractIdentifier::local("kv-store-contract").unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
+    let mut marf = MemoryBackingStore::new();
+    let mut analysis_db = marf.as_analysis_db();
+
     let mut kv_store_contract = parse(&contract_id, &kv_store_contract_src).unwrap();
     analysis_db.execute(|db| {
+        db.test_insert_contract_hash(&contract_id);
         type_check(&contract_id, &mut kv_store_contract, db, true)
     }).unwrap();
     
@@ -1605,9 +1611,12 @@ fn test_fetch_contract_entry_unbound_variables() {
         (begin (map-insert kv-store ((key 42)) ((value 42))))"#;
 
     let contract_id = QualifiedContractIdentifier::local("kv-store-contract").unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
+    let mut marf = MemoryBackingStore::new();
+    let mut analysis_db = marf.as_analysis_db();
+
     let mut kv_store_contract = parse(&contract_id, &kv_store_contract_src).unwrap();
     analysis_db.execute(|db| {
+        db.test_insert_contract_hash(&contract_id);
         type_check(&contract_id, &mut kv_store_contract, db, true)
     }).unwrap();
     

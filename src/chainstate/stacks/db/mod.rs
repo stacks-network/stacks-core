@@ -79,7 +79,6 @@ use vm::analysis::run_analysis;
 use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
-use vm::database::marf::sqlite_marf;
 use vm::database::marf::MarfedKV;
 use vm::database::SqliteConnection;
 use vm::clarity::ClarityInstance;
@@ -250,8 +249,13 @@ impl<'a> ClarityTx<'a> {
         self.block.get_root_hash()
     }
 
+    #[cfg(test)]
     pub fn commit_block(self) -> () {
         self.block.commit_block()
+    }
+
+    pub fn commit_block_will_move(self, will_move: &str) -> () {
+        self.block.commit_block_will_move(will_move)
     }
 
     pub fn commit_to_block(self, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> () {
@@ -717,7 +721,7 @@ impl StacksChainState {
 
         let headers_state_index = StacksChainState::open_index(&header_index_root, None)?;
 
-        let vm_state = sqlite_marf(&clarity_state_index_root, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH)))
+        let vm_state = MarfedKV::open(&clarity_state_index_root, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH)))
             .map_err(|e| Error::ClarityError(e.into()))?;
 
         let clarity_state = ClarityInstance::new(vm_state);

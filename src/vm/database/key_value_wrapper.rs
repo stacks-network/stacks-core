@@ -1,51 +1,24 @@
+use super::{MarfedKV, ClarityBackingStore};
 use vm::errors::{ InterpreterResult as Result };
 use chainstate::burn::BlockHeaderHash;
 use std::collections::{HashMap};
-
-// These functions _do not_ return errors, rather, any errors in the underlying storage
-//    will _panic_. The rationale for this is that under no condition should the interpreter
-//    attempt to continue processing in the event of an unexpected storage error.
-pub trait KeyValueStorage {
-    fn put(&mut self, key: &str, value: &str);
-    fn get(&mut self, key: &str) -> Option<String>;
-    fn has_entry(&mut self, key: &str) -> bool;
-
-    /// begin, commit, rollback a save point identified by key
-    ///    not all backends will implement this! this is used to clean up
-    ///     any data from aborted blocks (not aborted transactions! that is handled
-    ///      by the clarity vm directly).
-    /// The block header hash is used for identifying savepoints.
-    ///     this _cannot_ be used to rollback to arbitrary prior block hash, because that
-    ///     blockhash would already have committed and no longer exist in the save point stack.
-    /// this is a "lower-level" rollback than the roll backs performed in
-    ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
-    fn begin(&mut self, key: &BlockHeaderHash) {}
-    fn commit(&mut self, key: &BlockHeaderHash) {}
-    fn rollback(&mut self, key: &BlockHeaderHash) {}
-
-    /// returns the previous block header hash on success
-    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
-        panic!("Attempted to evaluate changed block height with a generic backend");
-    } 
-
-    fn put_all(&mut self, mut items: Vec<(String, String)>) {
-        for (key, value) in items.drain(..) {
-            self.put(&key, &value);
-        }
-    }
-}
+use util::hash::{Sha512Trunc256Sum};
+use vm::types::QualifiedContractIdentifier;
+use std::{cmp::Eq, hash::Hash, clone::Clone};
 
 pub struct RollbackContext {
-    edits: Vec<(String, String)>
+    edits: Vec<(String, String)>,
+    metadata_edits: Vec<((QualifiedContractIdentifier, String), String)>,
 }
 
 pub struct RollbackWrapper <'a> {
     // the underlying key-value storage.
-    store: Box<dyn KeyValueStorage + 'a>,
+    store: &'a mut dyn ClarityBackingStore,
     // lookup_map is a history of edits for a given key.
     //   in order of least-recent to most-recent at the tail.
     //   this allows ~ O(1) lookups, and ~ O(1) commits, roll-backs (amortized by # of PUTs).
     lookup_map: HashMap<String, Vec<String>>,
+    metadata_lookup_map: HashMap<(QualifiedContractIdentifier, String), Vec<String>>,
     // stack keeps track of the most recent rollback context, which tells us which
     //   edits were performed by which context. at the moment, each context's edit history
     //   is a separate Vec which must be drained into the parent on commits, meaning that
@@ -56,17 +29,33 @@ pub struct RollbackWrapper <'a> {
     stack: Vec<RollbackContext>
 }
 
+fn rollback_lookup_map<T>(key: &T, value: &String, lookup_map: &mut HashMap<T, Vec<String>>)
+where T: Eq + Hash + Clone {
+    let remove_edit_deque = {
+        let key_edit_history = lookup_map.get_mut(key)
+            .expect("ERROR: Clarity VM had edit log entry, but not lookup_map entry");
+        let popped_value = key_edit_history.pop();
+        assert_eq!(popped_value.as_ref(), Some(value));
+        key_edit_history.len() == 0
+    };
+    if remove_edit_deque {
+        lookup_map.remove(key);
+    }
+}
+
 impl <'a> RollbackWrapper <'a> {
-    pub fn new(store: Box<dyn KeyValueStorage + 'a>) -> RollbackWrapper {
+    pub fn new(store: &'a mut dyn ClarityBackingStore) -> RollbackWrapper {
         RollbackWrapper {
             store: store,
             lookup_map: HashMap::new(),
+            metadata_lookup_map: HashMap::new(),
             stack: Vec::new()
         }
     }
 
     pub fn nest(&mut self) {
-        self.stack.push(RollbackContext { edits: Vec::new() });
+        self.stack.push(RollbackContext { edits: Vec::new(),
+                                          metadata_edits: Vec::new() });
     }
 
     // Rollback the child's edits.
@@ -77,18 +66,14 @@ impl <'a> RollbackWrapper <'a> {
             .expect("ERROR: Clarity VM attempted to commit past the stack.");
 
         last_item.edits.reverse();
+        last_item.metadata_edits.reverse();
 
         for (key, value) in last_item.edits.drain(..) {
-                let remove_edit_deque = {
-                    let key_edit_history = self.lookup_map.get_mut(&key)
-                        .expect("ERROR: Clarity VM had edit log entry, but not lookup_map entry");
-                    let popped_value = key_edit_history.pop();
-                    assert_eq!(popped_value.as_ref(), Some(&value));
-                    key_edit_history.len() == 0
-                };
-                if remove_edit_deque {
-                    self.lookup_map.remove(&key);
-                }
+            rollback_lookup_map(&key, &value, &mut self.lookup_map);
+        }
+
+        for (key, value) in last_item.metadata_edits.drain(..) {
+            rollback_lookup_map(&key, &value, &mut self.metadata_lookup_map);
         }
     }
 
@@ -105,20 +90,23 @@ impl <'a> RollbackWrapper <'a> {
                 edit_history.reverse();
             }
             for (key, value) in last_item.edits.iter() {
-                let remove_edit_deque = {
-                    let key_edit_history = self.lookup_map.get_mut(key)
-                        .expect("ERROR: Clarity VM had edit log entry, but not lookup_map entry");
-                    let popped_value = key_edit_history.pop();
-                    assert_eq!(popped_value.as_ref(), Some(value));
-                    key_edit_history.len() == 0
-                };
-                if remove_edit_deque {
-                    self.lookup_map.remove(key);
-                }
+                rollback_lookup_map(key, &value, &mut self.lookup_map);
             }
             assert!(self.lookup_map.len() == 0);
             if last_item.edits.len() > 0 {
                 self.store.put_all(last_item.edits);
+            }
+
+
+            for (_, edit_history) in self.metadata_lookup_map.iter_mut() {
+                edit_history.reverse();
+            }
+            for (key, value) in last_item.metadata_edits.iter() {
+                rollback_lookup_map(key, &value, &mut self.metadata_lookup_map);
+            }
+            assert!(self.metadata_lookup_map.len() == 0);
+            if last_item.metadata_edits.len() > 0 {
+                self.store.put_all_metadata(last_item.metadata_edits);
             }
         } else {
             // bubble up to the next item in the stack
@@ -126,53 +114,96 @@ impl <'a> RollbackWrapper <'a> {
             for (key, value) in last_item.edits.drain(..) {
                 next_up.edits.push((key, value));
             }
+            for (key, value) in last_item.metadata_edits.drain(..) {
+                next_up.metadata_edits.push((key, value));
+            }
         }
     }
-
 }
 
-impl <'a> KeyValueStorage for RollbackWrapper <'a> {
-    fn put(&mut self, key: &str, value: &str) {
+fn inner_put<T>(lookup_map: &mut HashMap<T, Vec<String>>, edits: &mut Vec<(T, String)>, key: T, value: String)
+where T: Eq + Hash + Clone {
+    if !lookup_map.contains_key(&key) {
+        lookup_map.insert(key.clone(), Vec::new());
+    }
+    let key_edit_deque = lookup_map.get_mut(&key).unwrap();
+    key_edit_deque.push(value.clone());
+
+    edits.push((key, value));
+}
+
+impl <'a> RollbackWrapper <'a> {
+    pub fn put(&mut self, key: &str, value: &str) {
         let current = self.stack.last_mut()
             .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
 
-        if !self.lookup_map.contains_key(key) {
-            self.lookup_map.insert(key.to_string(), Vec::new());
-        }
-        let key_edit_deque = self.lookup_map.get_mut(key).unwrap();
-        key_edit_deque.push(value.to_string());
-
-        current.edits.push((key.to_string(), value.to_string()));
+        inner_put(&mut self.lookup_map, &mut current.edits, key.to_string(), value.to_string())
     }
 
-    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+    pub fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
         self.store.set_block_hash(bhh)
     }
 
-    fn get(&mut self, key: &str) -> Option<String> {
+    pub fn get(&mut self, key: &str) -> Option<String> {
         self.stack.last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
-        let lookup_result = match self.lookup_map.get(key) {
-            None => None,
-            Some(key_edit_history) => {
-                key_edit_history.last().cloned()
-            },
-        };
-        if lookup_result.is_some() {
-            lookup_result
-        } else {
-            self.store.get(key)
+        let lookup_result = self.lookup_map.get(key)
+            .and_then(|x| x.last().cloned());
+
+        lookup_result
+            .or_else(|| self.store.get(key))
+    }
+
+    pub fn prepare_for_contract_metadata(&mut self, contract: &QualifiedContractIdentifier, content_hash: Sha512Trunc256Sum) {
+        let key = MarfedKV::make_contract_hash_key(contract);
+        let value = self.store.make_contract_commitment(content_hash);
+        self.put(&key, &value)
+    }
+
+    pub fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
+        let current = self.stack.last_mut()
+            .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
+
+        let metadata_key = (contract.clone(), key.to_string());
+
+        inner_put(&mut self.metadata_lookup_map, &mut current.metadata_edits, metadata_key, value.to_string())
+    }
+
+    // Throws a NoSuchContract error if contract doesn't exist,
+    //   returns None if there is no such metadata field.
+    pub fn get_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str) -> Result<Option<String>> {
+        self.stack.last()
+            .expect("ERROR: Clarity VM attempted GET on non-nested context.");
+
+        // This is THEORETICALLY a spurious clone, but it's hard to turn something like
+        //  (&A, &B) into &(A, B).
+        let metadata_key = (contract.clone(), key.to_string());
+        let lookup_result = self.metadata_lookup_map.get(&metadata_key)
+            .and_then(|x| x.last().cloned());
+
+        match lookup_result {
+            Some(x) => Ok(Some(x)),
+            None => {
+                self.store.get_metadata(contract, key)
+            }
         }
     }
 
-    fn has_entry(&mut self, key: &str) -> bool {
+    pub fn has_entry(&mut self, key: &str) -> bool {
         self.stack.last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
         if self.lookup_map.contains_key(key) {
             true
         } else {
             self.store.has_entry(key)
+        }
+    }
+
+    pub fn has_metadata_entry(&mut self, contract: &QualifiedContractIdentifier, key: &str) -> bool {
+        match self.get_metadata(contract, key) {
+            Ok(Some(_)) => true,
+            _ => false
         }
     }
 }

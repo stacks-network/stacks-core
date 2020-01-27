@@ -4,9 +4,12 @@ use vm::types::QualifiedContractIdentifier;
 use vm::analysis::{CheckResult, AnalysisDatabase};
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 use vm::analysis::definition_sorter::DefinitionSorter;
+use vm::database::MemoryBackingStore;
 
 fn run_scoped_analysis_helper(contract: &str) -> CheckResult<ContractAnalysis> {
-    let mut db = AnalysisDatabase::memory();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
     let contract_identifier = QualifiedContractIdentifier::transient();
 
     let expressions = parse(&contract_identifier, contract).unwrap();

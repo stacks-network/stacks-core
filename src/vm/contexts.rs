@@ -5,7 +5,7 @@ use std::convert::TryInto;
 use vm::errors::{InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result};
 use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
-use vm::database::{ClarityDatabase, memory_db};
+use vm::database::{ClarityDatabase};
 use vm::representations::{SymbolicExpression, ClarityName, ContractName};
 use vm::contracts::Contract;
 use vm::ast::ContractAST;
@@ -371,10 +371,6 @@ impl <'a> OwnedEnvironment <'a> {
         }
     }
 
-    pub fn memory<'c>() -> OwnedEnvironment<'c> {
-        OwnedEnvironment::new(memory_db())
-    }
-
     pub fn get_exec_environment <'b> (&'b mut self, sender: Option<Value>) -> Environment<'b,'a> {
         Environment::new(&mut self.context,
                          &self.default_contract,
@@ -409,9 +405,12 @@ impl <'a> OwnedEnvironment <'a> {
                             |exec_env| exec_env.initialize_contract(contract_identifier, contract_content))
     }
 
-    pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &ContractAST) -> Result<((), AssetMap)> {
+    pub fn initialize_contract_from_ast(&mut self,
+                                        contract_identifier: QualifiedContractIdentifier,
+                                        contract_content: &ContractAST,
+                                        contract_string: &str) -> Result<((), AssetMap)> {
         self.execute_in_env(Value::from(contract_identifier.issuer.clone()),
-                            |exec_env| exec_env.initialize_contract_from_ast(contract_identifier, contract_content))
+                            |exec_env| exec_env.initialize_contract_from_ast(contract_identifier, contract_content, contract_string))
     }
 
     pub fn execute_transaction(&mut self, sender: Value, contract_identifier: QualifiedContractIdentifier, 
@@ -593,11 +592,19 @@ impl <'a,'b> Environment <'a,'b> {
     pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
         let contract_ast = ast::build_ast(&contract_identifier, contract_content)
             .map_err(RuntimeErrorType::ASTError)?;
-        self.initialize_contract_from_ast(contract_identifier, &contract_ast)
+        self.initialize_contract_from_ast(contract_identifier, &contract_ast, &contract_content)
     }
 
-    pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &ContractAST) -> Result<()> {
+    pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier,
+                                        contract_content: &ContractAST, contract_string: &str) -> Result<()> {
         self.global_context.begin();
+
+        // first, store the contract _content hash_ in the data store.
+        //    this is necessary before creating and accessing metadata fields in the data store,
+        //      --or-- storing any analysis metadata in the data store.
+        // TODO: pass the actual string data in.
+        self.global_context.database.insert_contract_hash(&contract_identifier, contract_string)?;
+
         let result = Contract::initialize_from_ast(contract_identifier.clone(), 
                                                    contract_content,
                                                    &mut self.global_context);
