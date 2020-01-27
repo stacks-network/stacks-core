@@ -425,8 +425,8 @@ impl BurnDB {
         burndbtx.tx.execute("INSERT INTO snapshots \
                    (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions) \
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                   &[&(first_snapshot.block_height as i64) as &dyn ToSql, &first_snapshot.burn_header_hash.to_hex(), &first_snapshot.parent_burn_header_hash.to_hex(), &first_snapshot.consensus_hash.to_hex(), &first_snapshot.ops_hash.to_hex(), &"0".to_string(),
-                     &first_snapshot.sortition as &dyn ToSql, &first_snapshot.sortition_hash.to_hex(), &first_snapshot.winning_block_txid.to_hex(), &first_snapshot.winning_stacks_block_hash.to_hex(), &first_snapshot.index_root.to_hex(), 
+                   &[&(first_snapshot.block_height as i64) as &dyn ToSql, &first_snapshot.burn_header_hash, &first_snapshot.parent_burn_header_hash, &first_snapshot.consensus_hash, &first_snapshot.ops_hash, &"0".to_string(),
+                     &first_snapshot.sortition as &dyn ToSql, &first_snapshot.sortition_hash, &first_snapshot.winning_block_txid, &first_snapshot.winning_stacks_block_hash, &first_snapshot.index_root, 
                      &(first_snapshot.num_sortitions as i64) as &dyn ToSql])
             .map_err(db_error::SqliteError)?;
        
@@ -582,8 +582,8 @@ impl BurnDB {
         tx.execute("INSERT INTO snapshots \
                    (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions) \
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                   &[&(snapshot.block_height as i64) as &dyn ToSql, &snapshot.burn_header_hash.to_hex(), &snapshot.parent_burn_header_hash.to_hex(), &snapshot.consensus_hash.to_hex(), &snapshot.ops_hash.to_hex(), &total_burn_str,
-                     &snapshot.sortition as &dyn ToSql, &snapshot.sortition_hash.to_hex(), &snapshot.winning_block_txid.to_hex(), &snapshot.winning_stacks_block_hash.to_hex(), &snapshot.index_root.to_hex(),
+                   &[&(snapshot.block_height as i64) as &dyn ToSql, &snapshot.burn_header_hash, &snapshot.parent_burn_header_hash, &snapshot.consensus_hash, &snapshot.ops_hash, &total_burn_str,
+                     &snapshot.sortition as &dyn ToSql, &snapshot.sortition_hash, &snapshot.winning_block_txid, &snapshot.winning_stacks_block_hash, &snapshot.index_root,
                      &(snapshot.num_sortitions as i64) as &dyn ToSql])
             .map_err(db_error::SqliteError)?;
 
@@ -616,7 +616,7 @@ impl BurnDB {
     pub fn get_burnchain_transaction(conn: &Connection, txid: &Txid) -> Result<Option<BlockstackOperationType>, db_error> {
         // leader key?
         let leader_key_sql = "SELECT * FROM leader_keys WHERE txid = ?1 LIMIT 1".to_string();
-        let args = [&txid.to_hex() as &dyn ToSql];
+        let args = [&txid];
 
         let leader_key_rows = query_rows::<LeaderKeyRegisterOp, _>(conn, &leader_key_sql, &args)?;
         match leader_key_rows.len() {
@@ -818,8 +818,8 @@ impl BurnDB {
         assert!(leader_key.block_height < BLOCK_HEIGHT_MAX);
 
         tx.execute("INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, address) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                   &[&leader_key.txid.to_hex(), &leader_key.vtxindex as &dyn ToSql, &(leader_key.block_height as i64) as &dyn ToSql, &leader_key.burn_header_hash.to_hex(),
-                   &leader_key.consensus_hash.to_hex(), &leader_key.public_key.to_hex(), &to_hex(&leader_key.memo), &leader_key.address.to_string()])
+                   &[&leader_key.txid, &leader_key.vtxindex as &dyn ToSql, &(leader_key.block_height as i64) as &dyn ToSql, &leader_key.burn_header_hash,
+                   &leader_key.consensus_hash, &leader_key.public_key.to_hex(), &to_hex(&leader_key.memo), &leader_key.address.to_string()])
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -841,8 +841,8 @@ impl BurnDB {
 
         tx.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-                    &[&block_commit.txid.to_hex(), &block_commit.vtxindex as &dyn ToSql, &(block_commit.block_height as i64) as &dyn ToSql, &block_commit.burn_header_hash.to_hex(), 
-                    &block_commit.block_header_hash.to_hex(), &block_commit.new_seed.to_hex(), &block_commit.parent_block_ptr as &dyn ToSql, &block_commit.parent_vtxindex as &dyn ToSql,
+                    &[&block_commit.txid, &block_commit.vtxindex as &dyn ToSql, &(block_commit.block_height as i64) as &dyn ToSql, &block_commit.burn_header_hash, 
+                    &block_commit.block_header_hash, &block_commit.new_seed, &block_commit.parent_block_ptr as &dyn ToSql, &block_commit.parent_vtxindex as &dyn ToSql,
                     &block_commit.key_block_ptr as &dyn ToSql, &block_commit.key_vtxindex as &dyn ToSql, &to_hex(&block_commit.memo[..]), &burn_fee_str as &dyn ToSql, &tx_input_str])
             .map_err(db_error::SqliteError)?;
 
@@ -862,9 +862,9 @@ impl BurnDB {
 
         tx.execute("INSERT INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, address, consensus_hash, public_key, key_block_ptr, key_vtxindex, block_header_hash_160, burn_fee) \
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                   &[&user_burn.txid.to_hex(), &user_burn.vtxindex as &dyn ToSql, &(user_burn.block_height as i64) as &dyn ToSql, &user_burn.burn_header_hash.to_hex(), 
-                   &user_burn.address.to_string(), &user_burn.consensus_hash.to_hex(), &user_burn.public_key.to_hex(), &user_burn.key_block_ptr as &dyn ToSql, &user_burn.key_vtxindex as &dyn ToSql,
-                   &user_burn.block_header_hash_160.to_hex(), &burn_fee_str])
+                   &[&user_burn.txid, &user_burn.vtxindex as &dyn ToSql, &(user_burn.block_height as i64) as &dyn ToSql, &user_burn.burn_header_hash, 
+                   &user_burn.address.to_string(), &user_burn.consensus_hash, &user_burn.public_key.to_hex(), &user_burn.key_block_ptr as &dyn ToSql, &user_burn.key_vtxindex as &dyn ToSql,
+                   &user_burn.block_header_hash_160, &burn_fee_str])
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -873,7 +873,7 @@ impl BurnDB {
     /// Get the first snapshot 
     pub fn get_first_block_snapshot(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry = "SELECT * FROM snapshots WHERE consensus_hash = ?1".to_string();
-        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &[&ConsensusHash::empty().to_hex()])?;
+        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &[&ConsensusHash::empty()])?;
         match rows.len() {
             0 => {
                 // should never happen
@@ -890,7 +890,7 @@ impl BurnDB {
     /// Get a snapshot for an existing block.
     pub fn get_block_snapshot(conn: &Connection, burn_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE burn_header_hash = ?1".to_string();
-        let args = [&burn_hash.to_hex()];
+        let args = [&burn_hash];
         let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
         match rows.len() {
             0 => {
@@ -908,7 +908,7 @@ impl BurnDB {
     /// Get a snapshot for an existing block given its state index
     pub fn get_block_snapshot_at(conn: &Connection, index_root: &TrieHash) -> Result<Option<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE index_root = ?1".to_string();
-        let args = [&index_root.to_hex()];
+        let args = [&index_root];
         let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
         match rows.len() {
             0 => Ok(None),
@@ -933,7 +933,7 @@ impl BurnDB {
         };
 
         let qry = "SELECT * FROM snapshots WHERE burn_header_hash = ?1 AND block_height = ?2".to_string();
-        let args = [&ancestor_snapshot.burn_header_hash.to_hex() as &dyn ToSql, &(block_height as i64) as &dyn ToSql];
+        let args = [&ancestor_snapshot.burn_header_hash, &(block_height as i64) as &dyn ToSql];
         let rows = query_rows::<BlockSnapshot, _>(tx, &qry.to_string(), &args)?;
         match rows.len() {
             0 => Ok(None),
@@ -962,7 +962,7 @@ impl BurnDB {
         };
 
         let qry = "SELECT * FROM leader_keys WHERE burn_header_hash = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2".to_string();
-        let args = [&ancestor_snapshot.burn_header_hash.to_hex(), &(key_block_height as i64) as &dyn ToSql, &key_vtxindex as &dyn ToSql];
+        let args = [&ancestor_snapshot.burn_header_hash, &(key_block_height as i64) as &dyn ToSql, &key_vtxindex];
         let rows = query_rows::<LeaderKeyRegisterOp, _>(tx, &qry, &args)?;
         match rows.len() {
             0 => {
@@ -1011,7 +1011,7 @@ impl BurnDB {
         };
 
         let qry = "SELECT * FROM leader_keys WHERE burn_header_hash = ?1 AND block_height = ?2 ORDER BY vtxindex ASC".to_string();
-        let args = [&ancestor_snapshot.burn_header_hash.to_hex() as &dyn ToSql, &(block_height as i64) as &dyn ToSql];
+        let args = [&ancestor_snapshot.burn_header_hash, &(block_height as i64) as &dyn ToSql];
 
         query_rows::<LeaderKeyRegisterOp, _>(tx, &qry.to_string(), &args)
     }
@@ -1031,7 +1031,7 @@ impl BurnDB {
         };
 
         let qry = "SELECT * FROM block_commits WHERE burn_header_hash = ?1 AND block_height = ?2 ORDER BY vtxindex ASC".to_string();
-        let args = [&ancestor_snapshot.burn_header_hash.to_hex() as &dyn ToSql, &(block_height as i64) as &dyn ToSql];
+        let args: [&dyn ToSql; 2] = [&ancestor_snapshot.burn_header_hash, &(block_height as i64)];
 
         query_rows::<LeaderBlockCommitOp, _>(tx, &qry.to_string(), &args)
     }
@@ -1051,7 +1051,7 @@ impl BurnDB {
         };
 
         let qry = "SELECT * FROM user_burn_support WHERE burn_header_hash = ?1 AND block_height = ?2 ORDER BY vtxindex ASC".to_string();
-        let args = [&ancestor_snapshot.burn_header_hash.to_hex() as &dyn ToSql, &(block_height as i64) as &dyn ToSql];
+        let args: [&dyn ToSql; 2] = [&ancestor_snapshot.burn_header_hash, &(block_height as i64)];
 
         query_rows::<UserBurnSupportOp, _>(tx, &qry.to_string(), &args)
     }
@@ -1075,7 +1075,7 @@ impl BurnDB {
         let winning_block_hash160 = Hash160::from_sha256(ancestor_snapshot.winning_stacks_block_hash.as_bytes());
 
         let qry = "SELECT * FROM user_burn_support WHERE burn_header_hash = ?1 AND block_header_hash_160 = ?2 ORDER BY vtxindex ASC".to_string();
-        let args = [&ancestor_snapshot.burn_header_hash.to_hex() as &dyn ToSql, &winning_block_hash160.to_hex() as &dyn ToSql];
+        let args: [&dyn ToSql; 2] = [&ancestor_snapshot.burn_header_hash, &winning_block_hash160];
 
         query_rows::<UserBurnSupportOp, _>(conn, &qry.to_string(), &args)
     }
@@ -1111,7 +1111,7 @@ impl BurnDB {
         };
 
         let qry = "SELECT * FROM block_commits WHERE burn_header_hash = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2".to_string();
-        let args = [&ancestor_snapshot.burn_header_hash.to_hex(), &(block_height as i64) as &dyn ToSql, &vtxindex as &dyn ToSql];
+        let args: [&dyn ToSql; 3] = [&ancestor_snapshot.burn_header_hash, &(block_height as i64), &vtxindex];
         let rows = query_rows::<LeaderBlockCommitOp, _>(tx, &qry, &args)?;
 
         match rows.len() {
@@ -1132,7 +1132,7 @@ impl BurnDB {
     /// construction.
     pub fn get_block_commit(conn: &Connection, txid: &Txid, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         let qry = "SELECT * FROM block_commits WHERE txid = ?1 AND burn_header_hash = ?2".to_string();
-        let args = [&txid.to_hex(), &burn_header_hash.to_hex()];
+        let args: [&dyn ToSql; 2] = [&txid, &burn_header_hash];
         let rows = query_rows::<LeaderBlockCommitOp, _>(conn, &qry.to_string(), &args)?;
 
         match rows.len() {
@@ -1148,7 +1148,7 @@ impl BurnDB {
     /// Get a block commit by its committed block
     pub fn get_block_commit_for_stacks_block(conn: &Connection, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         let qry = "SELECT * FROM block_commits WHERE burn_header_hash = ?1 AND block_header_hash = ?2".to_string();
-        let args = [&burn_header_hash.to_hex(), &block_hash.to_hex()];
+        let args: [&dyn ToSql; 2] = [&burn_header_hash, &block_hash];
         let rows = query_rows::<LeaderBlockCommitOp, _>(conn, &qry.to_string(), &args)?;
 
         match rows.len() {
@@ -1449,7 +1449,7 @@ impl BurnDB {
     /// Do we expect a stacks block on some fork?  i.e. is there at least one winning block commit for it?
     pub fn expects_stacks_block(conn: &Connection, block_hash: &BlockHeaderHash) -> Result<bool, db_error> {
         let sql = "SELECT winning_stacks_block_hash FROM snapshots WHERE winning_stacks_block_hash = ?1".to_string();
-        let rows = query_row_columns::<BlockHeaderHash, _>(conn, &sql, &[&block_hash.to_hex()], "winning_stacks_block_hash")?;
+        let rows = query_row_columns::<BlockHeaderHash, _>(conn, &sql, &[&block_hash], "winning_stacks_block_hash")?;
         match rows.len() {
             0 => Ok(false),
             _ => Ok(true)
