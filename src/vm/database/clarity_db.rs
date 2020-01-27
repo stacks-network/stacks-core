@@ -19,6 +19,7 @@ use vm::database::structures::{
 };
 use vm::database::RollbackWrapper;
 use util::db::{DBConn, FromRow};
+use chainstate::stacks::StacksAddress;
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
 
@@ -50,6 +51,7 @@ pub trait HeadersDB {
     fn get_burn_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash>;
     fn get_vrf_seed_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed>;
     fn get_burn_block_time_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<u64>;
+    fn get_miner_address(&self, id_bhh: &BlockHeaderHash) -> Option<StacksAddress>;
 }
 
 fn get_stacks_header_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<StacksHeaderInfo> {
@@ -79,6 +81,10 @@ impl HeadersDB for DBConn {
         get_stacks_header_info(self, id_bhh)
             .map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
     }
+
+    fn get_miner_address(&self, id_bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
+        panic!("Miner address data not available in burn header db")
+    }
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -93,6 +99,9 @@ impl HeadersDB for &dyn HeadersDB {
     }
     fn get_burn_block_time_for_block(&self, bhh: &BlockHeaderHash) -> Option<u64> {
         (*self).get_burn_block_time_for_block(bhh)
+    }
+    fn get_miner_address(&self, bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
+        (*self).get_miner_address(bhh)
     }
 }
 
@@ -111,6 +120,9 @@ impl HeadersDB for NullHeadersDB {
         None
     }
     fn get_burn_block_time_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<u64> {
+        None
+    }
+    fn get_miner_address(&self, _id_bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
         None
     }
 }
@@ -238,6 +250,13 @@ impl <'a> ClarityDatabase <'a> {
         let id_bhh = self.get_index_block_header_hash(block_height);
         self.headers_db.get_vrf_seed_for_block(&id_bhh)
             .expect("Failed to get block data.")
+    }
+
+    pub fn get_miner_address(&mut self, block_height: u32) -> StandardPrincipalData {
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db.get_miner_address(&id_bhh)
+            .expect("Failed to get block data.")
+            .into()
     }
 }
 

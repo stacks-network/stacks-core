@@ -245,7 +245,11 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
             let id_header_hash = env.global_context.database.get_index_block_header_hash(height_value);
             Value::Buffer(BuffData { data: id_header_hash.as_bytes().to_vec() })            
         },
+        BlockInfoProperty::MinerAddress => {
+            let miner_address = env.global_context.database.get_miner_address(height_value);
+            Value::from(miner_address)
+        },
     };
-
+    
     Ok(Value::some(result))
 }
