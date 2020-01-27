@@ -112,13 +112,6 @@ impl TrieHash {
     }
 }
 
-
-impl fmt::Display for TrieHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", to_hex(&self.0))
-    }
-}
-
 impl AsRef<[u8]> for TrieHash {
     fn as_ref(&self) -> &[u8] {
         &self.0
