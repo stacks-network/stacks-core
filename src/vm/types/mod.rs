@@ -133,6 +133,7 @@ define_named_enum!(BlockInfoProperty {
     HeaderHash("header-hash"),
     IdentityHeaderHash("id-header-hash"),
     BurnchainHeaderHash("burnchain-header-hash"),
+    MinerAddress("miner-address"),
 });
 
 impl OptionalData {
@@ -161,6 +162,7 @@ impl BlockInfoProperty {
         match self {
             Time => TypeSignature::UIntType,
             IdentityHeaderHash | VrfSeed | HeaderHash | BurnchainHeaderHash => BUFF_32.clone(),
+            MinerAddress => TypeSignature::PrincipalType,
         }
     }
 }
