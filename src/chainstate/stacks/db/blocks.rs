@@ -744,7 +744,7 @@ impl StacksChainState {
     /// Load up a preprocessed but still unprocessed microblock.
     pub fn load_staging_microblock(blocks_conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<Option<StagingMicroblock>, Error> {
         let sql = "SELECT * FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND microblock_hash = ?3 AND orphaned = 0".to_string();
-        let args: &[&dyn ToSql] = &[&block_hash, &burn_header_hash, &microblock_hash];
+        let args: &[&dyn ToSql] = &[&burn_header_hash, &block_hash, &microblock_hash];
         let mut rows = query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args).map_err(Error::DBError)?;
         let len = rows.len();
         match len {
