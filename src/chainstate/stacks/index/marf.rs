@@ -453,7 +453,7 @@ impl MARF {
             assert!(false);
         }
 
-        test_debug!("MARF Insert in {}: '{}' = '{}' (...{:?})", block_hash.to_hex(), path.to_hex(), leaf_value.data.to_hex(), &leaf_value.path);
+        test_debug!("MARF Insert in {}: '{}' = '{}' (...{:?})", block_hash, path, leaf_value.data, &leaf_value.path);
         
         Trie::add_value(storage, &mut cursor, &mut value)?;
 
@@ -597,8 +597,8 @@ impl MARF {
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash);
 
-        test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, next_block_hash.to_hex());
-        test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash.to_hex(), height);
+        test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, next_block_hash);
+        test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash, height);
         test_debug!("Set {} = {}", OWN_BLOCK_HEIGHT_KEY, height);
 
         keys.push(OWN_BLOCK_HEIGHT_KEY.to_string());
@@ -612,10 +612,10 @@ impl MARF {
 
         if height > 0 {
             let prev_height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1);
-            let prev_hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash.to_hex());
+            let prev_hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
 
-            test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1, block_hash.to_hex());
-            test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash.to_hex(), height - 1);
+            test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1, block_hash);
+            test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash, height - 1);
 
             keys.push(prev_height_key);
             values.push(MARFValue::from(block_hash.clone()));
@@ -709,18 +709,18 @@ impl MARF {
 
         // new chain tip must not exist
         if self.storage.open_block(next_chain_tip).is_ok() {
-            error!("Block data already exists: {}", next_chain_tip.to_hex());
+            error!("Block data already exists: {}", next_chain_tip);
             return Err(Error::ExistsError);
         }
 
         // current chain tip must exist if it's not the "sentinel"
         let is_parent_sentinel = chain_tip == &TrieFileStorage::block_sentinel();
         if !is_parent_sentinel {
-            trace!("Extending off of existing node {}", chain_tip.to_hex());
+            trace!("Extending off of existing node {}", chain_tip);
             self.storage.open_block(chain_tip)?;
         }
         else {
-            trace!("First-ever block {}", next_chain_tip.to_hex());
+            trace!("First-ever block {}", next_chain_tip);
         }
 
         let block_height = 
@@ -2056,7 +2056,7 @@ mod test {
         blocks.push(block_header.clone());
 
         for (i, block) in blocks.iter().enumerate() {
-            debug!("Verify block height and hash at {} {} from {}", i, block, block_header.to_hex());
+            debug!("Verify block height and hash at {} {} from {}", i, block, block_header);
             assert_eq!(MARF::get_block_height_miner_tip(marf.borrow_storage_backend(), block, &block_header, Some(&target_block)).unwrap(),
                        Some(i as u32));
 
@@ -2081,7 +2081,7 @@ mod test {
             let read_from_block = final_block_header.clone();
 
             // all I/O happens off the final block header
-            debug!("{}: Get {} off of {}", i, &triepath.to_hex(), &read_from_block.to_hex());
+            debug!("{}: Get {} off of {}", i, &triepath, &read_from_block);
             let read_value = MARF::get_path(marf.borrow_storage_backend(), &read_from_block,
                                             &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
 
@@ -2092,7 +2092,7 @@ mod test {
             //    std::env::set_var("BLOCKSTACK_TRACE", "1");
             }
             // can make a merkle proof to each one using the final committed block header
-            debug!("{}: Check proof for {} off of {}", i, &triepath.to_hex(), &read_from_block.to_hex());
+            debug!("{}: Check proof for {} off of {}", i, &triepath, &read_from_block);
             root_table_cache = Some(
                 merkle_test_marf(marf.borrow_storage_backend(), &read_from_block, &path.to_vec(), &value.data.to_vec(), root_table_cache));
         }

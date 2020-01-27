@@ -170,7 +170,7 @@ fn integration_test_get_info() {
                 assert!(block.txs.len() == 2);
 
                 let parent = block.header.parent_block;
-                eprintln!("Current Block: {}       Parent Block: {}", bhh.to_hex(), parent.to_hex());
+                eprintln!("Current Block: {}       Parent Block: {}", bhh, parent);
                 let parent_val = Value::buff_from(parent.as_bytes().to_vec()).unwrap();
 
                 assert_eq!(
@@ -191,7 +191,7 @@ fn integration_test_get_info() {
                 // test-6 and test-7 return the block at height 1's VRF-seed,
                 //   which in this integration test, should be blocks[0]
                 let last_tip = blocks[0];
-                eprintln!("Last block info: stacks: {}, burn: {}", last_tip.1.to_hex(), last_tip.0.to_hex());
+                eprintln!("Last block info: stacks: {}, burn: {}", last_tip.1, last_tip.0);
                 let last_block = StacksChainState::load_block(&chain_state.blocks_path, &last_tip.0, &last_tip.1).unwrap().unwrap();
                 assert_eq!(parent, last_block.header.block_hash());
 

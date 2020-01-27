@@ -829,9 +829,9 @@ impl StacksChainState {
 
         let new_index_block = StacksBlockHeader::make_index_block_hash(new_burn_hash, new_block);
 
-        test_debug!("Begin processing Stacks block off of {}/{}", parent_burn_hash.to_hex(), parent_block.to_hex());
-        test_debug!("Child MARF index root:  {} = {} + {}", new_index_block.to_hex(), new_burn_hash.to_hex(), new_block.to_hex());
-        test_debug!("Parent MARF index root: {} = {} + {}", parent_index_block.to_hex(), parent_burn_hash.to_hex(), parent_block.to_hex());
+        test_debug!("Begin processing Stacks block off of {}/{}", parent_burn_hash, parent_block);
+        test_debug!("Child MARF index root:  {} = {} + {}", new_index_block, new_burn_hash, new_block);
+        test_debug!("Parent MARF index root: {} = {} + {}", parent_index_block, parent_burn_hash, parent_block);
 
         let inner_clarity_tx = clarity_instance.begin_block(&parent_index_block, &new_index_block, headers_db);
 
@@ -859,10 +859,10 @@ impl StacksChainState {
         // (this restriction is required to ensure that a poison microblock transaction can only apply to
         // a single epoch)
         let parent_hash = StacksChainState::get_index_hash(tip_burn_hash, tip_header);
-        match headers_tx.get_indexed(&parent_hash, &format!("chainstate::pubkey_hash::{}", pubkey_hash.to_hex())).map_err(Error::DBError)? {
+        match headers_tx.get_indexed(&parent_hash, &format!("chainstate::pubkey_hash::{}", pubkey_hash)).map_err(Error::DBError)? {
             Some(status_str) => {
                 // pubkey hash was seen before
-                debug!("Public key hash {} already used", pubkey_hash.to_hex());
+                debug!("Public key hash {} already used", pubkey_hash);
                 return Ok(true);
             },
             None => {
@@ -899,7 +899,7 @@ impl StacksChainState {
             };
 
         let indexed_keys = vec![
-            format!("chainstate::pubkey_hash::{}", new_tip.microblock_pubkey_hash.to_hex())
+            format!("chainstate::pubkey_hash::{}", new_tip.microblock_pubkey_hash)
         ];
 
         let indexed_values = vec![
@@ -925,7 +925,7 @@ impl StacksChainState {
         StacksChainState::insert_stacks_block_header(headers_tx, &new_tip_info)?;
         StacksChainState::insert_miner_payment_schedule(headers_tx, block_reward, user_burns)?;
 
-        debug!("Advanced to new tip! {}/{}", new_burn_block.to_hex(), new_tip.block_hash());
+        debug!("Advanced to new tip! {}/{}", new_burn_block, new_tip.block_hash());
         Ok(new_tip_info)
     }
 }
