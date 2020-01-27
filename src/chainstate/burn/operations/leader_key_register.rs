@@ -211,7 +211,7 @@ impl BlockstackOperation for LeaderKeyRegisterOp {
             .expect("Sqlite failure while checking consensus hash freshness");
 
         if !consensus_hash_recent {
-            warn!("Invalid leader key registration: invalid consensus hash {}", &self.consensus_hash.to_hex());
+            warn!("Invalid leader key registration: invalid consensus hash {}", &self.consensus_hash);
             return Err(op_error::LeaderKeyBadConsensusHash);
         }
 

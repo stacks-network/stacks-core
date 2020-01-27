@@ -104,7 +104,7 @@ struct ContractCommitment {
 
 impl ContractCommitment {
     pub fn serialize(&self) -> String {
-        format!("{}{}", self.hash.to_hex(), to_hex(&self.block_height.to_be_bytes()))
+        format!("{}{}", self.hash, to_hex(&self.block_height.to_be_bytes()))
     }
     pub fn deserialize(input: &str) -> ContractCommitment {
         assert_eq!(input.len(), 72);
@@ -182,7 +182,7 @@ impl MarfedKV {
 
     pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
         self.marf.begin(current, next)
-            .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current.to_hex(), next.to_hex()));
+            .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current, next));
         self.chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Failed to get open MARF")
             .clone();

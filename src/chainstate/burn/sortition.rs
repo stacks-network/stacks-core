@@ -105,7 +105,7 @@ impl BlockSnapshot {
         let index = sortition_hash.mix_VRF_seed(VRF_seed).to_uint256();
         for i in 0..dist.len() {
             if (dist[i].range_start <= index) && (index < dist[i].range_end) {
-                debug!("Sampled {}: sortition index = {}", dist[i].candidate.block_header_hash.to_hex(), &index);
+                debug!("Sampled {}: sortition index = {}", dist[i].candidate.block_header_hash, &index);
                 return Some(i);
             }
         }

@@ -262,9 +262,9 @@ impl ConsensusHash {
         while i < 64 && block_height - (((1 as u64) << i) - 1) >= first_block_height {
             let prev_block : u64 = block_height - (((1 as u64) << i) - 1);
             let prev_ch = BurnDB::get_consensus_at(tx, prev_block, tip_block_hash)
-                .expect(&format!("FATAL: failed to get consensus hash at {} in fork {}", prev_block, tip_block_hash.to_hex()));
+                .expect(&format!("FATAL: failed to get consensus hash at {} in fork {}", prev_block, tip_block_hash));
 
-            debug!("Consensus at {}: {}", prev_block, &prev_ch.to_hex());
+            debug!("Consensus at {}: {}", prev_block, &prev_ch);
             prev_chs.push(prev_ch.clone());
             i += 1;
 

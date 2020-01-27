@@ -91,17 +91,17 @@ impl SqliteConnection {
     ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
 
     pub fn begin(&mut self, key: &BlockHeaderHash) {
-        self.conn.execute(&format!("SAVEPOINT SP{};", key.to_hex()), NO_PARAMS)
+        self.conn.execute(&format!("SAVEPOINT SP{};", key), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }
 
     pub fn rollback(&mut self, key: &BlockHeaderHash) {
-        self.conn.execute(&format!("ROLLBACK TO SAVEPOINT SP{};", key.to_hex()), NO_PARAMS)
+        self.conn.execute(&format!("ROLLBACK TO SAVEPOINT SP{};", key), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }
 
     pub fn commit(&mut self, key: &BlockHeaderHash) {
-        self.conn.execute(&format!("RELEASE SAVEPOINT SP{};", key.to_hex()), NO_PARAMS)
+        self.conn.execute(&format!("RELEASE SAVEPOINT SP{};", key), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }
 }

@@ -172,7 +172,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// may not have known the "real" block hash at the 
     /// time of opening).
     pub fn commit_to_block(mut self, final_bhh: &BlockHeaderHash) {
-        debug!("Commit Clarity datastore to {}", final_bhh.to_hex());
+        debug!("Commit Clarity datastore to {}", final_bhh);
         self.datastore.commit_to(final_bhh);
 
         self.parent.datastore.replace(self.datastore);

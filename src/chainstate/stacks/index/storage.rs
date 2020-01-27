@@ -1270,7 +1270,7 @@ impl TrieFileStorage {
     /// will process a block as if it's hash is all 0's (in order to validate the state root), and
     /// then use this method to switch over the block hash to the "real" block hash.
     fn block_retarget(&mut self, cur_bhh: &BlockHeaderHash, new_bhh: &BlockHeaderHash) -> Result<(), Error> {
-        debug!("Retarget block {} to {}", cur_bhh.to_hex(), new_bhh.to_hex());
+        debug!("Retarget block {} to {}", cur_bhh, new_bhh);
 
         // switch over state
         let block_dir = TrieFileStorage::block_dir(&self.dir_path, new_bhh);

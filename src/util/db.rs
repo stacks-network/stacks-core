@@ -411,11 +411,11 @@ impl<'a, C> IndexDBTx<'a, C> {
             Err(e) => {
                 match e {
                     MARFError::NotFoundError => {
-                        test_debug!("Not found: Get '{}' off of {} (parent index root not found)", key, header_hash.to_hex());
+                        test_debug!("Not found: Get '{}' off of {} (parent index root not found)", key, header_hash);
                         return Ok(None);
                     },
                     _ => {
-                        error!("Failed to get root hash of {}: {:?}", &header_hash.to_hex(), &e);
+                        error!("Failed to get root hash of {}: {:?}", &header_hash, &e);
                         return Err(Error::Corruption);
                     }
                 }
@@ -427,7 +427,7 @@ impl<'a, C> IndexDBTx<'a, C> {
                 match marf_value_opt {
                     Some(marf_value) => {
                         let value = self.load_indexed(key, &marf_value)?
-                            .expect(&format!("FATAL: corrupt index: key '{}' from {} (root index {}) is present in the index but missing a value in the DB", &key, &header_hash.to_hex(), &parent_index_root.to_hex()));
+                            .expect(&format!("FATAL: corrupt index: key '{}' from {} (root index {}) is present in the index but missing a value in the DB", &key, &header_hash, &parent_index_root));
 
                         return Ok(Some(value));
                     },
@@ -442,7 +442,7 @@ impl<'a, C> IndexDBTx<'a, C> {
                         return Ok(None);
                     },
                     _ => {
-                        error!("Failed to fetch '{}' off of {}: {:?}", key, &header_hash.to_hex(), &e);
+                        error!("Failed to fetch '{}' off of {}: {:?}", key, &header_hash, &e);
                         return Err(Error::Corruption);
                     }
                 }

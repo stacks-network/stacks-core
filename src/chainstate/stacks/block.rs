@@ -253,28 +253,28 @@ impl StacksBlockHeader {
         
         // this header must match the header that won sortition on the burn chain
         if self.block_hash() != burn_chain_tip.winning_stacks_block_hash {
-            let msg = format!("Invalid Stacks block header {}: invalid commit: {} != {}", self.block_hash().to_hex(), self.block_hash().to_hex(), burn_chain_tip.winning_stacks_block_hash.to_hex());
+            let msg = format!("Invalid Stacks block header {}: invalid commit: {} != {}", self.block_hash(), self.block_hash(), burn_chain_tip.winning_stacks_block_hash);
             debug!("{}", msg);
             return Err(Error::InvalidStacksBlock(msg));
         }
 
         // this header must match the parent header as recorded on the burn chain
         if self.parent_block != stacks_chain_tip.winning_stacks_block_hash {
-            let msg = format!("Invalid Stacks block header {}: invalid parent hash: {} != {}", self.block_hash().to_hex(), self.parent_block.to_hex(), stacks_chain_tip.winning_stacks_block_hash.to_hex());
+            let msg = format!("Invalid Stacks block header {}: invalid parent hash: {} != {}", self.block_hash(), self.parent_block, stacks_chain_tip.winning_stacks_block_hash);
             debug!("{}", msg);
             return Err(Error::InvalidStacksBlock(msg));
         }
         
         // this header's proof must hash to the burn chain tip's VRF seed
         if !block_commit.new_seed.is_from_proof(&self.proof) {
-            let msg = format!("Invalid Stacks block header {}: invalid VRF proof: hash({}) != {} (but {})", self.block_hash().to_hex(), self.proof.to_hex(), block_commit.new_seed.to_hex(), VRFSeed::from_proof(&self.proof).to_hex());
+            let msg = format!("Invalid Stacks block header {}: invalid VRF proof: hash({}) != {} (but {})", self.block_hash(), self.proof.to_hex(), block_commit.new_seed, VRFSeed::from_proof(&self.proof));
             debug!("{}", msg);
             return Err(Error::InvalidStacksBlock(msg));
         }
 
         // this header must commit to all of the work seen so far in this stacks blockchain fork.
         if self.total_work.burn != stacks_chain_tip.total_burn {
-            let msg = format!("Invalid Stacks block header {}: invalid total burns: {} != {}", self.block_hash().to_hex(), self.total_work.burn, stacks_chain_tip.total_burn);
+            let msg = format!("Invalid Stacks block header {}: invalid total burns: {} != {}", self.block_hash(), self.total_work.burn, stacks_chain_tip.total_burn);
             debug!("{}", msg);
             return Err(Error::InvalidStacksBlock(msg));
         }
@@ -291,7 +291,7 @@ impl StacksBlockHeader {
         };
 
         if !valid {
-            let msg = format!("Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}", self.block_hash().to_hex(), leader_key.public_key.to_hex(), burn_chain_tip.sortition_hash.to_hex());
+            let msg = format!("Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}", self.block_hash(), leader_key.public_key.to_hex(), burn_chain_tip.sortition_hash);
             debug!("{}", msg);
             return Err(Error::InvalidStacksBlock(msg));
         }
@@ -444,7 +444,7 @@ impl StacksBlock {
         for (i, tx) in txs.iter().enumerate() {
             let txid = tx.txid();
             if txids.get(&txid).is_some() {
-                warn!("Duplicate tx {}: at index {} and {}", txid.to_hex(), txids.get(&txid).unwrap(), i);
+                warn!("Duplicate tx {}: at index {} and {}", txid, txids.get(&txid).unwrap(), i);
                 test_debug!("{:?}", &tx);
                 return false;
             }
@@ -457,11 +457,11 @@ impl StacksBlock {
     pub fn validate_transactions_network(txs: &Vec<StacksTransaction>, mainnet: bool) -> bool {
         for tx in txs {
             if mainnet && !tx.is_mainnet() {
-                warn!("Tx {} is not mainnet", tx.txid().to_hex());
+                warn!("Tx {} is not mainnet", tx.txid());
                 return false;
             }
             else if !mainnet && tx.is_mainnet() {
-                warn!("Tx {} is not testnet", tx.txid().to_hex());
+                warn!("Tx {} is not testnet", tx.txid());
                 return false;
             }
         }
@@ -472,7 +472,7 @@ impl StacksBlock {
     pub fn validate_transactions_chain_id(txs: &Vec<StacksTransaction>, chain_id: u32) -> bool {
         for tx in txs {
             if tx.chain_id != chain_id {
-                warn!("Tx {} has chain ID {:08x}; expected {:08x}", tx.txid().to_hex(), tx.chain_id, chain_id);
+                warn!("Tx {} has chain ID {:08x}; expected {:08x}", tx.txid(), tx.chain_id, chain_id);
                 return false;
             }
         }
@@ -484,11 +484,11 @@ impl StacksBlock {
         for tx in txs {
             match (anchored, tx.anchor_mode) {
                 (true, TransactionAnchorMode::OffChainOnly) => {
-                    warn!("Tx {} is off-chain-only; expected on-chain-only or any", tx.txid().to_hex());
+                    warn!("Tx {} is off-chain-only; expected on-chain-only or any", tx.txid());
                     return false;
                 }
                 (false, TransactionAnchorMode::OnChainOnly) => {
-                    warn!("Tx {} is on-chain-only; expected off-chain-only or any", tx.txid().to_hex());
+                    warn!("Tx {} is on-chain-only; expected off-chain-only or any", tx.txid());
                     return false;
                 }
                 (_, _) => {}
@@ -505,17 +505,17 @@ impl StacksBlock {
             match tx.payload {
                 TransactionPayload::Coinbase(_) => {
                     if !check_present {
-                        warn!("Found unexpected coinbase tx {}", tx.txid().to_hex());
+                        warn!("Found unexpected coinbase tx {}", tx.txid());
                         return false;
                     }
 
                     if found_coinbase {
-                        warn!("Found duplicate coinbase tx {}", tx.txid().to_hex());
+                        warn!("Found duplicate coinbase tx {}", tx.txid());
                         return false;
                     }
 
                     if tx.anchor_mode != TransactionAnchorMode::OnChainOnly {
-                        warn!("Invalid coinbase tx {}: not on-chain only", tx.txid().to_hex());
+                        warn!("Invalid coinbase tx {}: not on-chain only", tx.txid());
                         return false;
                     }
                     found_coinbase = true;
