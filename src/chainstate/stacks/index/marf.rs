@@ -599,6 +599,7 @@ impl MARF {
 
         test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, next_block_hash.to_hex());
         test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash.to_hex(), height);
+        test_debug!("Set {} = {}", OWN_BLOCK_HEIGHT_KEY, height);
 
         keys.push(OWN_BLOCK_HEIGHT_KEY.to_string());
         values.push(MARFValue::from(height));
