@@ -391,6 +391,12 @@ impl From<StandardPrincipalData> for PrincipalData {
     }
 }
 
+impl From<QualifiedContractIdentifier> for PrincipalData {
+    fn from(principal: QualifiedContractIdentifier) -> Self {
+        PrincipalData::Contract(principal)
+    }
+}
+
 impl From<TupleData> for Value {
     fn from(t: TupleData) -> Self {
         Value::Tuple(t)
