@@ -425,6 +425,12 @@ impl <'a> OwnedEnvironment <'a> {
                             |exec_env| exec_env.eval_raw(program))
     }
 
+    #[cfg(test)]
+    pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, program: &str) -> Result<(Value, AssetMap)>  {
+        self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
+                            |exec_env| exec_env.eval_read_only(contract, program))
+    }
+
     pub fn begin(&mut self) {
         self.context.begin();
     }

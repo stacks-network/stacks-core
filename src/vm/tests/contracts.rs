@@ -1,3 +1,4 @@
+use chainstate::stacks::index::storage::{TrieFileStorage};
 use vm::execute as vm_execute;
 use chainstate::burn::BlockHeaderHash;
 use vm::errors::{Error, CheckErrors, RuntimeErrorType};
@@ -7,8 +8,9 @@ use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
-use vm::database::marf::MemoryBackingStore;
-use vm::database::ClarityDatabase;
+use vm::database::{MemoryBackingStore, MarfedKV, NULL_HEADER_DB, ClarityDatabase};
+use vm::clarity::ClarityInstance;
+use vm::ast;
 
 use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbols_from_values};
 
@@ -82,6 +84,16 @@ fn test_get_block_info_eval() {
     ];
 
     let expected = [
+        Ok(Value::none()),
+        Ok(Value::none()),
+        Ok(Value::none()),
+        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(-1)).into()),
+        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Bool(true)).into()),
+        Ok(Value::none()),
+        Ok(Value::none()),
+        Ok(Value::none()),
+    ];
+/*    let expected = [
         Ok(Value::UInt(0)),
         Ok(Value::none()),
         Ok(Value::none()),
@@ -93,7 +105,7 @@ fn test_get_block_info_eval() {
             Value::buff_from(hex_bytes("0300000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap())),
         Ok(Value::some(
             Value::buff_from(hex_bytes("0100000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap())),
-    ];
+    ]; */
 
     for i in 0..contracts.len() {
         let mut marf = MemoryBackingStore::new();
@@ -141,84 +153,107 @@ fn is_err_code(v: &Value, e: i128) -> bool {
     }
 }
 
-fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
-    let tokens_contract = SIMPLE_TOKENS;
+fn test_block_headers(n: u8) -> BlockHeaderHash {
+    BlockHeaderHash([n as u8; 32])
+}
 
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
-
-    {
-        let mut env = owned_env.get_exec_environment(None);
-
-        let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
-        env.initialize_contract(contract_identifier, tokens_contract).unwrap();
-    }
+#[test]
+fn test_simple_token_system() {
+    let mut clarity = ClarityInstance::new(MarfedKV::temporary());
+    let p1 = PrincipalData::from(PrincipalData::parse_standard_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").unwrap());
+    let p2 = PrincipalData::from(PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap());
+    let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
 
     {
-        let mut env = owned_env.get_exec_environment(Some(p2.clone()));
-        assert!(!is_committed(&env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), 
-                                                    "token-transfer",
-                                                    &symbols_from_values(vec![p1.clone(), Value::UInt(210)])).unwrap()));
-    }
+        let mut block = clarity.begin_block(&TrieFileStorage::block_sentinel(),
+                                        &test_block_headers(0),
+                                        &NULL_HEADER_DB);
 
-    {
-        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
-        assert!(is_committed(&
-                             env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), 
-                                                  "token-transfer",
-                                                  &symbols_from_values(vec![p2.clone(), Value::UInt(9000)])).unwrap()));
+        let tokens_contract = SIMPLE_TOKENS;
+
+        let contract_ast = ast::build_ast(&contract_identifier, tokens_contract).unwrap();
+
+        block.initialize_smart_contract(&contract_identifier, &contract_ast, tokens_contract, |_, _| false)
+            .unwrap();
 
         assert!(!is_committed(&
-                              env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), 
-                                                   "token-transfer",
-                                                   &symbols_from_values(vec![p2.clone(), Value::UInt(1001)])).unwrap()));
+            block.run_contract_call(&p2, &contract_identifier, "token-transfer",
+                                    &[p1.clone().into(), Value::UInt(210)], |_, _| false).unwrap().0));
+        assert!(is_committed(&
+            block.run_contract_call(&p1, &contract_identifier, "token-transfer",
+                                    &[p2.clone().into(), Value::UInt(9000)], |_, _| false).unwrap().0));
+
+        assert!(!is_committed(&
+            block.run_contract_call(&p1, &contract_identifier, "token-transfer",
+                                    &[p2.clone().into(), Value::UInt(1001)], |_, _| false).unwrap().0));
         assert!(is_committed(& // send to self!
-                             env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), "token-transfer",
-                                                  &symbols_from_values(vec![p1.clone(), Value::UInt(1000)])).unwrap()));
-        
+            block.run_contract_call(&p1, &contract_identifier, "token-transfer",
+                                    &[p1.clone().into(), Value::UInt(1000)], |_, _| false).unwrap().0));
+
         assert_eq!(
-            env.eval_read_only(&QualifiedContractIdentifier::local("tokens").unwrap(),
-                               "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+            block.eval_read_only(&contract_identifier,
+                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
             Value::UInt(1000));
         assert_eq!(
-            env.eval_read_only(&QualifiedContractIdentifier::local("tokens").unwrap(),
-                               "(my-get-token-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
+            block.eval_read_only(&contract_identifier,
+                                 "(my-get-token-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
             Value::UInt(9200));
-        assert!(is_committed(&env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), 
-                             "faucet", 
-                             &vec![]).unwrap()));
-        
-        assert!(is_committed(&env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), 
-                             "faucet", 
-                             &vec![]).unwrap()));
-        
-        assert!(is_committed(&env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), 
-                             "faucet", 
-                             &vec![]).unwrap()));
-        
-        assert_eq!(
-            env.eval_read_only(&QualifiedContractIdentifier::local("tokens").unwrap(),
-                               "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
-                               Value::UInt(1003));
 
-        assert!(!is_committed(&env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), 
-                              "mint-after", 
-                              &symbols_from_values(vec![Value::UInt(25)])).unwrap()));
-        
-        env.global_context.database.sim_mine_blocks(10);
-        assert!(is_committed(&env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), 
-                             "mint-after", 
-                             &symbols_from_values(vec![Value::UInt(25)])).unwrap()));
-        
-        assert!(!is_committed(&
-                              env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), "faucet", &vec![]).unwrap()));
+        assert!(is_committed(&block.run_contract_call(&p1, &contract_identifier,
+                                                      "faucet",
+                                                      &[], |_, _| false).unwrap().0));
+
+        assert!(is_committed(&block.run_contract_call(&p1, &contract_identifier,
+                                                      "faucet",
+                                                      &[], |_, _| false).unwrap().0));
+
+        assert!(is_committed(&block.run_contract_call(&p1, &contract_identifier,
+                                                      "faucet",
+                                                      &[], |_, _| false).unwrap().0));
         
         assert_eq!(
-            env.eval_read_only(&QualifiedContractIdentifier::local("tokens").unwrap(),
-                               "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+            block.eval_read_only(&contract_identifier,
+                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+            Value::UInt(1003));
+
+        assert!(!is_committed(
+            &block.run_contract_call(&p1, &contract_identifier,
+                                     "mint-after", 
+                                     &[Value::UInt(25)], |_, _| false).unwrap().0));
+        block.commit_block();
+    }
+
+    for i in 0..25 {
+        {
+            let block = clarity.begin_block(&test_block_headers(i),
+                                            &test_block_headers(i+1),
+                                            &NULL_HEADER_DB);
+            block.commit_block();
+        }
+    }
+
+    {
+        let mut block = clarity.begin_block(&test_block_headers(25),
+                                        &test_block_headers(26),
+                                        &NULL_HEADER_DB);
+        assert!(is_committed(
+            &block.run_contract_call(&p1, &contract_identifier,
+                                     "mint-after", 
+                                     &[Value::UInt(25)], |_, _| false).unwrap().0));
+        
+        assert!(!is_committed(
+            &block.run_contract_call(&p1, &contract_identifier,
+                                     "faucet", 
+                                     &[], |_, _| false).unwrap().0));
+
+        assert_eq!(
+            block.eval_read_only(&contract_identifier,
+                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
             Value::UInt(1004));
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("tokens").unwrap(), "my-get-token-balance", &symbols_from_values(vec![p1.clone()])).unwrap(),
+            block.run_contract_call(&p1, &contract_identifier,
+                                    "my-get-token-balance",
+                                    &[p1.clone().into()], |_, _| false).unwrap().0,
             Value::UInt(1004));
     }
 }
@@ -652,7 +687,6 @@ fn test_all() {
                     test_contract_caller,
                     test_fully_qualified_contract_call,
                     test_simple_naming_system,
-                    test_simple_token_system,
                     test_simple_contract_call ];
     for test in to_test.iter() {
         with_memory_environment(test, false);

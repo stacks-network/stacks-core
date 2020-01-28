@@ -5,12 +5,13 @@ use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
-use vm::database::marf::{ MarfedKV, MemoryBackingStore };
-use vm::database::ClarityDatabase;
+use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
+                   NULL_HEADER_DB};
 
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
 
+mod integrations;
 mod forking;
 mod assets;
 mod iterables;
@@ -41,7 +42,7 @@ where F: FnOnce(&mut OwnedEnvironment) -> ()
                   &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
 
     {
-        marf_kv.as_clarity_db().initialize();
+        marf_kv.as_clarity_db(&NULL_HEADER_DB).initialize();
     }
 
     marf_kv.test_commit();
@@ -49,7 +50,7 @@ where F: FnOnce(&mut OwnedEnvironment) -> ()
                   &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap());
 
     {
-        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
         // start an initial transaction.
         if !top_level {
             owned_env.begin();

@@ -22,7 +22,7 @@ use util::db::FromColumn;
 use vm::ast::parse;
 use vm::contexts::OwnedEnvironment;
 use vm::database::{ClarityDatabase, SqliteConnection,
-                   MarfedKV, MemoryBackingStore};
+                   MarfedKV, MemoryBackingStore, NULL_HEADER_DB};
 use vm::errors::{InterpreterResult};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::analysis::{AnalysisDatabase, run_analysis};
@@ -49,8 +49,6 @@ fn print_usage(invoked_by: &str) {
 where command is one of:
 
   initialize         to initialize a local VM state database.
-  mine_block         to simulated mining a new block.
-  get_block_height   to print the simulated block height.
   check              to typecheck a potential contract definition.
   launch             to launch a initialize a new contract in the local state database.
   eval               to evaluate (in read-only mode) a program in a given contract context.
@@ -134,7 +132,7 @@ fn advance_cli_chain_tip(path: &String) -> (BlockHeaderHash, BlockHeaderHash) {
     let next_block_hash  = friendly_expect_opt(BlockHeaderHash::from_bytes(&random_bytes),
                                               "Failed to generate random block header.");
 
-    friendly_expect(tx.execute("INSERT INTO cli_chain_tips (block_hash) VALUES (?1)", &[&next_block_hash.to_hex() as &dyn ToSql]), 
+    friendly_expect(tx.execute("INSERT INTO cli_chain_tips (block_hash) VALUES (?1)", &[&next_block_hash]), 
                     &format!("FATAL: failed to store next block hash in '{}'", path));
 
     friendly_expect(tx.commit(), &format!("FATAL: failed to commit new chain tip to '{}'", path));
@@ -200,7 +198,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let marf_kv = friendly_expect(MarfedKV::open(&args[1], None), "Failed to open VM database.");
             in_block(&args[1], marf_kv, |mut kv| {
-                { let mut db = ClarityDatabase::new(&mut kv);
+                { let mut db = kv.as_clarity_db(&NULL_HEADER_DB);
                   db.initialize() };
                 (kv, ())
             });
@@ -383,7 +381,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = ClarityDatabase::new(&mut marf);
+                    let db = marf.as_clarity_db(&NULL_HEADER_DB);
                     let mut vm_env = OwnedEnvironment::new(db);
                     vm_env.get_exec_environment(None)
                         .eval_read_only(&contract_identifier, &content)
@@ -429,7 +427,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         Err(e) => (marf, Err(e)),
                         Ok(analysis) => {
                             let result = {
-                                let db = ClarityDatabase::new(&mut marf);
+                                let db = marf.as_clarity_db(&NULL_HEADER_DB);
                                 let mut vm_env = OwnedEnvironment::new(db);
                                 vm_env.initialize_contract(contract_identifier, &contract_content)
                             };
@@ -499,7 +497,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = ClarityDatabase::new(&mut marf);
+                    let db = marf.as_clarity_db(&NULL_HEADER_DB);
                     let mut vm_env = OwnedEnvironment::new(db);
                     vm_env.execute_transaction(Value::Principal(sender), contract_identifier, &tx_name, &arguments) };
                 (marf, result)
@@ -522,14 +520,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     panic_test!();
                 }
             }
-        },
-        // TODO :: need to rework a bunch of how this simulation works.
-        //         get block info items will need to consult the marf
-        "mine_block" => {
-            panic!("Not implemented")
-        },
-        "get_block_height" => {
-            panic!("Not implemented")
         },
         _ => {
             print_usage(invoked_by)

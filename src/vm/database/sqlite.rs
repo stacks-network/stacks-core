@@ -42,38 +42,30 @@ impl SqliteConnection {
     }
 
     pub fn insert_metadata(&mut self, bhh: &BlockHeaderHash, contract_hash: &str, key: &str, value: &str) {
-        debug!("insert_metadata: {}, {}, {}", bhh, contract_hash, key);
-
-        let blockhash = bhh.to_hex();
         let key = format!("clr-meta::{}::{}", contract_hash, key);
-        let params: [&dyn ToSql; 3] = [&blockhash, &key, &value.to_string()];
+        let params: [&dyn ToSql; 3] = [&bhh, &key, &value.to_string()];
 
         self.conn.execute("INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)", &params)
             .expect(SQL_FAIL_MESSAGE);
     }
 
     pub fn commit_metadata_to(&mut self, from: &BlockHeaderHash, to: &BlockHeaderHash) {
-        let params = [to.to_hex(), from.to_hex()];
+        let params = [to, from];
         let rows_updated = self.conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             &params)
             .expect(SQL_FAIL_MESSAGE);
-        debug!("commit_metadata {} rows committed to blockhash: {} => {}", rows_updated, from, to);
     }
 
     pub fn move_metadata_to(&mut self, from: &BlockHeaderHash, to: &str) {
-        let params = [to.to_string(), from.to_hex()];
+        let params: [&dyn ToSql; 2] = [&to.to_string(), from];
         let rows_updated = self.conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             &params)
             .expect(SQL_FAIL_MESSAGE);
-        debug!("move_metadata {} rows moved to: {} => {}", rows_updated, from, to);
     }
 
     pub fn get_metadata(&mut self, bhh: &BlockHeaderHash, contract_hash: &str, key: &str) -> Option<String> {
-        debug!("get_metadata: {}, {}, {}", bhh, contract_hash, key);
-
-        let bhh = bhh.to_hex();
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 2] = [&bhh, &key];
 
@@ -99,17 +91,17 @@ impl SqliteConnection {
     ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
 
     pub fn begin(&mut self, key: &BlockHeaderHash) {
-        self.conn.execute(&format!("SAVEPOINT SP{};", key.to_hex()), NO_PARAMS)
+        self.conn.execute(&format!("SAVEPOINT SP{};", key), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }
 
     pub fn rollback(&mut self, key: &BlockHeaderHash) {
-        self.conn.execute(&format!("ROLLBACK TO SAVEPOINT SP{};", key.to_hex()), NO_PARAMS)
+        self.conn.execute(&format!("ROLLBACK TO SAVEPOINT SP{};", key), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }
 
     pub fn commit(&mut self, key: &BlockHeaderHash) {
-        self.conn.execute(&format!("RELEASE SAVEPOINT SP{};", key.to_hex()), NO_PARAMS)
+        self.conn.execute(&format!("RELEASE SAVEPOINT SP{};", key), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }
 }

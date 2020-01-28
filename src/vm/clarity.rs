@@ -1,7 +1,7 @@
 use vm::representations::SymbolicExpression;
 use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use vm::contexts::{OwnedEnvironment, AssetMap};
-use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection};
+use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection, HeadersDB};
 use vm::analysis::{AnalysisDatabase};
 use vm::errors::{Error as InterpreterError};
 use vm::ast::{ContractAST, errors::ParseError};
@@ -38,7 +38,8 @@ pub struct ClarityInstance {
 ///
 pub struct ClarityBlockConnection<'a> {
     datastore: MarfedKV,
-    parent: &'a mut ClarityInstance
+    parent: &'a mut ClarityInstance,
+    header_db: &'a dyn HeadersDB,
 }
 
 #[derive(Debug)]
@@ -103,7 +104,8 @@ impl ClarityInstance {
         ClarityInstance { datastore: Some(datastore) }
     }
 
-    pub fn begin_block(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) -> ClarityBlockConnection {
+    pub fn begin_block<'a> (&'a mut self, current: &BlockHeaderHash, next: &BlockHeaderHash,
+                            header_db: &'a dyn HeadersDB) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.take()
             // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
             //   doesn't restore it's parent's datastore
@@ -112,9 +114,23 @@ impl ClarityInstance {
         datastore.begin(current, next);
 
         ClarityBlockConnection {
-            datastore: datastore,
+            datastore,
+            header_db,
             parent: self
         }
+    }
+
+    #[cfg(test)]
+    pub fn eval_read_only(&mut self, at_block: &BlockHeaderHash, header_db: &dyn HeadersDB,
+                          contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
+        self.datastore.as_mut().unwrap()
+            .set_chain_tip(at_block);
+        let clarity_db = self.datastore.as_mut().unwrap()
+            .as_clarity_db(header_db);
+        let mut env = OwnedEnvironment::new(clarity_db);
+        env.eval_read_only(contract, program)
+            .map(|(x, _)| x)
+            .map_err(Error::from)
     }
 
     pub fn destroy(mut self) -> MarfedKV {
@@ -156,7 +172,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// may not have known the "real" block hash at the 
     /// time of opening).
     pub fn commit_to_block(mut self, final_bhh: &BlockHeaderHash) {
-        debug!("Commit Clarity datastore to {}", final_bhh.to_hex());
+        debug!("Commit Clarity datastore to {}", final_bhh);
         self.datastore.commit_to(final_bhh);
 
         self.parent.datastore.replace(self.datastore);
@@ -188,7 +204,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Do something to the underlying DB that involves writing.
     pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
-        let mut db = ClarityDatabase::new(&mut self.datastore);
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
         db.begin();
         let result = to_do(&mut db);
         match result {
@@ -206,7 +222,7 @@ impl <'a> ClarityBlockConnection <'a> {
     /// Do something to the underlying DB that involves only reading.
     pub fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
-        let mut db = ClarityDatabase::new(&mut self.datastore);
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
         db.begin();
         let result = to_do(&mut db);
         db.roll_back();
@@ -227,7 +243,7 @@ impl <'a> ClarityBlockConnection <'a> {
     fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap), Error>
     where A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
           F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap), Error> {
-        let mut db = ClarityDatabase::new(&mut self.datastore);
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
         // wrap the whole contract-call in a claritydb transaction,
         //   so we can abort on call_back's boolean retun
         db.begin();
@@ -311,6 +327,14 @@ impl <'a> ClarityBlockConnection <'a> {
             |_, _| { false })?;
         Ok(result)
     }
+
+    #[cfg(test)]
+    pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, code: &str) -> Result<Value, Error> {
+        let (result, _) = self.with_abort_callback(
+            |vm_env| { vm_env.eval_read_only(contract, code).map_err(Error::from) },
+            |_, _| { false })?;
+        Ok(result)
+    }
 }
 
 
@@ -319,7 +343,7 @@ mod tests {
     use super::*;
     use vm::analysis::errors::CheckErrors;
     use vm::types::{Value, StandardPrincipalData};
-    use vm::database::marf::{ClarityBackingStore, MarfedKV};
+    use vm::database::{NULL_HEADER_DB, ClarityBackingStore, MarfedKV};
     use chainstate::stacks::index::storage::{TrieFileStorage};
     use rusqlite::NO_PARAMS;
 
@@ -332,7 +356,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
             
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
             
@@ -360,7 +385,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
 
@@ -392,7 +418,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
-                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
 
             let contract = "
             (define-data-var bar int 0)

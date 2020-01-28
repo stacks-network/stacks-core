@@ -1,10 +1,12 @@
 use std::collections::{VecDeque, HashMap};
 use std::convert::TryFrom;
+use rusqlite::OptionalExtension;
 
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, StandardPrincipalData, QualifiedContractIdentifier, NONE};
 
+use chainstate::stacks::db::StacksHeaderInfo;
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
 
@@ -16,7 +18,8 @@ use vm::database::structures::{
     ClarityDeserializable
 };
 use vm::database::RollbackWrapper;
-
+use util::db::{DBConn, FromRow};
+use chainstate::stacks::StacksAddress;
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
 
@@ -39,32 +42,100 @@ pub enum StoreType {
 }
 
 pub struct ClarityDatabase<'a> {
-    pub store: RollbackWrapper<'a>
+    pub store: RollbackWrapper<'a>,
+    headers_db: &'a dyn HeadersDB,
+}
+
+pub trait HeadersDB {
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash>;
+    fn get_burn_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash>;
+    fn get_vrf_seed_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed>;
+    fn get_burn_block_time_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<u64>;
+    fn get_miner_address(&self, id_bhh: &BlockHeaderHash) -> Option<StacksAddress>;
+}
+
+fn get_stacks_header_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<StacksHeaderInfo> {
+    conn.query_row("SELECT * FROM block_headers WHERE index_block_hash = ?",
+                   [id_bhh].iter(),
+                   |x| StacksHeaderInfo::from_row(x).expect("Bad stacks header info in database"))
+        .optional()
+        .expect("Unexpected SQL failure querying block header table")
+}
+
+impl HeadersDB for DBConn {
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| x.anchored_header.block_hash())
+    }
+    
+    fn get_burn_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| x.burn_header_hash)
+    }
+
+    fn get_burn_block_time_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<u64> {
+        panic!("Block time data not available in burn header db")
+    }
+
+    fn get_vrf_seed_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
+    }
+
+    fn get_miner_address(&self, id_bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
+        panic!("Miner address data not available in burn header db")
+    }
+}
+
+impl HeadersDB for &dyn HeadersDB {
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+        (*self).get_stacks_block_header_hash_for_block(id_bhh)
+    }
+    fn get_burn_header_hash_for_block(&self, bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
+        (*self).get_burn_header_hash_for_block(bhh)
+    }
+    fn get_vrf_seed_for_block(&self, bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+        (*self).get_vrf_seed_for_block(bhh)
+    }
+    fn get_burn_block_time_for_block(&self, bhh: &BlockHeaderHash) -> Option<u64> {
+        (*self).get_burn_block_time_for_block(bhh)
+    }
+    fn get_miner_address(&self, bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
+        (*self).get_miner_address(bhh)
+    }
+}
+
+pub struct NullHeadersDB {}
+
+pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
+
+impl HeadersDB for NullHeadersDB {
+    fn get_burn_header_hash_for_block(&self, _bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
+        None
+    }
+    fn get_vrf_seed_for_block(&self, _bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+        None
+    }
+    fn get_stacks_block_header_hash_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+        None
+    }
+    fn get_burn_block_time_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<u64> {
+        None
+    }
+    fn get_miner_address(&self, _id_bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
+        None
+    }
 }
 
 impl <'a> ClarityDatabase <'a> {
-    pub fn new(store: &'a mut dyn ClarityBackingStore) -> ClarityDatabase<'a> {
+    pub fn new(store: &'a mut dyn ClarityBackingStore, headers_db: &'a dyn HeadersDB) -> ClarityDatabase<'a> {
         ClarityDatabase {
-            store: RollbackWrapper::new(store)
+            store: RollbackWrapper::new(store),
+            headers_db
         }
     }
 
     pub fn initialize(&mut self) {
-        self.begin();
-
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let time_now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs();
-
-        self.set_simmed_block_height(0);
-        for i in 0..20 {
-            let block_time = u64::try_from(time_now - ((20 - i) * SIMMED_BLOCK_TIME)).unwrap();
-            self.sim_mine_block_with_time(block_time);
-        }
-
-        self.commit();
     }
 
     pub fn begin(&mut self) {
@@ -143,84 +214,49 @@ impl <'a> ClarityDatabase <'a> {
     }
 }
 
-// Simulating blocks
+// Get block information
 
 impl <'a> ClarityDatabase <'a> {
-    fn get_simmed_block(&mut self, block_height: u64) -> SimmedBlock {
-        let key = ClarityDatabase::make_key_for_trip(
-            &QualifiedContractIdentifier::transient(), StoreType::SimmedBlock, &block_height.to_string());
-        self.get(&key)
-            .expect("Failed to obtain the block for the given block height.")
-    }
-    
-    pub fn get_simmed_block_height(&mut self) -> u64 {
-        let key = ClarityDatabase::make_key_for_trip(
-            &QualifiedContractIdentifier::transient(), StoreType::SimmedBlockHeight, ":dummy:");
-        self.get(&key)
-            .expect("Failed to obtain block height.")
+    pub fn get_index_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
+        self.store.get_block_header_hash(block_height)
+        // the caller is responsible for ensuring that the block_height given
+        //  is < current_block_height, so this should _always_ return a value.
+            .expect("Block header hash must return for provided block height")
     }
 
-    pub fn get_simmed_block_time(&mut self, block_height: u64) -> u64 {
-        self.get_simmed_block(block_height)
-            .block_time
-    }
-    pub fn get_simmed_block_header_hash(&mut self, block_height: u64) -> BlockHeaderHash {
-        BlockHeaderHash::from_bytes(&self.get_simmed_block(block_height)
-                                    .block_header_hash).unwrap()
-    }
-    pub fn get_simmed_burnchain_block_header_hash(&mut self, block_height: u64) -> BurnchainHeaderHash {
-        BurnchainHeaderHash::from_bytes(&self.get_simmed_block(block_height)
-                                        .burn_chain_header_hash).unwrap()
-    }
-    pub fn get_simmed_block_vrf_seed(&mut self, block_height: u64) -> VRFSeed {
-        VRFSeed::from_bytes(&self.get_simmed_block(block_height).vrf_seed).unwrap()
+    pub fn get_current_block_height(&mut self) -> u32 {
+        self.store.get_current_block_height()
     }
 
-    fn set_simmed_block_height(&mut self, block_height: u64) {
-        let block_height_key = ClarityDatabase::make_key_for_trip(
-            &QualifiedContractIdentifier::transient(), StoreType::SimmedBlockHeight, ":dummy:");
-        self.put(&block_height_key, &block_height);
+    pub fn get_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db.get_stacks_block_header_hash_for_block(&id_bhh)
+            .expect("Failed to get block data.")
     }
 
-    pub fn sim_mine_block_with_time(&mut self, block_time: u64) {
-        let current_height = self.get_simmed_block_height();
-
-        let block_height = current_height + 1;
-
-        let key = ClarityDatabase::make_key_for_trip(
-            &QualifiedContractIdentifier::transient(), StoreType::SimmedBlock, &block_height.to_string());
-
-        let mut vrf_seed = [0u8; 32];
-        vrf_seed[0] = 1;
-        vrf_seed[31] = block_height as u8;
-
-        let mut block_header_hash = [0u8; 32];
-        block_header_hash[0] = 2;
-        block_header_hash[31] = block_height as u8;
-
-        let mut burn_chain_header_hash = [0u8; 32];
-        burn_chain_header_hash[0] = 3;
-        burn_chain_header_hash[31] = block_height as u8;
-
-        let block_data = SimmedBlock { block_height, vrf_seed, block_header_hash, burn_chain_header_hash, block_time };
-
-        self.put(&key, &block_data);
-        self.set_simmed_block_height(block_height);
+    pub fn get_block_time(&mut self, block_height: u32) -> u64 {
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db.get_burn_block_time_for_block(&id_bhh)
+            .expect("Failed to get block data.")
     }
 
-    pub fn sim_mine_block(&mut self) {
-        let current_height = self.get_simmed_block_height();
-        let current_time = self.get_simmed_block_time(current_height);
-
-        let block_time = current_time.checked_add(SIMMED_BLOCK_TIME)
-            .expect("Integer overflow while increasing simulated block time");
-        self.sim_mine_block_with_time(block_time);
+    pub fn get_burnchain_block_header_hash(&mut self, block_height: u32) -> BurnchainHeaderHash {
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db.get_burn_header_hash_for_block(&id_bhh)
+            .expect("Failed to get block data.")
     }
 
-    pub fn sim_mine_blocks(&mut self, count: u32) {
-        for _i in 0..count {
-            self.sim_mine_block();
-        }
+    pub fn get_block_vrf_seed(&mut self, block_height: u32) -> VRFSeed {
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db.get_vrf_seed_for_block(&id_bhh)
+            .expect("Failed to get block data.")
+    }
+
+    pub fn get_miner_address(&mut self, block_height: u32) -> StandardPrincipalData {
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db.get_miner_address(&id_bhh)
+            .expect("Failed to get block data.")
+            .into()
     }
 }
 

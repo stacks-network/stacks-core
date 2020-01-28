@@ -84,6 +84,7 @@ use util::log;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
+pub const OWN_BLOCK_HEIGHT_KEY: &str = "__MARF_BLOCK_HEIGHT_SELF";
 
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
 pub struct MARF {
@@ -413,8 +414,13 @@ impl MARF {
     pub fn get_path(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<Option<TrieLeaf>, Error> {
         trace!("MARF::get_path({:?}) {:?}", block_hash, path);
 
+        // a NotFoundError _here_ means that a block didn't exist
         storage.open_block(block_hash)?;
+        // a NotFoundError _here_ means that the key doesn't exist in this view
         let (cursor, node) = MARF::walk(storage, block_hash, path)?;
+        // both of these get caught by get_by_key and turned into Ok(None)
+        //   and a lot of downstream code seems to depend on that behavior, but
+        //   should these two different cases be differentiable?
 
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("cursor.block_hashes = {:?}", &cursor.block_hashes);
@@ -447,7 +453,7 @@ impl MARF {
             assert!(false);
         }
 
-        test_debug!("MARF Insert in {}: '{}' = '{}' (...{:?})", block_hash.to_hex(), path.to_hex(), leaf_value.data.to_hex(), &leaf_value.path);
+        test_debug!("MARF Insert in {}: '{}' = '{}' (...{:?})", block_hash, path, leaf_value.data, &leaf_value.path);
         
         Trie::add_value(storage, &mut cursor, &mut value)?;
 
@@ -538,36 +544,14 @@ impl MARF {
             }
         }
 
-        match MARF::get_by_key(storage, current_block_hash, &hash_key)? {
-            Some(marf_value) => {
-                let height = u32::from(marf_value);
-                Ok(Some(height))
-            },
-            None => {
-                if *block_hash == *current_block_hash {
-                    if let Some(miner_tip) = miner_tip {
-                        // the miner cannot have inserted the hash of this block, so use the miner
-                        // sentinel value instead
-                        let miner_hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, miner_tip);
-                        match MARF::get_by_key(storage, current_block_hash, &miner_hash_key)? {
-                            Some(marf_value) => {
-                                let height = u32::from(marf_value);
-                                Ok(Some(height))
-                            },
-                            None => {
-                                Ok(None)
-                            }
-                        }
-                    }
-                    else {
-                        Ok(None)
-                    }
-                }
-                else {
-                    Ok(None)
-                }
-            }
-        }
+        let marf_value =
+            if block_hash == current_block_hash {
+                MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY)?
+            } else {
+                MARF::get_by_key(storage, current_block_hash, &hash_key)?
+            };
+
+        Ok(marf_value.map(u32::from))
     }
     
     pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
@@ -584,6 +568,15 @@ impl MARF {
                     _ => {}
                 }
             }
+        }
+
+        let current_block_height = match MARF::get_block_height(storage, current_block_hash, current_block_hash)? {
+            Some(x) => x,
+            None => return Ok(None)
+        };
+
+        if height == current_block_height {
+            return Ok(Some(current_block_hash.clone()))
         }
 
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
@@ -604,8 +597,12 @@ impl MARF {
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash);
 
-        test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, next_block_hash.to_hex());
-        test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash.to_hex(), height);
+        test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, next_block_hash);
+        test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash, height);
+        test_debug!("Set {} = {}", OWN_BLOCK_HEIGHT_KEY, height);
+
+        keys.push(OWN_BLOCK_HEIGHT_KEY.to_string());
+        values.push(MARFValue::from(height));
 
         keys.push(height_key);
         values.push(MARFValue::from(next_block_hash.clone()));
@@ -615,10 +612,10 @@ impl MARF {
 
         if height > 0 {
             let prev_height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1);
-            let prev_hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash.to_hex());
+            let prev_hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
 
-            test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1, block_hash.to_hex());
-            test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash.to_hex(), height - 1);
+            test_debug!("Set {}::{} = {}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height - 1, block_hash);
+            test_debug!("Set {}::{} = {}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash, height - 1);
 
             keys.push(prev_height_key);
             values.push(MARFValue::from(block_hash.clone()));
@@ -712,18 +709,18 @@ impl MARF {
 
         // new chain tip must not exist
         if self.storage.open_block(next_chain_tip).is_ok() {
-            error!("Block data already exists: {}", next_chain_tip.to_hex());
+            error!("Block data already exists: {}", next_chain_tip);
             return Err(Error::ExistsError);
         }
 
         // current chain tip must exist if it's not the "sentinel"
         let is_parent_sentinel = chain_tip == &TrieFileStorage::block_sentinel();
         if !is_parent_sentinel {
-            trace!("Extending off of existing node {}", chain_tip.to_hex());
+            trace!("Extending off of existing node {}", chain_tip);
             self.storage.open_block(chain_tip)?;
         }
         else {
-            trace!("First-ever block {}", next_chain_tip.to_hex());
+            trace!("First-ever block {}", next_chain_tip);
         }
 
         let block_height = 
@@ -778,6 +775,15 @@ impl MARF {
             None => {}
         };
         Ok(())
+    }
+
+    pub fn get_block_height_of(&mut self, bhh: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
+        if Some(bhh) == self.get_open_chain_tip() {
+            return Ok(self.get_open_chain_tip_height())
+        } else {
+            let miner_tip = self.storage.get_miner_tip();
+            MARF::get_block_height_miner_tip(&mut self.storage, bhh, current_block_hash, miner_tip.as_ref())
+        }
     }
 
     /// Get open chain tip
@@ -2050,18 +2056,13 @@ mod test {
         blocks.push(block_header.clone());
 
         for (i, block) in blocks.iter().enumerate() {
-            debug!("Verify block height and hash at {} {} from {}", i, block, block_header.to_hex());
+            debug!("Verify block height and hash at {} {} from {}", i, block, block_header);
             assert_eq!(MARF::get_block_height_miner_tip(marf.borrow_storage_backend(), block, &block_header, Some(&target_block)).unwrap(),
                        Some(i as u32));
 
-            if i == num_blocks_created {
-                assert_eq!(MARF::get_block_at_height(marf.borrow_storage_backend(), i as u32, &block_header).unwrap(),
-                           Some(target_block.clone()));
-            }
-            else {
-                assert_eq!(MARF::get_block_at_height(marf.borrow_storage_backend(), i as u32, &block_header).unwrap(),
-                           Some(block.clone()));
-            }
+            // get_block_at_height should now always return the correct block_header
+            assert_eq!(MARF::get_block_at_height(marf.borrow_storage_backend(), i as u32, &block_header).unwrap(),
+                       Some(block.clone()));
         }
 
         root_table_cache = None;
@@ -2080,7 +2081,7 @@ mod test {
             let read_from_block = final_block_header.clone();
 
             // all I/O happens off the final block header
-            debug!("{}: Get {} off of {}", i, &triepath.to_hex(), &read_from_block.to_hex());
+            debug!("{}: Get {} off of {}", i, &triepath, &read_from_block);
             let read_value = MARF::get_path(marf.borrow_storage_backend(), &read_from_block,
                                             &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
 
@@ -2091,7 +2092,7 @@ mod test {
             //    std::env::set_var("BLOCKSTACK_TRACE", "1");
             }
             // can make a merkle proof to each one using the final committed block header
-            debug!("{}: Check proof for {} off of {}", i, &triepath.to_hex(), &read_from_block.to_hex());
+            debug!("{}: Check proof for {} off of {}", i, &triepath, &read_from_block);
             root_table_cache = Some(
                 merkle_test_marf(marf.borrow_storage_backend(), &read_from_block, &path.to_vec(), &value.data.to_vec(), root_table_cache));
         }

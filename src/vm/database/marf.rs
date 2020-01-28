@@ -2,12 +2,13 @@ use std::path::PathBuf;
 
 use vm::types::{QualifiedContractIdentifier};
 use vm::errors::{InterpreterError, CheckErrors, InterpreterResult as Result, IncomparableError, RuntimeErrorType};
-use vm::database::{SqliteConnection, ClarityDatabase};
+use vm::database::{SqliteConnection, ClarityDatabase, HeadersDB, NULL_HEADER_DB};
 use vm::analysis::{AnalysisDatabase};
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MARFValue, Error as MarfError, TrieHash};
 use chainstate::stacks::index::storage::{TrieFileStorage};
-use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::{VRFSeed, BlockHeaderHash};
+use burnchains::BurnchainHeaderHash;
 use std::convert::TryInto;
 use util::hash::{to_hex, hex_bytes, Sha512Trunc256Sum};
 
@@ -48,6 +49,12 @@ pub trait ClarityBackingStore {
     fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash>;
 
     fn get_block_at_height(&mut self, height: u32) -> Option<BlockHeaderHash>;
+
+    /// this function returns the current block height, as viewed by this marfed-kv structure,
+    ///  i.e., it changes on time-shifted evaluation. the open_chain_tip functions always
+    ///   return data about the chain tip that is currently open for writing.
+    fn get_current_block_height(&mut self) -> u32;
+
     fn get_open_chain_tip_height(&mut self) -> u32;
     fn get_open_chain_tip(&mut self) -> BlockHeaderHash;
     fn get_side_store(&mut self) -> &mut SqliteConnection;
@@ -97,7 +104,7 @@ struct ContractCommitment {
 
 impl ContractCommitment {
     pub fn serialize(&self) -> String {
-        format!("{}{}", self.hash.to_hex(), to_hex(&self.block_height.to_be_bytes()))
+        format!("{}{}", self.hash, to_hex(&self.block_height.to_be_bytes()))
     }
     pub fn deserialize(input: &str) -> ContractCommitment {
         assert_eq!(input.len(), 72);
@@ -156,8 +163,8 @@ impl MarfedKV {
         MarfedKV { marf, chain_tip, side_store }
     }
 
-    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
-        ClarityDatabase::new(self)
+    pub fn as_clarity_db<'a>(&'a mut self, headers_db: &'a dyn HeadersDB) -> ClarityDatabase<'a> {
+        ClarityDatabase::new(self, headers_db)
     }
 
     pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
@@ -175,7 +182,7 @@ impl MarfedKV {
 
     pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
         self.marf.begin(current, next)
-            .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current.to_hex(), next.to_hex()));
+            .expect(&format!("ERROR: Failed to begin new MARF block {} - {})", current, next));
         self.chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Failed to get open MARF")
             .clone();
@@ -210,6 +217,11 @@ impl MarfedKV {
     }
     pub fn get_chain_tip(&self) -> &BlockHeaderHash {
         &self.chain_tip
+    }
+
+    #[cfg(test)]
+    pub fn set_chain_tip(&mut self, bhh: &BlockHeaderHash) {
+        self.chain_tip = bhh.clone();
     }
 
     // This function *should not* be called by
@@ -255,6 +267,12 @@ impl ClarityBackingStore for MarfedKV {
         self.chain_tip = bhh;
 
         result
+    }
+
+    fn get_current_block_height(&mut self) -> u32 {
+        self.marf.get_block_height_of(&self.chain_tip, &self.chain_tip)
+            .expect("Unexpected MARF failure.")
+            .expect("Failed to obtain current block height.")
     }
 
     fn get_block_at_height(&mut self, block_height: u32) -> Option<BlockHeaderHash> {
@@ -304,7 +322,6 @@ impl ClarityBackingStore for MarfedKV {
     }
 }
 
-
 impl MemoryBackingStore {
     pub fn new() -> MemoryBackingStore {
         let side_store = SqliteConnection::memory().unwrap();
@@ -317,7 +334,7 @@ impl MemoryBackingStore {
     }
 
     pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
-        ClarityDatabase::new(self)
+        ClarityDatabase::new(self, &NULL_HEADER_DB)
     }
 
     pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
@@ -351,6 +368,10 @@ impl ClarityBackingStore for MemoryBackingStore {
     }
 
     fn get_open_chain_tip_height(&mut self) -> u32 {
+        0
+    }
+
+    fn get_current_block_height(&mut self) -> u32 {
         0
     }
 
