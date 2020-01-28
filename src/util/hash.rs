@@ -495,7 +495,7 @@ where
             }
         }
 
-        (hash_acc == *root)
+        hash_acc == *root
     }
 }
 

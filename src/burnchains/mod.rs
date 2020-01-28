@@ -306,14 +306,14 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::UnsupportedBurnchain => f.write_str(error::Error::description(self)),
+            Error::UnsupportedBurnchain => write!(f, "Unsupported burnchain"),
             Error::Bitcoin(ref btce) => fmt::Display::fmt(btce, f),
             Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),
             Error::DownloadError(ref btce) => fmt::Display::fmt(btce, f),
-            Error::ParseError => f.write_str(error::Error::description(self)),
-            Error::MissingHeaders => f.write_str(error::Error::description(self)),
-            Error::MissingParentBlock => f.write_str(error::Error::description(self)),
-            Error::ThreadChannelError => f.write_str(error::Error::description(self)),
+            Error::ParseError => write!(f, "Parse error"),
+            Error::MissingHeaders => write!(f, "Missing block headers"),
+            Error::MissingParentBlock => write!(f, "Missing parent block"),
+            Error::ThreadChannelError => write!(f, "Error in thread channel"),
             Error::FSError(ref e) => fmt::Display::fmt(e, f),
             Error::OpError(ref e) => fmt::Display::fmt(e, f),
         }
@@ -333,21 +333,6 @@ impl error::Error for Error {
             Error::ThreadChannelError => None,
             Error::FSError(ref e) => Some(e),
             Error::OpError(ref e) => Some(e),
-        }
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::UnsupportedBurnchain => "Unsupported burnchain",
-            Error::Bitcoin(ref e) => e.description(),
-            Error::DBError(ref e) => e.description(),
-            Error::DownloadError(ref e) => e.description(),
-            Error::ParseError => "Parse error",
-            Error::MissingHeaders => "Missing block headers",
-            Error::MissingParentBlock => "Missing parent block",
-            Error::ThreadChannelError => "Error in thread channel",
-            Error::FSError(ref e) => e.description(),
-            Error::OpError(ref e) => e.description(),
         }
     }
 }

@@ -98,22 +98,23 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::Io(ref e) => fmt::Display::fmt(e, f),
-            Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => f.write_str(error::Error::description(self)),
+            Error::SocketMutexPoisoned => write!(f, "socket mutex was poisoned"),
+            Error::SocketNotConnectedToPeer => write!(f, "not connected to peer"),
             Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
-            Error::InvalidMessage(ref _msg) => f.write_str(error::Error::description(self)),
-            Error::InvalidReply => f.write_str(error::Error::description(self)),
-            Error::InvalidMagic => f.write_str(error::Error::description(self)),
-            Error::UnhandledMessage(ref _msg) => f.write_str(error::Error::description(self)),
-            Error::ConnectionBroken => f.write_str(error::Error::description(self)),
-            Error::ConnectionError => f.write_str(error::Error::description(self)),
+            Error::InvalidMessage(ref _msg) => write!(f, "Invalid message to send"),
+            Error::InvalidReply => write!(f, "invalid reply for given message"),
+            Error::InvalidMagic => write!(f, "invalid network magic"),
+            Error::UnhandledMessage(ref _msg) => write!(f, "Unhandled message"),
+            Error::ConnectionBroken => write!(f, "connection to peer node is broken"),
+            Error::ConnectionError => write!(f, "connection to peer could not be (re-)established"),
             Error::FilesystemError(ref e) => fmt::Display::fmt(e, f),
             Error::HashError(ref e) => fmt::Display::fmt(e, f),
-            Error::NoncontiguousHeader => f.write_str(error::Error::description(self)),
-            Error::MissingHeader => f.write_str(error::Error::description(self)),
-            Error::InvalidPoW => f.write_str(error::Error::description(self)),
-            Error::InvalidByteSequence => f.write_str(error::Error::description(self)),
+            Error::NoncontiguousHeader => write!(f, "Non-contiguous header"),
+            Error::MissingHeader => write!(f, "Missing header"),
+            Error::InvalidPoW => write!(f, "Invalid proof of work"),
+            Error::InvalidByteSequence => write!(f, "Invalid sequence of bytes"),
             Error::ConfigError(ref e_str) => fmt::Display::fmt(e_str, f),
-            Error::BlockchainHeight => f.write_str(error::Error::description(self)),
+            Error::BlockchainHeight => write!(f, "Value is beyond the end of the blockchain"),
         }
     }
 }
@@ -138,29 +139,6 @@ impl error::Error for Error {
             Error::InvalidByteSequence => None,
             Error::ConfigError(ref _e_str) => None,
             Error::BlockchainHeight => None,
-        }
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::Io(ref e) => e.description(),
-            Error::SocketMutexPoisoned => "socket mutex was poisoned",
-            Error::SocketNotConnectedToPeer => "not connected to peer",
-            Error::SerializationError(ref e) => e.description(),
-            Error::InvalidMessage(ref _msg) => "Invalid message to send",
-            Error::InvalidReply => "invalid reply for given message",
-            Error::InvalidMagic => "invalid network magic",
-            Error::UnhandledMessage(ref _msg) => "Unhandled message",
-            Error::ConnectionBroken => "connection to peer node is broken",
-            Error::ConnectionError => "connection to peer could not be (re-)established",
-            Error::FilesystemError(ref e) => e.description(),
-            Error::HashError(ref e) => e.description(),
-            Error::NoncontiguousHeader => "Non-contiguous header",
-            Error::MissingHeader => "Missing header",
-            Error::InvalidPoW => "Invalid proof of work",
-            Error::InvalidByteSequence => "Invalid sequence of bytes",
-            Error::ConfigError(ref e_str) => e_str.as_str(),
-            Error::BlockchainHeight => "Value is beyond the end of the blockchain",
         }
     }
 }

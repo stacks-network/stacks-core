@@ -46,7 +46,8 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::Io(ref e) => fmt::Display::fmt(e, f),
-            Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => f.write_str(error::Error::description(self)),
+            Error::SocketMutexPoisoned => write!(f, "socket mutex was poisoned"),
+            Error::SocketNotConnectedToPeer => write!(f, "not connected to peer"),
         }
     }
 }
@@ -56,14 +57,6 @@ impl error::Error for Error {
         match *self {
             Error::Io(ref e) => Some(e),
             Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => None,
-        }
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::Io(ref e) => e.description(),
-            Error::SocketMutexPoisoned => "socket mutex was poisoned",
-            Error::SocketNotConnectedToPeer => "not connected to peer",
         }
     }
 }

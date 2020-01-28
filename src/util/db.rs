@@ -80,16 +80,16 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::NotImplemented => f.write_str(error::Error::description(self)),
-            Error::NoDBError => f.write_str(error::Error::description(self)),
-            Error::ReadOnly => f.write_str(error::Error::description(self)),
-            Error::TypeError => f.write_str(error::Error::description(self)),
-            Error::Corruption => f.write_str(error::Error::description(self)),
+            Error::NotImplemented => write!(f, "Not implemented"),
+            Error::NoDBError => write!(f, "Database does not exist"),
+            Error::ReadOnly => write!(f, "Database is opened read-only"),
+            Error::TypeError => write!(f, "Invalid or unrepresentable database type"),
+            Error::Corruption => write!(f, "Database is corrupt"),
             Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
-            Error::ParseError => f.write_str(error::Error::description(self)),
-            Error::Overflow => f.write_str(error::Error::description(self)),
-            Error::NotFoundError => f.write_str(error::Error::description(self)),
-            Error::ExistsError => f.write_str(error::Error::description(self)),
+            Error::ParseError => write!(f, "Parse error"),
+            Error::Overflow => write!(f, "Numeric overflow"),
+            Error::NotFoundError => write!(f, "Not found"),
+            Error::ExistsError => write!(f, "Already exists"),
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f),
             Error::IndexError(ref e) => fmt::Display::fmt(e, f),
@@ -113,24 +113,6 @@ impl error::Error for Error {
             Error::SqliteError(ref e) => Some(e),
             Error::IOError(ref e) => Some(e),
             Error::IndexError(ref e) => Some(e),
-        }
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::NotImplemented => "Not implemented",
-            Error::NoDBError => "Database does not exist",
-            Error::ReadOnly => "Database is opened read-only",
-            Error::TypeError => "Invalid or unrepresentable database type",
-            Error::Corruption => "Database is corrupt",
-            Error::SerializationError(ref e) => e.description(),
-            Error::ParseError => "Parse error",
-            Error::Overflow => "Numeric overflow",
-            Error::NotFoundError => "Not found",
-            Error::ExistsError => "Already exists",
-            Error::SqliteError(ref e) => e.description(),
-            Error::IOError(ref e) => e.description(),
-            Error::IndexError(ref e) => e.description()
         }
     }
 }
