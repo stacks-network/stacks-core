@@ -104,7 +104,18 @@ fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_ident
 
 fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     let contract = "(define-public (burn-stx (amount uint) (p principal)) (stx-burn? amount p))
-                    (define-public (xfer-stx (amount uint) (p principal) (t principal)) (stx-transfer? amount p t))";
+                    (define-public (xfer-stx (amount uint) (p principal) (t principal)) (stx-transfer? amount p t))
+                    (define-public (to-contract (amount uint) (p principal))
+                      (let ((contract-principal (as-contract tx-sender)))
+                        (stx-transfer? amount p contract-principal)))
+                    (define-public (from-contract (amount uint) (t principal))
+                      (let ((contract-principal 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.tokens))
+                        (as-contract (stx-transfer? amount contract-principal t))))";
+
+    let contract_second = "(define-public (send-to-other (amount uint))
+                             (as-contract
+                              (stx-transfer? amount tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.tokens)))";
+
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
     let p3 = execute("'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY");
@@ -125,8 +136,11 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     };
 
     let token_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
+    let second_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "second".into());
 
     owned_env.initialize_contract(token_contract_id.clone(), contract).unwrap();
+    owned_env.initialize_contract(second_contract_id.clone(), contract_second).unwrap();
+
     owned_env.stx_faucet(&(p1_principal.clone().into()), u128::max_value() - 1);
     owned_env.stx_faucet(&p2_principal, 1000);
 
@@ -226,6 +240,82 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     assert_eq!(table.get(&p3_principal).unwrap()
                .get(&AssetIdentifier::STX()).unwrap(),
                &AssetMapEntry::STX(1));
+
+    // let's try a user -> contract transfer
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p2.clone(), &token_contract_id, "to-contract",
+        &symbols_from_values(vec![Value::UInt(10), p2.clone()])).unwrap();
+
+    assert!(is_committed(&result));
+    let table = asset_map.to_table();
+    assert_eq!(table.get(&p2_principal).unwrap()
+               .get(&AssetIdentifier::STX()).unwrap(),
+               &AssetMapEntry::STX(10));
+
+    // now let's do a contract -> user transfer
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p3.clone(), &token_contract_id, "from-contract",
+        &symbols_from_values(vec![Value::UInt(10), p3.clone()])).unwrap();
+
+    assert!(is_committed(&result));
+
+    let table = asset_map.to_table();
+
+    let contract_principal = token_contract_id.clone().into();
+
+    assert_eq!(table.get(&contract_principal).unwrap()
+               .get(&AssetIdentifier::STX()).unwrap(),
+               &AssetMapEntry::STX(10));
+
+    // now let's do a contract -> contract transfer
+
+    // first, let's fund some STX in contract 2
+    let second_contract_principal = second_contract_id.clone().into();
+    owned_env.stx_faucet(&second_contract_principal, 500);
+
+    // now, to transfer
+    let (result, asset_map) = execute_transaction(
+        owned_env, p2.clone(), &second_contract_id, "send-to-other",
+        &symbols_from_values(vec![Value::UInt(500)])).unwrap();
+
+    assert!(is_committed(&result));
+
+    let table = asset_map.to_table();
+
+    assert_eq!(table.len(), 1);
+    assert_eq!(table.get(&second_contract_principal).unwrap()
+               .get(&AssetIdentifier::STX()).unwrap(),
+               &AssetMapEntry::STX(500));
+
+    // now, let's send some back
+
+    let (result, asset_map) = execute_transaction(
+        owned_env, p3.clone(), &token_contract_id, "from-contract",
+        &symbols_from_values(vec![Value::UInt(100), second_contract_id.clone().into()])).unwrap();
+
+    assert!(is_committed(&result));
+    let table = asset_map.to_table();
+
+    assert_eq!(table.len(), 1);
+    assert_eq!(table.get(&contract_principal).unwrap()
+               .get(&AssetIdentifier::STX()).unwrap(),
+               &AssetMapEntry::STX(100));
+
+    // and, one more time for good measure
+    let (result, asset_map) = execute_transaction(
+        owned_env, p2.clone(), &second_contract_id, "send-to-other",
+        &symbols_from_values(vec![Value::UInt(100)])).unwrap();
+
+    assert!(is_committed(&result));
+
+    let table = asset_map.to_table();
+
+    assert_eq!(table.len(), 1);
+    assert_eq!(table.get(&second_contract_principal).unwrap()
+               .get(&AssetIdentifier::STX()).unwrap(),
+               &AssetMapEntry::STX(100));
 
 }
 
