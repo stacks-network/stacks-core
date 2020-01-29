@@ -133,7 +133,14 @@ impl NetworkState {
 
     /// Connect to a remote peer, but don't register it with the poll handle.
     pub fn connect(&mut self, addr: &SocketAddr) -> Result<mio_net::TcpStream, net_error> {
-        let stream = mio_net::TcpStream::connect(addr)
+        let stream = std::net::TcpStream::connect_timeout(
+            addr, std::time::Duration::from_millis(5000))
+            .map_err(|e| {
+                test_debug!("failed to connect to {:?}: {:?}", addr, &e);
+                net_error::ConnectionError
+            })?;
+
+        let stream = mio_net::TcpStream::from_stream(stream)
             .map_err(|e| {
                 test_debug!("failed to connect to {:?}: {:?}", addr, &e);
                 net_error::ConnectionError
