@@ -191,7 +191,6 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
         let mut local_context = TypingContext::new();
 
-        local_context.traits_usages = contract_analysis.trait_usages.clone();
         // todo(ludo): First thing we should do is type-checking the generics:
         // - defined
         // - imported

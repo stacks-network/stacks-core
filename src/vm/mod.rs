@@ -57,7 +57,6 @@ pub fn lookup_function(name: &str, env: &Environment)-> Result<CallableType> {
     if let Some(result) = functions::lookup_reserved_functions(name) {
         Ok(result)
     } else {
-        panic!("HERE");
         let user_function = env.contract_context.lookup_function(name).ok_or(
             CheckErrors::UndefinedFunction(name.to_string()))?;
         Ok(CallableType::UserFunction(user_function))

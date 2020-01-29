@@ -15,7 +15,6 @@ pub struct TypeMap {
 
 pub struct TypingContext <'a> {
     pub variable_types: HashMap<ClarityName, TypeSignature>,
-    pub traits_usages: Option<TraitUsages>, // todo(ludo): might be useless now.
     pub traits_references: HashMap<ClarityName, ClarityName>,
     pub parent: Option<&'a TypingContext<'a>>,
     pub depth: u16
@@ -218,7 +217,6 @@ impl <'a> TypingContext <'a> {
     pub fn new() -> TypingContext<'static> {
         TypingContext {
             variable_types: HashMap::new(),
-            traits_usages: None, 
             traits_references: HashMap::new(),
             depth: 0,
             parent: None
@@ -231,7 +229,6 @@ impl <'a> TypingContext <'a> {
         } else {
             Ok(TypingContext {
                 variable_types: HashMap::new(),
-                traits_usages: self.traits_usages.clone(),
                 traits_references: HashMap::new(),
                 parent: Some(self),
                 depth: self.depth + 1
