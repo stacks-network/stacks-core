@@ -191,11 +191,6 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
         let mut local_context = TypingContext::new();
 
-        // todo(ludo): First thing we should do is type-checking the generics:
-        // - defined
-        // - imported
-        // From there, TypingContext will be augmented, and we can start taking on the usual traversal
-
         for exp in contract_analysis.expressions_iter() {
             let mut result_res = self.try_type_check_define(&exp, &mut local_context);
             if let Err(ref mut error) = result_res {
@@ -509,9 +504,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     pub fn check_method_from_trait(&mut self, trait_name: &ClarityName, func_name: &ClarityName, args: &[SymbolicExpression], context: &TypingContext) -> CheckResult<TypeSignature> {
 
         let func_signature = {
-            let trait_reference = context.traits_references.get(trait_name).ok_or(CheckErrors::ExpectedName)?; // todo(ludo): fix error type
-            let trait_signature = self.contract_context.get_trait(trait_reference).ok_or(CheckErrors::ExpectedName)?; // todo(ludo): fix error type
-            trait_signature.get(func_name).ok_or(CheckErrors::ExpectedName)?
+            let trait_reference = context.traits_references.get(trait_name)
+                .ok_or(CheckErrors::TraitReferenceUnknown(trait_name))?;
+            let trait_signature = self.contract_context.get_trait(trait_reference)
+                .ok_or(CheckErrors::TraitReferenceUnknown(trait_name))?;
+            trait_signature.get(func_name).ok_or(CheckErrors::ExpectedName)
+                .ok_or(CheckErrors::TraitMethodUnknown(trait_name, func_name))?;
         };
 
         let expected_args = func_signature.args.clone();
