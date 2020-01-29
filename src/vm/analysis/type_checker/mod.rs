@@ -505,11 +505,11 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
         let func_signature = {
             let trait_reference = context.traits_references.get(trait_name)
-                .ok_or(CheckErrors::TraitReferenceUnknown(trait_name))?;
+                .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
             let trait_signature = self.contract_context.get_trait(trait_reference)
-                .ok_or(CheckErrors::TraitReferenceUnknown(trait_name))?;
-            trait_signature.get(func_name).ok_or(CheckErrors::ExpectedName)
-                .ok_or(CheckErrors::TraitMethodUnknown(trait_name, func_name))?;
+                .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
+            trait_signature.get(func_name)
+                .ok_or(CheckErrors::TraitMethodUnknown(trait_name.to_string(), func_name.to_string()))?
         };
 
         let expected_args = func_signature.args.clone();

@@ -19,6 +19,7 @@ pub enum ParseErrors {
     FailedParsingBuffer(String),
     FailedParsingHexValue(String, String),
     FailedParsingPrincipal(String),
+    FailedParsingField(String),
     FailedParsingRemainder(String),
     ClosingParenthesisUnexpected,
     ClosingParenthesisExpected
@@ -99,6 +100,7 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::FailedParsingHexValue(value, x) => format!("Invalid hex-string literal {}: {}", value, x),
             ParseErrors::FailedParsingPrincipal(value) => format!("Invalid principal literal: {}", value),
             ParseErrors::FailedParsingBuffer(value) => format!("Invalid buffer literal: {}", value),
+            ParseErrors::FailedParsingField(value) => format!("Invalid field literal: {}", value),
             ParseErrors::FailedParsingRemainder(remainder) => format!("Failed to lex input remainder: {}", remainder),
             ParseErrors::ClosingParenthesisUnexpected => format!("Tried to close list which isn't open."),
             ParseErrors::ClosingParenthesisExpected => format!("List expressions (..) left opened."),

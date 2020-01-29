@@ -97,7 +97,7 @@ impl ContractAnalysis {
     }
 
     pub fn add_imported_traits(&mut self, local_name: ClarityName, trait_name: ClarityName, contract_identifier: QualifiedContractIdentifier) {
-        self.imported_traits.insert(local_name.clone(), (contract_identifier, trait_name)); // todo(ludo): fix - i think we should introduce fully qualified traits that can locally be aliased for avoiding collisions
+        self.imported_traits.insert(local_name.clone(), (contract_identifier, trait_name));
     }
 
     pub fn add_implemented_trait(&mut self, name: ClarityName, contract_identifier: QualifiedContractIdentifier) {

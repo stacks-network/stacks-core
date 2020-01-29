@@ -198,7 +198,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match FieldData::parse_fully_qualified(&str_value) {
                             Ok(parsed) => Ok(Value::Field(parsed)),
-                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone()))) // todo(ludo): fix error
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingField(str_value.clone())))
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
@@ -206,7 +206,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let (contract_name, field_name) = match FieldData::parse_sugared_syntax(&str_value) {
                             Ok((contract_name, field_name)) => Ok((contract_name, field_name)),
-                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone()))) // todo(ludo): fix error
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingField(str_value.clone())))
                         }?;
                         Ok(LexItem::SugaredFieldIdentifier(str_value.len(), contract_name, field_name))
                     },

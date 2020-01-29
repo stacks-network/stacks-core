@@ -290,12 +290,9 @@ impl TypeSignature {
                 }
             },
             CallablePrincipalType => { // todo(ludo): improve tree
-                if let PrincipalType = other {
-                    true
-                } else if let CallablePrincipalType = other {
-                    true
-                } else {
-                    false
+                match other {
+                    PrincipalType | CallablePrincipalType => true,
+                    _ => false,
                 }
             },
             NoType => panic!("NoType should never be asked to admit."),
