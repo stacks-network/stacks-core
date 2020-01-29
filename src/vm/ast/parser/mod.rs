@@ -196,7 +196,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                     },
                     TokenType::FullyQualifiedFieldIdentifierLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        let value = match FieldData::parse(&str_value) {
+                        let value = match FieldData::parse_fully_qualified(&str_value) {
                             Ok(parsed) => Ok(Value::Field(parsed)),
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone()))) // todo(ludo): fix error
                         }?;
