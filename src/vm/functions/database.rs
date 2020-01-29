@@ -15,19 +15,29 @@ pub fn special_contract_call(args: &[SymbolicExpression],
                              context: &LocalContext) -> Result<Value> {
     check_arguments_at_least(2, args)?;
 
-    let contract_identifier = match args[0].expr {
-        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
-        _ => return Err(CheckErrors::ContractCallExpectName.into())
-    };
-
     let function_name = args[1].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
+    let rest_args: Vec<_> = {
+        let rest_args = &args[2..];
+        let rest_args: Result<Vec<_>> = rest_args.iter().map(|x| { eval(x, env, context) }).collect();
+        let mut rest_args = rest_args?;
+        rest_args.drain(..).map(|x| { SymbolicExpression::atom_value(x) }).collect()
+    };
 
-    let rest_args = &args[2..];
-
-    let rest_args: Result<Vec<_>> = rest_args.iter().map(|x| { eval(x, env, context) }).collect();
-    let mut rest_args = rest_args?;
-    let rest_args: Vec<_> = rest_args.drain(..).map(|x| { SymbolicExpression::atom_value(x) }).collect();
+    let contract_identifier = match &args[0].expr {
+        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => {
+            // Static dispatch
+            contract_identifier
+        },
+        SymbolicExpressionType::Atom(contract_ref) => {
+            // Dynamic dispatch
+            match context.callable_contracts.get(contract_ref) {
+                Some(ref contract_identifier) => contract_identifier,
+                _ => return Err(CheckErrors::ContractCallExpectName.into())
+            }
+        },
+        _ => return Err(CheckErrors::ContractCallExpectName.into())
+    };
 
     let contract_principal = Value::Principal(PrincipalData::Contract(
         env.contract_context.contract_identifier.clone()));

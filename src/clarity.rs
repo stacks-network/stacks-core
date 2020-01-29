@@ -132,9 +132,9 @@ fn advance_cli_chain_tip(path: &String) -> (BlockHeaderHash, BlockHeaderHash) {
 
     friendly_expect(tx.execute("CREATE TABLE IF NOT EXISTS cli_chain_tips(id INTEGER PRIMARY KEY AUTOINCREMENT, block_hash TEXT UNIQUE NOT NULL);", NO_PARAMS),
                     &format!("FATAL: failed to create 'cli_chain_tips' table"));
-   
+
     let parent_block_hash = get_cli_chain_tip(&tx);
-    
+
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
     let next_block_hash  = friendly_expect_opt(BlockHeaderHash::from_bytes(&random_bytes),
                                               "Failed to generate random block header.");

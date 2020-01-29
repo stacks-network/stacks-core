@@ -129,7 +129,9 @@ pub enum CheckErrors {
     UnknownFunction(String),
 
     // traits
-    UnknownTrait(String),
+    TraitReferenceUnknown(String),
+    TraitMethodUnknown(String, String),
+    ExpectedTraitIdentifier,
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly
@@ -321,7 +323,9 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::DefineNFTBadSignature => format!("(define-asset ...) expects an asset name and an asset identifier type signature as arguments"),
             CheckErrors::NoSuchNFT(asset_name) => format!("tried to use asset function with a undefined asset ('{}')", asset_name),
             CheckErrors::NoSuchFT(asset_name) => format!("tried to use token function with a undefined token ('{}')", asset_name),
-            CheckErrors::UnknownTrait(trait_name) => format!("use of undeclared trait <{}>", trait_name),
+            CheckErrors::TraitReferenceUnknown(trait_name) => format!("use of undeclared trait <{}>", trait_name),
+            CheckErrors::TraitMethodUnknown(trait_name, func_name) => format!("use of method unspecified in trait <{}>", trait_name),
+            CheckErrors::ExpectedTraitIdentifier => format!("expecting expression of type trait identifier"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },
@@ -332,7 +336,7 @@ impl DiagnosableError for CheckErrors {
         match &self {
             CheckErrors::BadSyntaxBinding => Some(format!("binding syntax example: ((supply int) (ttl int))")),
             CheckErrors::BadLetSyntax => Some(format!("'let' syntax example: (let ((supply 1000) (ttl 60)) <next-expression>)")),
-            CheckErrors::UnknownTrait(_) => Some(format!("traits should be either defined, with define-trait, or imported, with use-trait.")),
+            CheckErrors::TraitReferenceUnknown(_) => Some(format!("traits should be either defined, with define-trait, or imported, with use-trait.")),
             CheckErrors::NoSuchBlockInfoProperty(_) => Some(format!("properties available: time, header-hash, burnchain-header-hash, vrf-seed")),
             _ => None
         }

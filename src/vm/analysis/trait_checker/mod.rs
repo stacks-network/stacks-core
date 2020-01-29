@@ -28,22 +28,29 @@ impl TraitChecker {
         }
     }
 
+    // todo(ludo): we should also probably run some code, pre-evaluation.
+
     pub fn run(&mut self, contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
         let exprs = contract_analysis.expressions[..].to_vec();
         let trait_usages = self.find_trait_usages(&exprs)?;
         
         // Presence of orphaned traits should throw
-        if let Some(t) = trait_usages.orphan_trait_references.first() {
-            return Err(CheckErrors::UnknownTrait(t.to_string()).into());
+        if trait_usages.orphan_trait_references.len() > 0 {
+            let orphan = trait_usages.orphan_trait_references.keys().next().unwrap();
+            let expr = trait_usages.orphan_trait_references.get(orphan).unwrap();
+            let mut err = CheckError::new(CheckErrors::TraitReferenceUnknown(orphan.to_string()));
+            err.set_expression(&expr);
+            return Err(err.into());
         }
 
-        // if !error.has_expression() {
-        //     error.set_expression(&exp);
-        // }
-
-        // Ensure that used / imported traits are resolving
+        // Ensure that imported traits exists
+        for (trait_name, expr) in trait_usages.imported_traits.iter() {
+            // todo(ludo): in progress
+            // analysis_db.get_defined_trait(contract_identifier, &trait_name)
+            //     .ok_or(CheckErrors::TraitReferenceUnknown(orphan.to_string()).into())?;
+        }
+        // todo(ludo): Ensure that used / imported traits are resolving
         // Look at the code for contract-call
-        println!("{:?}", trait_usages);
 
         contract_analysis.trait_usages = Some(trait_usages);
 
@@ -80,10 +87,10 @@ impl TraitChecker {
             };
         }
 
-        let mut orphan_trait_references = vec![];
-        for (trait_name, _) in &referenced_traits {
+        let mut orphan_trait_references = HashMap::new();
+        for (trait_name, expr) in &referenced_traits {
             if !imported_traits.contains_key(trait_name) && !defined_traits.contains_key(trait_name) {
-                orphan_trait_references.push(trait_name.clone());
+                orphan_trait_references.insert(trait_name.clone(), expr.clone());
             }
         }
 

@@ -1,11 +1,12 @@
 use std::collections::{HashMap, BTreeMap, HashSet};
 use vm::representations::{SymbolicExpression, ClarityName};
 use vm::types::{TypeSignature, FunctionType};
+use vm::types::signatures::{FunctionSignature};
 
 use vm::contexts::MAX_CONTEXT_DEPTH;
 
 use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
-use vm::analysis::types::{ContractAnalysis};
+use vm::analysis::types::{ContractAnalysis, TraitUsages};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct TypeMap {
@@ -14,6 +15,8 @@ pub struct TypeMap {
 
 pub struct TypingContext <'a> {
     pub variable_types: HashMap<ClarityName, TypeSignature>,
+    pub traits_usages: Option<TraitUsages>, // todo(ludo): might be useless now.
+    pub traits_references: HashMap<ClarityName, ClarityName>,
     pub parent: Option<&'a TypingContext<'a>>,
     pub depth: u16
 }
@@ -26,7 +29,8 @@ pub struct ContractContext {
     read_only_function_types: HashMap<ClarityName, FunctionType>,
     persisted_variable_types: HashMap<ClarityName, TypeSignature>,
     fungible_tokens: HashSet<ClarityName>,
-    non_fungible_tokens: HashMap<ClarityName, TypeSignature>
+    non_fungible_tokens: HashMap<ClarityName, TypeSignature>,
+    traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
 }
 
 impl TypeMap {
@@ -58,6 +62,7 @@ impl ContractContext {
             persisted_variable_types: HashMap::new(),
             fungible_tokens: HashSet::new(),
             non_fungible_tokens: HashMap::new(),
+            traits: HashMap::new(),
         }
     }
 
@@ -136,6 +141,15 @@ impl ContractContext {
         Ok(())
     }
 
+    pub fn add_trait(&mut self, trait_name: ClarityName, trait_signature: BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<()> {
+        self.traits.insert(trait_name, trait_signature);
+        Ok(())
+    }
+
+    pub fn get_trait(&mut self, trait_name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+        self.traits.get(trait_name)
+    }
+
     pub fn get_map_type(&self, map_name: &str) -> Option<&(TypeSignature, TypeSignature)> {
         self.map_types.get(map_name)
     }
@@ -200,6 +214,8 @@ impl <'a> TypingContext <'a> {
     pub fn new() -> TypingContext<'static> {
         TypingContext {
             variable_types: HashMap::new(),
+            traits_usages: None, 
+            traits_references: HashMap::new(),
             depth: 0,
             parent: None
         }
@@ -211,6 +227,8 @@ impl <'a> TypingContext <'a> {
         } else {
             Ok(TypingContext {
                 variable_types: HashMap::new(),
+                traits_usages: self.traits_usages.clone(),
+                traits_references: HashMap::new(),
                 parent: Some(self),
                 depth: self.depth + 1
             })

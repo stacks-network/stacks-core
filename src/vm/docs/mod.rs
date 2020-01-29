@@ -985,6 +985,30 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 "
 };
 
+const DEFINE_TRAIT_API: DefineAPI = DefineAPI {
+    input_type: "",
+    output_type: "",
+    signature: "",
+    description: "",
+    example: ""
+};
+
+const DEFINE_TRAIT_CONFORMITY_API: DefineAPI = DefineAPI {
+    input_type: "",
+    output_type: "",
+    signature: "",
+    description: "",
+    example: ""
+};
+
+const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
+    input_type: "<A>",
+    output_type: "principal",
+    signature: "(principal-of contract-trait)",
+    description: "`principal-of`",
+    example: ""
+};
+
 const MINT_TOKEN: SpecialAPI = SpecialAPI {
     input_type: "TokenName, uint, principal",
     output_type: "(response bool uint)",
@@ -1166,6 +1190,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
         TransferAsset => make_for_special(&ASSET_TRANSFER, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
+        PrincipalOf => make_for_special(&PRINCIPAL_OF_API, name),
     }
 }
 
@@ -1213,6 +1238,8 @@ fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
         FungibleToken => make_for_define(&DEFINE_TOKEN_API, name),
         ReadOnlyFunction => make_for_define(&DEFINE_READ_ONLY_API, name),
         PersistedVariable => make_for_define(&DEFINE_DATA_VAR_API, name),
+        Trait => make_for_define(&DEFINE_TRAIT_API, name),
+        TraitConformity => make_for_define(&DEFINE_TRAIT_CONFORMITY_API, name),
     }
 }
 

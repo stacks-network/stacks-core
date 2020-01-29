@@ -349,7 +349,7 @@ impl fmt::Display for Value {
             Value::Principal(principal_data) => write!(f, "{}", principal_data),
             Value::Optional(opt_data) => write!(f, "{}", opt_data),
             Value::Response(res_data) => write!(f, "{}", res_data),
-            Value::Field(field_data) => write!(f, "{:?}", field_data.name), // todo(ludo): fix
+            Value::Field(field_data) => write!(f, "{:?}{:?}", field_data.contract_identifier, field_data.name),
             Value::TraitReference(name) => write!(f, "{:?}", name), // todo(ludo): fix
             Value::List(list_data) => {
                 write!(f, "(")?;

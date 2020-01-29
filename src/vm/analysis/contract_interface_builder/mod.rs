@@ -15,6 +15,10 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         map_types,
         fungible_tokens,
         non_fungible_tokens,
+        defined_traits,
+        imported_traits,
+        implemented_traits,
+        trait_usages,
         top_level_expression_sorting: _,
         expressions: _,
         contract_identifier: _,
@@ -127,6 +131,7 @@ impl ContractInterfaceAtomType {
             UIntType => ContractInterfaceAtomType::uint128,
             BoolType => ContractInterfaceAtomType::bool,
             PrincipalType => ContractInterfaceAtomType::principal,
+            CallablePrincipalType => ContractInterfaceAtomType::none,
             BufferType(len) => ContractInterfaceAtomType::buffer { length: len.into() },
             TupleType(sig) => Self::from_tuple_type(sig),
             ListType(list_data) => {

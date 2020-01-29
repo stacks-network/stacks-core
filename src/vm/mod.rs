@@ -57,6 +57,7 @@ pub fn lookup_function(name: &str, env: &Environment)-> Result<CallableType> {
     if let Some(result) = functions::lookup_reserved_functions(name) {
         Ok(result)
     } else {
+        panic!("HERE");
         let user_function = env.contract_context.lookup_function(name).ok_or(
             CheckErrors::UndefinedFunction(name.to_string()))?;
         Ok(CallableType::UserFunction(user_function))
@@ -122,6 +123,7 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
         List(ref children) => {
             let (function_variable, rest) = children.split_first()
                 .ok_or(CheckErrors::NonFunctionApplication)?;
+            println!("===> {:?}", function_variable);
             let function_name = function_variable.match_atom()
                 .ok_or(CheckErrors::BadFunctionName)?;
             let f = lookup_function(&function_name, env)?;
@@ -179,13 +181,21 @@ fn eval_all (expressions: &[SymbolicExpression],
             DefineResult::NonFungibleAsset(name, asset_type) => {
                 global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
             },
+            DefineResult::Trait(name, trait_type) => {
+                contract_context.traits.insert(name, trait_type);
+            },
+            DefineResult::UseTrait(name, trait_type) | DefineResult::ImplTrait(name, trait_type) => {
+                // todo(ludo)
+            },
             DefineResult::NoDefine => {
+                println!("HERE");
                 // not a define function, evaluate normally.
                 global_context.execute(|global_context| {
                     let mut call_stack = CallStack::new();
                     let mut env = Environment::new(
                         global_context, contract_context, &mut call_stack, None, None);
-
+                    
+                    println!("===> {:?}", exp);
                     let result = eval(exp, &mut env, &context)?;
                     last_executed = Some(result);
                     Ok(())
@@ -214,6 +224,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
     use vm::database::memory_db;
     use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression, CallStack};
     use vm::types::{TypeSignature, QualifiedContractIdentifier};
@@ -238,8 +249,12 @@ mod test {
                        SymbolicExpression::atom("x".into())]));
 
         let func_args = vec![("x".into(), TypeSignature::IntType)];
-        let user_function = DefinedFunction::new(func_args, func_body, DefineType::Private,
-                                                 &"do_work".into(), &"");
+        let user_function = DefinedFunction::new(func_args, 
+                                                 func_body, 
+                                                 DefineType::Private,
+                                                 &"do_work".into(), 
+                                                 HashMap::new(),
+                                                 &"");
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());

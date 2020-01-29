@@ -1,9 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 
 use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
+use vm::types::signatures::FunctionSignature;
 use vm::database::{KeyValueStorage, ClaritySerializable, ClarityDeserializable, RollbackWrapper};
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::analysis::type_checker::{ContractAnalysis};
+use vm::representations::{ClarityName};
 
 pub struct AnalysisDatabase <'a> {
     store: RollbackWrapper <'a>
@@ -82,6 +84,7 @@ impl <'a> AnalysisDatabase <'a> {
         if self.store.has_entry(&key) {
             return Err(CheckError::new(CheckErrors::ContractAlreadyExists(contract_identifier.to_string())))
         }
+        println!("INSERTING {:?}", contract);
         self.put(&key, contract);
         Ok(())
     }
@@ -97,6 +100,13 @@ impl <'a> AnalysisDatabase <'a> {
         let contract = self.load_contract(contract_identifier)
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract.get_read_only_function_type(function_name)
+           .cloned())
+    }
+
+    pub fn get_defined_trait(&mut self, contract_identifier: &QualifiedContractIdentifier, trait_name: &str) -> CheckResult<Option<BTreeMap<ClarityName, FunctionSignature>>> {
+        let contract = self.load_contract(contract_identifier)
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+        Ok(contract.get_defined_trait(trait_name)
            .cloned())
     }
 

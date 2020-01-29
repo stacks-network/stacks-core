@@ -2,10 +2,13 @@ pub mod contexts;
 //mod maps;
 pub mod natives;
 
+use std::convert::TryInto;
+use std::collections::{HashMap, BTreeMap};
 use vm::representations::{SymbolicExpression, ClarityName};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
 use vm::types::{TypeSignature, TupleTypeSignature, FunctionArg,
-                FunctionType, FixedFunction, parse_name_type_pairs};
+                FunctionType, FixedFunction, parse_name_type_pairs, Value};
+use vm::types::signatures::{FunctionSignature};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctionsParsed;
 use vm::variables::NativeVariables;
@@ -188,6 +191,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
         let mut local_context = TypingContext::new();
 
+        local_context.traits_usages = contract_analysis.trait_usages.clone();
+        // todo(ludo): First thing we should do is type-checking the generics:
+        // - defined
+        // - imported
+        // From there, TypingContext will be augmented, and we can start taking on the usual traversal
+
         for exp in contract_analysis.expressions_iter() {
             let mut result_res = self.try_type_check_define(&exp, &mut local_context);
             if let Err(ref mut error) = result_res {
@@ -251,29 +260,52 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
     fn type_check_define_function(&mut self, signature: &[SymbolicExpression], body: &SymbolicExpression,
                                   context: &TypingContext) -> CheckResult<(ClarityName, FixedFunction)> {
-        let (function_name, args) = signature.split_first()
+        let (func_name, packed_args) = signature.split_first()
             .ok_or(CheckErrors::RequiresAtLeastArguments(1, 0))?;
-        let function_name = function_name.match_atom()
+        let func_name = func_name.match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
-        let mut args = parse_name_type_pairs(args)
-            .map_err(|_| { CheckErrors::BadSyntaxBinding })?;
+
+        let mut func_args: Vec<FunctionArg> = vec![];
+        let mut func_context = context.extend()?;
+
+        for packed_arg in packed_args.iter() {
+            if let List(ref pair) = packed_arg.expr {
+                if pair.len() != 2 {
+                    return Err(CheckErrors::BadSyntaxExpectedListOfPairs.into())
+                }
+                
+                let name = pair[0].match_atom()
+                    .ok_or(CheckErrors::BadSyntaxExpectedListOfPairs)?
+                    .clone();
+                self.contract_context.check_name_used(&name)?;
+
+                let arg_name: ClarityName = name.to_string().try_into().unwrap(); // todo(ludo): fix unwrap
+
+                let arg_type = match &pair[1].expr {
+                    LiteralValue(Value::TraitReference(name)) => {
+                        func_context.traits_references.insert(arg_name.clone(), name.clone());
+                        TypeSignature::PrincipalType // todo(ludo): Should we use TypeSignature::NoType instead?
+                    },
+                    _ => {
+                        // todo(ludo): Implementation should be revisited - this would not catch nested trait references (in tuple or so)
+                        let arg_type = TypeSignature::parse_type_repr(&pair[1])?;
+                        func_context.variable_types.insert(arg_name.clone(), arg_type.clone());
+                        arg_type
+                    } 
+                };
+                func_args.push(FunctionArg::new(arg_type, arg_name));                
+            } else {
+                return Err(CheckErrors::BadSyntaxExpectedListOfPairs.into())
+            }
+        }
 
         if self.function_return_tracker.is_some() {
             panic!("Interpreter error: Previous function define left dirty typecheck state.");
         }
 
-
-        let mut function_context = context.extend()?;
-        for (arg_name, arg_type) in args.iter() {
-            self.contract_context.check_name_used(arg_name)?;
-
-            function_context.variable_types.insert(arg_name.clone(),
-                                                   arg_type.clone());
-        }
-
         self.function_return_tracker = Some(None);
 
-        let return_result = self.type_check(body, &function_context);
+        let return_result = self.type_check(body, &func_context);
 
         match return_result {
             Err(e) => {
@@ -294,10 +326,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
                 self.function_return_tracker = None;
 
-                let func_args: Vec<FunctionArg> = args.drain(..)
-                    .map(|(arg_name, arg_type)| FunctionArg::new(arg_type, arg_name)).collect();
-
-                Ok((function_name.clone(), FixedFunction { args: func_args, returns: return_type }))
+                Ok((func_name.clone(), FixedFunction { args: func_args, returns: return_type }))
             }
         }
     }
@@ -402,6 +431,14 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
         Ok((asset_name.clone(), asset_type))
     }
+
+    fn type_check_define_trait(&mut self, trait_name: &ClarityName, function_types: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
+        
+        let trait_signature = TypeSignature::parse_trait_type_repr(&function_types)
+            .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?; // tood(ludo): fix error type
+
+        Ok((trait_name.clone(), trait_signature))
+    } 
     
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
     fn try_type_check_define(&mut self, expression: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
@@ -448,13 +485,46 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 DefineFunctionsParsed::NonFungibleToken { name, nft_type } => {
                     let (token_name, token_type) = self.type_check_define_nft(name, nft_type, context)?;
                     self.contract_context.add_nft(token_name, token_type)?;
-                }
+                },
+                DefineFunctionsParsed::Trait { name, functions } => {
+                    let (trait_name, trait_signature) = self.type_check_define_trait(name, functions, context)?;
+                    self.contract_context.add_trait(trait_name, trait_signature)?;
+                    
+                },
+                DefineFunctionsParsed::UseTrait { name, trait_identifier } => {
+                    let res = self.db.get_defined_trait(&trait_identifier.contract_identifier, &trait_identifier.name)?; // todo(ludo) safe unwrap
+                    let trait_signature = res.unwrap();
+                    self.contract_context.add_trait(name.clone(), trait_signature)?;
+                },
+                DefineFunctionsParsed::ImplTrait { .. } => {
+
+                },
             };
             Ok(Some(()))
         } else {
-        // not a define.
+            // not a define.
             Ok(None)
         }
+    }
+
+    pub fn check_method_from_trait(&mut self, trait_name: &ClarityName, func_name: &ClarityName, args: &[SymbolicExpression], context: &TypingContext) -> CheckResult<TypeSignature> {
+
+        println!("1");
+        let func_signature = {
+            let trait_reference = context.traits_references.get(trait_name).ok_or(CheckErrors::ExpectedName)?; // todo(ludo): fix error type
+            let trait_signature = self.contract_context.get_trait(trait_reference).ok_or(CheckErrors::ExpectedName)?; // todo(ludo): fix error type
+            trait_signature.get(func_name).ok_or(CheckErrors::ExpectedName)?
+        };
+        println!("2");
+
+        let expected_args = func_signature.args.clone();
+        let return_type = func_signature.returns.clone();
+        check_argument_count(expected_args.len(), args)?;
+        for (i, func_arg) in expected_args.iter().enumerate() {
+            self.type_check_expects(&args[i], context, &func_arg)?;                    
+        }
+
+        Ok(return_type)
     }
 }
 

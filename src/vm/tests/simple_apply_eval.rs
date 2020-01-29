@@ -7,7 +7,7 @@ use vm::callables::DefinedFunction;
 use vm::types::{TypeSignature, BuffData, QualifiedContractIdentifier};
 use vm::ast::parse;
 use util::hash::{hex_bytes, to_hex};
-
+use std::collections::HashMap;
 use vm::tests::{execute};
 
 #[test]
@@ -190,11 +190,19 @@ fn test_simple_if_functions() {
     if let Ok(parsed_bodies) = function_bodies {
         let func_args1 = vec![("x".into(), TypeSignature::IntType)];
         let func_args2 = vec![("x".into(), TypeSignature::IntType)];
-        let user_function1 = DefinedFunction::new(
-            func_args1, parsed_bodies[0].clone(), Private, &"with_else".into(), &"");
+        let user_function1 = DefinedFunction::new(func_args1, 
+                                                  parsed_bodies[0].clone(), 
+                                                  Private, 
+                                                  &"with_else".into(), 
+                                                  HashMap::new(), 
+                                                  &"");
 
-        let user_function2 = DefinedFunction::new(
-            func_args2, parsed_bodies[1].clone(), Private, &"without_else".into(), &"");
+        let user_function2 = DefinedFunction::new(func_args2, 
+                                                  parsed_bodies[1].clone(), 
+                                                  Private, 
+                                                  &"without_else".into(), 
+                                                  HashMap::new(), 
+                                                  &"");
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());

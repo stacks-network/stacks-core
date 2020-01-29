@@ -95,6 +95,9 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 Map { .. } | NonFungibleToken { .. } | UnboundedFungibleToken { .. } => {
                     // No arguments to (define-map ...) or (define-non-fungible-token) or fungible tokens without max supplies are eval'ed.
                 },
+                Trait { .. } | UseTrait { .. } | ImplTrait { .. } => {
+                    // todo(ludo): implement
+                },
             }
         } else {
             self.check_read_only(expr)?;
@@ -258,15 +261,21 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             },
             ContractCall => {
                 check_arguments_at_least(2, args)?;
-                let contract_identifier = match args[0].expr {
-                    SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
-                    _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
-                };
 
                 let function_name = args[1].match_atom()
                     .ok_or(CheckErrors::ContractCallExpectName)?;
 
-                let is_function_read_only = self.db.get_read_only_function_type(&contract_identifier, function_name)?.is_some();
+                let is_function_read_only = match &args[0].expr {
+                    SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => {
+                        self.db.get_read_only_function_type(&contract_identifier, function_name)?.is_some()
+                    },
+                    SymbolicExpressionType::Atom(trait_reference) => {
+                        // todo(ludo): read only checking on dynamic dispatch cases
+                        true
+                    },
+                    _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
+                };
+
                 self.check_all_read_only(&args[2..])
                     .map(|args_read_only| args_read_only && is_function_read_only)
             }

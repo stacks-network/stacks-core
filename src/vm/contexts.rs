@@ -4,6 +4,7 @@ use std::convert::TryInto;
 
 use vm::errors::{InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result};
 use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
+use vm::types::signatures::{FunctionSignature};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase, memory_db};
 use vm::representations::{SymbolicExpression, ClarityName, ContractName};
@@ -76,6 +77,9 @@ pub struct ContractContext {
     
     #[serde(serialize_with = "ordered_map_functions")]
     pub functions: HashMap<ClarityName, DefinedFunction>,
+
+    #[serde(serialize_with = "ordered_map_traits")]
+    pub traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>, // todo(ludo): wrap HashMap<ClarityName, FunctionSignature> in a type
 }
 
 fn ordered_map_variables<S: serde::Serializer>(value: &HashMap<ClarityName, Value>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
@@ -88,9 +92,15 @@ fn ordered_map_functions<S: serde::Serializer>(value: &HashMap<ClarityName, Defi
     ordered.serialize(serializer)
 }
 
+fn ordered_map_traits<S: serde::Serializer>(value: &HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
+}
+
 pub struct LocalContext <'a> {
     pub parent: Option< &'a LocalContext<'a>>,
     pub variables: HashMap<ClarityName, Value>,
+    pub callable_contracts: HashMap<ClarityName, QualifiedContractIdentifier>,
     depth: u16
 }
 
@@ -528,7 +538,9 @@ impl <'a,'b> Environment <'a,'b> {
         let contract = self.global_context.database.get_contract(contract_identifier)?;
 
         let func = contract.contract_context.lookup_function(tx_name)
-            .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
+            .ok_or_else(|| { 
+                println!("HERE");
+                CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
         if !func.is_public() {
             return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
         }
@@ -543,6 +555,9 @@ impl <'a,'b> Environment <'a,'b> {
             .collect();
 
         let args = args?;
+
+        // Here, we should check if the function is being called with a contract principal.
+        // If so, we should ensure trait compliance
 
         self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context)) 
     }
@@ -742,7 +757,8 @@ impl ContractContext {
         Self {
             contract_identifier,
             variables: HashMap::new(),
-            functions: HashMap::new()
+            functions: HashMap::new(),
+            traits: HashMap::new(),
         }
     }
 
@@ -758,9 +774,10 @@ impl ContractContext {
 impl <'a> LocalContext <'a> {
     pub fn new() -> LocalContext<'a> {
         LocalContext {
-            depth: 0,
             parent: Option::None,
+            callable_contracts: HashMap::new(),
             variables: HashMap::new(),
+            depth: 0,
         }
     }
     
@@ -770,8 +787,9 @@ impl <'a> LocalContext <'a> {
         } else {
             Ok(LocalContext {
                 parent: Some(self),
+                callable_contracts: HashMap::new(),
                 variables: HashMap::new(),
-                depth: self.depth + 1
+                depth: self.depth + 1,
             })
         }
     }

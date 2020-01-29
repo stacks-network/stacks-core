@@ -344,6 +344,7 @@ fn test_get_list_max_len() {
 
     match actual_value {
         Value::List(ListData { data, type_signature }) => {
+            println!("???? {:?} -> {}", type_signature, TypeSignature::from(type_signature.clone()));
             assert_eq!(vec![Value::Int(1), Value::Int(2), Value::Int(3)],
                        data);
             assert_eq!("(list 10 int)", &format!("{}", TypeSignature::from(type_signature)));

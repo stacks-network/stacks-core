@@ -6,6 +6,7 @@ use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
+use vm::types::{Value};
 use super::AnalysisDatabase;
 
 #[cfg(test)]
@@ -17,7 +18,7 @@ pub struct DefinitionSorter {
 }
 
 impl AnalysisPass for DefinitionSorter {
-
+    
     fn run_pass(contract_analysis: &mut ContractAnalysis, _analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
         let mut command = DefinitionSorter::new();
         command.run(contract_analysis)?;
@@ -75,7 +76,15 @@ impl <'a> DefinitionSorter {
 
     fn probe_for_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
         match expr.expr {
-            AtomValue(_)  | LiteralValue(_) => Ok(()),
+            LiteralValue(Value::TraitReference(ref name)) => {
+                // if let Some(dep) = self.top_level_expressions_map.get(name.into()) {
+                //     if dep.atom_index != expr.id {
+                //         self.graph.add_directed_edge(tle_index, dep.expr_index);
+                //     }
+                // }
+                // todo(ludo)
+                Ok(())
+            },
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
@@ -84,8 +93,9 @@ impl <'a> DefinitionSorter {
                 }
                 Ok(())
             },
+            AtomValue(_)  | LiteralValue(_) => Ok(()),
             List(ref exprs) => {
-                // Avoid looking for dependencies in tuples 
+                // Avoid looking for dependencies in tuples
                 if let Some((function_name, function_args)) = exprs.split_first() {
                     if let Some(function_name) = function_name.match_atom() {
                         if let Some(define_function) = DefineFunctions::lookup_by_name(function_name) {
@@ -100,6 +110,7 @@ impl <'a> DefinitionSorter {
                                             self.probe_for_dependencies(expr, tle_index)?;
                                         }
                                     }
+                                    // todo(ludo): we must probe for referenced traits in the args
                                     return Ok(());
                                 },
                                 DefineFunctions::Map => {
@@ -109,7 +120,14 @@ impl <'a> DefinitionSorter {
                                         self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
                                     }
                                     return Ok(());
-                                }
+                                },
+                                DefineFunctions::Trait => {
+                                    // todo(ludo): probe for generics?
+                                    return Ok(())
+                                },
+                                DefineFunctions::ImplTrait | DefineFunctions::UseTrait => {
+                                    return Ok(())
+                                },
                             }
                         } else if let Some(native_function) = NativeFunctions::lookup_by_name(function_name) {
                             match native_function {
@@ -206,6 +224,7 @@ impl <'a> DefinitionSorter {
             _ => &args[0]
         };
         let tle_name = defined_name.match_atom()?;
+        // println!("==========> {:?}", tle_name);
         Some((tle_name.clone(), defined_name.id, defined_name))
     }
 }

@@ -84,10 +84,10 @@ define_u8_enum!(TypePrefix {
     ResponseErr,
     OptionalNone,
     OptionalSome,
-    TraitReference,
-    Field,
     List,
     Tuple,
+    TraitReference,
+    Field,   
 });
 
 impl From<&Value> for TypePrefix {
@@ -118,7 +118,9 @@ impl From<&Value> for TypePrefix {
             Optional(OptionalData{ data: None }) => TypePrefix::OptionalNone,
             Optional(OptionalData{ data: Some(value) }) => TypePrefix::OptionalSome,
             List(_) => TypePrefix::List,
-            Tuple(_) => TypePrefix::Tuple
+            Tuple(_) => TypePrefix::Tuple,
+            TraitReference(_) => TypePrefix::TraitReference,
+            Field(_) => TypePrefix::Field,
         }
     }
 }

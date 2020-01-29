@@ -2,7 +2,7 @@
 use std::hash::{Hash, Hasher};
 use std::{fmt, cmp};
 use std::convert::{TryFrom, TryInto};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use address::c32;
 use vm::types::{Value, MAX_VALUE_SIZE, QualifiedContractIdentifier, StandardPrincipalData};
@@ -60,11 +60,23 @@ pub enum TypeSignature {
     ListType(ListTypeData),
     TupleType(TupleTypeSignature),
     OptionalType(Box<TypeSignature>),
-    ResponseType(Box<(TypeSignature, TypeSignature)>)
+    ResponseType(Box<(TypeSignature, TypeSignature)>),
+    CallablePrincipalType,
 }
 
-use self::TypeSignature::{NoType, IntType, UIntType, BoolType, BufferType,
-                          PrincipalType, ListType, TupleType, OptionalType, ResponseType};
+use self::TypeSignature::{
+    NoType, 
+    IntType, 
+    UIntType, 
+    BoolType, 
+    BufferType,
+    PrincipalType, 
+    ListType, 
+    TupleType, 
+    OptionalType, 
+    ResponseType,
+    CallablePrincipalType
+};
 
 pub const BUFF_64: TypeSignature = BufferType(BufferLength(64));
 pub const BUFF_32: TypeSignature = BufferType(BufferLength(32));
@@ -74,6 +86,12 @@ pub const BUFF_20: TypeSignature = BufferType(BufferLength(20));
 pub struct ListTypeData {
     max_len: u32,
     entry_type: Box<TypeSignature>
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FunctionSignature {
+    pub args: Vec<TypeSignature>,
+    pub returns: TypeSignature
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -267,6 +285,15 @@ impl TypeSignature {
             TupleType(ref tuple_sig) => {
                 if let TupleType(ref other_tuple_sig) = other {
                     tuple_sig.admits(other_tuple_sig)
+                } else {
+                    false
+                }
+            },
+            CallablePrincipalType => { // todo(ludo): improve tree
+                if let PrincipalType = other {
+                    true
+                } else if let CallablePrincipalType = other {
+                    true
                 } else {
                     false
                 }
@@ -495,6 +522,8 @@ impl TypeSignature {
             Value::Tuple(v) => TupleType(
                 v.type_signature.clone()),
             Value::List(list_data) => ListType(list_data.type_signature.clone()),
+            Value::TraitReference(_v) => NoType, // todo(ludo): fix
+            Value::Field(_v) => NoType, // todo(ludo): fix
             Value::Optional(v) => v.type_signature(),
             Value::Response(v) => v.type_signature()
         }
@@ -591,7 +620,7 @@ impl TypeSignature {
         Ok(TypeSignature::new_option(inner_type))
     }
 
-    fn parse_response_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+    pub fn parse_response_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
         if type_args.len() != 2 {
             return Err(CheckErrors::InvalidTypeDescription)
         }
@@ -622,8 +651,36 @@ impl TypeSignature {
                     Err(CheckErrors::InvalidTypeDescription)
                 }
             },
+            SymbolicExpressionType::LiteralValue(Value::TraitReference(ref trait_ref)) => {
+                Ok(TypeSignature::CallablePrincipalType)
+            },
             _ => Err(CheckErrors::InvalidTypeDescription)
         }
+    }
+
+    pub fn parse_trait_type_repr(type_args: &[SymbolicExpression]) -> Result<BTreeMap<ClarityName, FunctionSignature>> {
+
+        let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
+        let functions_types = type_args[0].match_list().ok_or(CheckErrors::BadLetSyntax)?; // tood(ludo): fix error type
+
+        for function_type in functions_types.iter() {
+            let args = function_type.match_list().ok_or(CheckErrors::BadLetSyntax)?; // tood(ludo): fix error type
+            let fn_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+            let fn_args_exprs = args[1].match_list().ok_or(CheckErrors::BadLetSyntax)?; // tood(ludo): fix error type
+            let mut fn_args = vec![];
+            for arg_type in fn_args_exprs.iter() {
+                let arg_t = TypeSignature::parse_type_repr(&arg_type)?;
+                fn_args.push(arg_t);
+            }
+            let fn_return = TypeSignature::parse_type_repr(&args[2])
+                .map_err(|e| CheckErrors::DefineVariableBadSignature)?;
+
+            trait_signature.insert(fn_name.clone(), FunctionSignature {
+                args: fn_args,
+                returns: fn_return,
+            });
+        }
+        Ok(trait_signature)
     }
 }
 
@@ -649,7 +706,7 @@ impl TypeSignature {
             BoolType => Some(1),
             // TODO: This principal size isn't quite right.
             //    it can be much larger due to contract principals.
-            PrincipalType => Some(21),
+            PrincipalType => Some(21), // todo(ludo): I don't think this is accurate - does not handle contract principals
             BufferType(len) => Some(u32::from(len)),
             TupleType(tuple_sig) => tuple_sig.inner_size(),
             ListType(list_type) => list_type.inner_size(),
@@ -663,6 +720,7 @@ impl TypeSignature {
                 cmp::max(t_size, s_size)
                     .checked_add(1)
             },
+            CallablePrincipalType => Some(21),
         }
     }
 
@@ -687,6 +745,7 @@ impl TypeSignature {
                     .checked_add(s.type_size()?)?
                     .checked_add(1)
             },
+            CallablePrincipalType => Some(1),
         }
     }
 }
@@ -821,12 +880,13 @@ impl fmt::Display for TypeSignature {
             IntType => write!(f, "int"),
             UIntType => write!(f, "uint"),
             BoolType => write!(f, "bool"),
-            PrincipalType => write!(f, "principal"),
             BufferType(len) => write!(f, "(buff {})", len),
             OptionalType(t) => write!(f, "(optional {})", t),
             ResponseType(v) => write!(f, "(response {} {})", v.0, v.1),
             TupleType(t) => write!(f, "{}", t),
-            ListType(list_type_data) => write!(f, "(list {} {})", list_type_data.max_len, list_type_data.entry_type)
+            PrincipalType => write!(f, "principal"), // todo(ludo): could be more accurate
+            ListType(list_type_data) => write!(f, "(list {} {})", list_type_data.max_len, list_type_data.entry_type),
+            CallablePrincipalType => write!(f, "callable-principal"), // todo(ludo): could be more accurate
         }
     }
 }

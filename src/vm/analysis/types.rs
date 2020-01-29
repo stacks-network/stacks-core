@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use vm::{SymbolicExpression, ClarityName};
 use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
+use vm::types::signatures::FunctionSignature;
 use vm::analysis::analysis_db::{AnalysisDatabase};
 use vm::analysis::errors::{CheckResult};
 use vm::analysis::type_checker::contexts::TypeMap;
@@ -26,6 +27,9 @@ pub struct ContractAnalysis {
     pub persisted_variable_types: BTreeMap<ClarityName, TypeSignature>,
     pub fungible_tokens: BTreeSet<ClarityName>,
     pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
+    pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>, // todo(ludo): we're missing something for handling nested traits 
+    pub imported_traits: BTreeMap<ClarityName, (QualifiedContractIdentifier, ClarityName)>,
+    pub implemented_traits: BTreeSet<(QualifiedContractIdentifier, ClarityName)>,
     #[serde(skip)]
     pub top_level_expression_sorting: Option<Vec<usize>>,
     #[serde(skip)]
@@ -46,6 +50,9 @@ impl ContractAnalysis {
             variable_types: BTreeMap::new(),
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
+            defined_traits: BTreeMap::new(),
+            imported_traits: BTreeMap::new(),
+            implemented_traits: BTreeSet::new(),
             top_level_expression_sorting: Some(Vec::new()),
             fungible_tokens: BTreeSet::new(),
             non_fungible_tokens: BTreeMap::new(),
@@ -85,6 +92,18 @@ impl ContractAnalysis {
         self.fungible_tokens.insert(name);
     }
 
+    pub fn add_defined_trait(&mut self, name: ClarityName, function_types: BTreeMap<ClarityName, FunctionSignature>) {
+        self.defined_traits.insert(name, function_types);
+    }
+
+    pub fn add_imported_traits(&mut self, local_name: ClarityName, trait_name: ClarityName, contract_identifier: QualifiedContractIdentifier) {
+        self.imported_traits.insert(local_name.clone(), (contract_identifier, trait_name)); // todo(ludo): fix - i think we should introduce fully qualified traits that can locally be aliased for avoiding collisions
+    }
+
+    pub fn add_implemented_trait(&mut self, name: ClarityName, contract_identifier: QualifiedContractIdentifier) {
+        self.implemented_traits.insert((contract_identifier, name));
+    }
+
     pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {
         self.public_function_types.get(name)
     }
@@ -107,6 +126,10 @@ impl ContractAnalysis {
 
     pub fn get_persisted_variable_type(&self, name: &str) -> Option<&TypeSignature> {
         self.persisted_variable_types.get(name)
+    }
+
+    pub fn get_defined_trait(&self, name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+        self.defined_traits.get(name)
     }
 
     pub fn expressions_iter(&self) -> ExpressionsIterator {
@@ -147,10 +170,10 @@ impl <'a> Iterator for ExpressionsIterator <'a> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TraitUsages {
     pub defined_traits: HashMap<ClarityName, SymbolicExpression>,
     pub imported_traits: HashMap<ClarityName, SymbolicExpression>,
     pub referenced_traits: HashMap<ClarityName, SymbolicExpression>,
-    pub orphan_traits: Vec<ClarityName>,
+    pub orphan_trait_references: HashMap<ClarityName, SymbolicExpression>,
 }
