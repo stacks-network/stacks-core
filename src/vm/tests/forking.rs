@@ -3,8 +3,7 @@ use vm::analysis::errors::{CheckErrors};
 use vm::types::{Value};
 use vm::contexts::{OwnedEnvironment};
 use vm::representations::SymbolicExpression;
-use vm::database::marf::temporary_marf;
-use vm::database::ClarityDatabase;
+use vm::database::{MarfedKV, ClarityDatabase, NULL_HEADER_DB};
 use vm::types::{QualifiedContractIdentifier, PrincipalData};
 
 use vm::tests::{symbols_from_values, execute, is_err_code, is_committed};
@@ -167,26 +166,24 @@ where F0: FnOnce(&mut OwnedEnvironment),
       F2: FnOnce(&mut OwnedEnvironment),
       F3: FnOnce(&mut OwnedEnvironment)
 {
-    let mut marf_kv = temporary_marf();
+    let mut marf_kv = MarfedKV::temporary();
     marf_kv.begin(&TrieFileStorage::block_sentinel(),
                   &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap());
 
     {
-        let mut clarity_db = ClarityDatabase::new(Box::new(&mut marf_kv));
-        clarity_db.initialize();
+        marf_kv.as_clarity_db(&NULL_HEADER_DB).initialize();
     }
 
-    marf_kv.commit();
+    marf_kv.test_commit();
     marf_kv.begin(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
                   &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap());
 
     {
-        let clarity_db = ClarityDatabase::new(Box::new(&mut marf_kv));
-        let mut owned_env = OwnedEnvironment::new(clarity_db);
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
         f(&mut owned_env)
     }
 
-    marf_kv.commit();
+    marf_kv.test_commit();
 
     // Now, we can do our forking.
 
@@ -194,35 +191,32 @@ where F0: FnOnce(&mut OwnedEnvironment),
                   &BlockHeaderHash::from_bytes(&[2 as u8; 32]).unwrap());
 
     {
-        let clarity_db = ClarityDatabase::new(Box::new(&mut marf_kv));
-        let mut owned_env = OwnedEnvironment::new(clarity_db);
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
         a(&mut owned_env)
     }
 
-    marf_kv.commit();
+    marf_kv.test_commit();
 
     marf_kv.begin(&BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
                   &BlockHeaderHash::from_bytes(&[3 as u8; 32]).unwrap());
 
     {
-        let clarity_db = ClarityDatabase::new(Box::new(&mut marf_kv));
-        let mut owned_env = OwnedEnvironment::new(clarity_db);
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
         b(&mut owned_env)
     }
 
-    marf_kv.commit();
+    marf_kv.test_commit();
 
 
     marf_kv.begin(&BlockHeaderHash::from_bytes(&[2 as u8; 32]).unwrap(),
                   &BlockHeaderHash::from_bytes(&[4 as u8; 32]).unwrap());
 
     {
-        let clarity_db = ClarityDatabase::new(Box::new(&mut marf_kv));
-        let mut owned_env = OwnedEnvironment::new(clarity_db);
+        let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
         z(&mut owned_env)
     }
 
-    marf_kv.commit();
+    marf_kv.test_commit();
     
 }
 

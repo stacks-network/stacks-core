@@ -492,6 +492,18 @@ impl StacksMessageCodec for StacksTransaction {
     }
 }
 
+impl From<TransactionSmartContract> for TransactionPayload {
+    fn from(value: TransactionSmartContract) -> Self {
+        TransactionPayload::SmartContract(value)
+    }
+}
+
+impl From<TransactionContractCall> for TransactionPayload {
+    fn from(value: TransactionContractCall) -> Self {
+        TransactionPayload::ContractCall(value)
+    }
+}
+
 impl StacksTransaction {
     /// Create a new, unsigned transaction and an empty STX fee with no post-conditions.
     pub fn new(version: TransactionVersion, auth: TransactionAuth, payload: TransactionPayload) -> StacksTransaction {

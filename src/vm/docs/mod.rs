@@ -581,10 +581,14 @@ const AT_BLOCK: SpecialAPI = SpecialAPI {
     description: "The `at-block` function evaluates the expression `expr` _as if_ it were evaluated at the end of the
 block indicated by the _block-hash_ argument. The `expr` closure must be read-only.
 
+Note: The block identifying hash must be a hash returned by the `id-header-hash` block information
+property. This hash uniquely identifies Stacks blocks and is unique across Stacks forks. While the hash returned by
+`header-hash` is unique within the context of a single fork, it is not unique across Stacks forks.
+
 The function returns the result of evaluating `expr`.
 ",
     example: "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 (var-get data))
-(at-block (get-block-info? header-hash (- block-height u10)) (var-get data))"
+(at-block (get-block-info? id-header-hash (- block-height u10)) (var-get data))"
 };
         
 
@@ -810,13 +814,17 @@ const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     description: "The `get-block-info?` function fetches data for a block of the given block height. The 
 value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `BlockHeightInt` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names 
-are `time`, `header-hash`, `burnchain-header-hash`, and `vrf-seed`. 
+are `time`, `header-hash`, `burnchain-header-hash`, `id-header-hash`, `miner-address`, and `vrf-seed`. 
 
 The `time` property returns an integer value of the block header time field. This is a Unix epoch timestamp in seconds 
 which roughly corresponds to when the block was mined. **Warning**: this does not increase monotonically with each block
 and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information. 
 
-The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 32-byte buffer. 
+The `header-hash`, `burnchain-header-hash`, `id-header-hash`, and `vrf-seed` properties return a 32-byte buffer. 
+
+The `miner-address` property returns a `principal` corresponding to the miner of the given block.
+
+The `id-header-hash` is the block identifier value that must be used as input to the `at-block` function.
 ",
     example: "(get-block-info? time u10) ;; Returns (some 1557860301)
 (get-block-info? header-hash u2) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)

@@ -115,7 +115,7 @@ impl StacksChainState {
     fn process_transaction_precheck<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(), Error> {
         // valid auth?
         if !tx.verify().map_err(Error::NetError)? {
-            let msg = format!("Invalid tx {}: invalid signature(s)", tx.txid().to_hex());
+            let msg = format!("Invalid tx {}: invalid signature(s)", tx.txid());
             warn!("{}", &msg);
 
             return Err(Error::InvalidStacksTransaction(msg));
@@ -123,7 +123,7 @@ impl StacksChainState {
 
         // destined for us?
         if clarity_tx.config.chain_id != tx.chain_id {
-            let msg = format!("Invalid tx {}: invalid chain ID {} (expected {})", tx.txid().to_hex(), tx.chain_id, clarity_tx.config.chain_id);
+            let msg = format!("Invalid tx {}: invalid chain ID {} (expected {})", tx.txid(), tx.chain_id, clarity_tx.config.chain_id);
             warn!("{}", &msg);
 
             return Err(Error::InvalidStacksTransaction(msg));
@@ -132,7 +132,7 @@ impl StacksChainState {
         match tx.version {
             TransactionVersion::Mainnet => {
                 if !clarity_tx.config.mainnet {
-                    let msg = format!("Invalid tx {}: on testnet; got mainnet", tx.txid().to_hex());
+                    let msg = format!("Invalid tx {}: on testnet; got mainnet", tx.txid());
                     warn!("{}", &msg);
 
                     return Err(Error::InvalidStacksTransaction(msg));
@@ -140,7 +140,7 @@ impl StacksChainState {
             },
             TransactionVersion::Testnet => {
                 if clarity_tx.config.mainnet {
-                    let msg = format!("Invalid tx {}: on mainnet; got testnet", tx.txid().to_hex());
+                    let msg = format!("Invalid tx {}: on mainnet; got testnet", tx.txid());
                     warn!("{}", &msg);
 
                     return Err(Error::InvalidStacksTransaction(msg));
@@ -332,7 +332,7 @@ impl StacksChainState {
         .map_err(|e| {
             match e {
                 clarity_error::BadTransaction(ref s) => {
-                    let msg = format!("Error validating STX-transfer transaction {:?}: {}", txid.to_hex(), s);
+                    let msg = format!("Error validating STX-transfer transaction {:?}: {}", txid, s);
                     warn!("{}", &msg);
 
                     Error::InvalidStacksTransaction(msg)
@@ -388,7 +388,7 @@ impl StacksChainState {
                         }
                     }
                 }.map_err(|e| {
-                    warn!("Invalid contract-call transaction {}: {:?}", &tx.txid().to_hex(), &e);
+                    warn!("Invalid contract-call transaction {}: {:?}", &tx.txid(), &e);
                     Error::ClarityError(e)
                 })?;
 
@@ -432,8 +432,9 @@ impl StacksChainState {
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).
-                let asset_map = match clarity_tx.connection().initialize_smart_contract(&contract_id, &contract_ast,
-                                                                                       |asset_map, _| { !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode, origin_account, asset_map) }) {
+                let asset_map = match clarity_tx.connection().initialize_smart_contract(
+                    &contract_id, &contract_ast, &contract_code_str,
+                    |asset_map, _| { !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode, origin_account, asset_map) }) {
                     Ok(asset_map) => {
                         Ok(asset_map)
                     },
@@ -448,7 +449,7 @@ impl StacksChainState {
                         }
                     }
                 }.map_err(|e| {
-                    warn!("Invalid smart-contract transaction {}: {:?}", &tx.txid().to_hex(), &e);
+                    warn!("Invalid smart-contract transaction {}: {:?}", &tx.txid(), &e);
                     Error::ClarityError(e)
                 })?;
                 
@@ -471,7 +472,7 @@ impl StacksChainState {
 
     /// Process a transaction.  Return the fee and amount of STX destroyed
     pub fn process_transaction<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(u64, u128), Error> {
-        test_debug!("Process transaction {}", tx.txid().to_hex());
+        test_debug!("Process transaction {}", tx.txid());
 
         StacksChainState::process_transaction_precheck(clarity_tx, tx)?;
 
@@ -485,13 +486,13 @@ impl StacksChainState {
 
         // check nonces
         if origin.nonce() != origin_account.nonce {
-            let msg = format!("Bad nonce: origin account nonce of tx {} is {} (expected {})", tx.txid().to_hex(), origin.nonce(), origin_account.nonce);
+            let msg = format!("Bad nonce: origin account nonce of tx {} is {} (expected {})", tx.txid(), origin.nonce(), origin_account.nonce);
             warn!("{}", &msg);
             return Err(Error::InvalidStacksTransaction(msg));
         }
 
         if payer.nonce() != payer_account.nonce {
-            let msg = format!("Bad nonce: payer account nonce of tx {} is {} (expected {})", tx.txid().to_hex(), payer.nonce(), payer_account.nonce);
+            let msg = format!("Bad nonce: payer account nonce of tx {} is {} (expected {})", tx.txid(), payer.nonce(), payer_account.nonce);
             warn!("{}", &msg);
             return Err(Error::InvalidStacksTransaction(msg));
         }

@@ -151,11 +151,11 @@ impl BurnchainStateTransition {
         // accepted_ops contains all accepted commits and user burns now.
         // only rejected ones remain in all_user_burns and all_block_commits
         for op in all_block_commits.values() {
-            warn!("REJECTED({}) block commit {} at {},{}: Committed to an already-consumed VRF key", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex);
+            warn!("REJECTED({}) block commit {} at {},{}: Committed to an already-consumed VRF key", op.block_height, &op.txid, op.block_height, op.vtxindex);
         }
 
         for op in all_user_burns.values() {
-            warn!("REJECTED({}) user burn support {} at {},{}: No matching block commit in this block", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex);
+            warn!("REJECTED({}) user burn support {} at {},{}: No matching block commit in this block", op.block_height, &op.txid, op.block_height, op.vtxindex);
         }
         
         accepted_ops.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
@@ -413,7 +413,7 @@ impl Burnchain {
                         Some(BlockstackOperationType::LeaderKeyRegister(op))
                     },
                     Err(e) => {
-                        warn!("Failed to parse leader key register tx {} data {}: {:?}", &burn_tx.txid().to_hex(), &to_hex(&burn_tx.data()[..]), e);
+                        warn!("Failed to parse leader key register tx {} data {}: {:?}", &burn_tx.txid(), &to_hex(&burn_tx.data()[..]), e);
                         None
                     }
                 }
@@ -424,7 +424,7 @@ impl Burnchain {
                         Some(BlockstackOperationType::LeaderBlockCommit(op))
                     },
                     Err(e) => {
-                        warn!("Failed to parse leader block commit tx {} data {}: {:?}", &burn_tx.txid().to_hex(), &to_hex(&burn_tx.data()[..]), e);
+                        warn!("Failed to parse leader block commit tx {} data {}: {:?}", &burn_tx.txid(), &to_hex(&burn_tx.data()[..]), e);
                         None
                     }
                 }
@@ -435,7 +435,7 @@ impl Burnchain {
                         Some(BlockstackOperationType::UserBurnSupport(op))
                     },
                     Err(e) => {
-                        warn!("Failed to parse user burn support tx {} data {}: {:?}", &burn_tx.txid().to_hex(), &to_hex(&burn_tx.data()[..]), e);
+                        warn!("Failed to parse user burn support tx {} data {}: {:?}", &burn_tx.txid(), &to_hex(&burn_tx.data()[..]), e);
                         None
                     }
                 }
@@ -452,21 +452,21 @@ impl Burnchain {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
                 op.check(burnchain, block_header, tx)
                     .map_err(|e| {
-                          warn!("REJECTED({}) leader key register {} at {},{}: {:?}", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex, &e);
+                          warn!("REJECTED({}) leader key register {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
                           burnchain_error::OpError(e)
                     })
             },
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
                 op.check(burnchain, block_header, tx)
                     .map_err(|e| {
-                          warn!("REJECTED({}) leader block commit {} at {},{}: {:?}", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex, &e);
+                          warn!("REJECTED({}) leader block commit {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
                           burnchain_error::OpError(e)
                     })
             },
             BlockstackOperationType::UserBurnSupport(ref op) => {
                 op.check(burnchain, block_header, tx)
                     .map_err(|e| {
-                        warn!("REJECTED({}) user burn support {} at {},{}: {:?}", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex, &e);
+                        warn!("REJECTED({}) user burn support {} at {},{}: {:?}", op.block_height, &op.txid, op.block_height, op.vtxindex, &e);
                         burnchain_error::OpError(e)
                     })
             }
@@ -476,7 +476,7 @@ impl Burnchain {
     /// Filter out the burnchain block's transactions that could be blockstack transactions.
     /// Return the ordered list of blockstack operations by vtxindex
     fn get_blockstack_transactions(block: &BurnchainBlock, block_header: &BurnchainBlockHeader) -> Vec<BlockstackOperationType> {
-        debug!("Extract Blockstack transactions from block {} {}", block.block_height(), &block.block_hash().to_hex());
+        debug!("Extract Blockstack transactions from block {} {}", block.block_height(), &block.block_hash());
         block.txs().iter().filter_map(|tx| Burnchain::classify_transaction(block_header, &tx)).collect()
     }
 
@@ -508,7 +508,7 @@ impl Burnchain {
                 BlockstackOperationType::LeaderKeyRegister(data) => {
                     if all_keys.contains(&data.public_key) {
                         // duplicate
-                        warn!("REJECTED({}) leader key register {} at {},{}: Duplicate VRF key", data.block_height, &data.txid.to_hex(), data.block_height, data.vtxindex);
+                        warn!("REJECTED({}) leader key register {} at {},{}: Duplicate VRF key", data.block_height, &data.txid, data.block_height, data.vtxindex);
                     }
                     else {
                         // first case
@@ -530,7 +530,7 @@ impl Burnchain {
     /// blockstack operations extracted from get_blockstack_transactions.
     /// Return the list of parsed blockstack operations whose check() method has returned true.
     fn check_block_ops<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, block_ops: &Vec<BlockstackOperationType>) -> Result<Vec<BlockstackOperationType>, burnchain_error> {
-        debug!("Check Blockstack transactions from block {} {}", block_header.block_height, &block_header.block_hash.to_hex());
+        debug!("Check Blockstack transactions from block {} {}", block_header.block_height, &block_header.block_hash);
         let mut ret = vec![];
 
         // classify and check each transaction
@@ -565,7 +565,7 @@ impl Burnchain {
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
         let state_transition = BurnchainStateTransition::from_block_ops(tx, parent_snapshot, this_block_ops)
             .map_err(|e| {
-                error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash.to_hex(), e);
+                error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash, e);
                 e
             })?;
 
@@ -574,7 +574,7 @@ impl Burnchain {
         // do the cryptographic sortition and pick the next winning block.
         let mut snapshot = BlockSnapshot::make_snapshot(tx, burnchain, parent_snapshot, block_header, &state_transition.burn_dist, &txids)
             .map_err(|e| {
-                error!("TRANSACTION ABORTED when taking snapshot at block {} ({}): {:?}", this_block_height, &this_block_hash.to_hex(), e);
+                error!("TRANSACTION ABORTED when taking snapshot at block {} ({}): {:?}", this_block_height, &this_block_hash, e);
                 burnchain_error::DBError(e)
             })?;
         
@@ -584,10 +584,10 @@ impl Burnchain {
 
         snapshot.index_root = index_root;
 
-        info!("OPS-HASH({}): {}", this_block_height, &snapshot.ops_hash.to_hex());
-        info!("INDEX-ROOT({}): {}", this_block_height, &snapshot.index_root.to_hex());
-        info!("SORTITION-HASH({}): {}", this_block_height, &snapshot.sortition_hash.to_hex());
-        info!("CONSENSUS({}): {}", this_block_height, &snapshot.consensus_hash.to_hex());
+        info!("OPS-HASH({}): {}", this_block_height, &snapshot.ops_hash);
+        info!("INDEX-ROOT({}): {}", this_block_height, &snapshot.index_root);
+        info!("SORTITION-HASH({}): {}", this_block_height, &snapshot.sortition_hash);
+        info!("CONSENSUS({}): {}", this_block_height, &snapshot.consensus_hash);
         Ok(snapshot)
     }
 
@@ -599,20 +599,20 @@ impl Burnchain {
     /// * commit the results of the sortition
     /// Returns the BlockSnapshot created from this block.
     pub fn process_block_ops<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, blockstack_txs: &Vec<BlockstackOperationType>) -> Result<BlockSnapshot, burnchain_error> {
-        info!("BEGIN({}) block ({},{})", block_header.block_height, block_header.block_hash.to_hex(), block_header.parent_block_hash.to_hex());
-        debug!("Append {} operation(s) from block {} {}", blockstack_txs.len(), block_header.block_height, &block_header.block_hash.to_hex());
+        info!("BEGIN({}) block ({},{})", block_header.block_height, block_header.block_hash, block_header.parent_block_hash);
+        debug!("Append {} operation(s) from block {} {}", blockstack_txs.len(), block_header.block_height, &block_header.block_hash);
 
         // check each transaction, and filter out only the ones that are valid 
         let block_ops = Burnchain::check_block_ops(tx, burnchain, block_header, blockstack_txs)
             .map_err(|e| {
-                error!("TRANSACTION ABORTED when checking block {} ({}): {:?}", block_header.block_height, &block_header.block_hash.to_hex(), e);
+                error!("TRANSACTION ABORTED when checking block {} ({}): {:?}", block_header.block_height, &block_header.block_hash, e);
                 e
             })?;
 
         // process them 
         let snapshot = Burnchain::process_checked_block_ops(tx, burnchain, parent_snapshot, block_header, &block_ops)
             .map_err(|e| {
-                error!("TRANSACTION ABORTED when snapshotting block {} ({}): {:?}", block_header.block_height, &block_header.block_hash.to_hex(), e);
+                error!("TRANSACTION ABORTED when snapshotting block {} ({}): {:?}", block_header.block_height, &block_header.block_hash, e);
                 e
             })?;
 
@@ -625,7 +625,7 @@ impl Burnchain {
     /// Returns the burnchain block header (with all fork information filled in), as well as the
     /// chain tip to which it will be attached.
     pub fn get_burnchain_block_attachment_info<'a>(tx: &mut BurnDBTx<'a>, block: &BurnchainBlock) -> Result<(BurnchainBlockHeader, BlockSnapshot), burnchain_error> {
-        debug!("Get header for block {} {}", block.block_height(), &block.block_hash().to_hex());
+        debug!("Get header for block {} {}", block.block_height(), &block.block_hash());
 
         let parent_snapshot = match BurnDB::get_block_snapshot(tx, &block.parent_block_hash()).expect("FATAL: DB failed to query snapshot") {
             Some(sn) => {
@@ -667,7 +667,7 @@ impl Burnchain {
 
     /// Top-level entry point to check and process a block.
     pub fn process_block(db: &mut BurnDB, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<BlockSnapshot, burnchain_error> {
-        debug!("Process block {} {}", block.block_height(), &block.block_hash().to_hex());
+        debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
         let mut tx = db.tx_begin()
             .expect("FATAL: failed to begin Sqlite transaction");

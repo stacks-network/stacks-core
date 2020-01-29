@@ -21,10 +21,12 @@ use self::type_checker::TypeChecker;
 
 #[cfg(test)]
 pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+    use vm::database::MemoryBackingStore;
     use vm::ast::parse;
     let contract_identifier = QualifiedContractIdentifier::transient();
     let mut contract = parse(&contract_identifier, snippet).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
+    let mut marf = MemoryBackingStore::new();
+    let mut analysis_db = marf.as_analysis_db();
     type_check(&QualifiedContractIdentifier::transient(), &mut contract, &mut analysis_db, false)
         .map(|x| {
              // return the first type result of the type checker

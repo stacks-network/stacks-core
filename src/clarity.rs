@@ -21,8 +21,8 @@ use util::db::FromColumn;
 
 use vm::ast::parse;
 use vm::contexts::OwnedEnvironment;
-use vm::database::{ClarityDatabase, SqliteConnection, KeyValueStorage,
-                   MarfedKV, memory_db, sqlite_marf};
+use vm::database::{ClarityDatabase, SqliteConnection,
+                   MarfedKV, MemoryBackingStore, NULL_HEADER_DB};
 use vm::errors::{InterpreterResult};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::analysis::{AnalysisDatabase, run_analysis};
@@ -49,8 +49,6 @@ fn print_usage(invoked_by: &str) {
 where command is one of:
 
   initialize         to initialize a local VM state database.
-  mine_block         to simulated mining a new block.
-  get_block_height   to print the simulated block height.
   check              to typecheck a potential contract definition.
   launch             to launch a initialize a new contract in the local state database.
   eval               to evaluate (in read-only mode) a program in a given contract context.
@@ -58,7 +56,6 @@ where command is one of:
   repl               to typecheck and evaluate expressions in a stdin/stdout loop.
   execute            to execute a public function of a defined contract.
   generate_address   to generate a random Stacks public address for testing purposes.
-
 ", invoked_by);
     panic_test!()
 }
@@ -77,10 +74,6 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
         eprintln!("{}", msg);
         panic_test!();
     })
-}
-
-fn clarity_db<S: KeyValueStorage>(marf_kv: &mut MarfedKV<S>) -> ClarityDatabase {
-    ClarityDatabase::new(Box::new(marf_kv))
 }
 
 fn create_or_open_db(path: &String) -> Connection {
@@ -139,7 +132,7 @@ fn advance_cli_chain_tip(path: &String) -> (BlockHeaderHash, BlockHeaderHash) {
     let next_block_hash  = friendly_expect_opt(BlockHeaderHash::from_bytes(&random_bytes),
                                               "Failed to generate random block header.");
 
-    friendly_expect(tx.execute("INSERT INTO cli_chain_tips (block_hash) VALUES (?1)", &[&next_block_hash.to_hex() as &dyn ToSql]), 
+    friendly_expect(tx.execute("INSERT INTO cli_chain_tips (block_hash) VALUES (?1)", &[&next_block_hash]), 
                     &format!("FATAL: failed to store next block hash in '{}'", path));
 
     friendly_expect(tx.commit(), &format!("FATAL: failed to commit new chain tip to '{}'", path));
@@ -149,9 +142,8 @@ fn advance_cli_chain_tip(path: &String) -> (BlockHeaderHash, BlockHeaderHash) {
 
 // This function is pretty weird! But it helps cut down on
 //   repeating a lot of block initialization for the simulation commands.
-fn in_block<F,R,S>(db_path: &String, mut marf_kv: MarfedKV<S>, f: F) -> R
-where F: FnOnce(MarfedKV<S>) -> (MarfedKV<S>, R),
-      S: KeyValueStorage {
+fn in_block<F,R>(db_path: &String, mut marf_kv: MarfedKV, f: F) -> R
+where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
 
     // store CLI data alongside the MARF database state
     let mut cli_db_path_buf = PathBuf::from(db_path);
@@ -165,15 +157,14 @@ where F: FnOnce(MarfedKV<S>) -> (MarfedKV<S>, R),
     let (from, to) = advance_cli_chain_tip(&cli_db_path);
     marf_kv.begin(&from, &to);
     let (mut marf_return, result) = f(marf_kv);
-    marf_return.commit();
+    marf_return.commit_to(&to);
     result
 }
 
 // like in_block, but does _not_ advance the chain tip.  Used for read-only queries against the
 // chain tip itself.
-fn at_chaintip<F,R,S>(db_path: &String, mut marf_kv: MarfedKV<S>, f: F) -> R
-where F: FnOnce(MarfedKV<S>) -> (MarfedKV<S>, R),
-      S: KeyValueStorage {
+fn at_chaintip<F,R>(db_path: &String, mut marf_kv: MarfedKV, f: F) -> R
+where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
 
     // store CLI data alongside the MARF database state
     let mut cli_db_path_buf = PathBuf::from(db_path);
@@ -205,9 +196,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 panic_test!();
             }
 
-            let marf_kv = friendly_expect(sqlite_marf(&args[1], None), "Failed to open VM database.");
+            let marf_kv = friendly_expect(MarfedKV::open(&args[1], None), "Failed to open VM database.");
             in_block(&args[1], marf_kv, |mut kv| {
-                { let mut db = clarity_db(&mut kv);
+                { let mut db = kv.as_clarity_db(&NULL_HEADER_DB);
                   db.initialize() };
                 (kv, ())
             });
@@ -236,19 +227,19 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let contract_analysis = {
                 if args.len() >= 3 {
                     // use a persisted marf
-                    let marf_kv = friendly_expect(sqlite_marf(&args[2], None), "Failed to open VM database.");
+                    let marf_kv = friendly_expect(MarfedKV::open(&args[2], None), "Failed to open VM database.");
                     let result = at_chaintip(
                         &args[2],
                         marf_kv,
                         |mut marf| {
-                            let result = { let mut db = AnalysisDatabase::new(Box::new(&mut marf));
+                            let result = { let mut db = AnalysisDatabase::new(&mut marf);
                                            run_analysis(&contract_id, &mut ast, &mut db, false) };
                             (marf, result)
                         });
                     result
                 } else {
-                    let memory = friendly_expect(SqliteConnection::memory(), "Could not open in-memory analysis DB");
-                    let mut db = AnalysisDatabase::new(Box::new(memory));
+                    let mut analysis_marf = MemoryBackingStore::new();
+                    let mut db = analysis_marf.as_analysis_db();
                     run_analysis(&contract_id, &mut ast, &mut db, false)
                 }
             }.unwrap_or_else(|e| {
@@ -266,10 +257,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
         },
         "repl" => {
-            let mut vm_env = OwnedEnvironment::memory();
+            let mut marf = MemoryBackingStore::new();
+            let mut vm_env = OwnedEnvironment::new(marf.as_clarity_db());
             let mut exec_env = vm_env.get_exec_environment(None);
 
-            let mut analysis_db = AnalysisDatabase::memory();
+            let mut analysis_marf = MemoryBackingStore::new();
+            let mut analysis_db = analysis_marf.as_analysis_db();
 
             let contract_id = QualifiedContractIdentifier::transient();
 
@@ -327,9 +320,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 buffer
             };
 
-            let mut analysis_db = AnalysisDatabase::memory();
+            let mut analysis_marf = MemoryBackingStore::new();
+            let mut analysis_db = analysis_marf.as_analysis_db();
 
-            let mut vm_env = OwnedEnvironment::memory();
+            let mut marf = MemoryBackingStore::new();
+            let mut vm_env = OwnedEnvironment::new(marf.as_clarity_db());
+ 
             
             let contract_id = QualifiedContractIdentifier::transient(); 
             
@@ -382,10 +378,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[1]), "Failed to parse contract identifier.");
 
-            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
+            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = ClarityDatabase::new(Box::new(&mut marf));
+                    let db = marf.as_clarity_db(&NULL_HEADER_DB);
                     let mut vm_env = OwnedEnvironment::new(db);
                     vm_env.get_exec_environment(None)
                         .eval_read_only(&contract_identifier, &content)
@@ -416,13 +412,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                                                            &format!("Error reading file: {}", args[2]));
 
             let mut ast = friendly_expect(parse(&contract_identifier, &contract_content), "Failed to parse program.");
-            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
+            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
             let result = in_block(
                 vm_filename,
                 marf_kv,
                 |mut marf| {
                     let analysis_result = { 
-                        let mut db = AnalysisDatabase::new(Box::new(&mut marf));
+                        let mut db = AnalysisDatabase::new(&mut marf);
                         
                         run_analysis(&contract_identifier, &mut ast, &mut db, true)
                     };
@@ -431,7 +427,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         Err(e) => (marf, Err(e)),
                         Ok(analysis) => {
                             let result = {
-                                let db = ClarityDatabase::new(Box::new(&mut marf));
+                                let db = marf.as_clarity_db(&NULL_HEADER_DB);
                                 let mut vm_env = OwnedEnvironment::new(db);
                                 vm_env.initialize_contract(contract_identifier, &contract_content)
                             };
@@ -467,7 +463,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 panic_test!();
             }
             let vm_filename = &args[1];
-            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
+            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
 
             let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[2]), "Failed to parse contract identifier.");
 
@@ -501,7 +497,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
-                    let db = ClarityDatabase::new(Box::new(&mut marf));
+                    let db = marf.as_clarity_db(&NULL_HEADER_DB);
                     let mut vm_env = OwnedEnvironment::new(db);
                     vm_env.execute_transaction(Value::Principal(sender), contract_identifier, &tx_name, &arguments) };
                 (marf, result)
@@ -525,51 +521,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             }
         },
-        // TODO :: need to rework a bunch of how this simulation works.
-        //         get block info items will need to consult the marf
-        "mine_block" => {
-            // TODO: add optional args for specifying timestamps and number of blocks to mine.
-            if args.len() < 3 {
-                eprintln!("Usage: {} {} [block time] [vm-state.db]", invoked_by, args[0]);
-                panic_test!();
-            }
-
-            let block_time: u64 = friendly_expect(args[1].parse(), "Failed to parse block time");
-
-            let db = match SqliteConnection::open(&args[2]) {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n{}", error);
-                    panic_test!();
-                }
-            };
-
-            let mut db = ClarityDatabase::new(Box::new(db));
-            db.begin();
-            db.sim_mine_block_with_time(block_time);
-            db.commit();
-            println!("Simulated block mine!");
-        },
-        "get_block_height" => {
-            if args.len() < 2 {
-                eprintln!("Usage: {} {} [vm-state.db]", invoked_by, args[0]);
-                panic_test!();
-            }
-
-            let db = match SqliteConnection::open(&args[1]) {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n{}", error);
-                    panic_test!();
-                }
-            };
-
-            let mut db = ClarityDatabase::new(Box::new(db));
-            db.begin();
-            let blockheight = db.get_simmed_block_height();
-            println!("Simulated block height: \n{}", blockheight);
-            db.roll_back();
-        },
         _ => {
             print_usage(invoked_by)
         }
@@ -585,6 +536,9 @@ mod test {
         
         eprintln!("initialize");
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
+
+        eprintln!("check tokens");
+        invoke_command("test", &["check".to_string(), "sample-programs/tokens.clar".to_string()]);
         
         eprintln!("check tokens");
         invoke_command("test", &["check".to_string(), "sample-programs/tokens.clar".to_string(), db_name.clone()]);

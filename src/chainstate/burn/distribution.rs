@@ -93,7 +93,7 @@ impl BurnSamplePoint {
             match key_index.get(&(bc.key_block_ptr as u64, bc.key_vtxindex as u32)) {
                 None => {
                     panic!("No leader key for block commitment {} at ({},{}) -- points to ({},{})",
-                            &bc.txid.to_hex(), bc.block_height, bc.vtxindex, bc.key_block_ptr, bc.key_vtxindex);
+                            &bc.txid, bc.block_height, bc.vtxindex, bc.key_block_ptr, bc.key_vtxindex);
                 },
                 Some(_) => {}
             }
@@ -108,7 +108,7 @@ impl BurnSamplePoint {
             match key_index.get(&(bc.key_block_ptr as u64, bc.key_vtxindex as u32)) {
                 None => {
                     // leader key already consumed; drop this commit
-                    warn!("VRF public key at {},{} already consumed; ignoring block commit {},{} ({})", bc.key_block_ptr, bc.key_vtxindex, bc.block_height, bc.vtxindex, bc.txid.to_hex());
+                    warn!("VRF public key at {},{} already consumed; ignoring block commit {},{} ({})", bc.key_block_ptr, bc.key_vtxindex, bc.block_height, bc.vtxindex, bc.txid);
                     continue;
                 },
                 Some(i) => {
@@ -143,7 +143,7 @@ impl BurnSamplePoint {
             let block_height = block_candidates[0].block_height;
             for i in 1..block_candidates.len() {
                 if block_candidates[i].block_height != block_height {
-                    panic!("FATAL ERROR: block commit {} is at ({},{}) not {}", &block_candidates[i].txid.to_hex(), block_candidates[i].block_height, block_candidates[i].vtxindex, block_height);
+                    panic!("FATAL ERROR: block commit {} is at ({},{}) not {}", &block_candidates[i].txid, block_candidates[i].block_height, block_candidates[i].vtxindex, block_height);
                 }
             }
 
@@ -158,7 +158,7 @@ impl BurnSamplePoint {
             let block_height = user_burns[0].block_height;
             for i in 0..user_burns.len() {
                 if user_burns[i].block_height != block_height {
-                    panic!("FATAL ERROR: user burn {} is at ({},{}) not {}", &user_burns[i].txid.to_hex(), user_burns[i].block_height, user_burns[i].vtxindex, block_height);
+                    panic!("FATAL ERROR: user burn {} is at ({},{}) not {}", &user_burns[i].txid, user_burns[i].block_height, user_burns[i].vtxindex, block_height);
                 }
             }
             
@@ -198,8 +198,8 @@ impl BurnSamplePoint {
                 },
                 None => {
                     info!("User burn {} ({},{}) of {} for key={}, block={} has no matching block commit",
-                          &user_burn.txid.to_hex(), user_burn.block_height, user_burn.vtxindex, user_burn.burn_fee,
-                          user_burn.public_key.to_hex(), &user_burn.block_header_hash_160.to_hex());
+                          &user_burn.txid, user_burn.block_height, user_burn.vtxindex, user_burn.burn_fee,
+                          user_burn.public_key.to_hex(), &user_burn.block_header_hash_160);
                     continue;
                 }
             };
@@ -242,7 +242,7 @@ impl BurnSamplePoint {
         }
 
         for i in 0..burn_sample.len() {
-            test_debug!("Range for block {}: {} / {}: {} - {}", burn_sample[i].candidate.block_header_hash.to_hex(), burn_sample[i].burns, total_burns_u128, burn_sample[i].range_start, burn_sample[i].range_end);
+            test_debug!("Range for block {}: {} / {}: {} - {}", burn_sample[i].candidate.block_header_hash, burn_sample[i].burns, total_burns_u128, burn_sample[i].range_start, burn_sample[i].range_end);
         }
     }
 

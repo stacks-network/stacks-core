@@ -1,23 +1,25 @@
 use std::collections::{VecDeque, HashMap};
 use std::convert::TryFrom;
+use rusqlite::OptionalExtension;
 
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, StandardPrincipalData, QualifiedContractIdentifier, NONE};
 
+use chainstate::stacks::db::StacksHeaderInfo;
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
 
-use util::hash::Sha256Sum;
+use util::hash::{Sha256Sum, Sha512Trunc256Sum};
+use vm::database::{MarfedKV, ClarityBackingStore};
 use vm::database::structures::{
     FungibleTokenMetadata, NonFungibleTokenMetadata, ContractMetadata,
     DataMapMetadata, DataVariableMetadata, ClaritySerializable, SimmedBlock,
-    ClarityDeserializable,
+    ClarityDeserializable
 };
-use vm::database::{
-    KeyValueStorage, RollbackWrapper
-};
-
+use vm::database::RollbackWrapper;
+use util::db::{DBConn, FromRow};
+use chainstate::stacks::StacksAddress;
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
 
@@ -40,32 +42,100 @@ pub enum StoreType {
 }
 
 pub struct ClarityDatabase<'a> {
-    pub store: RollbackWrapper<'a>
+    pub store: RollbackWrapper<'a>,
+    headers_db: &'a dyn HeadersDB,
+}
+
+pub trait HeadersDB {
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash>;
+    fn get_burn_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash>;
+    fn get_vrf_seed_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed>;
+    fn get_burn_block_time_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<u64>;
+    fn get_miner_address(&self, id_bhh: &BlockHeaderHash) -> Option<StacksAddress>;
+}
+
+fn get_stacks_header_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<StacksHeaderInfo> {
+    conn.query_row("SELECT * FROM block_headers WHERE index_block_hash = ?",
+                   [id_bhh].iter(),
+                   |x| StacksHeaderInfo::from_row(x).expect("Bad stacks header info in database"))
+        .optional()
+        .expect("Unexpected SQL failure querying block header table")
+}
+
+impl HeadersDB for DBConn {
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| x.anchored_header.block_hash())
+    }
+    
+    fn get_burn_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| x.burn_header_hash)
+    }
+
+    fn get_burn_block_time_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<u64> {
+        panic!("Block time data not available in burn header db")
+    }
+
+    fn get_vrf_seed_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
+    }
+
+    fn get_miner_address(&self, id_bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
+        panic!("Miner address data not available in burn header db")
+    }
+}
+
+impl HeadersDB for &dyn HeadersDB {
+    fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+        (*self).get_stacks_block_header_hash_for_block(id_bhh)
+    }
+    fn get_burn_header_hash_for_block(&self, bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
+        (*self).get_burn_header_hash_for_block(bhh)
+    }
+    fn get_vrf_seed_for_block(&self, bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+        (*self).get_vrf_seed_for_block(bhh)
+    }
+    fn get_burn_block_time_for_block(&self, bhh: &BlockHeaderHash) -> Option<u64> {
+        (*self).get_burn_block_time_for_block(bhh)
+    }
+    fn get_miner_address(&self, bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
+        (*self).get_miner_address(bhh)
+    }
+}
+
+pub struct NullHeadersDB {}
+
+pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
+
+impl HeadersDB for NullHeadersDB {
+    fn get_burn_header_hash_for_block(&self, _bhh: &BlockHeaderHash) -> Option<BurnchainHeaderHash> {
+        None
+    }
+    fn get_vrf_seed_for_block(&self, _bhh: &BlockHeaderHash) -> Option<VRFSeed> {
+        None
+    }
+    fn get_stacks_block_header_hash_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+        None
+    }
+    fn get_burn_block_time_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<u64> {
+        None
+    }
+    fn get_miner_address(&self, _id_bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
+        None
+    }
 }
 
 impl <'a> ClarityDatabase <'a> {
-    pub fn new(store: Box<dyn KeyValueStorage + 'a>) -> ClarityDatabase<'a> {
+    pub fn new(store: &'a mut dyn ClarityBackingStore, headers_db: &'a dyn HeadersDB) -> ClarityDatabase<'a> {
         ClarityDatabase {
-            store: RollbackWrapper::new(store)
+            store: RollbackWrapper::new(store),
+            headers_db
         }
     }
 
     pub fn initialize(&mut self) {
-        self.begin();
-
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let time_now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs();
-
-        self.set_simmed_block_height(0);
-        for i in 0..20 {
-            let block_time = u64::try_from(time_now - ((20 - i) * SIMMED_BLOCK_TIME)).unwrap();
-            self.sim_mine_block_with_time(block_time);
-        }
-
-        self.commit();
     }
 
     pub fn begin(&mut self) {
@@ -102,130 +172,118 @@ impl <'a> ClarityDatabase <'a> {
         format!("vm::{}::{}::{}", contract_identifier, data as u8, var_name)
     }
 
+    pub fn make_metadata_key(data: StoreType, var_name: &str) -> String {
+        format!("vm-metadata::{}::{}", data as u8, var_name)
+    }
+
     pub fn make_key_for_quad(contract_identifier: &QualifiedContractIdentifier, data: StoreType, var_name: &str, key_value: String) -> String {
         format!("vm::{}::{}::{}::{}", contract_identifier, data as u8, var_name, key_value)
     }
 
-    pub fn make_contract_key(contract_identifier: &QualifiedContractIdentifier) -> String {
-        format!("vm::{}::{}", contract_identifier, StoreType::Contract as u8)
+    pub fn insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
+        let hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
+        self.store.prepare_for_contract_metadata(contract_identifier, hash);
+        Ok(())
+    }
+
+    fn insert_metadata <T: ClaritySerializable> (&mut self, contract_identifier: &QualifiedContractIdentifier, key: &str, data: &T) {
+        if self.store.has_metadata_entry(contract_identifier, key) {
+            panic!("Metadata entry '{}' already exists for contract: {}", key, contract_identifier);
+        } else {
+            self.store.insert_metadata(contract_identifier, key, &data.serialize());
+        }
+    }
+
+    fn fetch_metadata <T> (&mut self, contract_identifier: &QualifiedContractIdentifier, key: &str) -> Result<Option<T>>
+    where T: ClarityDeserializable<T> {
+        self.store.get_metadata(contract_identifier, key)
+            .map(|x_opt| x_opt.map(|x| T::deserialize(&x)))
     }
 
     pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: Contract) {
-        let key = ClarityDatabase::make_contract_key(contract_identifier);
-        if self.store.has_entry(&key) {
-            panic!("Contract already exists {}", contract_identifier);
-        } else {
-            self.put(&key, &contract);
-        }
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
+       self.insert_metadata(contract_identifier, &key, &contract);
     }
 
     pub fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Contract> {
-        let key = ClarityDatabase::make_contract_key(contract_identifier);
-        self.get(&key)
-            .ok_or_else(|| { CheckErrors::NoSuchContract(contract_identifier.to_string()).into() })
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
+        let data = self.fetch_metadata(contract_identifier, &key)?
+            .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
+        Ok(data)
+
     }
 }
 
-// Simulating blocks
+// Get block information
 
 impl <'a> ClarityDatabase <'a> {
-    fn get_simmed_block(&mut self, block_height: u64) -> SimmedBlock {
-        let key = ClarityDatabase::make_key_for_trip(
-            &QualifiedContractIdentifier::transient(), StoreType::SimmedBlock, &block_height.to_string());
-        self.get(&key)
-            .expect("Failed to obtain the block for the given block height.")
-    }
-    
-    pub fn get_simmed_block_height(&mut self) -> u64 {
-        let key = ClarityDatabase::make_key_for_trip(
-            &QualifiedContractIdentifier::transient(), StoreType::SimmedBlockHeight, ":dummy:");
-        self.get(&key)
-            .expect("Failed to obtain block height.")
+    pub fn get_index_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
+        self.store.get_block_header_hash(block_height)
+        // the caller is responsible for ensuring that the block_height given
+        //  is < current_block_height, so this should _always_ return a value.
+            .expect("Block header hash must return for provided block height")
     }
 
-    pub fn get_simmed_block_time(&mut self, block_height: u64) -> u64 {
-        self.get_simmed_block(block_height)
-            .block_time
-    }
-    pub fn get_simmed_block_header_hash(&mut self, block_height: u64) -> BlockHeaderHash {
-        BlockHeaderHash::from_bytes(&self.get_simmed_block(block_height)
-                                    .block_header_hash).unwrap()
-    }
-    pub fn get_simmed_burnchain_block_header_hash(&mut self, block_height: u64) -> BurnchainHeaderHash {
-        BurnchainHeaderHash::from_bytes(&self.get_simmed_block(block_height)
-                                        .burn_chain_header_hash).unwrap()
-    }
-    pub fn get_simmed_block_vrf_seed(&mut self, block_height: u64) -> VRFSeed {
-        VRFSeed::from_bytes(&self.get_simmed_block(block_height).vrf_seed).unwrap()
+    pub fn get_current_block_height(&mut self) -> u32 {
+        self.store.get_current_block_height()
     }
 
-    fn set_simmed_block_height(&mut self, block_height: u64) {
-        let block_height_key = ClarityDatabase::make_key_for_trip(
-            &QualifiedContractIdentifier::transient(), StoreType::SimmedBlockHeight, ":dummy:");
-        self.put(&block_height_key, &block_height);
+    pub fn get_block_header_hash(&mut self, block_height: u32) -> BlockHeaderHash {
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db.get_stacks_block_header_hash_for_block(&id_bhh)
+            .expect("Failed to get block data.")
     }
 
-    pub fn sim_mine_block_with_time(&mut self, block_time: u64) {
-        let current_height = self.get_simmed_block_height();
-
-        let block_height = current_height + 1;
-
-        let key = ClarityDatabase::make_key_for_trip(
-            &QualifiedContractIdentifier::transient(), StoreType::SimmedBlock, &block_height.to_string());
-
-        let mut vrf_seed = [0u8; 32];
-        vrf_seed[0] = 1;
-        vrf_seed[31] = block_height as u8;
-
-        let mut block_header_hash = [0u8; 32];
-        block_header_hash[0] = 2;
-        block_header_hash[31] = block_height as u8;
-
-        let mut burn_chain_header_hash = [0u8; 32];
-        burn_chain_header_hash[0] = 3;
-        burn_chain_header_hash[31] = block_height as u8;
-
-        let block_data = SimmedBlock { block_height, vrf_seed, block_header_hash, burn_chain_header_hash, block_time };
-
-        self.put(&key, &block_data);
-        self.set_simmed_block_height(block_height);
+    pub fn get_block_time(&mut self, block_height: u32) -> u64 {
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db.get_burn_block_time_for_block(&id_bhh)
+            .expect("Failed to get block data.")
     }
 
-    pub fn sim_mine_block(&mut self) {
-        let current_height = self.get_simmed_block_height();
-        let current_time = self.get_simmed_block_time(current_height);
-
-        let block_time = current_time.checked_add(SIMMED_BLOCK_TIME)
-            .expect("Integer overflow while increasing simulated block time");
-        self.sim_mine_block_with_time(block_time);
+    pub fn get_burnchain_block_header_hash(&mut self, block_height: u32) -> BurnchainHeaderHash {
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db.get_burn_header_hash_for_block(&id_bhh)
+            .expect("Failed to get block data.")
     }
 
-    pub fn sim_mine_blocks(&mut self, count: u32) {
-        for i in 0..count {
-            self.sim_mine_block();
-        }
+    pub fn get_block_vrf_seed(&mut self, block_height: u32) -> VRFSeed {
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db.get_vrf_seed_for_block(&id_bhh)
+            .expect("Failed to get block data.")
     }
+
+    pub fn get_miner_address(&mut self, block_height: u32) -> StandardPrincipalData {
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db.get_miner_address(&id_bhh)
+            .expect("Failed to get block data.")
+            .into()
+    }
+}
+
+// this is used so that things like load_map, load_var, load_nft, etc.
+//   will throw NoSuchFoo errors instead of NoSuchContract errors.
+fn map_no_contract_as_none <T> (res: Result<Option<T>>) -> Result<Option<T>> {
+    res.or_else(|e| match e {
+        Error::Unchecked(CheckErrors::NoSuchContract(_)) => Ok(None),
+        x => Err(x)
+    })
 }
 
 // Variable Functions...
 impl <'a> ClarityDatabase <'a> {
     pub fn create_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str, value_type: TypeSignature) {
         let variable_data = DataVariableMetadata { value_type };
+        let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::VariableMeta, variable_name);
-
-        assert!(!self.store.has_entry(&key), format!("Clarity VM attempted to initialize existing variable '{}'", variable_name));
-
-        self.put(&key, &variable_data);
+        self.insert_metadata(contract_identifier, &key, &variable_data)
     }
 
     fn load_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str) -> Result<DataVariableMetadata> {
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::VariableMeta, variable_name);
+        let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
-        let data = self.get(&key)
-            .ok_or(CheckErrors::NoSuchDataVariable(variable_name.to_string()))?;
-
-        Ok(data)
+        map_no_contract_as_none(
+            self.fetch_metadata(contract_identifier, &key))?
+            .ok_or(CheckErrors::NoSuchDataVariable(variable_name.to_string()).into())
     }
 
     pub fn set_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str, value: Value) -> Result<Value> {
@@ -263,20 +321,16 @@ impl <'a> ClarityDatabase <'a> {
 
         let data = DataMapMetadata { key_type, value_type };
 
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::DataMapMeta, map_name);
-
-        assert!(!self.store.has_entry(&key), "Clarity VM attempted to initialize existing data map");
-
-        self.store.put(&key, &data.serialize());
+        let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
+        self.insert_metadata(contract_identifier, &key, &data)
     }
 
     fn load_map(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str) -> Result<DataMapMetadata> {
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::DataMapMeta, map_name);
+        let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
 
-        let data = self.get(&key)
-            .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
-
-        Ok(data)
+        map_no_contract_as_none(
+            self.fetch_metadata(contract_identifier, &key))?
+            .ok_or(CheckErrors::NoSuchMap(map_name.to_string()).into())
     }
 
     pub fn fetch_entry(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str, key_value: &Value) -> Result<Value> {
@@ -355,31 +409,30 @@ impl <'a> ClarityDatabase <'a> {
 
 impl <'a> ClarityDatabase <'a> {
     pub fn create_fungible_token(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, total_supply: &Option<u128>) {
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::FungibleTokenMeta, token_name);
         let data = FungibleTokenMetadata { total_supply: total_supply.clone() };
 
-        assert!(!self.store.has_entry(&key), "Clarity VM attempted to initialize existing token");
+        let key = ClarityDatabase::make_metadata_key(StoreType::FungibleTokenMeta, token_name);
+        self.insert_metadata(contract_identifier, &key, &data);
 
+        // total supply _is_ included in the consensus hash
         if total_supply.is_some() {
             let supply_key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::CirculatingSupply, token_name);
             self.put(&supply_key, &(0 as u128));
         }
-
-        self.put(&key, &data);
     }
 
     fn load_ft(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str) -> Result<FungibleTokenMetadata> {
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::FungibleTokenMeta, token_name);
+        let key = ClarityDatabase::make_metadata_key(StoreType::FungibleTokenMeta, token_name);
 
-        let data = self.get(&key)
-            .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?;
-
-        Ok(data)
+        map_no_contract_as_none(
+            self.fetch_metadata(contract_identifier, &key))?
+            .ok_or(CheckErrors::NoSuchFT(token_name.to_string()).into())
     }
 
     pub fn create_non_fungible_token(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, key_type: &TypeSignature) {
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::NonFungibleTokenMeta, token_name);
         let data = NonFungibleTokenMetadata { key_type: key_type.clone() };
+        let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
+        self.insert_metadata(contract_identifier, &key, &data);
 
         assert!(!self.store.has_entry(&key), "Clarity VM attempted to initialize existing token");
 
@@ -387,12 +440,11 @@ impl <'a> ClarityDatabase <'a> {
     }
 
     fn load_nft(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str) -> Result<NonFungibleTokenMetadata> {
-        let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::NonFungibleTokenMeta, token_name);
+        let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
 
-        let data = self.get(&key)
-            .ok_or(CheckErrors::NoSuchNFT(token_name.to_string()))?;
-
-        Ok(data)
+        map_no_contract_as_none(
+            self.fetch_metadata(contract_identifier, &key))?
+            .ok_or(CheckErrors::NoSuchNFT(token_name.to_string()).into())
     }
 
     pub fn checked_increase_token_supply(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, amount: u128) -> Result<()> {
