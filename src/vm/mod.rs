@@ -123,7 +123,6 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
         List(ref children) => {
             let (function_variable, rest) = children.split_first()
                 .ok_or(CheckErrors::NonFunctionApplication)?;
-            println!("===> {:?}", function_variable);
             let function_name = function_variable.match_atom()
                 .ok_or(CheckErrors::BadFunctionName)?;
             let f = lookup_function(&function_name, env)?;
@@ -188,14 +187,12 @@ fn eval_all (expressions: &[SymbolicExpression],
                 // todo(ludo)
             },
             DefineResult::NoDefine => {
-                println!("HERE");
                 // not a define function, evaluate normally.
                 global_context.execute(|global_context| {
                     let mut call_stack = CallStack::new();
                     let mut env = Environment::new(
                         global_context, contract_context, &mut call_stack, None, None);
                     
-                    println!("===> {:?}", exp);
                     let result = eval(exp, &mut env, &context)?;
                     last_executed = Some(result);
                     Ok(())

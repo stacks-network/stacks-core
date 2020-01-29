@@ -233,12 +233,10 @@ impl <'a> DefineFunctionsParsed <'a> {
             },
             DefineFunctions::UseTrait => {
                 check_argument_count(2, args)?;
-                println!("1");
                 let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-                println!("2");
                 match &args[1].expr {
                     LiteralValue(Value::Field(ref field)) => DefineFunctionsParsed::UseTrait { 
-                        name: &field.name, 
+                        name: &name, 
                         trait_identifier: &field 
                     },
                     _ => return Err(CheckErrors::ExpectedTraitIdentifier.into())

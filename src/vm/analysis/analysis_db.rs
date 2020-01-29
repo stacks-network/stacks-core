@@ -82,7 +82,7 @@ impl <'a> AnalysisDatabase <'a> {
         if self.store.has_metadata_entry(contract_identifier, key) {
             return Err(CheckErrors::ContractAlreadyExists(contract_identifier.to_string()).into())
         }
-        println!("INSERTING {:?}", contract);
+
         self.store.insert_metadata(contract_identifier, key, &contract.serialize());
         Ok(())
     }

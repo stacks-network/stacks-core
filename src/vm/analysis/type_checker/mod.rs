@@ -509,13 +509,11 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
     pub fn check_method_from_trait(&mut self, trait_name: &ClarityName, func_name: &ClarityName, args: &[SymbolicExpression], context: &TypingContext) -> CheckResult<TypeSignature> {
 
-        println!("1");
         let func_signature = {
             let trait_reference = context.traits_references.get(trait_name).ok_or(CheckErrors::ExpectedName)?; // todo(ludo): fix error type
             let trait_signature = self.contract_context.get_trait(trait_reference).ok_or(CheckErrors::ExpectedName)?; // todo(ludo): fix error type
             trait_signature.get(func_name).ok_or(CheckErrors::ExpectedName)?
         };
-        println!("2");
 
         let expected_args = func_signature.args.clone();
         let return_type = func_signature.returns.clone();

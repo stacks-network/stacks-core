@@ -207,6 +207,10 @@ impl ContractContext {
         for (name, nft_type) in self.non_fungible_tokens.drain() {
             contract_analysis.add_non_fungible_token(name.into(), nft_type);
         }
+
+        for (name, trait_signature) in self.traits.drain() {
+            contract_analysis.add_defined_trait(name, trait_signature);
+        }
     }
 }
 

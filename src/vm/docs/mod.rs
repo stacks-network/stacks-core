@@ -1198,7 +1198,6 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
         TransferAsset => make_for_special(&ASSET_TRANSFER, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
-        PrincipalOf => make_for_special(&PRINCIPAL_OF_API, name),
     }
 }
 
