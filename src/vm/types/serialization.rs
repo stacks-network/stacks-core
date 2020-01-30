@@ -395,10 +395,12 @@ impl Value {
                 contract_identifier.name.serialize_write(w)?;
             },
             Field(field_data) => {
-                field_data.name.serialize_write(w)? // todo(ludo): add contract_identifier
+                field_data.contract_identifier.issuer.serialize_write(w)?;
+                field_data.contract_identifier.name.serialize_write(w)?;
+                field_data.name.serialize_write(w)?
             },
             TraitReference(name) => {
-                name.serialize_write(w)? // todo(ludo): add contract_identifier
+                name.serialize_write(w)?
             },
             Response(response) => {
                 response.data.serialize_write(w)?

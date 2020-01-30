@@ -224,7 +224,6 @@ impl <'a> DefinitionSorter {
             _ => &args[0]
         };
         let tle_name = defined_name.match_atom()?;
-        // println!("==========> {:?}", tle_name);
         Some((tle_name.clone(), defined_name.id, defined_name))
     }
 }

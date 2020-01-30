@@ -289,7 +289,7 @@ impl TypeSignature {
                     false
                 }
             },
-            CallablePrincipalType => { // todo(ludo): improve tree
+            CallablePrincipalType => {
                 match other {
                     PrincipalType | CallablePrincipalType => true,
                     _ => false,
@@ -703,7 +703,7 @@ impl TypeSignature {
             BoolType => Some(1),
             // TODO: This principal size isn't quite right.
             //    it can be much larger due to contract principals.
-            PrincipalType => Some(21), // todo(ludo): I don't think this is accurate - does not handle contract principals
+            PrincipalType => Some(21),
             BufferType(len) => Some(u32::from(len)),
             TupleType(tuple_sig) => tuple_sig.inner_size(),
             ListType(list_type) => list_type.inner_size(),
@@ -881,9 +881,9 @@ impl fmt::Display for TypeSignature {
             OptionalType(t) => write!(f, "(optional {})", t),
             ResponseType(v) => write!(f, "(response {} {})", v.0, v.1),
             TupleType(t) => write!(f, "{}", t),
-            PrincipalType => write!(f, "principal"), // todo(ludo): could be more accurate
+            PrincipalType => write!(f, "principal"),
             ListType(list_type_data) => write!(f, "(list {} {})", list_type_data.max_len, list_type_data.entry_type),
-            CallablePrincipalType => write!(f, "callable-principal"), // todo(ludo): could be more accurate
+            CallablePrincipalType => write!(f, "callable-principal"),
         }
     }
 }

@@ -166,7 +166,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             Sha512 | Sha512Trunc256 |
             ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay | IsNone | Asserts |
             Unwrap | UnwrapErr | Match | IsErr | IsSome | TryRet |
-            ToUInt | ToInt | Append | Concat | AsMaxLen |
+            ToUInt | ToInt | Append | Concat | AsMaxLen | PrincipalOf |
             ListCons | GetBlockInfo | TupleGet | Len | Print | AsContract | Begin | FetchVar | GetTokenBalance | GetAssetOwner => {
                 self.check_all_read_only(args)
             },

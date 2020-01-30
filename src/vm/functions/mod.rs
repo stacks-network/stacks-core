@@ -85,6 +85,7 @@ define_named_enum!(NativeFunctions {
     TransferAsset("nft-transfer?"),
     MintAsset("nft-mint?"),
     MintToken("ft-mint?"),
+    PrincipalOf("principal-of"),
 });
 
 pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
@@ -159,6 +160,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             GetTokenBalance => CallableType::SpecialFunction("special_get_balance", &assets::special_get_balance),
             GetAssetOwner => CallableType::SpecialFunction("special_get_owner", &assets::special_get_owner),
             AtBlock => CallableType::SpecialFunction("special_at_block", &database::special_at_block),
+            PrincipalOf => CallableType::SpecialFunction("native_principal-of", &special_principal_of),
         };
         Some(callable)
     } else {
@@ -342,4 +344,17 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     let mut nested_env = env.nest_as_principal(contract_principal);
 
     eval(&args[0], &mut nested_env, context)
+}
+
+fn special_principal_of(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    // (principal-of (..))
+    // arg0 => body
+    check_argument_count(1, args)?;
+
+    // nest an environment.
+    let result = eval(&args[0], env, context)?;
+
+    println!("===> {:?}", result);
+
+    Ok(result)
 }

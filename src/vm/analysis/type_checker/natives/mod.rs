@@ -214,7 +214,7 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
         },
         SymbolicExpressionType::Atom(trait_name) => {
             // Dynamic dispatch
-            // todo(ludo): checker.type_check_all(args[2..])
+            // todo(ludo): any additional processing?
             checker.check_method_from_trait(trait_name, func_name, &args[2..], context)?
         }, 
         _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
@@ -235,6 +235,14 @@ fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], 
     checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
 
     Ok(TypeSignature::new_option(block_info_prop.type_result()))
+}
+
+fn check_special_principal_of(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_arguments_at_least(1, args)?;
+
+    // todo(ludo): to implement
+
+    Ok(TypeSignature::PrincipalType)
 }
 
 impl TypedNativeFunction {
@@ -353,6 +361,7 @@ impl TypedNativeFunction {
             IsNone => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             IsSome => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             AtBlock => Special(SpecialNativeFunction(&check_special_at_block)),
+            PrincipalOf => Special(SpecialNativeFunction(&check_special_principal_of))
         }
     }
 }

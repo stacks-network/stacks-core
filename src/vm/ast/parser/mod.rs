@@ -333,7 +333,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     Some((ref mut list, _, _)) => list.push(pre_expr)
                 };
             },
-            LexItem::SugaredFieldIdentifier(length, contract_name, name) => { // todo(ludo): DRY this enumerations
+            LexItem::SugaredFieldIdentifier(length, contract_name, name) => {
                 let mut end_column = column_pos + (length as u32);
                 // Avoid underflows on cases like empty strings
                 if length > 0 {
