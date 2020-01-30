@@ -712,7 +712,8 @@ impl StacksMessageCodec for HttpRequestPreamble {
         // consume request
         match req.parse(&buf_read).map_err(|e| net_error::DeserializeError(format!("Failed to parse HTTP request: {:?}", &e)))? {
             httparse::Status::Partial => {
-                return Err(net_error::UnderflowError("Not enough bytes to form an HTTP request preamble".to_string()));
+                // partial
+                return Err(net_error::UnderflowError("Not enough bytes to form a HTTP request preamble".to_string()));
             },
             httparse::Status::Complete(body_offset) => {
                 // consumed all headers.  body_offset points to the start of the request body
@@ -732,6 +733,10 @@ impl StacksMessageCodec for HttpRequestPreamble {
                     if !value.is_ascii() {
                         return Err(net_error::DeserializeError(format!("Invalid HTTP request: header value is not ASCII-US")));
                     }
+                    if value.len() > HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
+                        return Err(net_error::DeserializeError(format!("Invalid HTTP request: header value is too big")));
+                    }
+
                     let key = req.headers[i].name.to_string().to_lowercase();
                     if headers.contains_key(&key) || all_headers.contains(&key) {
                         return Err(net_error::DeserializeError(format!("Invalid HTTP request: duplicate header \"{}\"", key)));
@@ -898,7 +903,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
         match resp.parse(&buf_read).map_err(|e| net_error::DeserializeError(format!("Failed to parse HTTP response: {:?}", &e)))? {
             httparse::Status::Partial => {
                 // try again
-                return Err(net_error::UnderflowError("Not enough bytes to form an HTTP response preamble".to_string()));
+                return Err(net_error::UnderflowError("Not enough bytes to form a HTTP response preamble".to_string()));
             },
             httparse::Status::Complete(body_offset) => {
                 // consumed all headers.  body_offset points to the start of the response body
@@ -918,6 +923,9 @@ impl StacksMessageCodec for HttpResponsePreamble {
                     let value = String::from_utf8(resp.headers[i].value.to_vec()).map_err(|_e| net_error::DeserializeError("Invalid HTTP header value: not utf-8".to_string()))?;
                     if !value.is_ascii() {
                         return Err(net_error::DeserializeError(format!("Invalid HTTP request: header value is not ASCII-US")));
+                    }
+                    if value.len() > HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
+                        return Err(net_error::DeserializeError(format!("Invalid HTTP request: header value is too big")));
                     }
 
                     let key = resp.headers[i].name.to_string().to_lowercase();
@@ -1651,6 +1659,9 @@ impl ProtocolFamily for StacksHttp {
 
     /// StacksHttpMessage deals with HttpRequestPreambles and HttpResponsePreambles
     fn read_preamble(&mut self, buf: &[u8]) -> Result<(StacksHttpPreamble, usize), net_error> {
+        if buf.len() > self.preamble_size_hint() {
+            return Err(net_error::DeserializeError("Invalid HTTP preamble: too big".to_string()));
+        }
         let mut cursor = io::Cursor::new(buf);
         let preamble : StacksHttpPreamble = read_next(&mut cursor)?;
         let preamble_len = cursor.position() as usize;
@@ -2686,5 +2697,53 @@ mod test {
             assert!(e.is_err());
             assert!(e.unwrap_err().description().find(expected_error).is_some(), errstr);
         }
+    }
+
+    #[test]
+    fn test_http_headers_too_big() {
+        let bad_header_value = std::iter::repeat("A").take(HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize).collect::<String>();
+        let bad_request_preamble = format!("GET /v2/neighbors HTTP/1.1\r\nHost: localhost:1234\r\nX-Request-ID: 123\r\nBad-Header: {}\r\n\r\n", &bad_header_value);
+        let bad_response_preamble = format!("HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Path: /v2/transactions\r\nX-Request-ID: 123\r\nContent-Type: text/plain\r\nContent-Length: 64\r\nBad-Header: {}\r\n\r\n", &bad_header_value);
+
+        let request_err = HttpRequestPreamble::consensus_deserialize(&mut io::Cursor::new(bad_request_preamble.as_bytes())).unwrap_err();
+        let response_err = HttpResponsePreamble::consensus_deserialize(&mut io::Cursor::new(bad_response_preamble.as_bytes())).unwrap_err();
+
+        let protocol_request_err = StacksHttpPreamble::consensus_deserialize(&mut io::Cursor::new(bad_request_preamble.as_bytes())).unwrap_err();
+        let protocol_response_err = StacksHttpPreamble::consensus_deserialize(&mut io::Cursor::new(bad_response_preamble.as_bytes())).unwrap_err();
+        
+        eprintln!("request_err: {:?}", &request_err);
+        eprintln!("response_err: {:?}", &response_err);
+
+        eprintln!("protocol_request_err: {:?}", &protocol_request_err);
+        eprintln!("protocol_response_err: {:?}", &protocol_response_err);
+
+        assert!(request_err.to_string().find("Not enough bytes to form a HTTP request preamble").is_some());
+        assert!(response_err.to_string().find("Not enough bytes to form a HTTP response preamble").is_some());
+        assert!(protocol_request_err.to_string().find("Failed to decode HTTP request or HTTP response").is_some());
+        assert!(protocol_response_err.to_string().find("Failed to decode HTTP request or HTTP response").is_some());
+    }
+
+    #[test]
+    fn test_http_headers_too_many() {
+        let too_many_headers = "H1: 1\r\nH2: 2\r\nH3: 3\r\nH4: 4\r\nH5: 5\r\nH6: 6\r\nH7: 7\r\nH8: 8\r\nH9: 9\r\nH10: 10\r\nH11: 11\r\nH12: 12\r\nH13: 13\r\nH14: 14\r\nH15: 15\r\nH16: 16\r\n";
+        let bad_request_preamble = format!("GET /v2/neighbors HTTP/1.1\r\nHost: localhost:1234\r\nX-Request-ID: 123\r\n{}\r\n", &too_many_headers);
+        let bad_response_preamble = format!("HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Path: /v2/transactions\r\nX-Request-ID: 123\r\nContent-Type: text/plain\r\nContent-Length: 64\r\n{}\r\n", &too_many_headers);
+        
+        let request_err = HttpRequestPreamble::consensus_deserialize(&mut io::Cursor::new(bad_request_preamble.as_bytes())).unwrap_err();
+        let response_err = HttpResponsePreamble::consensus_deserialize(&mut io::Cursor::new(bad_response_preamble.as_bytes())).unwrap_err();
+
+        let protocol_request_err = StacksHttpPreamble::consensus_deserialize(&mut io::Cursor::new(bad_request_preamble.as_bytes())).unwrap_err();
+        let protocol_response_err = StacksHttpPreamble::consensus_deserialize(&mut io::Cursor::new(bad_response_preamble.as_bytes())).unwrap_err();
+        
+        eprintln!("request_err: {:?}", &request_err);
+        eprintln!("response_err: {:?}", &response_err);
+
+        eprintln!("protocol_request_err: {:?}", &protocol_request_err);
+        eprintln!("protocol_response_err: {:?}", &protocol_response_err);
+        
+        assert!(request_err.to_string().find("Failed to parse HTTP request: TooManyHeaders").is_some());
+        assert!(response_err.to_string().find("Failed to parse HTTP response: TooManyHeaders").is_some());
+        assert!(protocol_request_err.to_string().find("Failed to decode HTTP request or HTTP response").is_some());
+        assert!(protocol_response_err.to_string().find("Failed to decode HTTP request or HTTP response").is_some());
     }
 }
