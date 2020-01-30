@@ -712,8 +712,11 @@ impl TrieFileStorage {
     }
 
     fn read_block_identifier_from_fd<F: Seek + Read>(fd: &mut F) -> Result<u32, Error> {
+        let cur_pos = ftell(fd)?;
         fseek(fd, BLOCK_HEADER_HASH_ENCODED_SIZE as u64)?;
-        read_block_identifier(fd)
+        let res = read_block_identifier(fd)?;
+        fseek(fd, cur_pos)?;
+        Ok(res)
     }
 
 

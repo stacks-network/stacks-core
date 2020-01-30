@@ -17,6 +17,10 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::io::prelude::*;
+use std::io;
+use std::io::{Read, Write};
+
 use net::StacksMessageCodec;
 use net::Error as net_error;
 use net::codec::{read_next, write_next};
@@ -50,37 +54,17 @@ use vm::types::{
 
 
 impl StacksMessageCodec for StacksAddress {
-    fn consensus_serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
-        write_next(&mut res, &self.version);
-        res.extend_from_slice(self.bytes.as_bytes());
-        res
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.version)?;
+        fd.write_all(self.bytes.as_bytes()).map_err(net_error::WriteError)
     }
 
-    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<StacksAddress, net_error> {
-        let mut index = *index_ptr;
-
-        // serialized as 1-byte version + 20-byte hash160
-        let new_index = index.checked_add(1 + HASH160_ENCODED_SIZE).ok_or(net_error::OverflowError("Would overflow u32 to parse address version".to_string()))?;
-        if new_index > max_size {
-            return Err(net_error::OverflowError("Would read beyond end of buffer to read address".to_string()));
-        }
-        if buf.len() < new_index as usize {
-            return Err(net_error::UnderflowError("Not enough bytes to read address".to_string()));
-        }
-
-        let version : u8    = read_next(buf, &mut index, max_size)?;
-        let mut hash_bytes = [0u8; 20];
-        hash_bytes.copy_from_slice(&buf[index as usize..(index+HASH160_ENCODED_SIZE) as usize]);
-       
-        let bytes = Hash160(hash_bytes);
-        index += HASH160_ENCODED_SIZE;
-
-        *index_ptr = index;
-        
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksAddress, net_error> {
+        let version : u8 = read_next(fd)?;
+        let hash160 : Hash160 = read_next(fd)?;
         Ok(StacksAddress {
             version: version,
-            bytes: bytes
+            bytes: hash160
         })
     }
 }

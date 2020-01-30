@@ -223,9 +223,9 @@ impl FromRow<StagingUserBurnSupport> for StagingUserBurnSupport {
 }
 
 impl StagingMicroblock {
+    #[cfg(test)]
     pub fn try_into_microblock(self) -> Result<StacksMicroblock, StagingMicroblock> {
-        let mut index = 0;
-        StacksMicroblock::consensus_deserialize(&self.block_data, &mut index, self.block_data.len() as u32).map_err(|_e| self)
+        StacksMicroblock::consensus_deserialize(&mut io::Cursor::new(&self.block_data)).map_err(|_e| self)
     }
 }
 
@@ -444,7 +444,8 @@ impl StacksChainState {
     pub fn store_block(blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock) -> Result<(), Error> {
         let block_hash = block.block_hash();
         let block_path = StacksChainState::make_block_dir(blocks_dir, burn_header_hash, &block_hash)?;
-        let block_data = block.consensus_serialize();
+        let mut block_data = vec![];
+        block.consensus_serialize(&mut block_data).map_err(Error::NetError)?;
         StacksChainState::atomic_file_write(&block_path, &block_data)
     }
     
@@ -514,13 +515,7 @@ impl StacksChainState {
             return Ok(None);
         }
 
-        let mut index = 0;
-        let block = StacksBlock::consensus_deserialize(&block_bytes, &mut index, block_bytes.len() as u32).map_err(Error::NetError)?;
-        if index != (block_bytes.len() as u32) {
-            error!("Corrupt block {}: read {} out of {} bytes", block_hash.to_hex(), index, block_bytes.len());
-            return Err(Error::DBError(db_error::Corruption));
-        }
-
+        let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_bytes)).map_err(Error::NetError)?;
         Ok(Some(block))
     }
     
@@ -536,8 +531,7 @@ impl StacksChainState {
             return Ok(None);
         }
 
-        let mut index = 0;
-        let block_header = StacksBlockHeader::consensus_deserialize(&block_bytes, &mut index, block_bytes.len() as u32).map_err(Error::NetError)?;
+        let block_header = StacksBlockHeader::consensus_deserialize(&mut io::Cursor::new(&block_bytes)).map_err(Error::NetError)?;
         Ok(Some(block_header))
     }
 
@@ -560,7 +554,8 @@ impl StacksChainState {
 
         let mut buf = vec![];
         for mblock in microblocks {
-            let mut mblock_buf = mblock.consensus_serialize();
+            let mut mblock_buf = vec![];
+            mblock.consensus_serialize(&mut mblock_buf).map_err(Error::NetError)?;
             buf.append(&mut mblock_buf);
         }
 
@@ -582,16 +577,10 @@ impl StacksChainState {
             return Ok(None);
         }
 
-        let mut index : u32 = 0;
         let mut microblocks = vec![];
-        while (index as usize) < block_bytes.len() {
-            let microblock = StacksMicroblock::consensus_deserialize(&block_bytes, &mut index, block_bytes.len() as u32).map_err(Error::NetError)?;
+        while block_bytes.len() > 0 {
+            let microblock = StacksMicroblock::consensus_deserialize(&mut io::Cursor::new(&block_bytes)).map_err(Error::NetError)?;
             microblocks.push(microblock);
-        }
-
-        if (index as usize) != block_bytes.len() {
-            error!("Corrupt microblock stream {}: read {} out of {} bytes", microblock_head_hash.to_hex(), index, block_bytes.len());
-            return Err(Error::DBError(db_error::Corruption));
         }
 
         Ok(Some(microblocks))
@@ -704,8 +693,7 @@ impl StacksChainState {
                     return Ok(None);
                 }
 
-                let mut index = 0;
-                match StacksBlock::consensus_deserialize(&staging_block.block_data, &mut index, staging_block.block_data.len() as u32) {
+                match StacksBlock::consensus_deserialize(&mut io::Cursor::new(&staging_block.block_data)) {
                     Ok(block) => Ok(Some(block)),
                     Err(e) => Err(Error::NetError(e))
                 }
@@ -783,8 +771,7 @@ impl StacksChainState {
                     return Err(Error::NetError(net_error::DeserializeError(format!("Microblock {} does not have block data", staging_microblocks[i].microblock_hash.to_hex()))));
                 }
 
-                let mut index = 0;
-                let microblock = StacksMicroblock::consensus_deserialize(&staging_microblocks[i].block_data, &mut index, staging_microblocks[i].block_data.len() as u32)
+                let microblock = StacksMicroblock::consensus_deserialize(&mut io::Cursor::new(&staging_microblocks[i].block_data))
                     .map_err(Error::NetError)?;
                 microblocks.push(microblock);
             }
@@ -800,8 +787,7 @@ impl StacksChainState {
                         return Err(Error::NetError(net_error::DeserializeError(format!("Microblock {} does not have block data", staging_microblocks[i].microblock_hash.to_hex()))));
                     }
 
-                    let mut index = 0;
-                    let microblock = StacksMicroblock::consensus_deserialize(&staging_microblocks[i].block_data, &mut index, staging_microblocks[i].block_data.len() as u32)
+                    let microblock = StacksMicroblock::consensus_deserialize(&mut io::Cursor::new(&staging_microblocks[i].block_data))
                         .map_err(Error::NetError)?;
                     microblocks.push(microblock);
                 }
@@ -870,7 +856,8 @@ impl StacksChainState {
         assert!(sortition_burn < i64::max_value() as u64);
 
         let block_hash = block.block_hash();
-        let block_bytes = block.consensus_serialize();
+        let mut block_bytes = vec![];
+        block.consensus_serialize(&mut block_bytes).map_err(Error::NetError)?;
 
         let attacheable = {
             // if this block has an unprocessed staging parent, then it's not attacheable until its parent is.
@@ -925,7 +912,8 @@ impl StacksChainState {
     /// The burn_header_hash and anchored_block_hash correspond to the _parent_ Stacks block.
     /// Microblocks ought to only be stored if they are first confirmed to have been signed.
     fn store_staging_microblock<'a>(tx: &mut BlocksDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<(), Error> {
-        let microblock_bytes = microblock.consensus_serialize();
+        let mut microblock_bytes = vec![];
+        microblock.consensus_serialize(&mut microblock_bytes).map_err(Error::NetError)?;
 
         // store microblock metadata
         let sql = "INSERT OR REPLACE INTO staging_microblocks (anchored_block_hash, burn_header_hash, microblock_hash, sequence, processed, orphaned) VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
@@ -2116,8 +2104,8 @@ impl StacksChainState {
         };
 
         let block = {
-            let mut index = 0;
-            StacksBlock::consensus_deserialize(&next_staging_block.block_data, &mut index, next_staging_block.block_data.len() as u32).map_err(Error::NetError)?
+            StacksBlock::consensus_deserialize(&mut io::Cursor::new(&next_staging_block.block_data))
+                .map_err(Error::NetError)?
         };
 
         let block_hash = block.block_hash();

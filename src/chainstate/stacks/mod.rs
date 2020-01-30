@@ -31,6 +31,9 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::convert::From;
 use std::convert::TryFrom;
+use std::io::prelude::*;
+use std::io;
+use std::io::{Read, Write};
 
 use util::secp256k1;
 use util::db::Error as db_error;
@@ -393,6 +396,13 @@ pub struct SinglesigSpendingCondition {
     pub fee_rate: u64,                          // microSTX/compute rate offerred by this account
     pub key_encoding: TransactionPublicKeyEncoding,
     pub signature: MessageSignature
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
+pub enum TransactionSpendingConditionID {
+    Singlesig = 0x00,
+    Multisig = 0x01
 }
 
 #[derive(Debug, Clone, PartialEq)]

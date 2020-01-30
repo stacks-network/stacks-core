@@ -56,7 +56,10 @@ impl StacksBlockBuilder {
 
         let pubkh = Hash160::from_data(&pubk.to_bytes());
         let header = StacksBlockHeader::from_parent_empty(&parent_chain_tip.anchored_header, parent_chain_tip.microblock_tail.as_ref(), total_work, proof, &pubkh);
-        let bytes_so_far = header.consensus_serialize().len() as u64;
+
+        let mut header_bytes = vec![];
+        header.consensus_serialize(&mut header_bytes).expect("FATAL: failed to serialize to vec");
+        let bytes_so_far = header_bytes.len() as u64;
         
         StacksBlockBuilder {
             chain_tip: parent_chain_tip.clone(),
@@ -99,7 +102,10 @@ impl StacksBlockBuilder {
 
     /// Append a transaction if doing so won't exceed the epoch data size.
     pub fn try_mine_tx<'a>(&mut self, clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(), Error> {
-        let tx_len = tx.consensus_serialize().len() as u64;
+        let mut tx_bytes = vec![];
+        tx.consensus_serialize(&mut tx_bytes).map_err(Error::NetError)?;
+        let tx_len = tx_bytes.len() as u64;
+        
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             return Err(Error::BlockTooBigError);
         }

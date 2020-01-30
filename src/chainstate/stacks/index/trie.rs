@@ -680,8 +680,11 @@ impl Trie {
             // for debug purposes
             if is_trace() {
                 let node_hash = my_hash.clone();
-                let _hs = Trie::get_trie_root_ancestor_hashes_bytes(storage, &node_hash)?;
-                trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?} (fixed root)", &node, &child_ptr, &_cur_hash, &node_hash, &_hs[1..].to_vec(), &h);
+                let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &node_hash)
+                    .and_then(|_hs| {
+                        trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?} (fixed root)", &node, &child_ptr, &_cur_hash, &node_hash, &_hs[1..].to_vec(), &h);
+                        Ok(())
+                    });
             }
 
             test_debug!("Next root hash is {} (update_skiplist={})", h.to_hex(), update_skiplist);
@@ -732,8 +735,11 @@ impl Trie {
                                     };
 
                                 if is_trace() {
-                                    let hs = Trie::get_trie_root_ancestor_hashes_bytes(storage, &content_hash)?;
-                                    trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &_cur_hash, &content_hash, &hs[1..].to_vec(), &h);
+                                    let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &content_hash)
+                                        .and_then(|hs| {
+                                            trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &_cur_hash, &content_hash, &hs[1..].to_vec(), &h);
+                                            Ok(())
+                                        });
                                 }
             
                                 test_debug!("Next root hash is {} (update_skiplist={})", h.to_hex(), update_skiplist);
