@@ -31,7 +31,6 @@ extern crate serde;
 extern crate rusqlite;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
-extern crate httparse;
 #[macro_use] extern crate lazy_static;
 extern crate sha2;
 extern crate sha3;
