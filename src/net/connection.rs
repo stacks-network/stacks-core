@@ -20,7 +20,6 @@
 use std::net;
 use std::io;
 use std::io::{Read, Write};
-use std::io::ErrorKind as IoErrorKind;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::time::Duration;
@@ -29,6 +28,7 @@ use std::collections::VecDeque;
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::Receiver;
+use std::sync::mpsc::TrySendError;
 use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::RecvError;
 use std::sync::mpsc::RecvTimeoutError;
@@ -41,11 +41,11 @@ use net::StacksMessageCodec;
 use net::Preamble;
 use net::HttpRequestPreamble;
 use net::HttpResponsePreamble;
-use net::NetworkPreamble;
 use net::RelayData;
 use net::PeerAddress;
 use net::ProtocolFamily;
 use net::StacksP2P;
+use net::StacksHttp;
 use net::MessageSequence;
 use net::codec::*;
 use net::MAX_MESSAGE_LEN;
@@ -57,6 +57,7 @@ use util::secp256k1::Secp256k1PublicKey;
 use util::get_epoch_time_secs;
 use util::sleep_ms;
 use util::hash::to_hex;
+use util::pipe::*;
 
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
@@ -82,48 +83,138 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
     pub fn send(self, msg: P::Message) -> () {
         match self.receiver_input.send(msg) {
             Ok(_) => {},
-            Err(e) => {}
+            Err(e) => {
+                warn!("Failed to reply message: {:?}", &e);
+            }
         }
     }
 }
 
-/// Opaque structure for waiting or a reply.  Contains the other end of a ReceiverNotify.
+/// Opaque structure for waiting or a reply.  Contains the other end of a ReceiverNotify that lives
+/// in a connection's outbox.
 #[derive(Debug)]
 pub struct NetworkReplyHandle<P: ProtocolFamily> {
-    receiver_output: Receiver<P::Message>
+    receiver_output: Option<Receiver<P::Message>>,
+    request_pipe_write: Option<PipeWrite>,        // caller feeds in the message via this pipe endpoint.  Set to None on flush
 }
 
 impl<P: ProtocolFamily> NetworkReplyHandle<P> {
-    pub fn new(output: Receiver<P::Message>) -> NetworkReplyHandle<P> {
+    pub fn new(output: Receiver<P::Message>, write: PipeWrite) -> NetworkReplyHandle<P> {
         NetworkReplyHandle {
-            receiver_output: output
+            receiver_output: Some(output),
+            request_pipe_write: Some(write),
+        }
+    }
+
+    pub fn new_relay(write: PipeWrite) -> NetworkReplyHandle<P> {
+        NetworkReplyHandle {
+            receiver_output: None,
+            request_pipe_write: Some(write)
+        }
+    }
+
+    /// Try to flush and receive.
+    /// Consumed the handle if it succeeds in both emptying the message buffer and getting a message.
+    /// Returns itself if it still has data to flush, or if it's still waiting for a reply.
+    pub fn try_send_recv(mut self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
+        match self.try_flush() {
+            Ok(b) => {
+                if b {
+                    // flushed!
+                    self.try_recv()
+                }
+                else {
+                    // still sending
+                    Err(Ok(self))
+                }
+            },
+            Err(e) => {
+                // broken pipe
+                Err(Err(e))
+            }
         }
     }
 
     /// Poll on this handle.
     /// Consumes this handle if it succeeds in getting a message.
     /// Returns itself if there is no pending message.
-    pub fn try_recv(self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
-        let res = self.receiver_output.try_recv();
-        match res {
-            Ok(message) => Ok(message),
-            Err(TryRecvError::Empty) => Err(Ok(self)),      // try again,
-            Err(TryRecvError::Disconnected) => Err(Err(net_error::ConnectionBroken))
+    pub fn try_recv(mut self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
+        match self.receiver_output {
+            Some(ref mut output) => {
+                let res = output.try_recv();
+                match res {
+                    Ok(message) => Ok(message),
+                    Err(TryRecvError::Empty) => Err(Ok(self)),      // try again,
+                    Err(TryRecvError::Disconnected) => Err(Err(net_error::ConnectionBroken))
+                }
+            },
+            None => {
+                Err(Err(net_error::InvalidHandle))
+            }
         }
     }
 
     /// Receive the outstanding message from our peer within the allotted time (pass -1 for "wait forever").
     /// Destroys the NetworkReplyHandle in the process.  You can only call this once!
     /// Timeout is in seconds.
-    pub fn recv(self, timeout: i64) -> Result<P::Message, net_error> {
-        if timeout < 0 {
-            self.receiver_output.recv()
-                .map_err(|_e| net_error::ConnectionBroken)
+    pub fn recv(mut self, timeout: i64) -> Result<P::Message, net_error> {
+        match self.receiver_output {
+            Some(ref mut output) => {
+                if timeout < 0 {
+                    output.recv()
+                        .map_err(|_e| net_error::ConnectionBroken)
+                }
+                else {
+                    output.recv_timeout(Duration::new(timeout as u64, 0))
+                        .map_err(|_e| net_error::ConnectionBroken)
+                }
+            },
+            None => {
+                Err(net_error::InvalidHandle)
+            }
         }
-        else {
-            self.receiver_output.recv_timeout(Duration::new(timeout as u64, 0))
-                .map_err(|_e| net_error::ConnectionBroken)
-        } 
+    }
+
+    /// Flush the inner pipe writer and drop it
+    fn pipe_flush(&mut self) -> io::Result<()> {
+        match self.request_pipe_write.take() {
+            Some(mut fd) => fd.flush(),
+            None => Ok(())
+        }
+    }
+
+    /// Try to flush the inner pipe writer.  If we succeed, drop it.
+    /// Return true if we're done sending; false if we need to call this again.
+    pub fn try_flush(&mut self) -> Result<bool, net_error> {
+        let fd_opt = match self.request_pipe_write.take() {
+            Some(mut fd) => {
+                let res = fd.try_flush().map_err(net_error::WriteError)?;
+                if res {
+                    // flushed!
+                    None
+                }
+                else {
+                    // still have data to send
+                    Some(fd)
+                }
+            },
+            None => None
+        };
+        self.request_pipe_write = fd_opt;
+        Ok(self.request_pipe_write.is_none())
+    }
+}
+
+impl<P: ProtocolFamily> Write for NetworkReplyHandle<P> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        match self.request_pipe_write {
+            Some(ref mut pipe) => pipe.write(bytes),
+            None => Err(io::Error::from(io::ErrorKind::BrokenPipe))
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.pipe_flush()
     }
 }
 
@@ -131,7 +222,7 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
 /// When a reply is received, it may be forwarded along to an optional ReceiverNotify.
 #[derive(Debug)]
 struct InflightMessage<P: ProtocolFamily> {
-    message: P::Message,
+    pipe_read: Option<PipeRead>,
     notify: Option<ReceiverNotify<P>>
 }
 
@@ -141,12 +232,13 @@ struct ConnectionInbox<P: ProtocolFamily> {
 
     // completely-parsed incoming messages that do _not_ get sent out to a waiting receiver 
     inbox: VecDeque<P::Message>,
-    inbox_maxlen: usize,    // this is a _soft_ limit -- it's possible for inbox to exceed this by a fixed quantity
+    inbox_maxlen: usize,
 
     // partially-parsed incoming messages
-    preamble: Option<NetworkPreamble>,
-    preamble_data: Vec<u8>,
-    message_data: Vec<u8>,
+    preamble: Option<P::Preamble>,
+    buf: Vec<u8>,
+    message_ptr: usize,     // index into buf where the message begins
+    payload_ptr: usize,     // for payloads of unknown length, this points to where to read next
 }
 
 #[derive(Debug)]
@@ -154,8 +246,10 @@ struct ConnectionOutbox<P: ProtocolFamily> {
     // message to send
     outbox: VecDeque<InflightMessage<P>>,
     outbox_maxlen: usize,
+
+    pending_message_fd: Option<PipeRead>,
     socket_out_buf: Vec<u8>,
-    socket_out_ptr: u32,
+    socket_out_ptr: usize,
 
     // in-flight messages 
     inflight: VecDeque<ReceiverNotify<P>>
@@ -209,7 +303,7 @@ impl std::default::Default for ConnectionOptions {
 #[derive(Debug)]
 pub struct NetworkConnection<P: ProtocolFamily> {
     pub options: ConnectionOptions,
-
+    protocol: P,
     inbox: ConnectionInbox<P>,
     outbox: ConnectionOutbox<P>
 }
@@ -221,60 +315,74 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             inbox: VecDeque::with_capacity(max_messages),
             inbox_maxlen: max_messages,
             preamble: None,
-            preamble_data: vec![],
-            message_data: vec![]
+            buf: vec![],
+            message_ptr: 0,
+            payload_ptr: 0,
         }
     }
 
     /// Fill up the preamble buffer, up to P::preamble_size_hint().
     /// Return the number of bytes consumed.
-    fn buffer_preamble_bytes(&mut self, bytes: &[u8]) -> usize {
-        let max_preamble_len = P::preamble_size_hint();
-        if self.preamble_data.len() >= max_preamble_len {
+    fn buffer_preamble_bytes(&mut self, protocol: &mut P, bytes: &[u8]) -> usize {
+        let max_preamble_len = protocol.preamble_size_hint();
+        if self.buf.len() >= max_preamble_len {
             return 0;
         }
 
         let to_consume = 
-            if self.preamble_data.len() + bytes.len() <= max_preamble_len {
+            if self.buf.len() + bytes.len() <= max_preamble_len {
                 bytes.len()
             }
             else {
-                max_preamble_len - self.preamble_data.len() 
+                max_preamble_len - self.buf.len() 
             };
 
-        self.preamble_data.extend_from_slice(&bytes[0..to_consume]);
+        let l = self.buf.len();
+        self.buf.extend_from_slice(&bytes[0..to_consume]);
+        
+        trace!("Buffer {} bytes out of max {} for preamble (buf went from {} to {} bytes)", to_consume, max_preamble_len, l, self.buf.len());
         to_consume
     }
 
     /// try to consume buffered data to form a message preamble.
     /// returns an option of the preamble consumed and the number of bytes used from the bytes slice
-    fn consume_preamble(&mut self, bytes: &[u8]) -> Result<(Option<NetworkPreamble>, usize), net_error> {
-        let bytes_consumed = self.buffer_preamble_bytes(bytes);
-        let preamble_opt = match P::read_preamble(&self.preamble_data) {
+    fn consume_preamble(&mut self, protocol: &mut P, bytes: &[u8]) -> Result<(Option<P::Preamble>, usize), net_error> {
+        let bytes_consumed = self.buffer_preamble_bytes(protocol, bytes);
+        let preamble_opt = match protocol.read_preamble(&self.buf) {
             Ok((preamble, preamble_len)) => {
                 assert!((preamble_len as u32) < MAX_MESSAGE_LEN);
-                if preamble.payload_length() as u32 >= MAX_MESSAGE_LEN - (preamble_len as u32) {
-                    // message would be too big
-                    return Err(net_error::DeserializeError(format!("Preamble payload length {} is too big", preamble.payload_length())));
+
+                test_debug!("Got preamble {:?} of {} bytes", &preamble, preamble_len);
+
+                if let Some(payload_len) = protocol.payload_len(&preamble) {
+                    if (payload_len as u32) >= MAX_MESSAGE_LEN {
+                        // message would be too big
+                        return Err(net_error::DeserializeError(format!("Preamble payload length {} is too big", payload_len)));
+                    }
                 }
 
-                // buffer up next message 
-                self.message_data.extend_from_slice(&self.preamble_data[preamble_len..]);
-                self.preamble_data.clear();
+                self.message_ptr = preamble_len;
+                self.payload_ptr = preamble_len;
                 Some(preamble)
             },
             Err(net_error::DeserializeError(errmsg)) => {
                 // will never be valid
-                debug!("Invalid message preamble: {}", &errmsg);
+                warn!("Invalid message preamble: {}", &errmsg);
+                test_debug!("Buffer ({}): {:?}", self.buf.len(), &self.buf);
+                test_debug!("Bytes: {:?}", bytes.to_vec());
+                test_debug!("Message ptr: {}", self.message_ptr);
+                test_debug!("Payload ptr: {}", self.payload_ptr);
+                test_debug!("Preamble: {:?}", &self.preamble);
                 return Err(net_error::InvalidMessage);
             },
             Err(net_error::UnderflowError(_)) => {
-                // not enough data to form a preamble
-                if bytes_consumed == 0 {
+                // not enough data to form a preamble yet
+                if bytes_consumed == 0 && bytes.len() > 0 {
                     // preamble is too long
                     return Err(net_error::DeserializeError("Preamble size would exceed maximum allowed size".to_string()));
                 }
 
+                trace!("Not enough data to consume a preamble (bytes_consumed = {}, bytes.len() = {})", bytes_consumed, bytes.len());
                 None
             },
             Err(e) => {
@@ -286,32 +394,61 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
     }
 
     /// buffer up bytes for a message
-    fn buffer_message_bytes(&mut self, bytes: &[u8], message_len: usize) -> usize {
-        let to_consume = 
-            if self.message_data.len() + bytes.len() <= message_len {
-                bytes.len()
-            }
-            else {
-                message_len - self.message_data.len()
-            };
+    fn buffer_message_bytes(&mut self, bytes: &[u8], message_len_opt: Option<usize>) -> usize {
+        let message_len = message_len_opt.unwrap_or(MAX_MESSAGE_LEN as usize);
+        let bufferred_so_far = self.buf[self.message_ptr..].len();
+        let mut to_consume = bytes.len();
+        let total_avail : u128 = (bufferred_so_far as u128) + (to_consume as u128);     // can't overflow
+        if total_avail > message_len as u128 {
+            trace!("self.message_ptr = {}, message_len = {}, to_consume = {}",
+                    self.message_ptr, message_len, to_consume);
 
-        self.message_data.extend_from_slice(&bytes[0..to_consume]);
+            to_consume = 
+                if message_len > bufferred_so_far {
+                    message_len - bufferred_so_far
+                }
+                else {
+                    // can happen if we receive so much data when parsing the preamble that we've
+                    // also already received the message, and part of the next preamble (or more).
+                    0
+                };
+        }
+
+        trace!("Consume {} bytes from input buffer", to_consume);
+        self.buf.extend_from_slice(&bytes[0..to_consume]);
         to_consume
     }
 
-    /// Try to consume bufferred data to form a message
-    fn consume_payload(&mut self, preamble: &mut NetworkPreamble, bytes: &[u8]) -> Result<(Option<P::Message>, usize), net_error> {
-        let bytes_consumed = self.buffer_message_bytes(bytes, preamble.payload_length());
-        assert!(self.message_data.len() <= preamble.payload_length());
+    /// Try and consume a payload from our internal buffer when the length of the payload is given
+    /// in the preamble.
+    fn consume_payload_known_length(&mut self, protocol: &mut P, preamble: &P::Preamble) -> Result<Option<P::Message>, net_error> {
+        let payload_len_opt = protocol.payload_len(preamble);
+        let payload_len = payload_len_opt.expect("BUG: payload length assumed to be known");
 
-        if self.message_data.len() == preamble.payload_length() {
+        // reading a payload of known length
+        if self.buf[self.message_ptr..].len() >= payload_len {
+            // definitely have enough data to form a message
             if let Some(ref pubk) = self.public_key {
-                preamble.verify_payload(&self.message_data[0..preamble.payload_length()], pubk)?;
+                protocol.verify_payload_bytes(pubk, preamble, &self.buf[self.message_ptr..])?;
             }
-            let message = match P::read_payload(preamble, &self.message_data) {
-                Ok(message) => {
-                    self.message_data.clear();
-                    message
+
+            // consume the message
+            let message_opt = match protocol.read_payload(preamble, &self.buf[self.message_ptr..]) {
+                Ok((message, message_len)) => {
+                    test_debug!("Got preamble {:?}, message of {} bytes", preamble, message_len);
+                    let next_message_ptr = self.message_ptr.checked_add(message_len)
+                        .ok_or(net_error::OverflowError("Overflowed buffer pointer".to_string()))?;
+
+                    // begin parsing at the end of this message
+                    let mut trailer = vec![];
+                    trailer.extend_from_slice(&self.buf[next_message_ptr..]);
+
+                    self.message_ptr = 0;
+                    self.payload_ptr = 0;
+                    self.buf = trailer;
+
+                    trace!("Input buffer reset to {} bytes", self.buf.len());
+                    Some(message)
                 },
                 Err(e) => {
                     // will never be valid, even if underflowed, since the premable ought to have
@@ -320,11 +457,69 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                     return Err(net_error::InvalidMessage);
                 }
             };
-            Ok((Some(message), bytes_consumed))
+            Ok(message_opt)
         }
         else {
             // not enough data yet
-            Ok((None, bytes_consumed))
+            Ok(None)
+        }
+    }
+
+    /// Try to consume bufferred data to form a message, where we don't know how long the message
+    /// is.  Stream it into the protocol, and see what the protocol spits out.
+    fn consume_payload_unknown_length(&mut self, protocol: &mut P, preamble: &P::Preamble) -> Result<Option<P::Message>, net_error> {
+        let to_buffer = &self.buf[self.payload_ptr..];
+        let mut cursor = io::Cursor::new(to_buffer);
+
+        trace!("Stream up to {} payload bytes", to_buffer.len());
+        let (message_opt, bytes_consumed) = protocol.stream_payload(preamble, &mut cursor)?;
+
+        trace!("Streamed {} payload bytes", bytes_consumed);
+        self.payload_ptr = self.payload_ptr.checked_add(bytes_consumed)
+            .ok_or(net_error::OverflowError("Overflowed payload pointer".to_string()))?;
+
+        let ret = match message_opt {
+            Some((message, message_len)) => {
+                test_debug!("Got preamble {:?}, streamed {} bytes to form a message", preamble, message_len);
+
+                let next_message_ptr = self.payload_ptr;
+
+                // begin parsing at the end of this message
+                let mut trailer = vec![];
+                trailer.extend_from_slice(&self.buf[next_message_ptr..]);
+
+                self.message_ptr = 0;
+                self.payload_ptr = 0;
+                self.buf = trailer;
+                
+                trace!("Input buffer reset to {} bytes", self.buf.len());
+                trace!("buf is now: {:?}", &self.buf);
+                Some(message)
+            },
+            None => {
+                // not enough data
+                trace!("Got preamble {:?}, but no streamed message (bufferred {} bytes)", &preamble, bytes_consumed);
+                None
+            }
+        };
+        Ok(ret)
+    }
+
+    /// Try to consume bufferred data to form a message.
+    /// This method may consume enough data to form multiple messages; in that case, this will
+    /// return the first such message.  Call this repeatedly with an empty bytes array to get all
+    /// messages.
+    fn consume_payload(&mut self, protocol: &mut P, preamble: &P::Preamble, bytes: &[u8]) -> Result<(Option<P::Message>, usize), net_error> {
+        let payload_len_opt = protocol.payload_len(preamble);
+        let bytes_consumed = self.buffer_message_bytes(bytes, payload_len_opt);
+
+        if payload_len_opt.is_some() {
+            let message_opt = self.consume_payload_known_length(protocol, preamble)?;
+            Ok((message_opt, bytes_consumed))
+        }
+        else {
+            let message_opt = self.consume_payload_unknown_length(protocol, preamble)?;
+            Ok((message_opt, bytes_consumed))
         }
     }
 
@@ -337,7 +532,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
     ///
     /// Returns nothing on success, and enqueues zero or more messages into our inbox.
     /// Returns net_error::InvalidMessage if a message could not be parsed or authenticated.
-    fn consume_messages(&mut self, buf: &[u8]) -> Result<(), net_error> {
+    fn consume_messages(&mut self, protocol: &mut P, buf: &[u8]) -> Result<(), net_error> {
         let mut offset = 0;
         loop {
             if self.inbox.len() > self.inbox_maxlen {
@@ -346,8 +541,12 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
 
             let bytes_consumed_preamble = 
                 if self.preamble.is_none() {
-                    let (preamble_opt, bytes_consumed) = self.consume_preamble(&buf[offset..])?;
+                    trace!("Try to consume a preamble from {} bytes", buf[offset..].len());
+
+                    let (preamble_opt, bytes_consumed) = self.consume_preamble(protocol, &buf[offset..])?;
                     self.preamble = preamble_opt;
+                    
+                    trace!("Consumed message preamble in {} bytes", bytes_consumed);
                     bytes_consumed
                 }
                 else {
@@ -364,16 +563,17 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 let mut preamble_opt = self.preamble.take();
                 let bytes_consumed =
                     if let Some(ref mut preamble) = preamble_opt {
-                        let (message_opt, bytes_consumed) = self.consume_payload(preamble, &buf[offset..])?;
+                        let (message_opt, bytes_consumed) = self.consume_payload(protocol, preamble, &buf[offset..])?;
                         match message_opt {
                             Some(message) => {
                                 // queue up
+                                test_debug!("Consumed message '{}' (request {}) in {} bytes", message.get_message_name(), message.request_id(), bytes_consumed);
                                 self.inbox.push_back(message);
                                 consumed_message = true;
                             },
                             None => {}
                         };
-                        
+                       
                         bytes_consumed
                     }
                     else {
@@ -393,31 +593,87 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 break;
             }
         }
+
+        // we can buffer bytes faster than we can process messages, so be sure to drain the buffer
+        // before returning.
+        if self.buf.len() > 0 {
+            loop {
+                let mut consumed_message = false;
+
+                if self.preamble.is_none() {
+                    let (preamble_opt, bytes_consumed) = self.consume_preamble(protocol, &[])?;
+                    self.preamble = preamble_opt;
+                    if self.preamble.is_some() {
+                        test_debug!("Consumed bufferred message preamble in {} bytes", bytes_consumed);
+                    }
+                };
+
+                if self.preamble.is_some() {
+                    let mut preamble_opt = self.preamble.take();
+                    if let Some(ref mut preamble) = preamble_opt {
+                        let (message_opt, bytes_consumed) = self.consume_payload(protocol, preamble, &[])?;
+                        match message_opt {
+                            Some(message) => {
+                                // queue up
+                                test_debug!("Consumed bufferred message '{}' (request {}) from {} input buffer bytes", message.get_message_name(), message.request_id(), bytes_consumed);
+                                self.inbox.push_back(message);
+                                consumed_message = true;
+                            },
+                            None => {}
+                        }
+                    }
+                    self.preamble = preamble_opt;
+
+                    if consumed_message {
+                        // next message
+                        self.preamble = None;
+                    }
+                }
+
+                if !consumed_message {
+                    // nothing more to do
+                    break;
+                }
+            }
+        }
+
         Ok(())
     }
 
-    /// Read bytes from an input stream, and enqueue them into our inbox.
-    /// Importantly, this method can be tested with non-sockets.
+    /// Read bytes from an input stream, buffer them up, try to parse the buffer
+    /// into messages, and enqueue the messages into the inbox.
     /// Returns net_error::RecvError if we couldn't read from the fd 
-    fn recv_bytes<R: Read>(&mut self, fd: &mut R) -> Result<usize, net_error> {
+    fn recv_bytes<R: Read>(&mut self, protocol: &mut P, fd: &mut R) -> Result<usize, net_error> {
         if self.inbox.len() > self.inbox_maxlen {
             return Err(net_error::InboxOverflow);
         }
 
         let mut blocked = false;
         let mut total_read = 0;
-
+        let mut socket_closed = false;
         while !blocked {
             // get the next bytes
+            // NOTE: it's important that buf not be too big, since up to buf.len()-1 bytes may need
+            // to be copied if a message boundary isn't aligned with buf (which is usually the
+            // case).
             let mut buf = [0u8; 4096];
             let num_read = match fd.read(&mut buf) {
                 Ok(0) => {
-                    // remote fd is closed
-                    Err(net_error::RecvError(format!("Remote endpoint is closed")))
+                    // remote fd is closed, but do try to consume all remaining bytes in the buffer
+                    socket_closed = true;
+                    blocked = true;
+                    Ok(0)
                 },
                 Ok(count) => Ok(count),
                 Err(e) => {
-                    if e.kind() == IoErrorKind::WouldBlock {
+                    if e.kind() == io::ErrorKind::WouldBlock || (cfg!(windows) && e.kind() == io::ErrorKind::TimedOut) {
+                        blocked = true;
+                        Ok(0)
+                    }
+                    else if e.kind() == io::ErrorKind::BrokenPipe || e.kind() == io::ErrorKind::ConnectionReset {
+                        // write endpoint is dead
+                        socket_closed = true;
+                        blocked = true;
                         Ok(0)
                     }
                     else {
@@ -428,16 +684,21 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             }?;
 
             total_read += num_read;
-            test_debug!("read {} bytes; {} total", num_read, total_read);
-            if num_read == 0 {
-                // can stop
-                blocked = true;
+
+            if num_read > 0 || total_read > 0 {
+                trace!("read {} bytes; {} total", num_read, total_read);
             }
-            else {
+            
+            if num_read > 0 {
                 // decode into message stream
-                self.consume_messages(&buf[0..num_read])?;
+                self.consume_messages(protocol, &buf[0..num_read])?;
             }
         }
+        
+        if socket_closed && total_read == 0 {
+            return Err(net_error::PermanentlyDrained);
+        }
+
         Ok(total_read)
     }
 
@@ -457,108 +718,178 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         ConnectionOutbox {
             outbox: VecDeque::with_capacity(outbox_maxlen),
             outbox_maxlen: outbox_maxlen,
+            pending_message_fd: None,
             socket_out_buf: vec![],
             socket_out_ptr: 0,
             inflight: VecDeque::new()
         }
     }
 
-    /// queue up a message to be sent 
-    fn queue_message(&mut self, m: P::Message, r: Option<ReceiverNotify<P>>) -> Result<(), net_error> {
+    fn begin_next_message(&mut self) -> Option<PipeRead> {
+        if self.outbox.len() == 0 {
+            // nothing to send
+            return None;
+        }
+
+        let mut pending_message_fd = self.outbox.get_mut(0).unwrap().pipe_read.take();
+        match pending_message_fd {
+            Some(ref mut fd) => fd.set_nonblocking(true),
+            None => {
+                panic!("No read pipe for message");
+            }
+        }
+
+        pending_message_fd
+    }
+
+    fn finish_message(&mut self) -> () {
+        assert!(self.outbox.len() > 0);
+
+        // wake up any receivers when (if) we get a reply
+        let mut inflight_message = self.outbox.pop_front();
+        let receiver_notify_opt = inflight_message.take();
+        
+        match receiver_notify_opt {
+            None => {},
+            Some(receiver_notify) => {
+                if receiver_notify.notify.is_some() {
+                    self.inflight.push_back(receiver_notify.notify.unwrap());
+                }
+            }
+        }
+    }
+
+    fn queue_message(&mut self, pipe_read: PipeRead, recv_notify: Option<ReceiverNotify<P>>) -> Result<(), net_error> {
         if self.outbox.len() > self.outbox_maxlen {
-            test_debug!("Outbox is full! has {} items", self.outbox.len());
+            test_debug!("Outbox has {} messages (max {})", self.outbox.len(), self.outbox_maxlen);
             return Err(net_error::OutboxOverflow);
         }
 
-        test_debug!("Push to outbox: {:?}", &m);
-        self.outbox.push_back(InflightMessage {
-            message: m,
-            notify: r
-        });
+        let inflight = InflightMessage {
+            pipe_read: Some(pipe_read),
+            notify: recv_notify
+        };
+        self.outbox.push_back(inflight);
         Ok(())
     }
 
-    /// Write messages into a write stream.
-    /// Importantly, this can be used without a socket (for testing purposes).
-    /// Getting back net_error::SendError indicates that the fd is bad and should be closed
+    /// Write queued messages to the given W
+    /// Returns number of bytes sent out to fd.
     fn send_bytes<W: Write>(&mut self, fd: &mut W) -> Result<usize, net_error> {
-        if self.outbox.len() == 0 {
-            // nothing to do 
-            // test_debug!("send bytes, but outbox is empty!");
-            return Ok(0);
-        }
-        
-        // test_debug!("send bytes!");
+        let mut total_sent = 0;
         let mut blocked = false;
-        let mut num_sent = 0;
-        while !blocked {
-            // next message?
-            if self.socket_out_buf.len() == 0 {
-                if self.outbox.len() == 0 {
-                    // outbox empty, and all pending data sent.  we're done!
-                    // test_debug!("outbox is now empty!");
+        let mut disconnected = false;
+        while !blocked && !disconnected {
+            let mut message_eof = false;
+
+            if self.pending_message_fd.is_none() {
+                self.pending_message_fd = self.begin_next_message();
+            }
+           
+            let nr_input = match self.pending_message_fd {
+                Some(ref mut message_fd) => {
+                    // consume from message-writer until we're out of data
+                    let mut buf = [0u8; 8192];
+                    let nr_input = match message_fd.read(&mut buf) {
+                        Ok(0) => {
+                            // no more data from writer
+                            trace!("Connection message pipe returned 0 bytes; assuming EOF");
+                            message_eof = true;
+                            0
+                        },
+                        Ok(read_len) => read_len,
+                        Err(ioe) => match ioe.kind() {
+                            io::ErrorKind::WouldBlock => {
+                                // no data consumed, but we may need to make a break for it
+                                blocked = true;
+                                0
+                            },
+                            io::ErrorKind::TimedOut => {
+                                // sometimes happens on Windows
+                                if cfg!(windows) {
+                                    blocked = true;
+                                    0
+                                }
+                                else {
+                                    return Err(net_error::WriteError(ioe));
+                                }
+                            },
+                            io::ErrorKind::BrokenPipe => {
+                                // no more data from writer
+                                trace!("Connection message pipe broke; assuming EOF");
+                                message_eof = true;
+                                0
+                            },
+                            _ => {
+                                return Err(net_error::ReadError(ioe));
+                            }
+                        }
+                    };
+
+                    self.socket_out_buf.extend_from_slice(&buf[0..nr_input]);
+
+                    if nr_input > 0 {
+                        trace!("Connection buffered {} bytes from pipe ({} total, ptr = {})", nr_input, self.socket_out_buf.len(), self.socket_out_ptr);
+                    }
+                    nr_input
+                },
+                None => {
+                    // out of pending messages
+                    test_debug!("Connection is out of pending messages");
                     break;
                 }
+            };
 
-                // fill in the next message (but don't pop it yet -- need its notification to
-                // persist until we're done sending it).
-                let message = &self.outbox.get(0).unwrap().message;
-                let mut serialized_message = message.consensus_serialize();
-                self.socket_out_buf.append(&mut serialized_message);
-                self.socket_out_ptr = 0;
-                test_debug!("Queue next message ({} seq {}): socket_buf_ptr = {}, socket_out_buf.len() = {}", 
-                            message.get_message_name(), message.request_id(), self.socket_out_ptr, self.socket_out_buf.len());
-            }
-
-            // send as many bytes as we can
-            // test_debug!("Write up to {} bytes", self.socket_out_buf.len() - (self.socket_out_ptr as usize));
-
-            let num_written_res = fd.write(&self.socket_out_buf[(self.socket_out_ptr as usize)..]);
-            let num_written =
-                match num_written_res {
-                    Ok(count) => Ok(count),
-                    Err(e) => {
-                        if e.kind() == IoErrorKind::WouldBlock {
+            if self.socket_out_ptr < self.socket_out_buf.len() {
+                // have pending bytes.
+                // send as many bytes as we can
+                let num_written_res = fd.write(&self.socket_out_buf[self.socket_out_ptr..]);
+                let num_written =
+                    match num_written_res {
+                        Ok(0) => {
+                            // indicates that the remote peer is no longer receiving
+                            disconnected = true;
                             Ok(0)
+                        },
+                        Ok(count) => Ok(count),
+                        Err(e) => {
+                            if e.kind() == io::ErrorKind::WouldBlock || (cfg!(windows) && e.kind() == io::ErrorKind::TimedOut) {
+                                blocked = true;
+                                Ok(0)
+                            }
+                            else {
+                                debug!("Failed to write to fd: {:?}", &e);
+                                Err(net_error::SendError(format!("Failed to send {} bytes", self.socket_out_buf.len() - self.socket_out_ptr)))
+                            }
                         }
-                        else {
-                            debug!("Failed to write to fd: {:?}", &e);
-                            Err(net_error::SendError(format!("Failed to send {} bytes", (self.socket_out_buf.len() as u32) - self.socket_out_ptr)))
-                        }
-                    }
-                }?;
+                    }?;
 
-            // test_debug!("Write bytes: socket_buf_ptr = {}, socket_out_buf.len() = {}, num_written = {}", self.socket_out_ptr, self.socket_out_buf.len(), num_written);
-
-            if num_written == 0 {
-                blocked = true;
+                self.socket_out_ptr += num_written;
+                
+                trace!("Connection wrote {} bytes to socket (buffer len = {}, ptr = {})", num_written, self.socket_out_buf.len(), self.socket_out_ptr);
+            
+                total_sent += num_written;
             }
 
-            self.socket_out_ptr += num_written as u32;
-            if self.socket_out_buf.len() > 0 && self.socket_out_ptr == (self.socket_out_buf.len() as u32) {
-                // finished sending a message!
-                // remember to wake up any receivers when (if) we get a reply
-                let mut inflight_message = self.outbox.pop_front();
-                let receiver_notify_opt = inflight_message.take();
+            if message_eof && self.socket_out_ptr >= self.socket_out_buf.len() {
+                // no pending bytes, so we must have a message
+                test_debug!("End of message, {} bytes sent", self.socket_out_ptr);
+                self.finish_message();
                 
-                // test_debug!("Notify blocked threads: socket_buf_ptr = {}, socket_out_buf.len() = {}", self.socket_out_ptr, self.socket_out_buf.len());
-                
-                match receiver_notify_opt {
-                    None => {},
-                    Some(receiver_notify) => {
-                        if receiver_notify.notify.is_some() {
-                            self.inflight.push_back(receiver_notify.notify.unwrap());
-                        }
-                    }
-                }
-
+                self.pending_message_fd = None;
                 self.socket_out_buf.clear();
                 self.socket_out_ptr = 0;
             }
-
-            num_sent += num_written;
         }
-        Ok(num_sent)
+
+        trace!("Connection send_bytes finished: blocked = {}, disconnected = {}", blocked, disconnected);
+
+        if total_sent == 0 {
+            if disconnected && !blocked {
+                return Err(net_error::PeerNotConnected);
+            }
+        }
+        Ok(total_sent)
     }
     
     /// How many queued messsages do we have?
@@ -567,9 +898,10 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
     }
 }
 
-impl<P: ProtocolFamily> NetworkConnection<P> {
-    pub fn new(options: &ConnectionOptions, public_key_opt: Option<Secp256k1PublicKey>) -> NetworkConnection<P> {
+impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
+    pub fn new(protocol: P, options: &ConnectionOptions, public_key_opt: Option<Secp256k1PublicKey>) -> NetworkConnection<P> {
         NetworkConnection {
+            protocol: protocol,
             options: (*options).clone(),
 
             inbox: ConnectionInbox::new(options.inbox_maxlen, public_key_opt),
@@ -609,7 +941,7 @@ impl<P: ProtocolFamily> NetworkConnection<P> {
         }
 
         if solicited {
-            let fulfilled = self.outbox.inflight.remove(outbox_index).unwrap();
+            let fulfilled = self.outbox.inflight.remove(outbox_index).unwrap(); // safe since solicited
             fulfilled.send(msg);
             None
         }
@@ -619,7 +951,6 @@ impl<P: ProtocolFamily> NetworkConnection<P> {
     }
 
     /// Send any messages we got to waiting receivers.
-    /// Used mainly for testing.
     /// Return the list of unsolicited messages (such as blocks and transactions).
     pub fn drain_inbox(&mut self) -> Vec<P::Message> {
         let inflight_index = 0;
@@ -678,30 +1009,38 @@ impl<P: ProtocolFamily> NetworkConnection<P> {
         res
     } 
 
-    /// Send a signed message and expect a reply.
-    pub fn send_signed_message(&mut self, message: P::Message, ttl: u64) -> Result<NetworkReplyHandle<P>, net_error> {
+    /// Send a message and expect a reply.
+    /// Caller will need to write the message bytes into the resulting NetworkReplyHandle, and call
+    /// flush() on it to make sure the data gets written out to the socket.
+    pub fn make_request_handle(&mut self, request_id: u32, ttl: u64) -> Result<NetworkReplyHandle<P>, net_error> {
         let (send_ch, recv_ch) = sync_channel(1);
-        let recv_notify = ReceiverNotify::new(message.request_id(), send_ch, ttl);
-        let recv_handle = NetworkReplyHandle::new(recv_ch);
+        let recv_notify = ReceiverNotify::new(request_id, send_ch, ttl);
+        
+        let (pipe_read, pipe_write) = Pipe::new();
+        let recv_handle = NetworkReplyHandle::new(recv_ch, pipe_write);
 
-        self.outbox.queue_message(message, Some(recv_notify))?;
+        self.outbox.queue_message(pipe_read, Some(recv_notify))?;
         Ok(recv_handle)
     }
 
-    /// Forward a signed message to a peer, expecting no reply 
-    pub fn relay_signed_message(&mut self, message: P::Message) -> Result<(), net_error> {
-        self.outbox.queue_message(message, None)?;
-        Ok(())
+    /// Forward a message and expect no reply
+    /// Returns a Write-able handle into which the message should be written, and flushed.
+    pub fn make_relay_handle(&mut self) -> Result<NetworkReplyHandle<P>, net_error> {
+        let (pipe_read, pipe_write) = Pipe::new();
+        self.outbox.queue_message(pipe_read, None)?;
+
+        let send_handle = NetworkReplyHandle::new_relay(pipe_write);
+        Ok(send_handle)
     }
 
     /// Send data 
     pub fn send_data<W: Write>(&mut self, fd: &mut W) -> Result<usize, net_error> {
         self.outbox.send_bytes(fd)
     }
-
+    
     /// Receive data 
     pub fn recv_data<R: Read>(&mut self, fd: &mut R) -> Result<usize, net_error> {
-        self.inbox.recv_bytes(fd)
+        self.inbox.recv_bytes(&mut self.protocol, fd)
     }
 
     /// how many inbox messages pending?
@@ -741,41 +1080,485 @@ impl<P: ProtocolFamily> NetworkConnection<P> {
 pub type ConnectionP2P = NetworkConnection<StacksP2P>;
 pub type ReplyHandleP2P = NetworkReplyHandle<StacksP2P>;
 
+pub type ConnectionHttp = NetworkConnection<StacksHttp>;
+pub type ReplyHandleHttp = NetworkReplyHandle<StacksHttp>;
+
 #[cfg(test)]
 mod test {
     use super::*;
     use net::*;
     use util::secp256k1::*;
     use util::*;
+    use util::pipe::*;
+    use std::io::prelude::*;
+    use std::io::{Read, Write};
     use std::io;
+    use std::thread;
+    use std::sync::{Arc, Mutex};
+    use rand::RngCore;
+    use rand;
 
     use net::test::NetCursor;
+    use net::test::make_tcp_sockets;
+
+    use chainstate::stacks::test::make_codec_test_block;
+    use net::http::*;
+
+    fn test_connection_relay_producer_consumer<P, F>(mut protocol: P, mut conn: NetworkConnection<P>, message_factory: F) 
+    where
+        P: ProtocolFamily + 'static + Send + Clone,
+        F: Fn(u32) -> P::Message
+    {
+        assert_eq!(conn.options.outbox_maxlen, conn.options.inbox_maxlen);
+
+        let mut messages = vec![];
+
+        for i in 0..conn.options.outbox_maxlen {
+            // send
+            if i % 100 == 0 {
+                test_debug!("Generated {} messages...", i);
+            }
+            let msg = message_factory(i as u32);
+            messages.push(msg);
+        }
+
+        let expected_messages = messages.clone();
+
+        let mut pipes = vec![]; // keep pipes in-scope
+        for i in 0..conn.options.outbox_maxlen {
+            let pipe = conn.make_relay_handle().unwrap();
+            pipes.push(pipe);
+        }
+        
+        // in the background, flush these pipes
+        let pusher = thread::spawn(move || {
+            let mut i = 0;
+
+            // push the message, and force pipes to go out of scope to close the write end
+            while pipes.len() > 0 {
+                let mut p = pipes.remove(0);
+                protocol.write_message(&mut p, &messages[i]).unwrap();
+                i += 1;
+
+                test_debug!("Flush pipe {}", i);
+                let _ = p.flush();
+                test_debug!("Flushed pipe {}", i);
+            }
+
+            test_debug!("Pusher exit");
+        });
+
+        let (server, mut read, mut write) = make_tcp_sockets();
+
+        read.set_send_buffer_size(8192).unwrap();
+        read.set_recv_buffer_size(8192).unwrap();
+
+        write.set_send_buffer_size(8192).unwrap();
+        write.set_recv_buffer_size(8192).unwrap();
+
+        let shared_state = Arc::new(Mutex::new(conn));
+        let sender_shared_state = shared_state.clone();
+        
+        // in the background, send out all messages
+        let sender = thread::spawn(move || {
+            let mut done = false;
+            while !done {
+                match sender_shared_state.lock() {
+                    Ok(ref mut conn) => {
+                        if conn.outbox.num_messages() > 0 {
+                            let nw = conn.send_data(&mut write).unwrap();
+                            if nw == 0 {
+                                thread::yield_now();
+                            }
+                            if nw > 0 {
+                                test_debug!("Written {} bytes", nw);
+                            }
+                        }
+                        else {
+                            done = true;
+                        }
+                    },
+                    Err(e) => {
+                        assert!(false, "{:?}", &e);
+                        unreachable!();
+                    }
+                }
+            }
+            let _ = write.flush();
+            test_debug!("Sender exit");
+        });
+
+        let mut drained = false;
+        let mut total_bytes = 0;
+        while !drained {
+            match shared_state.lock() {
+                Ok(ref mut conn) => {
+                    // in the foreground, get the messages
+                    let nr = match conn.recv_data(&mut read) {
+                        Ok(cnt) => {
+                            if cnt == 0 {
+                                thread::yield_now();
+                            }
+
+                            cnt
+                        }
+                        Err(e) => match e {
+                            net_error::PermanentlyDrained => {
+                                drained = true;
+                                0
+                            }
+                            _ => {
+                                assert!(false, "{:?}", &e);
+                                unreachable!();
+                            }
+                        }
+                    };
+
+                    if nr > 0 {
+                        test_debug!("Received {} bytes", nr);
+                        total_bytes += nr;
+                    }
+                },
+                Err(e) => {
+                    assert!(false, "{:?}", &e);
+                    unreachable!();
+                }
+            }
+        }
+
+        test_debug!("Received {} bytes in total", total_bytes);
+
+        match shared_state.lock() {
+            Ok(ref mut conn) => {
+                test_debug!("conn inbox buf has {} bytes, message_ptr = {}", conn.inbox.buf.len(), conn.inbox.message_ptr);
+                test_debug!("conn outbox has {} bytes, socket_buf_ptr = {}", conn.outbox.socket_out_buf.len(), conn.outbox.socket_out_ptr); 
+
+                assert_eq!(conn.inbox.buf.len(), 0);
+                assert_eq!(conn.inbox.message_ptr, 0);
+                assert_eq!(conn.outbox.socket_out_buf.len(), 0);
+                assert_eq!(conn.outbox.socket_out_ptr, 0);
+
+                let recved = conn.drain_inbox();
+                assert_eq!(recved.len(), expected_messages.len());
+                assert_eq!(recved, expected_messages);
+            },
+            Err(e) => {
+                assert!(false, "{:?}", &e);
+                unreachable!();
+            }
+        }
+            
+        sender.join().unwrap();
+        pusher.join().unwrap();
+    }
+    
+    fn test_connection_request_producer_consumer<P, F>(mut protocol: P, mut conn: NetworkConnection<P>, message_factory: F) 
+    where
+        P: ProtocolFamily + 'static + Send + Clone,
+        F: Fn(u32) -> P::Message
+    {
+        assert_eq!(conn.options.outbox_maxlen, conn.options.inbox_maxlen);
+
+        let mut messages = vec![];
+
+        for i in 0..conn.options.outbox_maxlen {
+            // send
+            if i % 100 == 0 {
+                test_debug!("Generated {} messages...", i);
+            }
+            let msg = message_factory(i as u32);
+            messages.push(msg);
+        }
+
+        let expected_messages = messages.clone();
+
+        let mut handles = vec![]; // keep pipes in-scope
+        for i in 0..conn.options.outbox_maxlen {
+            let handle = conn.make_request_handle(messages[i].request_id(), get_epoch_time_secs() + 60).unwrap();
+            handles.push(handle);
+        }
+        
+        let (sx, rx) = sync_channel(1);
+
+        // in the background, flush these pipes
+        let pusher = thread::spawn(move || {
+            let mut i = 0;
+            let mut rhs = vec![];
+
+            // push the message, and force pipes to go out of scope to close the write end
+            while handles.len() > 0 {
+                let mut rh = handles.remove(0);
+                protocol.write_message(&mut rh, &messages[i]).unwrap();
+                i += 1;
+
+                test_debug!("Flush handle {}", i);
+                let _ = rh.flush();
+                test_debug!("Flushed handle {}", i);
+
+                rhs.push(rh);
+            }
+
+            sx.send(rhs).unwrap();
+            test_debug!("Pusher exit");
+        });
+
+        let (server, mut read, mut write) = make_tcp_sockets();
+
+        read.set_send_buffer_size(8192).unwrap();
+        read.set_recv_buffer_size(8192).unwrap();
+
+        write.set_send_buffer_size(8192).unwrap();
+        write.set_recv_buffer_size(8192).unwrap();
+
+        let shared_state = Arc::new(Mutex::new(conn));
+        let sender_shared_state = shared_state.clone();
+
+        // in the background, send out all messages
+        let sender = thread::spawn(move || {
+            let mut done = false;
+            while !done {
+                match sender_shared_state.lock() {
+                    Ok(ref mut conn) => {
+                        if conn.outbox.num_messages() > 0 {
+                            let nw = conn.send_data(&mut write).unwrap();
+                            if nw > 0 {
+                                test_debug!("Written {} bytes", nw);
+                            }
+                        }
+                        else {
+                            done = true;
+                        }
+                    },
+                    Err(e) => {
+                        assert!(false, "{:?}", &e);
+                        unreachable!();
+                    }
+                }
+            }
+            let _ = write.flush();
+            test_debug!("Sender exit");
+        });
+
+        let mut drained = false;
+        let mut total_bytes = 0;
+        while !drained {
+            match shared_state.lock() {
+                Ok(ref mut conn) => {
+                    // in the foreground, get the messages
+                    let nr = match conn.recv_data(&mut read) {
+                        Ok(cnt) => cnt,
+                        Err(e) => match e {
+                            net_error::PermanentlyDrained => {
+                                drained = true;
+                                0
+                            }
+                            _ => {
+                                assert!(false, "{:?}", &e);
+                                unreachable!();
+                            }
+                        }
+                    };
+
+                    if nr > 0 {
+                        test_debug!("Received {} bytes", nr);
+                        total_bytes += nr;
+                    }
+                },
+                Err(e) => {
+                    assert!(false, "{:?}", &e);
+                    unreachable!();
+                }
+            }
+        }
+
+        test_debug!("Received {} bytes in total", total_bytes);
+        
+        let mut flushed_handles = rx.recv().unwrap();
+        
+        match shared_state.lock() {
+            Ok(ref mut conn) => {
+                test_debug!("conn inbox buf has {} bytes, message_ptr = {}", conn.inbox.buf.len(), conn.inbox.message_ptr);
+                test_debug!("conn outbox has {} bytes, socket_buf_ptr = {}", conn.outbox.socket_out_buf.len(), conn.outbox.socket_out_ptr); 
+
+                assert_eq!(conn.inbox.buf.len(), 0);
+                assert_eq!(conn.inbox.message_ptr, 0);
+                assert_eq!(conn.outbox.socket_out_buf.len(), 0);
+                assert_eq!(conn.outbox.socket_out_ptr, 0);
+
+                // fulfill everything
+                let recved = conn.drain_inbox();
+
+                // everything was sent to the handles -- all solicited
+                assert_eq!(recved.len(), 0);
+            },
+            Err(e) => {
+                assert!(false, "{:?}", &e);
+                unreachable!();
+            }
+        }
+
+        // got all messages
+        let mut recved = vec![];
+        for (i, rh) in flushed_handles.drain(..).enumerate() {
+            test_debug!("recv {}", i);
+            let res = rh.recv(0).unwrap();
+            recved.push(res);
+        }
+
+        assert_eq!(recved, expected_messages);
+        
+        sender.join().unwrap();
+        pusher.join().unwrap();
+    }
+    
+    fn ping_factory(request_id: u32) -> StacksMessage {
+        let mut rng = rand::thread_rng();
+        let nonce = rng.next_u32();
+        let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
+                                          12345,
+                                          &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                          12339,
+                                          &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                          StacksMessageType::Ping(PingData { nonce: nonce }));
+        let privkey = Secp256k1PrivateKey::new();
+        ping.sign(request_id, &privkey).unwrap();
+        ping
+    }
+
+    fn block_content_length_factory(request_id: u32) -> StacksHttpMessage {
+        let test_block_info = make_codec_test_block(5);
+        
+        let mut test_block_info_bytes = vec![];
+        test_block_info.consensus_serialize(&mut test_block_info_bytes).unwrap();
+
+        StacksHttpMessage::Response(
+            HttpResponseType::Block(
+                HttpResponseMetadata::new(request_id, format!("/v2/blocks/{}", test_block_info.block_hash().to_hex()), Some(test_block_info_bytes.len() as u32)), 
+                test_block_info.clone()
+            )
+        )
+    }
+    
+    fn block_chunked_factory(request_id: u32) -> StacksHttpMessage {
+        let test_block_info = make_codec_test_block(5);
+
+        StacksHttpMessage::Response(
+            HttpResponseType::Block(
+                HttpResponseMetadata::new(request_id, format!("/v2/blocks/{}", test_block_info.block_hash().to_hex()), None),
+                test_block_info.clone()
+            )
+        )
+    }
+
+    #[test]
+    fn test_connection_ping_relay_producer_consumer() {
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.inbox_maxlen = 5000;
+        conn_opts.outbox_maxlen = 5000;
+
+        let conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, None);
+
+        test_connection_relay_producer_consumer(StacksP2P::new(), conn, ping_factory);
+    }
+    
+    #[test]
+    fn test_connection_ping_request_producer_consumer() {
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.inbox_maxlen = 5000;
+        conn_opts.outbox_maxlen = 5000;
+
+        let conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, None);
+
+        test_connection_request_producer_consumer(StacksP2P::new(), conn, ping_factory);
+    }
+    
+    #[test]
+    fn test_connection_block_content_length_relay_producer_consumer() {
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.inbox_maxlen = 5000;
+        conn_opts.outbox_maxlen = 5000;
+        
+        // stress-test different chunk sizes
+        let mut rng = rand::thread_rng();
+        let chunk_size = ((rng.next_u32() % (8192 - 128)) + 128) as usize;
+        
+        let mut conn_http = StacksHttp::new();
+        conn_http.set_chunk_size(chunk_size);
+        let test_http = conn_http.clone();
+        
+        let conn = ConnectionHttp::new(conn_http, &conn_opts, None);
+
+        test_debug!("chunk size: {}", chunk_size);
+        test_connection_relay_producer_consumer(StacksHttp::new(), conn, block_content_length_factory);
+    }
+    
+    #[test]
+    fn test_connection_block_content_length_request_producer_consumer() {
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.inbox_maxlen = 5000;
+        conn_opts.outbox_maxlen = 5000;
+        
+        // stress-test different chunk sizes
+        let mut rng = rand::thread_rng();
+        let chunk_size = ((rng.next_u32() % (8192 - 128)) + 128) as usize;
+        
+        let mut conn_http = StacksHttp::new();
+        conn_http.set_chunk_size(chunk_size);
+        let test_http = conn_http.clone();
+        
+        let conn = ConnectionHttp::new(conn_http, &conn_opts, None);
+
+        test_debug!("chunk size: {}", chunk_size);
+        test_connection_request_producer_consumer(StacksHttp::new(), conn, block_content_length_factory);
+    }
+    
+    #[test]
+    fn test_connection_block_chunked_relay_producer_consumer() {
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.inbox_maxlen = 5000;
+        conn_opts.outbox_maxlen = 5000;
+        
+        // stress-test different chunk sizes
+        let mut rng = rand::thread_rng();
+        let chunk_size = ((rng.next_u32() % (8192 - 128)) + 128) as usize;
+
+        let mut conn_http = StacksHttp::new();
+        conn_http.set_chunk_size(chunk_size);
+        let test_http = conn_http.clone();
+        
+        let conn = ConnectionHttp::new(conn_http, &conn_opts, None);
+
+        test_debug!("chunk size: {}", chunk_size);
+        test_connection_relay_producer_consumer(test_http, conn, block_chunked_factory);
+    }
+    
+    #[test]
+    fn test_connection_block_chunked_request_producer_consumer() {
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.inbox_maxlen = 5000;
+        conn_opts.outbox_maxlen = 5000;
+      
+        // stress-test different chunk sizes
+        let mut rng = rand::thread_rng();
+        let chunk_size = ((rng.next_u32() % (8192 - 128)) + 128) as usize;
+
+        let mut conn_http = StacksHttp::new();
+        conn_http.set_chunk_size(chunk_size);
+        let test_http = conn_http.clone();
+
+        let conn = ConnectionHttp::new(conn_http, &conn_opts, None);
+
+        test_debug!("chunk size: {}", chunk_size);
+        test_connection_request_producer_consumer(test_http, conn, block_chunked_factory);
+    }
 
     #[test]
     fn connection_relay_send() {
-        let neighbor = Neighbor {
-            addr: NeighborKey {
-                peer_version: 0x12345678,
-                network_id: 0x9abcdef0,
-                addrbytes: PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]),
-                port: 12345,
-            },
-            public_key: Secp256k1PublicKey::from_hex("02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3").unwrap(),
-            expire_block: 23456,
-            last_contact_time: 1552509642,
-            whitelisted: -1,
-            blacklisted: -1,
-            asn: 34567,
-            org: 45678,
-            in_degree: 0,
-            out_degree: 0
-        };
-
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
 
-        let mut conn = ConnectionP2P::new(&conn_opts, None);
+        let mut conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, None);
 
         // send
         let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
@@ -788,73 +1571,97 @@ mod test {
         let privkey = Secp256k1PrivateKey::new();
         ping.sign(1, &privkey).unwrap();
 
-        conn.relay_signed_message(ping.clone()).unwrap();
-        conn.relay_signed_message(ping.clone()).unwrap();
-        conn.relay_signed_message(ping.clone()).unwrap();
-        conn.relay_signed_message(ping.clone()).unwrap();
-        conn.relay_signed_message(ping.clone()).unwrap();
+        let mut pipes = vec![]; // keep pipes in-scope
+        for i in 0..5 {
+            test_debug!("Write ping {}", i);
+            let mut pipe = conn.make_relay_handle().unwrap();
+            ping.consensus_serialize(&mut pipe).unwrap();
+            pipes.push(pipe);
+        }
+
+        // in the background, flush these pipes
+        let pinger = thread::spawn(move || {
+            let mut i = 0;
+
+            // force pipes to go out of scope
+            while pipes.len() > 0 {
+                let mut p = pipes.remove(0);
+                i += 1;
+
+                test_debug!("Flush pipe {}", i);
+                let _ = p.flush();
+                test_debug!("Flushed pipe {}", i);
+            }
+
+            test_debug!("Pinger exit");
+        });
 
         // 5 ping messages queued; no one expecting a reply
         for i in 0..5 {
-            assert_eq!(conn.outbox.outbox.get(i).unwrap().message, ping);
             assert!(conn.outbox.outbox.get(i).unwrap().notify.is_none());
         }
 
         // size of one ping 
-        let ping_size = ping.consensus_serialize().len();
-        let mut ping_vec = vec![0; ping_size];
+        let ping_size = {
+            let mut tmp = vec![];
+            ping.consensus_serialize(&mut tmp).unwrap();
+            tmp.len()
+        };
 
+        let mut ping_vec = vec![0; ping_size];
+        let write_buf_len = ping_vec.len();
         let mut write_buf = NetCursor::new(ping_vec.as_mut_slice());
 
         // send one ping 
-        conn.send_data(&mut write_buf).unwrap();
+        let mut nw = 0;
+        while nw < write_buf_len {
+            nw += conn.send_data(&mut write_buf).unwrap();
+        }
         
         // 4 messages queued
         assert_eq!(conn.outbox.outbox.len(), 4);
-        for i in 0..4 {
-            assert_eq!(conn.outbox.outbox.get(i).unwrap().message, ping);
-        }
-
-        // buffer is loaded up with the next message 
-        assert_eq!(conn.outbox.socket_out_buf.len(), ping_size);
-        assert_eq!(conn.outbox.socket_out_ptr, 0);
-
+        
         // 1 message serialized and bufferred out, and it should be our ping.
-        let mut index = 0;
-        assert_eq!(StacksMessage::consensus_deserialize(&write_buf.get_ref().to_vec(), &mut index, write_buf.get_ref().len() as u32).unwrap(), ping);
+        assert_eq!(StacksMessage::consensus_deserialize(&mut io::Cursor::new(&write_buf.get_ref().to_vec())).unwrap(), ping);
 
         // relay 1.5 pings
         let mut ping_buf_15 = vec![0; ping_size + (ping_size/2)];
+        let write_buf_15_len = ping_buf_15.len();
         let mut write_buf_15 = NetCursor::new(ping_buf_15.as_mut_slice());
-        conn.send_data(&mut write_buf_15).unwrap();
+
+        nw = 0;
+        while nw < write_buf_15_len {
+            nw += conn.send_data(&mut write_buf_15).unwrap();
+        }
 
         // 3 messages still queued (the one partially-sent)
         assert_eq!(conn.outbox.outbox.len(), 3);
-        for i in 0..3 {
-            assert_eq!(conn.outbox.outbox.get(i).unwrap().message, ping);
-        }
+        assert_eq!(nw, ping_size + ping_size/2);
 
         // buffer is partially full, with (ping_size / 2) bytes (the first half of a ping)
-        assert_eq!(conn.outbox.socket_out_buf.len(), ping_size);
-        assert_eq!(conn.outbox.socket_out_ptr, (ping_size / 2) as u32);
+        assert_eq!(conn.outbox.socket_out_ptr, ping_size / 2);
 
         // the (ping_size / 2) bytes should be half a ping 
-        let serialized_ping = ping.consensus_serialize();
+        let mut serialized_ping = vec![];
+        ping.consensus_serialize(&mut serialized_ping).unwrap();
         assert_eq!(conn.outbox.socket_out_buf[0..(conn.outbox.socket_out_ptr as usize)], serialized_ping[0..(conn.outbox.socket_out_ptr as usize)]);
 
         let mut half_ping = conn.outbox.socket_out_buf.clone()[0..(conn.outbox.socket_out_ptr as usize)].to_vec();
         let mut ping_buf_05 = vec![0; 2*ping_size - (ping_size + ping_size/2)];
 
         // flush the remaining half-ping 
+        let write_buf_05_len = ping_buf_05.len();
         let mut write_buf_05 = NetCursor::new(ping_buf_05.as_mut_slice());
-        conn.send_data(&mut write_buf_05).unwrap();
 
+        nw = 0;
+        while nw < write_buf_05_len {
+            nw += conn.send_data(&mut write_buf_05).unwrap();
+        }
+        
         // 2 messages still queued 
         assert_eq!(conn.outbox.outbox.len(), 2);
-        assert_eq!(conn.outbox.outbox.get(0).unwrap().message, ping);
 
-        // buffer is now empty, but a message is queued up for sending
-        assert_eq!(conn.outbox.socket_out_buf.len(), ping_size);
+        // buffer is now empty
         assert_eq!(conn.outbox.socket_out_ptr, 0);
 
         // the combined ping buffers should be the serialized ping 
@@ -863,6 +1670,22 @@ mod test {
         combined_ping_buf.extend_from_slice(&write_buf_05.get_mut());
         
         assert_eq!(combined_ping_buf, serialized_ping);
+
+        // receive the rest 
+        let mut ping_drain = vec![0; ping_size*2];
+        let drain_fd_len = ping_drain.len();
+        let mut drain_fd = NetCursor::new(ping_drain.as_mut_slice());
+
+        nw = 0;
+        while nw < drain_fd_len {
+            nw += conn.send_data(&mut drain_fd).unwrap();
+        }
+
+        assert_eq!(nw, ping_size*2);
+        assert_eq!(conn.outbox.outbox.len(), 0);
+
+        test_debug!("Join pinger");
+        pinger.join().unwrap();
     }
 
     #[test]
@@ -892,11 +1715,12 @@ mod test {
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
 
-        let mut conn = ConnectionP2P::new(&conn_opts, Some(neighbor.public_key));
+        let mut conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, Some(neighbor.public_key));
 
         // send
         let mut ping_vec = vec![];
         let mut ping_size = 0;
+        let mut pipes = vec![];
         for i in 0..5 {
             let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                               12345 + i,
@@ -906,19 +1730,39 @@ mod test {
                                               StacksMessageType::Ping(PingData { nonce: 0x01020304 }));
 
             ping.sign(i as u32, &privkey).unwrap();
-            ping_size = ping.consensus_serialize().len();
+            ping_size = {
+                let mut tmp = vec![];
+                ping.consensus_serialize(&mut tmp).unwrap();
+                tmp.len()
+            };
 
-            conn.relay_signed_message(ping.clone()).unwrap();
+            let mut pipe = conn.make_relay_handle().unwrap();
+            ping.consensus_serialize(&mut pipe).unwrap();
+            pipes.push(pipe);
             ping_vec.push(ping);
         }
+
+        let pinger = thread::spawn(move || {
+            let mut i = 0;
+            while pipes.len() > 0 {
+                let mut p = pipes.remove(0);
+                i += 1;
+
+                p.flush().unwrap();
+            }
+        });
         
         // buffer to send/receive everything
         let mut ping_buf = vec![0u8; 5*ping_size];
 
         {
+            let len = ping_buf.len();
             let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
-            let num_sent = conn.send_data(&mut ping_fd).unwrap();
-            assert_eq!(num_sent, ping_size * 5);
+            let mut nw = 0;
+            while nw < len {
+                nw += conn.send_data(&mut ping_fd).unwrap();
+            }
+            assert_eq!(nw, ping_size * 5);
         }
         
         {
@@ -930,6 +1774,8 @@ mod test {
         // all messages received? note that they are all unsolicited
         let msgs = conn.drain_inbox();
         assert_eq!(msgs, ping_vec);
+
+        pinger.join().unwrap();
     }
 
     #[test]
@@ -959,7 +1805,7 @@ mod test {
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
         
-        let mut conn = ConnectionP2P::new(&conn_opts, Some(neighbor.public_key));
+        let mut conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, Some(neighbor.public_key));
 
         // send
         let mut ping_vec = vec![];
@@ -975,20 +1821,46 @@ mod test {
 
             ping.sign(i as u32, &privkey).unwrap();
             
-            ping_size = ping.consensus_serialize().len();
-            let handle = conn.send_signed_message(ping.clone(), get_epoch_time_secs() + 60).unwrap();
+            ping_size = {
+                let mut tmp = vec![];
+                ping.consensus_serialize(&mut tmp).unwrap();
+                tmp.len()
+            };
+
+            let mut handle = conn.make_request_handle(ping.request_id(), get_epoch_time_secs() + 60).unwrap();
+            ping.consensus_serialize(&mut handle).unwrap();
+
             handle_vec.push(handle);
             ping_vec.push(ping);
         }
-        
-        // buffer to send/receive everything
+
+        let (sx, rx) = sync_channel(1);
+
+        let pinger = thread::spawn(move || {
+            let mut rhs = vec![];
+
+            while handle_vec.len() > 0 {
+                let mut handle = handle_vec.remove(0);
+                handle.flush().unwrap();
+                rhs.push(handle);
+            }
+
+            sx.send(rhs).unwrap();
+        });
+ 
         let mut ping_buf = vec![0u8; 5*ping_size];
 
         {
+            let len = ping_buf.len();
             let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
-            let num_sent = conn.send_data(&mut ping_fd).unwrap();
-            assert_eq!(num_sent, ping_size * 5);
+            let mut nw = 0;
+            while nw < len {
+                nw += conn.send_data(&mut ping_fd).unwrap();
+            }
+            assert_eq!(len, ping_size * 5);
         }
+        
+        let flushed_handles = rx.recv().unwrap();
         
         {
             let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
@@ -1000,14 +1872,15 @@ mod test {
         let msgs = conn.drain_inbox();
         assert_eq!(msgs, vec![]);
 
-        // all handles should have messages
         let mut recved = vec![];
-        for h in handle_vec {
-            let res = h.recv(0).unwrap();
+        for rh in flushed_handles {
+            let res = rh.recv(0).unwrap();
             recved.push(res);
         }
 
         assert_eq!(recved, ping_vec);
+
+        pinger.join().unwrap();
     }
 
     #[test]
@@ -1037,7 +1910,7 @@ mod test {
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
         
-        let mut conn = ConnectionP2P::new(&conn_opts, Some(neighbor.public_key));
+        let mut conn = ConnectionP2P::new(StacksP2P::new(), &conn_opts, Some(neighbor.public_key));
 
         // send
         let mut ping_vec = vec![];
@@ -1052,21 +1925,49 @@ mod test {
                                               StacksMessageType::Ping(PingData { nonce: (0x01020304 + i) as u32 }));
 
             ping.sign(i as u32, &privkey).unwrap();
-            ping_size = ping.consensus_serialize().len();
-            
-            let handle = conn.send_signed_message(ping.clone(), get_epoch_time_secs() + 1).unwrap();
+            ping_size = {
+                let mut tmp = vec![];
+                ping.consensus_serialize(&mut tmp).unwrap();
+                tmp.len()
+            };
+           
+            // 1-second timeout
+            let mut handle = conn.make_request_handle(ping.request_id(), get_epoch_time_secs() + 1).unwrap();
+            ping.consensus_serialize(&mut handle).unwrap();
+
             handle_vec.push(handle);
             ping_vec.push(ping);
         }
+
+        let (sx, rx) = sync_channel(1);
+
+        let pinger = thread::spawn(move || {
+            let mut rhs = vec![];
+
+            while handle_vec.len() > 0 {
+                let mut handle = handle_vec.remove(0);
+                handle.flush().unwrap();
+                rhs.push(handle);
+            }
+
+            sx.send(rhs).unwrap();
+        });
         
         // buffer to send/receive everything
         let mut ping_buf = vec![0u8; 5*ping_size];
 
         {
+            let len = ping_buf.len();
             let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
-            let num_sent = conn.send_data(&mut ping_fd).unwrap();
-            assert_eq!(num_sent, ping_size * 5);
+            let mut nw = 0;
+            while nw < len {
+                nw += conn.send_data(&mut ping_fd).unwrap();
+            }
+
+            assert_eq!(nw, ping_size * 5);
         }
+        
+        let flushed_handles = rx.recv().unwrap();
 
         // wait 3 seconds 
         test_debug!("Wait 3 seconds for Pings to time out");
@@ -1089,9 +1990,11 @@ mod test {
         assert_eq!(msgs, ping_vec);
 
         // all handles should be closed with the ConnectionBroken error
-        for h in handle_vec {
+        for h in flushed_handles {
             let res = h.recv(0);
             assert_eq!(res, Err(net_error::ConnectionBroken));
         }
+
+        pinger.join().unwrap();
     }
 }
