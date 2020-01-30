@@ -9,6 +9,7 @@
 extern crate blockstack_lib;
 
 use std::{io, fs, env};
+use std::io::prelude::*;
 use std::convert::TryFrom;
 use std::io::Read;
 use blockstack_lib::util::{log, strings::StacksString, hash::hex_bytes, hash::to_hex};
@@ -184,7 +185,7 @@ fn make_standard_single_sig_tx(version: TransactionVersion, payload: Transaction
 }
 
 fn sign_transaction_single_sig_standard(transaction: &str, secret_key: &StacksPrivateKey) -> Result<StacksTransaction, CliError> {
-    let transaction = StacksTransaction::consensus_deserialize(&hex_bytes(transaction)?, &mut 0, u32::max_value())?;
+    let transaction = StacksTransaction::consensus_deserialize(&mut io::Cursor::new(&hex_bytes(transaction)?))?;
 
     let mut tx_signer = StacksTransactionSigner::new(&transaction);
     tx_signer.sign_origin(secret_key)?;
@@ -219,10 +220,14 @@ fn handle_contract_publish(args: &[String], version: TransactionVersion) -> Resu
     let payload = make_contract_publish(contract_name.clone(), contract_contents)?;
     let unsigned_tx = make_standard_single_sig_tx(version, payload.into(), &StacksPublicKey::from_private(&sk_publisher),
                                                   nonce, fee_rate);
+    let mut unsigned_tx_bytes = vec![];
+    unsigned_tx.consensus_serialize(&mut unsigned_tx_bytes).expect("FATAL: invalid transaction");
     let signed_tx = sign_transaction_single_sig_standard(
-        &to_hex(&unsigned_tx.consensus_serialize()), &sk_publisher)?;
+        &to_hex(&unsigned_tx_bytes), &sk_publisher)?;
 
-    Ok(to_hex(&signed_tx.consensus_serialize()))
+    let mut signed_tx_bytes = vec![];
+    signed_tx.consensus_serialize(&mut signed_tx_bytes).expect("FATAL: invalid signed transaction");
+    Ok(to_hex(&signed_tx_bytes))
 }
 
 fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
@@ -272,10 +277,15 @@ fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<
     let payload = make_contract_call(contract_address.clone(), contract_name.clone(), function_name.clone(), values)?;
     let unsigned_tx = make_standard_single_sig_tx(version, payload.into(), &StacksPublicKey::from_private(&sk_origin),
                                                   nonce, fee_rate);
+    
+    let mut unsigned_tx_bytes = vec![];
+    unsigned_tx.consensus_serialize(&mut unsigned_tx_bytes).expect("FATAL: invalid transaction");
     let signed_tx = sign_transaction_single_sig_standard(
-        &to_hex(&unsigned_tx.consensus_serialize()), &sk_origin)?;
+        &to_hex(&unsigned_tx_bytes), &sk_origin)?;
 
-    Ok(to_hex(&signed_tx.consensus_serialize()))
+    let mut signed_tx_bytes = vec![];
+    signed_tx.consensus_serialize(&mut signed_tx_bytes).expect("FATAL: invalid signed transaction");
+    Ok(to_hex(&signed_tx_bytes))
 }
 
 fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
