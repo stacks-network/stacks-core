@@ -44,7 +44,7 @@ jobs:
       - run:
           name: Pull Rust Stable
           command: |
-            docker pull rust/rust:1.40-stretch
+            docker pull circleci/1.40-stretch
       - run:
           name: Build and Test
           command: |
