@@ -25,6 +25,7 @@ use net::Error as net_error;
 use util::db::Error as db_error;
 use util::db::DBConn;
 
+use std::net;
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -32,6 +33,7 @@ use std::io::Read;
 use std::io::Write;
 use std::io::Error as io_error;
 use std::io::ErrorKind;
+use std::time;
 
 use util::log;
 
@@ -132,10 +134,42 @@ impl NetworkState {
     }
 
     /// Connect to a remote peer, but don't register it with the poll handle.
+    /// Connect *synchronously*, and then put the socket into non-blocking mode.
     pub fn connect(&mut self, addr: &SocketAddr) -> Result<mio_net::TcpStream, net_error> {
-        let stream = mio_net::TcpStream::connect(addr)
+        // connect and abort after 5 seconds of waiting.
+        let inner_stream = net::TcpStream::connect_timeout(addr, time::Duration::from_millis(5000))
             .map_err(|e| {
-                test_debug!("failed to connect to {:?}: {:?}", addr, &e);
+                test_debug!("Failed to connect to {:?}: {:?}", addr, &e);
+                net_error::ConnectionError
+            })?;
+
+        // NOTE: this will put the socket into non-blocking mode
+        let stream = mio_net::TcpStream::from_stream(inner_stream)
+            .map_err(|e| {
+                test_debug!("Failed to convert to mio stream: {:?}", &e);
+                net_error::ConnectionError
+            })?;
+
+        // set some helpful defaults
+        // Don't go crazy on TIME_WAIT states; have them all die after 5 seconds
+        stream.set_linger(Some(time::Duration::from_millis(5000)))
+            .map_err(|e| {
+                test_debug!("Failed to set SO_LINGER: {:?}", &e);
+                net_error::ConnectionError
+            })?;
+
+        // Disable Nagle algorithm
+        stream.set_nodelay(true)
+            .map_err(|e| {
+                test_debug!("Failed to set TCP_NODELAY: {:?}", &e);
+                net_error::ConnectionError
+            })?;
+
+        // Make sure keep-alive is on, since at least in p2p messages, we keep sockets around
+        // for a while.  Linux default is 7200 seconds, so make sure we keep it here.
+        stream.set_keepalive(Some(time::Duration::from_millis(7200 * 1000)))
+            .map_err(|e| {
+                test_debug!("Failed to set TCP_KEEPALIVE and/or SO_KEEPALIVE: {:?}", &e);
                 net_error::ConnectionError
             })?;
 
