@@ -1,6 +1,7 @@
 use std::thread;
 use std::time;
 use std::fs;
+use std::io;
 use std::io::Read;
 use std::io::BufReader;
 use std::io::prelude::*;
@@ -56,8 +57,7 @@ impl MemPool for MemPoolFS {
                 assert!(reader.buffer().is_empty());
                 reader.fill_buf().unwrap();
                 let encoded_tx: Vec<u8> = reader.buffer().to_vec();
-                let mut index = 0;
-                match StacksTransaction::consensus_deserialize(&encoded_tx, &mut index, encoded_tx.len() as u32) {
+                match StacksTransaction::consensus_deserialize(&mut io::Cursor::new(&encoded_tx)) {
                     Ok(tx) => decoded_txs.push(tx),
                     Err(e) => warn!("Failed to decode transaction {:?}", e)
                 };
