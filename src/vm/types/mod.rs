@@ -24,7 +24,7 @@ pub struct TupleData {
     pub data_map: BTreeMap<ClarityName, Value>
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuffData {
     pub data: Vec<u8>,
 }
@@ -131,7 +131,9 @@ define_named_enum!(BlockInfoProperty {
     Time("time"),
     VrfSeed("vrf-seed"),
     HeaderHash("header-hash"),
+    IdentityHeaderHash("id-header-hash"),
     BurnchainHeaderHash("burnchain-header-hash"),
+    MinerAddress("miner-address"),
 });
 
 impl OptionalData {
@@ -159,7 +161,8 @@ impl BlockInfoProperty {
         use self::BlockInfoProperty::*;
         match self {
             Time => TypeSignature::UIntType,
-            VrfSeed | HeaderHash | BurnchainHeaderHash => BUFF_32.clone(),
+            IdentityHeaderHash | VrfSeed | HeaderHash | BurnchainHeaderHash => BUFF_32.clone(),
+            MinerAddress => TypeSignature::PrincipalType,
         }
     }
 }
@@ -281,13 +284,25 @@ impl fmt::Display for ResponseData {
     }
 }
 
+impl fmt::Display for BuffData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", hash::to_hex(&self.data))
+    }
+}
+
+impl fmt::Debug for BuffData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Int(int) => write!(f, "{}", int),
             Value::UInt(int) => write!(f, "u{}", int),
             Value::Bool(boolean) => write!(f, "{}", boolean),
-            Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes.data)),
+            Value::Buffer(vec_bytes) => write!(f, "0x{}", &vec_bytes),
             Value::Tuple(data) => write!(f, "{}", data),
             Value::Principal(principal_data) => write!(f, "{}", principal_data),
             Value::Optional(opt_data) => write!(f, "{}", opt_data),

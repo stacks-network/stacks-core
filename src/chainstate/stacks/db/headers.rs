@@ -124,12 +124,14 @@ impl StacksChainState {
 
         assert!(block_height < (i64::max_value() as u64));
 
+        let args: &[&dyn ToSql] = &[
+            &header.version, &total_burn_str, &total_work_str, &header.proof, &header.parent_block, &header.parent_microblock, &header.parent_microblock_sequence,
+            &header.tx_merkle_root, &header.state_index_root, &header.microblock_pubkey_hash,
+            &block_hash, &tip_info.index_block_hash(), &burn_header_hash, &(block_height as i64), &index_root];
+
         tx.execute("INSERT INTO block_headers \
                     (version, total_burn, total_work, proof, parent_block, parent_microblock, parent_microblock_sequence, tx_merkle_root, state_index_root, microblock_pubkey_hash, block_hash, index_block_hash, burn_header_hash, block_height, index_root) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-                    &[&header.version as &dyn ToSql, &total_burn_str, &total_work_str, &header.proof.to_hex(), &header.parent_block.to_hex(), &header.parent_microblock.to_hex(), &header.parent_microblock_sequence, 
-                      &header.tx_merkle_root.to_hex(), &header.state_index_root.to_hex(), &header.microblock_pubkey_hash.to_hex(),
-                      &block_hash.to_hex(), &tip_info.index_block_hash().to_hex(), &burn_header_hash.to_hex(), &(block_height as i64) as &dyn ToSql, &index_root.to_hex()])
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
@@ -139,12 +141,12 @@ impl StacksChainState {
     pub fn insert_stacks_microblock_header<'a>(tx: &mut StacksDBTx<'a>, microblock_header: &StacksMicroblockHeader, parent_block_hash: &BlockHeaderHash, parent_burn_header_hash: &BurnchainHeaderHash, block_height: u64, index_root: &TrieHash) -> Result<(), Error> {
         assert!(block_height < (i64::max_value() as u64));
 
+        let args: &[&dyn ToSql] = &[&microblock_header.version, &microblock_header.sequence, &microblock_header.prev_block,
+                                    &microblock_header.tx_merkle_root, &microblock_header.signature, &microblock_header.block_hash(),
+                                    &parent_block_hash, &parent_burn_header_hash, &(block_height as i64), &index_root];
         tx.execute("INSERT OR REPLACE INTO microblock_headers \
                     (version, sequence, prev_block, tx_merkle_root, signature, microblock_hash, parent_block_hash, parent_burn_header_hash, block_height, index_root) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                    &[&microblock_header.version as &dyn ToSql, &microblock_header.sequence as &dyn ToSql, &microblock_header.prev_block.to_hex(),
-                    &microblock_header.tx_merkle_root.to_hex(), &microblock_header.signature.to_hex(), &microblock_header.block_hash().to_hex(),
-                    &parent_block_hash.to_hex(), &parent_burn_header_hash.to_hex(), &(block_height as i64) as &dyn ToSql, &index_root.to_hex()])
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
@@ -154,7 +156,8 @@ impl StacksChainState {
     /// Does not get back data about the parent microblock stream.
     pub fn get_anchored_block_header_info(conn: &Connection, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<StacksHeaderInfo>, Error> {
         let sql = "SELECT * FROM block_headers WHERE burn_header_hash = ?1 AND block_hash = ?2".to_string();
-        let mut rows = query_rows::<StacksHeaderInfo, _>(conn, &sql, &[&burn_header_hash.to_hex(), &block_hash.to_hex()]).map_err(Error::DBError)?;
+        let args: &[&dyn ToSql] = &[&burn_header_hash, &block_hash];
+        let mut rows = query_rows::<StacksHeaderInfo, _>(conn, &sql, args).map_err(Error::DBError)?;
         if rows.len() > 1 {
             unreachable!("FATAL: multiple rows for the same block hash")  // should be unreachable, since block_hash/burn_header_hash is the primary key
         }
@@ -166,7 +169,7 @@ impl StacksChainState {
     /// hash and the block hash -- the hash of the primary key)
     fn get_stacks_block_header_info_by_index_block_hash(conn: &Connection, index_block_hash: &BlockHeaderHash) -> Result<Option<StacksHeaderInfo>, Error> {
         let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1".to_string();
-        let mut rows = query_rows::<StacksHeaderInfo, _>(conn, &sql, &[&index_block_hash.to_hex()]).map_err(Error::DBError)?;
+        let mut rows = query_rows::<StacksHeaderInfo, _>(conn, &sql, &[&index_block_hash]).map_err(Error::DBError)?;
         let cnt = rows.len();
         if cnt > 1 {
             unreachable!("FATAL: multiple rows for the same block hash")  // should be unreachable, since index_block_hash is unique
@@ -178,7 +181,8 @@ impl StacksChainState {
     /// Get the tail of a block's microblock stream, given an anchored block's header info.
     pub fn get_stacks_microblock_stream_tail(conn: &DBConn, header_info: &StacksHeaderInfo) -> Result<Option<StacksMicroblockHeader>, Error> {
         let sql = "SELECT * FROM microblock_headers WHERE parent_block_hash = ?1 AND parent_burn_header_hash = ?2 ORDER BY sequence DESC LIMIT 1".to_string();
-        let mut rows = query_rows::<StacksMicroblockHeader, _>(conn, &sql, &[&header_info.anchored_header.block_hash().to_hex(), &header_info.burn_header_hash.to_hex()]).map_err(Error::DBError)?;
+        let args: &[&dyn ToSql] = &[&header_info.anchored_header.block_hash(), &header_info.burn_header_hash];
+        let mut rows = query_rows::<StacksMicroblockHeader, _>(conn, &sql, args).map_err(Error::DBError)?;
         let cnt = rows.len();
         if cnt > 1 {
             unreachable!("FATAL: DB returned multiple microblock headers for the same block")
@@ -208,7 +212,7 @@ impl StacksChainState {
                 tip
             },
             None => {
-                error!("No such block {},{}", tip_burn_hash.to_hex(), tip_block_hash.to_hex());
+                error!("No such block {},{}", tip_burn_hash, tip_block_hash);
                 return Err(Error::NoSuchBlockError);
             }
         };
@@ -229,7 +233,7 @@ impl StacksChainState {
                     info
                 },
                 None => {
-                    test_debug!("No such block {} from {}", height, tip_block_hash.to_hex());
+                    test_debug!("No such block {} from {}", height, tip_block_hash);
                     ret.push(None);
                     continue;
                 }

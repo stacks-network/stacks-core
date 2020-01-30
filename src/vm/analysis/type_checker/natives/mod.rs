@@ -129,7 +129,7 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     Ok(last_return)
 }
 
-fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression], _context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
     
     let var_name = args[0].match_atom()

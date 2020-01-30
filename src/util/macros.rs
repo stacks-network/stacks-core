@@ -345,6 +345,11 @@ macro_rules! impl_byte_array_newtype {
                 to_hex(&self.0)
             }
         }
+        impl std::fmt::Display for $thing {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{}", self.to_hex())
+            }
+        }
     }
 }
 

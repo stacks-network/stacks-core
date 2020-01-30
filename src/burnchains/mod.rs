@@ -549,7 +549,7 @@ pub mod test {
         }
 
         pub fn make_proof(&self, vrf_pubkey: &VRFPublicKey, last_sortition_hash: &SortitionHash) -> Option<VRFProof> {
-            test_debug!("Make proof from {} over {}", vrf_pubkey.to_hex(), last_sortition_hash.to_hex());
+            test_debug!("Make proof from {} over {}", vrf_pubkey.to_hex(), last_sortition_hash);
             match self.vrf_key_map.get(vrf_pubkey) {
                 Some(ref prover_key) => {
                     let proof = VRF::prove(prover_key, &last_sortition_hash.as_bytes().to_vec());
@@ -767,7 +767,7 @@ pub mod test {
             
             // this is basically lifted verbatum from Burnchain::process_block_ops()
 
-            test_debug!("Process block {} {}", block.block_height(), &block.block_hash().to_hex());
+            test_debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
             let (header, parent_snapshot) = Burnchain::get_burnchain_block_attachment_info(tx, &block).expect("FATAL: failed to get burnchain linkage info");
             let mut blockstack_txs = self.txs.clone();
@@ -803,7 +803,7 @@ pub mod test {
         }
 
         pub fn get_tip<'a>(&mut self, tx: &mut BurnDBTx<'a>) -> BlockSnapshot {
-            test_debug!("Get tip snapshot at {}", &self.tip_header_hash.to_hex());
+            test_debug!("Get tip snapshot at {}", &self.tip_header_hash);
             BurnDB::get_block_snapshot(tx, &self.tip_header_hash).unwrap().unwrap()
         }
 

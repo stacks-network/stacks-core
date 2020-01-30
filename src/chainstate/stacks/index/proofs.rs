@@ -380,8 +380,8 @@ impl TrieMerkleProof {
             }
             if idx == 0 {
                 panic!("ancestor_height = {}, current_height = {}, but ancestor hash `{}` not found in: [{}]",
-                       ancestor_height, current_height, ancestor_root_hash.to_hex(),
-                       ancestor_hashes.iter().map(|x| format!("{}", x.to_hex())).collect::<Vec<_>>().join(", "))
+                       ancestor_height, current_height, ancestor_root_hash,
+                       ancestor_hashes.iter().map(|x| format!("{}", x)).collect::<Vec<_>>().join(", "))
             }
             idx -= 1;
 
