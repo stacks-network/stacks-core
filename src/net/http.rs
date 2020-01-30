@@ -2134,7 +2134,7 @@ mod test {
             test_debug!("Expect '{}'", errstr);
             let expected_errstr = format!("{:?}", &res);
             assert!(res.is_err(), expected_errstr);
-            assert!(res.unwrap_err().description().find(errstr).is_some(), expected_errstr);
+            assert!(res.unwrap_err().to_string().find(errstr).is_some(), expected_errstr);
         }
     }
 
@@ -2164,7 +2164,7 @@ mod test {
             let expected_serrstr = format!("{:?}", &sres);
             test_debug!("Expect '{}'", errstr);
             assert!(sres.is_err(), expected_serrstr);
-            assert!(sres.unwrap_err().description().find(errstr).is_some(), expected_serrstr);
+            assert!(sres.unwrap_err().to_string().find(errstr).is_some(), expected_serrstr);
         }
     }
 
@@ -2283,7 +2283,7 @@ mod test {
             let res = HttpResponsePreamble::consensus_deserialize(&mut io::Cursor::new(data));
             test_debug!("Expect '{}', got: {:?}", errstr, &res);
             assert!(res.is_err(), format!("{:?}", &res));
-            assert!(res.unwrap_err().description().find(errstr).is_some());
+            assert!(res.unwrap_err().to_string().find(errstr).is_some());
         }
     }
 
@@ -2323,7 +2323,7 @@ mod test {
             let expected_serrstr = format!("{:?}", &sres);
             test_debug!("Expect '{}', got: {:?}", errstr, &sres);
             assert!(sres.is_err(), expected_serrstr);
-            assert!(sres.unwrap_err().description().find(errstr).is_some(), expected_serrstr);
+            assert!(sres.unwrap_err().to_string().find(errstr).is_some(), expected_serrstr);
         }
     }
 
@@ -2481,7 +2481,7 @@ mod test {
             let estr = format!("{:?}", &e);
 
             assert!(e.is_err(), estr);
-            assert!(e.unwrap_err().description().find("-length body for").is_some(), estr);
+            assert!(e.unwrap_err().to_string().find("-length body for").is_some(), estr);
         }
 
         let bad_content_types = vec![
@@ -2493,7 +2493,7 @@ mod test {
             let (preamble, offset) = http.read_preamble(bad_content_type.as_bytes()).unwrap();
             let e = http.read_payload(&preamble, &bad_content_type.as_bytes()[offset..]);
             assert!(e.is_err());
-            assert!(e.unwrap_err().description().find("Content-Type").is_some());
+            assert!(e.unwrap_err().to_string().find("Content-Type").is_some());
         }
     }
 
@@ -2695,7 +2695,7 @@ mod test {
             let e = http.read_payload(&preamble, &test.as_bytes()[offset..]);
             let errstr = format!("{:?}", &e);
             assert!(e.is_err());
-            assert!(e.unwrap_err().description().find(expected_error).is_some(), errstr);
+            assert!(e.unwrap_err().to_string().find(expected_error).is_some(), errstr);
         }
     }
 

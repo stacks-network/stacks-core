@@ -1533,7 +1533,7 @@ mod test {
             0x03
         ];
 
-        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&payload_bytes_bad_parent)).unwrap_err().description().find("microblock headers do not identify a fork").is_some());
+        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&payload_bytes_bad_parent)).unwrap_err().to_string().find("microblock headers do not identify a fork").is_some());
         
         let payload_bytes_equal = vec![
             // payload type ID
@@ -1568,7 +1568,7 @@ mod test {
             0x02
         ];
 
-        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&payload_bytes_equal)).unwrap_err().description().find("microblock headers match").is_some());
+        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&payload_bytes_equal)).unwrap_err().to_string().find("microblock headers match").is_some());
     }
 
     #[test]
@@ -1595,7 +1595,7 @@ mod test {
         ];
         transaction_contract_call.append(&mut contract_call_bytes.clone());
 
-        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&transaction_contract_call)).unwrap_err().description().find("unknown payload ID").is_some());
+        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&transaction_contract_call)).unwrap_err().to_string().find("unknown payload ID").is_some());
     }
     
     #[test]
@@ -1623,7 +1623,7 @@ mod test {
         ];
         transaction_contract_call.append(&mut contract_call_bytes);
 
-        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&transaction_contract_call)).unwrap_err().description().find("Failed to parse Contract name").is_some());
+        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&transaction_contract_call)).unwrap_err().to_string().find("Failed to parse Contract name").is_some());
     }
     
     #[test]
@@ -1650,7 +1650,7 @@ mod test {
         ];
         transaction_contract_call.append(&mut contract_call_bytes);
 
-        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&transaction_contract_call)).unwrap_err().description().find("Failed to parse Clarity name").is_some());
+        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&transaction_contract_call)).unwrap_err().to_string().find("Failed to parse Clarity name").is_some());
     }
     
     #[test]

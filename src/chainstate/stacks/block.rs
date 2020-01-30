@@ -1217,23 +1217,23 @@ mod test {
         stacks_chain_tip.total_burn = header.total_work.burn;
 
         // should fail due to invalid proof 
-        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().description().find("did not produce a valid proof").is_some());
+        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().to_string().find("did not produce a valid proof").is_some());
 
         // should fail due to invalid burns
         stacks_chain_tip.total_burn += 1;
-        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().description().find("invalid total burns").is_some());
+        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().to_string().find("invalid total burns").is_some());
 
         // should fail due to invalid VRF seed
         block_commit.new_seed = VRFSeed::initial();
-        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().description().find("invalid VRF proof").is_some());
+        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().to_string().find("invalid VRF proof").is_some());
 
         // should fail due to invalid parent hash
         stacks_chain_tip.winning_stacks_block_hash = BlockHeaderHash([0u8; 32]);
-        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().description().find("invalid parent hash").is_some());
+        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().to_string().find("invalid parent hash").is_some());
 
         // should fail due to bad commit
         header.version += 1;
-        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().description().find("invalid commit").is_some());
+        assert!(header.validate_burnchain(&burn_chain_tip, &sortition_chain_tip, &leader_key, &block_commit, &stacks_chain_tip).unwrap_err().to_string().find("invalid commit").is_some());
     }
 
     #[test]
@@ -1340,7 +1340,7 @@ mod test {
         for (ref block, ref msg) in invalid_blocks.iter() {
             let mut bytes : Vec<u8> = vec![];
             block.consensus_serialize(&mut bytes).unwrap();
-            assert!(StacksBlock::consensus_deserialize(&mut io::Cursor::new(&bytes)).unwrap_err().description().find(msg).is_some());
+            assert!(StacksBlock::consensus_deserialize(&mut io::Cursor::new(&bytes)).unwrap_err().to_string().find(msg).is_some());
         }
     }
     
@@ -1433,7 +1433,7 @@ mod test {
         for (ref block, ref msg) in invalid_blocks.iter() {
             let mut bytes : Vec<u8> = vec![];
             block.consensus_serialize(&mut bytes).unwrap();
-            assert!(StacksMicroblock::consensus_deserialize(&mut io::Cursor::new(&bytes)).unwrap_err().description().find(msg).is_some());
+            assert!(StacksMicroblock::consensus_deserialize(&mut io::Cursor::new(&bytes)).unwrap_err().to_string().find(msg).is_some());
         }
     }
 
