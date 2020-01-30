@@ -93,13 +93,13 @@ pub struct LocalPeer {
 
 impl fmt::Display for LocalPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "local.{:x}://{:?}:{}", self.network_id, &self.addrbytes, self.port)
+        write!(f, "local.{:x}://{:?}", self.network_id, &self.addrbytes.to_socketaddr(self.port))
     }
 }
 
 impl fmt::Debug for LocalPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "local.{:x}://{:?}:{}", self.network_id, &self.addrbytes, self.port)
+        write!(f, "local.{:x}://{:?}", self.network_id, &self.addrbytes.to_socketaddr(self.port))
     }
 }
 
@@ -396,6 +396,7 @@ impl PeerDB {
     }
 
     /// Open a burn database in memory (used for testing)
+    #[cfg(test)]
     pub fn connect_memory(network_id: u32, key_expires: u64, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> Result<PeerDB, db_error> {
         let conn = Connection::open_in_memory()
             .map_err(|e| db_error::SqliteError(e))?;
