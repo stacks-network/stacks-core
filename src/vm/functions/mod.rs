@@ -348,13 +348,10 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
 
 fn special_principal_of(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     // (principal-of (..))
-    // arg0 => body
+    // arg0 => trait-reference
     check_argument_count(1, args)?;
 
-    // nest an environment.
     let result = eval(&args[0], env, context)?;
-
-    println!("===> {:?}", result);
-
+    // todo(ludo): to implement
     Ok(result)
 }

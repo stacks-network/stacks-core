@@ -273,7 +273,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                     .clone();
                 self.contract_context.check_name_used(&name)?;
 
-                let arg_name: ClarityName = name.to_string().try_into().unwrap(); // todo(ludo): fix unwrap
+                let arg_name: ClarityName = name.to_string().try_into()
+                    .map_err(|_| { CheckError::new(CheckErrors::DefineFunctionBadSignature) })?;
 
                 let arg_type = match &pair[1].expr {
                     LiteralValue(Value::TraitReference(name)) => {
