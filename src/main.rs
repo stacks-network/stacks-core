@@ -31,7 +31,6 @@ extern crate serde;
 extern crate rusqlite;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
-extern crate httparse;
 #[macro_use] extern crate lazy_static;
 extern crate sha2;
 extern crate sha3;
@@ -55,6 +54,8 @@ use blockstack_lib::*;
 use std::fs;
 use std::env;
 use std::process;
+use std::io::prelude::*;
+use std::io;
 
 use util::log;
 
@@ -108,8 +109,7 @@ fn main() {
             process::exit(1);
         }).unwrap();
 
-        let mut index = 0;
-        let tx = StacksTransaction::consensus_deserialize(&tx_bytes, &mut index, tx_bytes.len() as u32).map_err(|_e| {
+        let tx = StacksTransaction::consensus_deserialize(&mut io::Cursor::new(&tx_bytes)).map_err(|_e| {
             eprintln!("Failed to decode transaction");
             process::exit(1);
         }).unwrap();
@@ -127,8 +127,7 @@ fn main() {
         let block_path = &argv[2];
         let block_data = fs::read(block_path).expect(&format!("Failed to open {}", block_path));
 
-        let mut index = 0;
-        let block = StacksBlock::consensus_deserialize(&block_data, &mut index, block_data.len() as u32).map_err(|_e| {
+        let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_data)).map_err(|_e| {
             eprintln!("Failed to decode block");
             process::exit(1);
         }).unwrap();
@@ -146,8 +145,7 @@ fn main() {
         let mblock_path = &argv[2];
         let mblock_data = fs::read(mblock_path).expect(&format!("Failed to open {}", mblock_path));
 
-        let mut index = 0;
-        let mblocks : Vec<StacksMicroblock> = Vec::consensus_deserialize(&mblock_data, &mut index, mblock_data.len() as u32).map_err(|_e| {
+        let mblocks : Vec<StacksMicroblock> = Vec::consensus_deserialize(&mut io::Cursor::new(&mblock_data)).map_err(|_e| {
             eprintln!("Failed to decode microblocks");
             process::exit(1);
         }).unwrap();
