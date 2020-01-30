@@ -18,6 +18,9 @@
 */
 
 use std::fmt;
+use std::io::prelude::*;
+use std::io;
+use std::io::{Read, Write};
 
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -68,15 +71,12 @@ impl DerefMut for StacksString {
 }
 
 impl StacksMessageCodec for StacksString {
-    fn consensus_serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
-        write_next(&mut res, &self.0);
-        res
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.0)
     }
 
-    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<StacksString, net_error> {
-        let mut index = *index_ptr;
-        let bytes : Vec<u8> = read_next(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksString, net_error> {
+        let bytes : Vec<u8> = read_next(fd)?;
 
         // must encode a valid string
         let s = String::from_utf8(bytes.clone())
@@ -91,47 +91,29 @@ impl StacksMessageCodec for StacksString {
             return Err(net_error::DeserializeError("Invalid Stacks string: non-printable or non-ASCII string".to_string()));
         }
 
-        *index_ptr = index;
         Ok(StacksString(bytes))
     }
 }
 
-fn read_clarity_string_bytes(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<Vec<u8>, net_error> {
-    let mut index = *index_ptr;
-    let len_byte : u8 = read_next(buf, &mut index, max_size)?;
-    let len = len_byte as u32;
-
-    if index > u32::max_value() - len {
-        return Err(net_error::OverflowError(format!("Would overflow u32 to read string of {} bytes", len)));
-    }
-    if index + len > max_size {
-        return Err(net_error::OverflowError(format!("Would read beyond end of buffer to read string of {} bytes", len)));
-    }
-    if (buf.len() as u32) < index + len {
-        return Err(net_error::UnderflowError(format!("Not enough bytes to read string (have {}, need {})", buf.len(), index + len)));
-    }
-
-    let bytes : Vec<u8> = buf[(index as usize)..((index + len) as usize)].to_vec();
-    index += len;
-
-    *index_ptr = index;
-    Ok(bytes)
-}
-
 impl StacksMessageCodec for ClarityName {
-    fn consensus_serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         // ClarityName can't be longer than vm::representations::MAX_STRING_LEN, which itself is
         // a u8, so we should be good here.
-        assert!(self.as_bytes().len() <= CLARITY_MAX_STRING_LENGTH as usize);
-        res.push(self.as_bytes().len() as u8);
-        res.extend_from_slice(self.as_bytes());
-        res
+        if self.as_bytes().len() > CLARITY_MAX_STRING_LENGTH as usize {
+            return Err(net_error::SerializeError("Failed to serialize clarity name: too long".to_string()));
+        }
+        write_next(fd, &(self.as_bytes().len() as u8))?;
+        fd.write_all(self.as_bytes()).map_err(net_error::WriteError)?;
+        Ok(())
     }
 
-    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<ClarityName, net_error> {
-        let mut index = *index_ptr;
-        let bytes = read_clarity_string_bytes(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ClarityName, net_error> {
+        let len_byte : u8 = read_next(fd)?;
+        if len_byte > CLARITY_MAX_STRING_LENGTH {
+            return Err(net_error::DeserializeError("Failed to deserialize clarity name: too long".to_string()));
+        }
+        let mut bytes = vec![0u8; len_byte as usize];
+        fd.read_exact(&mut bytes).map_err(net_error::ReadError)?;
 
         // must encode a valid string
         let s = String::from_utf8(bytes)
@@ -139,32 +121,33 @@ impl StacksMessageCodec for ClarityName {
 
         // must decode to a clarity name
         let name = ClarityName::try_from(s).map_err(|e| net_error::DeserializeError(format!("Failed to parse Clarity name: {:?}", e)))?;
-        *index_ptr = index;
         Ok(name)
     }
 }
 
 impl StacksMessageCodec for ContractName {
-    fn consensus_serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
-        // ContractName can't be longer than vm::representations::MAX_STRING_LEN, which itself is
-        // a u8, so we should be good here.
-        assert!(self.as_bytes().len() <= CLARITY_MAX_STRING_LENGTH as usize);
-        res.push(self.as_bytes().len() as u8);
-        res.extend_from_slice(self.as_bytes());
-        res
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        if self.as_bytes().len() > CLARITY_MAX_STRING_LENGTH as usize {
+            return Err(net_error::SerializeError("Failed to serialize contract name: too long".to_string()));
+        }
+        write_next(fd, &(self.as_bytes().len() as u8))?;
+        fd.write_all(self.as_bytes()).map_err(net_error::WriteError)?;
+        Ok(())
     }
 
-    fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<ContractName, net_error> {
-        let mut index = *index_ptr;
-        let bytes = read_clarity_string_bytes(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ContractName, net_error> {
+        let len_byte : u8 = read_next(fd)?;
+        if len_byte > CLARITY_MAX_STRING_LENGTH {
+            return Err(net_error::DeserializeError("Failed to deserialize contract name: too long".to_string()));
+        }
+        let mut bytes = vec![0u8; len_byte as usize];
+        fd.read_exact(&mut bytes).map_err(net_error::ReadError)?;
         
         // must encode a valid string
         let s = String::from_utf8(bytes)
             .map_err(|_e| net_error::DeserializeError("Failed to parse Contract name: could not construct from utf8".to_string()))?;
 
         let name = ContractName::try_from(s).map_err(|e| net_error::DeserializeError(format!("Failed to parse Contract name: {:?}", e)))?;
-        *index_ptr = index;
         Ok(name)
     }
 }
@@ -266,7 +249,8 @@ mod test {
         assert_eq!(s2.to_string(), s.to_string());
 
         // stacks strings have a 4-byte length prefix
-        let b = stacks_str.consensus_serialize();
+        let mut b = vec![];
+        stacks_str.consensus_serialize(&mut b).unwrap();
         let mut bytes = vec![0x00, 0x00, 0x00, s.len() as u8];
         bytes.extend_from_slice(s.as_bytes());
 
