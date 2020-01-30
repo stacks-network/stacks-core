@@ -39,7 +39,9 @@ use std::net::Ipv6Addr;
 use std::collections::HashMap;
 use std::io::prelude::*;
 use std::io;
+use std::io::{Read, Write};
 use std::str::FromStr;
+use std::cmp::PartialEq;
 
 use serde_json;
 use serde::{Serialize, Deserialize};
@@ -56,6 +58,7 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::StacksBlock;
 use chainstate::stacks::StacksMicroblock;
 use chainstate::stacks::StacksTransaction;
+use chainstate::stacks::StacksPublicKey;
 
 use util::hash::DoubleSha256;
 use util::hash::Hash160;
@@ -74,10 +77,16 @@ use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 use serde::ser::Error as ser_Error;
 use serde::de::Error as de_Error;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
+    /// Failed to encode 
+    SerializeError(String),
+    /// Failed to read
+    ReadError(io::Error),
     /// Failed to decode 
     DeserializeError(String),
+    /// Filaed to write
+    WriteError(io::Error),
     /// Underflow -- not enough bytes to form the message
     UnderflowError(String),
     /// Overflow -- message too big 
@@ -103,8 +112,6 @@ pub enum Error {
     /// Socket mutex was poisoned
     SocketMutexPoisoned,
     /// Not connected to peer
-    SocketNotConnectedToPeer,
-    /// Connection is broken and ought to be re-established
     ConnectionBroken,
     /// Connection could not be (re-)established
     ConnectionError,
@@ -143,13 +150,18 @@ pub enum Error {
     /// Too many peers
     TooManyPeers,
     /// Peer already connected 
-    AlreadyConnected
+    AlreadyConnected,
+    /// Message already in progress
+    InProgress,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            Error::SerializeError(ref s) => fmt::Display::fmt(s, f),
+            Error::ReadError(ref io) => fmt::Display::fmt(io, f),
             Error::DeserializeError(ref s) => fmt::Display::fmt(s, f),
+            Error::WriteError(ref io) => fmt::Display::fmt(io, f),
             Error::UnderflowError(ref s) => fmt::Display::fmt(s, f),
             Error::OverflowError(ref s) => fmt::Display::fmt(s, f),
             Error::WrongProtocolFamily => f.write_str(error::Error::description(self)),
@@ -161,7 +173,7 @@ impl fmt::Display for Error {
             Error::PermanentlyDrained => f.write_str(error::Error::description(self)),
             Error::FilesystemError => f.write_str(error::Error::description(self)),
             Error::DBError => f.write_str(error::Error::description(self)),
-            Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => f.write_str(error::Error::description(self)),
+            Error::SocketMutexPoisoned => f.write_str(error::Error::description(self)),
             Error::ConnectionBroken => f.write_str(error::Error::description(self)),
             Error::ConnectionError => f.write_str(error::Error::description(self)),
             Error::OutboxOverflow => f.write_str(error::Error::description(self)),
@@ -182,6 +194,7 @@ impl fmt::Display for Error {
             Error::PeerNotConnected => f.write_str(error::Error::description(self)),
             Error::TooManyPeers => f.write_str(error::Error::description(self)),
             Error::AlreadyConnected => f.write_str(error::Error::description(self)),
+            Error::InProgress => f.write_str(error::Error::description(self)),
         }
     }
 }
@@ -189,7 +202,10 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
+            Error::SerializeError(ref _s) => None,
+            Error::ReadError(ref io) => Some(io),
             Error::DeserializeError(ref _s) => None,
+            Error::WriteError(ref io) => Some(io),
             Error::UnderflowError(ref _s) => None,
             Error::OverflowError(ref _s) => None,
             Error::WrongProtocolFamily => None,
@@ -201,7 +217,7 @@ impl error::Error for Error {
             Error::PermanentlyDrained => None,
             Error::FilesystemError => None,
             Error::DBError => None,
-            Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => None,
+            Error::SocketMutexPoisoned => None,
             Error::ConnectionBroken => None,
             Error::ConnectionError => None,
             Error::OutboxOverflow => None,
@@ -222,12 +238,16 @@ impl error::Error for Error {
             Error::PeerNotConnected => None,
             Error::TooManyPeers => None,
             Error::AlreadyConnected => None,
+            Error::InProgress => None,
         }
     }
 
     fn description(&self) -> &str {
         match *self {
+            Error::SerializeError(ref s) =>  s.as_str(),
+            Error::ReadError(ref io) => io.description(),
             Error::DeserializeError(ref s) => s.as_str(),
+            Error::WriteError(ref io) => io.description(),
             Error::UnderflowError(ref s) => s.as_str(),
             Error::OverflowError(ref s) => s.as_str(),
             Error::WrongProtocolFamily => "Wrong protocol family",
@@ -240,7 +260,6 @@ impl error::Error for Error {
             Error::FilesystemError => "Disk I/O error",
             Error::DBError => "Database error",
             Error::SocketMutexPoisoned => "socket mutex was poisoned",
-            Error::SocketNotConnectedToPeer => "not connected to peer",
             Error::ConnectionBroken => "connection to peer node is broken",
             Error::ConnectionError => "connection to peer could not be (re-)established",
             Error::OutboxOverflow => "too many outgoing messages queued",
@@ -260,16 +279,27 @@ impl error::Error for Error {
             Error::NotConnected => "Not connected to peer network",
             Error::PeerNotConnected => "Remote peer is not connected to us",
             Error::TooManyPeers => "Too many peer connections open",
-            Error::AlreadyConnected => "Peer already connected"
+            Error::AlreadyConnected => "Peer already connected",
+            Error::InProgress => "Operation in progress already",
         }
+    }
+}
+
+#[cfg(test)]
+impl PartialEq for Error {
+    /// (make I/O errors comparable for testing purposes)
+    fn eq(&self, other: &Self) -> bool {
+        let s1 = format!("{:?}", self);
+        let s2 = format!("{:?}", other);
+        s1 == s2
     }
 }
 
 /// Helper trait for various primitive types that make up Stacks messages
 pub trait StacksMessageCodec {
-    fn consensus_serialize(&self) -> Vec<u8>
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error>
         where Self: Sized;
-    fn consensus_deserialize(buf: &[u8], index: &mut u32, max_size: u32) -> Result<Self, Error>
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, Error>
         where Self: Sized;
 }
 
@@ -448,6 +478,7 @@ pub struct HttpRequestPreamble {
     pub host: PeerHost,
     pub request_id: u32,               // optional header as X-Request-ID
     pub content_type: Option<HttpContentType>,
+    pub content_length: Option<u32>,
     pub headers: HashMap<String, String>
 }
 
@@ -456,7 +487,7 @@ pub struct HttpRequestPreamble {
 pub struct HttpResponsePreamble {
     pub status_code: u16,
     pub reason: String,
-    pub content_length: u32,             // required header
+    pub content_length: Option<u32>,     // if not given, then content will be transfer-encoed: chunked
     pub content_type: HttpContentType,   // required header
     pub request_id: u32,                 // paired with an HTTP request (X-Request-ID)
     pub request_path: String,            // paired with an HTTP request (X-Request-Path)
@@ -588,7 +619,7 @@ pub struct HandshakeData {
     pub expire_block_height: u64,               // burn block height after which this node's key will be revoked
 }
 
-#[repr(C)]
+#[repr(u8)]
 pub enum ServiceFlags {
     RELAY = 0x01,
     RPC = 0x02,
@@ -710,7 +741,7 @@ pub struct HttpRequestMetadata {
 impl HttpRequestMetadata {
     pub fn from_preamble(preamble: &HttpRequestPreamble) -> HttpRequestMetadata {
         HttpRequestMetadata {
-            peer: preamble.get_host(),
+            peer: preamble.host.clone(),
             request_id: preamble.request_id
         }
     }
@@ -729,26 +760,32 @@ pub enum HttpRequestType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpResponseMetadata {
     pub request_id: u32,
-    pub request_path: String
+    pub request_path: String,
+    pub content_length: Option<u32>
 }
 
 impl HttpResponseMetadata {
-    pub fn new(request_id: u32, request_path: String) -> HttpResponseMetadata {
+    pub fn new(request_id: u32, request_path: String, content_length: Option<u32>) -> HttpResponseMetadata {
         HttpResponseMetadata {
             request_id: request_id,
-            request_path: request_path
+            request_path: request_path,
+            content_length: content_length,
         }
     }
 
     pub fn from_preamble(preamble: &HttpResponsePreamble) -> HttpResponseMetadata {
         HttpResponseMetadata {
             request_id: preamble.request_id,
-            request_path: preamble.request_path.clone()
+            request_path: preamble.request_path.clone(),
+            content_length: preamble.content_length.clone()
         }
     }
 }
 
 /// All data-plane message types a peer can reply with.
+/// TODO: these non-error variants are, for the time being, for illustrative and testing purposes
+/// only.  In reality, blocks and microblocks at least will be streamed from disk and/or a db,
+/// instead of being passed in RAM.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpResponseType {
     Neighbors(HttpResponseMetadata, NeighborsData),
@@ -767,7 +804,7 @@ pub enum HttpResponseType {
     Error(HttpResponseMetadata, u16, String)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum StacksMessageID {
     Handshake = 0,
@@ -803,53 +840,60 @@ pub enum StacksHttpMessage {
     Response(HttpResponseType),
 }
 
+/// HTTP message preamble
 #[derive(Debug, Clone, PartialEq)]
-pub enum NetworkPreamble {
-    P2P(Preamble),
-    HttpRequest(HttpRequestPreamble),
-    HttpResponse(HttpResponsePreamble)
+pub enum StacksHttpPreamble {
+    Request(HttpRequestPreamble),
+    Response(HttpResponsePreamble)
 }
 
-impl NetworkPreamble {
-    pub fn payload_length(&self) -> usize {
-        match *self {
-            NetworkPreamble::P2P(ref preamble) => preamble.payload_len as usize,
-            NetworkPreamble::HttpRequest(ref preamble) => preamble.get_content_length() as usize,
-            NetworkPreamble::HttpResponse(ref preamble) => preamble.content_length as usize
-        }
-    }
-
-    pub fn request_id(&self) -> u32 {
-        match *self {
-            NetworkPreamble::P2P(ref preamble) => preamble.seq,
-            NetworkPreamble::HttpRequest(ref preamble) => preamble.request_id,
-            NetworkPreamble::HttpResponse(ref preamble) => preamble.request_id
-        }
-    }
-   
-    pub fn verify_payload(&mut self, payload_bytes: &[u8], pubk: &Secp256k1PublicKey) -> Result<(), Error> {
-        match *self {
-            NetworkPreamble::P2P(ref mut preamble) => preamble.verify(payload_bytes, pubk),
-            _ => Ok(())
-        }
-    }
-}
-
+/// Network messages implement this to have multiple messages in flight.
 pub trait MessageSequence {
     fn request_id(&self) -> u32;
     fn get_message_name(&self) -> &'static str;
 }
 
 pub trait ProtocolFamily {
-    type Message : StacksMessageCodec + MessageSequence + Send + Sync + Clone + std::fmt::Debug;
-    fn preamble_size_hint() -> usize;
-    fn read_preamble(buf: &[u8]) -> Result<(NetworkPreamble, usize), Error>;
-    fn read_payload(preamble: &NetworkPreamble, buf: &[u8]) -> Result<Self::Message, Error>;
+    type Preamble: StacksMessageCodec + Send + Sync + Clone + PartialEq + std::fmt::Debug;
+    type Message : MessageSequence + Send + Sync + Clone + PartialEq + std::fmt::Debug;
+
+    /// Return the maximum possible length of the serialized Preamble type
+    fn preamble_size_hint(&mut self) -> usize;
+    
+    /// Determine how long the message payload will be, given the Preamble (may return None if the
+    /// payload length cannot be determined solely by the Preamble).
+    fn payload_len(&mut self, preamble: &Self::Preamble) -> Option<usize>;
+
+    /// Given a byte buffer of a length at last that of the value returned by preamble_size_hint,
+    /// parse a Preamble and return both the Preamble and the number of bytes actually consumed by it.
+    fn read_preamble(&mut self, buf: &[u8]) -> Result<(Self::Preamble, usize), Error>;
+
+    /// Given a preamble and a byte buffer, parse out a message and return both the message and the
+    /// number of bytes actually consumed by it.  Only used if the message is _not_ streamed.  The
+    /// buf slice is guaranteed to have at least `payload_len()` bytes if `payload_len()` returns
+    /// Some(...).
+    fn read_payload(&mut self, preamble: &Self::Preamble, buf: &[u8]) -> Result<(Self::Message, usize), Error>;
+    
+    /// Given a preamble and a Read, attempt to stream a message.  This will be called if
+    /// `payload_len()` returns None.  This method will be repeatedly called with new data until a
+    /// message can be obtained; therefore, the ProtocolFamily implementation will need to do its
+    /// own bufferring and state-tracking.
+    fn stream_payload<R: Read>(&mut self, preamble: &Self::Preamble, fd: &mut R) -> Result<(Option<(Self::Message, usize)>, usize), Error>;
+
+    /// Given a public key, a preamble, and the yet-to-be-parsed message bytes, verify the message
+    /// authenticity.  Not all protocols need to do this.
+    fn verify_payload_bytes(&mut self, key: &StacksPublicKey, preamble: &Self::Preamble, bytes: &[u8]) -> Result<(), Error>;
+
+    /// Given a Write and a Message, write it out.  This method is also responsible for generating
+    /// and writing out a Preamble for its Message.
+    fn write_message<W: Write>(&mut self, fd: &mut W, message: &Self::Message) -> Result<(), Error>;
 }
 
 // these implement the ProtocolFamily trait 
+#[derive(Debug, Clone, PartialEq)]
 pub struct StacksP2P {}
-pub struct StacksHttp {}
+
+pub use self::http::StacksHttp;
 
 // an array in our protocol can't exceed this many items
 pub const ARRAY_MAX_LEN : u32 = u32::max_value();
@@ -875,30 +919,18 @@ pub const HEARTBEAT_PING_THRESHOLD : u64 = 600;
 macro_rules! impl_byte_array_message_codec {
     ($thing:ident, $len:expr) => {
         impl StacksMessageCodec for $thing {
-            fn consensus_serialize(&self) -> Vec<u8> {
-                self.as_bytes().to_vec()
+            fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+                fd.write_all(self.as_bytes()).map_err(::net::Error::WriteError)
             }
-            fn consensus_deserialize(buf: &[u8], index_ptr: &mut u32, max_size: u32) -> Result<$thing, ::net::Error> {
-                let index = *index_ptr;
-                if index > u32::max_value() - ($len) {
-                    return Err(::net::Error::OverflowError(format!("Would overflow when parsing {}", stringify!($thing))));
-                }
-                if index + ($len) > max_size {
-                    return Err(::net::Error::OverflowError(format!("Would read beyond end of buffer when parsing {}", stringify!($thing))));
-                }
-                if (buf.len() as u32) < index + ($len) {
-                    return Err(::net::Error::UnderflowError(format!("Not enough bytes remaining to parse {}", stringify!($thing))));
-                }
-                let ret = $thing::from_bytes(&buf[(index as usize)..((index+($len)) as usize)])
-                    .ok_or(::net::Error::UnderflowError(format!("Not enough bytes to parse {}", stringify!($thing))))?;
-
-                *index_ptr += $len;
+            fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<$thing, ::net::Error> {
+                let mut buf = [0u8; ($len as usize)];
+                fd.read_exact(&mut buf).map_err(::net::Error::ReadError)?;
+                let ret = $thing::from_bytes(&buf).expect("BUG: buffer is not the right size");
                 Ok(ret)
             }
         }
     }
 }
-
 impl_byte_array_message_codec!(ConsensusHash, 20);
 impl_byte_array_message_codec!(DoubleSha256, 32);
 impl_byte_array_message_codec!(Hash160, 20);
@@ -937,13 +969,24 @@ impl fmt::Display for NeighborKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let peer_version_str = if self.peer_version > 0 { format!("{:08x}", self.peer_version).to_string() } else { "UNKNOWN".to_string() };
         let network_id_str = if self.network_id > 0 { format!("{:08x}", self.network_id).to_string() } else { "UNKNOWN".to_string() };
-        write!(f, "{}+{}://{:?}:{}", peer_version_str, network_id_str, &self.addrbytes, self.port)
+        write!(f, "{}+{}://{:?}", peer_version_str, network_id_str, &self.addrbytes.to_socketaddr(self.port))
     }
 }
 
 impl fmt::Debug for NeighborKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, f)
+    }
+}
+
+impl NeighborKey {
+    pub fn from_neighbor_address(peer_version: u32, network_id: u32, na: &NeighborAddress) -> NeighborKey {
+        NeighborKey {
+            peer_version: peer_version,
+            network_id: network_id,
+            addrbytes: na.addrbytes.clone(),
+            port: na.port
+        }
     }
 }
 
@@ -1007,16 +1050,50 @@ mod test {
     use std::ops::Deref;
     use std::ops::DerefMut;
     use std::collections::HashMap;
+    
+    use rand::RngCore;
+    use rand;
 
+    use mio;
+
+    // emulate a socket
     pub struct NetCursor<T> {
         c: Cursor<T>,
+        closed: bool,
+        block: bool,
+        read_error: Option<io::ErrorKind>,
+        write_error: Option<io::ErrorKind>
     }
 
     impl<T> NetCursor<T> {
         pub fn new(inner: T) -> NetCursor<T> {
             NetCursor {
-                c: Cursor::new(inner)
+                c: Cursor::new(inner),
+                closed: false,
+                block: false,
+                read_error: None,
+                write_error: None,
             }
+        }
+
+        pub fn close(&mut self) -> () {
+            self.closed = true;
+        }
+
+        pub fn block(&mut self) -> () {
+            self.block = true;
+        }
+
+        pub fn unblock(&mut self) -> () {
+            self.block = false;
+        }
+
+        pub fn set_read_error(&mut self, e: Option<io::ErrorKind>) -> () {
+            self.read_error = e;
+        }
+
+        pub fn set_write_error(&mut self, e: Option<io::ErrorKind>) -> () {
+            self.write_error = e;
         }
     }
 
@@ -1038,11 +1115,24 @@ mod test {
         T: AsRef<[u8]>
     {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.block {
+                return Err(io::Error::from(ErrorKind::WouldBlock));
+            }
+            if self.closed {
+                return Ok(0);
+            }
+            match self.read_error {
+                Some(ref e) => {
+                    return Err(io::Error::from((*e).clone()));
+                }
+                None => {}
+            }
+            
             let sz = self.c.read(buf)?;
             if sz == 0 {
                 // when reading from a non-blocking socket, a return value of 0 indicates the
                 // remote end was closed.  For this reason, when we're out of bytes to read on our
-                // inner cursor, we need to re-interpret this as EWOULDBLOCK.
+                // inner cursor, but still have bytes, we need to re-interpret this as EWOULDBLOCK.
                 return Err(io::Error::from(ErrorKind::WouldBlock));
             }
             else {
@@ -1053,6 +1143,18 @@ mod test {
 
     impl Write for NetCursor<&mut [u8]> {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.block {
+                return Err(io::Error::from(ErrorKind::WouldBlock));
+            }
+            if self.closed {
+                return Err(io::Error::from(ErrorKind::Other));      // EBADF
+            }
+            match self.write_error {
+                Some(ref e) => {
+                    return Err(io::Error::from((*e).clone()));
+                }
+                None => {}
+            }
             self.c.write(buf)
         }
         fn flush(&mut self) -> io::Result<()> {
@@ -1078,6 +1180,42 @@ mod test {
         }
     }
 
+    /// make a TCP server and a pair of TCP client sockets
+    pub fn make_tcp_sockets() -> (mio::tcp::TcpListener, mio::tcp::TcpStream, mio::tcp::TcpStream) {
+        let mut rng = rand::thread_rng();
+        let (listener, port) = {
+            let mut listener;
+            let mut next_port;
+            loop {
+                next_port = 1024 + (rng.next_u32() % (65535 - 1024));
+                let hostport = format!("127.0.0.1:{}", next_port);
+                listener = match mio::tcp::TcpListener::bind(&hostport.parse::<std::net::SocketAddr>().unwrap()) {
+                    Ok(sock) => sock,
+                    Err(e) => match e.kind() {
+                        io::ErrorKind::AddrInUse => {
+                            continue;
+                        }
+                        _ => {
+                            assert!(false, "TcpListener::bind({}): {:?}", &hostport, &e);
+                            unreachable!();
+                        }
+                    }
+                };
+                break;
+            }
+            (listener, next_port)
+        };
+
+        let sock_1 = mio::tcp::TcpStream::connect(&format!("127.0.0.1:{}", port).parse::<std::net::SocketAddr>().unwrap()).unwrap();
+        let (sock_2, _) = listener.accept().unwrap();
+
+        sock_1.set_nodelay(true).unwrap();
+        sock_2.set_nodelay(true).unwrap();
+        
+        (listener, sock_1, sock_2)
+    }
+
+
     // describes a peer's initial configuration
     #[derive(Debug, Clone)]
     pub struct TestPeerConfig {
@@ -1098,7 +1236,7 @@ mod test {
     impl TestPeerConfig {
         pub fn default() -> TestPeerConfig {
             let conn_opts = ConnectionOptions::default();
-            let start_block = 10000;
+            let start_block = 10;
             let burnchain = Burnchain::default_unittest(start_block, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap());
             TestPeerConfig {
                 current_block: start_block + (burnchain.consensus_hash_lifetime + 1) as u64,
@@ -1156,21 +1294,8 @@ mod test {
         pub burndb: Option<BurnDB>
     }
 
-    pub fn u64_to_bytes(i: u64) -> [u8; 8] {
-        [
-            (i & 0xff00000000000000) as u8,
-            (i & 0x00ff000000000000) as u8,
-            (i & 0x0000ff0000000000) as u8,
-            (i & 0x000000ff00000000) as u8,
-            (i & 0x00000000ff000000) as u8,
-            (i & 0x0000000000ff0000) as u8,
-            (i & 0x000000000000ff00) as u8,
-            (i & 0x00000000000000ff) as u8
-        ]
-    }
-
     impl TestPeer {
-        pub fn new(config: &TestPeerConfig) -> TestPeer {
+        pub fn new(config: TestPeerConfig) -> TestPeer {
             let mut peerdb = PeerDB::connect_memory(config.burnchain.network_id, config.private_key_expire, &config.asn4_entries, &config.initial_neighbors).unwrap();
             let mut burndb = BurnDB::connect_memory(config.burnchain.first_block_height, &config.burnchain.first_block_hash).unwrap();
 
@@ -1213,13 +1338,18 @@ mod test {
                 
                 tx.commit().unwrap();
             }
-            
-            let mut peer_network = PeerNetwork::new(peerdb, &config.burnchain, &config.connection_opts);
+           
+            let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
+            let burnchain_view = {
+                let mut tx = burndb.tx_begin().unwrap();
+                BurnDB::get_burnchain_view(&mut tx, &config.burnchain).unwrap()
+            };
+            let mut peer_network = PeerNetwork::new(peerdb, local_peer, config.burnchain.clone(), burnchain_view, config.connection_opts.clone());
 
             peer_network.bind(&local_addr).unwrap();
             
             TestPeer {
-                config: (*config).clone(),
+                config: config,
                 network: peer_network,
                 burndb: Some(burndb)
             }
@@ -1235,8 +1365,11 @@ mod test {
                 None => panic!("Misconfigured peer: no burndb")
             };
 
+            self.network.local_peer = local_peer;
+            self.network.chain_view = chain_view;
+
             for n in self.config.initial_neighbors.iter() {
-                self.network.connect_peer(&local_peer, &chain_view, &n.addr)
+                self.network.connect_peer(&n.addr)
                     .and_then(|e| Ok(()))?;
             }
             Ok(())
@@ -1248,7 +1381,7 @@ mod test {
                 let mut tx = burndb.tx_begin().unwrap();
                 BurnDB::get_burnchain_view(&mut tx, &self.config.burnchain).unwrap()
             };
-            let ret = self.network.run(&burnchain_snapshot, 1);
+            let ret = self.network.run(burnchain_snapshot, 1);
             self.burndb = Some(burndb);
             ret
         }
