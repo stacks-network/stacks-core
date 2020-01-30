@@ -1184,7 +1184,7 @@ mod test {
     pub fn make_tcp_sockets() -> (mio::tcp::TcpListener, mio::tcp::TcpStream, mio::tcp::TcpStream) {
         let mut rng = rand::thread_rng();
         let (listener, port) = {
-            let mut listener;
+            let listener;
             let mut next_port;
             loop {
                 next_port = 1024 + (rng.next_u32() % (65535 - 1024));

@@ -583,14 +583,6 @@ impl StacksChainState {
             microblocks.push(microblock);
         }
 
-<<<<<<< HEAD
-=======
-        if (index as usize) != block_bytes.len() {
-            error!("Corrupt microblock stream {}: read {} out of {} bytes", microblock_head_hash, index, block_bytes.len());
-            return Err(Error::DBError(db_error::Corruption));
-        }
-
->>>>>>> develop
         Ok(Some(microblocks))
     }
 
