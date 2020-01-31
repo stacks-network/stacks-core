@@ -1,6 +1,6 @@
 use std::collections::{HashMap, BTreeMap, HashSet};
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::types::{TypeSignature, FunctionType, FieldData};
+use vm::types::{TypeSignature, FunctionType, TraitIdentifier};
 use vm::types::signatures::{FunctionSignature};
 
 use vm::contexts::MAX_CONTEXT_DEPTH;
@@ -30,7 +30,7 @@ pub struct ContractContext {
     fungible_tokens: HashSet<ClarityName>,
     non_fungible_tokens: HashMap<ClarityName, TypeSignature>,
     traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
-    pub implemented_traits: HashMap<FieldData, BTreeMap<ClarityName, FunctionSignature>>,
+    pub implemented_traits: HashMap<TraitIdentifier, BTreeMap<ClarityName, FunctionSignature>>,
 }
 
 impl TypeMap {
@@ -148,7 +148,7 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn add_implemented_trait(&mut self, trait_identifier: FieldData, trait_signature: BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<()> {
+    pub fn add_implemented_trait(&mut self, trait_identifier: TraitIdentifier, trait_signature: BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<()> {
         self.implemented_traits.insert(trait_identifier, trait_signature);
         Ok(())
     }

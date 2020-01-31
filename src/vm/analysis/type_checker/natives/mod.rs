@@ -212,9 +212,9 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
             let contract_call_args = checker.type_check_all(&args[2..], context)?;   
             contract_call_function_type.check_args(&contract_call_args)?
         },
-        SymbolicExpressionType::Atom(trait_name) => {
+        SymbolicExpressionType::Atom(trait_ref_instance_name) => {
             // Dynamic dispatch
-            checker.check_method_from_trait(trait_name, func_name, &args[2..], context)?
+            checker.check_method_from_trait(trait_ref_instance_name, func_name, &args[2..], context)?
         }, 
         _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
     };
@@ -238,12 +238,12 @@ fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], 
 
 fn check_special_principal_of(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(1, args)?;
-    let trait_name = args[0].match_atom()
+    let trait_reference_instance = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedTraitIdentifier)?;
-    let trait_reference = context.traits_references.get(trait_name)
-        .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
+    let trait_reference = context.traits_references.get(trait_reference_instance)
+        .ok_or(CheckErrors::TraitReferenceUnknown(trait_reference_instance.to_string()))?;
     let trait_signature = checker.contract_context.get_trait(trait_reference)
-        .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
+        .ok_or(CheckErrors::TraitReferenceUnknown(trait_reference.to_string()))?;
 
     Ok(TypeSignature::PrincipalType)
 }

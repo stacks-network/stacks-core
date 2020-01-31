@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, SymbolicExpression, SymbolicExpressionType};
-use vm::types::{QualifiedContractIdentifier, Value, PrincipalData, StandardPrincipalData, FieldData};
+use vm::types::{QualifiedContractIdentifier, Value, PrincipalData, StandardPrincipalData, TraitIdentifier};
 use vm::ast::types::{ContractAST, BuildASTPass};
 use vm::ast::errors::{ParseResult, ParseError, ParseErrors};
 use vm::functions::NativeFunctions;
@@ -50,7 +50,7 @@ impl SugarExpander {
                 },
                 PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, name) => {
                     let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name);
-                    SymbolicExpression::literal_value(Value::Field(FieldData { name, contract_identifier}))
+                    SymbolicExpression::literal_value(Value::Field(TraitIdentifier { name, contract_identifier}))
                 },
             };
             expr.span = pre_expr.span.clone();

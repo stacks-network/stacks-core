@@ -115,14 +115,14 @@ pub struct ResponseData {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct FieldData {
+pub struct TraitIdentifier {
     pub name: ClarityName,
     pub contract_identifier: QualifiedContractIdentifier,
 }
 
-impl FieldData {
+impl TraitIdentifier {
 
-    pub fn new(issuer: StandardPrincipalData, contract_name: ContractName, name: ClarityName) -> FieldData {
+    pub fn new(issuer: StandardPrincipalData, contract_name: ContractName, name: ClarityName) -> TraitIdentifier {
         Self { 
             name, 
             contract_identifier: QualifiedContractIdentifier {
@@ -132,10 +132,10 @@ impl FieldData {
         }
     }
 
-    pub fn parse_fully_qualified(literal: &str) -> Result<FieldData> {
+    pub fn parse_fully_qualified(literal: &str) -> Result<TraitIdentifier> {
         let (issuer, contract_name, name) = Self::parse(literal)?;
         let issuer = issuer.ok_or(RuntimeErrorType::BadTypeConstruction)?;
-        Ok(FieldData::new(issuer, contract_name, name))
+        Ok(TraitIdentifier::new(issuer, contract_name, name))
     }
 
     pub fn parse_sugared_syntax(literal: &str) -> Result<(ContractName, ClarityName)> {
@@ -172,7 +172,7 @@ pub enum Value {
     Tuple(TupleData),
     Optional(OptionalData),
     Response(ResponseData),
-    Field(FieldData),
+    Field(TraitIdentifier),
     TraitReference(ClarityName),
 }
 
@@ -303,7 +303,7 @@ impl Value {
     }
 
     pub fn field_from(name: ClarityName, contract_identifier: QualifiedContractIdentifier) -> Value {
-        Value::Field(FieldData { name, contract_identifier })
+        Value::Field(TraitIdentifier { name, contract_identifier })
     }
 
     pub fn trait_reference_from(name: ClarityName) -> Value {

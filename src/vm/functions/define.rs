@@ -1,5 +1,5 @@
 use std::collections::{HashMap, BTreeMap};
-use vm::types::{Value, TypeSignature, TupleTypeSignature, PrincipalData, FieldData, QualifiedContractIdentifier, parse_name_type_pairs};
+use vm::types::{Value, TypeSignature, TupleTypeSignature, PrincipalData, TraitIdentifier, QualifiedContractIdentifier, parse_name_type_pairs};
 use vm::types::signatures::FunctionSignature;
 use vm::callables::{DefinedFunction, DefineType};
 use vm::representations::{SymbolicExpression, ClarityName};
@@ -33,8 +33,8 @@ pub enum DefineFunctionsParsed <'a> {
     Map { name: &'a ClarityName, key_type: &'a SymbolicExpression, value_type: &'a SymbolicExpression },
     PersistedVariable  { name: &'a ClarityName, data_type: &'a SymbolicExpression, initial: &'a SymbolicExpression },
     Trait { name: &'a ClarityName, functions: &'a [SymbolicExpression] },
-    UseTrait { name: &'a ClarityName, trait_identifier: &'a FieldData },
-    ImplTrait { trait_identifier: &'a FieldData },
+    UseTrait { name: &'a ClarityName, trait_identifier: &'a TraitIdentifier },
+    ImplTrait { trait_identifier: &'a TraitIdentifier },
 }
 
 pub enum DefineResult {
@@ -45,8 +45,8 @@ pub enum DefineResult {
     FungibleToken(String, Option<u128>),
     NonFungibleAsset(String, TypeSignature),
     Trait(ClarityName, BTreeMap<ClarityName, FunctionSignature>),
-    UseTrait(ClarityName, FieldData),
-    ImplTrait(FieldData),
+    UseTrait(ClarityName, TraitIdentifier),
+    ImplTrait(TraitIdentifier),
     NoDefine
 }
 
@@ -156,12 +156,12 @@ fn handle_define_trait(name: &ClarityName,
 }
 
 fn handle_use_trait(name: &ClarityName,
-                    trait_identifier: &FieldData,
+                    trait_identifier: &TraitIdentifier,
                     env: &Environment) -> Result<DefineResult> {
     Ok(DefineResult::UseTrait(name.clone(), trait_identifier.clone()))
 }
 
-fn handle_impl_trait(trait_identifier: &FieldData,
+fn handle_impl_trait(trait_identifier: &TraitIdentifier,
                      env: &Environment) -> Result<DefineResult> {
     Ok(DefineResult::ImplTrait(trait_identifier.clone()))
 }

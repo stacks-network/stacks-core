@@ -514,15 +514,15 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 
-    pub fn check_method_from_trait(&mut self, trait_name: &ClarityName, func_name: &ClarityName, args: &[SymbolicExpression], context: &TypingContext) -> CheckResult<TypeSignature> {
+    pub fn check_method_from_trait(&mut self, trait_reference_instance: &ClarityName, func_name: &ClarityName, args: &[SymbolicExpression], context: &TypingContext) -> CheckResult<TypeSignature> {
         // Retrieve the signature of the function invoked from the trait
         let func_signature = {
-            let trait_reference = context.traits_references.get(trait_name)
-                .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
+            let trait_reference = context.traits_references.get(trait_reference_instance)
+                .ok_or(CheckErrors::TraitReferenceUnknown(trait_reference_instance.to_string()))?;
             let trait_signature = self.contract_context.get_trait(trait_reference)
-                .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
+                .ok_or(CheckErrors::TraitReferenceUnknown(trait_reference.to_string()))?;
             trait_signature.get(func_name)
-                .ok_or(CheckErrors::TraitMethodUnknown(trait_name.to_string(), func_name.to_string()))?
+                .ok_or(CheckErrors::TraitMethodUnknown(trait_reference.to_string(), func_name.to_string()))?
         };
 
         // Ensure that the arguments passed are matching the args types specified

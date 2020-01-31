@@ -6,7 +6,7 @@ use address::c32::c32_address_decode;
 use vm::ast::errors::{ParseResult, ParseErrors, ParseError};
 use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, ContractName, ClarityName};
-use vm::types::{Value, PrincipalData, FieldData, QualifiedContractIdentifier};
+use vm::types::{Value, PrincipalData, TraitIdentifier, QualifiedContractIdentifier};
 
 pub enum LexItem {
     LeftParen,
@@ -196,7 +196,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                     },
                     TokenType::FullyQualifiedFieldIdentifierLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        let value = match FieldData::parse_fully_qualified(&str_value) {
+                        let value = match TraitIdentifier::parse_fully_qualified(&str_value) {
                             Ok(parsed) => Ok(Value::Field(parsed)),
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingField(str_value.clone())))
                         }?;
@@ -204,7 +204,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                     },
                     TokenType::SugaredFieldIdentifierLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        let (contract_name, field_name) = match FieldData::parse_sugared_syntax(&str_value) {
+                        let (contract_name, field_name) = match TraitIdentifier::parse_sugared_syntax(&str_value) {
                             Ok((contract_name, field_name)) => Ok((contract_name, field_name)),
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingField(str_value.clone())))
                         }?;
@@ -371,7 +371,7 @@ mod test {
     use vm::{Value, ast};
     use vm::types::{QualifiedContractIdentifier, PrincipalData};
     use vm::ast::errors::{ParseErrors, ParseError};
-    use vm::types::{FieldData};
+    use vm::types::{TraitIdentifier};
 
     fn make_atom(x: &str, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::atom(x.into());
