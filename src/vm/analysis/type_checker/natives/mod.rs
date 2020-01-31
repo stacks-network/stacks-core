@@ -214,7 +214,6 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
         },
         SymbolicExpressionType::Atom(trait_name) => {
             // Dynamic dispatch
-            // todo(ludo): any additional processing?
             checker.check_method_from_trait(trait_name, func_name, &args[2..], context)?
         }, 
         _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
@@ -239,8 +238,12 @@ fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], 
 
 fn check_special_principal_of(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(1, args)?;
-
-    // todo(ludo): to implement
+    let trait_name = args[0].match_atom()
+        .ok_or(CheckErrors::ExpectedTraitIdentifier)?;
+    let trait_reference = context.traits_references.get(trait_name)
+        .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
+    let trait_signature = checker.contract_context.get_trait(trait_reference)
+        .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
 
     Ok(TypeSignature::PrincipalType)
 }
