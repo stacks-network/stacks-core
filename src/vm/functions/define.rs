@@ -158,9 +158,13 @@ fn handle_define_trait(name: &ClarityName,
 fn handle_use_trait(name: &ClarityName,
                     trait_identifier: &FieldData,
                     env: &Environment) -> Result<DefineResult> {
-    // todo(ludo): implement this function
-    // we should ensure that the trait exists?
     Ok(DefineResult::UseTrait(name.clone(), trait_identifier.clone()))
+}
+
+fn handle_impl_trait(name: &ClarityName,
+                     trait_identifier: &FieldData,
+                     env: &Environment) -> Result<DefineResult> {
+    Ok(DefineResult::ImplTrait(name.clone(), trait_identifier.clone()))
 }
 
 impl DefineFunctions {
@@ -244,8 +248,18 @@ impl <'a> DefineFunctionsParsed <'a> {
                 }
             },
             DefineFunctions::ImplTrait => {
-                return Err(CheckErrors::BadFunctionName.into())
+                // todo(ludo): DRY
+                check_argument_count(2, args)?;
+                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                match &args[1].expr {
+                    LiteralValue(Value::Field(ref field)) => DefineFunctionsParsed::ImplTrait { 
+                        name: &name, 
+                        trait_identifier: &field 
+                    },
+                    _ => return Err(CheckErrors::ExpectedTraitIdentifier.into())
+                }
             },
+
         };
         Ok(Some(result))
     }
@@ -288,9 +302,7 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                 handle_use_trait(name, trait_identifier, env)
             },
             DefineFunctionsParsed::ImplTrait { name, trait_identifier } => {
-                // Implementing trait is basically importing a trait from another contract
-                // and doing some additional check during the analysis
-                handle_use_trait(name, trait_identifier, env)
+                handle_impl_trait(name, trait_identifier, env)
             }
         }
     } else {

@@ -28,8 +28,6 @@ impl TraitChecker {
         }
     }
 
-    // todo(ludo): we should also probably run some code, pre-evaluation.
-
     pub fn run(&mut self, contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
         let exprs = contract_analysis.expressions[..].to_vec();
         let trait_usages = self.find_trait_usages(&exprs)?;
@@ -43,14 +41,22 @@ impl TraitChecker {
             return Err(err.into());
         }
 
-        // Ensure that imported traits exists
-        for (trait_name, expr) in trait_usages.imported_traits.iter() {
-            // todo(ludo): in progress
-            // analysis_db.get_defined_trait(contract_identifier, &trait_name)
-            //     .ok_or(CheckErrors::TraitReferenceUnknown(orphan.to_string()).into())?;
+        // Ensure that imported traits (impl + use) exists
+        for (trait_name, trait_expr) in trait_usages.imported_traits.iter() {
+            let imported_trait_args = trait_expr.match_list().ok_or(CheckErrors::ImportTraitBadSignature)?;
+            if imported_trait_args.len() != 3 {
+                return Err(CheckErrors::ImportTraitBadSignature.into())
+            }
+            let trait_identifier = match &imported_trait_args[2].expr {
+                LiteralValue(Value::Field(field)) => field,
+                _ => return Err(CheckErrors::ImportTraitBadSignature.into()),
+            };
+
+            let existing_trait = analysis_db.get_defined_trait(
+                &trait_identifier.contract_identifier, 
+                &trait_identifier.name)?;
+            existing_trait.ok_or(CheckError::new(CheckErrors::TraitReferenceUnknown(trait_name.to_string())))?;
         }
-        // todo(ludo): Ensure that used / imported traits are resolving
-        // Look at the code for contract-call
 
         contract_analysis.trait_usages = Some(trait_usages);
 
@@ -76,6 +82,9 @@ impl TraitChecker {
                     }
                 },
                 (DefineFunctions::UseTrait, Atom(trait_name)) => {
+                    imported_traits.insert(trait_name.clone(), exp.clone());
+                },
+                (DefineFunctions::ImplTrait, Atom(trait_name)) => {
                     imported_traits.insert(trait_name.clone(), exp.clone());
                 },
                 (DefineFunctions::PublicFunction, List(function_definition)) | 

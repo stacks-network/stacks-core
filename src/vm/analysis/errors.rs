@@ -132,6 +132,8 @@ pub enum CheckErrors {
     TraitReferenceUnknown(String),
     TraitMethodUnknown(String, String),
     ExpectedTraitIdentifier,
+    ImportTraitBadSignature,
+    BadTraitImplementation(String, String),
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly
@@ -324,7 +326,9 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NoSuchNFT(asset_name) => format!("tried to use asset function with a undefined asset ('{}')", asset_name),
             CheckErrors::NoSuchFT(asset_name) => format!("tried to use token function with a undefined token ('{}')", asset_name),
             CheckErrors::TraitReferenceUnknown(trait_name) => format!("use of undeclared trait <{}>", trait_name),
-            CheckErrors::TraitMethodUnknown(trait_name, func_name) => format!("use of method unspecified in trait <{}>", trait_name),
+            CheckErrors::TraitMethodUnknown(trait_name, func_name) => format!("method '{}' unspecified in trait <{}>", func_name, trait_name),
+            CheckErrors::ImportTraitBadSignature => format!("(use-trait ...) expects a trait name and a trait identifier"),
+            CheckErrors::BadTraitImplementation(trait_name, func_name) => format!("invalid signature for method '{}' regarding trait's specification <{}>", func_name, trait_name),
             CheckErrors::ExpectedTraitIdentifier => format!("expecting expression of type trait identifier"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")

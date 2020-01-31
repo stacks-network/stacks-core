@@ -30,6 +30,7 @@ pub struct ContractContext {
     fungible_tokens: HashSet<ClarityName>,
     non_fungible_tokens: HashMap<ClarityName, TypeSignature>,
     traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    pub implemented_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
 }
 
 impl TypeMap {
@@ -62,6 +63,7 @@ impl ContractContext {
             fungible_tokens: HashSet::new(),
             non_fungible_tokens: HashMap::new(),
             traits: HashMap::new(),
+            implemented_traits: HashMap::new(),
         }
     }
 
@@ -72,6 +74,8 @@ impl ContractContext {
             self.public_function_types.contains_key(name) ||
             self.fungible_tokens.contains(name) ||
             self.non_fungible_tokens.contains_key(name) ||
+            self.traits.contains_key(name) ||
+            self.implemented_traits.contains_key(name) ||
             self.map_types.contains_key(name) {
                 Err(CheckError::new(CheckErrors::NameAlreadyUsed(name.to_string())))
             } else {
@@ -142,6 +146,11 @@ impl ContractContext {
 
     pub fn add_trait(&mut self, trait_name: ClarityName, trait_signature: BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<()> {
         self.traits.insert(trait_name, trait_signature);
+        Ok(())
+    }
+
+    pub fn add_implemented_trait(&mut self, trait_name: ClarityName, trait_signature: BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<()> {
+        self.implemented_traits.insert(trait_name, trait_signature);
         Ok(())
     }
 
