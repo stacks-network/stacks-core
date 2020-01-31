@@ -1,5 +1,5 @@
 use std::fmt;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap};
 use std::iter::FromIterator;
 
 use vm::errors::{InterpreterResult as Result, Error};
@@ -68,7 +68,6 @@ impl DefinedFunction {
         }
 
         let mut arg_iterator: Vec<_> = self.arguments.iter().zip(self.arg_types.iter()).zip(args.iter()).collect();
-        let mut flatten_args = VecDeque::new();
 
         for arg in arg_iterator.drain(..) {
             let ((name, type_sig), value) = arg;
@@ -78,25 +77,10 @@ impl DefinedFunction {
             if let Some(_) = context.variables.insert(name.clone(), value.clone()) {
                 return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
             }
-            flatten_args.push_back(arg);
-        }
-
-        // Recursively traverse the (potential) tree of function arguments
-        // in order to catch all the references to traits.
-        while let Some(((name, type_sig), value)) = flatten_args.pop_front() {
             match (type_sig, value) {
                 (CallablePrincipalType, Value::Principal(PrincipalData::Contract(contract_id))) => {
                     context.callable_contracts.insert(name.clone(), contract_id.clone());
                 },
-                (TypeSignature::TupleType(tuple_type), Value::Tuple(tuple_data)) => {
-                    // todo(ludo): traverse tuple, enqueue components 
-                    // flatten_args.push_back((( , ), ))
-                    // pub struct TupleData {
-                    //     pub type_signature: TupleTypeSignature,
-                    //     pub data_map: BTreeMap<ClarityName, Value>
-                    // }
-                    // tuple_data.
-                }
                 _ => {}
             }
         }
