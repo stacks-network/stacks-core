@@ -96,7 +96,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                     // No arguments to (define-map ...) or (define-non-fungible-token) or fungible tokens without max supplies are eval'ed.
                 },
                 Trait { .. } | UseTrait { .. } | ImplTrait { .. } => {
-                    // todo(ludo): implement
+                    // No arguments to (use-trait ...), (define-trait ...). or (impl-trait) are eval'ed.
                 },
             }
         } else {
@@ -270,8 +270,10 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                         self.db.get_read_only_function_type(&contract_identifier, function_name)?.is_some()
                     },
                     SymbolicExpressionType::Atom(trait_reference) => {
-                        // todo(ludo): read only checking on dynamic dispatch cases
-                        true
+                        // Dynamic dispatch from a reaonly-function can only be guaranteed at runtime,
+                        // witch would defeat granting a static readonly stamp. 
+                        // As such dynamic dispatch is currently forbidden.
+                        false
                     },
                     _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
                 };
