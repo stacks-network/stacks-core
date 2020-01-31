@@ -182,8 +182,10 @@ fn eval_all (expressions: &[SymbolicExpression],
             DefineResult::Trait(name, trait_type) => {
                 contract_context.traits.insert(name, trait_type);
             },
-            DefineResult::UseTrait(name, trait_type) | DefineResult::ImplTrait(name, trait_type) => {
-                // todo(ludo)
+            // todo(ludo)
+            DefineResult::UseTrait(name, trait_type) => {
+            },
+            DefineResult::ImplTrait(trait_type) => {
             },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.

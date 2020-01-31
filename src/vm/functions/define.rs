@@ -34,7 +34,7 @@ pub enum DefineFunctionsParsed <'a> {
     PersistedVariable  { name: &'a ClarityName, data_type: &'a SymbolicExpression, initial: &'a SymbolicExpression },
     Trait { name: &'a ClarityName, functions: &'a [SymbolicExpression] },
     UseTrait { name: &'a ClarityName, trait_identifier: &'a FieldData },
-    ImplTrait { name: &'a ClarityName, trait_identifier: &'a FieldData },
+    ImplTrait { trait_identifier: &'a FieldData },
 }
 
 pub enum DefineResult {
@@ -43,10 +43,10 @@ pub enum DefineResult {
     Map(String, TupleTypeSignature, TupleTypeSignature),
     PersistedVariable(String, TypeSignature, Value),
     FungibleToken(String, Option<u128>),
-    NonFungibleAsset(String, TypeSignature), // todo(ludo): migrate to clarity name?
+    NonFungibleAsset(String, TypeSignature),
     Trait(ClarityName, BTreeMap<ClarityName, FunctionSignature>),
     UseTrait(ClarityName, FieldData),
-    ImplTrait(ClarityName, FieldData),
+    ImplTrait(FieldData),
     NoDefine
 }
 
@@ -161,10 +161,9 @@ fn handle_use_trait(name: &ClarityName,
     Ok(DefineResult::UseTrait(name.clone(), trait_identifier.clone()))
 }
 
-fn handle_impl_trait(name: &ClarityName,
-                     trait_identifier: &FieldData,
+fn handle_impl_trait(trait_identifier: &FieldData,
                      env: &Environment) -> Result<DefineResult> {
-    Ok(DefineResult::ImplTrait(name.clone(), trait_identifier.clone()))
+    Ok(DefineResult::ImplTrait(trait_identifier.clone()))
 }
 
 impl DefineFunctions {
@@ -248,12 +247,9 @@ impl <'a> DefineFunctionsParsed <'a> {
                 }
             },
             DefineFunctions::ImplTrait => {
-                // todo(ludo): DRY
-                check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-                match &args[1].expr {
+                check_argument_count(1, args)?;
+                match &args[0].expr {
                     LiteralValue(Value::Field(ref field)) => DefineFunctionsParsed::ImplTrait { 
-                        name: &name, 
                         trait_identifier: &field 
                     },
                     _ => return Err(CheckErrors::ExpectedTraitIdentifier.into())
@@ -301,8 +297,8 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
             DefineFunctionsParsed::UseTrait { name, trait_identifier } => {
                 handle_use_trait(name, trait_identifier, env)
             },
-            DefineFunctionsParsed::ImplTrait { name, trait_identifier } => {
-                handle_impl_trait(name, trait_identifier, env)
+            DefineFunctionsParsed::ImplTrait { trait_identifier } => {
+                handle_impl_trait(trait_identifier, env)
             }
         }
     } else {

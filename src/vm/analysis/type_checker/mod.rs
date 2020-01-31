@@ -499,11 +499,11 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                         None => return Err(CheckErrors::TraitReferenceUnknown(name.to_string()).into())
                     }
                 },
-                DefineFunctionsParsed::ImplTrait { name, trait_identifier } => {
+                DefineFunctionsParsed::ImplTrait { trait_identifier } => {
                     let result = self.db.get_defined_trait(&trait_identifier.contract_identifier, &trait_identifier.name)?;
                     match result {
-                        Some(trait_sig) => self.contract_context.add_implemented_trait(name.clone(), trait_sig)?,
-                        None => return Err(CheckErrors::TraitReferenceUnknown(name.to_string()).into())
+                        Some(trait_sig) => self.contract_context.add_implemented_trait(trait_identifier.clone(), trait_sig)?,
+                        None => return Err(CheckErrors::TraitReferenceUnknown(trait_identifier.name.to_string()).into())
                     }
                 },
             };
@@ -542,27 +542,28 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
     pub fn check_implemented_traits(&mut self) -> CheckResult<()> {
 
-        for (trait_name, trait_sig) in &self.contract_context.implemented_traits {
+        for (trait_identifier, trait_sig) in &self.contract_context.implemented_traits {
+            let trait_name = trait_identifier.name.to_string();
             for (func_name, expected_sig) in trait_sig {
                 match self.contract_context.get_function_type(func_name) {
                     Some(FunctionType::Fixed(func)) => {
                         if func.args.len() != expected_sig.args.len() {
-                            return Err(CheckErrors::BadTraitImplementation(trait_name.to_string(), func_name.to_string()).into())
+                            return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
                         }
                         let args = expected_sig.args.iter().zip(func.args.iter());
                         for (expected_arg, arg) in args {
                             if !expected_arg.admits_type(&arg.signature) {
-                                return Err(CheckErrors::BadTraitImplementation(trait_name.to_string(), func_name.to_string()).into())
+                                return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
                             }
                         }
 
                         if !expected_sig.returns.admits_type(&func.returns) {
                             // todo(ludo): investigate (response uint uint) admiting (response uint)
-                            return Err(CheckErrors::BadTraitImplementation(trait_name.to_string(), func_name.to_string()).into())
+                            return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
                         }
                     }
                     _ => {
-                        return Err(CheckErrors::BadTraitImplementation(trait_name.to_string(), func_name.to_string()).into())
+                        return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
                     }
                 }
             }

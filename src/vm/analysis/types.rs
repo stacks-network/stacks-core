@@ -27,7 +27,7 @@ pub struct ContractAnalysis {
     pub persisted_variable_types: BTreeMap<ClarityName, TypeSignature>,
     pub fungible_tokens: BTreeSet<ClarityName>,
     pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
-    pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>, // todo(ludo): we're missing something for handling nested traits 
+    pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
     pub imported_traits: BTreeMap<ClarityName, (QualifiedContractIdentifier, ClarityName)>,
     pub implemented_traits: BTreeSet<(QualifiedContractIdentifier, ClarityName)>,
     #[serde(skip)]

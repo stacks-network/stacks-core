@@ -79,7 +79,7 @@ pub struct ContractContext {
     pub functions: HashMap<ClarityName, DefinedFunction>,
 
     #[serde(serialize_with = "ordered_map_traits")]
-    pub traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>, // todo(ludo): wrap HashMap<ClarityName, FunctionSignature> in a type
+    pub traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
 }
 
 fn ordered_map_variables<S: serde::Serializer>(value: &HashMap<ClarityName, Value>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
