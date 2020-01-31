@@ -77,12 +77,11 @@ impl <'a> DefinitionSorter {
     fn probe_for_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
         match expr.expr {
             LiteralValue(Value::TraitReference(ref name)) => {
-                // if let Some(dep) = self.top_level_expressions_map.get(name.into()) {
-                //     if dep.atom_index != expr.id {
-                //         self.graph.add_directed_edge(tle_index, dep.expr_index);
-                //     }
-                // }
-                // todo(ludo)
+                if let Some(dep) = self.top_level_expressions_map.get(name) {
+                    if dep.atom_index != expr.id {
+                        self.graph.add_directed_edge(tle_index, dep.expr_index);
+                    }
+                }
                 Ok(())
             },
             Atom(ref name) => {
@@ -104,13 +103,12 @@ impl <'a> DefinitionSorter {
                                 DefineFunctions::PrivateFunction | DefineFunctions::Constant |
                                 DefineFunctions::PublicFunction | DefineFunctions::PersistedVariable |
                                 DefineFunctions::ReadOnlyFunction => {
-                                    // Args: [(define-name-and-types), ...]: ignore 1st arg
+                                    // Args: [(define-name-and-types), ...]
                                     if function_args.len() > 1 {
-                                        for expr in function_args[1..function_args.len()].into_iter() {
+                                        for expr in function_args.into_iter() {
                                             self.probe_for_dependencies(expr, tle_index)?;
                                         }
                                     }
-                                    // todo(ludo): we must probe for referenced traits in the args
                                     return Ok(());
                                 },
                                 DefineFunctions::Map => {
@@ -126,6 +124,7 @@ impl <'a> DefinitionSorter {
                                     return Ok(())
                                 },
                                 DefineFunctions::ImplTrait | DefineFunctions::UseTrait => {
+                                    
                                     return Ok(())
                                 },
                             }
