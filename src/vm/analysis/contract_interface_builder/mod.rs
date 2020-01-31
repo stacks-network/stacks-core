@@ -90,6 +90,7 @@ pub enum ContractInterfaceAtomType {
         type_f: Box<ContractInterfaceAtomType>, 
         length: u32, 
     },
+    trait_reference,
 }
 
 #[derive(Debug, Serialize)]
@@ -129,7 +130,7 @@ impl ContractInterfaceAtomType {
             UIntType => ContractInterfaceAtomType::uint128,
             BoolType => ContractInterfaceAtomType::bool,
             PrincipalType => ContractInterfaceAtomType::principal,
-            TraitReferenceType => ContractInterfaceAtomType::none,
+            TraitReferenceType => ContractInterfaceAtomType::trait_reference,
             BufferType(len) => ContractInterfaceAtomType::buffer { length: len.into() },
             TupleType(sig) => Self::from_tuple_type(sig),
             ListType(list_data) => {

@@ -287,7 +287,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                         TypeSignature::TraitReferenceType
                     },
                     _ => {
-                        // Trait references have to passed as "root" arguments - they can't be nested
+                        // Trait references have to be passed as "root" arguments - they can't be nested
                         // in tuples, otherwise we would have to obtain the trait reference from an evaluation
                         // which is something we probably want to avoid. 
                         let arg_type = TypeSignature::parse_type_repr(&pair[1])?;
@@ -436,8 +436,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
     fn type_check_define_trait(&mut self, trait_name: &ClarityName, function_types: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
         
-        let trait_signature = TypeSignature::parse_trait_type_repr(&function_types)
-            .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?; // tood(ludo): fix error type
+        let trait_signature = TypeSignature::parse_trait_type_repr(&function_types)?;
 
         Ok((trait_name.clone(), trait_signature))
     } 

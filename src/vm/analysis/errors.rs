@@ -134,6 +134,7 @@ pub enum CheckErrors {
     ExpectedTraitIdentifier,
     ImportTraitBadSignature,
     BadTraitImplementation(String, String),
+    DefineTraitBadSignature,
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly
@@ -330,6 +331,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ImportTraitBadSignature => format!("(use-trait ...) expects a trait name and a trait identifier"),
             CheckErrors::BadTraitImplementation(trait_name, func_name) => format!("invalid signature for method '{}' regarding trait's specification <{}>", func_name, trait_name),
             CheckErrors::ExpectedTraitIdentifier => format!("expecting expression of type trait identifier"),
+            CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },

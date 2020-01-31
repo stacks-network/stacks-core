@@ -352,6 +352,5 @@ fn special_principal_of(args: &[SymbolicExpression], env: &mut Environment, cont
     check_argument_count(1, args)?;
 
     let result = eval(&args[0], env, context)?;
-    // todo(ludo): to implement
     Ok(result)
 }

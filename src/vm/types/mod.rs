@@ -364,8 +364,8 @@ impl fmt::Display for Value {
             Value::Principal(principal_data) => write!(f, "{}", principal_data),
             Value::Optional(opt_data) => write!(f, "{}", opt_data),
             Value::Response(res_data) => write!(f, "{}", res_data),
-            Value::Field(field_data) => write!(f, "{:?}{:?}", field_data.contract_identifier, field_data.name),
-            Value::TraitReference(name) => write!(f, "{:?}", name), // todo(ludo): fix
+            Value::Field(trait_identifier) => write!(f, "{:?}{:?}", trait_identifier.contract_identifier, trait_identifier.name),
+            Value::TraitReference(name) => write!(f, "<{:?}>", name),
             Value::List(list_data) => {
                 write!(f, "(")?;
                 for (ix, v) in list_data.data.iter().enumerate() {
@@ -435,6 +435,12 @@ impl From<StandardPrincipalData> for Value {
 impl From<QualifiedContractIdentifier> for Value {
     fn from(principal: QualifiedContractIdentifier) -> Self {
         Value::Principal(PrincipalData::Contract(principal))
+    }
+}
+
+impl From<TraitIdentifier> for Value {
+    fn from(trait_identifier: TraitIdentifier) -> Self {
+        Value::Field(trait_identifier)
     }
 }
 

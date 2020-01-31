@@ -1,7 +1,7 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError, 
                  IncomparableError, Error as ClarityError, CheckErrors};
 use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, BufferLength,
-                TypeSignature, TupleData, QualifiedContractIdentifier, ResponseData};
+                TypeSignature, TupleData, QualifiedContractIdentifier, TraitIdentifier, ResponseData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 use vm::representations::{ClarityName, ContractName};
 
@@ -293,10 +293,17 @@ impl Value {
                 Ok(Value::some(Value::deserialize_read(r, expect_contained_type)?))
             },
             TypePrefix::TraitReference => {
-                Ok(Value::none()) // todo(ludo): fix
+                Ok(Value::none()) // todo(ludo): check with aaron
             },
             TypePrefix::Field => {
-                Ok(Value::none()) // todo(ludo): fix
+                check_match!(expected_type, TypeSignature::TraitReferenceType)?;
+                let contract_identifier = {
+                    let issuer = StandardPrincipalData::deserialize_read(r)?;
+                    let name = ContractName::deserialize_read(r)?;
+                    QualifiedContractIdentifier { issuer, name }
+                };
+                let name = ClarityName::deserialize_read(r)?;
+                Ok(Value::from(TraitIdentifier { name, contract_identifier }))
             }
             TypePrefix::List => {
                 let mut len = [0; 4];
@@ -751,5 +758,20 @@ mod tests {
         test_bad_expectation(contract_p2, TypeSignature::BoolType);
         test_bad_expectation(standard_p, TypeSignature::BoolType);
     }
+
+    #[test]
+    fn test_trait_references() {
+        let contract_identifier = {
+            let issuer = PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
+            QualifiedContractIdentifier::new(issuer, "contract-foo".into())
+        };
+        let name = "trait-bar".into();
+        let trait_identifier = Value::from(Value::Field(TraitIdentifier { name, contract_identifier }));
+
+        test_deser_ser(trait_identifier.clone());
+
+        test_bad_expectation(trait_identifier, TypeSignature::BoolType);
+    }
+
 
 }

@@ -519,8 +519,8 @@ impl TypeSignature {
             Value::Tuple(v) => TupleType(
                 v.type_signature.clone()),
             Value::List(list_data) => ListType(list_data.type_signature.clone()),
-            Value::TraitReference(_v) => NoType, // todo(ludo): fix
-            Value::Field(_v) => NoType, // todo(ludo): fix
+            Value::TraitReference(_v) => TraitReferenceType,
+            Value::Field(_v) => NoType, // todo(ludo): check with aaron
             Value::Optional(v) => v.type_signature(),
             Value::Response(v) => v.type_signature()
         }
@@ -658,12 +658,12 @@ impl TypeSignature {
     pub fn parse_trait_type_repr(type_args: &[SymbolicExpression]) -> Result<BTreeMap<ClarityName, FunctionSignature>> {
 
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
-        let functions_types = type_args[0].match_list().ok_or(CheckErrors::BadLetSyntax)?; // tood(ludo): fix error type
+        let functions_types = type_args[0].match_list().ok_or(CheckErrors::DefineTraitBadSignature)?;
 
         for function_type in functions_types.iter() {
-            let args = function_type.match_list().ok_or(CheckErrors::BadLetSyntax)?; // tood(ludo): fix error type
-            let fn_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-            let fn_args_exprs = args[1].match_list().ok_or(CheckErrors::BadLetSyntax)?; // tood(ludo): fix error type
+            let args = function_type.match_list().ok_or(CheckErrors::DefineTraitBadSignature)?;
+            let fn_name = args[0].match_atom().ok_or(CheckErrors::DefineTraitBadSignature)?;
+            let fn_args_exprs = args[1].match_list().ok_or(CheckErrors::DefineTraitBadSignature)?;
             let mut fn_args = vec![];
             for arg_type in fn_args_exprs.iter() {
                 let arg_t = TypeSignature::parse_type_repr(&arg_type)?;
