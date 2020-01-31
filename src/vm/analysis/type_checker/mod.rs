@@ -264,7 +264,9 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
         let mut func_args: Vec<FunctionArg> = vec![];
         let mut func_context = context.extend()?;
-
+        
+        // We are processing a list of arguments. The main difference with the historical method
+        // is that we're augmenting the context of the function with the trait references encoutered.
         for packed_arg in packed_args.iter() {
             if let List(ref pair) = packed_arg.expr {
                 if pair.len() != 2 {
@@ -282,19 +284,14 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 let arg_type = match &pair[1].expr {
                     LiteralValue(Value::TraitReference(name)) => {
                         func_context.traits_references.insert(arg_name.clone(), name.clone());
-                        TypeSignature::PrincipalType // todo(ludo): Should we use TypeSignature::NoType instead?
+                        TypeSignature::CallablePrincipalType
                     },
                     _ => {
-                        // todo(ludo): Implementation should be revisited - this would not catch nested trait references (in tuple or so)
+                        // Trait references have to passed as "root" arguments - they can't be nested
+                        // in tuples, otherwise we would have to obtain the trait reference from an evaluation
+                        // which is something we probably want to avoid. 
                         let arg_type = TypeSignature::parse_type_repr(&pair[1])?;
-                        match arg_type {
-                            TypeSignature::TupleType(_) => {
-                                println!("HERE :)");
-                            }
-                            _ => {
-                                func_context.variable_types.insert(arg_name.clone(), arg_type.clone());
-                            }
-                        }
+                        func_context.variable_types.insert(arg_name.clone(), arg_type.clone());
                         arg_type
                     } 
                 };
@@ -518,7 +515,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     pub fn check_method_from_trait(&mut self, trait_name: &ClarityName, func_name: &ClarityName, args: &[SymbolicExpression], context: &TypingContext) -> CheckResult<TypeSignature> {
-
+        // Retrieve the signature of the function invoked from the trait
         let func_signature = {
             let trait_reference = context.traits_references.get(trait_name)
                 .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
@@ -528,8 +525,13 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 .ok_or(CheckErrors::TraitMethodUnknown(trait_name.to_string(), func_name.to_string()))?
         };
 
+        // Ensure that the arguments passed are matching the args types specified
+        // by the trait definition
         let expected_args = func_signature.args.clone();
+
+        // Return type specified by the trait definition to return
         let return_type = func_signature.returns.clone();
+
         check_argument_count(expected_args.len(), args)?;
         for (i, func_arg) in expected_args.iter().enumerate() {
             self.type_check_expects(&args[i], context, &func_arg)?;                    
