@@ -284,7 +284,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 let arg_type = match &pair[1].expr {
                     LiteralValue(Value::TraitReference(name)) => {
                         func_context.traits_references.insert(arg_name.clone(), name.clone());
-                        TypeSignature::CallablePrincipalType
+                        TypeSignature::TraitReferenceType
                     },
                     _ => {
                         // Trait references have to passed as "root" arguments - they can't be nested

@@ -78,7 +78,7 @@ impl DefinedFunction {
                 return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
             }
             match (type_sig, value) {
-                (CallablePrincipalType, Value::Principal(PrincipalData::Contract(contract_id))) => {
+                (TraitReferenceType, Value::Principal(PrincipalData::Contract(contract_id))) => {
                     context.callable_contracts.insert(name.clone(), contract_id.clone());
                 },
                 _ => {}

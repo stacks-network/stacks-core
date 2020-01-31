@@ -61,7 +61,7 @@ pub enum TypeSignature {
     TupleType(TupleTypeSignature),
     OptionalType(Box<TypeSignature>),
     ResponseType(Box<(TypeSignature, TypeSignature)>),
-    CallablePrincipalType,
+    TraitReferenceType,
 }
 
 use self::TypeSignature::{
@@ -75,7 +75,7 @@ use self::TypeSignature::{
     TupleType, 
     OptionalType, 
     ResponseType,
-    CallablePrincipalType
+    TraitReferenceType
 };
 
 pub const BUFF_64: TypeSignature = BufferType(BufferLength(64));
@@ -289,9 +289,9 @@ impl TypeSignature {
                     false
                 }
             },
-            CallablePrincipalType => {
+            TraitReferenceType => {
                 match other {
-                    PrincipalType | CallablePrincipalType => true,
+                    PrincipalType | TraitReferenceType => true,
                     _ => false,
                 }
             },
@@ -649,7 +649,7 @@ impl TypeSignature {
                 }
             },
             SymbolicExpressionType::LiteralValue(Value::TraitReference(ref trait_ref)) => {
-                Ok(TypeSignature::CallablePrincipalType)
+                Ok(TypeSignature::TraitReferenceType)
             },
             _ => Err(CheckErrors::InvalidTypeDescription)
         }
@@ -717,7 +717,7 @@ impl TypeSignature {
                 cmp::max(t_size, s_size)
                     .checked_add(1)
             },
-            CallablePrincipalType => Some(21),
+            TraitReferenceType => Some(21),
         }
     }
 
@@ -742,7 +742,7 @@ impl TypeSignature {
                     .checked_add(s.type_size()?)?
                     .checked_add(1)
             },
-            CallablePrincipalType => Some(1),
+            TraitReferenceType => Some(1),
         }
     }
 }
@@ -883,7 +883,7 @@ impl fmt::Display for TypeSignature {
             TupleType(t) => write!(f, "{}", t),
             PrincipalType => write!(f, "principal"),
             ListType(list_type_data) => write!(f, "(list {} {})", list_type_data.max_len, list_type_data.entry_type),
-            CallablePrincipalType => write!(f, "callable-principal"),
+            TraitReferenceType => write!(f, "callable-principal"),
         }
     }
 }

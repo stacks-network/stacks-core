@@ -129,7 +129,7 @@ impl ContractInterfaceAtomType {
             UIntType => ContractInterfaceAtomType::uint128,
             BoolType => ContractInterfaceAtomType::bool,
             PrincipalType => ContractInterfaceAtomType::principal,
-            CallablePrincipalType => ContractInterfaceAtomType::none,
+            TraitReferenceType => ContractInterfaceAtomType::none,
             BufferType(len) => ContractInterfaceAtomType::buffer { length: len.into() },
             TupleType(sig) => Self::from_tuple_type(sig),
             ListType(list_data) => {
