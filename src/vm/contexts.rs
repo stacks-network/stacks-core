@@ -77,9 +77,6 @@ pub struct ContractContext {
     
     #[serde(serialize_with = "ordered_map_functions")]
     pub functions: HashMap<ClarityName, DefinedFunction>,
-
-    #[serde(serialize_with = "ordered_map_traits")]
-    pub traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
 }
 
 fn ordered_map_variables<S: serde::Serializer>(value: &HashMap<ClarityName, Value>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
@@ -88,11 +85,6 @@ fn ordered_map_variables<S: serde::Serializer>(value: &HashMap<ClarityName, Valu
 }
 
 fn ordered_map_functions<S: serde::Serializer>(value: &HashMap<ClarityName, DefinedFunction>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
-    let ordered: BTreeMap<_, _> = value.iter().collect();
-    ordered.serialize(serializer)
-}
-
-fn ordered_map_traits<S: serde::Serializer>(value: &HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
     let ordered: BTreeMap<_, _> = value.iter().collect();
     ordered.serialize(serializer)
 }
@@ -771,7 +763,6 @@ impl ContractContext {
             contract_identifier,
             variables: HashMap::new(),
             functions: HashMap::new(),
-            traits: HashMap::new(),
         }
     }
 

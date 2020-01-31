@@ -179,14 +179,9 @@ fn eval_all (expressions: &[SymbolicExpression],
             DefineResult::NonFungibleAsset(name, asset_type) => {
                 global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
             },
-            DefineResult::Trait(name, trait_type) => {
-                contract_context.traits.insert(name, trait_type);
-            },
-            // todo(ludo)
-            DefineResult::UseTrait(name, trait_type) => {
-            },
-            DefineResult::ImplTrait(trait_type) => {
-            },
+            DefineResult::Trait(name, trait_type) => { /* no-op at runtime */ },
+            DefineResult::UseTrait(name, trait_identifier) => { /* no-op at runtime */ },
+            DefineResult::ImplTrait(trait_type) => { /* no-op at runtime */ },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
                 global_context.execute(|global_context| {

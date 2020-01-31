@@ -16,8 +16,6 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         fungible_tokens,
         non_fungible_tokens,
         defined_traits,
-        imported_traits,
-        implemented_traits,
         trait_usages,
         top_level_expression_sorting: _,
         expressions: _,

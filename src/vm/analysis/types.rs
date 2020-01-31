@@ -28,8 +28,6 @@ pub struct ContractAnalysis {
     pub fungible_tokens: BTreeSet<ClarityName>,
     pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
     pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
-    pub imported_traits: BTreeMap<ClarityName, (QualifiedContractIdentifier, ClarityName)>,
-    pub implemented_traits: BTreeSet<(QualifiedContractIdentifier, ClarityName)>,
     #[serde(skip)]
     pub top_level_expression_sorting: Option<Vec<usize>>,
     #[serde(skip)]
@@ -51,8 +49,6 @@ impl ContractAnalysis {
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
             defined_traits: BTreeMap::new(),
-            imported_traits: BTreeMap::new(),
-            implemented_traits: BTreeSet::new(),
             top_level_expression_sorting: Some(Vec::new()),
             fungible_tokens: BTreeSet::new(),
             non_fungible_tokens: BTreeMap::new(),
@@ -94,14 +90,6 @@ impl ContractAnalysis {
 
     pub fn add_defined_trait(&mut self, name: ClarityName, function_types: BTreeMap<ClarityName, FunctionSignature>) {
         self.defined_traits.insert(name, function_types);
-    }
-
-    pub fn add_imported_traits(&mut self, local_name: ClarityName, trait_name: ClarityName, contract_identifier: QualifiedContractIdentifier) {
-        self.imported_traits.insert(local_name.clone(), (contract_identifier, trait_name));
-    }
-
-    pub fn add_implemented_trait(&mut self, name: ClarityName, contract_identifier: QualifiedContractIdentifier) {
-        self.implemented_traits.insert((contract_identifier, name));
     }
 
     pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {
