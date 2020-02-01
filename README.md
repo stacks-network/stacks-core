@@ -1,7 +1,8 @@
 # Blockstack Core
 
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
-[![Slack](https://img.shields.io/badge/join-slack-e32072.svg?style=flat)](http://slack.blockstack.org/)
+[![Slack](https://img.shields.io/badge/join-slack-e32072.svg?style=flat)](https://blockstack.slack.com/)
+[![Discord](https://img.shields.io/discord/621759717756370964)](https://community.blockstack.org/discord)
 
 This repo provides the packaged reference implementation of a [Blockstack](https://blockstack.org) node, as well as tools and scripts for deploying it. Use the following table to learn more about Blockstack:
 
@@ -55,7 +56,7 @@ immediately transferrable to Blockstack.
 Blockstack applications look and feel like traditional Web applications.
 Under the hood they use Blockstack APIs for user authentication and storage.
 Blockstack handles user authentication using the [Blockstack Naming
-Service](docs/blockstack_naming_service.md)
+Service](https://docs.blockstack.org/core/naming/introduction.html)
 (BNS), a decentralized naming and public key infrastructure built on top of the Bitcoin
 blockchain.  It handles storage using [Gaia](https://github.com/blockstack/gaia), a scalable decentralized
 key/value storage system that looks and feels like `localStorage`,
@@ -97,7 +98,7 @@ integrate into existing Web apps.
 
 ## What is Blockstack Core?
 
-Blockstack Core implements BNS and [Atlas](docs/atlas_network.md), the storage
+Blockstack Core implements BNS and [Atlas](https://docs.blockstack.org/core/atlas/overview.html), the storage
 routing system for Gaia.  Blockstack Core
 nodes form the backbone of the Blockstack network.  Each node indexes the
 Bitcoin blockchain and maintains a full replica of all names,
@@ -318,13 +319,13 @@ features.  Please see the relevant
 [documentation](./integration_tests) to get started.
 
 We welcome any small or big contributions! Please take a moment to
-[review the guidelines for contributing to open source](https://guides.github.com/activities/contributing-to-open-source/) in order to make the contribution process easy and effective for everyone involved.
+[review the guidelines for contributing to open source](https://opensource.guide/how-to-contribute/) in order to make the contribution process easy and effective for everyone involved.
 
 ## Community
 
 Beyond this Github project,
 Blockstack maintains a public [forum](https://forum.blockstack.org) and a
-permissioned [Slack](https://blockstack.slack.com) channel.  In addition, the project
+permissioned [Slack](https://blockstack.slack.com) and [Discord](https://community.blockstack.org/discord) channel.  In addition, the project
 maintains a [mailing list](https://blockstack.org/signup) which sends out
 community announcements.
 
@@ -339,15 +340,14 @@ design.
 
 You can learn more by visiting [the Blockstack Website](https://blockstack.org) and checking out the in-depth articles and documentation:
 
-- [How Blockstack Works (white paper)](https://blockstack.org/docs/how-blockstack-works)
-- [Blockstack General FAQ](https://blockstack.org/faq)
-- [Blockstack Technical FAQ](docs/faq_technical.md)
-- [Blockstack In-depth Documentation Repository](docs/README.md)
+- [How Blockstack Works (white paper)](https://blockstack.org/whitepaper.pdf)
+- [Blockstack General FAQ](https://docs.blockstack.org/faqs/allfaqs)
+- [Blockstack In-depth Documentation Repository](https://docs.blockstack.org/)
 
 You can also read peer-reviewed Blockstack papers:
 
-- ["Blockstack: A Global Naming and Storage System Secured by Blockchains"](https://blockstack.org/blockstack.pdf), Proc. USENIX Annual Technical Conference ([ATC '16](https://www.usenix.org/conference/atc16)), June 2016
-- ["Extending Existing Blockchains with Virtualchain"](https://blockstack.org/virtualchain_dccl2016.pdf), Distributed Cryptocurrencies and Consensus Ledgers ([DCCL '16](https://www.zurich.ibm.com/dccl/) workshop, at [ACM PODC 2016](https://www.podc.org/podc2016/)), July 2016
+- ["Blockstack: A Global Naming and Storage System Secured by Blockchains"](https://www.usenix.org/system/files/conference/atc16/atc16_paper-ali.pdf), Proc. USENIX Annual Technical Conference ([ATC '16](https://www.usenix.org/conference/atc16)), June 2016
+- ["Extending Existing Blockchains with Virtualchain"](https://www.zurich.ibm.com/dccl/papers/nelson_dccl.pdf), Distributed Cryptocurrencies and Consensus Ledgers ([DCCL '16](https://www.zurich.ibm.com/dccl/) workshop, at [ACM PODC 2016](https://www.podc.org/podc2016/)), July 2016
 
 If you have high-level questions about Blockstack, try [searching our forum](https://forum.blockstack.org) and start a new question if your question is not answered there.
 
@@ -355,4 +355,4 @@ If you have high-level questions about Blockstack, try [searching our forum](htt
 
 The code and documentation copyright are attributed to blockstack.org for the year of 2018.
 
-This code is released under [the GPL v3 license](http://www.gnu.org/licenses/quick-guide-gplv3.en.html), and the docs are released under [the Creative Commons license](http://creativecommons.org/).
+This code is released under [the GPL v3 license](https://www.gnu.org/licenses/quick-guide-gplv3.en.html), and the docs are released under [the Creative Commons license](https://creativecommons.org/).
