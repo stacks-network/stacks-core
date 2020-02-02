@@ -77,7 +77,6 @@ impl DefinedFunction {
                     // This is the moment when we're making sure that the target contract is 
                     // conform.
                     let trait_identifier = env.contract_context.lookup_trait_reference(trait_reference).unwrap();
-                    println!("*** {:?}, {:?}. {:?} / {:?} / {:?}", trait_reference, trait_identifier, name, type_sig, value);
                     context.callable_contracts.insert(name.clone(), (contract_id.clone(), trait_identifier));
                 },
                 _ => {
