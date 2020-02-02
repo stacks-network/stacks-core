@@ -69,7 +69,7 @@ impl <'a> AnalysisDatabase <'a> {
         self.store.prepare_for_contract_metadata(contract_identifier, Sha512Trunc256Sum([0; 32]));
     }
 
-    fn load_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractAnalysis> {
+    pub fn load_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractAnalysis> {
         self.store.get_metadata(contract_identifier, AnalysisDatabase::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
             //    the analysis will propagate that as a CheckError anyways.

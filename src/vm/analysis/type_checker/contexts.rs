@@ -6,7 +6,7 @@ use vm::types::signatures::{FunctionSignature};
 use vm::contexts::MAX_CONTEXT_DEPTH;
 
 use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
-use vm::analysis::types::{ContractAnalysis, TraitUsages};
+use vm::analysis::types::{ContractAnalysis};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct TypeMap {
@@ -30,7 +30,7 @@ pub struct ContractContext {
     fungible_tokens: HashSet<ClarityName>,
     non_fungible_tokens: HashMap<ClarityName, TypeSignature>,
     traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
-    pub implemented_traits: HashMap<TraitIdentifier, BTreeMap<ClarityName, FunctionSignature>>,
+    pub implemented_traits: HashSet<TraitIdentifier>,
 }
 
 impl TypeMap {
@@ -63,7 +63,7 @@ impl ContractContext {
             fungible_tokens: HashSet::new(),
             non_fungible_tokens: HashMap::new(),
             traits: HashMap::new(),
-            implemented_traits: HashMap::new(),
+            implemented_traits: HashSet::new(),
         }
     }
 
@@ -148,8 +148,8 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn add_implemented_trait(&mut self, trait_identifier: TraitIdentifier, trait_signature: BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<()> {
-        self.implemented_traits.insert(trait_identifier, trait_signature);
+    pub fn add_implemented_trait(&mut self, trait_identifier: TraitIdentifier) -> CheckResult<()> {
+        self.implemented_traits.insert(trait_identifier);
         Ok(())
     }
 

@@ -61,7 +61,7 @@ pub enum TypeSignature {
     TupleType(TupleTypeSignature),
     OptionalType(Box<TypeSignature>),
     ResponseType(Box<(TypeSignature, TypeSignature)>),
-    TraitReferenceType,
+    TraitReferenceType(ClarityName),
 }
 
 use self::TypeSignature::{
@@ -289,12 +289,6 @@ impl TypeSignature {
                     false
                 }
             },
-            TraitReferenceType => {
-                match other {
-                    PrincipalType | TraitReferenceType => true,
-                    _ => false,
-                }
-            },
             NoType => panic!("NoType should never be asked to admit."),
             _ => other == self
         }
@@ -519,7 +513,7 @@ impl TypeSignature {
             Value::Tuple(v) => TupleType(
                 v.type_signature.clone()),
             Value::List(list_data) => ListType(list_data.type_signature.clone()),
-            Value::TraitReference(_v) => TraitReferenceType,
+            Value::TraitReference(v) => TraitReferenceType(v.clone()), // todo(ludo): check
             Value::Field(_v) => NoType, // todo(ludo): check with aaron
             Value::Optional(v) => v.type_signature(),
             Value::Response(v) => v.type_signature()
@@ -649,7 +643,7 @@ impl TypeSignature {
                 }
             },
             SymbolicExpressionType::LiteralValue(Value::TraitReference(ref trait_ref)) => {
-                Ok(TypeSignature::TraitReferenceType)
+                Ok(TypeSignature::TraitReferenceType(trait_ref.clone())) // todo(ludo): check
             },
             _ => Err(CheckErrors::InvalidTypeDescription)
         }
@@ -670,7 +664,7 @@ impl TypeSignature {
                 fn_args.push(arg_t);
             }
             let fn_return = TypeSignature::parse_type_repr(&args[2])
-                .map_err(|e| CheckErrors::DefineVariableBadSignature)?;
+                .map_err(|e| CheckErrors::DefineTraitBadSignature)?;
 
             trait_signature.insert(fn_name.clone(), FunctionSignature {
                 args: fn_args,
@@ -717,7 +711,7 @@ impl TypeSignature {
                 cmp::max(t_size, s_size)
                     .checked_add(1)
             },
-            TraitReferenceType => Some(21),
+            TraitReferenceType(trait_alias) => Some(trait_alias.len().into()),
         }
     }
 
@@ -742,7 +736,7 @@ impl TypeSignature {
                     .checked_add(s.type_size()?)?
                     .checked_add(1)
             },
-            TraitReferenceType => Some(1),
+            TraitReferenceType(trait_alias) => Some(trait_alias.len().into()),
         }
     }
 }
@@ -883,7 +877,7 @@ impl fmt::Display for TypeSignature {
             TupleType(t) => write!(f, "{}", t),
             PrincipalType => write!(f, "principal"),
             ListType(list_type_data) => write!(f, "(list {} {})", list_type_data.max_len, list_type_data.entry_type),
-            TraitReferenceType => write!(f, "callable-principal"),
+            TraitReferenceType(trait_alias) => write!(f, "<{}>", trait_alias.to_string()),
         }
     }
 }

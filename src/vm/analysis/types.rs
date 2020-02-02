@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use vm::{SymbolicExpression, ClarityName};
-use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
+use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier, TraitIdentifier};
 use vm::types::signatures::FunctionSignature;
 use vm::analysis::analysis_db::{AnalysisDatabase};
 use vm::analysis::errors::{CheckResult};
@@ -16,9 +16,6 @@ pub trait AnalysisPass {
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractAnalysis {
     pub contract_identifier: QualifiedContractIdentifier,
-    #[serde(skip)]
-    pub type_map: Option<TypeMap>,
-    // matt: is okay to let these new fields end up in the db?
     pub private_function_types: BTreeMap<ClarityName, FunctionType>,
     pub variable_types: BTreeMap<ClarityName, TypeSignature>,
     pub public_function_types: BTreeMap<ClarityName, FunctionType>,
@@ -28,12 +25,14 @@ pub struct ContractAnalysis {
     pub fungible_tokens: BTreeSet<ClarityName>,
     pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
     pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    pub referenced_traits: BTreeMap<ClarityName, TraitIdentifier>,
+    pub implemented_traits: BTreeSet<TraitIdentifier>,
     #[serde(skip)]
     pub top_level_expression_sorting: Option<Vec<usize>>,
     #[serde(skip)]
     pub expressions: Vec<SymbolicExpression>,
     #[serde(skip)]
-    pub trait_usages: Option<TraitUsages>,
+    pub type_map: Option<TypeMap>,
 }
 
 impl ContractAnalysis {
@@ -49,10 +48,11 @@ impl ContractAnalysis {
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
             defined_traits: BTreeMap::new(),
+            referenced_traits: BTreeMap::new(),
+            implemented_traits: BTreeSet::new(),
             top_level_expression_sorting: Some(Vec::new()),
             fungible_tokens: BTreeSet::new(),
             non_fungible_tokens: BTreeMap::new(),
-            trait_usages: None,
         }
     }
 
@@ -92,6 +92,10 @@ impl ContractAnalysis {
         self.defined_traits.insert(name, function_types);
     }
 
+    pub fn add_implemented_trait(&mut self, trait_identifier: TraitIdentifier) {
+        self.implemented_traits.insert(trait_identifier);
+    }
+
     pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {
         self.public_function_types.get(name)
     }
@@ -118,6 +122,10 @@ impl ContractAnalysis {
 
     pub fn get_defined_trait(&self, name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
         self.defined_traits.get(name)
+    }
+
+    pub fn get_referenced_trait(&self, name: &str) -> Option<&TraitIdentifier> {
+        self.referenced_traits.get(name)
     }
 
     pub fn expressions_iter(&self) -> ExpressionsIterator {
@@ -156,12 +164,4 @@ impl <'a> Iterator for ExpressionsIterator <'a> {
         self.index += 1;
         Some(result)
     }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct TraitUsages {
-    pub defined_traits: HashMap<ClarityName, SymbolicExpression>,
-    pub imported_traits: HashMap<ClarityName, SymbolicExpression>,
-    pub referenced_traits: HashMap<ClarityName, SymbolicExpression>,
-    pub orphan_trait_references: HashMap<ClarityName, SymbolicExpression>,
 }

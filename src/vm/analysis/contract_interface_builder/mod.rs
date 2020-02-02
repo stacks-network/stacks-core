@@ -16,7 +16,8 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         fungible_tokens,
         non_fungible_tokens,
         defined_traits,
-        trait_usages,
+        implemented_traits,
+        referenced_traits,
         top_level_expression_sorting: _,
         expressions: _,
         contract_identifier: _,
@@ -130,7 +131,7 @@ impl ContractInterfaceAtomType {
             UIntType => ContractInterfaceAtomType::uint128,
             BoolType => ContractInterfaceAtomType::bool,
             PrincipalType => ContractInterfaceAtomType::principal,
-            TraitReferenceType => ContractInterfaceAtomType::trait_reference,
+            TraitReferenceType(_) => ContractInterfaceAtomType::trait_reference,
             BufferType(len) => ContractInterfaceAtomType::buffer { length: len.into() },
             TupleType(sig) => Self::from_tuple_type(sig),
             ListType(list_data) => {

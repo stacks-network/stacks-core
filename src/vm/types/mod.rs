@@ -114,7 +114,7 @@ pub struct ResponseData {
     pub data: Box<Value>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct TraitIdentifier {
     pub name: ClarityName,
     pub contract_identifier: QualifiedContractIdentifier,

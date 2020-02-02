@@ -296,7 +296,7 @@ impl Value {
                 Ok(Value::none()) // todo(ludo): check with aaron
             },
             TypePrefix::Field => {
-                check_match!(expected_type, TypeSignature::TraitReferenceType)?;
+                check_match!(expected_type, TypeSignature::TraitReferenceType(_))?;
                 let contract_identifier = {
                     let issuer = StandardPrincipalData::deserialize_read(r)?;
                     let name = ContractName::deserialize_read(r)?;
