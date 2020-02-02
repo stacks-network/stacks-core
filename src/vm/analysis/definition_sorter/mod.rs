@@ -104,10 +104,8 @@ impl <'a> DefinitionSorter {
                                 DefineFunctions::PublicFunction | DefineFunctions::PersistedVariable |
                                 DefineFunctions::ReadOnlyFunction => {
                                     // Args: [(define-name-and-types), ...]
-                                    if function_args.len() > 1 {
-                                        for expr in function_args.into_iter() {
-                                            self.probe_for_dependencies(expr, tle_index)?;
-                                        }
+                                    for expr in function_args.into_iter() {
+                                        self.probe_for_dependencies(expr, tle_index)?;
                                     }
                                     return Ok(());
                                 },
@@ -120,11 +118,12 @@ impl <'a> DefinitionSorter {
                                     return Ok(());
                                 },
                                 DefineFunctions::Trait => {
-                                    // todo(ludo): probe for generics?
+                                    for expr in function_args.into_iter() {
+                                        self.probe_for_dependencies(expr, tle_index)?;
+                                    }
                                     return Ok(())
                                 },
                                 DefineFunctions::ImplTrait | DefineFunctions::UseTrait => {
-                                    
                                     return Ok(())
                                 },
                             }
