@@ -657,7 +657,7 @@ fn test_empty_tuple_should_fail() {
     "#;
 
     assert_eq!(mem_type_check(contract_src).unwrap_err().err,
-               CheckErrors::BadSyntaxBinding);
+               CheckErrors::EmptyTuplesNotAllowed);
 }
 
 #[test]

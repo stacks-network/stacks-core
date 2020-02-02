@@ -256,7 +256,6 @@ mod test {
                                                  func_body, 
                                                  DefineType::Private,
                                                  &"do_work".into(), 
-                                                 HashMap::new(),
                                                  &"");
 
         let context = LocalContext::new();

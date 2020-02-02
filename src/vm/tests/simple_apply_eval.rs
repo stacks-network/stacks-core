@@ -195,14 +195,12 @@ fn test_simple_if_functions() {
                                                   parsed_bodies[0].clone(), 
                                                   Private, 
                                                   &"with_else".into(), 
-                                                  HashMap::new(), 
                                                   &"");
 
         let user_function2 = DefinedFunction::new(func_args2, 
                                                   parsed_bodies[1].clone(), 
                                                   Private, 
                                                   &"without_else".into(), 
-                                                  HashMap::new(), 
                                                   &"");
 
         let context = LocalContext::new();

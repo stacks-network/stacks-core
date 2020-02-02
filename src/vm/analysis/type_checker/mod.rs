@@ -204,9 +204,6 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 self.type_check(&exp, &local_context)?;
             }
         }
-        
-        self.check_implemented_traits(contract_analysis)?;
-
         Ok(())
     }
 
