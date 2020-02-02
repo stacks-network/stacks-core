@@ -29,7 +29,7 @@ use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result};
 use vm::database::MemoryBackingStore;
-use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
+use vm::types::{QualifiedContractIdentifier, TraitIdentifier, PrincipalData};
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
@@ -47,6 +47,9 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
             Ok(value)
         } else if let Some(value) = env.contract_context.lookup_variable(name) {
             Ok(value)
+        }  else if let Some(value) = context.callable_contracts.get(name) {
+            let contract_identifier = &value.0;
+            Ok(Value::Principal(PrincipalData::Contract(contract_identifier.clone())))
         } else {
             Err(CheckErrors::UndefinedVariable(name.to_string()).into())
         }
