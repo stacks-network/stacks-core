@@ -81,7 +81,6 @@ fn handle_define_function(signature: &[SymbolicExpression],
     check_legal_define(&function_name, &env.contract_context)?;
 
     let arguments = parse_name_type_pairs(arg_symbols)?;
-    let referenced_traits = HashMap::new();
 
     for (argument, p) in arguments.iter() {
         check_legal_define(argument, &env.contract_context)?;
@@ -92,7 +91,6 @@ fn handle_define_function(signature: &[SymbolicExpression],
         expression.clone(),
         define_type,
         function_name,
-        referenced_traits,
         &env.contract_context.contract_identifier.to_string());
 
     Ok(DefineResult::Function(function_name.clone(), function))

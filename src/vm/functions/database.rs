@@ -24,15 +24,46 @@ pub fn special_contract_call(args: &[SymbolicExpression],
         rest_args.drain(..).map(|x| { SymbolicExpression::atom_value(x) }).collect()
     };
 
-    let contract_identifier = match &args[0].expr {
-        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => {
+    let (contract_identifier, type_returns_constraint) = match &args[0].expr {
+        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(contract_identifier))) => {
             // Static dispatch
-            contract_identifier
+            (contract_identifier.clone(), None)
         },
         SymbolicExpressionType::Atom(contract_ref) => {
             // Dynamic dispatch
+            // todo(ludo): clean unwraps un clones
             match context.callable_contracts.get(contract_ref) {
-                Some(ref contract_identifier) => contract_identifier,
+                Some((contract_identifier, trait_identifier)) => {
+                    let contract_to_check = env.global_context.database.get_contract(&contract_identifier)
+                        .unwrap().contract_context;
+                    // Attempt to short circuit the dynamic dispatch checks:
+                    // If the contract is explicitely implementing the trait with `impl-trait`,
+                    // then we can simply rely on the analysis performed at publish time.
+                    if contract_to_check.is_explicitely_implementing_trait(&trait_identifier) {
+                        (contract_identifier.clone(), None)
+                    } else {
+                        let trait_name = trait_identifier.name.to_string();
+
+                        // Retrieve, from the trait definition, the expected method signature
+                        let contract_defining_trait = env.global_context.database.get_contract(&trait_identifier.contract_identifier).unwrap().contract_context;
+
+                        // Retrieve the function that will be invoked
+                        let contract_context_to_check = env.global_context.database.get_contract(&contract_identifier)
+                            .unwrap().contract_context;
+                        let function_to_check = contract_context_to_check.lookup_function(function_name)
+                            .ok_or(CheckErrors::BadTraitImplementation(trait_name.clone(), function_name.to_string()))?;
+                        
+                        function_to_check.check_trait_expectations(
+                            &contract_defining_trait,
+                            &trait_identifier,
+                            &contract_context_to_check)?;
+
+                        // Retrieve the expected method signature
+                        let constraining_trait = contract_defining_trait.lookup_trait_definition(&trait_name).unwrap();
+                        let expected_sig = constraining_trait.get(function_name).unwrap();
+                        (contract_identifier.clone(), Some(expected_sig.returns.clone()))
+                    }
+                },
                 _ => return Err(CheckErrors::ContractCallExpectName.into())
             }
         },
@@ -43,9 +74,19 @@ pub fn special_contract_call(args: &[SymbolicExpression],
         env.contract_context.contract_identifier.clone()));
     let mut nested_env = env.nest_with_caller(contract_principal);
 
-    nested_env.execute_contract(&contract_identifier, 
-                                function_name, 
-                                &rest_args)
+    let result = nested_env.execute_contract(&contract_identifier, 
+                                             function_name, 
+                                             &rest_args)?;
+    
+    // Ensure that the expected type from the trait spec admits
+    // the type of the value returned by the dynamic dispatch.
+    if let Some(returns_type_signature) = type_returns_constraint {
+        let actual_returns = TypeSignature::type_of(&result);
+        if !returns_type_signature.admits_type(&actual_returns) {
+            return Err(CheckErrors::ReturnTypesMustMatch(returns_type_signature.clone(), actual_returns.clone()).into())
+        }
+    }
+    Ok(result)
 }
 
 pub fn special_fetch_variable(args: &[SymbolicExpression],

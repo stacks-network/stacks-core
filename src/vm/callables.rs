@@ -5,8 +5,9 @@ use std::iter::FromIterator;
 use vm::errors::{InterpreterResult as Result, Error};
 use vm::analysis::errors::CheckErrors;
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::types::{TypeSignature, QualifiedContractIdentifier, PrincipalData};
+use vm::types::{TypeSignature, QualifiedContractIdentifier, TraitIdentifier, PrincipalData, FunctionType};
 use vm::{eval, Value, LocalContext, Environment};
+use vm::contexts::ContractContext;
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
@@ -24,10 +25,10 @@ pub enum DefineType {
 #[derive(Clone,Serialize, Deserialize)]
 pub struct DefinedFunction {
     identifier: FunctionIdentifier,
+    name: ClarityName,
     arg_types: Vec<TypeSignature>,
     define_type: DefineType,
     arguments: Vec<ClarityName>,
-    referenced_traits: HashMap<QualifiedContractIdentifier, ClarityName>,
     body: SymbolicExpression
 }
 
@@ -47,16 +48,15 @@ impl DefinedFunction {
                body: SymbolicExpression,
                define_type: DefineType, 
                name: &ClarityName, 
-               referenced_traits: HashMap<QualifiedContractIdentifier, ClarityName>,
                context_name: &str) -> DefinedFunction {
         let (argument_names, types) = arguments.drain(..).unzip();
 
         DefinedFunction {
             identifier: FunctionIdentifier::new_user_function(name, context_name),
+            name: name.clone(),
             arguments: argument_names,
             define_type,
             body,
-            referenced_traits,
             arg_types: types
         }
     }
@@ -71,17 +71,23 @@ impl DefinedFunction {
 
         for arg in arg_iterator.drain(..) {
             let ((name, type_sig), value) = arg;
-            if !type_sig.admits(value) {
-                return Err(CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into())
-            }
-            if let Some(_) = context.variables.insert(name.clone(), value.clone()) {
-                return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
-            }
             match (type_sig, value) {
-                (TraitReferenceType, Value::Principal(PrincipalData::Contract(contract_id))) => {
-                    context.callable_contracts.insert(name.clone(), contract_id.clone());
+                (TypeSignature::TraitReferenceType(trait_reference), Value::Principal(PrincipalData::Contract(contract_id))) => {
+                    // Argument is a trait reference, probably leading to a dynamic contract call
+                    // This is the moment when we're making sure that the target contract is 
+                    // conform.
+                    let trait_identifier = env.contract_context.lookup_trait_reference(trait_reference).unwrap();
+                    println!("*** {:?}, {:?}. {:?} / {:?} / {:?}", trait_reference, trait_identifier, name, type_sig, value);
+                    context.callable_contracts.insert(name.clone(), (contract_id.clone(), trait_identifier));
                 },
-                _ => {}
+                _ => {
+                    if !type_sig.admits(value) {
+                        return Err(CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into())
+                    }
+                    if let Some(_) = context.variables.insert(name.clone(), value.clone()) {
+                        return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
+                    }        
+                }
             }
         }
 
@@ -98,6 +104,41 @@ impl DefinedFunction {
                 }
             }
         }
+    }
+
+    pub fn check_trait_expectations(&self, 
+                                    contract_defining_trait: &ContractContext,
+                                    trait_identifier: &TraitIdentifier, 
+                                    contract_to_check: &ContractContext) -> Result<()> {
+
+        let trait_name = trait_identifier.name.to_string();
+        let constraining_trait = contract_defining_trait.lookup_trait_definition(&trait_name).unwrap();
+        let expected_sig = constraining_trait.get(&self.name).unwrap();
+
+        if expected_sig.args.len() != self.arg_types.len() {
+            return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()).into())
+        }
+
+        let args = expected_sig.args.iter().zip(self.arg_types.iter());
+        for (expected_arg, actual_arg) in args {
+            match (expected_arg, actual_arg) {
+                (TypeSignature::TraitReferenceType(expected), TypeSignature::TraitReferenceType(ref actual)) => {
+                    let expected_trait_id = contract_defining_trait.lookup_trait_reference(&expected.to_string())
+                        .ok_or(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()))?;
+                    let actual_trait_id = contract_to_check.lookup_trait_reference(&actual.to_string())
+                        .ok_or(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()))?;
+                    if actual_trait_id != expected_trait_id {
+                        return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()).into())
+                    }
+                }
+                (_, arg_sig) => {
+                    if !expected_arg.admits_type(&arg_sig) {
+                        return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()).into())
+                    }        
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn is_read_only(&self) -> bool {

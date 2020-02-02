@@ -29,7 +29,7 @@ use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result};
 use vm::database::MemoryBackingStore;
-use vm::types::QualifiedContractIdentifier;
+use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
@@ -179,9 +179,18 @@ fn eval_all (expressions: &[SymbolicExpression],
             DefineResult::NonFungibleAsset(name, asset_type) => {
                 global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
             },
-            DefineResult::Trait(name, trait_type) => { /* no-op at runtime */ },
-            DefineResult::UseTrait(name, trait_identifier) => { /* no-op at runtime */ },
-            DefineResult::ImplTrait(trait_type) => { /* no-op at runtime */ },
+            DefineResult::Trait(name, trait_type) => { 
+                let contract_identifier = contract_context.contract_identifier.clone();
+                let trait_identifier = TraitIdentifier { name: name.clone(), contract_identifier };
+                contract_context.referenced_traits.insert(name.clone(), trait_identifier);
+                contract_context.defined_traits.insert(name, trait_type);
+            },
+            DefineResult::UseTrait(name, trait_identifier) => {
+                contract_context.referenced_traits.insert(name, trait_identifier);
+            },
+            DefineResult::ImplTrait(trait_identifier) => {
+                contract_context.implemented_traits.insert(trait_identifier);
+            },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
                 global_context.execute(|global_context| {

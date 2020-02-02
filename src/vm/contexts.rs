@@ -1,9 +1,9 @@
-use std::collections::{HashMap, HashSet, BTreeMap};
+use std::collections::{HashMap, HashSet, BTreeMap, BTreeSet};
 use std::fmt;
 use std::convert::TryInto;
 
 use vm::errors::{InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result};
-use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
+use vm::types::{Value, AssetIdentifier, PrincipalData, TraitIdentifier, QualifiedContractIdentifier, TypeSignature};
 use vm::types::signatures::{FunctionSignature};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase};
@@ -77,6 +77,15 @@ pub struct ContractContext {
     
     #[serde(serialize_with = "ordered_map_functions")]
     pub functions: HashMap<ClarityName, DefinedFunction>,
+
+    #[serde(serialize_with = "ordered_map_defined_traits")]
+    pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+
+    #[serde(serialize_with = "ordered_map_referenced_traits")]
+    pub referenced_traits: HashMap<ClarityName, TraitIdentifier>,
+
+    #[serde(serialize_with = "ordered_map_implemented_traits")]
+    pub implemented_traits: HashSet<TraitIdentifier>,
 }
 
 fn ordered_map_variables<S: serde::Serializer>(value: &HashMap<ClarityName, Value>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
@@ -89,10 +98,26 @@ fn ordered_map_functions<S: serde::Serializer>(value: &HashMap<ClarityName, Defi
     ordered.serialize(serializer)
 }
 
+fn ordered_map_defined_traits<S: serde::Serializer>(value: &HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
+}
+
+fn ordered_map_referenced_traits<S: serde::Serializer>(value: &HashMap<ClarityName, TraitIdentifier>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
+}
+
+fn ordered_map_implemented_traits<S: serde::Serializer>(value: &HashSet<TraitIdentifier>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    let ordered: BTreeSet<_> = value.iter().collect();
+    ordered.serialize(serializer)
+}
+
+
 pub struct LocalContext <'a> {
     pub parent: Option< &'a LocalContext<'a>>,
     pub variables: HashMap<ClarityName, Value>,
-    pub callable_contracts: HashMap<ClarityName, QualifiedContractIdentifier>,
+    pub callable_contracts: HashMap<ClarityName, (QualifiedContractIdentifier, TraitIdentifier)>,
     depth: u16
 }
 
@@ -530,14 +555,15 @@ impl <'a,'b> Environment <'a,'b> {
         result
     }
 
-    pub fn execute_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, 
-                            tx_name: &str, args: &[SymbolicExpression]) -> Result<Value> {
+    pub fn execute_contract(&mut self, 
+                            contract_identifier: &QualifiedContractIdentifier, 
+                            tx_name: &str, 
+                            args: &[SymbolicExpression],
+                        ) -> Result<Value> {
         let contract = self.global_context.database.get_contract(contract_identifier)?;
 
         let func = contract.contract_context.lookup_function(tx_name)
-            .ok_or_else(|| { 
-                println!("HERE");
-                CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
+            .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
         if !func.is_public() {
             return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
         }
@@ -552,9 +578,6 @@ impl <'a,'b> Environment <'a,'b> {
             .collect();
 
         let args = args?;
-
-        // Here, we should check if the function is being called with a contract principal.
-        // If so, we should ensure trait compliance
 
         self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context)) 
     }
@@ -763,6 +786,9 @@ impl ContractContext {
             contract_identifier,
             variables: HashMap::new(),
             functions: HashMap::new(),
+            defined_traits: HashMap::new(),
+            referenced_traits: HashMap::new(),
+            implemented_traits: HashSet::new(),
         }
     }
 
@@ -772,6 +798,18 @@ impl ContractContext {
 
     pub fn lookup_function(&self, name: &str) -> Option<DefinedFunction> {
         self.functions.get(name).cloned()
+    }
+
+    pub fn lookup_trait_definition(&self, name: &str) -> Option<BTreeMap<ClarityName, FunctionSignature>> {
+        self.defined_traits.get(name).cloned()
+    }
+
+    pub fn lookup_trait_reference(&self, name: &str) -> Option<TraitIdentifier> {
+        self.referenced_traits.get(name).cloned()
+    }
+
+    pub fn is_explicitely_implementing_trait(&self, trait_identifier: &TraitIdentifier) -> bool {
+        self.implemented_traits.contains(trait_identifier)
     }
 }
 
