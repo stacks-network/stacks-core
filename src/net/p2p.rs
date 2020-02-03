@@ -291,8 +291,8 @@ impl PeerNetwork {
     }
 
     /// Call this instead of new()
-    pub fn init(peerdb_path: &String, burnchain: Burnchain, chain_view: BurnchainView, connection_opts: ConnectionOptions, asn4_path: &Option<String>) -> Result<PeerNetwork, net_error> {
-        let peerdb = PeerDB::connect(peerdb_path, true, burnchain.network_id, chain_view.burn_block_height + connection_opts.private_key_lifetime, asn4_path, None)
+    pub fn init(peerdb_path: &String, burnchain: Burnchain, chain_view: BurnchainView, connection_opts: ConnectionOptions, data_url: UrlString, asn4_path: &Option<String>) -> Result<PeerNetwork, net_error> {
+        let peerdb = PeerDB::connect(peerdb_path, true, burnchain.network_id, chain_view.burn_block_height + connection_opts.private_key_lifetime, data_url, asn4_path, None)
             .map_err(|_e| net_error::DBError)?;
         
         let local_peer = PeerDB::get_local_peer(peerdb.conn())
@@ -1449,7 +1449,7 @@ mod test {
         };
         burnchain_view.make_test_data();
 
-        let db = PeerDB::connect_memory(0x9abcdef0, 23456, &vec![], initial_neighbors).unwrap();
+        let db = PeerDB::connect_memory(0x9abcdef0, 23456, "http://test-p2p.com".into(), &vec![], initial_neighbors).unwrap();
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
         let p2p = PeerNetwork::new(db, local_peer, burnchain, burnchain_view, conn_opts);
         p2p
