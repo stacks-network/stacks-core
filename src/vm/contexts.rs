@@ -579,7 +579,14 @@ impl <'a,'b> Environment <'a,'b> {
 
         let args = args?;
 
-        self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context)) 
+        let func_identifier = func.get_identifier();
+        if self.call_stack.contains(&func_identifier) {
+            return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
+        }
+        self.call_stack.insert(&func_identifier, true);
+        let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
+        self.call_stack.remove(&func_identifier, true)?;
+        res
     }
 
     pub fn execute_function_as_transaction(&mut self, function: &DefinedFunction, args: &[Value],

@@ -19,6 +19,7 @@ fn test_all() {
         test_dynamic_dispatch_including_nested_trait,
         test_dynamic_dispatch_mismatched_args,
         test_dynamic_dispatch_mismatched_returned,
+        test_reentrant_dynamic_dispatch,
         ];
     for test in to_test.iter() {
         with_memory_environment(test, false);
@@ -214,3 +215,65 @@ fn test_dynamic_dispatch_mismatched_returned(owned_env: &mut OwnedEnvironment) {
     }
 }
 
+fn test_reentrant_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
+    let dispatching_contract =
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))
+        (define-public (wrapped-get-1 (contract <trait-1>)) 
+            (internal-get-1 contract))
+        (define-private (internal-get-1 (contract <trait-1>)) 
+            (contract-call? contract get-1 u0))";
+    let target_contract =
+        "(define-public (get-1 (x uint)) (contract-call? .dispatching-contract wrapped-get-1 .target-contract))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    {
+        let mut env = owned_env.get_exec_environment(None);
+        env.initialize_contract(QualifiedContractIdentifier::local("dispatching-contract").unwrap(), dispatching_contract).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("target-contract").unwrap(), target_contract).unwrap();
+    }
+
+    {
+        let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap_err();
+        match err_result {
+            Error::Unchecked(CheckErrors::CircularReference(_)) => {},
+            _ => {
+                println!("{:?}", err_result);
+                panic!("Attempt to call init-factorial should fail!")
+            }
+        }
+    }
+}
+
+// todo(ludo): add tests for ACL
+
+// fn test_reentrant_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
+//     let dispatching_contract =
+//         "(define-public (wrapped-get-1 (x uint)) (contract-call? .target-contract get-1 u0))";
+//     let target_contract =
+//         "(define-public (get-1 (x uint)) (contract-call? .dispatching-contract wrapped-get-1 u0))";
+
+//     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+//     {
+//         let mut env = owned_env.get_exec_environment(None);
+//         env.initialize_contract(QualifiedContractIdentifier::local("dispatching-contract").unwrap(), dispatching_contract).unwrap();
+//         env.initialize_contract(QualifiedContractIdentifier::local("target-contract").unwrap(), target_contract).unwrap();
+//     }
+
+//     {
+//         let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
+//         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+//         let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![Value::UInt(0)])).unwrap_err();
+//         match err_result {
+//             Error::Unchecked(CheckErrors::BadTraitImplementation(_, _)) => {},
+//             _ => {
+//                 println!("{:?}", err_result);
+//                 panic!("Attempt to call init-factorial should fail!")
+//             }
+//         }
+//     }
+// }
