@@ -125,16 +125,16 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::InvalidFee => f.write_str(error::Error::description(self)),
+            Error::InvalidFee => write!(f, "Invalid fee"),
             Error::InvalidStacksBlock(ref s) => fmt::Display::fmt(s, f),
             Error::InvalidStacksMicroblock(ref s, _) => fmt::Display::fmt(s, f),
             Error::InvalidStacksTransaction(ref s) => fmt::Display::fmt(s, f),
             Error::PostConditionFailed(ref s) => fmt::Display::fmt(s, f),
-            Error::NoSuchBlockError => f.write_str(error::Error::description(self)),
-            Error::InvalidChainstateDB => f.write_str(error::Error::description(self)),
-            Error::BlockTooBigError => f.write_str(error::Error::description(self)),
-            Error::MicroblockStreamTooLongError => f.write_str(error::Error::description(self)),
-            Error::IncompatibleSpendingConditionError => f.write_str(error::Error::description(self)),
+            Error::NoSuchBlockError => write!(f, "No such Stacks block"),
+            Error::InvalidChainstateDB => write!(f, "Invalid chainstate database"),
+            Error::BlockTooBigError => write!(f, "Too much data in block"),
+            Error::MicroblockStreamTooLongError => write!(f, "Too many microblocks in stream"),
+            Error::IncompatibleSpendingConditionError => write!(f, "Spending condition is incompatible with this operation"),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
             Error::DBError(ref e) => fmt::Display::fmt(e, f),
             Error::NetError(ref e) => fmt::Display::fmt(e, f),
@@ -160,25 +160,6 @@ impl error::Error for Error {
             Error::DBError(ref e) => Some(e),
             Error::NetError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
-        }
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::InvalidFee => "Invalid fee",
-            Error::InvalidStacksBlock(ref s) => s.as_str(),
-            Error::InvalidStacksMicroblock(ref s, _) => s.as_str(),
-            Error::InvalidStacksTransaction(ref s) => s.as_str(),
-            Error::PostConditionFailed(ref s) => s.as_str(),
-            Error::NoSuchBlockError => "No such Stacks block",
-            Error::InvalidChainstateDB => "Invalid chainstate database",
-            Error::BlockTooBigError => "Too much data in block",
-            Error::MicroblockStreamTooLongError => "Too many microblocks in stream",
-            Error::IncompatibleSpendingConditionError => "Spending condition is incompatible with this operation",
-            Error::ClarityError(ref e) => e.description(),
-            Error::DBError(ref e) => e.description(),
-            Error::NetError(ref e) => e.description(),
-            Error::MARFError(ref e) => e.description()
         }
     }
 }

@@ -88,15 +88,6 @@ impl error::Error for Error {
             Error::BadTransaction(ref _s) => None
         }
     }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::Analysis(ref e) => e.description(),
-            Error::Parse(ref e) => e.description(),
-            Error::Interpreter(ref e) => e.description(),
-            Error::BadTransaction(ref s) => s.as_str()
-        }
-    }
 }
 
 impl ClarityInstance {
