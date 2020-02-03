@@ -25,13 +25,18 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::convert::TryFrom;
+use std::borrow::Borrow;
 
 use net::StacksMessageCodec;
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
 
+use regex::Regex;
+
 use vm::representations::{ClarityName, ContractName, SymbolicExpression, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH};
 use vm::ast::parser::{lex, LexItem};
+
+pub use vm::representations::UrlString;
 
 use vm::types::{
     Value,
@@ -149,6 +154,36 @@ impl StacksMessageCodec for ContractName {
 
         let name = ContractName::try_from(s).map_err(|e| net_error::DeserializeError(format!("Failed to parse Contract name: {:?}", e)))?;
         Ok(name)
+    }
+}
+
+impl StacksMessageCodec for UrlString {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        // UrlString can't be longer than vm::representations::MAX_STRING_LEN, which itself is
+        // a u8, so we should be good here.
+        if self.as_bytes().len() > CLARITY_MAX_STRING_LENGTH as usize {
+            return Err(net_error::SerializeError("Failed to serialize URL string: too long".to_string()));
+        }
+        write_next(fd, &(self.as_bytes().len() as u8))?;
+        fd.write_all(self.as_bytes()).map_err(net_error::WriteError)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<UrlString, net_error> {
+        let len_byte : u8 = read_next(fd)?;
+        if len_byte > CLARITY_MAX_STRING_LENGTH {
+            return Err(net_error::DeserializeError("Failed to deserialize URL string: too long".to_string()));
+        }
+        let mut bytes = vec![0u8; len_byte as usize];
+        fd.read_exact(&mut bytes).map_err(net_error::ReadError)?;
+
+        // must encode a valid string
+        let s = String::from_utf8(bytes)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse URL string: could not contruct from utf8".to_string()))?;
+
+        // must decode to a URL
+        let url = UrlString::try_from(s).map_err(|e| net_error::DeserializeError(format!("Failed to parse URL string: {:?}", e)))?;
+        Ok(url)
     }
 }
 
