@@ -85,6 +85,8 @@ define_named_enum!(NativeFunctions {
     TransferAsset("nft-transfer?"),
     MintAsset("nft-mint?"),
     MintToken("ft-mint?"),
+    StxTransfer("stx-transfer?"),
+    StxBurn("stx-burn?"),
 });
 
 pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
@@ -159,6 +161,8 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             GetTokenBalance => CallableType::SpecialFunction("special_get_balance", &assets::special_get_balance),
             GetAssetOwner => CallableType::SpecialFunction("special_get_owner", &assets::special_get_owner),
             AtBlock => CallableType::SpecialFunction("special_at_block", &database::special_at_block),
+            StxTransfer => CallableType::SpecialFunction("special_stx_transfer", &assets::special_stx_transfer),
+            StxBurn => CallableType::SpecialFunction("special_stx_burn", &assets::special_stx_burn),
         };
         Some(callable)
     } else {
