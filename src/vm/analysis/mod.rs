@@ -16,7 +16,7 @@ pub use self::analysis_db::{AnalysisDatabase};
 
 use self::definition_sorter::DefinitionSorter;
 use self::read_only_checker::ReadOnlyChecker;
-use self::trait_checker::PreTypeCheckingTraitChecker;
+use self::trait_checker::{PreTypeCheckingTraitChecker, PostTypeCheckingTraitChecker};
 use self::type_checker::TypeChecker;
 
 #[cfg(test)]
@@ -55,6 +55,7 @@ pub fn run_analysis(contract_identifier: &QualifiedContractIdentifier,
         PreTypeCheckingTraitChecker::run_pass(&mut contract_analysis, db)?;
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         TypeChecker::run_pass(&mut contract_analysis, db)?;
+        PostTypeCheckingTraitChecker::run_pass(&mut contract_analysis, db)?;
         if save_contract {
             db.insert_contract(&contract_identifier, &contract_analysis)?;
         }

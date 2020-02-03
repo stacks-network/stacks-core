@@ -506,7 +506,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 
-    pub fn check_method_from_trait(&mut self, trait_reference_instance: &ClarityName, func_name: &ClarityName, args: &[SymbolicExpression], context: &TypingContext) -> CheckResult<TypeSignature> {
+    pub fn check_method_from_trait(&mut self, trait_reference_instance: &ClarityName, func_name: &ClarityName, args: &[TypeSignature], context: &TypingContext) -> CheckResult<TypeSignature> {
         // Retrieve the signature of the function invoked from the trait
         let func_signature = {
             let trait_reference = context.traits_references.get(trait_reference_instance)
@@ -526,7 +526,9 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
         check_argument_count(expected_args.len(), args)?;
         for (i, func_arg) in expected_args.iter().enumerate() {
-            self.type_check_expects(&args[i], context, &func_arg)?;                    
+            if !func_arg.admits_type(&args[i]) {
+                return Err(CheckErrors::TypeError(func_arg.clone(), args[i].clone()).into());
+            }
         }
 
         Ok(return_type)

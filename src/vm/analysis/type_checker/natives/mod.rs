@@ -195,6 +195,17 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
         .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
     checker.type_map.set_type(&args[1], no_type())?;
 
+    let mut contract_call_args = Vec::new();
+    for arg in args[2..].iter() {
+        if let Some(var_name) = arg.match_atom() {
+            if let Some(trait_reference) = context.traits_references.get(var_name) {
+                contract_call_args.push(TypeSignature::TraitReferenceType(trait_reference.clone()));
+                continue;
+            }
+        }
+        contract_call_args.push(checker.type_check(arg, context)?);
+    }
+
     let return_type = match &args[0].expr {
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => {
             // Static dispatch
@@ -209,12 +220,11 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
                 }
             }?;
         
-            let contract_call_args = checker.type_check_all(&args[2..], context)?;   
             contract_call_function_type.check_args(&contract_call_args)?
         },
         SymbolicExpressionType::Atom(trait_ref_instance_name) => {
             // Dynamic dispatch
-            checker.check_method_from_trait(trait_ref_instance_name, func_name, &args[2..], context)?
+            checker.check_method_from_trait(trait_ref_instance_name, func_name, &contract_call_args, context)?
         }, 
         _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
     };
