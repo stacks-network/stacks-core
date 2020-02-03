@@ -35,6 +35,7 @@ jobs:
   cargo_tests:
     machine: true
     working_directory: ~/blockstack
+    no_output_timeout: 30m
     steps:
       - checkout
       - run:
