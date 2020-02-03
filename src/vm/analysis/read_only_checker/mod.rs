@@ -271,7 +271,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                     },
                     SymbolicExpressionType::Atom(trait_reference) => {
                         // Dynamic dispatch from a reaonly-function can only be guaranteed at runtime,
-                        // witch would defeat granting a static readonly stamp. 
+                        // which would defeat granting a static readonly stamp. 
                         // As such dynamic dispatch is currently forbidden.
                         false
                     },
