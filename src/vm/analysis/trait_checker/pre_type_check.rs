@@ -4,7 +4,7 @@ use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 use vm::analysis::AnalysisDatabase;
 use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference};
 use vm::types::{Value, TraitIdentifier};
 use vm::functions::NativeFunctions;
 use vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
@@ -142,7 +142,7 @@ impl PreTypeCheckingTraitChecker {
 
             match &expression.expr {
                 List(list) => self.probe_for_generics(&list, referenced_traits),
-                LiteralValue(Value::TraitReference(trait_name)) => { 
+                TraitReference(trait_name) => {
                     referenced_traits.insert(trait_name.clone(), expression.clone()); 
                 },
                 _ => { /* no-op */ }

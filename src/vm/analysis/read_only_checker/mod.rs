@@ -1,5 +1,5 @@
 use vm::representations::{SymbolicExpressionType, SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference};
 use vm::types::{TypeSignature, TupleTypeSignature, Value, PrincipalData, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctionsParsed;
@@ -119,6 +119,9 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             },
             List(ref expression) => {
                 self.check_function_application_read_only(expression)
+            }
+            TraitReference(_) => {
+                Ok(true)
             }
         }
     }

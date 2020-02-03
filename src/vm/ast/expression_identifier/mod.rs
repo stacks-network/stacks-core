@@ -18,7 +18,11 @@ fn inner_relabel(args: &mut [SymbolicExpression], index: u64) -> ParseResult<u64
             },
             SymbolicExpressionType::List(ref mut exprs) => {
                 inner_relabel(exprs, current)
-            }
+            },
+            SymbolicExpressionType::TraitReference(_) => {
+                current.checked_add(1)
+                    .ok_or(ParseError::new(ParseErrors::TooManyExpressions))
+            },
         }?;
     }
     Ok(current)

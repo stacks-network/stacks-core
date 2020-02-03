@@ -168,14 +168,7 @@ fn test_passing_trait_reference_instances() {
 
     let err = db.execute(|db| {
         type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)
-    }).unwrap_err();
-    match err.err {
-        CheckErrors::UndefinedVariable(_) => {},
-        _ => {
-            println!("{:?}", err);
-            panic!("Attempt to call init-factorial should fail!")
-        }
-    }
+    }).unwrap();
 }
 
 #[test]

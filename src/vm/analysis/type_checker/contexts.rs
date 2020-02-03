@@ -15,7 +15,7 @@ pub struct TypeMap {
 
 pub struct TypingContext <'a> {
     pub variable_types: HashMap<ClarityName, TypeSignature>,
-    pub traits_references: HashMap<ClarityName, ClarityName>,
+    pub traits_references: HashMap<ClarityName, TypeSignature>,
     pub parent: Option<&'a TypingContext<'a>>,
     pub depth: u16
 }
@@ -250,6 +250,22 @@ impl <'a> TypingContext <'a> {
             None => {
                 match self.parent {
                     Some(parent) => parent.lookup_variable_type(name),
+                    None => None
+                }
+            }
+        }
+    }
+
+    pub fn add_trait_reference(&mut self, name: &ClarityName, value: &ClarityName) {
+        self.traits_references.insert(name.clone(), TypeSignature::TraitReferenceType(value.clone()));
+    }
+
+    pub fn lookup_trait_reference_type(&self, name: &str) -> Option<&TypeSignature> {
+        match self.traits_references.get(name) {
+            Some(value) => Some(value),
+            None => {
+                match self.parent {
+                    Some(parent) => parent.lookup_trait_reference_type(name),
                     None => None
                 }
             }

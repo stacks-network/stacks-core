@@ -86,7 +86,6 @@ define_u8_enum!(TypePrefix {
     OptionalSome,
     List,
     Tuple,
-    TraitReference,
     Field,   
 });
 
@@ -119,7 +118,6 @@ impl From<&Value> for TypePrefix {
             Optional(OptionalData{ data: Some(value) }) => TypePrefix::OptionalSome,
             List(_) => TypePrefix::List,
             Tuple(_) => TypePrefix::Tuple,
-            TraitReference(_) => TypePrefix::TraitReference,
             Field(_) => TypePrefix::Field,
         }
     }
@@ -292,9 +290,6 @@ impl Value {
 
                 Ok(Value::some(Value::deserialize_read(r, expect_contained_type)?))
             },
-            TypePrefix::TraitReference => {
-                Ok(Value::none()) // todo(ludo): check with aaron
-            },
             TypePrefix::Field => {
                 check_match!(expected_type, TypeSignature::TraitReferenceType(_))?;
                 let contract_identifier = {
@@ -405,9 +400,6 @@ impl Value {
                 field_data.contract_identifier.issuer.serialize_write(w)?;
                 field_data.contract_identifier.name.serialize_write(w)?;
                 field_data.name.serialize_write(w)?
-            },
-            TraitReference(name) => {
-                name.serialize_write(w)?
             },
             Response(response) => {
                 response.data.serialize_write(w)?
@@ -758,21 +750,4 @@ mod tests {
         test_bad_expectation(contract_p2, TypeSignature::BoolType);
         test_bad_expectation(standard_p, TypeSignature::BoolType);
     }
-
-    // todo(ludo): check with aaron
-    // #[test]
-    fn test_trait_references() {
-        let contract_identifier = {
-            let issuer = PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
-            QualifiedContractIdentifier::new(issuer, "contract-foo".into())
-        };
-        let name = "trait-bar".into();
-        let trait_identifier = Value::from(Value::Field(TraitIdentifier { name, contract_identifier }));
-
-        test_deser_ser(trait_identifier.clone());
-
-        test_bad_expectation(trait_identifier, TypeSignature::BoolType);
-    }
-
-
 }

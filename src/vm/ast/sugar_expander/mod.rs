@@ -52,6 +52,9 @@ impl SugarExpander {
                     let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name);
                     SymbolicExpression::literal_value(Value::Field(TraitIdentifier { name, contract_identifier}))
                 },
+                PreSymbolicExpressionType::TraitReference(content) => {
+                    SymbolicExpression::trait_reference(content)
+                },
             };
             expr.span = pre_expr.span.clone();
             expressions.push(expr);

@@ -77,6 +77,7 @@ pub enum PreSymbolicExpressionType {
     List(Box<[PreSymbolicExpression]>),
     SugaredContractIdentifier(ContractName),
     SugaredFieldIdentifier(ContractName, ClarityName),
+    TraitReference(ClarityName),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -144,10 +145,25 @@ impl PreSymbolicExpression {
         }
     }
 
+    pub fn trait_reference(val: ClarityName) -> PreSymbolicExpression {
+        PreSymbolicExpression {
+            pre_expr: PreSymbolicExpressionType::TraitReference(val),
+            .. PreSymbolicExpression::cons()
+        }
+    }
+
     pub fn list(val: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::List(val),
             .. PreSymbolicExpression::cons()
+        }
+    }
+
+    pub fn match_trait_reference(&self) -> Option<&ClarityName> {
+        if let PreSymbolicExpressionType::TraitReference(ref value) = self.pre_expr {
+            Some(value)
+        } else {
+            None
         }
     }
 
@@ -166,6 +182,7 @@ pub enum SymbolicExpressionType {
     Atom(ClarityName),
     List(Box<[SymbolicExpression]>),
     LiteralValue(Value),
+    TraitReference(ClarityName),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -242,6 +259,13 @@ impl SymbolicExpression {
         }
     }
 
+    pub fn trait_reference(val: ClarityName) -> SymbolicExpression {
+        SymbolicExpression {
+            expr: SymbolicExpressionType::TraitReference(val),
+            .. SymbolicExpression::cons()
+        }
+    }
+
     // These match functions are used to simplify calling code
     //   areas a lot. There is a frequent code pattern where
     //   a block _expects_ specific symbolic expressions, leading
@@ -278,6 +302,14 @@ impl SymbolicExpression {
             None
         }
     }
+
+    pub fn match_trait_reference(&self) -> Option<&ClarityName> {
+        if let SymbolicExpressionType::TraitReference(ref value) = self.expr {
+            Some(value)
+        } else {
+            None
+        }
+    }
 }
 
 impl fmt::Display for SymbolicExpression {
@@ -295,7 +327,8 @@ impl fmt::Display for SymbolicExpression {
             },
             SymbolicExpressionType::AtomValue(ref value) | SymbolicExpressionType::LiteralValue(ref value) => {
                 write!(f, "{}", value)?;
-            }
+            },
+            SymbolicExpressionType::TraitReference(ref value) => { write!(f, "<{}>", &**value)?; },
         };
         
         Ok(())

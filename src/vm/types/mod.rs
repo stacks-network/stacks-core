@@ -173,7 +173,6 @@ pub enum Value {
     Optional(OptionalData),
     Response(ResponseData),
     Field(TraitIdentifier),
-    TraitReference(ClarityName),
 }
 
 define_named_enum!(BlockInfoProperty {
@@ -305,10 +304,6 @@ impl Value {
     pub fn field_from(name: ClarityName, contract_identifier: QualifiedContractIdentifier) -> Value {
         Value::Field(TraitIdentifier { name, contract_identifier })
     }
-
-    pub fn trait_reference_from(name: ClarityName) -> Value {
-        Value::TraitReference(name)
-    }
 }
 
 impl BuffData {
@@ -365,7 +360,6 @@ impl fmt::Display for Value {
             Value::Optional(opt_data) => write!(f, "{}", opt_data),
             Value::Response(res_data) => write!(f, "{}", res_data),
             Value::Field(trait_identifier) => write!(f, "{:?}{:?}", trait_identifier.contract_identifier, trait_identifier.name),
-            Value::TraitReference(name) => write!(f, "<{:?}>", name),
             Value::List(list_data) => {
                 write!(f, "(")?;
                 for (ix, v) in list_data.data.iter().enumerate() {

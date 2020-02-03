@@ -197,9 +197,9 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 
     let mut contract_call_args = Vec::new();
     for arg in args[2..].iter() {
-        if let Some(var_name) = arg.match_atom() {
-            if let Some(trait_reference) = context.traits_references.get(var_name) {
-                contract_call_args.push(TypeSignature::TraitReferenceType(trait_reference.clone()));
+        if let Some(var_name) = arg.match_trait_reference() {
+            if let Some(trait_reference) = context.lookup_trait_reference_type(var_name) {
+                contract_call_args.push(trait_reference.clone());
                 continue;
             }
         }
@@ -250,8 +250,11 @@ fn check_special_principal_of(checker: &mut TypeChecker, args: &[SymbolicExpress
     check_arguments_at_least(1, args)?;
     let trait_reference_instance = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedTraitIdentifier)?;
-    let trait_reference = context.traits_references.get(trait_reference_instance)
-        .ok_or(CheckErrors::TraitReferenceUnknown(trait_reference_instance.to_string()))?;
+
+    let trait_reference = match context.lookup_trait_reference_type(trait_reference_instance) {
+        Some(TypeSignature::TraitReferenceType(trait_reference)) => trait_reference,
+        _ => return Err(CheckErrors::TraitReferenceUnknown(trait_reference_instance.to_string()).into())
+    };
     let trait_signature = checker.contract_context.get_trait(trait_reference)
         .ok_or(CheckErrors::TraitReferenceUnknown(trait_reference.to_string()))?;
 

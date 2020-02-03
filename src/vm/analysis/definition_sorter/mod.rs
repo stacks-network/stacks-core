@@ -1,7 +1,7 @@
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
@@ -76,14 +76,6 @@ impl <'a> DefinitionSorter {
 
     fn probe_for_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
         match expr.expr {
-            LiteralValue(Value::TraitReference(ref name)) => {
-                if let Some(dep) = self.top_level_expressions_map.get(name) {
-                    if dep.atom_index != expr.id {
-                        self.graph.add_directed_edge(tle_index, dep.expr_index);
-                    }
-                }
-                Ok(())
-            },
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
@@ -93,6 +85,14 @@ impl <'a> DefinitionSorter {
                 Ok(())
             },
             AtomValue(_)  | LiteralValue(_) => Ok(()),
+            TraitReference(ref name) => { 
+                if let Some(dep) = self.top_level_expressions_map.get(name) {
+                    if dep.atom_index != expr.id {
+                        self.graph.add_directed_edge(tle_index, dep.expr_index);
+                    }
+                }
+                Ok(())
+            },
             List(ref exprs) => {
                 // Avoid looking for dependencies in tuples
                 if let Some((function_name, function_args)) = exprs.split_first() {

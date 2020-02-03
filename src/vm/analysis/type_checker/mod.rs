@@ -5,7 +5,7 @@ pub mod natives;
 use std::convert::TryInto;
 use std::collections::{HashMap, BTreeMap};
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference};
 use vm::types::{TypeSignature, TupleTypeSignature, FunctionArg,
                 FunctionType, FixedFunction, parse_name_type_pairs, Value};
 use vm::types::signatures::{FunctionSignature};
@@ -279,8 +279,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                     .map_err(|_| { CheckError::new(CheckErrors::DefineFunctionBadSignature) })?;
 
                 let arg_type = match &pair[1].expr {
-                    LiteralValue(Value::TraitReference(name)) => {
-                        func_context.traits_references.insert(arg_name.clone(), name.clone());
+                    TraitReference(name) => {
+                        func_context.add_trait_reference(&arg_name, name);
                         TypeSignature::TraitReferenceType(name.clone()) // todo(ludo): check
                     },
                     _ => {
@@ -380,6 +380,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             Ok(type_result.clone())
         } else if let Some(type_result) = context.lookup_variable_type(name) {
             Ok(type_result.clone())
+        } else if let Some(type_result) = context.lookup_trait_reference_type(name) {
+            Ok(type_result.clone())
         } else {
             Err(CheckErrors::UndefinedVariable(name.to_string()).into())
         }
@@ -395,6 +397,9 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             },
             List(ref expression) => {
                 self.type_check_function_application(expression, context)?
+            },
+            TraitReference(ref name) => {
+                return Err(CheckErrors::InvalidTypeDescription.into());
             }
         };
 
@@ -509,8 +514,10 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     pub fn check_method_from_trait(&mut self, trait_reference_instance: &ClarityName, func_name: &ClarityName, args: &[TypeSignature], context: &TypingContext) -> CheckResult<TypeSignature> {
         // Retrieve the signature of the function invoked from the trait
         let func_signature = {
-            let trait_reference = context.traits_references.get(trait_reference_instance)
-                .ok_or(CheckErrors::TraitReferenceUnknown(trait_reference_instance.to_string()))?;
+            let trait_reference = match context.lookup_trait_reference_type(trait_reference_instance) {
+                Some(TypeSignature::TraitReferenceType(trait_reference)) => trait_reference,
+                _ => return Err(CheckErrors::TraitReferenceUnknown(trait_reference_instance.to_string()).into())
+            };
             let trait_signature = self.contract_context.get_trait(trait_reference)
                 .ok_or(CheckErrors::TraitReferenceUnknown(trait_reference.to_string()))?;
             trait_signature.get(func_name)
