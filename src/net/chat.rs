@@ -572,6 +572,7 @@ impl Conversation {
         self.peer_network_id = preamble.network_id;
         self.peer_services = handshake_data.services;
         self.peer_expire_block_height = handshake_data.expire_block_height;
+        self.data_url = handshake_data.data_url.clone();
 
         let cur_pubk_opt = self.connection.get_public_key();
         if let Some(cur_pubk) = cur_pubk_opt {
@@ -620,7 +621,7 @@ impl Conversation {
         test_debug!("Handshake from {:?} {} public key {:?} expires at {:?}", &self, authentic_msg,
                     &to_hex(&handshake_data.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_data.expire_block_height);
 
-        let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat, self.data_url.clone());
+        let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat);
         let accept = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, chain_view, StacksMessageType::HandshakeAccept(accept_data));
         Ok(Some(accept))
     }
@@ -631,7 +632,6 @@ impl Conversation {
         self.update_from_handshake_data(preamble, &handshake_accept.handshake)?;
         self.peer_heartbeat = handshake_accept.heartbeat_interval;
         self.stats.last_handshake_time = get_epoch_time_secs();
-        self.data_url = handshake_accept.data_url.clone();
 
         test_debug!("HandshakeAccept from {:?}: set public key to {:?} expiring at {:?} heartbeat {}s", &self,
                     &to_hex(&handshake_accept.handshake.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_accept.handshake.expire_block_height, self.peer_heartbeat);
@@ -1000,8 +1000,7 @@ mod test {
 
     #[test]
     fn convo_handshake_accept() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.data_url = UrlString::try_from("https://the-new-internet.com").unwrap();
+        let conn_opts = ConnectionOptions::default();
 
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
@@ -1029,8 +1028,8 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1087,8 +1086,8 @@ mod test {
                 assert_eq!(data.handshake.services, local_peer_2.services);
                 assert_eq!(data.handshake.node_public_key, StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer_2.private_key)));
                 assert_eq!(data.handshake.expire_block_height, local_peer_2.private_key_expire); 
+                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
                 assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-                assert_eq!(data.data_url, conn_opts.data_url);
             },
             _ => {
                 assert!(false);
@@ -1098,10 +1097,12 @@ mod test {
         // convo_2 got updated with convo_1's peer info, but no heartbeat info 
         assert_eq!(convo_2.peer_heartbeat, 0);
         assert_eq!(convo_2.connection.get_public_key().unwrap(), Secp256k1PublicKey::from_private(&local_peer_1.private_key));
+        assert_eq!(convo_2.data_url, "http://peer1.com".into());
 
         // convo_1 got updated with convo_2's peer info, as well as heartbeat
         assert_eq!(convo_1.peer_heartbeat, conn_opts.heartbeat);
         assert_eq!(convo_1.connection.get_public_key().unwrap(), Secp256k1PublicKey::from_private(&local_peer_2.private_key));
+        assert_eq!(convo_1.data_url, "http://peer2.com".into());
     }
     
     #[test]
@@ -1133,8 +1134,8 @@ mod test {
         };
         chain_view.make_test_data();
         
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1227,8 +1228,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1310,8 +1311,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1402,8 +1403,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1498,8 +1499,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1640,8 +1641,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1726,7 +1727,7 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         
