@@ -20,6 +20,7 @@
 use std::io;
 use std::io::prelude::*;
 use std::io::Read;
+use std::convert::TryFrom;
 
 use burnchains::BurnchainHeaderHash;
 use burnchains::PrivateKey;
@@ -529,10 +530,11 @@ impl StacksMessageCodec for HandshakeData {
 }
 
 impl HandshakeAcceptData {
-    pub fn new(local_peer: &LocalPeer, heartbeat_interval: u32) -> HandshakeAcceptData {
+    pub fn new(local_peer: &LocalPeer, heartbeat_interval: u32, data_url: UrlString) -> HandshakeAcceptData {
         HandshakeAcceptData {
             handshake: HandshakeData::from_local_peer(local_peer),
-            heartbeat_interval: heartbeat_interval
+            heartbeat_interval: heartbeat_interval,
+            data_url: data_url
         }
     }
 }
@@ -541,15 +543,18 @@ impl StacksMessageCodec for HandshakeAcceptData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &self.handshake)?;
         write_next(fd, &self.heartbeat_interval)?;
+        write_next(fd, &self.data_url)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HandshakeAcceptData, net_error> {
         let handshake : HandshakeData               = read_next(fd)?;
         let heartbeat_interval : u32                = read_next(fd)?;
+        let data_url: UrlString                   = read_next(fd)?;
         Ok(HandshakeAcceptData {
             handshake,
             heartbeat_interval,
+            data_url
         })
     }
 }
@@ -1472,8 +1477,9 @@ pub mod test {
                 expire_block_height: 0x0102030405060708
             },
             heartbeat_interval: 0x01020304,
+            data_url: UrlString::try_from("https://the-new-interwebs.com/data").unwrap()
         };
-        let bytes = vec![
+        let mut bytes = vec![
             // addrbytes 
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
             // port 
@@ -1487,6 +1493,9 @@ pub mod test {
             // heartbeat 
             0x01, 0x02, 0x03, 0x04,
         ];
+        // data URL
+        bytes.push(data.data_url.len() as u8);
+        bytes.extend_from_slice(data.data_url.as_bytes());
 
         check_codec_and_corruption::<HandshakeAcceptData>(&data, &bytes);
     }
@@ -1552,7 +1561,8 @@ pub mod test {
                     services: 0x0001,
                     node_public_key: StacksPublicKeyBuffer::from_bytes(&hex_bytes("034e316be04870cef1795fba64d581cf64bad0c894b01a068fb9edf85321dcd9bb").unwrap()).unwrap(),
                     expire_block_height: 0x0102030405060708
-                }
+                },
+                data_url: UrlString::try_from("https://the-new-interwebs.com:4008/the-data").unwrap()
             }),
             StacksMessageType::HandshakeReject,
             StacksMessageType::GetNeighbors,
