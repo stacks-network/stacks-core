@@ -33,9 +33,7 @@ impl PreTypeCheckingTraitChecker {
         let mut trait_usages = self.find_trait_usages(&exprs)?;
         
         // Presence of orphaned traits should throw
-        if trait_usages.orphan_trait_references.len() > 0 {
-            let orphan = trait_usages.orphan_trait_references.keys().next().unwrap();
-            let expr = trait_usages.orphan_trait_references.get(orphan).unwrap();
+        for (orphan, expr) in trait_usages.orphan_trait_references {
             let mut err = CheckError::new(CheckErrors::TraitReferenceUnknown(orphan.to_string()));
             err.set_expression(&expr);
             return Err(err.into());

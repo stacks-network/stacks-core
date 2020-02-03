@@ -76,7 +76,8 @@ impl DefinedFunction {
                     // Argument is a trait reference, probably leading to a dynamic contract call
                     // This is the moment when we're making sure that the target contract is 
                     // conform.
-                    let trait_identifier = env.contract_context.lookup_trait_reference(trait_reference).unwrap();
+                    let trait_identifier = env.contract_context.lookup_trait_reference(trait_reference)
+                        .ok_or(CheckErrors::TraitReferenceUnknown(trait_reference.to_string()))?;
                     context.callable_contracts.insert(name.clone(), (contract_id.clone(), trait_identifier));
                 },
                 _ => {
@@ -111,8 +112,10 @@ impl DefinedFunction {
                                     contract_to_check: &ContractContext) -> Result<()> {
 
         let trait_name = trait_identifier.name.to_string();
-        let constraining_trait = contract_defining_trait.lookup_trait_definition(&trait_name).unwrap();
-        let expected_sig = constraining_trait.get(&self.name).unwrap();
+        let constraining_trait = contract_defining_trait.lookup_trait_definition(&trait_name)
+            .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
+        let expected_sig = constraining_trait.get(&self.name)
+            .ok_or(CheckErrors::TraitMethodUnknown(trait_name.to_string(), self.name.to_string()))?;
 
         if expected_sig.args.len() != self.arg_types.len() {
             return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()).into())

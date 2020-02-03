@@ -25,43 +25,46 @@ pub fn special_contract_call(args: &[SymbolicExpression],
     };
 
     let (contract_identifier, type_returns_constraint) = match &args[0].expr {
-        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(contract_identifier))) => {
+        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => {
             // Static dispatch
-            (contract_identifier.clone(), None)
+            (contract_identifier, None)
         },
         SymbolicExpressionType::Atom(contract_ref) => {
             // Dynamic dispatch
-            // todo(ludo): clean unwraps un clones
             match context.callable_contracts.get(contract_ref) {
-                Some((contract_identifier, trait_identifier)) => {
-                    let contract_to_check = env.global_context.database.get_contract(&contract_identifier)
-                        .unwrap().contract_context;
+                Some((ref contract_identifier, trait_identifier)) => {
+                    let contract_to_check = env.global_context.database.get_contract(contract_identifier)
+                        .map_err(|_e| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+                    let contract_context_to_check = contract_to_check.contract_context;
+
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
                     // then we can simply rely on the analysis performed at publish time.
-                    if contract_to_check.is_explicitely_implementing_trait(&trait_identifier) {
-                        (contract_identifier.clone(), None)
+                    if contract_context_to_check.is_explicitely_implementing_trait(&trait_identifier) {
+                        (contract_identifier, None)
                     } else {
                         let trait_name = trait_identifier.name.to_string();
 
                         // Retrieve, from the trait definition, the expected method signature
-                        let contract_defining_trait = env.global_context.database.get_contract(&trait_identifier.contract_identifier).unwrap().contract_context;
+                        let contract_defining_trait = env.global_context.database.get_contract(&trait_identifier.contract_identifier)
+                            .map_err(|_e| CheckErrors::NoSuchContract(trait_identifier.contract_identifier.to_string()))?;
+                        let contract_context_defining_trait = contract_defining_trait.contract_context;
 
                         // Retrieve the function that will be invoked
-                        let contract_context_to_check = env.global_context.database.get_contract(&contract_identifier)
-                            .unwrap().contract_context;
                         let function_to_check = contract_context_to_check.lookup_function(function_name)
                             .ok_or(CheckErrors::BadTraitImplementation(trait_name.clone(), function_name.to_string()))?;
                         
                         function_to_check.check_trait_expectations(
-                            &contract_defining_trait,
+                            &contract_context_defining_trait,
                             &trait_identifier,
                             &contract_context_to_check)?;
 
                         // Retrieve the expected method signature
-                        let constraining_trait = contract_defining_trait.lookup_trait_definition(&trait_name).unwrap();
-                        let expected_sig = constraining_trait.get(function_name).unwrap();
-                        (contract_identifier.clone(), Some(expected_sig.returns.clone()))
+                        let constraining_trait = contract_context_defining_trait.lookup_trait_definition(&trait_name)
+                            .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.clone()))?;
+                        let expected_sig = constraining_trait.get(function_name)
+                            .ok_or(CheckErrors::TraitMethodUnknown(trait_name.clone(), function_name.to_string()))?;
+                        (contract_identifier, Some(expected_sig.returns.clone()))
                     }
                 },
                 _ => return Err(CheckErrors::ContractCallExpectName.into())

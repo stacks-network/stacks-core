@@ -513,8 +513,8 @@ impl TypeSignature {
             Value::Tuple(v) => TupleType(
                 v.type_signature.clone()),
             Value::List(list_data) => ListType(list_data.type_signature.clone()),
-            Value::TraitReference(v) => TraitReferenceType(v.clone()), // todo(ludo): check
-            Value::Field(_v) => NoType, // todo(ludo): check with aaron
+            Value::TraitReference(v) => TraitReferenceType(v.clone()),
+            Value::Field(_v) => NoType, // todo(ludo): check with aaron - should panic?
             Value::Optional(v) => v.type_signature(),
             Value::Response(v) => v.type_signature()
         }

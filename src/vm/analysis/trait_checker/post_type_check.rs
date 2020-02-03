@@ -32,7 +32,6 @@ impl PostTypeCheckingTraitChecker {
     
         for trait_identifier in &contract_analysis.implemented_traits {
 
-            // todo(ludo): is the trait defined locally
             let trait_name = trait_identifier.name.to_string();
             let contract_defining_trait = analysis_db.load_contract(&trait_identifier.contract_identifier)
                 .ok_or(CheckErrors::TraitReferenceUnknown(trait_identifier.name.to_string()))?;
