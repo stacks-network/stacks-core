@@ -160,20 +160,16 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(error::Error::description(self))
+        match *self {
+            Error::NonMinimalPush => write!(f, "non-minimal datapush"),
+            Error::EarlyEndOfScript => write!(f, "unexpected end of script"),
+            Error::NumericOverflow => write!(f, "numeric overflow (number on stack larger than 4 bytes)"),
+        }
     }
 }
 
 impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> { None }
-
-    fn description(&self) -> &'static str {
-        match *self {
-            Error::NonMinimalPush => "non-minimal datapush",
-            Error::EarlyEndOfScript => "unexpected end of script",
-            Error::NumericOverflow => "numeric overflow (number on stack larger than 4 bytes)",
-        }
-    }
 }
 
 /// Helper to encode an integer in script format

@@ -250,13 +250,24 @@ impl fmt::Display for Error {
             Error::CorruptionError(ref s) => fmt::Display::fmt(s, f),
             Error::CursorError(ref e) => fmt::Display::fmt(e, f),
             Error::BlockHashMapCorruptionError(ref opt_e) => {
-                f.write_str(error::Error::description(self))?;
+                f.write_str("Corrupted MARF BlockHashMap")?;
                 match opt_e {
                     Some(e) => write!(f, ": {}", e),
                     None => Ok(())
                 }
             },
-            _ => f.write_str(error::Error::description(self)),
+            Error::NotOpenedError => write!(f, "Tried to read data from unopened storage"),
+            Error::NotFoundError => write!(f, "Object not found"),
+            Error::BackptrNotFoundError => write!(f, "Object not found from backptrs"),
+            Error::ExistsError => write!(f, "Object exists"),
+            Error::BadSeekValue => write!(f, "Bad seek value"),
+            Error::ReadOnlyError => write!(f, "Storage is in read-only mode"),
+            Error::NotDirectoryError => write!(f, "Not a directory"),
+            Error::PartialWriteError => write!(f, "Data is partially written and not yet recovered"),
+            Error::InProgressError => write!(f, "Write was in progress"),
+            Error::WriteNotBegunError => write!(f, "Write has not begun"),
+            Error::RestoreMarfBlockError(_) => write!(f, "Failed to restore previous open block during block header check"),
+            Error::NonMatchingForks(_, _) => write!(f, "The supplied blocks are not in the same fork"),
         }
     }
 }
@@ -271,27 +282,6 @@ impl error::Error for Error {
                 None => None
             },
             _ => None
-        }
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::IOError(ref e) => e.description(),
-            Error::NotOpenedError => "Tried to read data from unopened storage",
-            Error::NotFoundError => "Object not found",
-            Error::BackptrNotFoundError => "Object not found from backptrs",
-            Error::ExistsError => "Object exists",
-            Error::BadSeekValue => "Bad seek value",
-            Error::CorruptionError(ref s) => s.as_str(),
-            Error::BlockHashMapCorruptionError(_) => "Corrupted MARF BlockHashMap",
-            Error::ReadOnlyError => "Storage is in read-only mode",
-            Error::NotDirectoryError => "Not a directory",
-            Error::PartialWriteError => "Data is partially written and not yet recovered",
-            Error::InProgressError => "Write was in progress",
-            Error::WriteNotBegunError => "Write has not begun",
-            Error::CursorError(ref e) => e.description(),
-            Error::RestoreMarfBlockError(_) => "Failed to restore previous open block during block header check",
-            Error::NonMatchingForks(_, _) => "The supplied blocks are not in the same fork",
         }
     }
 }

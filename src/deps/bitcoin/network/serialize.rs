@@ -81,15 +81,15 @@ impl fmt::Display for Error {
             Error::Io(ref e) => fmt::Display::fmt(e, f),
             Error::Base58(ref e) => fmt::Display::fmt(e, f),
             Error::ByteOrder(ref e) => fmt::Display::fmt(e, f),
-            Error::UnexpectedNetworkMagic { expected: ref e, actual: ref a } => write!(f, "{}: expected {}, actual {}", error::Error::description(self), e, a),
-            Error::OversizedVectorAllocation { requested: ref r, max: ref m } => write!(f, "{}: requested {}, maximum {}", error::Error::description(self), r, m),
-            Error::InvalidChecksum { expected: ref e, actual: ref a } => write!(f, "{}: expected {}, actual {}", error::Error::description(self), hex_encode(e), hex_encode(a)),
-            Error::UnknownNetworkMagic(ref m) => write!(f, "{}: {}", error::Error::description(self), m),
-            Error::ParseFailed(ref e) => write!(f, "{}: {}", error::Error::description(self), e),
-            Error::UnsupportedWitnessVersion(ref wver) => write!(f, "{}: {}", error::Error::description(self), wver),
-            Error::UnsupportedSegwitFlag(ref swflag) => write!(f, "{}: {}", error::Error::description(self), swflag),
-            Error::UnrecognizedNetworkCommand(ref nwcmd) => write!(f, "{}: {}", error::Error::description(self), nwcmd),
-            Error::UnexpectedHexDigit(ref d) => write!(f, "{}: {}", error::Error::description(self), d),
+            Error::UnexpectedNetworkMagic { expected: ref e, actual: ref a } => write!(f, "unexpected network magic: expected {}, actual {}", e, a),
+            Error::OversizedVectorAllocation { requested: ref r, max: ref m } => write!(f, "allocation of oversized vector requested: requested {}, maximum {}", r, m),
+            Error::InvalidChecksum { expected: ref e, actual: ref a } => write!(f, "invalid checksum: expected {}, actual {}", hex_encode(e), hex_encode(a)),
+            Error::UnknownNetworkMagic(ref m) => write!(f, "unknown network magic: {}", m),
+            Error::ParseFailed(ref e) => write!(f, "parse failed: {}", e),
+            Error::UnsupportedWitnessVersion(ref wver) => write!(f, "unsupported witness version: {}", wver),
+            Error::UnsupportedSegwitFlag(ref swflag) => write!(f, "unsupported segwit version: {}", swflag),
+            Error::UnrecognizedNetworkCommand(ref nwcmd) => write!(f, "unrecognized network command: {}", nwcmd),
+            Error::UnexpectedHexDigit(ref d) => write!(f, "unexpected hex digit: {}", d),
         }
     }
 }
@@ -109,23 +109,6 @@ impl error::Error for Error {
             | Error::UnsupportedSegwitFlag(..)
             | Error::UnrecognizedNetworkCommand(..)
             | Error::UnexpectedHexDigit(..) => None,
-        }
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::Io(ref e) => e.description(),
-            Error::Base58(ref e) => e.description(),
-            Error::ByteOrder(ref e) => e.description(),
-            Error::UnexpectedNetworkMagic { .. } => "unexpected network magic",
-            Error::OversizedVectorAllocation { .. } => "allocation of oversized vector requested",
-            Error::InvalidChecksum { .. } => "invalid checksum",
-            Error::UnknownNetworkMagic(..) => "unknown network magic",
-            Error::ParseFailed(..) => "parse failed",
-            Error::UnsupportedWitnessVersion(..) => "unsupported witness version",
-            Error::UnsupportedSegwitFlag(..) => "unsupported segwit version",
-            Error::UnrecognizedNetworkCommand(..) => "unrecognized network command",
-            Error::UnexpectedHexDigit(..) => "unexpected hex digit",
         }
     }
 }
