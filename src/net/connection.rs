@@ -24,6 +24,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::time::Duration;
 use std::collections::VecDeque;
+use std::convert::TryFrom;
 
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::SyncSender;
@@ -49,6 +50,7 @@ use net::StacksHttp;
 use net::MessageSequence;
 use net::codec::*;
 use net::MAX_MESSAGE_LEN;
+use net::UrlString;
 
 use chainstate::burn::ConsensusHash;
 
@@ -274,6 +276,7 @@ pub struct ConnectionOptions {
     pub soft_max_neighbors_per_org: u64,
     pub soft_max_clients_per_host: u64,
     pub walk_interval: u64,
+    pub data_url: UrlString,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -296,6 +299,7 @@ impl std::default::Default for ConnectionOptions {
             soft_max_neighbors_per_org: 10,      // how many outbound connections we can have per AS-owning organization, before we start pruning them
             soft_max_clients_per_host: 10,       // how many inbound connections we can have per IP address, before we start pruning them,
             walk_interval: 300,             // how often to do a neighbor walk
+            data_url: UrlString::try_from("".to_string()).unwrap()
         }
     }
 }
