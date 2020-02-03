@@ -42,6 +42,9 @@ use std::io;
 use std::io::{Read, Write};
 use std::str::FromStr;
 use std::cmp::PartialEq;
+use std::convert::TryFrom;
+use std::ops::Deref;
+use std::borrow::Borrow;
 
 use serde_json;
 use serde::{Serialize, Deserialize};
@@ -73,6 +76,7 @@ use util::log;
 use util::secp256k1::Secp256k1PublicKey;
 use util::secp256k1::MessageSignature;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+use util::strings::UrlString;
 
 use serde::ser::Error as ser_Error;
 use serde::de::Error as de_Error;
@@ -616,7 +620,8 @@ pub struct HandshakeData {
     pub port: u16,
     pub services: u16,                          // bit field representing services this node offers
     pub node_public_key: StacksPublicKeyBuffer,
-    pub expire_block_height: u64,               // burn block height after which this node's key will be revoked
+    pub expire_block_height: u64,               // burn block height after which this node's key will be revoked,
+    pub data_url: UrlString
 }
 
 #[repr(u8)]
@@ -625,12 +630,11 @@ pub enum ServiceFlags {
     RPC = 0x02,
 }
 
+// TODO: URL string type
 #[derive(Debug, Clone, PartialEq)]
 pub struct HandshakeAcceptData {
     pub handshake: HandshakeData,       // this peer's handshake information
     pub heartbeat_interval: u32,        // hint as to how long this peer will remember you
-
-    // TODO: string with useful data (e.g. RPC endpoints)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1040,6 +1044,7 @@ mod test {
     use util::secp256k1::*;
     use util::hash::*;
     use util::uint::*;
+    use util::get_epoch_time_secs;
 
     use std::net::*;
     use std::io;
@@ -1230,7 +1235,8 @@ mod test {
         pub asn: u32,
         pub org: u32,
         pub whitelisted: i64,
-        pub blacklisted: i64
+        pub blacklisted: i64,
+        pub data_url: UrlString
     }
 
     impl TestPeerConfig {
@@ -1250,7 +1256,8 @@ mod test {
                 asn: 0,
                 org: 0,
                 whitelisted: 0,
-                blacklisted: 0
+                blacklisted: 0,
+                data_url: "".into()
             }
         }
 
@@ -1296,7 +1303,7 @@ mod test {
 
     impl TestPeer {
         pub fn new(config: TestPeerConfig) -> TestPeer {
-            let mut peerdb = PeerDB::connect_memory(config.burnchain.network_id, config.private_key_expire, &config.asn4_entries, &config.initial_neighbors).unwrap();
+            let mut peerdb = PeerDB::connect_memory(config.burnchain.network_id, config.private_key_expire, config.data_url.clone(), &config.asn4_entries, &config.initial_neighbors).unwrap();
             let mut burndb = BurnDB::connect_memory(config.burnchain.first_block_height, &config.burnchain.first_block_hash).unwrap();
 
             {
@@ -1402,7 +1409,8 @@ mod test {
                 block_height: block_height + 1,
                 block_hash: BurnchainHeaderHash(block_hash_bytes),
                 parent_block_hash: BurnchainHeaderHash(prev_block_hash_bytes),
-                txs: vec![]
+                txs: vec![],
+                // timestamp: get_epoch_time_secs()
             })
         }
 
