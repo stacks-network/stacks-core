@@ -31,6 +31,39 @@ fn test_dynamic_dispatch_by_defining_trait() {
 }
 
 #[test]
+fn test_dynamic_dispatch_collision_trait() {
+    let contract_defining_trait_src = 
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))";
+    let dispatching_contract_src =
+        "(use-trait trait-1 .contract-defining-trait.trait-1)
+        (define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))
+        (define-public (wrapped-get-1 (contract <trait-1>)) 
+            (contract-call? contract get-1 u0))";
+
+    let contract_defining_trait_id = QualifiedContractIdentifier::local("contract-defining-trait").unwrap();
+    let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
+
+    let mut contract_defining_trait = parse(&contract_defining_trait_id, contract_defining_trait_src).unwrap();
+    let mut dispatching_contract = parse(&dispatching_contract_id, dispatching_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let err = db.execute(|db| {
+        type_check(&contract_defining_trait_id, &mut contract_defining_trait, db, true)?;
+        type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)
+    }).unwrap_err();
+    match err.err {
+        CheckErrors::NameAlreadyUsed(_) => {},
+        _ => {
+            println!("{:?}", err);
+            panic!("Attempt to call init-factorial should fail!")
+        }
+    }
+}
+
+#[test]
 fn test_dynamic_dispatch_importing_non_existant_trait() {
     let contract_defining_trait_src = 
         "(define-trait trait-1 (

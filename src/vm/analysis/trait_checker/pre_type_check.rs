@@ -54,15 +54,25 @@ impl PreTypeCheckingTraitChecker {
                 &trait_identifier.contract_identifier, 
                 &trait_identifier.name)?;
             existing_trait.ok_or(CheckError::new(CheckErrors::TraitReferenceUnknown(trait_name.to_string())))?;
+            
+            // Check for eventual collisions
+            if contract_analysis.referenced_traits.contains_key(&trait_name) {
+                return Err(CheckErrors::NameAlreadyUsed(trait_name.to_string()).into())
+            }
             contract_analysis.referenced_traits.insert(trait_name, trait_identifier.clone());
         }
 
-        // todo(ludo): add comment (+ check collisions?)
+        // Reference the defined traits
         for (name, _) in trait_usages.defined_traits.drain() {
             let trait_id = TraitIdentifier {
                 name: name.clone(),
                 contract_identifier: contract_analysis.contract_identifier.clone()      
             };
+
+            // Check for eventual collisions
+            if contract_analysis.referenced_traits.contains_key(&name) {
+                return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
+            }
             contract_analysis.referenced_traits.insert(name, trait_id);
         }
 
