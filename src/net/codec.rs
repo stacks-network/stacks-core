@@ -498,7 +498,8 @@ impl HandshakeData {
             port: local_peer.port,
             services: local_peer.services,
             node_public_key: StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer.private_key)),
-            expire_block_height: local_peer.private_key_expire
+            expire_block_height: local_peer.private_key_expire,
+            data_url: local_peer.data_url.clone()
         }
     }
 }
@@ -510,6 +511,7 @@ impl StacksMessageCodec for HandshakeData {
         write_next(fd, &self.services)?;
         write_next(fd, &self.node_public_key)?;
         write_next(fd, &self.expire_block_height)?;
+        write_next(fd, &self.data_url)?;
         Ok(())
     }
 
@@ -519,22 +521,23 @@ impl StacksMessageCodec for HandshakeData {
         let services : u16                          = read_next(fd)?;
         let node_public_key : StacksPublicKeyBuffer = read_next(fd)?;
         let expire_block_height : u64               = read_next(fd)?;
+        let data_url : UrlString                    = read_next(fd)?;
         Ok(HandshakeData {
             addrbytes,
             port,
             services,
             node_public_key,
-            expire_block_height
+            expire_block_height,
+            data_url
         })
     }
 }
 
 impl HandshakeAcceptData {
-    pub fn new(local_peer: &LocalPeer, heartbeat_interval: u32, data_url: UrlString) -> HandshakeAcceptData {
+    pub fn new(local_peer: &LocalPeer, heartbeat_interval: u32) -> HandshakeAcceptData {
         HandshakeAcceptData {
             handshake: HandshakeData::from_local_peer(local_peer),
             heartbeat_interval: heartbeat_interval,
-            data_url: data_url
         }
     }
 }
@@ -543,18 +546,15 @@ impl StacksMessageCodec for HandshakeAcceptData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &self.handshake)?;
         write_next(fd, &self.heartbeat_interval)?;
-        write_next(fd, &self.data_url)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HandshakeAcceptData, net_error> {
         let handshake : HandshakeData               = read_next(fd)?;
         let heartbeat_interval : u32                = read_next(fd)?;
-        let data_url: UrlString                   = read_next(fd)?;
         Ok(HandshakeAcceptData {
             handshake,
             heartbeat_interval,
-            data_url
         })
     }
 }
@@ -996,9 +996,12 @@ pub mod test {
         }
     }
 
-    fn check_deserialize<T>(r: Result<T, net_error>) -> bool {
+    fn check_deserialize<T: std::fmt::Debug>(r: Result<T, net_error>) -> bool {
         match r {
-            Ok(_) => false,
+            Ok(m) => {
+                test_debug!("deserialized {:?}", &m);
+                false
+            },
             Err(e) => match e {
                 net_error::DeserializeError(_) => true,
                 _ => false
@@ -1448,35 +1451,7 @@ pub mod test {
             port: 12345,
             services: 0x0001,
             node_public_key: StacksPublicKeyBuffer::from_bytes(&hex_bytes("034e316be04870cef1795fba64d581cf64bad0c894b01a068fb9edf85321dcd9bb").unwrap()).unwrap(),
-            expire_block_height: 0x0102030405060708
-        };
-        let bytes = vec![
-            // addrbytes 
-            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-            // port 
-            0x30, 0x39,
-            // services 
-            0x00, 0x01,
-            // public key 
-            0x03, 0x4e, 0x31, 0x6b, 0xe0, 0x48, 0x70, 0xce, 0xf1, 0x79, 0x5f, 0xba, 0x64, 0xd5, 0x81, 0xcf, 0x64, 0xba, 0xd0, 0xc8, 0x94, 0xb0, 0x1a, 0x06, 0x8f, 0xb9, 0xed, 0xf8, 0x53, 0x21, 0xdc, 0xd9, 0xbb,
-            // expire block height 
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08
-        ];
-
-        check_codec_and_corruption::<HandshakeData>(&data, &bytes);
-    }
-
-    #[test]
-    fn codec_HandshakeAcceptData() {
-        let data = HandshakeAcceptData {
-            handshake: HandshakeData { 
-                addrbytes: PeerAddress([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]),
-                port: 12345,
-                services: 0x0001,
-                node_public_key: StacksPublicKeyBuffer::from_bytes(&hex_bytes("034e316be04870cef1795fba64d581cf64bad0c894b01a068fb9edf85321dcd9bb").unwrap()).unwrap(),
-                expire_block_height: 0x0102030405060708
-            },
-            heartbeat_interval: 0x01020304,
+            expire_block_height: 0x0102030405060708,
             data_url: UrlString::try_from("https://the-new-interwebs.com/data").unwrap()
         };
         let mut bytes = vec![
@@ -1490,12 +1465,47 @@ pub mod test {
             0x03, 0x4e, 0x31, 0x6b, 0xe0, 0x48, 0x70, 0xce, 0xf1, 0x79, 0x5f, 0xba, 0x64, 0xd5, 0x81, 0xcf, 0x64, 0xba, 0xd0, 0xc8, 0x94, 0xb0, 0x1a, 0x06, 0x8f, 0xb9, 0xed, 0xf8, 0x53, 0x21, 0xdc, 0xd9, 0xbb,
             // expire block height 
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-            // heartbeat 
-            0x01, 0x02, 0x03, 0x04,
         ];
         // data URL
         bytes.push(data.data_url.len() as u8);
         bytes.extend_from_slice(data.data_url.as_bytes());
+
+        check_codec_and_corruption::<HandshakeData>(&data, &bytes);
+    }
+
+    #[test]
+    fn codec_HandshakeAcceptData() {
+        let data = HandshakeAcceptData {
+            handshake: HandshakeData { 
+                addrbytes: PeerAddress([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]),
+                port: 12345,
+                services: 0x0001,
+                node_public_key: StacksPublicKeyBuffer::from_bytes(&hex_bytes("034e316be04870cef1795fba64d581cf64bad0c894b01a068fb9edf85321dcd9bb").unwrap()).unwrap(),
+                expire_block_height: 0x0102030405060708,
+                data_url: UrlString::try_from("https://the-new-interwebs.com/data").unwrap()
+            },
+            heartbeat_interval: 0x01020304,
+        };
+        let mut bytes = vec![
+            // addrbytes 
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+            // port 
+            0x30, 0x39,
+            // services 
+            0x00, 0x01,
+            // public key 
+            0x03, 0x4e, 0x31, 0x6b, 0xe0, 0x48, 0x70, 0xce, 0xf1, 0x79, 0x5f, 0xba, 0x64, 0xd5, 0x81, 0xcf, 0x64, 0xba, 0xd0, 0xc8, 0x94, 0xb0, 0x1a, 0x06, 0x8f, 0xb9, 0xed, 0xf8, 0x53, 0x21, 0xdc, 0xd9, 0xbb,
+            // expire block height 
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        ];
+        // data URL
+        bytes.push(data.handshake.data_url.len() as u8);
+        bytes.extend_from_slice(data.handshake.data_url.as_bytes());
+
+        bytes.extend_from_slice(&[
+            // heartbeat 
+            0x01, 0x02, 0x03, 0x04,
+        ]);
 
         check_codec_and_corruption::<HandshakeAcceptData>(&data, &bytes);
     }
@@ -1551,7 +1561,8 @@ pub mod test {
                 port: 12345,
                 services: 0x0001,
                 node_public_key: StacksPublicKeyBuffer::from_bytes(&hex_bytes("034e316be04870cef1795fba64d581cf64bad0c894b01a068fb9edf85321dcd9bb").unwrap()).unwrap(),
-                expire_block_height: 0x0102030405060708
+                expire_block_height: 0x0102030405060708,
+                data_url: UrlString::try_from("https://the-new-interwebs.com:4008/the-data").unwrap()
             }),
             StacksMessageType::HandshakeAccept(HandshakeAcceptData {
                 heartbeat_interval: 0x01020304,
@@ -1560,9 +1571,9 @@ pub mod test {
                     port: 12345,
                     services: 0x0001,
                     node_public_key: StacksPublicKeyBuffer::from_bytes(&hex_bytes("034e316be04870cef1795fba64d581cf64bad0c894b01a068fb9edf85321dcd9bb").unwrap()).unwrap(),
-                    expire_block_height: 0x0102030405060708
+                    expire_block_height: 0x0102030405060708,
+                    data_url: UrlString::try_from("https://the-new-interwebs.com:4008/the-data").unwrap()
                 },
-                data_url: UrlString::try_from("https://the-new-interwebs.com:4008/the-data").unwrap()
             }),
             StacksMessageType::HandshakeReject,
             StacksMessageType::GetNeighbors,
@@ -1687,19 +1698,8 @@ pub mod test {
             stacks_message_bytes.append(&mut relayers_bytes.clone());
             stacks_message_bytes.append(&mut payload_bytes.clone());
 
-            test_debug!("Test {:?}", &payload);
+            test_debug!("Test {}-byte relayer, {}-byte payload {:?}", relayers_bytes.len(), payload_bytes.len(), &payload);
             check_codec_and_corruption::<StacksMessage>(&stacks_message, &stacks_message_bytes);
-
-            // preamble length must be consistent with relayers and payload
-            let mut preamble_short_len = preamble.clone();
-            preamble_short_len.payload_len -= 1;
-
-            let stacks_message_short_len = StacksMessage {
-                preamble: preamble_short_len.clone(),
-                relayers: maximal_relayers.clone(),
-                payload: payload.clone()
-            };
-            assert!(check_deserialize_failure(&stacks_message_short_len));
 
             // can't have too many relayers 
             let mut preamble_too_many_relayers = preamble.clone();
