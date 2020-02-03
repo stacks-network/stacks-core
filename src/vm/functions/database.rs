@@ -8,6 +8,7 @@ use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{CheckErrors, InterpreterError, RuntimeErrorType, InterpreterResult as Result,
                  check_argument_count, check_arguments_at_least};
 use vm::{eval, LocalContext, Environment};
+use vm::callables::{DefineType};
 use chainstate::burn::{BlockHeaderHash};
 
 pub fn special_contract_call(args: &[SymbolicExpression],
@@ -54,6 +55,14 @@ pub fn special_contract_call(args: &[SymbolicExpression],
                         let function_to_check = contract_context_to_check.lookup_function(function_name)
                             .ok_or(CheckErrors::BadTraitImplementation(trait_name.clone(), function_name.to_string()))?;
                         
+                        // Check ACL: if we are in a readonly context, then the next function should be readonly.
+                        // Public otherwise
+                        match (env.global_context.is_read_only(), &function_to_check.define_type) {
+                            (_, DefineType::Private) => return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), function_name.to_string()).into()),
+                            (true, DefineType::Public) => return Err(CheckErrors::WriteAttemptedInReadOnly.into()),
+                            (_, DefineType::ReadOnly) | (false, DefineType::Public) => { /* all clear */ },
+                        }
+
                         function_to_check.check_trait_expectations(
                             &contract_context_defining_trait,
                             &trait_identifier,

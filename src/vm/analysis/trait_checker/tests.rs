@@ -31,6 +31,64 @@ fn test_dynamic_dispatch_by_defining_trait() {
 }
 
 #[test]
+fn test_cycle_in_traits_1_contract() {
+    let dispatching_contract_src =
+        "(define-trait trait-1 (
+            (get-1 (<trait-2>) (response uint uint))))
+        (define-trait trait-2 (
+            (get-2 (<trait-1>) (response uint uint))))";
+
+    let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
+
+    let mut dispatching_contract = parse(&dispatching_contract_id, dispatching_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let err = db.execute(|db| {
+        type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)
+    }).unwrap_err();
+    match err.err {
+        CheckErrors::CircularReference(_) => {},
+        _ => {
+            println!("{:?}", err);
+            panic!("Attempt to call init-factorial should fail!")
+        }
+    }
+}
+
+#[test]
+fn test_cycle_in_traits_2_contracts() {
+    let dispatching_contract_src =
+        "(use-trait trait-2 .target-contract.trait-2)
+        (define-trait trait-1 (
+            (get-1 (<trait-2>) (response uint uint))))";
+    let target_contract_src =
+        "(use-trait trait-1 .dispatching-contract.trait-1)
+        (define-trait trait-2 (
+            (get-2 (<trait-1>) (response uint uint))))";
+
+    let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
+    let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
+
+    let mut dispatching_contract = parse(&dispatching_contract_id, dispatching_contract_src).unwrap();
+    let mut target_contract = parse(&target_contract_id, target_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let err = db.execute(|db| {
+        type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)?;
+        type_check(&target_contract_id, &mut target_contract, db, true)
+    }).unwrap_err();
+    match err.err {
+        CheckErrors::NoSuchContract(_) => {},
+        _ => {
+            println!("{:?}", err);
+            panic!("Attempt to call init-factorial should fail!")
+        }
+    }
+}
+
+#[test]
 fn test_dynamic_dispatch_unknown_method() {
     let dispatching_contract_src =
         "(define-trait trait-1 (

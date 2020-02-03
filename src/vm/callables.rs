@@ -27,7 +27,7 @@ pub struct DefinedFunction {
     identifier: FunctionIdentifier,
     name: ClarityName,
     arg_types: Vec<TypeSignature>,
-    define_type: DefineType,
+    pub define_type: DefineType,
     arguments: Vec<ClarityName>,
     body: SymbolicExpression
 }
