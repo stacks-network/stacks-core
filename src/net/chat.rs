@@ -62,6 +62,8 @@ use std::collections::VecDeque;
 use std::io::Read;
 use std::io::Write;
 
+use std::convert::TryFrom;
+
 use util::log;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
@@ -180,6 +182,8 @@ pub struct Conversation {
     pub peer_port: u16,
     pub peer_heartbeat: u32,                    // how often do we need to ping the remote peer?
     pub peer_expire_block_height: u64,          // when does the peer's key expire?
+
+    pub data_url: UrlString,                   // where does this peer's data live?
 
     // highest block height and consensus hash this peer has seen
     pub burnchain_tip_height: u64,
@@ -330,6 +334,8 @@ impl Conversation {
             peer_services: 0,
             peer_expire_block_height: 0,
 
+            data_url: UrlString::try_from("".to_string()).unwrap(),
+
             burnchain_tip_height: 0,
             burnchain_tip_consensus_hash: ConsensusHash([0x00; 20]),
 
@@ -355,6 +361,8 @@ impl Conversation {
             peer_heartbeat: convo.peer_heartbeat,
             peer_services: convo.peer_services,
             peer_expire_block_height: convo.peer_expire_block_height,
+
+            data_url: convo.data_url.clone(),
 
             burnchain_tip_height: convo.burnchain_tip_height,
             burnchain_tip_consensus_hash: convo.burnchain_tip_consensus_hash.clone(),
@@ -612,7 +620,7 @@ impl Conversation {
         test_debug!("Handshake from {:?} {} public key {:?} expires at {:?}", &self, authentic_msg,
                     &to_hex(&handshake_data.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_data.expire_block_height);
 
-        let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat);
+        let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat, self.data_url.clone());
         let accept = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, chain_view, StacksMessageType::HandshakeAccept(accept_data));
         Ok(Some(accept))
     }
@@ -623,6 +631,7 @@ impl Conversation {
         self.update_from_handshake_data(preamble, &handshake_accept.handshake)?;
         self.peer_heartbeat = handshake_accept.heartbeat_interval;
         self.stats.last_handshake_time = get_epoch_time_secs();
+        self.data_url = handshake_accept.data_url.clone();
 
         test_debug!("HandshakeAccept from {:?}: set public key to {:?} expiring at {:?} heartbeat {}s", &self,
                     &to_hex(&handshake_accept.handshake.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_accept.handshake.expire_block_height, self.peer_heartbeat);
@@ -991,7 +1000,9 @@ mod test {
 
     #[test]
     fn convo_handshake_accept() {
-        let conn_opts = ConnectionOptions::default();
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.data_url = UrlString::try_from("https://the-new-internet.com").unwrap();
+
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
         
@@ -1077,6 +1088,7 @@ mod test {
                 assert_eq!(data.handshake.node_public_key, StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer_2.private_key)));
                 assert_eq!(data.handshake.expire_block_height, local_peer_2.private_key_expire); 
                 assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+                assert_eq!(data.data_url, conn_opts.data_url);
             },
             _ => {
                 assert!(false);
