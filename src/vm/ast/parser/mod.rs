@@ -14,6 +14,7 @@ pub enum LexItem {
     LiteralValue(usize, Value),
     SugaredContractIdentifier(usize, ContractName),
     SugaredFieldIdentifier(usize, ContractName, ClarityName),
+    FieldIdentifier(usize, TraitIdentifier),
     TraitReference(usize, ClarityName),
     Variable(String),
     Whitespace
@@ -198,10 +199,10 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                     TokenType::FullyQualifiedFieldIdentifierLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match TraitIdentifier::parse_fully_qualified(&str_value) {
-                            Ok(parsed) => Ok(Value::Field(parsed)),
+                            Ok(parsed) => Ok(parsed),
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingField(str_value.clone())))
                         }?;
-                        Ok(LexItem::LiteralValue(str_value.len(), value))
+                        Ok(LexItem::FieldIdentifier(str_value.len(), value))
                     },
                     TokenType::SugaredFieldIdentifierLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
@@ -340,6 +341,20 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     end_column = end_column - 1;
                 }
                 let mut pre_expr = PreSymbolicExpression::sugared_field_identifier(contract_name, name);
+                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
+
+                match parse_stack.last_mut() {
+                    None => output_list.push(pre_expr),
+                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                };
+            },
+            LexItem::FieldIdentifier(length, trait_identifier) => {
+                let mut end_column = column_pos + (length as u32);
+                // Avoid underflows on cases like empty strings
+                if length > 0 {
+                    end_column = end_column - 1;
+                }
+                let mut pre_expr = PreSymbolicExpression::field_identifier(trait_identifier);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
 
                 match parse_stack.last_mut() {
@@ -495,8 +510,8 @@ r#"z (let ((x 1) (y 2))
         let parsed = ast::parser::parse(&input).unwrap();
 
         let x1 = &parsed[0];
-        assert!( match x1.match_atom_value() {
-            Some(Value::Field(data)) => {
+        assert!( match x1.match_field_identifier() {
+            Some(data) => {
                 format!("{}", PrincipalData::Standard(data.contract_identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
                     data.contract_identifier.name == "my-contract".into() &&
                     data.name == "my-trait".into()

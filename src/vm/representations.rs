@@ -3,7 +3,7 @@ use std::borrow::Borrow;
 use std::ops::Deref;
 use std::convert::TryFrom;
 use regex::{Regex};
-use vm::types::{Value};
+use vm::types::{Value, TraitIdentifier};
 use vm::errors::{RuntimeErrorType};
 
 pub const MAX_STRING_LEN: u8 = 128;
@@ -77,6 +77,7 @@ pub enum PreSymbolicExpressionType {
     List(Box<[PreSymbolicExpression]>),
     SugaredContractIdentifier(ContractName),
     SugaredFieldIdentifier(ContractName, ClarityName),
+    FieldIdentifier(TraitIdentifier),
     TraitReference(ClarityName),
 }
 
@@ -152,6 +153,13 @@ impl PreSymbolicExpression {
         }
     }
 
+    pub fn field_identifier(val: TraitIdentifier) -> PreSymbolicExpression {
+        PreSymbolicExpression {
+            pre_expr: PreSymbolicExpressionType::FieldIdentifier(val),
+            .. PreSymbolicExpression::cons()
+        }
+    }
+
     pub fn list(val: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::List(val),
@@ -174,6 +182,14 @@ impl PreSymbolicExpression {
             None
         }
     }
+
+    pub fn match_field_identifier(&self) -> Option<&TraitIdentifier> {
+        if let PreSymbolicExpressionType::FieldIdentifier(ref value) = self.pre_expr {
+            Some(value)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -183,6 +199,7 @@ pub enum SymbolicExpressionType {
     List(Box<[SymbolicExpression]>),
     LiteralValue(Value),
     TraitReference(ClarityName),
+    Field(TraitIdentifier),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -266,6 +283,13 @@ impl SymbolicExpression {
         }
     }
 
+    pub fn field(val: TraitIdentifier) -> SymbolicExpression {
+        SymbolicExpression {
+            expr: SymbolicExpressionType::Field(val),
+            .. SymbolicExpression::cons()
+        }
+    }
+
     // These match functions are used to simplify calling code
     //   areas a lot. There is a frequent code pattern where
     //   a block _expects_ specific symbolic expressions, leading
@@ -310,6 +334,14 @@ impl SymbolicExpression {
             None
         }
     }
+
+    pub fn match_field(&self) -> Option<&TraitIdentifier> {
+        if let SymbolicExpressionType::Field(ref value) = self.expr {
+            Some(value)
+        } else {
+            None
+        }
+    }
 }
 
 impl fmt::Display for SymbolicExpression {
@@ -329,6 +361,7 @@ impl fmt::Display for SymbolicExpression {
                 write!(f, "{}", value)?;
             },
             SymbolicExpressionType::TraitReference(ref value) => { write!(f, "<{}>", &**value)?; },
+            SymbolicExpressionType::Field(ref value) => { write!(f, "<{}>", value)?; },
         };
         
         Ok(())

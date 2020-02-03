@@ -4,7 +4,7 @@ use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 use vm::analysis::AnalysisDatabase;
 use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 use vm::types::{Value, TraitIdentifier};
 use vm::functions::NativeFunctions;
 use vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
@@ -46,7 +46,7 @@ impl PreTypeCheckingTraitChecker {
                 return Err(CheckErrors::ImportTraitBadSignature.into())
             }
             let trait_identifier = match &imported_trait_args[2].expr {
-                LiteralValue(Value::Field(field)) => field,
+                Field(field) => field,
                 _ => return Err(CheckErrors::ImportTraitBadSignature.into()),
             };
 
@@ -109,7 +109,7 @@ impl PreTypeCheckingTraitChecker {
                 (DefineFunctions::UseTrait, Atom(trait_name)) => {
                     imported_traits.insert(trait_name.clone(), exp.clone());
                 },
-                (DefineFunctions::ImplTrait, LiteralValue(Value::Field(trait_identifier))) => {
+                (DefineFunctions::ImplTrait, Field(trait_identifier)) => {
                     implemented_traits.insert(trait_identifier.clone());
                 },
                 (DefineFunctions::PublicFunction, List(function_definition)) | 

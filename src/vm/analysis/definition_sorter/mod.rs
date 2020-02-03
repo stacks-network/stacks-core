@@ -1,7 +1,7 @@
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
@@ -84,7 +84,7 @@ impl <'a> DefinitionSorter {
                 }
                 Ok(())
             },
-            AtomValue(_)  | LiteralValue(_) => Ok(()),
+            AtomValue(_) | LiteralValue(_) | Field(_) => Ok(()),
             TraitReference(ref name) => { 
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {

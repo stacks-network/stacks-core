@@ -1,5 +1,5 @@
 use vm::representations::{SymbolicExpressionType, SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 use vm::types::{TypeSignature, TupleTypeSignature, Value, PrincipalData, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctionsParsed;
@@ -111,17 +111,11 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     /// Note that because of (1), this function _cannot_ short-circuit on read-only.
     fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
         match expr.expr {
-            AtomValue(_) | LiteralValue(_) => {
-                Ok(true)
-            },
-            Atom(_) => {
+            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_) | Field(_) => {
                 Ok(true)
             },
             List(ref expression) => {
                 self.check_function_application_read_only(expression)
-            }
-            TraitReference(_) => {
-                Ok(true)
             }
         }
     }

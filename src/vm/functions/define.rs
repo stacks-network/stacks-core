@@ -3,7 +3,7 @@ use vm::types::{Value, TypeSignature, TupleTypeSignature, PrincipalData, TraitId
 use vm::types::signatures::FunctionSignature;
 use vm::callables::{DefinedFunction, DefineType};
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{Atom, AtomValue, List, LiteralValue};
+use vm::representations::SymbolicExpressionType::{Atom, AtomValue, List, LiteralValue, Field};
 use vm::errors::{RuntimeErrorType, CheckErrors, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::eval;
@@ -237,7 +237,7 @@ impl <'a> DefineFunctionsParsed <'a> {
                 check_argument_count(2, args)?;
                 let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
                 match &args[1].expr {
-                    LiteralValue(Value::Field(ref field)) => DefineFunctionsParsed::UseTrait { 
+                    Field(ref field) => DefineFunctionsParsed::UseTrait { 
                         name: &name, 
                         trait_identifier: &field 
                     },
@@ -247,7 +247,7 @@ impl <'a> DefineFunctionsParsed <'a> {
             DefineFunctions::ImplTrait => {
                 check_argument_count(1, args)?;
                 match &args[0].expr {
-                    LiteralValue(Value::Field(ref field)) => DefineFunctionsParsed::ImplTrait { 
+                    Field(ref field) => DefineFunctionsParsed::ImplTrait { 
                         trait_identifier: &field 
                     },
                     _ => return Err(CheckErrors::ExpectedTraitIdentifier.into())

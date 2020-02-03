@@ -86,7 +86,6 @@ define_u8_enum!(TypePrefix {
     OptionalSome,
     List,
     Tuple,
-    Field,   
 });
 
 impl From<&Value> for TypePrefix {
@@ -118,7 +117,6 @@ impl From<&Value> for TypePrefix {
             Optional(OptionalData{ data: Some(value) }) => TypePrefix::OptionalSome,
             List(_) => TypePrefix::List,
             Tuple(_) => TypePrefix::Tuple,
-            Field(_) => TypePrefix::Field,
         }
     }
 }
@@ -290,16 +288,6 @@ impl Value {
 
                 Ok(Value::some(Value::deserialize_read(r, expect_contained_type)?))
             },
-            TypePrefix::Field => {
-                check_match!(expected_type, TypeSignature::TraitReferenceType(_))?;
-                let contract_identifier = {
-                    let issuer = StandardPrincipalData::deserialize_read(r)?;
-                    let name = ContractName::deserialize_read(r)?;
-                    QualifiedContractIdentifier { issuer, name }
-                };
-                let name = ClarityName::deserialize_read(r)?;
-                Ok(Value::from(TraitIdentifier { name, contract_identifier }))
-            }
             TypePrefix::List => {
                 let mut len = [0; 4];
                 r.read_exact(&mut len)?;
@@ -395,11 +383,6 @@ impl Value {
             Principal(Contract(contract_identifier)) => {
                 contract_identifier.issuer.serialize_write(w)?;
                 contract_identifier.name.serialize_write(w)?;
-            },
-            Field(field_data) => {
-                field_data.contract_identifier.issuer.serialize_write(w)?;
-                field_data.contract_identifier.name.serialize_write(w)?;
-                field_data.name.serialize_write(w)?
             },
             Response(response) => {
                 response.data.serialize_write(w)?

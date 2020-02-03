@@ -5,7 +5,7 @@ pub mod natives;
 use std::convert::TryInto;
 use std::collections::{HashMap, BTreeMap};
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 use vm::types::{TypeSignature, TupleTypeSignature, FunctionArg,
                 FunctionType, FixedFunction, parse_name_type_pairs, Value};
 use vm::types::signatures::{FunctionSignature};
@@ -398,7 +398,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             List(ref expression) => {
                 self.type_check_function_application(expression, context)?
             },
-            TraitReference(ref name) => {
+            TraitReference(_) | Field(_) => {
                 return Err(CheckErrors::InvalidTypeDescription.into());
             }
         };

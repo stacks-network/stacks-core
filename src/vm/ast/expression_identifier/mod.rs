@@ -1,4 +1,5 @@
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::representations::SymbolicExpressionType::{AtomValue, LiteralValue, Atom, List, TraitReference, Field};
 use vm::ast::types::{ContractAST, BuildASTPass};
 use vm::ast::errors::{ParseResult, ParseErrors, ParseError};
 
@@ -8,20 +9,12 @@ fn inner_relabel(args: &mut [SymbolicExpression], index: u64) -> ParseResult<u64
     for expression in &mut args[..] {
         expression.id = current;
         current = match expression.expr {
-            SymbolicExpressionType::AtomValue(_) | SymbolicExpressionType::LiteralValue(_) => {
+            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_) | Field(_) => {
                 current.checked_add(1)
                     .ok_or(ParseError::new(ParseErrors::TooManyExpressions))
             },
-            SymbolicExpressionType::Atom(_) => {
-                current.checked_add(1)
-                    .ok_or(ParseError::new(ParseErrors::TooManyExpressions))
-            },
-            SymbolicExpressionType::List(ref mut exprs) => {
+            List(ref mut exprs) => {
                 inner_relabel(exprs, current)
-            },
-            SymbolicExpressionType::TraitReference(_) => {
-                current.checked_add(1)
-                    .ok_or(ParseError::new(ParseErrors::TooManyExpressions))
             },
         }?;
     }

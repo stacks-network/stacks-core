@@ -172,7 +172,6 @@ pub enum Value {
     Tuple(TupleData),
     Optional(OptionalData),
     Response(ResponseData),
-    Field(TraitIdentifier),
 }
 
 define_named_enum!(BlockInfoProperty {
@@ -300,10 +299,6 @@ impl Value {
     pub fn buff_from_byte(byte: u8) -> Value {
         Value::Buffer(BuffData { data: vec![byte] })
     }
-
-    pub fn field_from(name: ClarityName, contract_identifier: QualifiedContractIdentifier) -> Value {
-        Value::Field(TraitIdentifier { name, contract_identifier })
-    }
 }
 
 impl BuffData {
@@ -359,7 +354,6 @@ impl fmt::Display for Value {
             Value::Principal(principal_data) => write!(f, "{}", principal_data),
             Value::Optional(opt_data) => write!(f, "{}", opt_data),
             Value::Response(res_data) => write!(f, "{}", res_data),
-            Value::Field(trait_identifier) => write!(f, "{:?}{:?}", trait_identifier.contract_identifier, trait_identifier.name),
             Value::List(list_data) => {
                 write!(f, "(")?;
                 for (ix, v) in list_data.data.iter().enumerate() {
@@ -420,6 +414,12 @@ impl fmt::Display for PrincipalData {
     }
 }
 
+impl fmt::Display for TraitIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}.{}", self.contract_identifier, self.name.to_string())
+    }
+}
+
 impl From<StandardPrincipalData> for Value {
     fn from(principal: StandardPrincipalData) -> Self {
         Value::Principal(PrincipalData::from(principal))
@@ -429,12 +429,6 @@ impl From<StandardPrincipalData> for Value {
 impl From<QualifiedContractIdentifier> for Value {
     fn from(principal: QualifiedContractIdentifier) -> Self {
         Value::Principal(PrincipalData::Contract(principal))
-    }
-}
-
-impl From<TraitIdentifier> for Value {
-    fn from(trait_identifier: TraitIdentifier) -> Self {
-        Value::Field(trait_identifier)
     }
 }
 
