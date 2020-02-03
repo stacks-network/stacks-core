@@ -578,8 +578,10 @@ impl StacksChainState {
         }
 
         let mut microblocks = vec![];
-        while block_bytes.len() > 0 {
-            let microblock = StacksMicroblock::consensus_deserialize(&mut io::Cursor::new(&block_bytes)).map_err(Error::NetError)?;
+        let num_bytes = block_bytes.len() as u64;
+        let mut cursor = io::Cursor::new(block_bytes);
+        while cursor.position() < num_bytes {
+            let microblock = StacksMicroblock::consensus_deserialize(&mut cursor).map_err(Error::NetError)?;
             microblocks.push(microblock);
         }
 
