@@ -1743,7 +1743,7 @@ mod test {
             ]);
 
             let mut nonfungible_pc_bytes = vec![];
-            (AssetInfoID::NonfungibleAsset as u8).consensus_serialize(&mut fungible_pc_bytes).unwrap();
+            (AssetInfoID::NonfungibleAsset as u8).consensus_serialize(&mut nonfungible_pc_bytes).unwrap();
             tx_pcp.consensus_serialize(&mut nonfungible_pc_bytes).unwrap();
             AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.consensus_serialize(&mut nonfungible_pc_bytes).unwrap();
             Value::buff_from(vec![0, 1, 2, 3]).unwrap().consensus_serialize(&mut nonfungible_pc_bytes).unwrap();
