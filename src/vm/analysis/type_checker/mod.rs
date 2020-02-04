@@ -472,7 +472,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                     let (trait_name, trait_signature) = self.type_check_define_trait(name, functions, context)?;
                     self.contract_context.add_trait(trait_name, trait_signature)?;
                 },
-                DefineFunctionsParsed::UseTrait { name, trait_identifier } => { // todo(ludo): remove??
+                DefineFunctionsParsed::UseTrait { name, trait_identifier } => {
                     let result = self.db.get_defined_trait(&trait_identifier.contract_identifier, &trait_identifier.name)?;
                     match result {
                         Some(trait_sig) => self.contract_context.add_trait(name.clone(), trait_sig)?,
@@ -480,7 +480,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                     }
                 },
                 DefineFunctionsParsed::ImplTrait { trait_identifier } => {
-                    self.contract_context.add_implemented_trait(trait_identifier.clone())?; // todo(ludo): remove??
+                    self.contract_context.add_implemented_trait(trait_identifier.clone())?;
                 },
             };
             Ok(Some(()))
