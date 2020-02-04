@@ -254,6 +254,9 @@ pub struct PeerNetwork {
     // re-key state 
     pub rekey_handles: Option<HashMap<usize, ReplyHandleP2P>>,
 
+    // prune state
+    pub prune_deadline: u64,
+
     // how often we pruned a given inbound/outbound peer
     pub prune_outbound_counts: HashMap<NeighborKey, u64>,
     pub prune_inbound_counts: HashMap<NeighborKey, u64>
@@ -285,6 +288,7 @@ impl PeerNetwork {
 
             rekey_handles: None,
 
+            prune_deadline: 0,
             prune_outbound_counts : HashMap::new(),
             prune_inbound_counts : HashMap::new(),
         }
@@ -1311,16 +1315,15 @@ impl PeerNetwork {
         self.disconnect_unresponsive();
         
         // walk the peer graph and deal with new/dropped connections
+        let mut do_prune = false;
         let walk_result_opt = self.walk_peer_graph();
         match walk_result_opt {
             None => {},
             Some(walk_result) => {
+                do_prune = walk_result.do_prune;
                 self.process_neighbor_walk(walk_result);
             }
         }
-
-        // prune back our connections if it's been a while 
-        self.prune_connections();
 
         // send out any queued messages.
         // this has the intentional side-effect of activating some sockets as writeable.
@@ -1331,6 +1334,12 @@ impl PeerNetwork {
                     debug!("{:?}: Failed to repair connection to event {}", &self.local_peer, error_event);
                     self.deregister(error_event);
                 }); 
+        }
+        
+        if do_prune {
+            // prune back our connections if it's been a while
+            // (only do this if we're done with the neighbor walk)
+            self.prune_connections();
         }
         
         // queue up pings to neighbors we haven't spoken to in a while
@@ -1457,7 +1466,7 @@ mod test {
 
     #[test]
     fn test_dispatch_requests_relay() {
-        let neighbor = make_test_neighbor(32100);
+        let neighbor = make_test_neighbor(2100);
 
         let mut p2p = make_test_p2p_network(&vec![]);
 
@@ -1473,7 +1482,7 @@ mod test {
         // start fake endpoint, which will accept once and wait 5 seconds
         let endpoint_thread = thread::spawn(move || {
             use std::net::TcpListener;
-            let listener = TcpListener::bind("127.0.0.1:32100").unwrap();
+            let listener = TcpListener::bind("127.0.0.1:2100").unwrap();
             let (sock, addr) = listener.accept().unwrap();
             test_debug!("Accepted {:?}", &addr);
             thread::sleep(time::Duration::from_millis(5000));
@@ -1481,7 +1490,7 @@ mod test {
 
         // start dispatcher
         let p2p_thread = thread::spawn(move || {
-            p2p.bind(&"127.0.0.1:32000".parse().unwrap()).unwrap();
+            p2p.bind(&"127.0.0.1:2000".parse().unwrap()).unwrap();
             for i in 0..3 {
                 test_debug!("dispatch batch {}", i);
                 let dispatch_count = p2p.dispatch_requests();
