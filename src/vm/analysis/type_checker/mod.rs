@@ -252,20 +252,20 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             .cloned()
     }
     
-    fn type_check_define_function(&mut self, signature: &[SymbolicExpression], body: &SymbolicExpression, 
+    fn type_check_define_function(&mut self, signature: &[SymbolicExpression], body: &SymbolicExpression,
                                   context: &TypingContext) -> CheckResult<(ClarityName, FixedFunction)> {
         let (function_name, args) = signature.split_first()
-        .ok_or(CheckErrors::RequiresAtLeastArguments(1, 0))?;
+            .ok_or(CheckErrors::RequiresAtLeastArguments(1, 0))?;
         let function_name = function_name.match_atom()
-        .ok_or(CheckErrors::BadFunctionName)?;
+            .ok_or(CheckErrors::BadFunctionName)?;
         let mut args = parse_name_type_pairs(args)
-        .map_err(|_| { CheckErrors::BadSyntaxBinding })?;
-        
+            .map_err(|_| { CheckErrors::BadSyntaxBinding })?;
+
         if self.function_return_tracker.is_some() {
             panic!("Interpreter error: Previous function define left dirty typecheck state.");
         }
-        
-        
+
+
         let mut function_context = context.extend()?;
         for (arg_name, arg_type) in args.iter() {
             self.contract_context.check_name_used(arg_name)?;
@@ -277,11 +277,11 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 _ => { function_context.variable_types.insert(arg_name.clone(), arg_type.clone()); }
             }
         }
-        
+
         self.function_return_tracker = Some(None);
-        
+
         let return_result = self.type_check(body, &function_context);
-        
+
         match return_result {
             Err(e) => {
                 self.function_return_tracker = None;
@@ -293,17 +293,17 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                         // check if the computed return type matches the return type
                         //   of any early exits from the call graph (e.g., (expects ...) calls)
                         TypeSignature::least_supertype(expected, &return_type)
-                        .map_err(|_| CheckErrors::ReturnTypesMustMatch(expected.clone(), return_type))?
+                            .map_err(|_| CheckErrors::ReturnTypesMustMatch(expected.clone(), return_type))?
                     } else {
                         return_type
                     }
                 };
-                
+
                 self.function_return_tracker = None;
-                
+
                 let func_args: Vec<FunctionArg> = args.drain(..)
-                .map(|(arg_name, arg_type)| FunctionArg::new(arg_type, arg_name)).collect();
-                
+                    .map(|(arg_name, arg_type)| FunctionArg::new(arg_type, arg_name)).collect();
+
                 Ok((function_name.clone(), FixedFunction { args: func_args, returns: return_type }))
             }
         }
