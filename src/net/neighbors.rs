@@ -1642,8 +1642,8 @@ mod test {
     
     #[test]
     fn test_walk_1_neighbor_bootstrapping() {
-        let mut peer_1_config = TestPeerConfig::from_port(32000);
-        let peer_2_config = TestPeerConfig::from_port(32001);
+        let mut peer_1_config = TestPeerConfig::from_port(32100);
+        let peer_2_config = TestPeerConfig::from_port(32101);
 
         // peer 1 crawls peer 2, but peer 1 doesn't add peer 2 to its frontier becuase peer 2 is
         // too far behind.
@@ -1715,8 +1715,8 @@ mod test {
    
     #[test]
     fn test_walk_1_neighbor_behind() {
-        let mut peer_1_config = TestPeerConfig::from_port(32000);
-        let peer_2_config = TestPeerConfig::from_port(32001);
+        let mut peer_1_config = TestPeerConfig::from_port(32200);
+        let peer_2_config = TestPeerConfig::from_port(32201);
 
         // peer 1 crawls peer 2, and peer 1 adds peer 2 to its frontier even though peer 2 does
         // not, because peer 2 is too far ahead
@@ -1797,11 +1797,11 @@ mod test {
         // peer 1 has peer 2 as its neighbor.
         // peer 2 has 10 other neighbors.
         // Goal: peer 1 learns about the 10 other neighbors.
-        let mut peer_1_config = TestPeerConfig::from_port(32000);
-        let mut peer_2_config = TestPeerConfig::from_port(32001);
+        let mut peer_1_config = TestPeerConfig::from_port(32300);
+        let mut peer_2_config = TestPeerConfig::from_port(32301);
         let mut peer_2_neighbors = vec![];
         for i in 0..10 {
-            let n = TestPeerConfig::from_port(i + 2 + 32000);
+            let n = TestPeerConfig::from_port(i + 2 + 32300);
             peer_2_config.add_neighbor(&n.to_neighbor());
 
             let p = TestPeer::new(n);
@@ -1869,11 +1869,11 @@ mod test {
         // peer 1 has peer 2 as its neighbor.
         // peer 2 has 10 other neighbors, 5 of which are too far behind peer 1.
         // Goal: peer 1 learns about the 5 fresher neighbors.
-        let mut peer_1_config = TestPeerConfig::from_port(32000);
-        let mut peer_2_config = TestPeerConfig::from_port(32001);
+        let mut peer_1_config = TestPeerConfig::from_port(32400);
+        let mut peer_2_config = TestPeerConfig::from_port(32401);
         let mut peer_2_neighbors = vec![];
         for i in 0..10 {
-            let n = TestPeerConfig::from_port(i + 2 + 32000);
+            let n = TestPeerConfig::from_port(i + 2 + 32400);
             peer_2_config.add_neighbor(&n.to_neighbor());
 
             let p = TestPeer::new(n);
@@ -1959,8 +1959,8 @@ mod test {
 
     #[test]
     fn test_walk_2_neighbors() {
-        let mut peer_1_config = TestPeerConfig::from_port(32000);
-        let mut peer_2_config = TestPeerConfig::from_port(32001);
+        let mut peer_1_config = TestPeerConfig::from_port(32500);
+        let mut peer_2_config = TestPeerConfig::from_port(32501);
 
         peer_1_config.whitelisted = -1;
         peer_2_config.whitelisted = -1;
@@ -2068,8 +2068,8 @@ mod test {
 
     #[test]
     fn test_walk_2_neighbors_rekey() {
-        let mut peer_1_config = TestPeerConfig::from_port(32000);
-        let mut peer_2_config = TestPeerConfig::from_port(32001);
+        let mut peer_1_config = TestPeerConfig::from_port(32600);
+        let mut peer_2_config = TestPeerConfig::from_port(32601);
 
         peer_1_config.whitelisted = -1;
         peer_2_config.whitelisted = -1;
@@ -2192,8 +2192,8 @@ mod test {
     #[test]
     fn test_walk_2_neighbors_different_networks() {
         // peer 1 and 2 try to handshake but never succeed since they have different network IDs
-        let mut peer_1_config = TestPeerConfig::from_port(32000);
-        let mut peer_2_config = TestPeerConfig::from_port(32001);
+        let mut peer_1_config = TestPeerConfig::from_port(32700);
+        let mut peer_2_config = TestPeerConfig::from_port(32701);
 
         // peer 1 crawls peer 2, and peer 2 crawls peer 1
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
@@ -2291,8 +2291,8 @@ mod test {
         assert_eq!(walk_result_2.replaced_neighbors.len(), 0);
     }
     
-    fn setup_peer_config(i: usize, neighbor_count: usize, peer_count: usize) -> TestPeerConfig {
-        let mut conf = TestPeerConfig::from_port(32000 + (i as u16));
+    fn setup_peer_config(i: usize, port_base: u16, neighbor_count: usize, peer_count: usize) -> TestPeerConfig {
+        let mut conf = TestPeerConfig::from_port(port_base + (i as u16));
         conf.connection_opts.num_neighbors = neighbor_count as u64;
         conf.connection_opts.soft_num_neighbors = neighbor_count as u64;
 
@@ -2321,7 +2321,7 @@ mod test {
         let NEIGHBOR_COUNT : usize = 5;
 
         for i in 0..PEER_COUNT {
-            let mut conf = setup_peer_config(i, NEIGHBOR_COUNT, PEER_COUNT);
+            let mut conf = setup_peer_config(i, 32800, NEIGHBOR_COUNT, PEER_COUNT);
 
             conf.whitelisted = -1;      // always whitelisted
             conf.blacklisted = 0;
@@ -2340,7 +2340,7 @@ mod test {
         let NEIGHBOR_COUNT : usize = 5;
 
         for i in 0..PEER_COUNT {
-            let mut conf = setup_peer_config(i, NEIGHBOR_COUNT, PEER_COUNT);
+            let mut conf = setup_peer_config(i, 32900, NEIGHBOR_COUNT, PEER_COUNT);
 
             conf.whitelisted = 0;
             conf.blacklisted = 0;
@@ -2356,14 +2356,14 @@ mod test {
         // one outlier peer has a different org than the others.
         use std::env;
 
-        // ::32000 is in AS 1
-        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_32000", "1");
+        // ::33000 is in AS 1
+        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_33000", "1");
 
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 20;
         let NEIGHBOR_COUNT : usize = 5;
         for i in 0..PEER_COUNT {
-            let mut conf = setup_peer_config(i, NEIGHBOR_COUNT, PEER_COUNT);
+            let mut conf = setup_peer_config(i, 33000, NEIGHBOR_COUNT, PEER_COUNT);
 
             conf.whitelisted = 0;
             conf.blacklisted = 0;
@@ -2449,7 +2449,7 @@ mod test {
         let NEIGHBOR_COUNT : usize = 5;
 
         for i in 0..PEER_COUNT {
-            let mut conf = setup_peer_config(i, NEIGHBOR_COUNT, PEER_COUNT);
+            let mut conf = setup_peer_config(i, 33100, NEIGHBOR_COUNT, PEER_COUNT);
 
             conf.whitelisted = -1;
             conf.blacklisted = 0;
@@ -2468,7 +2468,7 @@ mod test {
         let NEIGHBOR_COUNT : usize = 5;
 
         for i in 0..PEER_COUNT {
-            let mut conf = setup_peer_config(i, NEIGHBOR_COUNT, PEER_COUNT);
+            let mut conf = setup_peer_config(i, 33200, NEIGHBOR_COUNT, PEER_COUNT);
 
             conf.whitelisted = 0;
             conf.blacklisted = 0;
@@ -2491,7 +2491,7 @@ mod test {
         let PEER_COUNT : usize = 20;
         let NEIGHBOR_COUNT : usize = 6;     // make this a little bigger to speed this test up
         for i in 0..PEER_COUNT {
-            let mut conf = setup_peer_config(i, NEIGHBOR_COUNT, PEER_COUNT);
+            let mut conf = setup_peer_config(i, 33300, NEIGHBOR_COUNT, PEER_COUNT);
 
             conf.whitelisted = 0;
             conf.blacklisted = 0;
@@ -2576,7 +2576,7 @@ mod test {
         let PEER_COUNT : usize = 20;
         let NEIGHBOR_COUNT : usize = 5;
         for i in 0..PEER_COUNT {
-            let mut conf = setup_peer_config(i, NEIGHBOR_COUNT, PEER_COUNT);
+            let mut conf = setup_peer_config(i, 33400, NEIGHBOR_COUNT, PEER_COUNT);
 
             conf.whitelisted = -1;      // always whitelisted
             conf.blacklisted = 0;
@@ -2593,7 +2593,7 @@ mod test {
         let PEER_COUNT : usize = 20;
         let NEIGHBOR_COUNT : usize = 5;
         for i in 0..PEER_COUNT {
-            let mut conf = setup_peer_config(i, NEIGHBOR_COUNT, PEER_COUNT);
+            let mut conf = setup_peer_config(i, 33500, NEIGHBOR_COUNT, PEER_COUNT);
 
             conf.whitelisted = 0;
             conf.blacklisted = 0;
@@ -2610,13 +2610,13 @@ mod test {
         use std::env;
 
         // ::32000 is in AS 1
-        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_32000", "1");
+        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_33600", "1");
 
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 20;
         let NEIGHBOR_COUNT : usize = 5;
         for i in 0..PEER_COUNT {
-            let mut conf = setup_peer_config(i, NEIGHBOR_COUNT, PEER_COUNT);
+            let mut conf = setup_peer_config(i, 33600, NEIGHBOR_COUNT, PEER_COUNT);
 
             conf.whitelisted = 0;
             conf.blacklisted = 0;
@@ -2634,7 +2634,7 @@ mod test {
 
         let peers = test_walk_star(&mut peer_configs, NEIGHBOR_COUNT);
 
-        // all peers see peer ::32000 as having ASN and Org ID 1
+        // all peers see peer ::33600 as having ASN and Org ID 1
         let peer_0 = peer_configs[0].to_neighbor();
         for i in 1..PEER_COUNT {
             match PeerDB::get_peer(peers[i].network.peerdb.conn(), peer_0.addr.network_id, &peer_0.addr.addrbytes, peer_0.addr.port).unwrap() {
@@ -2646,7 +2646,7 @@ mod test {
             }
         }
 
-        // no peer pruned peer ::32000
+        // no peer pruned peer ::33600
         for i in 1..PEER_COUNT {
             match peers[i].network.prune_inbound_counts.get(&peer_0.addr) {
                 None => {},
