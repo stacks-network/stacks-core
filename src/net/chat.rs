@@ -949,7 +949,7 @@ mod test {
             let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
             next_snapshot.index_root = next_index_root;
 
-            test_debug!("i = {}, chain_view.burn_block_height = {}, ch = {}", i, chain_view.burn_block_height, next_snapshot.consensus_hash.to_hex());
+            test_debug!("i = {}, chain_view.burn_block_height = {}, ch = {}", i, chain_view.burn_block_height, next_snapshot.consensus_hash);
             
             prev_snapshot = next_snapshot;
         }

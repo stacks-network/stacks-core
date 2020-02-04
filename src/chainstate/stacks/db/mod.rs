@@ -64,8 +64,8 @@ use util::db::{
     IndexDBTx,
     query_rows,
     query_count,
-    RowOrder,
     FromRow,
+    FromColumn,
     db_mkdirs,
 };
 
@@ -79,7 +79,6 @@ use vm::analysis::run_analysis;
 use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
-use vm::database::marf::sqlite_marf;
 use vm::database::marf::MarfedKV;
 use vm::database::SqliteConnection;
 use vm::clarity::ClarityInstance;
@@ -161,17 +160,11 @@ impl StacksHeaderInfo {
     }
 }
 
-impl RowOrder for DBConfig {
-    fn row_order() -> Vec<&'static str> {
-        vec!["version", "mainnet", "chain_id"]
-    }
-}
-
 impl FromRow<DBConfig> for DBConfig {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<DBConfig, db_error> {
-        let version : String = row.get(index);
-        let mainnet_i64 : i64 = row.get(index + 1);
-        let chain_id_i64 : i64 = row.get(index + 2);
+    fn from_row<'a>(row: &'a Row) -> Result<DBConfig, db_error> {
+        let version : String = row.get("version");
+        let mainnet_i64 : i64 = row.get("mainnet");
+        let chain_id_i64 : i64 = row.get("chain_id");
 
         let mainnet = mainnet_i64 != 0;
         let chain_id = chain_id_i64 as u32;
@@ -184,20 +177,12 @@ impl FromRow<DBConfig> for DBConfig {
     }
 }
 
-impl RowOrder for StacksHeaderInfo {
-    fn row_order() -> Vec<&'static str> {
-        let mut header_rows = vec!["block_height", "index_root", "burn_header_hash"];
-        header_rows.append(&mut StacksBlockHeader::row_order());
-        header_rows
-    }
-}
-
 impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<StacksHeaderInfo, db_error> {
-        let block_height_i64 : i64 = row.get(index);
-        let index_root = TrieHash::from_row(row, index+1)?;
-        let burn_header_hash = BurnchainHeaderHash::from_row(row, index+2)?;
-        let stacks_header = StacksBlockHeader::from_row(row, index+3)?;
+    fn from_row<'a>(row: &'a Row) -> Result<StacksHeaderInfo, db_error> {
+        let block_height_i64 : i64 = row.get("block_height");
+        let index_root = TrieHash::from_column(row, "index_root")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+        let stacks_header = StacksBlockHeader::from_row(row)?;
         
         if block_height_i64 < 0 {
             return Err(db_error::ParseError);
@@ -264,8 +249,13 @@ impl<'a> ClarityTx<'a> {
         self.block.get_root_hash()
     }
 
+    #[cfg(test)]
     pub fn commit_block(self) -> () {
         self.block.commit_block()
+    }
+
+    pub fn commit_block_will_move(self, will_move: &str) -> () {
+        self.block.commit_block_will_move(will_move)
     }
 
     pub fn commit_to_block(self, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> () {
@@ -520,7 +510,7 @@ impl StacksChainState {
         }
         else {
             // sanity check
-            let rows = query_rows::<DBConfig, _>(&conn, &format!("SELECT {} FROM db_config LIMIT 1", DBConfig::row_order().join(",")), NO_PARAMS)
+            let rows = query_rows::<DBConfig, _>(&conn, &"SELECT * FROM db_config LIMIT 1".to_string(), NO_PARAMS)
                 .map_err(Error::DBError)?;
 
             let db_config = rows[0].clone();
@@ -731,7 +721,7 @@ impl StacksChainState {
 
         let headers_state_index = StacksChainState::open_index(&header_index_root, None)?;
 
-        let vm_state = sqlite_marf(&clarity_state_index_root, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH)))
+        let vm_state = MarfedKV::open(&clarity_state_index_root, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH)))
             .map_err(|e| Error::ClarityError(e.into()))?;
 
         let clarity_state = ClarityInstance::new(vm_state);
@@ -795,21 +785,30 @@ impl StacksChainState {
         Ok((chainstate_tx, clarity_instance))
     }
 
+    #[cfg(test)]
+    pub fn clarity_eval_read_only(&mut self, parent_id_bhh: &BlockHeaderHash,
+                                  contract: &QualifiedContractIdentifier, code: &str) -> Value {
+        let result = self.clarity_state.eval_read_only(parent_id_bhh, &self.headers_db, contract, code);
+        result.unwrap()
+    }
+
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
-    pub fn chainstate_block_begin<'a>(chainstate_tx: &mut ChainstateTx<'a>, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
+    pub fn chainstate_block_begin<'a>(chainstate_tx: &'a ChainstateTx<'a>, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
         let conf = chainstate_tx.config.clone();
-        StacksChainState::inner_clarity_tx_begin(conf, clarity_instance, parent_burn_hash, parent_block, new_burn_hash, new_block)
+        StacksChainState::inner_clarity_tx_begin(conf, chainstate_tx.headers_tx.deref().deref(),
+                                                 clarity_instance, parent_burn_hash, parent_block, new_burn_hash, new_block)
     }
     
     /// Begin a transaction against the Clarity VM, _outside of_ the context of a chainstate
     /// transaction.  Used by the miner for producing blocks.
     pub fn block_begin<'a>(&'a mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
         let conf = self.config();
-        StacksChainState::inner_clarity_tx_begin(conf, &mut self.clarity_state, parent_burn_hash, parent_block, new_burn_hash, new_block)
+        StacksChainState::inner_clarity_tx_begin(conf, &self.headers_db, &mut self.clarity_state,
+                                                 parent_burn_hash, parent_block, new_burn_hash, new_block)
     }
 
     /// Create a Clarity VM database transaction
-    fn inner_clarity_tx_begin<'a>(conf: DBConfig, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
+    fn inner_clarity_tx_begin<'a>(conf: DBConfig, headers_db: &'a Connection, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
         // mix burn header hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the burn header hash _is_).
         let parent_index_block = 
@@ -830,11 +829,11 @@ impl StacksChainState {
 
         let new_index_block = StacksBlockHeader::make_index_block_hash(new_burn_hash, new_block);
 
-        test_debug!("Begin processing Stacks block off of {}/{}", parent_burn_hash.to_hex(), parent_block.to_hex());
-        test_debug!("Child MARF index root:  {} = {} + {}", new_index_block.to_hex(), new_burn_hash.to_hex(), new_block.to_hex());
-        test_debug!("Parent MARF index root: {} = {} + {}", parent_index_block.to_hex(), parent_burn_hash.to_hex(), parent_block.to_hex());
+        test_debug!("Begin processing Stacks block off of {}/{}", parent_burn_hash, parent_block);
+        test_debug!("Child MARF index root:  {} = {} + {}", new_index_block, new_burn_hash, new_block);
+        test_debug!("Parent MARF index root: {} = {} + {}", parent_index_block, parent_burn_hash, parent_block);
 
-        let inner_clarity_tx = clarity_instance.begin_block(&parent_index_block, &new_index_block);
+        let inner_clarity_tx = clarity_instance.begin_block(&parent_index_block, &new_index_block, headers_db);
 
         test_debug!("Got clarity TX!");
         ClarityTx {
@@ -860,10 +859,10 @@ impl StacksChainState {
         // (this restriction is required to ensure that a poison microblock transaction can only apply to
         // a single epoch)
         let parent_hash = StacksChainState::get_index_hash(tip_burn_hash, tip_header);
-        match headers_tx.get_indexed(&parent_hash, &format!("chainstate::pubkey_hash::{}", pubkey_hash.to_hex())).map_err(Error::DBError)? {
+        match headers_tx.get_indexed(&parent_hash, &format!("chainstate::pubkey_hash::{}", pubkey_hash)).map_err(Error::DBError)? {
             Some(status_str) => {
                 // pubkey hash was seen before
-                debug!("Public key hash {} already used", pubkey_hash.to_hex());
+                debug!("Public key hash {} already used", pubkey_hash);
                 return Ok(true);
             },
             None => {
@@ -900,7 +899,7 @@ impl StacksChainState {
             };
 
         let indexed_keys = vec![
-            format!("chainstate::pubkey_hash::{}", new_tip.microblock_pubkey_hash.to_hex())
+            format!("chainstate::pubkey_hash::{}", new_tip.microblock_pubkey_hash)
         ];
 
         let indexed_values = vec![
@@ -926,7 +925,7 @@ impl StacksChainState {
         StacksChainState::insert_stacks_block_header(headers_tx, &new_tip_info)?;
         StacksChainState::insert_miner_payment_schedule(headers_tx, block_reward, user_burns)?;
 
-        debug!("Advanced to new tip! {}/{}", new_burn_block.to_hex(), new_tip.block_hash());
+        debug!("Advanced to new tip! {}/{}", new_burn_block, new_tip.block_hash());
         Ok(new_tip_info)
     }
 }

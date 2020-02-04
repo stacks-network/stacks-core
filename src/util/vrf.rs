@@ -221,8 +221,8 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::InvalidPublicKey => f.write_str(error::Error::description(self)),
-            Error::InvalidDataError => f.write_str(error::Error::description(self)),
+            Error::InvalidPublicKey => write!(f, "Invalid public key"),
+            Error::InvalidDataError => write!(f, "No data could be found"),
             Error::OSRNGError(ref e) => fmt::Display::fmt(e, f)
         }
     }
@@ -234,14 +234,6 @@ impl error::Error for Error {
             Error::InvalidPublicKey => None,
             Error::InvalidDataError => None,
             Error::OSRNGError(ref e) => Some(e)
-        }
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::InvalidPublicKey => "Invalid public key",
-            Error::InvalidDataError => "No data could be found",
-            Error::OSRNGError(ref e) => e.description()
         }
     }
 }

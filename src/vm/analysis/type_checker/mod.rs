@@ -381,7 +381,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
     fn type_check_define_persisted_variable(&mut self, var_name: &ClarityName, var_type: &SymbolicExpression, initial: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
         let expected_type = TypeSignature::parse_type_repr(var_type)
-            .map_err(|e| CheckErrors::DefineVariableBadSignature)?;
+            .map_err(|_e| CheckErrors::DefineVariableBadSignature)?;
 
         self.type_check_expects(initial, context, &expected_type)?;
 
@@ -396,7 +396,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok(token_name.clone())
     }
 
-    fn type_check_define_nft(&mut self, asset_name: &ClarityName, nft_type: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
+    fn type_check_define_nft(&mut self, asset_name: &ClarityName, nft_type: &SymbolicExpression, _context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
         let asset_type = TypeSignature::parse_type_repr(&nft_type)
             .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?;
 

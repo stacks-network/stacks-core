@@ -1,4 +1,5 @@
 use vm::ast::parse;
+use vm::database::{MemoryBackingStore};
 use vm::analysis::{type_check, mem_type_check, CheckError, CheckErrors, AnalysisDatabase};
 use vm::types::QualifiedContractIdentifier;
 
@@ -105,7 +106,12 @@ fn test_simple_read_only_violations() {
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (func1) (begin (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) (list 1 2)))
          (define-read-only (not-reading-only)
-            (as-max-len? (func1) 3))"];
+            (as-max-len? (func1) 3))",
+        "(define-read-only (not-reading-only)
+            (stx-burn? u10 tx-sender))",
+        "(define-read-only (not-reading-only)
+            (stx-transfer? u10 tx-sender tx-sender))",
+    ];
 
     for contract in bad_contracts.iter() {
         let err = mem_type_check(contract).unwrap_err();
@@ -139,12 +145,17 @@ fn test_contract_call_read_only_violations() {
     let mut bad_caller = parse(&contract_bad_caller_id, bad_caller).unwrap();
     let mut ok_caller = parse(&contract_ok_caller_id, ok_caller).unwrap();
 
-    let mut db = AnalysisDatabase::memory();
-    db.execute(|db| type_check(&contract_1_id, &mut contract1, db, true)).unwrap();
+    let mut marf = MemoryBackingStore::new();
+
+    let mut db = marf.as_analysis_db();
+    db.execute(|db| {
+        db.test_insert_contract_hash(&contract_1_id);
+        type_check(&contract_1_id, &mut contract1, db, true)
+    }).unwrap();
 
     let err = db.execute(|db| type_check(&contract_bad_caller_id, &mut bad_caller, db, true)).unwrap_err();
     assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly);
 
-    db.execute(|db| type_check(&contract_ok_caller_id, &mut ok_caller, db, true)).unwrap();
+    db.execute(|db| type_check(&contract_ok_caller_id, &mut ok_caller, db, false)).unwrap();
 
 }

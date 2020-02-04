@@ -492,6 +492,18 @@ impl StacksMessageCodec for StacksTransaction {
     }
 }
 
+impl From<TransactionSmartContract> for TransactionPayload {
+    fn from(value: TransactionSmartContract) -> Self {
+        TransactionPayload::SmartContract(value)
+    }
+}
+
+impl From<TransactionContractCall> for TransactionPayload {
+    fn from(value: TransactionContractCall) -> Self {
+        TransactionPayload::ContractCall(value)
+    }
+}
+
 impl StacksTransaction {
     /// Create a new, unsigned transaction and an empty STX fee with no post-conditions.
     pub fn new(version: TransactionVersion, auth: TransactionAuth, payload: TransactionPayload) -> StacksTransaction {
@@ -1559,7 +1571,7 @@ mod test {
         ];
 
         let mut idx = 0;
-        assert!(TransactionPayload::deserialize(&payload_bytes_bad_parent, &mut idx, payload_bytes_bad_parent.len() as u32).unwrap_err().description().find("microblock headers do not identify a fork").is_some());
+        assert!(TransactionPayload::deserialize(&payload_bytes_bad_parent, &mut idx, payload_bytes_bad_parent.len() as u32).unwrap_err().to_string().find("microblock headers do not identify a fork").is_some());
         assert_eq!(idx, 0);
         
         let payload_bytes_equal = vec![
@@ -1596,7 +1608,7 @@ mod test {
         ];
 
         let mut idx = 0;
-        assert!(TransactionPayload::deserialize(&payload_bytes_equal, &mut idx, payload_bytes_equal.len() as u32).unwrap_err().description().find("microblock headers match").is_some());
+        assert!(TransactionPayload::deserialize(&payload_bytes_equal, &mut idx, payload_bytes_equal.len() as u32).unwrap_err().to_string().find("microblock headers match").is_some());
         assert_eq!(idx, 0);
     }
 
@@ -1625,7 +1637,7 @@ mod test {
         transaction_contract_call.append(&mut contract_call_bytes.clone());
 
         let mut idx = 0;
-        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).unwrap_err().description().find("unknown payload ID").is_some());
+        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).unwrap_err().to_string().find("unknown payload ID").is_some());
         assert_eq!(idx, 0);
     }
     
@@ -1654,7 +1666,7 @@ mod test {
         transaction_contract_call.append(&mut contract_call_bytes);
 
         let mut idx = 0;
-        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).unwrap_err().description().find("Failed to parse Contract name").is_some());
+        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).unwrap_err().to_string().find("Failed to parse Contract name").is_some());
         assert_eq!(idx, 0);
     }
     
@@ -1684,7 +1696,7 @@ mod test {
         transaction_contract_call.append(&mut contract_call_bytes);
 
         let mut idx = 0;
-        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).unwrap_err().description().find("Failed to parse Clarity name").is_some());
+        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).unwrap_err().to_string().find("Failed to parse Clarity name").is_some());
         assert_eq!(idx, 0);
     }
     

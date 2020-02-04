@@ -200,7 +200,7 @@ impl BlockstackOperation for UserBurnSupportOp {
         }
 
         if !is_fresh {
-            warn!("Invalid user burn: invalid consensus hash {}", &self.consensus_hash.to_hex());
+            warn!("Invalid user burn: invalid consensus hash {}", &self.consensus_hash);
             return Err(op_error::UserBurnSupportBadConsensusHash);
         }
 

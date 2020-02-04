@@ -581,10 +581,14 @@ const AT_BLOCK: SpecialAPI = SpecialAPI {
     description: "The `at-block` function evaluates the expression `expr` _as if_ it were evaluated at the end of the
 block indicated by the _block-hash_ argument. The `expr` closure must be read-only.
 
+Note: The block identifying hash must be a hash returned by the `id-header-hash` block information
+property. This hash uniquely identifies Stacks blocks and is unique across Stacks forks. While the hash returned by
+`header-hash` is unique within the context of a single fork, it is not unique across Stacks forks.
+
 The function returns the result of evaluating `expr`.
 ",
     example: "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 (var-get data))
-(at-block (get-block-info? header-hash (- block-height u10)) (var-get data))"
+(at-block (get-block-info? id-header-hash (- block-height u10)) (var-get data))"
 };
         
 
@@ -810,13 +814,17 @@ const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     description: "The `get-block-info?` function fetches data for a block of the given block height. The 
 value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `BlockHeightInt` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names 
-are `time`, `header-hash`, `burnchain-header-hash`, and `vrf-seed`. 
+are `time`, `header-hash`, `burnchain-header-hash`, `id-header-hash`, `miner-address`, and `vrf-seed`. 
 
 The `time` property returns an integer value of the block header time field. This is a Unix epoch timestamp in seconds 
 which roughly corresponds to when the block was mined. **Warning**: this does not increase monotonically with each block
 and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information. 
 
-The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 32-byte buffer. 
+The `header-hash`, `burnchain-header-hash`, `id-header-hash`, and `vrf-seed` properties return a 32-byte buffer. 
+
+The `miner-address` property returns a `principal` corresponding to the miner of the given block.
+
+The `id-header-hash` is the block identifier value that must be used as input to the `at-block` function.
 ",
     example: "(get-block-info? time u10) ;; Returns (some 1557860301)
 (get-block-info? header-hash u2) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
@@ -1049,24 +1057,24 @@ The token type must have been defined using `define-fungible-token`.",
 };
 
 const TOKEN_TRANSFER: SpecialAPI = SpecialAPI {
-    input_type: "TokenName, int, principal, principal",
+    input_type: "TokenName, uint, principal, principal",
     output_type: "(response bool uint)",
     signature: "(ft-transfer? token-name amount sender recipient)",
     description: "`ft-transfer?` is used to increase the token balance for the `recipient` principal for a token
 type defined using `define-fungible-token` by debiting the `sender` principal.
 
-This function returns (ok true 1) if the transfer is successful. In the event of an unsuccessful transfer it returns
+This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
 
-`(err 1)` -- `sender` does not have enough balance to transfer
-`(err 2)` -- `sender` and `recipient` are the same principal
-`(err 3)` -- amount to send is non-positive
+`(err u1)` -- `sender` does not have enough balance to transfer
+`(err u2)` -- `sender` and `recipient` are the same principal
+`(err u3)` -- amount to send is non-positive
 ",
     example: "
 (define-fungible-token stackaroo)
 (ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(ft-transfer? stackaroo u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true 50)
-(ft-transfer? stackaroo u60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
+(ft-transfer? stackaroo u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
+(ft-transfer? stackaroo u60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err u1)
 "
 };
 
@@ -1078,19 +1086,58 @@ const ASSET_TRANSFER: SpecialAPI = SpecialAPI {
 from `sender` to `recipient`. The `asset-class` must have been defined by `define-non-fungible-token` and `asset-identifier`
 must be of the type specified in that definition.
 
-This function returns (ok true 1) if the transfer is successful. In the event of an unsuccessful transfer it returns
+This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
 
-`(err 1)` -- `sender` does not own the asset
-`(err 2)` -- `sender` and `recipient` are the same principal
-`(err 3)` -- asset identified by asset-identifier does not exist
+`(err u1)` -- `sender` does not own the asset
+`(err u2)` -- `sender` and `recipient` are the same principal
+`(err u3)` -- asset identified by asset-identifier does not exist
 ",
     example: "
 (define-non-fungible-token stackaroo (buff 40))
 (nft-mint? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true 1)
-(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
-(nft-transfer? stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 3)
+(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
+(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err u1)
+(nft-transfer? stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err u3)
+"
+};
+
+const STX_TRANSFER: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(stx-transfer? amount sender recipient)",
+    description: "`stx-transfer?` is used to increase the STX balance for the `recipient` principal 
+by debiting the `sender` principal. The `sender` principal _must_ be equal to the current context's `tx-sender`.
+
+This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
+one of the following error codes:
+
+`(err u1)` -- `sender` does not have enough balance to transfer
+`(err u2)` -- `sender` and `recipient` are the same principal
+`(err u3)` -- amount to send is non-positive
+`(err u4)` -- the `sender` principal is not the current `tx-sender`
+",
+    example: "
+(stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err u4)
+(stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns (ok true)
+"
+};
+
+const STX_BURN: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(stx-burn? amount sender)",
+    description: "`stx-burn?` debits the `sender` principal's STX holdings by `amount`, destroying
+the STX. The `sender` principal _must_ be equal to the current context's `tx-sender`.
+
+This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
+one of the following error codes:
+
+`(err u1)` -- `sender` does not have enough balance to transfer
+`(err u3)` -- amount to send is non-positive
+`(err u4)` -- the `sender` principal is not the current `tx-sender`
+",
+    example: "
+(stx-burn? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns (err u4)
+(stx-burn? u60 tx-sender) ;; returns (ok true)
 "
 };
 
@@ -1166,6 +1213,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
         TransferAsset => make_for_special(&ASSET_TRANSFER, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
+        StxTransfer => make_for_simple_native(&STX_TRANSFER, &StxTransfer, name),
+        StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }
 }
 

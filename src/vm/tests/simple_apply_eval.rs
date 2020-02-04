@@ -1,5 +1,5 @@
 use vm::{eval, execute as vm_execute};
-use vm::database::memory_db;
+use vm::database::MemoryBackingStore;
 use vm::errors::{CheckErrors, ShortReturnType, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
@@ -29,7 +29,8 @@ fn test_simple_let() {
     let contract_id = QualifiedContractIdentifier::transient();
     if let Ok(parsed_program) = parse(&contract_id, &program) {
         let context = LocalContext::new();
-        let mut env = OwnedEnvironment::memory();
+        let mut marf = MemoryBackingStore::new();
+        let mut env = OwnedEnvironment::new(marf.as_clarity_db());
 
         assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env.get_exec_environment(None), &context));
     } else {
@@ -198,7 +199,8 @@ fn test_simple_if_functions() {
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
-        let mut global_context = GlobalContext::new(memory_db());
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(marf.as_clarity_db());
 
         contract_context.functions.insert("with_else".into(), user_function1);
         contract_context.functions.insert("without_else".into(), user_function2);
@@ -373,6 +375,29 @@ fn test_options_errors() {
         CheckErrors::ExpectedOptionalValue(Value::Bool(true)).into(),
         CheckErrors::ExpectedTuple(TypeSignature::IntType).into(),
         CheckErrors::ExpectedTuple(TypeSignature::IntType).into()
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+    }
+}
+
+#[test]
+fn test_stx_ops_errors() {
+    let tests = [
+        "(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-transfer? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(stx-transfer? u4 u3 u2)",
+        "(stx-burn? u4)",
+        "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+    ];
+
+    let expectations: &[Error] = &[
+        CheckErrors::IncorrectArgumentCount(3,2).into(),
+        CheckErrors::BadTransferSTXArguments.into(),
+        CheckErrors::BadTransferSTXArguments.into(),
+        CheckErrors::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::BadTransferSTXArguments.into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {

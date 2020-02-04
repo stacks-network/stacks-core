@@ -284,7 +284,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             .expect("FATAL: failed to query DB for prior instances of this block");
 
         if is_already_committed {
-            warn!("Invalid block commit: already committed to {}", self.block_header_hash.to_hex());
+            warn!("Invalid block commit: already committed to {}", self.block_header_hash);
             return Err(op_error::BlockCommitAlreadyExists);
         }
         
@@ -303,7 +303,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
                 key
             },
             None => {
-                warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, chain_tip.burn_header_hash.to_hex());
+                warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, chain_tip.burn_header_hash);
                 return Err(op_error::BlockCommitNoLeaderKey);
             }
         };
@@ -312,7 +312,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             .expect("Sqlite failure while verifying that a leader VRF key is not consumed");
 
         if is_key_consumed {
-            warn!("Invalid block commit: leader key at ({},{}) is already used as of {} in fork {}", register_key.block_height, register_key.vtxindex, chain_tip.block_height, chain_tip.burn_header_hash.to_hex());
+            warn!("Invalid block commit: leader key at ({},{}) is already used as of {} in fork {}", register_key.block_height, register_key.vtxindex, chain_tip.block_height, chain_tip.burn_header_hash);
             return Err(op_error::BlockCommitLeaderKeyAlreadyUsed);
         }
 

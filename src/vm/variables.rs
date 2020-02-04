@@ -26,7 +26,7 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &mut E
                 Ok(Some(sender))
             },
             NativeVariables::BlockHeight => {
-                let block_height = env.global_context.database.get_simmed_block_height();
+                let block_height = env.global_context.database.get_current_block_height();
                 Ok(Some(Value::UInt(block_height as u128)))
             },
             NativeVariables::BurnBlockHeight => {

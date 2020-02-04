@@ -271,7 +271,7 @@ impl MultisigSpendingCondition {
         };
 
         if addr_bytes != self.signer {
-            return Err(net_error::VerifyingError(format!("Signer hash does not equal hash of public key(s): {} != {}", addr_bytes.to_hex(), self.signer.to_hex())));
+            return Err(net_error::VerifyingError(format!("Signer hash does not equal hash of public key(s): {} != {}", addr_bytes, self.signer)));
         }
 
         Ok(cur_sighash)
@@ -380,7 +380,7 @@ impl SinglesigSpendingCondition {
         };
         
         if addr_bytes != self.signer {
-            return Err(net_error::VerifyingError(format!("Signer hash does not equal hash of public key(s): {} != {}", &addr_bytes.to_hex(), &self.signer.to_hex())));
+            return Err(net_error::VerifyingError(format!("Signer hash does not equal hash of public key(s): {} != {}", &addr_bytes, &self.signer)));
         }
 
         Ok(next_sighash)

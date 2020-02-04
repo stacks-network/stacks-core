@@ -5,7 +5,7 @@ use std::convert::TryInto;
 use vm::errors::{InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result};
 use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
-use vm::database::{ClarityDatabase, memory_db};
+use vm::database::{ClarityDatabase};
 use vm::representations::{SymbolicExpression, ClarityName, ContractName};
 use vm::contracts::Contract;
 use vm::ast::ContractAST;
@@ -371,10 +371,6 @@ impl <'a> OwnedEnvironment <'a> {
         }
     }
 
-    pub fn memory<'c>() -> OwnedEnvironment<'c> {
-        OwnedEnvironment::new(memory_db())
-    }
-
     pub fn get_exec_environment <'b> (&'b mut self, sender: Option<Value>) -> Environment<'b,'a> {
         Environment::new(&mut self.context,
                          &self.default_contract,
@@ -409,9 +405,12 @@ impl <'a> OwnedEnvironment <'a> {
                             |exec_env| exec_env.initialize_contract(contract_identifier, contract_content))
     }
 
-    pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &ContractAST) -> Result<((), AssetMap)> {
+    pub fn initialize_contract_from_ast(&mut self,
+                                        contract_identifier: QualifiedContractIdentifier,
+                                        contract_content: &ContractAST,
+                                        contract_string: &str) -> Result<((), AssetMap)> {
         self.execute_in_env(Value::from(contract_identifier.issuer.clone()),
-                            |exec_env| exec_env.initialize_contract_from_ast(contract_identifier, contract_content))
+                            |exec_env| exec_env.initialize_contract_from_ast(contract_identifier, contract_content, contract_string))
     }
 
     pub fn execute_transaction(&mut self, sender: Value, contract_identifier: QualifiedContractIdentifier, 
@@ -421,9 +420,25 @@ impl <'a> OwnedEnvironment <'a> {
     }
 
     #[cfg(test)]
+    pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
+        self.execute_in_env(recipient.clone().into(),
+                            |env| {
+                                let bal = env.global_context.database.get_account_stx_balance(recipient);
+                                env.global_context.database.set_account_stx_balance(recipient, bal + amount);
+                                Ok(())
+                            }).unwrap();
+    }
+
+    #[cfg(test)]
     pub fn eval_raw(&mut self, program: &str) -> Result<(Value, AssetMap)> {
         self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
                             |exec_env| exec_env.eval_raw(program))
+    }
+
+    #[cfg(test)]
+    pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, program: &str) -> Result<(Value, AssetMap)>  {
+        self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
+                            |exec_env| exec_env.eval_read_only(contract, program))
     }
 
     pub fn begin(&mut self) {
@@ -593,11 +608,19 @@ impl <'a,'b> Environment <'a,'b> {
     pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
         let contract_ast = ast::build_ast(&contract_identifier, contract_content)
             .map_err(RuntimeErrorType::ASTError)?;
-        self.initialize_contract_from_ast(contract_identifier, &contract_ast)
+        self.initialize_contract_from_ast(contract_identifier, &contract_ast, &contract_content)
     }
 
-    pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &ContractAST) -> Result<()> {
+    pub fn initialize_contract_from_ast(&mut self, contract_identifier: QualifiedContractIdentifier,
+                                        contract_content: &ContractAST, contract_string: &str) -> Result<()> {
         self.global_context.begin();
+
+        // first, store the contract _content hash_ in the data store.
+        //    this is necessary before creating and accessing metadata fields in the data store,
+        //      --or-- storing any analysis metadata in the data store.
+        // TODO: pass the actual string data in.
+        self.global_context.database.insert_contract_hash(&contract_identifier, contract_string)?;
+
         let result = Contract::initialize_from_ast(contract_identifier.clone(), 
                                                    contract_content,
                                                    &mut self.global_context);
@@ -631,20 +654,33 @@ impl <'a> GlobalContext<'a> {
         self.asset_maps.len() == 0
     }
 
+    fn get_asset_map(&mut self) -> &mut AssetMap {
+        self.asset_maps.last_mut()
+            .expect("Failed to obtain asset map")
+    }
+
     pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: Value) {
         let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
                                                  asset_name: asset_name.clone() };
-        self.asset_maps.last_mut()
-            .expect("Failed to obtain asset map")
+        self.get_asset_map()
             .add_asset_transfer(sender, asset_identifier, transfered)
     }
 
     pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: u128) -> Result<()> {
         let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
                                                  asset_name: asset_name.clone() };
-        self.asset_maps.last_mut()
-            .expect("Failed to obtain asset map")
+        self.get_asset_map()
             .add_token_transfer(sender, asset_identifier, transfered)
+    }
+
+    pub fn log_stx_transfer(&mut self, sender: &PrincipalData, transfered: u128) -> Result<()> {
+        self.get_asset_map()
+            .add_stx_transfer(sender, transfered)
+    }
+
+    pub fn log_stx_burn(&mut self, sender: &PrincipalData, transfered: u128) -> Result<()> {
+        self.get_asset_map()
+            .add_stx_burn(sender, transfered)
     }
 
     pub fn execute <F, T> (&mut self, f: F) -> Result<T> where F: FnOnce(&mut Self) -> Result<T>, {

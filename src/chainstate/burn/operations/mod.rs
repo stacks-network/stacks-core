@@ -83,21 +83,21 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::ParseError => f.write_str(error::Error::description(self)),
-            Error::InvalidInput => f.write_str(error::Error::description(self)),
+            Error::ParseError => write!(f, "Failed to parse transaction into Blockstack operation"),
+            Error::InvalidInput => write!(f, "Invalid input"),
 
-            Error::BlockCommitPredatesGenesis => f.write_str(error::Error::description(self)),
-            Error::BlockCommitNoLeaderKey => f.write_str(error::Error::description(self)),
-            Error::BlockCommitAlreadyExists => f.write_str(error::Error::description(self)),
-            Error::BlockCommitLeaderKeyAlreadyUsed => f.write_str(error::Error::description(self)),
-            Error::BlockCommitNoParent => f.write_str(error::Error::description(self)),
-            Error::BlockCommitBadInput => f.write_str(error::Error::description(self)),
+            Error::BlockCommitPredatesGenesis => write!(f, "Block commit predates genesis block"),
+            Error::BlockCommitAlreadyExists => write!(f, "Block commit commits to an already-seen block"),
+            Error::BlockCommitNoLeaderKey => write!(f, "Block commit has no matching register key"),
+            Error::BlockCommitLeaderKeyAlreadyUsed => write!(f, "Block commit register key already used"),
+            Error::BlockCommitNoParent => write!(f, "Block commit parent does not exist"),
+            Error::BlockCommitBadInput => write!(f, "Block commit tx input does not match register key tx output"),
 
-            Error::LeaderKeyAlreadyRegistered => f.write_str(error::Error::description(self)),
-            Error::LeaderKeyBadConsensusHash => f.write_str(error::Error::description(self)),
+            Error::LeaderKeyAlreadyRegistered => write!(f, "Leader key has already been registered"),
+            Error::LeaderKeyBadConsensusHash => write!(f, "Leader key has an invalid consensus hash"),
 
-            Error::UserBurnSupportBadConsensusHash => f.write_str(error::Error::description(self)),
-            Error::UserBurnSupportNoLeaderKey => f.write_str(error::Error::description(self)),
+            Error::UserBurnSupportBadConsensusHash => write!(f, "User burn support has an invalid consensus hash"),
+            Error::UserBurnSupportNoLeaderKey => write!(f, "User burn support does not match a registered leader key"),
         }
     }
 }
@@ -120,26 +120,6 @@ impl error::Error for Error {
 
             Error::UserBurnSupportBadConsensusHash => None,
             Error::UserBurnSupportNoLeaderKey => None,
-        }
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::ParseError => "Failed to parse transaction into Blockstack operation",
-            Error::InvalidInput => "Invalid input",
-
-            Error::BlockCommitPredatesGenesis => "Block commit predates genesis block",
-            Error::BlockCommitAlreadyExists => "Block commit commits to an already-seen block",
-            Error::BlockCommitNoLeaderKey => "Block commit has no matching register key",
-            Error::BlockCommitLeaderKeyAlreadyUsed => "Block commit register key already used",
-            Error::BlockCommitNoParent => "Block commit parent does not exist",
-            Error::BlockCommitBadInput => "Block commit tx input does not match register key tx output",
-
-            Error::LeaderKeyAlreadyRegistered => "Leader key has already been registered",
-            Error::LeaderKeyBadConsensusHash => "Leader key has an invalid consensus hash",
-
-            Error::UserBurnSupportBadConsensusHash => "User burn support has an invalid consensus hash",
-            Error::UserBurnSupportNoLeaderKey => "User burn support does not match a registered leader key",
         }
     }
 }

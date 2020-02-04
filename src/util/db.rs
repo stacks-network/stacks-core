@@ -80,16 +80,16 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::NotImplemented => f.write_str(error::Error::description(self)),
-            Error::NoDBError => f.write_str(error::Error::description(self)),
-            Error::ReadOnly => f.write_str(error::Error::description(self)),
-            Error::TypeError => f.write_str(error::Error::description(self)),
-            Error::Corruption => f.write_str(error::Error::description(self)),
+            Error::NotImplemented => write!(f, "Not implemented"),
+            Error::NoDBError => write!(f, "Database does not exist"),
+            Error::ReadOnly => write!(f, "Database is opened read-only"),
+            Error::TypeError => write!(f, "Invalid or unrepresentable database type"),
+            Error::Corruption => write!(f, "Database is corrupt"),
             Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
-            Error::ParseError => f.write_str(error::Error::description(self)),
-            Error::Overflow => f.write_str(error::Error::description(self)),
-            Error::NotFoundError => f.write_str(error::Error::description(self)),
-            Error::ExistsError => f.write_str(error::Error::description(self)),
+            Error::ParseError => write!(f, "Parse error"),
+            Error::Overflow => write!(f, "Numeric overflow"),
+            Error::NotFoundError => write!(f, "Not found"),
+            Error::ExistsError => write!(f, "Already exists"),
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f),
             Error::IndexError(ref e) => fmt::Display::fmt(e, f),
@@ -115,44 +115,33 @@ impl error::Error for Error {
             Error::IndexError(ref e) => Some(e),
         }
     }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::NotImplemented => "Not implemented",
-            Error::NoDBError => "Database does not exist",
-            Error::ReadOnly => "Database is opened read-only",
-            Error::TypeError => "Invalid or unrepresentable database type",
-            Error::Corruption => "Database is corrupt",
-            Error::SerializationError(ref e) => e.description(),
-            Error::ParseError => "Parse error",
-            Error::Overflow => "Numeric overflow",
-            Error::NotFoundError => "Not found",
-            Error::ExistsError => "Already exists",
-            Error::SqliteError(ref e) => e.description(),
-            Error::IOError(ref e) => e.description(),
-            Error::IndexError(ref e) => e.description()
-        }
-    }
-}
-
-pub trait RowOrder {
-    fn row_order() -> Vec<&'static str>;
 }
 
 pub trait FromRow<T> {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<T, Error>;
+    fn from_row<'a>(row: &'a Row) -> Result<T, Error>;
 }
 
-macro_rules! impl_byte_array_from_row {
+pub trait FromColumn<T> {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<T, Error>;
+}
+
+macro_rules! impl_byte_array_from_column {
     ($thing:ident) => {
-        impl FromRow<$thing> for $thing {
-            fn from_row<'a>(row: &'a Row, index: usize) -> Result<$thing, ::util::db::Error> {
-                let hex_str : String = row.get(index);
+        impl FromColumn<$thing> for $thing {
+            fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<$thing, ::util::db::Error> {
+                let hex_str : String = row.get(column_name);
                 let byte_str = hex_bytes(&hex_str)
                     .map_err(|_e| ::util::db::Error::ParseError)?;
                 let inst = $thing::from_bytes(&byte_str)
                     .ok_or(::util::db::Error::ParseError)?;
                 Ok(inst)
+            }
+        }
+
+        impl rusqlite::types::ToSql for $thing {
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput> {
+                let hex_str = self.to_hex();
+                Ok(hex_str.into())
             }
         }
     }
@@ -176,7 +165,37 @@ where
     while let Some(row_res) = rows.next() {
         match row_res {
             Ok(row) => {
-                let next_row = T::from_row(&row, 0)?;
+                let next_row = T::from_row(&row)?;
+                row_data.push(next_row);
+            },
+            Err(e) => {
+                return Err(Error::SqliteError(e));
+            }
+        };
+    }
+
+    Ok(row_data)
+}
+
+/// boilerplate code for querying a column out of a sequence of rows
+pub fn query_row_columns<T, P>(conn: &Connection, sql_query: &String, sql_args: P, column_name: &str) -> Result<Vec<T>, Error>
+where
+    P: IntoIterator,
+    P::Item: ToSql,
+    T: FromColumn<T>
+{
+    let mut stmt = conn.prepare(sql_query)
+        .map_err(Error::SqliteError)?;
+
+    let mut rows = stmt.query(sql_args)
+        .map_err(Error::SqliteError)?;
+
+    // gather 
+    let mut row_data = vec![];
+    while let Some(row_res) = rows.next() {
+        match row_res {
+            Ok(row) => {
+                let next_row = T::from_column(&row, column_name)?;
                 row_data.push(next_row);
             },
             Err(e) => {
@@ -374,11 +393,11 @@ impl<'a, C> IndexDBTx<'a, C> {
             Err(e) => {
                 match e {
                     MARFError::NotFoundError => {
-                        test_debug!("Not found: Get '{}' off of {} (parent index root not found)", key, header_hash.to_hex());
+                        test_debug!("Not found: Get '{}' off of {} (parent index root not found)", key, header_hash);
                         return Ok(None);
                     },
                     _ => {
-                        error!("Failed to get root hash of {}: {:?}", &header_hash.to_hex(), &e);
+                        error!("Failed to get root hash of {}: {:?}", &header_hash, &e);
                         return Err(Error::Corruption);
                     }
                 }
@@ -390,7 +409,7 @@ impl<'a, C> IndexDBTx<'a, C> {
                 match marf_value_opt {
                     Some(marf_value) => {
                         let value = self.load_indexed(key, &marf_value)?
-                            .expect(&format!("FATAL: corrupt index: key '{}' from {} (root index {}) is present in the index but missing a value in the DB", &key, &header_hash.to_hex(), &parent_index_root.to_hex()));
+                            .expect(&format!("FATAL: corrupt index: key '{}' from {} (root index {}) is present in the index but missing a value in the DB", &key, &header_hash, &parent_index_root));
 
                         return Ok(Some(value));
                     },
@@ -405,7 +424,7 @@ impl<'a, C> IndexDBTx<'a, C> {
                         return Ok(None);
                     },
                     _ => {
-                        error!("Failed to fetch '{}' off of {}: {:?}", key, &header_hash.to_hex(), &e);
+                        error!("Failed to fetch '{}' off of {}: {:?}", key, &header_hash, &e);
                         return Err(Error::Corruption);
                     }
                 }

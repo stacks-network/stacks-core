@@ -1011,7 +1011,7 @@ The Stacks blockchain leader election protocol will be written in Rust.
 ## References
 
 [1] Basu, Easley, O'Hara, and Sirer. [Towards a Functional Market for Cryptocurrencies.](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3318327)
-[2] Blockstack PBC. [Blockstack PBC Offerring Circular](https://stackstoken.com/static/offering-circular-20190711.pdf)
+[2] Blockstack PBC. [Blockstack PBC Offering Circular](https://stackstoken.com/static/offering-circular-20190711.pdf)
 
 ## Appendix
 

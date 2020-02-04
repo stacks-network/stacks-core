@@ -37,7 +37,7 @@ use serde::ser::Error as ser_Error;
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
 
-use util::db::FromRow;
+use util::db::FromColumn;
 use util::db::Error as db_error;
 
 use rusqlite::Row;
@@ -252,9 +252,9 @@ impl PublicKey for Secp256k1PublicKey {
 }
 
 /// Make public keys loadable from a sqlite database
-impl FromRow<Secp256k1PublicKey> for Secp256k1PublicKey {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<Secp256k1PublicKey, db_error> {
-        let pubkey_hex : String = row.get(index);
+impl FromColumn<Secp256k1PublicKey> for Secp256k1PublicKey {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PublicKey, db_error> {
+        let pubkey_hex : String = row.get(column_name);
         let pubkey = Secp256k1PublicKey::from_hex(&pubkey_hex)
             .map_err(|_e| db_error::ParseError)?;
         Ok(pubkey)
@@ -332,7 +332,11 @@ impl Secp256k1PrivateKey {
     }
 
     pub fn to_hex(&self) -> String {
-        to_hex(&self.key[..].to_vec())
+        let mut bytes = self.key[..].to_vec();
+        if self.compress_public {
+            bytes.push(1);
+        }
+        to_hex(&bytes)
     }
 }
 
@@ -357,9 +361,9 @@ impl PrivateKey for Secp256k1PrivateKey {
 }
 
 /// Make private keys loadable from a sqlite database
-impl FromRow<Secp256k1PrivateKey> for Secp256k1PrivateKey {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<Secp256k1PrivateKey, db_error> {
-        let privkey_hex : String = row.get(index);
+impl FromColumn<Secp256k1PrivateKey> for Secp256k1PrivateKey {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PrivateKey, db_error> {
+        let privkey_hex : String = row.get(column_name);
         let privkey = Secp256k1PrivateKey::from_hex(&privkey_hex)
             .map_err(|_e| db_error::ParseError)?;
         Ok(privkey)
@@ -424,6 +428,32 @@ mod tests {
         data: &'static str,
         signature: &'static str,
         result: R
+    }
+
+    #[test]
+    fn test_parse_serialize_compressed() {
+        let mut t1 = Secp256k1PrivateKey::new();
+        t1.set_compress_public(true);
+        let h_comp = t1.to_hex();
+        t1.set_compress_public(false);
+        let h_uncomp = t1.to_hex();
+
+        assert!(&h_comp != &h_uncomp);
+        assert_eq!(h_comp.len(), 66);
+        assert_eq!(h_uncomp.len(), 64);
+
+        let (uncomp, comp_value) = h_comp.split_at(64);
+        assert_eq!(comp_value, "01");
+        assert_eq!(uncomp, &h_uncomp);
+
+        assert!(Secp256k1PrivateKey::from_hex(&h_comp).unwrap().compress_public());
+        assert!(! Secp256k1PrivateKey::from_hex(&h_uncomp).unwrap().compress_public());
+
+        assert_eq!(Secp256k1PrivateKey::from_hex(&h_uncomp), Ok(t1));
+
+        t1.set_compress_public(true);
+
+        assert_eq!(Secp256k1PrivateKey::from_hex(&h_comp), Ok(t1));
     }
 
     #[test]
