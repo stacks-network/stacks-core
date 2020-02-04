@@ -75,7 +75,6 @@ impl PeerNetwork {
                     }
 
                     let nk = convo.to_neighbor_key();
-                    let stats = convo.stats.clone();
                     let peer_opt = PeerDB::get_peer(peer_dbconn, nk.network_id, &nk.addrbytes, nk.port)
                         .map_err(|_e| net_error::DBError)?;
 
@@ -84,6 +83,7 @@ impl PeerNetwork {
                             continue;
                         },
                         Some(peer) => {
+                            let stats = convo.stats.clone();
                             let org = peer.org;
                             if org_neighbor.contains_key(&org) {
                                 org_neighbor.get_mut(&org).unwrap().push((nk, stats));
@@ -96,6 +96,14 @@ impl PeerNetwork {
                 }
             };
         }
+
+        test_debug!("==== ORG NEIGHBOR DISTRIBUTION OF {:?} ===", &self.local_peer);
+        for (ref org, ref neighbor_infos) in org_neighbor.iter() {
+            let neighbors : Vec<NeighborKey> = neighbor_infos.iter().map(|ni| ni.0.clone()).collect();
+            test_debug!("Org {}: {} neighbors: {:?}", org, neighbors.len(), &neighbors);
+        }
+        test_debug!("===============================================================");
+
         Ok(org_neighbor)
     }
 
@@ -129,7 +137,16 @@ impl PeerNetwork {
         if health_1 > health_2 {
             return Ordering::Greater;
         }
-        return Ordering::Equal;
+
+        // flip a coin
+        let mut rng = thread_rng();
+        if rng.next_u32() % 2 == 0 {
+            return Ordering::Less;
+        }
+        else {
+            return Ordering::Greater;
+        }
+        // return Ordering::Equal;
     }
 
     /// Sample an org based on its weight
@@ -190,6 +207,7 @@ impl PeerNetwork {
                 None => {},
                 Some(ref mut neighbor_infos) => {
                     if neighbor_infos.len() as u64 > self.connection_opts.soft_max_neighbors_per_org {
+                        test_debug!("Org {} has {} neighbors (more than {} soft limit)", org, neighbor_infos.len(), self.connection_opts.soft_max_neighbors_per_org);
                         for i in 0..((neighbor_infos.len() as u64) - self.connection_opts.soft_max_neighbors_per_org) {
                             let (neighbor_key, _) = neighbor_infos[i as usize].clone();
 
@@ -218,6 +236,7 @@ impl PeerNetwork {
 
         // select an org at random proportional to its popularity, and remove a neighbor 
         // at random proportional to how unhealthy and short-lived it is.
+        test_debug!("{:?}: Prune outbound neighbor set of {} down to {}", &self.local_peer, num_outbound, self.connection_opts.soft_num_neighbors);
         while num_outbound - (ret.len() as u64) > self.connection_opts.soft_num_neighbors {
             let mut weighted_sample : HashMap<u32, usize> = HashMap::new();
             for (org, neighbor_info) in org_neighbors.iter() {
