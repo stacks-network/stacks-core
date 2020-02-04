@@ -225,3 +225,14 @@ fn should_raise_dependency_cycle_case_fetch_contract_entry() {
     let err = run_scoped_analysis_helper(contract).unwrap_err();
     assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
 }
+
+#[test]
+fn should_not_conflict_with_atoms_from_trait_definitions() {
+    let contract = r#"
+        (define-trait foo ((bar (int) (int))))
+        (define-trait bar ((foo (int) (int))))
+    "#;
+
+    run_scoped_analysis_helper(contract).unwrap();
+}
+

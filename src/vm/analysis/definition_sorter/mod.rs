@@ -118,8 +118,18 @@ impl <'a> DefinitionSorter {
                                     return Ok(());
                                 },
                                 DefineFunctions::Trait => {
-                                    for expr in function_args.into_iter() {
-                                        self.probe_for_dependencies(expr, tle_index)?;
+                                    if function_args.len() != 2 {
+                                        return Ok(())
+                                    } 
+                                    if let Some(trait_sig) = function_args[1].match_list() {
+                                        for func_sig in trait_sig.iter() {
+                                            if let Some(func_sig) = func_sig.match_list() {
+                                                if func_sig.len() == 3 {
+                                                    self.probe_for_dependencies(&func_sig[1], tle_index)?;
+                                                    self.probe_for_dependencies(&func_sig[2], tle_index)?;
+                                                }     
+                                            }
+                                        }
                                     }
                                     return Ok(())
                                 },
