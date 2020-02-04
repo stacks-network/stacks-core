@@ -29,6 +29,7 @@ use std::net;
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::time::Duration;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::io::Error as io_error;
@@ -44,6 +45,9 @@ use mio::Token;
 use mio::PollOpt;
 
 use std::net::Shutdown;
+
+use rand::RngCore;
+use rand;
 
 pub const NUM_NEIGHBORS : u32 = 32;
 
@@ -72,13 +76,42 @@ pub struct NetworkState {
 }
 
 impl NetworkState {
-    pub fn bind(addr: &SocketAddr, capacity: usize) -> Result<NetworkState, net_error> {
-        let server = mio_net::TcpListener::bind(addr)
-            .map_err(|e| {
-                error!("Failed to bind to {:?}: {:?}", addr, e);
-                net_error::BindError
-            })?;
+    fn bind_address(addr: &SocketAddr) -> Result<mio_net::TcpListener, net_error> {
+        if !cfg!(test) {
+            mio_net::TcpListener::bind(addr)
+                .map_err(|e| {
+                    error!("Failed to bind to {:?}: {:?}", addr, e);
+                    net_error::BindError
+                })
+        }
+        else {
+            let mut backoff = 1000;
+            let mut rng = rand::thread_rng();
+            let mut count = 1000;
+            loop {
+                match mio_net::TcpListener::bind(addr) {
+                    Ok(server) => {
+                        return Ok(server);
+                    },
+                    Err(e) => match e.kind() {
+                        io::ErrorKind::AddrInUse => {
+                            debug!("Waiting {} millis and trying to bind {:?} again", backoff, addr);
+                            count += count;
+                            backoff = rng.next_u32() % count;
+                            continue;
+                        },
+                        _ => {
+                            debug!("Failed to bind {:?}: {:?}", addr, &e);
+                            return Err(net_error::BindError);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
+    pub fn bind(addr: &SocketAddr, capacity: usize) -> Result<NetworkState, net_error> {
+        let server = NetworkState::bind_address(addr)?;
         let poll = mio::Poll::new()
             .map_err(|e| {
                 error!("Failed to initialize poller: {:?}", e);
