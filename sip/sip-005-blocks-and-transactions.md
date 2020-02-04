@@ -671,11 +671,9 @@ contract whose public function is to be called,
 to call.  The characters must match the regex `^[a-zA-Z]([a-zA-Z0-9]|[-_!?])`<code>&ast;</code>`$`.
 * A length-prefixed list of **function arguments**, encoded as follows:
    * A 4-byte length prefix, indicating the number of arguments
-   * Zero or more length-prefixed strings encoding the function argument
-     literals, each of which is encoded as:
-      * A 1-byte length prefix, up to 128
-      * Up to 128 characters of valid ASCII text that lexes to a Clarity
-        literal.
+   * Zero or more binary strings encoding the arguments as Clarity values.
+     Clarity values are serialized as described in the section
+     [Clarity Value Representation](#clarity-value-representation).
 
 Note that together, the _contract address_ and _contract name_ fields uniquely identify
 the smart contract within the Clarity VM.
