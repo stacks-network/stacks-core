@@ -1659,11 +1659,14 @@ impl ProtocolFamily for StacksHttp {
 
     /// StacksHttpMessage deals with HttpRequestPreambles and HttpResponsePreambles
     fn read_preamble(&mut self, buf: &[u8]) -> Result<(StacksHttpPreamble, usize), net_error> {
-        if buf.len() > self.preamble_size_hint() {
-            return Err(net_error::DeserializeError("Invalid HTTP preamble: too big".to_string()));
-        }
         let mut cursor = io::Cursor::new(buf);
-        let preamble : StacksHttpPreamble = read_next(&mut cursor)?;
+
+        let preamble = {
+            let mut rd = BoundReader::from_reader(&mut cursor, 4096);
+            let preamble : StacksHttpPreamble = read_next(&mut rd)?;
+            preamble
+        };
+
         let preamble_len = cursor.position() as usize;
         Ok((preamble, preamble_len))
     }
@@ -2635,7 +2638,15 @@ mod test {
             test_debug!("write body:\n{:?}\n", test);
             http.write_message(&mut bytes, &StacksHttpMessage::Response((*test).clone())).unwrap();
 
-            let (mut preamble, offset) = http.read_preamble(&bytes).unwrap();
+            let (mut preamble, offset) = match http.read_preamble(&bytes) {
+                Ok((p, o)) => (p, o),
+                Err(e) => {
+                    test_debug!("first 4096 bytes:\n{:?}\n", &bytes[0..4096].to_vec());
+                    test_debug!("error: {:?}", &e);
+                    assert!(false);
+                    unreachable!();
+                }
+            };
 
             test_debug!("read preamble of {} bytes\n{:?}\n", offset, preamble);
 
