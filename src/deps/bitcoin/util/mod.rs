@@ -68,7 +68,8 @@ impl fmt::Display for Error {
             Error::Secp256k1(ref e) => fmt::Display::fmt(e, f),
             Error::Serialize(ref e) => fmt::Display::fmt(e, f),
             Error::Network(ref e) => fmt::Display::fmt(e, f),
-            Error::SpvBadProofOfWork | Error::SpvBadTarget => f.write_str(error::Error::description(self)),
+            Error::SpvBadProofOfWork => f.write_str("target correct but not attained"),
+            Error::SpvBadTarget => f.write_str("target incorrect"),
         }
     }
 }
@@ -80,16 +81,6 @@ impl error::Error for Error {
             Error::Serialize(ref e) => Some(e),
             Error::Network(ref e) => Some(e),
             Error::SpvBadProofOfWork | Error::SpvBadTarget => None
-        }
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::Secp256k1(ref e) => e.description(),
-            Error::Serialize(ref e) => e.description(),
-            Error::Network(ref e) => e.description(),
-            Error::SpvBadProofOfWork => "target correct but not attained",
-            Error::SpvBadTarget => "target incorrect",
         }
     }
 }

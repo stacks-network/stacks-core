@@ -71,9 +71,9 @@ pub enum CursorError {
 impl fmt::Display for CursorError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            CursorError::PathDiverged => f.write_str(error::Error::description(self)),
-            CursorError::BackptrEncountered(_) => f.write_str(error::Error::description(self)),
-            CursorError::ChrNotFound => f.write_str(error::Error::description(self)),
+            CursorError::PathDiverged => write!(f, "Path diverged"),
+            CursorError::BackptrEncountered(_) => write!(f, "Back-pointer encountered"),
+            CursorError::ChrNotFound => write!(f, "Node child not found"),
         }
     }
 }
@@ -81,14 +81,6 @@ impl fmt::Display for CursorError {
 impl error::Error for CursorError {
     fn cause(&self) -> Option<&dyn error::Error> {
         None
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            CursorError::PathDiverged => "Path diverged",
-            CursorError::BackptrEncountered(_) => "Back-pointer encountered",
-            CursorError::ChrNotFound => "Node child not found",
-        }
     }
 }
 
