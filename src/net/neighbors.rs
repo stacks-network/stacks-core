@@ -68,7 +68,8 @@ use rusqlite::Transaction;
 pub const NEIGHBOR_REQUEST_TIMEOUT : u64 = 60;
 
 pub const NUM_INITIAL_WALKS : u64 = 10;     // how many unthrottled walks should we do when this peer starts up
-
+#[cfg(test)] pub const PRUNE_FREQUENCY : u64 = 60;             // how often we should consider pruning neighbors
+#[cfg(not(test))] pub const PRUNE_FREQUENCY : u64 = 43200;     // how often we should consider pruning neighbors (twice a day)
 pub const MAX_NEIGHBOR_BLOCK_DELAY : u64 = 288;     // maximum delta between our current block height and the neighbor's that we will treat this neighbor as fresh
 
 impl Neighbor {
@@ -161,7 +162,8 @@ impl Neighbor {
 pub struct NeighborWalkResult {
     pub new_connections: HashSet<NeighborKey>,
     pub broken_connections: HashSet<NeighborKey>,
-    pub replaced_neighbors: HashSet<NeighborKey>
+    pub replaced_neighbors: HashSet<NeighborKey>,
+    pub do_prune: bool
 }
 
 impl NeighborWalkResult {
@@ -169,7 +171,8 @@ impl NeighborWalkResult {
         NeighborWalkResult {
             new_connections: HashSet::new(),
             broken_connections: HashSet::new(),
-            replaced_neighbors: HashSet::new()
+            replaced_neighbors: HashSet::new(),
+            do_prune: false
         }
     }
 
@@ -189,6 +192,7 @@ impl NeighborWalkResult {
         self.new_connections.clear();
         self.broken_connections.clear();
         self.replaced_neighbors.clear();
+        self.do_prune = false;
     }
 }
 
@@ -313,7 +317,6 @@ impl NeighborWalk {
         let result = self.result.clone();
 
         self.walk_end_time = get_epoch_time_secs();
-        self.walk_step_count += 1;
 
         // leave self.frontier and self.result alone until the next walk.
         // (makes it so that at the end of the walk, we can query the result and frontier)
@@ -1506,6 +1509,7 @@ impl PeerNetwork {
                     .and_then(|r| Ok(None))
             },
             NeighborWalkState::NeighborsPingFinish => {
+                test_debug!("{:?}: finish walk {}", &self.local_peer, self.walk_count);
                 self.walk_ping_existing_neighbors_try_finish()
             }
             _ => {
@@ -1514,15 +1518,29 @@ impl PeerNetwork {
         };
 
         match res {
-            Ok(walk_opt) => {
-                // finished a walk.
-                self.walk_count += 1;
-                self.walk_deadline = self.connection_opts.walk_interval + get_epoch_time_secs();
+            Ok(mut walk_opt) => {
+                match walk_opt {
+                    Some(ref mut walk_result) => {
+                        // finished a walk completely
+                        self.walk_count += 1;
+                        self.walk_deadline = self.connection_opts.walk_interval + get_epoch_time_secs();
+
+                        if self.walk_count > NUM_INITIAL_WALKS && self.prune_deadline > get_epoch_time_secs() {
+                            // clean up 
+                            walk_result.do_prune = true;
+                            self.prune_deadline = get_epoch_time_secs() + PRUNE_FREQUENCY;
+                        }
+                    },
+                    None => {}
+                }
 
                 // Randomly restart it if we have done enough walks
                 let reset = match self.walk {
-                    Some(ref walk) => {
-                        test_debug!("{:?}: walk has taken {} steps", &self.local_peer, walk.walk_step_count);
+                    Some(ref mut walk) => {
+                        // finished a walk step.
+                        walk.walk_step_count += 1;
+                        test_debug!("{:?}: walk has taken {} steps (total of {} walks)", &self.local_peer, walk.walk_step_count, self.walk_count);
+
                         if self.walk_count > NUM_INITIAL_WALKS && walk.walk_step_count >= walk.walk_min_duration {
                             let mut rng = thread_rng();
                             let sample : f64 = rng.gen();
@@ -2362,6 +2380,7 @@ mod test {
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 20;
         let NEIGHBOR_COUNT : usize = 5;
+
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33000, NEIGHBOR_COUNT, PEER_COUNT);
 
@@ -2381,7 +2400,7 @@ mod test {
 
         let peers = test_walk_ring(&mut peer_configs, NEIGHBOR_COUNT);
 
-        // all peers see peer ::32000 as having ASN and Org ID 1
+        // all peers see peer ::33000 as having ASN and Org ID 1
         let peer_0 = peer_configs[0].to_neighbor();
         for i in 1..PEER_COUNT {
             match PeerDB::get_peer(peers[i].network.peerdb.conn(), peer_0.addr.network_id, &peer_0.addr.addrbytes, peer_0.addr.port).unwrap() {
@@ -2393,7 +2412,7 @@ mod test {
             }
         }
 
-        // no peer pruned peer ::32000
+        // no peer pruned peer ::33000
         for i in 1..PEER_COUNT {
             match peers[i].network.prune_inbound_counts.get(&peer_0.addr) {
                 None => {},
@@ -2484,12 +2503,12 @@ mod test {
         // one outlier peer has a different org than the others.
         use std::env;
 
-        // ::32000 is in AS 1
-        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_32000", "1");
+        // ::33300 is in AS 1
+        env::set_var("BLOCKSTACK_NEIGHBOR_TEST_33300", "1");
 
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 20;
-        let NEIGHBOR_COUNT : usize = 6;     // make this a little bigger to speed this test up
+        let NEIGHBOR_COUNT : usize = 5;     // make this a little bigger to speed this test up
         for i in 0..PEER_COUNT {
             let mut conf = setup_peer_config(i, 33300, NEIGHBOR_COUNT, PEER_COUNT);
 
@@ -2509,7 +2528,7 @@ mod test {
 
         let peers = test_walk_line(&mut peer_configs, NEIGHBOR_COUNT, 0);
 
-        // all peers see peer ::32000 as having ASN and Org ID 1
+        // all peers see peer ::33300 as having ASN and Org ID 1
         let peer_0 = peer_configs[0].to_neighbor();
         for i in 1..PEER_COUNT {
             match PeerDB::get_peer(peers[i].network.peerdb.conn(), peer_0.addr.network_id, &peer_0.addr.addrbytes, peer_0.addr.port).unwrap() {
@@ -2521,7 +2540,7 @@ mod test {
             }
         }
 
-        // no peer pruned peer ::32000
+        // no peer pruned peer ::33300
         for i in 1..PEER_COUNT {
             match peers[i].network.prune_inbound_counts.get(&peer_0.addr) {
                 None => {},
@@ -2609,7 +2628,7 @@ mod test {
         // one outlier peer has a different org than the others.
         use std::env;
 
-        // ::32000 is in AS 1
+        // ::33600 is in AS 1
         env::set_var("BLOCKSTACK_NEIGHBOR_TEST_33600", "1");
 
         let mut peer_configs = vec![];
@@ -2691,6 +2710,7 @@ mod test {
     }
     
     fn dump_peers(peers: &Vec<TestPeer>) -> () {
+        test_debug!("\n=== PEER DUMP ===");
         for i in 0..peers.len() {
             let mut neighbor_index = vec![];
             let mut outbound_neighbor_index = vec![];
@@ -2711,6 +2731,7 @@ mod test {
             let num_whitelisted = all_neighbors.iter().fold(0, |mut sum, ref n2| {sum += if n2.whitelisted < 0 { 1 } else { 0 }; sum});
             test_debug!("Neighbor {} (all={}, outbound={}) (total neighbors = {}, total whitelisted = {}): outbound={:?} all={:?}", i, neighbor_index.len(), outbound_neighbor_index.len(), all_neighbors.len(), num_whitelisted, &outbound_neighbor_index, &neighbor_index);
         }
+        test_debug!("\n");
     }
 
     fn dump_peer_histograms(peers: &Vec<TestPeer>) -> () {
@@ -2764,9 +2785,12 @@ mod test {
                 }
             }
         }
+
+        test_debug!("=== PEER HISTOGRAM ===");
         for i in 0..peers.len() {
             test_debug!("Neighbor {}: #in={} #out={} #all={}", i, inbound_hist.get(&i).unwrap_or(&0), outbound_hist.get(&i).unwrap_or(&0), all_hist.get(&i).unwrap_or(&0));
         }
+        test_debug!("\n");
     }
 
     fn run_topology_test(peers: &mut Vec<TestPeer>, neighbor_count: usize, test_bits: u64) -> () {
@@ -2800,6 +2824,7 @@ mod test {
 
         // go until each neighbor knows about each other neighbor 
         let mut finished = false;
+        let mut count = 0;
         while !finished {
             finished = true;
             for i in 0..PEER_COUNT {
@@ -2832,6 +2857,16 @@ mod test {
                     None => {}
                 };
 
+                // all ports are unique in the p2p socket table
+                let mut ports : HashSet<u16> = HashSet::new();
+                for k in peers[i].network.events.keys() {
+                    if ports.contains(&k.port) {
+                        error!("duplicate port {} from {:?}", k.port, k);
+                        assert!(false);
+                    }
+                    ports.insert(k.port);
+                }
+
                 // done?
                 let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
                 if (all_neighbors.len() as u64) < ((PEER_COUNT - 1) as u64) {
@@ -2840,14 +2875,19 @@ mod test {
                     finished = false;
                 }
             }
+
+            count += 1;
+
             if finished {
                 break;
             }
-
+ 
+            test_debug!("Finished walking the network {} times", count);
             dump_peers(&peers);
             dump_peer_histograms(&peers);
         }
 
+        test_debug!("Converged after {} calls to network.run()", count);
         dump_peers(&peers);
         dump_peer_histograms(&peers);
     }
