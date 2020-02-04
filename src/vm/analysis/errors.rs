@@ -133,6 +133,7 @@ pub enum CheckErrors {
     TraitMethodUnknown(String, String),
     ExpectedTraitIdentifier,
     ImportTraitBadSignature,
+    TraitReferenceNotAllowed,
     BadTraitImplementation(String, String),
     DefineTraitBadSignature,
 
@@ -332,6 +333,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::BadTraitImplementation(trait_name, func_name) => format!("invalid signature for method '{}' regarding trait's specification <{}>", func_name, trait_name),
             CheckErrors::ExpectedTraitIdentifier => format!("expecting expression of type trait identifier"),
             CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
+            CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },

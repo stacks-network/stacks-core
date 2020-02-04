@@ -98,26 +98,34 @@ impl PreTypeCheckingTraitChecker {
                 Some(x) => x,
                 None => continue 
             };
-            match (define_type, &args[0].expr) {
-                (DefineFunctions::Trait, Atom(trait_name)) => {
-                    defined_traits.insert(trait_name.clone(), exp.clone());
-                    // Traverse and probe for generics nested in the trait definition
-                    if let Some(trait_definition) = &args[1].match_list() {
-                        self.probe_for_generics(trait_definition, &mut referenced_traits);
+            match define_type {
+                DefineFunctions::Trait => {
+                    if let Some(trait_name) = args[0].match_atom() {
+                        defined_traits.insert(trait_name.clone(), exp.clone());
+                        // Traverse and probe for generics nested in the trait definition
+                        if let Some(trait_definition) = &args[1].match_list() {
+                            self.probe_for_generics(trait_definition, &mut referenced_traits, true)?;
+                        }    
                     }
                 },
-                (DefineFunctions::UseTrait, Atom(trait_name)) => {
-                    imported_traits.insert(trait_name.clone(), exp.clone());
+                DefineFunctions::UseTrait => {
+                    if let Some(trait_name) = args[0].match_atom() {
+                        imported_traits.insert(trait_name.clone(), exp.clone());
+                    }
                 },
-                (DefineFunctions::ImplTrait, Field(trait_identifier)) => {
-                    implemented_traits.insert(trait_identifier.clone());
+                DefineFunctions::ImplTrait => {
+                    if let Some(trait_identifier) = args[0].match_field() {
+                        implemented_traits.insert(trait_identifier.clone());
+                    }
                 },
-                (DefineFunctions::PublicFunction, List(function_definition)) | 
-                (DefineFunctions::PrivateFunction, List(function_definition)) => {
+                DefineFunctions::PublicFunction | DefineFunctions::PrivateFunction | DefineFunctions::ReadOnlyFunction => {
                     // Traverse and probe for generics in functions type definitions
-                    self.probe_for_generics(function_definition, &mut referenced_traits);
+                    self.probe_for_generics(&args, &mut referenced_traits, true)?;
                 },
-                _ => { /* no-op */ }
+                DefineFunctions::Constant | DefineFunctions::Map | DefineFunctions::PersistedVariable | 
+                DefineFunctions::FungibleToken | DefineFunctions::NonFungibleToken => {
+                    self.probe_for_generics(&args[1..], &mut referenced_traits, false)?;
+                }
             };
         }
 
@@ -137,17 +145,24 @@ impl PreTypeCheckingTraitChecker {
         })
     }
 
-    fn probe_for_generics(&mut self, exprs: &[SymbolicExpression], referenced_traits: &mut HashMap<ClarityName, SymbolicExpression>) {
+    fn probe_for_generics(&mut self, exprs: &[SymbolicExpression], 
+                          referenced_traits: &mut HashMap<ClarityName, SymbolicExpression>, 
+                          should_reference: bool) -> CheckResult<()>  {
         for expression in exprs.iter() {
 
             match &expression.expr {
-                List(list) => self.probe_for_generics(&list, referenced_traits),
+                List(list) => { self.probe_for_generics(&list, referenced_traits, should_reference)?; },
                 TraitReference(trait_name) => {
-                    referenced_traits.insert(trait_name.clone(), expression.clone()); 
+                    if should_reference {
+                        referenced_traits.insert(trait_name.clone(), expression.clone());
+                    } else {
+                        return Err(CheckErrors::TraitReferenceNotAllowed.into())
+                    }
                 },
                 _ => { /* no-op */ }
             }
         }
+        Ok(())
     }
 }
 

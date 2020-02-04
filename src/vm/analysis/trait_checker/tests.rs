@@ -31,6 +31,62 @@ fn test_dynamic_dispatch_by_defining_trait() {
 }
 
 #[test]
+fn test_get_trait_reference_from_tuple() {
+    let dispatching_contract_src =
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))
+        (define-public (wrapped-get-1 (wrapped-contract (tuple (contract <trait-1>)))) 
+            (contract-call? (get contract wrapped-contract) get-1 u0))";
+    let target_contract_src =
+        "(define-public (get-1 (x uint)) (ok u1))";
+
+    let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
+    let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
+
+    let mut dispatching_contract = parse(&dispatching_contract_id, dispatching_contract_src).unwrap();
+    let mut target_contract = parse(&target_contract_id, target_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let err = db.execute(|db| {
+        type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)?;
+        type_check(&target_contract_id, &mut target_contract, db, true)
+    }).unwrap_err();
+    match err.err {
+        CheckErrors::ContractCallExpectName => {},
+        _ => {
+            println!("{:?}", err);
+            panic!("Attempt to call init-factorial should fail!")
+        }
+    }
+}
+
+#[test]
+fn test_define_map_storing_trait_references() {
+    let dispatching_contract_src =
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))
+        (define-map kv-store ((key uint)) ((value <trait-1>)))";
+
+    let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
+
+    let mut dispatching_contract = parse(&dispatching_contract_id, dispatching_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let err = db.execute(|db| {
+        type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)
+    }).unwrap_err();
+    match err.err {
+        CheckErrors::TraitReferenceNotAllowed => {},
+        _ => {
+            println!("{:?}", err);
+            panic!("Attempt to call init-factorial should fail!")
+        }
+    }
+}
+
+#[test]
 fn test_cycle_in_traits_1_contract() {
     let dispatching_contract_src =
         "(define-trait trait-1 (

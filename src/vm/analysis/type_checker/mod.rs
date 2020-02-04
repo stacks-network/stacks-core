@@ -251,7 +251,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         self.contract_context.get_function_type(function_name)
             .cloned()
     }
-    
+
     fn type_check_define_function(&mut self, signature: &[SymbolicExpression], body: &SymbolicExpression,
                                   context: &TypingContext) -> CheckResult<(ClarityName, FixedFunction)> {
         let (function_name, args) = signature.split_first()
