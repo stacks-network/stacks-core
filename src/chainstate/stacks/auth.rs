@@ -34,7 +34,6 @@ use chainstate::stacks::TransactionAuthFlags;
 use chainstate::stacks::TransactionPublicKeyEncoding;
 use chainstate::stacks::TransactionAuthFieldID;
 use chainstate::stacks::TransactionAuthField;
-use chainstate::stacks::TransactionSpendingConditionID;
 use chainstate::stacks::StacksPublicKey;
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksAddress;
@@ -58,6 +57,7 @@ use util::hash::to_hex;
 use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+use util::retry::RetryReader;
 
 impl StacksMessageCodec for TransactionAuthField {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
@@ -380,11 +380,9 @@ impl StacksMessageCodec for TransactionSpendingCondition {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         match *self {
             TransactionSpendingCondition::Singlesig(ref data) => {
-                write_next(fd, &(TransactionSpendingConditionID::Singlesig as u8))?;
                 data.consensus_serialize(fd)?;
             },
             TransactionSpendingCondition::Multisig(ref data) => {
-                write_next(fd, &(TransactionSpendingConditionID::Multisig as u8))?;
                 data.consensus_serialize(fd)?;
             }
         }
@@ -392,21 +390,27 @@ impl StacksMessageCodec for TransactionSpendingCondition {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionSpendingCondition, net_error> {
-        let spending_condition_u8 : u8 = read_next(fd)?;
-        let cond = match spending_condition_u8 {
-            x if x == TransactionSpendingConditionID::Singlesig as u8 => {
-                let cond = SinglesigSpendingCondition::consensus_deserialize(fd)?;
+        // peek the hash mode byte
+        let mut rrd = RetryReader::new(fd);
+        let hash_mode_u8 : u8 = read_next(&mut rrd)?;
+        rrd.set_position(0);
+        rrd.disable_bufferring();
+
+        let cond = { 
+            if SinglesigHashMode::from_u8(hash_mode_u8).is_some() {
+                let cond = SinglesigSpendingCondition::consensus_deserialize(&mut rrd)?;
                 TransactionSpendingCondition::Singlesig(cond)
-            },
-            x if x == TransactionSpendingConditionID::Multisig as u8 => {
-                let cond = MultisigSpendingCondition::consensus_deserialize(fd)?;
+            }
+            else if MultisigHashMode::from_u8(hash_mode_u8).is_some() {
+                let cond = MultisigSpendingCondition::consensus_deserialize(&mut rrd)?;
                 TransactionSpendingCondition::Multisig(cond)
-            },
-            _ => {
-                test_debug!("Invalid spending condition mode {}", spending_condition_u8);
-                return Err(net_error::DeserializeError(format!("Failed to parse spending condition: invalid spending condition mode {}", spending_condition_u8)));
+            }
+            else {
+                test_debug!("Invalid address hash mode {}", hash_mode_u8);
+                return Err(net_error::DeserializeError(format!("Failed to parse spending condition: invalid hash mode {}", hash_mode_u8)));
             }
         };
+
         Ok(cond)
     }
 }
@@ -1271,7 +1275,6 @@ mod test {
     fn tx_stacks_invalid_spending_conditions() {
         let bad_hash_mode_bytes = vec![
             // singlesig
-            TransactionSpendingConditionID::Singlesig as u8,
             // hash mode
             0xff,
             // signer
@@ -1290,7 +1293,6 @@ mod test {
         ];
         
         let bad_hash_mode_multisig_bytes = vec![
-            TransactionSpendingConditionID::Multisig as u8,
             // hash mode
             MultisigHashMode::P2SH as u8,
             // signer
@@ -1312,7 +1314,6 @@ mod test {
         // the reason it parses is because the public keys length field encodes a valid 2-byte
         // prefix of a public key, and the parser will lump it into a public key
         let bad_hash_mode_singlesig_bytes_parseable = vec![
-            TransactionSpendingConditionID::Singlesig as u8,
             // hash mode
             SinglesigHashMode::P2PKH as u8,
             // signer
@@ -1336,7 +1337,6 @@ mod test {
       
         // wrong number of public keys (too many signatures)
         let bad_public_key_count_bytes = vec![
-            TransactionSpendingConditionID::Multisig as u8,
             // hash mode
             MultisigHashMode::P2SH as u8,
             // signer
@@ -1371,7 +1371,6 @@ mod test {
         
         // wrong number of public keys (not enough signatures)
         let bad_public_key_count_bytes_2 = vec![
-            TransactionSpendingConditionID::Multisig as u8,
             // hash mode
             MultisigHashMode::P2SH as u8,
             // signer
@@ -1415,7 +1414,6 @@ mod test {
         });
 
         let bad_p2wpkh_uncompressed_bytes = vec![
-            TransactionSpendingConditionID::Singlesig as u8,
             // hash mode
             SinglesigHashMode::P2WPKH as u8,
             // signer
@@ -1448,7 +1446,6 @@ mod test {
         });
 
         let bad_p2wsh_uncompressed_bytes = vec![
-            TransactionSpendingConditionID::Multisig as u8,
             // hash mode
             MultisigHashMode::P2WSH as u8,
             // signer
