@@ -62,7 +62,8 @@ use util::log;
 
 use net::StacksMessageCodec;
 use chainstate::stacks::*;
-use util::hash::hex_bytes;
+use util::hash::{hex_bytes, to_hex};
+use util::retry::LogReader;
 
 fn main() {
 
@@ -110,8 +111,15 @@ fn main() {
             process::exit(1);
         }).unwrap();
 
-        let tx = StacksTransaction::consensus_deserialize(&mut io::Cursor::new(&tx_bytes)).map_err(|_e| {
-            eprintln!("Failed to decode transaction");
+        let mut cursor = io::Cursor::new(&tx_bytes);
+        let mut debug_cursor = LogReader::from_reader(&mut cursor);
+
+        let tx = StacksTransaction::consensus_deserialize(&mut debug_cursor).map_err(|e| {
+            eprintln!("Failed to decode transaction: {:?}", &e);
+            eprintln!("Bytes consumed:");
+            for buf in debug_cursor.log().iter() {
+                eprintln!("  {}", to_hex(buf));
+            }
             process::exit(1);
         }).unwrap();
 
