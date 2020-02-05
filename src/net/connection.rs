@@ -84,10 +84,12 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
     /// Send this message to the waiting receiver, consuming this notification handle.
     /// May fail silently.
     pub fn send(self, msg: P::Message) -> () {
+        let msg_name = msg.get_message_name().to_string();
+        let msg_id = msg.request_id();
         match self.receiver_input.send(msg) {
             Ok(_) => {},
             Err(e) => {
-                warn!("Failed to reply message: {:?}", &e);
+                warn!("Failed to reply message {} ({} {}): {:?}", self.expected_seq, msg_name, msg_id, &e);
             }
         }
     }
@@ -353,7 +355,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         let bytes_consumed = self.buffer_preamble_bytes(protocol, bytes);
         let preamble_opt = match protocol.read_preamble(&self.buf) {
             Ok((preamble, preamble_len)) => {
-                assert!((preamble_len as u32) < MAX_MESSAGE_LEN);
+                assert!((preamble_len as u32) < MAX_MESSAGE_LEN);       // enforced by protocol family
 
                 test_debug!("Got preamble {:?} of {} bytes", &preamble, preamble_len);
 
@@ -372,7 +374,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 // will never be valid
                 warn!("Invalid message preamble: {}", &errmsg);
                 debug!("Buffer ({}): {:?}", self.buf.len(), &self.buf);
-                debug!("Bytes: {:?}", bytes.to_vec());
+                debug!("Bytes ({}): {:?}", bytes.len(), bytes.to_vec());
                 debug!("Message ptr: {}", self.message_ptr);
                 debug!("Payload ptr: {}", self.payload_ptr);
                 debug!("Preamble: {:?}", &self.preamble);
@@ -450,7 +452,9 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                     self.payload_ptr = 0;
                     self.buf = trailer;
 
-                    trace!("Input buffer reset to {} bytes", self.buf.len());
+                    if self.buf.len() > 0 {
+                        test_debug!("Buffer has {} bytes remaining: {:?}", self.buf.len(), &self.buf.to_vec());
+                    }
                     Some(message)
                 },
                 Err(e) => {
