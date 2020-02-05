@@ -37,6 +37,7 @@ use std::io::ErrorKind;
 use std::time;
 
 use util::log;
+use util::sleep_ms;
 
 use mio;
 use mio::net as mio_net;
@@ -96,8 +97,9 @@ impl NetworkState {
                     Err(e) => match e.kind() {
                         io::ErrorKind::AddrInUse => {
                             debug!("Waiting {} millis and trying to bind {:?} again", backoff, addr);
+                            sleep_ms(count);
                             count += count;
-                            backoff = rng.next_u32() % count;
+                            backoff = rng.next_u64() % count;
                             continue;
                         },
                         _ => {
