@@ -54,9 +54,12 @@ use util::secp256k1::MessageSignature;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
 use util::log;
+use util::retry::BoundReader;
 
 use rand;
 use rand::Rng;
+
+use std::mem;
 
 // macro for determining how big an inv bitvec can be, given its bitlen 
 macro_rules! BITVEC_LEN {
@@ -86,6 +89,10 @@ fn read_next_vec<T: StacksMessageCodec + Sized, R: Read>(fd: &mut R, num_items: 
             // inexact item count
             return Err(net_error::DeserializeError(format!("Array has incorrect number of items ({} != {})", len, num_items)));
         }
+    }
+
+    if (mem::size_of::<T>() as u128) * (len as u128) > MAX_MESSAGE_LEN  as u128 {
+        return Err(net_error::DeserializeError("Message occupies too many bytes".to_string()));
     }
 
     let mut ret = Vec::with_capacity(len as usize);
@@ -401,7 +408,12 @@ impl StacksMessageCodec for BlocksData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlocksData, net_error> {
-        let blocks : Vec<StacksBlock> = read_next(fd)?;
+        let blocks : Vec<StacksBlock> = {
+            // loose upper-bound
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
+
         Ok(BlocksData {
             blocks
         })
@@ -438,7 +450,12 @@ impl StacksMessageCodec for MicroblocksData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R)-> Result<MicroblocksData, net_error> {
-        let microblocks : Vec<StacksMicroblock> = read_next(fd)?;
+        let microblocks : Vec<StacksMicroblock> = {
+            // loose upper-bound
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
+        
         Ok(MicroblocksData {
             microblocks
         })
