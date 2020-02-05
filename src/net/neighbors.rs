@@ -1541,7 +1541,8 @@ impl PeerNetwork {
                         walk.walk_step_count += 1;
                         test_debug!("{:?}: walk has taken {} steps (total of {} walks)", &self.local_peer, walk.walk_step_count, self.walk_count);
 
-                        if self.walk_count > NUM_INITIAL_WALKS && walk.walk_step_count >= walk.walk_min_duration {
+                        if walk_opt.is_some() && self.walk_count > NUM_INITIAL_WALKS && walk.walk_step_count >= walk.walk_min_duration {
+                            // consider re-setting the walk state, now that we completed a walk
                             let mut rng = thread_rng();
                             let sample : f64 = rng.gen();
                             if walk.walk_step_count >= walk.walk_max_duration || sample < walk.walk_reset_prob {
