@@ -61,6 +61,7 @@ use chainstate::stacks::StacksPublicKey;
 use util::log;
 use util::hash::hex_bytes;
 use util::retry::RetryReader;
+use util::retry::BoundReader;
 
 use regex::Regex;
 
@@ -531,45 +532,6 @@ impl<'a, W: Write> Drop for HttpChunkedTransferWriter<'a, W> {
     }
 }
 
-/// A Read that will only read up to a given number of bytes before EOF'ing.
-struct BoundReader<'a, R: Read> {
-    fd: &'a mut R,
-    max_len: u64,
-    read_so_far: u64
-}
-
-impl<'a, R: Read> BoundReader<'a, R> {
-    pub fn from_reader(reader: &'a mut R, max_len: u64) -> BoundReader<'a, R> {
-        BoundReader {
-            fd: reader,
-            max_len: max_len,
-            read_so_far: 0
-        }
-    }
-
-    pub fn num_read(&self) -> u64 {
-        self.read_so_far
-    }
-}
-
-impl <'a, R: Read> Read for BoundReader<'a, R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if self.read_so_far.checked_add(buf.len() as u64).is_none() {
-            return Err(io::Error::new(io::ErrorKind::Other, net_error::OverflowError("Read would overflow u64".to_string())));
-        }
-        let max_read = 
-            if self.read_so_far + (buf.len() as u64) > self.max_len {
-                self.max_len - self.read_so_far
-            }
-            else {
-                buf.len() as u64
-            };
-
-        let nr = self.fd.read(&mut buf[0..(max_read as usize)])?;
-        self.read_so_far += nr as u64;
-        Ok(nr)
-    }
-}
 
 impl HttpRequestPreamble {
     pub fn new(verb: String, path: String, hostname: String, port: u16, request_id: u32) -> HttpRequestPreamble {
@@ -2010,54 +1972,6 @@ mod test {
             }
 
             assert_eq!(data, decoded_data);
-        }
-    }
-
-    #[test]
-    fn test_bound_reader() {
-        let tests = [
-            ("aaaaaaaaaa", 10, "aaaaaaaaaa"),
-            ("bbbbbbbbbb", 9,  "bbbbbbbbb"),
-            ("cccccccccc", 1,  "c"),
-            ("dddddddddd", 0,  ""),
-        ];
-        // read_to_end
-        for (data, len, expected) in tests.iter() {
-            let mut cursor = io::Cursor::new(data.as_bytes());
-            let mut reader = BoundReader::from_reader(&mut cursor, *len as u64);
-            let mut buf = vec![];
-            reader.read_to_end(&mut buf).unwrap();
-            assert_eq!(buf.len(), *len);
-            assert_eq!(buf, expected.as_bytes().to_vec());
-
-            // should EOF once length is exceeded
-            let mut buf2 = vec![0u8; *len];
-            let nr = reader.read(&mut buf2).unwrap();
-            assert_eq!(nr, 0);
-            assert_eq!(buf2, vec![0u8; *len]);
-        }
-
-        // read piecemeal
-        for (data, len, expected) in tests.iter() {
-            let mut cursor = io::Cursor::new(data.as_bytes());
-            let mut reader = BoundReader::from_reader(&mut cursor, *len as u64);
-            let mut buf = vec![];
-            
-            for i in 0..*len {
-                let mut tmp = [0u8; 1];
-                let nr = reader.read(&mut tmp).unwrap();
-                assert_eq!(nr, 1);
-                buf.extend_from_slice(&tmp);
-            }
-
-            assert_eq!(buf.len(), *len);
-            assert_eq!(buf, expected.as_bytes().to_vec());
-
-            // should EOF once length is exceeded
-            let mut buf2 = vec![0u8; *len];
-            let nr = reader.read(&mut buf2).unwrap();
-            assert_eq!(nr, 0);
-            assert_eq!(buf2, vec![0u8; *len]);
         }
     }
 
