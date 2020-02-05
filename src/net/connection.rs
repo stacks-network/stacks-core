@@ -371,11 +371,11 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             Err(net_error::DeserializeError(errmsg)) => {
                 // will never be valid
                 warn!("Invalid message preamble: {}", &errmsg);
-                test_debug!("Buffer ({}): {:?}", self.buf.len(), &self.buf);
-                test_debug!("Bytes: {:?}", bytes.to_vec());
-                test_debug!("Message ptr: {}", self.message_ptr);
-                test_debug!("Payload ptr: {}", self.payload_ptr);
-                test_debug!("Preamble: {:?}", &self.preamble);
+                debug!("Buffer ({}): {:?}", self.buf.len(), &self.buf);
+                debug!("Bytes: {:?}", bytes.to_vec());
+                debug!("Message ptr: {}", self.message_ptr);
+                debug!("Payload ptr: {}", self.payload_ptr);
+                debug!("Preamble: {:?}", &self.preamble);
                 return Err(net_error::InvalidMessage);
             },
             Err(net_error::UnderflowError(_)) => {
