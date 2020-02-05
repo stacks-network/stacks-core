@@ -2351,7 +2351,7 @@ mod test {
     }
     
     #[test]
-    fn test_walk_ring_20() {
+    fn test_walk_ring_20_plain() {
         // initial peers are neither white- nor blacklisted
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 20;
@@ -2480,7 +2480,7 @@ mod test {
     }
     
     #[test]
-    fn test_walk_line_20() {
+    fn test_walk_line_20_plain() {
         // initial peers are neither white- nor blacklisted
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 20;
@@ -2607,7 +2607,7 @@ mod test {
     }
     
     #[test]
-    fn test_walk_star_20() {
+    fn test_walk_star_20_plain() {
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 20;
         let NEIGHBOR_COUNT : usize = 5;
@@ -2827,6 +2827,7 @@ mod test {
         let mut count = 0;
         while !finished {
             finished = true;
+            let mut peer_counts = 0;
             for i in 0..PEER_COUNT {
                 let _ = peers[i].step();
                 let nk = peers[i].config.to_neighbor().addr;
@@ -2869,14 +2870,17 @@ mod test {
 
                 // done?
                 let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
+                peer_counts += all_neighbors.len();
                 if (all_neighbors.len() as u64) < ((PEER_COUNT - 1) as u64) {
                     let nk = peers[i].config.to_neighbor().addr;
                     test_debug!("waiting for {:?} to fill up its frontier: {}", &nk, all_neighbors.len());
                     finished = false;
                 }
             }
-
+            
             count += 1;
+
+            test_debug!("Network convergence rate: {}%", (100.0 * (peer_counts as f64)) / ((PEER_COUNT * PEER_COUNT) as f64));
 
             if finished {
                 break;
