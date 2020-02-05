@@ -28,7 +28,8 @@ use std::convert::TryFrom;
 use std::borrow::Borrow;
 
 use net::StacksMessageCodec;
-use net::codec::{read_next, write_next};
+use net::MAX_MESSAGE_LEN;
+use net::codec::{read_next, read_next_at_most, write_next};
 use net::Error as net_error;
 
 use regex::Regex;
@@ -44,6 +45,8 @@ use vm::types::{
     StandardPrincipalData,
     QualifiedContractIdentifier
 };
+
+use util::retry::BoundReader;
 
 /// printable-ASCII-only string, but encodable.
 /// Note that it cannot be longer than ARRAY_MAX_LEN (4.1 billion bytes)
@@ -81,7 +84,10 @@ impl StacksMessageCodec for StacksString {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksString, net_error> {
-        let bytes : Vec<u8> = read_next(fd)?;
+        let bytes : Vec<u8> = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
 
         // must encode a valid string
         let s = String::from_utf8(bytes.clone())
