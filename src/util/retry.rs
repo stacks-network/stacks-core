@@ -130,6 +130,10 @@ impl <'a, R: Read> Read for BoundReader<'a, R> {
                 buf.len() as u64
             };
 
+        if max_read == 0 {
+            return Err(io::Error::from(io::ErrorKind::UnexpectedEof))
+        }
+
         let nr = self.fd.read(&mut buf[0..(max_read as usize)])?;
         self.read_so_far += nr as u64;
         Ok(nr)
@@ -158,7 +162,8 @@ impl <'a, R: Read> LogReader<'a, R> {
 impl <'a, R: Read> Read for LogReader<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let nr = self.fd.read(buf)?;
-        self.reads.push(buf[0..nr].to_vec());
+        let read = buf[0..nr].to_vec();
+        self.reads.push(read);
         Ok(nr)
     }
 }
