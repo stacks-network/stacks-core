@@ -738,30 +738,6 @@ impl PeerNetwork {
         self.deregister(event_id)
     }
 
-    /// Reregister a (broken) _outbound_ connection in a bid to recover from transient network failure.
-    /// Returns an error if the peer isn't connected in the first place, or if this peer has been
-    /// in an erroneous state for too long and should be disconnected outright.
-    fn reregister_if_outbound(&mut self, event_id: usize) -> Result<(), net_error> {
-        let (neighbor_key, convo_stats) = {
-            match self.peers.get_mut(&event_id) {
-                Some(ref mut c) => Ok((c.to_neighbor_key(), c.stats.clone())),
-                None => Err(net_error::PeerNotConnected)
-            }
-        }?;
-
-        self.deregister(event_id);
-
-        if convo_stats.outbound {
-            // should reconnect
-            self.connect_peer(&neighbor_key)
-                .and_then(|eid| Ok(()))
-        }
-        else {
-            // don't reconnect to someone who connected to us first.
-            Ok(())
-        }
-    }
-
     /// Sign a message to be sent to a particular peer we're having a conversation with
     pub fn sign_for_peer(&mut self, peer_key: &NeighborKey, message_payload: StacksMessageType) -> Result<StacksMessage, net_error> {
         match self.events.get(&peer_key) {
@@ -1138,6 +1114,7 @@ impl PeerNetwork {
 
     /// Prune inbound and outbound connections if we can 
     fn prune_connections(&mut self) -> () {
+        test_debug!("Prune connections");
         let mut safe : HashSet<usize> = HashSet::new();
         let now = get_epoch_time_secs();
 
@@ -1293,11 +1270,8 @@ impl PeerNetwork {
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
         let (error_events, unsolicited_messages) = self.process_ready_sockets(&mut poll_state);
         for error_event in error_events {
-            let _ = self.reregister_if_outbound(error_event)
-                .map_err(|e| {
-                    debug!("{:?}: Failed to repair connection to event {}", &self.local_peer, error_event);
-                    self.deregister(error_event);
-                }); 
+            debug!("{:?}: Failed connection on event {}", &self.local_peer, error_event);
+            self.deregister(error_event);
         }
 
         // move out-bound messages along
@@ -1329,11 +1303,8 @@ impl PeerNetwork {
         // this has the intentional side-effect of activating some sockets as writeable.
         let error_outbound_events = self.send_outbound_messages();
         for error_event in error_outbound_events {
-            let _ = self.reregister_if_outbound(error_event)
-                .map_err(|e| {
-                    debug!("{:?}: Failed to repair connection to event {}", &self.local_peer, error_event);
-                    self.deregister(error_event);
-                }); 
+            debug!("{:?}: Failed connection on event {}", &self.local_peer, error_event);
+            self.deregister(error_event);
         }
         
         if do_prune {
