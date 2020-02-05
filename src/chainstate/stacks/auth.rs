@@ -23,6 +23,7 @@ use std::io::{Read, Write};
 
 use net::StacksMessageCodec;
 use net::Error as net_error;
+use net::MAX_MESSAGE_LEN;
 use net::codec::{read_next, write_next};
 
 use address::AddressHashMode;
@@ -58,6 +59,7 @@ use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 use util::retry::RetryReader;
+use util::retry::BoundReader;
 
 impl StacksMessageCodec for TransactionAuthField {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
@@ -145,7 +147,11 @@ impl StacksMessageCodec for MultisigSpendingCondition {
         let signer : Hash160 = read_next(fd)?;
         let nonce : u64 = read_next(fd)?;
         let fee_rate : u64 = read_next(fd)?;
-        let fields : Vec<TransactionAuthField> = read_next(fd)?;
+        let fields : Vec<TransactionAuthField> = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
+
         let signatures_required: u16 = read_next(fd)?;
         
         // read and decode _exactly_ num_signatures signature buffers

@@ -30,6 +30,7 @@ use chainstate::burn::BlockHeaderHash;
 
 use net::StacksMessageCodec;
 use net::Error as net_error;
+use net::MAX_MESSAGE_LEN;
 use net::codec::{read_next, write_next};
 
 use util::hash::MerkleTree;
@@ -52,6 +53,8 @@ use burnchains::PublicKey;
 use core::*;
 
 use util::vrf::*;
+
+use util::retry::BoundReader;
 
 impl StacksMessageCodec for VRFProof {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
@@ -297,7 +300,10 @@ impl StacksMessageCodec for StacksBlock {
         // NOTE: don't worry about size clamps here; do that when receiving the data from the peer
         // network.  This code assumes that the block will be small enough.
         let header : StacksBlockHeader      = read_next(fd)?;
-        let txs : Vec<StacksTransaction>    = read_next(fd)?;
+        let txs : Vec<StacksTransaction>    = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
 
         // there must be at least one transaction (the coinbase)
         if txs.len() == 0 {
@@ -681,7 +687,10 @@ impl StacksMessageCodec for StacksMicroblock {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMicroblock, net_error> {
         // NOTE: maximum size must be checked elsewhere!
         let header : StacksMicroblockHeader = read_next(fd)?;
-        let txs : Vec<StacksTransaction>    = read_next(fd)?;
+        let txs : Vec<StacksTransaction>    = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
 
         if txs.len() == 0 {
             warn!("Invalid microblock: zero transactions");

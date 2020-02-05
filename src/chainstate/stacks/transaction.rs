@@ -25,7 +25,7 @@ use std::convert::TryFrom;
 
 use net::StacksMessageCodec;
 use net::Error as net_error;
-use net::codec::{read_next, write_next, read_next_at_most};
+use net::codec::{read_next, write_next};
 
 use burnchains::Txid;
 
@@ -34,10 +34,12 @@ use chainstate::stacks::*;
 use core::*;
 
 use net::StacksPublicKeyBuffer;
+use net::MAX_MESSAGE_LEN;
 
 use util::hash::Sha512Trunc256Sum;
 use util::hash::to_hex;
 use util::secp256k1::MessageSignature;
+use util::retry::BoundReader;
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::ast::build_ast;
 use vm::types::{
@@ -79,7 +81,10 @@ impl StacksMessageCodec for TransactionContractCall {
         let address : StacksAddress = read_next(fd)?;
         let contract_name : ContractName = read_next(fd)?;
         let function_name: ClarityName = read_next(fd)?;
-        let function_args: Vec<Value> = read_next(fd)?;     // TODO: maximum number of function arguments?
+        let function_args: Vec<Value> = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
 
         // function name must be valid Clarity variable
         if !StacksString::from(function_name.clone()).is_clarity_variable() {
@@ -380,7 +385,11 @@ impl StacksMessageCodec for StacksTransaction {
         let auth : TransactionAuth      = read_next(fd)?;
         let anchor_mode_u8 : u8         = read_next(fd)?;
         let post_condition_mode_u8 : u8 = read_next(fd)?;
-        let post_conditions : Vec<TransactionPostCondition> = read_next_at_most(fd, MAX_POSTCONDITIONS)?;
+        let post_conditions : Vec<TransactionPostCondition> = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
+        
         let payload : TransactionPayload = read_next(fd)?;
 
         let version = 
@@ -858,6 +867,7 @@ mod test {
     use util::log;
     use util::hash::*;
     use util::retry::BoundReader;
+    use util::retry::LogReader;
 
     use vm::representations::{ClarityName, ContractName};
 
@@ -1346,8 +1356,10 @@ mod test {
             let next_byte = tx_bytes[i] as u16;
             tx_bytes[i] = ((next_byte + 1) % 0xff) as u8;
 
+            // test_debug!("mutate byte {}", &i);
             let mut cursor = io::Cursor::new(&tx_bytes);
-            match StacksTransaction::consensus_deserialize(&mut cursor) {
+            let mut reader = LogReader::from_reader(&mut cursor);
+            match StacksTransaction::consensus_deserialize(&mut reader) {
                 Ok(corrupt_tx) => {
                     let mut corrupt_tx_bytes = vec![];
                     corrupt_tx.consensus_serialize(&mut corrupt_tx_bytes).unwrap();

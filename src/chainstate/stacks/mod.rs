@@ -680,9 +680,6 @@ pub const MAX_EPOCH_SIZE : u32 = 2 * 1024 * 1024;
 // $MAX_EPOCH_SIZE bytes (so the average microblock size needs to be 4kb if there are 256 of them)
 pub const MAX_MICROBLOCK_SIZE : u32 = 65536;
 
-// maximum number of post-conditions on a transaction
-pub const MAX_POSTCONDITIONS : u32 = 1024;
-
 #[cfg(test)]
 pub mod test {
     use super::*;
