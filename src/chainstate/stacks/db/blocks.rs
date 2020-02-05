@@ -1933,6 +1933,9 @@ impl StacksChainState {
                         burnchain_sortition_burn: u64, 
                         user_burns: &Vec<StagingUserBurnSupport>) -> Result<StacksHeaderInfo, Error>
     {
+
+        debug!("Process block {:?} with {} transactions", &block.block_hash().to_hex(), block.txs.len());
+
         let mainnet = chainstate_tx.get_config().mainnet;
         let next_block_height = block.header.total_work.work;
 
