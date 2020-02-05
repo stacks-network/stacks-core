@@ -25,7 +25,7 @@ use std::convert::TryFrom;
 
 use net::StacksMessageCodec;
 use net::Error as net_error;
-use net::codec::{read_next, write_next};
+use net::codec::{read_next, write_next, read_next_at_most};
 
 use burnchains::Txid;
 
@@ -380,7 +380,7 @@ impl StacksMessageCodec for StacksTransaction {
         let auth : TransactionAuth      = read_next(fd)?;
         let anchor_mode_u8 : u8         = read_next(fd)?;
         let post_condition_mode_u8 : u8 = read_next(fd)?;
-        let post_conditions : Vec<TransactionPostCondition> = read_next(fd)?;
+        let post_conditions : Vec<TransactionPostCondition> = read_next_at_most(fd, MAX_POSTCONDITIONS)?;
         let payload : TransactionPayload = read_next(fd)?;
 
         let version = 
@@ -857,6 +857,7 @@ mod test {
 
     use util::log;
     use util::hash::*;
+    use util::retry::BoundReader;
 
     use vm::representations::{ClarityName, ContractName};
 
@@ -1340,11 +1341,13 @@ mod test {
         // exhaustive test -- mutate each byte
         let mut tx_bytes : Vec<u8> = vec![];
         signed_tx.consensus_serialize(&mut tx_bytes).unwrap();
+        test_debug!("mutate tx: {}", to_hex(&tx_bytes));
         for i in 0..tx_bytes.len() {
             let next_byte = tx_bytes[i] as u16;
             tx_bytes[i] = ((next_byte + 1) % 0xff) as u8;
 
-            match StacksTransaction::consensus_deserialize(&mut io::Cursor::new(&tx_bytes)) {
+            let mut cursor = io::Cursor::new(&tx_bytes);
+            match StacksTransaction::consensus_deserialize(&mut cursor) {
                 Ok(corrupt_tx) => {
                     let mut corrupt_tx_bytes = vec![];
                     corrupt_tx.consensus_serialize(&mut corrupt_tx_bytes).unwrap();
