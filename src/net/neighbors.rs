@@ -68,7 +68,7 @@ use rusqlite::Transaction;
 pub const NEIGHBOR_REQUEST_TIMEOUT : u64 = 60;
 
 pub const NUM_INITIAL_WALKS : u64 = 10;     // how many unthrottled walks should we do when this peer starts up
-#[cfg(test)] pub const PRUNE_FREQUENCY : u64 = 60;             // how often we should consider pruning neighbors
+#[cfg(test)] pub const PRUNE_FREQUENCY : u64 = 0;             // how often we should consider pruning neighbors
 #[cfg(not(test))] pub const PRUNE_FREQUENCY : u64 = 43200;     // how often we should consider pruning neighbors (twice a day)
 pub const MAX_NEIGHBOR_BLOCK_DELAY : u64 = 288;     // maximum delta between our current block height and the neighbor's that we will treat this neighbor as fresh
 
@@ -1525,7 +1525,7 @@ impl PeerNetwork {
                         self.walk_count += 1;
                         self.walk_deadline = self.connection_opts.walk_interval + get_epoch_time_secs();
 
-                        if self.walk_count > NUM_INITIAL_WALKS && self.prune_deadline > get_epoch_time_secs() {
+                        if self.walk_count > NUM_INITIAL_WALKS && self.prune_deadline < get_epoch_time_secs() {
                             // clean up 
                             walk_result.do_prune = true;
                             self.prune_deadline = get_epoch_time_secs() + PRUNE_FREQUENCY;
