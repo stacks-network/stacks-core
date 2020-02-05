@@ -475,7 +475,7 @@ impl StacksChainState {
 
     /// Process a transaction.  Return the fee and amount of STX destroyed
     pub fn process_transaction<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(u64, u128), Error> {
-        test_debug!("Process transaction {}", tx.txid());
+        debug!("Process transaction {}", tx.txid());
 
         StacksChainState::process_transaction_precheck(clarity_tx, tx)?;
 
