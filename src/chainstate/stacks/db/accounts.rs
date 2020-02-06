@@ -198,14 +198,16 @@ impl StacksChainState {
 
     /// Schedule a miner payment in the future.
     /// Schedules payments out to both miners and users that support them.
-    pub fn insert_miner_payment_schedule<'a>(tx: &mut StacksDBTx<'a>, block_reward: &MinerPaymentSchedule, user_burns: &Vec<StagingUserBurnSupport>, index_root: &TrieHash) -> Result<(), Error> {
+    pub fn insert_miner_payment_schedule<'a>(tx: &mut StacksDBTx<'a>, block_reward: &MinerPaymentSchedule, user_burns: &Vec<StagingUserBurnSupport>) -> Result<(), Error> {
         assert!(block_reward.burnchain_commit_burn < i64::max_value() as u64);
         assert!(block_reward.burnchain_sortition_burn < i64::max_value() as u64);
+
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(&block_reward.burn_header_hash, &block_reward.block_hash);
 
         let args: &[&dyn ToSql] = &[&block_reward.address.to_string(), &block_reward.block_hash, &block_reward.burn_header_hash, &block_reward.parent_block_hash, &block_reward.parent_burn_header_hash,
                     &format!("{}", block_reward.coinbase), &format!("{}", block_reward.tx_fees_anchored), &format!("{}", block_reward.tx_fees_streamed), &format!("{}", block_reward.stx_burns), 
                     &(block_reward.burnchain_commit_burn as i64) as &dyn ToSql, &(block_reward.burnchain_sortition_burn as i64) as &dyn ToSql, &format!("{}", block_reward.fill), &(block_reward.stacks_block_height as i64) as &dyn ToSql, 
-                    &true as &dyn ToSql, &0i64 as &dyn ToSql, index_root as &dyn ToSql];
+                    &true as &dyn ToSql, &0i64 as &dyn ToSql, &index_block_hash as &dyn ToSql];
 
         tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex,index_block_hash) \
                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)", args)
@@ -215,7 +217,7 @@ impl StacksChainState {
             let args: &[&dyn ToSql] = &[&user_support.address.to_string(), &block_reward.block_hash, &block_reward.burn_header_hash, &block_reward.parent_block_hash, &block_reward.parent_burn_header_hash,
                         &format!("{}", block_reward.coinbase), &"0".to_string(), &"0".to_string(), &"0".to_string(),
                         &(user_support.burn_amount as i64) as &dyn ToSql, &(block_reward.burnchain_sortition_burn as i64) as &dyn ToSql, &format!("{}", block_reward.fill), &(block_reward.stacks_block_height as i64) as &dyn ToSql,
-                        &false as &dyn ToSql, &user_support.vtxindex as &dyn ToSql, index_root as &dyn ToSql];
+                        &false as &dyn ToSql, &user_support.vtxindex as &dyn ToSql, &index_block_hash as &dyn ToSql];
             tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex,index_block_hash) \
                         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
                        args)
@@ -239,6 +241,26 @@ impl StacksChainState {
         let args: &[&dyn ToSql] = &[&ancestor_info.anchored_header.block_hash(), &ancestor_info.burn_header_hash];
         let rows = query_rows::<MinerPaymentSchedule, _>(tx, &qry, args).map_err(Error::DBError)?;
         Ok(rows)
+    }
+
+    /// Get the miner info at a particular burn/stacks block
+    pub fn get_miner_info(conn: &DBConn, burn_block_hash: &BurnchainHeaderHash, stacks_block_hash: &BlockHeaderHash) -> Result<Option<MinerPaymentSchedule>, Error> {
+        let qry = "SELECT * FROM payments WHERE burn_header_hash = ?1 AND block_hash = ?2 AND miner = 1".to_string();
+        let args = [burn_block_hash as &dyn ToSql, stacks_block_hash as &dyn ToSql];
+        let mut rows = query_rows::<MinerPaymentSchedule, _>(conn, &qry, &args).map_err(Error::DBError)?;
+        let len = rows.len();
+        match len {
+            0 => {
+                test_debug!("No miner information for {}/{}", burn_block_hash, stacks_block_hash);
+                Ok(None)
+            },
+            1 => {
+                Ok(rows.pop())
+            },
+            _ => {
+                panic!("Multiple miners for {}/{}", burn_block_hash, stacks_block_hash);
+            }
+        }
     }
 
     /// Calculate the total reward for a miner (or user burn support), given a sample of scheduled miner payments.

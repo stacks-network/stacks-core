@@ -357,7 +357,7 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
         
         -- internal use
         stacks_block_height INTEGER NOT NULL,
-        index_block_hash TEXT UNIQUE NOT NULL,
+        index_block_hash TEXT NOT NULL,     -- NOTE: can't enforce UNIQUE here, because there will be multiple entries per block
         vtxindex INT NOT NULL               -- user burn support vtxindex
     );
     "#,
@@ -928,7 +928,7 @@ impl StacksChainState {
         };
 
         StacksChainState::insert_stacks_block_header(headers_tx, &new_tip_info)?;
-        StacksChainState::insert_miner_payment_schedule(headers_tx, block_reward, user_burns, &new_tip_info.index_root)?;
+        StacksChainState::insert_miner_payment_schedule(headers_tx, block_reward, user_burns)?;
 
         debug!("Advanced to new tip! {}/{}", new_burn_block, new_tip.block_hash());
         Ok(new_tip_info)

@@ -1355,7 +1355,7 @@ pub mod tests {
                 block_124_snapshot.sortition_hash = block_124_snapshot.sortition_hash.mix_VRF_seed(&block_124_winners[scenario_idx].new_seed);
             }
 
-            let block124 = BurnchainBlock::Bitcoin(BitcoinBlock::new(124, &block_124_hash, &block_123_hash, &vec![], get_epoch_time_secs()));
+            let block124 = BurnchainBlock::Bitcoin(BitcoinBlock::new(124, &block_124_hash, &block_123_hash, &vec![], 124));
 
             // process this scenario
             let sn124 = {

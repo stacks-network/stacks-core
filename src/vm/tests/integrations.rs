@@ -73,7 +73,8 @@ const GET_INFO_CONTRACT: &'static str = "
            (id-hash (buff 32))
            (btc-hash (buff 32))
            (vrf-seed (buff 32))
-           (burn-block-time uint)))
+           (burn-block-time uint)
+           (stacks-miner principal)))
         (define-private (test-1) (get-block-info? time u1))
         (define-private (test-2) (get-block-info? time block-height))
         (define-private (test-3) (get-block-info? time u100000))
@@ -81,6 +82,9 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-private (test-5) (get-block-info? header-hash (- block-height u1)))
         (define-private (test-6) (get-block-info? burnchain-header-hash u1))
         (define-private (test-7) (get-block-info? vrf-seed u1))
+        (define-private (test-8) (get-block-info? miner-address u1))
+        (define-private (test-9) (get-block-info? miner-address block-height))
+        (define-private (test-10) (get-block-info? miner-address u100000))
 
         (define-private (get-block-id-hash (height uint)) (unwrap-panic
           (get id-hash (map-get? block-data ((height height))))))
@@ -109,7 +113,10 @@ const GET_INFO_CONTRACT: &'static str = "
                         (print (get btc-hash block-info)))
                  (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? time (- block-height u1)))))
                         (print (unwrap-panic (get-block-info? time (- height u1))))
-                        (print (get burn-block-time block-info))))))
+                        (print (get burn-block-time block-info)))
+                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? miner-address (- block-height u1)))))
+                        (print (unwrap-panic (get-block-info? miner-address (- height u1))))
+                        (print (get stacks-miner block-info))))))
 
         (define-private (inner-update-info (height uint))
             (let ((value (tuple 
@@ -117,7 +124,8 @@ const GET_INFO_CONTRACT: &'static str = "
               (id-hash (unwrap-panic (get-block-info? id-header-hash height)))
               (btc-hash (unwrap-panic (get-block-info? burnchain-header-hash height)))
               (vrf-seed (unwrap-panic (get-block-info? vrf-seed height)))
-              (burn-block-time (unwrap-panic (get-block-info? time height))))))
+              (burn-block-time (unwrap-panic (get-block-info? time height)))
+              (stacks-miner (unwrap-panic (get-block-info? miner-address height))))))
              (ok (map-set block-data ((height height)) value))))
 
         (define-public (update-info)
@@ -190,6 +198,15 @@ fn integration_test_get_info() {
 
                 let tip_header_info = headers.last().unwrap();
 
+                // find miner metadata
+                let mut miners = vec![];
+                for block in blocks.iter() {
+                    let miner = StacksChainState::get_miner_info(&chain_state.headers_db, &block.0, &block.1).unwrap().unwrap();
+                    miners.push(miner);
+                }
+
+                let tip_miner = miners.last().unwrap();
+
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "block-height"),
@@ -238,6 +255,23 @@ fn integration_test_get_info() {
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-7)"),
                     Value::some(Value::buff_from(last_vrf_seed).unwrap()));
+
+                // verify that we can get the block miner
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-8)"),
+                    Value::some(Value::Principal(miners[0].address.to_account_principal())));
+
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-9)"),
+                    Value::none());
+
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-10)"),
+                    Value::none());
+                    
             },
             3 => {
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
