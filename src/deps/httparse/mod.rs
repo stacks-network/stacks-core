@@ -449,26 +449,6 @@ impl<T> Status<T> {
 /// The optional values will be `None` if a parse was not complete, and did not
 /// parse the associated property. This allows you to inspect the parts that
 /// could be parsed, before reading more, in case you wish to exit early.
-///
-/// # Example
-///
-/// ```no_run
-/// let buf = b"GET /404 HTTP/1.1\r\nHost:";
-/// let mut headers = [httparse::EMPTY_HEADER; 16];
-/// let mut req = httparse::Request::new(&mut headers);
-/// let res = req.parse(buf).unwrap();
-/// if res.is_partial() {
-///     match req.path {
-///         Some(ref path) => {
-///             // check router for path.
-///             // /404 doesn't exist? we could stop parsing
-///         },
-///         None => {
-///             // must read more and parse again
-///         }
-///     }
-/// }
-/// ```
 #[derive(Debug, PartialEq)]
 pub struct Request<'headers, 'buf: 'headers> {
     /// The request method, such as `GET`.
@@ -616,12 +596,6 @@ pub struct Header<'a> {
 
 /// An empty header, useful for constructing a `Header` array to pass in for
 /// parsing.
-///
-/// # Example
-///
-/// ```
-/// let headers = [httparse::EMPTY_HEADER; 64];
-/// ```
 pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 
 #[inline]
@@ -735,18 +709,6 @@ fn parse_code(bytes: &mut Bytes) -> Result<u16> {
 /// buffer that parsing stopped at, and a sliced reference to the parsed
 /// headers. The length of the slice will be equal to the number of properly
 /// parsed headers.
-///
-/// # Example
-///
-/// ```
-/// let buf = b"Host: foo.bar\nAccept: */*\n\nblah blah";
-/// let mut headers = [httparse::EMPTY_HEADER; 4];
-/// assert_eq!(httparse::parse_headers(buf, &mut headers),
-///            Ok(httparse::Status::Complete((27, &[
-///                httparse::Header { name: "Host", value: b"foo.bar" },
-///                httparse::Header { name: "Accept", value: b"*/*" }
-///            ][..]))));
-/// ```
 pub fn parse_headers<'b: 'h, 'h>(src: &'b [u8], mut dst: &'h mut [Header<'b>])
     -> Result<(usize, &'h [Header<'b>])> {
     let mut iter = Bytes::new(src);
@@ -880,14 +842,6 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 ///
 /// The return value, if complete and successful, includes the index of the
 /// buffer that parsing stopped at, and the size of the following chunk.
-///
-/// # Example
-///
-/// ```
-/// let buf = b"4\r\nRust\r\n0\r\n\r\n";
-/// assert_eq!(httparse::parse_chunk_size(buf),
-///            Ok(httparse::Status::Complete((3, 4))));
-/// ```
 pub fn parse_chunk_size(buf: &[u8])
     -> result::Result<Status<(usize, u64)>, Error> {
     const RADIX: u64 = 16;
