@@ -172,6 +172,7 @@ impl NetworkState {
     /// Connect *synchronously*, and then put the socket into non-blocking mode.
     pub fn connect(&mut self, addr: &SocketAddr) -> Result<mio_net::TcpStream, net_error> {
         // connect and abort after 5 seconds of waiting.
+        // TODO: revert to non-blocking connect to avoid slow neighbors starving socket work
         let inner_stream = net::TcpStream::connect_timeout(addr, time::Duration::from_millis(5000))
             .map_err(|e| {
                 test_debug!("Failed to connect to {:?}: {:?}", addr, &e);
