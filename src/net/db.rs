@@ -698,16 +698,16 @@ impl PeerDB {
         let random_peers_qry = 
             if always_include_whitelisted {
                 "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND blacklisted < ?3 AND \
-                 (whitelisted >= 0 AND whitelisted <= $4) ORDER BY RANDOM() LIMIT ?5".to_string()
+                 (whitelisted >= 0 AND whitelisted <= ?4) ORDER BY RANDOM() LIMIT ?5".to_string()
             }
             else {
                 "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND blacklisted < ?3 AND \
-                 (whitelisted < 0 OR (whitelisted >= 0 AND whitelisted <= $4)) ORDER BY RANDOM() LIMIT ?5".to_string()
+                 (whitelisted < 0 OR (whitelisted >= 0 AND whitelisted <= ?4)) ORDER BY RANDOM() LIMIT ?5".to_string()
             };
 
         let random_peers_args = [&network_id as &dyn ToSql, &(block_height as i64) as &dyn ToSql, &(now_secs as i64) as &dyn ToSql, &(now_secs as i64) as &dyn ToSql, &(count - (ret.len() as u32)) as &dyn ToSql];
         let mut random_peers = query_rows::<Neighbor, _>(conn, &random_peers_qry, &random_peers_args)?;
-
+    
         ret.append(&mut random_peers);
         Ok(ret)
     }
@@ -781,8 +781,6 @@ impl PeerDB {
         Ok(count as u64)
     }
 
-    /// used only in testing 
-    #[cfg(test)]
     pub fn get_all_peers(conn: &DBConn) -> Result<Vec<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier ORDER BY addrbytes ASC, port ASC".to_string();
         let rows = query_rows::<Neighbor, _>(conn, &qry, NO_PARAMS)?;
