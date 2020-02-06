@@ -72,7 +72,8 @@ const GET_INFO_CONTRACT: &'static str = "
           ((stacks-hash (buff 32)) 
            (id-hash (buff 32))
            (btc-hash (buff 32))
-           (vrf-seed (buff 32))))
+           (vrf-seed (buff 32))
+           (burn-block-time uint)))
         (define-private (test-1) (get-block-info? time u1))
         (define-private (test-2) (get-block-info? time block-height))
         (define-private (test-3) (get-block-info? time u100000))
@@ -105,14 +106,18 @@ const GET_INFO_CONTRACT: &'static str = "
                         (print (get vrf-seed block-info)))
                  (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? burnchain-header-hash (- block-height u1)))))
                         (print (unwrap-panic (get-block-info? burnchain-header-hash (- height u1))))
-                        (print (get btc-hash block-info))))))
+                        (print (get btc-hash block-info)))
+                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? time (- block-height u1)))))
+                        (print (unwrap-panic (get-block-info? time (- height u1))))
+                        (print (get burn-block-time block-info))))))
 
         (define-private (inner-update-info (height uint))
             (let ((value (tuple 
               (stacks-hash (unwrap-panic (get-block-info? header-hash height)))
               (id-hash (unwrap-panic (get-block-info? id-header-hash height)))
               (btc-hash (unwrap-panic (get-block-info? burnchain-header-hash height)))
-              (vrf-seed (unwrap-panic (get-block-info? vrf-seed height))))))
+              (vrf-seed (unwrap-panic (get-block-info? vrf-seed height)))
+              (burn-block-time (unwrap-panic (get-block-info? time height))))))
              (ok (map-set block-data ((height height)) value))))
 
         (define-public (update-info)
@@ -176,11 +181,35 @@ fn integration_test_get_info() {
                 eprintln!("Current Block: {}       Parent Block: {}", bhh, parent);
                 let parent_val = Value::buff_from(parent.as_bytes().to_vec()).unwrap();
 
+                // find header metadata
+                let mut headers = vec![];
+                for block in blocks.iter() {
+                    let header = StacksChainState::get_anchored_block_header_info(&chain_state.headers_db, &block.0, &block.1).unwrap().unwrap();
+                    headers.push(header);
+                }
+
+                let tip_header_info = headers.last().unwrap();
+
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "block-height"),
                     Value::UInt(2));
 
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-1)"),
+                    Value::some(Value::UInt(headers[0].burn_header_timestamp as u128)));
+                
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-2)"),
+                    Value::none());
+
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-3)"),
+                    Value::none());
+                
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-4 u1)"),

@@ -6,7 +6,7 @@ use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, StandardPrincipalData, QualifiedContractIdentifier, NONE};
 
-use chainstate::stacks::db::StacksHeaderInfo;
+use chainstate::stacks::db::{StacksHeaderInfo, MinerPaymentSchedule};
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
 
@@ -62,6 +62,14 @@ fn get_stacks_header_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<Sta
         .expect("Unexpected SQL failure querying block header table")
 }
 
+fn get_miner_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<MinerPaymentSchedule> {
+    conn.query_row("SELECT * FROM payments WHERE index_block_hash = ? AND miner = 1",
+                   [id_bhh].iter(),
+                   |x| MinerPaymentSchedule::from_row(x).expect("Bad payment info in database"))
+        .optional()
+        .expect("Unexpected SQL failure querying payment table")
+}
+
 impl HeadersDB for DBConn {
     fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
         get_stacks_header_info(self, id_bhh)
@@ -73,8 +81,9 @@ impl HeadersDB for DBConn {
             .map(|x| x.burn_header_hash)
     }
 
-    fn get_burn_block_time_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<u64> {
-        panic!("Block time data not available in burn header db")
+    fn get_burn_block_time_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<u64> {
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| x.burn_header_timestamp)
     }
 
     fn get_vrf_seed_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed> {
@@ -83,7 +92,8 @@ impl HeadersDB for DBConn {
     }
 
     fn get_miner_address(&self, id_bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
-        panic!("Miner address data not available in burn header db")
+        get_miner_info(self, id_bhh)
+            .map(|x| x.address)
     }
 }
 
