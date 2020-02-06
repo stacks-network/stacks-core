@@ -402,7 +402,8 @@ impl NeighborWalk {
                                 // this is indeed cur_neighbor
                                 self.cur_neighbor.handshake_update(tx, &data.handshake)?;
                                 self.cur_neighbor.save_update(tx)?;
-                                
+                               
+                                info!("Connected with {:?}", &self.cur_neighbor.addr);
                                 self.new_frontier.insert(self.cur_neighbor.addr.clone(), self.cur_neighbor.clone());
 
                                 // advance state!
@@ -536,6 +537,7 @@ impl NeighborWalk {
                         let (mut found, to_resolve) = NeighborWalk::lookup_stale_neighbors(dbconn, message.preamble.peer_version, message.preamble.network_id, block_height, &data.neighbors)?;
 
                         for (naddr, neighbor) in found.drain() {
+                            info!("New neighbor {:?}", &neighbor.addr);
                             self.new_frontier.insert(neighbor.addr.clone(), neighbor.clone());
                             self.resolved_handshake_neighbors.insert(naddr, neighbor);
                         }
@@ -646,7 +648,7 @@ impl NeighborWalk {
                                 let neighbor_opt = Neighbor::from_neighbor_address(tx, message.preamble.peer_version, message.preamble.network_id, block_height, &naddr)?;
                                 match neighbor_opt {
                                     Some(neighbor) => {
-                                        test_debug!("{:?}: already know about {:?}", &self.local_peer, &neighbor.addr);
+                                        info!("{:?}: already know about {:?}", &self.local_peer, &neighbor.addr);
 
                                         // knew about this neighbor already
                                         self.resolved_handshake_neighbors.insert(naddr, neighbor.clone());
@@ -656,7 +658,7 @@ impl NeighborWalk {
                                         neighbor_from_handshake.save_update(tx)?;
                                     },
                                     None => {
-                                        test_debug!("{:?}: new neighbor {:?}", &self.local_peer, &neighbor_from_handshake.addr);
+                                        info!("{:?}: new neighbor {:?}", &self.local_peer, &neighbor_from_handshake.addr);
 
                                         // didn't know about this neighbor yet. Try to add it.
                                         let added = neighbor_from_handshake.save(tx)?;
@@ -738,7 +740,7 @@ impl NeighborWalk {
             
             // update our frontier knowledge
             for (nkey, new_neighbor) in self.new_frontier.drain() {
-                test_debug!("{:?}: Add to frontier: {:?}", &self.local_peer, &nkey);
+                info!("{:?}: Add to frontier: {:?}", &self.local_peer, &nkey);
                 self.frontier.insert(nkey.clone(), new_neighbor);
 
                 if nkey.addrbytes != self.cur_neighbor.addr.addrbytes || nkey.port != self.cur_neighbor.addr.port {
@@ -1099,7 +1101,7 @@ impl PeerNetwork {
             .map_err(|_e| net_error::DBError)?;
 
         if neighbors.len() == 0 {
-            debug!("No neighbors available!");
+            debug!("{:?}: No neighbors available!  Will not begin neighbor walk", &self.local_peer);
             return Err(net_error::NoSuchNeighbor);
         }
         Ok(neighbors)
@@ -1587,7 +1589,7 @@ mod test {
     const TEST_IN_OUT_DEGREES : u64 = 0x1;
 
     #[test]
-    fn test_walk_1_neighbor() {
+    fn test_walk_1_neighbor_plain() {
         let mut peer_1_config = TestPeerConfig::from_port(32000);
         let peer_2_config = TestPeerConfig::from_port(32001);
 
@@ -1624,6 +1626,9 @@ mod test {
                 break;
             }
         }
+
+        peer_1.dump_frontier();
+        peer_2.dump_frontier();
 
         // peer 1 contacted peer 2
         let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
@@ -2299,9 +2304,9 @@ mod test {
         assert_eq!(frontier_1.len(), 0);
         assert_eq!(frontier_2.len(), 0);
         
-        // no new connections
-        assert_eq!(walk_result_2.new_connections.len(), 0);
-        assert_eq!(walk_result_1.new_connections.len(), 0);
+        // but we did at least connect
+        assert_eq!(walk_result_2.new_connections.len(), 1);
+        assert_eq!(walk_result_1.new_connections.len(), 1);
 
         // nothing broken or replaced
         assert_eq!(walk_result_1.broken_connections.len(), 0);
