@@ -1157,69 +1157,46 @@ refers to the non-fungible token `"hello world"` (which has type `buff` and is
 comprised of 11 bytes), defined in Clarity contract `SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract`
 as a type of non-fungible token `example-nft`.
 
-#### (TBD) Calculating the State of a Smart Contract
+#### Calculating the State of a Smart Contract
 
-A smart contract's canonical encoding as a key/value pair in the smart contract
-state is as follows:
+Smart contract state includes data variables, data maps, the contract code, and
+type metadata.  All of this state is represented in the MARF via a layer of indirection.
 
-* Key: The string `"vm::"`, the fully-qualified contract identifier, and the
-  string `::9`.
-* Value: TBD
+Contract and type metadata is _not_ committed to by the MARF.  The MARF only
+binds the contract's fully-qualified name to a "contract commitment" structure,
+comprised of the contract's source code hash and the block height at which it
+was instantiated.  This contract commitment, in turn, is used to refer to
+implementation-defined contract analysis data, including the computed AST, cost
+analysis, type information, and so on.
 
-(TBD) Note that _other_ kinds of smart contract data (e.g., analysis data, function bodies, etc.)
-must also be indexed by Stacks peers. However, this data does not need to be included in a
-peer's commitment -- it is indexed via a secondary MARF structure.  Therefore, the representation of
-that data is _not_ specified as part of the Stacks protocol. 
+A contract commitment structure is comprised of the SHA512/256 hash of the
+contract source code body (taken verbatim from the transaction), and the block
+height at which the transaction containing it was mined.  The contract
+commitment is serialized as follows:
 
-Example: `"vm::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract::9"`
-refers to the contract AST created by standard principal
-`SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G` and named `example-contract`.
+* Bytes 0-64: the ASCII-encoding of the hash
+* Bytes 65-72: the ASCII-encoding of the block height, itself as a big-endian
+  unsigned 32-bit integer.
 
-A smart contract's persistent data variables are each encoded as two key/value
-pairs: a pair describing the variable's data type, and a pair describing the
-variable's value.
+Example: The contract commentment of a contract whose code's SHA512/256 hash is
+`d8faa525ecb3661e7f88f0bd18b8f6676ec3c96fcd5915cf47d48778da1b7ce0` at block
+height 123456 would be `"d8faa525ecb3661e7f88f0bd18b8f6676ec3c96fcd5915cf47d48778da1b7ce0402e0100"`.
 
-The data type is encoded as follows:
+When processing a new contract, the Stacks node only commits to the serialized
+contract commitment structure, and stores its analysis data separately.  For
+example, the reference implementation uses the contract commitment structure as
+a key prefix in a separate key/value store for loading and storing its contract
+analysis data.
 
-* Key: TBD
-* Value: TBD
+The MARF commits to the contract by inserting this key/value pair:
 
-Example: TBD
+* Key: the string `"clarity-contract::", followed by the fully-qualified
+  contract identifier.
+* Value: A serialized `ContractCommitment` structure.
 
-The data value is encoded as follows:
-
-* Key: The string `"vm::"`, the fully-qualified contract identifier, the string
-  `"::1::"`, and the Clarity name of the variable.
-* Value: The serialized Clarity value
-
-Example: The key `"vm::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract::1::example-var"` 
-refers to the value of a variable named `example-var` instanted in the contract
+Example: `"clarity-contract::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract"` 
+refer to the contract commitment for the contract
 `SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract`.
-
-A smart contract's persistent data map is encoded as a set of N+1 key/value
-pairs -- one key to define the data type of the key/value pair, and N keys to store the
-actual keys and values of the map.
-
-The map's data type is encoded as follows:
-
-* Key: TBD
-* Value: TBD
-
-Example: TBD
-
-Each key/value pair in the data map is encoded as a key-value pair in the
-materialized view.  They are encoded as follows:
-
-* Key: The string `"vm::"`, the fully-qualified contract identifier, the string
-  `"::0::"`, the Clarity name of the data map, the string `"::"`, and the
-serialized Clarity value that encodes the key in the data map.
-* Value: A serialized `(some ...)` Clarity value that contains the actual value.
-
-Example:  The key
-`"vm::SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract::0::example-map::\x02\x00\x00\x00\x0b\x68\x65\x6c\x6c\x6f\x20\x77\x6f\x72\x6c\x64"`
-is a key to a data map named `example-map` declared in contract
-`SP13N5TE1FBBGRZD1FCM49QDGN32WAXM2E5F8WT2G.example-contract`, whose Clarity
-value is the string `"hello world"` (which has type `(buff 11)`).
 
 ### Cryptographic Commitment
 
@@ -1251,9 +1228,9 @@ accepted into the chain state.  If they do not match, then the block is invalid.
 Stacks counts its forks' lengths on a per-fork basis within each fork's MARF.
 To do so, a leader always inserts four key/value pairs into the MARF when it
 starts processing the next cryptographic commitment:  two to map the block's parent's height to
-its anchor hash and vice versa, and two to map this block's height to a sentinel 
-anchor hash (and vice versa).  These are always added before processing any
-transactions.
+its anchor hash and vice versa, two to map this block's height to a sentinel 
+anchor hash (and vice versa), and one to represent this block's height.
+These are always added before processing any transactions.
 
 The anchored block's _anchor hash_ is the SHA512/256 hash of the anchored block's
 header concatenated with the hash of the underlying burn chain block's header.
@@ -1287,6 +1264,12 @@ chain block header whose hashes were both `0101010101010101010101010101010101010
 Example: The key `"_MARF_BLOCK_HEIGHT_TO_HASH:124"` would map to the sentinel
 anchor hash if the Stacks block being appended was the 124th block in the fork.
 
+* Key: The string `"_MARF_BLOCK_HEIGHT_SELF"`
+* Value: the ASCII representation of the block's height.
+
+Example: The key `"_MARF_BLOCK_HEIGHT_SELF"` would map to the string `"123"` if
+this was the 123rd block in this fork.
+
 * Key: The string `"_MARF_BLOCK_HEIGHT_TO_HASH::"`, followed by the ASCII string
 representation of the anchored block's parent's height.  Note that when
 processing an anchored block, the parent's block hash will be known, so the
@@ -1305,7 +1288,7 @@ Example: The key `"_MARF_BLOCK_HASH_TO_HEIGHT::7fbeb26cae32d96dbc1329f7e59f821b2
 would map to the height of the block whose anchored hash was
 `7fbeb26cae32d96dbc1329f7e59f821b2c99b0a71943e153c071906ca7205f5f`.
 
-Using these four key/value pairs, the MARF is able to represent the height of
+Using these five key/value pairs, the MARF is able to represent the height of
 a fork terminating in a given block hash, and look up the height of a block in a
 fork, given its anchor hash.
 
@@ -1320,17 +1303,13 @@ When processing the boot block, the anchor hash will always be
 `8aeecfa0b9f2ac7818863b1362241e4f32d06b100ae9d1c0fbcc4ed61b91b17a`, which is
 equal to the anchor hash calculated from a Stacks block header hash and a
 burnchain block header hash of all 0's.  The `_MARF_BLOCK_HASH_TO_HEIGHT::0` key
-will be mapped to this hash, and `_MARF_BLOCK_HASH_TO_HEIGHT::8aeecfa0b9f2ac7818863b1362241e4f32d06b100ae9d1c0fbcc4ed61b91b17a` 
-will be mapped to `0`.  After these two keys are inserted, the block is
+will be mapped to this ASCII-encoded hash, the key `_MARF_BLOCK_HASH_TO_HEIGHT::8aeecfa0b9f2ac7818863b1362241e4f32d06b100ae9d1c0fbcc4ed61b91b17a` 
+will be mapped to `"0"`, and `_MARF_BLOCK_HEIGHT_SELF` will be mapped to `"0"`.  After these three  keys are inserted, the block is
 processed like a normal Stacks anchored block.  The boot block has no parent,
 and so it will not have height-to-hash mappings for one.
 
 When processing a subsequent block that builds directly on top of the boot
 block, the parent Stacks block header hash should be all 0's.
-
-## Test Vectors
-
-TBD
 
 ### References
 
