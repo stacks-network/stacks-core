@@ -66,13 +66,14 @@ use util::log;
 
 impl BlockSnapshot {
     /// Create the sentinel block snapshot -- the first one
-    pub fn initial(first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash) -> BlockSnapshot {
+    pub fn initial(first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash, first_burn_header_timestamp: u64) -> BlockSnapshot {
         let mut parent_hash_bytes = [0u8; 32];
         parent_hash_bytes.copy_from_slice(TrieFileStorage::block_sentinel().as_bytes());
 
         BlockSnapshot {
             block_height: first_block_height,
             burn_header_hash: first_burn_header_hash.clone(),
+            burn_header_timestamp: first_burn_header_timestamp,
             parent_burn_header_hash: BurnchainHeaderHash(parent_hash_bytes),
             consensus_hash: ConsensusHash([0u8; 20]),
             ops_hash: OpsHash([0u8; 32]),
@@ -175,6 +176,7 @@ impl BlockSnapshot {
         Ok(BlockSnapshot {
             block_height: block_height,
             burn_header_hash: block_hash,
+            burn_header_timestamp: block_header.timestamp,
             parent_burn_header_hash: parent_block_hash,
             consensus_hash: ch,
             ops_hash: ops_hash,
@@ -269,6 +271,7 @@ impl BlockSnapshot {
         Ok(BlockSnapshot {
             block_height: block_height,
             burn_header_hash: block_hash,
+            burn_header_timestamp: block_header.timestamp,
             parent_burn_header_hash: parent_block_hash,
             consensus_hash: next_ch,
             ops_hash: next_ops_hash,
@@ -298,6 +301,7 @@ mod test {
     use util::vrf::VRFPrivateKey;
 
     use util::hash::hex_bytes;
+    use util::get_epoch_time_secs;
 
     use address::*;
 
@@ -326,7 +330,8 @@ mod test {
             block_hash: BurnchainHeaderHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0x01,0x24]),
             parent_block_hash: first_burn_hash.clone(),
             num_txs: 0,
-            parent_index_root: TrieHash::from_empty_data()
+            parent_index_root: TrieHash::from_empty_data(),
+            timestamp: get_epoch_time_secs()
         };
         
         let initial_snapshot = BurnDB::get_first_block_snapshot(db.conn()).unwrap();

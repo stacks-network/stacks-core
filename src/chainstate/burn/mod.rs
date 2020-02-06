@@ -113,6 +113,7 @@ pub enum Opcodes {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockSnapshot {
     pub block_height: u64,
+    pub burn_header_timestamp: u64,
     pub burn_header_hash: BurnchainHeaderHash,
     pub parent_burn_header_hash: BurnchainHeaderHash,
     pub consensus_hash: ConsensusHash,
@@ -323,7 +324,8 @@ mod tests {
     use util::db::Error as db_error;
 
     use rusqlite::Connection;
-
+    
+    use util::get_epoch_time_secs;
 
     #[test]
     fn get_prev_consensus_hashes() {
@@ -337,6 +339,7 @@ mod tests {
             for i in 1..256 {
                 let snapshot_row = BlockSnapshot {
                     block_height: i,
+                    burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i-1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),

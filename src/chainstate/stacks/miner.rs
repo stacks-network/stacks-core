@@ -75,13 +75,14 @@ impl StacksBlockBuilder {
         }
     }
     
-    pub fn first(miner_id: usize, genesis_burn_header_hash: &BurnchainHeaderHash, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
+    pub fn first(miner_id: usize, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis(),
             microblock_tail: None,
             block_height: 0,
             index_root: TrieHash([0u8; 32]),
-            burn_header_hash: genesis_burn_header_hash.clone()
+            burn_header_hash: genesis_burn_header_hash.clone(),
+            burn_header_timestamp: genesis_burn_header_timestamp
         };
 
         let mut builder = StacksBlockBuilder::from_parent(miner_id, &genesis_chain_tip, &StacksWorkScore::initial(), proof, microblock_privkey);
@@ -722,7 +723,7 @@ pub mod test {
             let (builder, parent_block_snapshot_opt) = match parent_stacks_block {
                 None => {
                     // first stacks block
-                    let builder = StacksBlockBuilder::first(miner.id, &burn_block.parent_snapshot.burn_header_hash, &proof, &miner.next_microblock_privkey());
+                    let builder = StacksBlockBuilder::first(miner.id, &burn_block.parent_snapshot.burn_header_hash, burn_block.parent_snapshot.burn_header_timestamp, &proof, &miner.next_microblock_privkey());
                     (builder, None)
                 },
                 Some(parent_stacks_block) => {
@@ -791,7 +792,7 @@ pub mod test {
 
         // "discover" this stacks block
         test_debug!("\n\nPreprocess Stacks block {}/{}", &commit_snapshot.burn_header_hash, &block_hash);
-        let block_res = node.chainstate.preprocess_anchored_block(&mut tx, &commit_snapshot.burn_header_hash, &stacks_block, &parent_block_burn_header_hash).unwrap();
+        let block_res = node.chainstate.preprocess_anchored_block(&mut tx, &commit_snapshot.burn_header_hash, commit_snapshot.burn_header_timestamp, &stacks_block, &parent_block_burn_header_hash).unwrap();
 
         // "discover" this stacks microblock stream
         for mblock in stacks_microblocks.iter() {

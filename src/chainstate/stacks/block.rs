@@ -1179,9 +1179,9 @@ mod test {
             microblock_pubkey_hash: Hash160([9u8; 20])
         };
        
-        let mut burn_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]));
-        let mut stacks_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]));
-        let sortition_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]));
+        let mut burn_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]), 0);
+        let mut stacks_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]), 1);
+        let sortition_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]), 2);
 
         let leader_key = LeaderKeyRegisterOp {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),

@@ -198,26 +198,26 @@ impl StacksChainState {
 
     /// Schedule a miner payment in the future.
     /// Schedules payments out to both miners and users that support them.
-    pub fn insert_miner_payment_schedule<'a>(tx: &mut StacksDBTx<'a>, block_reward: &MinerPaymentSchedule, user_burns: &Vec<StagingUserBurnSupport>) -> Result<(), Error> {
+    pub fn insert_miner_payment_schedule<'a>(tx: &mut StacksDBTx<'a>, block_reward: &MinerPaymentSchedule, user_burns: &Vec<StagingUserBurnSupport>, index_root: &TrieHash) -> Result<(), Error> {
         assert!(block_reward.burnchain_commit_burn < i64::max_value() as u64);
         assert!(block_reward.burnchain_sortition_burn < i64::max_value() as u64);
 
         let args: &[&dyn ToSql] = &[&block_reward.address.to_string(), &block_reward.block_hash, &block_reward.burn_header_hash, &block_reward.parent_block_hash, &block_reward.parent_burn_header_hash,
                     &format!("{}", block_reward.coinbase), &format!("{}", block_reward.tx_fees_anchored), &format!("{}", block_reward.tx_fees_streamed), &format!("{}", block_reward.stx_burns), 
                     &(block_reward.burnchain_commit_burn as i64) as &dyn ToSql, &(block_reward.burnchain_sortition_burn as i64) as &dyn ToSql, &format!("{}", block_reward.fill), &(block_reward.stacks_block_height as i64) as &dyn ToSql, 
-                    &true as &dyn ToSql, &0i64 as &dyn ToSql];
+                    &true as &dyn ToSql, &0i64 as &dyn ToSql, index_root as &dyn ToSql];
 
-        tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex) \
-                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)", args)
+        tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex,index_block_hash) \
+                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         for user_support in user_burns.iter() {
             let args: &[&dyn ToSql] = &[&user_support.address.to_string(), &block_reward.block_hash, &block_reward.burn_header_hash, &block_reward.parent_block_hash, &block_reward.parent_burn_header_hash,
                         &format!("{}", block_reward.coinbase), &"0".to_string(), &"0".to_string(), &"0".to_string(),
                         &(user_support.burn_amount as i64) as &dyn ToSql, &(block_reward.burnchain_sortition_burn as i64) as &dyn ToSql, &format!("{}", block_reward.fill), &(block_reward.stacks_block_height as i64) as &dyn ToSql,
-                        &false as &dyn ToSql, &user_support.vtxindex as &dyn ToSql];
-            tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex) \
-                        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                        &false as &dyn ToSql, &user_support.vtxindex as &dyn ToSql, index_root as &dyn ToSql];
+            tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex,index_block_hash) \
+                        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
                        args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
         }
@@ -462,7 +462,15 @@ mod test {
         }
         
         let mut tx = chainstate.headers_tx_begin().unwrap();
-        let tip = StacksChainState::advance_tip(&mut tx, &parent_header_info.anchored_header, &parent_header_info.burn_header_hash, &new_tip.anchored_header, &new_tip.burn_header_hash, new_tip.microblock_tail.clone(), &block_reward, &user_burns).unwrap();
+        let tip = StacksChainState::advance_tip(&mut tx, 
+                                                &parent_header_info.anchored_header, 
+                                                &parent_header_info.burn_header_hash, 
+                                                &new_tip.anchored_header, 
+                                                &new_tip.burn_header_hash, 
+                                                new_tip.burn_header_timestamp, 
+                                                new_tip.microblock_tail.clone(), 
+                                                &block_reward, 
+                                                &user_burns).unwrap();
         tx.commit().unwrap();
         tip
     }
