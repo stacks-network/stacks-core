@@ -304,7 +304,7 @@ impl NeighborWalk {
     /// Resets neighbor pointer.
     /// Clears out connections, but preserves state (frontier, result, etc.).
     pub fn reset(&mut self, next_neighbor: &Neighbor) -> NeighborWalkResult {
-        test_debug!("Walk reset");
+        info!("Walk reset");
         self.state = NeighborWalkState::HandshakeBegin;
 
         self.prev_neighbor = Some(self.cur_neighbor.clone());
@@ -325,7 +325,7 @@ impl NeighborWalk {
 
     /// Clear the walk's intermittent state
     pub fn clear_state(&mut self) -> () {
-        test_debug!("Walk clear state");
+        info!("Walk clear state");
         self.new_frontier.clear();
         self.frontier.clear();
         self.result.clear();
@@ -1590,8 +1590,8 @@ mod test {
 
     #[test]
     fn test_walk_1_neighbor_plain() {
-        let mut peer_1_config = TestPeerConfig::from_port(32000);
-        let peer_2_config = TestPeerConfig::from_port(32001);
+        let mut peer_1_config = TestPeerConfig::from_port(31990);
+        let peer_2_config = TestPeerConfig::from_port(31991);
 
         // peer 1 crawls peer 2
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
@@ -1622,7 +1622,7 @@ mod test {
             };
 
             if walk_1_end_time > 0 {
-                test_debug!("Completed walk in {} step(s)", i);
+                info!("Completed walk in {} step(s)", i);
                 break;
             }
         }
