@@ -42,7 +42,7 @@ impl <'a> LeaderTenure {
         };
 
         let block_builder = match last_sortitioned_block.block_height {
-            1 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, &vrf_proof, &microblock_secret_key),
+            1 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, parent_block.burn_header_timestamp, &vrf_proof, &microblock_secret_key),
             _ => StacksBlockBuilder::from_parent(1, &parent_block, &ratio, &vrf_proof, &microblock_secret_key)
         };
 
