@@ -250,6 +250,7 @@ pub struct PeerNetwork {
     pub walk: Option<NeighborWalk>,
     pub walk_deadline: u64,
     pub walk_count: u64,
+    pub walk_total_step_count: u64,
 
     // re-key state 
     pub rekey_handles: Option<HashMap<usize, ReplyHandleP2P>>,
@@ -285,6 +286,7 @@ impl PeerNetwork {
             walk: None,
             walk_deadline: 0,
             walk_count: 0,
+            walk_total_step_count: 0,
 
             rekey_handles: None,
 
@@ -429,6 +431,8 @@ impl PeerNetwork {
                 (sock, next_event_id)
             }
         };
+
+        // TODO: register asynchronously after connect completes.
 
         let sock_str = format!("{:?}", &sock).to_string();
         self.register(next_event_id, sock, true, None)
