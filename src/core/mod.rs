@@ -24,7 +24,7 @@ use chainstate::burn::BlockHeaderHash;
 use util::log;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
-pub const SYSTEM_FORK_SET_VERSION : [u8; 4] = [22u8, 0u8, 0u8, 0u8];
+pub const SYSTEM_FORK_SET_VERSION : [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 
 // p2p network version 
 pub const PEER_VERSION : u32 = 0x16000000;      // 22.0.0.0
@@ -38,6 +38,8 @@ pub const NETWORK_P2P_PORT : u16 = 6265;
 
 // first burnchain block hash 
 pub const FIRST_BURNCHAIN_BLOCK_HASH : BurnchainHeaderHash = BurnchainHeaderHash([0u8; 32]);
+pub const FIRST_BURNCHAIN_BLOCK_TIMESTAMP : u64 = 0;
+
 pub const FIRST_BURNCHAIN_BLOCK_HASH_TESTNET : BurnchainHeaderHash = BurnchainHeaderHash([1u8; 32]);
 pub const FIRST_BURNCHAIN_BLOCK_HASH_REGTEST : BurnchainHeaderHash = BurnchainHeaderHash([2u8; 32]);
 
