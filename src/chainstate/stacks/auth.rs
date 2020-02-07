@@ -397,11 +397,9 @@ impl StacksMessageCodec for TransactionSpendingCondition {
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionSpendingCondition, net_error> {
         // peek the hash mode byte
-        let mut rrd = RetryReader::new(fd);
-        let hash_mode_u8 : u8 = read_next(&mut rrd)?;
-        rrd.set_position(0);
-        rrd.disable_bufferring();
-
+        let hash_mode_u8 : u8 = read_next(fd)?;
+        let peek_buf = [hash_mode_u8];
+        let mut rrd = peek_buf.chain(fd);
         let cond = { 
             if SinglesigHashMode::from_u8(hash_mode_u8).is_some() {
                 let cond = SinglesigSpendingCondition::consensus_deserialize(&mut rrd)?;
