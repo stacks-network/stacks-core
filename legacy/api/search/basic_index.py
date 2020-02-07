@@ -225,7 +225,10 @@ def create_search_index():
             try:
                 name = name['formatted'].lower()
             except:
-                name = name.lower()
+                try:
+                    name = name.lower()
+                except:
+                    continue
             people_names.append(name)
             search_profile['name'] = name
 

@@ -27,6 +27,8 @@ import copy
 import socket
 import stun
 import jsonschema
+import hashlib
+from .c32 import b58ToC32
 from ConfigParser import SafeConfigParser
 
 from ..version import __version__
@@ -43,6 +45,11 @@ VERSION = __version__
 
 ATLAS_SEEDS_ENV_VAR = 'BLOCKSTACK_ATLAS_SEEDS'
 ATLAS_HOSTNAME_ENV_VAR = 'BLOCKSTACK_ATLAS_HOSTNAME'
+
+BACKUP_FREQUENCY_ENV_VAR = 'BLOCKSTACK_DB_BACKUP_FREQUENCY'
+BACKUP_MAX_AGE_ENV_VAR = 'BLOCKSTACK_DB_MAX_AGE'
+
+SAVE_REJECTED_ENV_VAR = 'BLOCKSTACK_DB_SAVE_REJECTED'
 
 # namespace version bits
 NAMESPACE_VERSION_PAY_TO_BURN = 0x1     # in epoch 4, this means "burn either bitcoin or stacks"
@@ -112,6 +119,8 @@ MICROSTACKS_PER_SATOSHI_DEN = 15
 
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
 NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
+
+TOTAL_STACKS_TOKENS = 1320000000000000
 
 """ blockstack configs
 """
@@ -251,12 +260,18 @@ GENESIS_BLOCK = None
 GENESIS_BLOCK_STAGES = None
 GENESIS_BLOCK_INSTANTIATED = False
 GENESIS_BLOCK_STAGES_INSTANTIATED = False
+GENESIS_BLOCK_PATCHES = None
+GENESIS_BLOCK_PATCHES_INSTANTIATED = False
+GENESIS_BLOCK_PATCHES_FILES = {}
+GENESIS_BLOCK_PATCHES_FILES_INSTANTIATED = False
 
 try:
     # use built-in one 
     import genesis_block
     GENESIS_BLOCK = genesis_block.GENESIS_BLOCK
     GENESIS_BLOCK_STAGES = genesis_block.GENESIS_BLOCK_STAGES
+    GENESIS_BLOCK_PATCHES = genesis_block.GENESIS_BLOCK_PATCHES
+    GENESIS_BLOCK_PATCHES_FILES = genesis_block.GENESIS_BLOCK_PATCHES_FILES
 except:
     if not BLOCKSTACK_TEST:
         print >> sys.stderr, 'FATAL: no genesis block defined'
@@ -270,6 +285,146 @@ def get_genesis_block():
 
 def get_genesis_block_stages():
     return GENESIS_BLOCK_STAGES
+
+def get_all_genesis_block_patches():
+    return GENESIS_BLOCK_PATCHES
+
+def load_genesis_bulk_address_lines(path, line_start, line_end):
+    """
+    Read a list of lines from a file, from the given starting line (inclusive) to the given ending line (exclusive).
+    The file should be a sequence of newline-separated b58check addresses.
+    Aborts on failure.
+    """
+    if not os.path.exists(path):
+        print >> sys.stderr, 'FATAL: no such file or directory: "{}"'.format(path)
+        os.abort()
+
+    ret = []
+    with open(path, 'r') as f:
+        line_ptr = 0
+        while True:
+            line = f.readline()
+            if len(line) == 0:
+                # EOF
+                break
+
+            if line_ptr >= line_start and line_ptr < line_end:
+                line = line.strip()
+                addr = b58ToC32(line)
+                ret.append(addr)
+            
+            line_ptr += 1
+            if line_ptr >= line_end:
+                break
+
+        if line_ptr != line_end:
+            # underrun
+            print >> sys.stderr, 'FATAL: underrun reading from "{}": EOF at line {}, expected {}'.format(path, line_ptr, line_end)
+            os.abort()
+
+    return ret
+
+def check_genesis_bulk_patch_integrity(path, expected_sha256):
+    h = hashlib.new('sha256')
+    with open(path, 'r') as f:
+        while True:
+            buf = f.read(65536)
+            if len(buf) == 0:
+                break
+
+            h.update(buf)
+
+    return h.hexdigest() == expected_sha256
+
+
+def get_genesis_bulk_address_path(path):
+    """
+    Get the absolute path to a data file, given its path's name
+    """
+    import blockstack.data
+    dirname = os.path.dirname(blockstack.data.__file__)
+    return os.path.join(dirname, path)
+    
+
+def load_genesis_bulk_patch(file_patch):
+    from schemas import GENESIS_BLOCK_ROW_SCHEMA
+
+    """
+    format:
+    {
+        'path': '/path/to/patch', 
+        'sha256': ..., 
+        'line_start': start_line, 
+        'line_end': end_line, 
+        'receive_whitelisted': ..., 
+        'lock_send': ..., 
+        'metadata': ..., 
+        'type': ..., 
+        'value': ..., 
+        'vesting': ..., 
+        'vesting_total': ...
+    }
+    """
+    for key in ['path', 'sha256', 'line_start', 'line_end', 'lock_send', 'metadata', 'type', 'value', 'vesting', 'vesting_total']:
+        if key not in file_patch:
+            print >> sys.stderr, 'FATAL: invalid genesis bulk patch "{}": missing "{}"'.format(file_patch, key)
+            os.abort()
+
+    # hash of file must match file patch 
+    patch_rows = []
+    path = get_genesis_bulk_address_path(file_patch['path'])
+    
+    log.debug("Load patch from '{}' ({})".format(path, file_patch['sha256']))
+    if not check_genesis_bulk_patch_integrity(path, file_patch['sha256']):
+        print >> sys.stderr, 'FATAL: invalid genesis bulk patch "{}": does not have SHA256 hash "{}"'.format(path, file_patch['sha256'])
+        os.abort()
+
+    line_start = int(file_patch['line_start'])
+    line_end = int(file_patch['line_end'])
+    addresses = load_genesis_bulk_address_lines(path, line_start, line_end)
+
+    log.debug("Grant allocations to addresses #{} to #{} in '{}'".format(line_start, line_end, path))
+    for addr in addresses:
+        allocation = {
+            "address": addr,
+            'receive_whitelisted': file_patch['receive_whitelisted'],
+            'metadata': file_patch['metadata'],
+            'lock_send': file_patch['lock_send'],
+            'metadata': file_patch['metadata'],
+            'type': file_patch['type'],
+            'value': file_patch['value'],
+            'vesting': file_patch['vesting'],
+            'vesting_total': file_patch['vesting_total']
+        }
+
+        patch_rows.append(allocation)
+
+    patch = {
+        'db_version': VERSION,
+        'add': patch_rows,
+        'del': []
+    }
+    return patch
+
+def get_genesis_block_patches(block_height):
+    patch = GENESIS_BLOCK_PATCHES.get(block_height, None)
+    patch_file = GENESIS_BLOCK_PATCHES_FILES.get(block_height, None)
+    if patch is None and patch_file is None:
+        # no patch to apply at this block height
+        return None
+
+    elif patch is not None and patch_file is not None:
+        # should never happen -- either a patch is present, or a patch file is
+        print >> sys.stderr, "FATAL: patch and patch file both exist at block {}".format(block_height)
+        os.abort()
+
+    if patch:
+        # direct patch
+        return patch
+
+    # file patch
+    patch = load_genesis_bulk_patch(patch_file)
+    return patch
 
 def set_genesis_block(new_genesis_block):
     global GENESIS_BLOCK, GENESIS_BLOCK_INSTANTIATED
@@ -286,6 +441,22 @@ def set_genesis_block_stages(new_genesis_block_stages):
 
     GENESIS_BLOCK_STAGES = new_genesis_block_stages
     GENESIS_BLOCK_STAGES_INSTANTIATED = True
+
+def set_genesis_block_patches(new_patches):
+    global GENESIS_BLOCK_PATCHES, GENESIS_BLOCK_PATCHES_INSTANTIATED
+    if GENESIS_BLOCK_PATCHES_INSTANTIATED:
+        assert BLOCKSTACK_TEST, 'Cannot set genesis block patches in production mode'
+
+    GENESIS_BLOCK_PATCHES = new_patches
+    GENESIS_BLOCK_PATCHES_INSTANTIATED = True
+
+def set_genesis_block_patches_files(new_patches):
+    global GENESIS_BLOCK_PATCHES_FILES, GENESIS_BLOCK_PATCHES_FILES_INSTANTIATED
+    if GENESIS_BLOCK_PATCHES_FILES_INSTANTIATED:
+        assert BLOCKSTACK_TEST, 'Cannot set genesis block file patches in production mode'
+
+    GENESIS_BLOCK_PATCHES_FILES = new_patches
+    GENESIS_BLOCK_PATCHES_FILES_INSTANTIATED = True
 
 def is_genesis_block_instantiated():
     return GENESIS_BLOCK_INSTANTIATED
@@ -329,40 +500,53 @@ EPOCH_FEATURE_NAMEOPS_COST_TOKENS = "BLOCKSTACK_NAMEOPS_COST_TOKENS"
 EPOCH_FEATURE_FIX_PREORDER_EXPIRE = "BLOCKSTACK_PREORDER_EXPIRE"
 EPOCH_FEATURE_TOKEN_TRANSFER = "BLOCKSTACK_TOKEN_TRANSFER"
 EPOCH_FEATURE_INT_DIVISION = "BLOCKSTACK_INT_DIVISION"
+EPOCH_FEATURE_TOKEN_TRANSFER_CONSENSUS_HASH_OPTIONAL = "BLOCKSTACK_TOKEN_TRANSFER_CONSENSUS_HASH_OPTIONAL"
 
 # when epochs end (-1 means "never")
 EPOCH_NOW = -1
 EPOCH_1_END_BLOCK = 436650      # F-Day 2016
 EPOCH_2_END_BLOCK = 488500      # F-day 2017
 EPOCH_3_END_BLOCK = 547921      # F-day 2018
-EPOCH_4_END_BLOCK = EPOCH_NOW
+EPOCH_4_END_BLOCK = 599866      # F-day 2019
+EPOCH_5_END_BLOCK = 613249      # F-day 2020
+EPOCH_6_END_BLOCK = EPOCH_NOW
 
 EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id = 1
 EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id = 2
 EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER_id = 2
 EPOCH_4_NAMESPACE_LIFETIME_MULTIPLIER_id = 2
+EPOCH_5_NAMESPACE_LIFETIME_MULTIPLIER_id = 2
+EPOCH_6_NAMESPACE_LIFETIME_MULTIPLIER_id = 2
 
 EPOCH_1_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 0
 EPOCH_2_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 0
 EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 5000   # about 30 days
 EPOCH_4_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 5000   # about 30 days
+EPOCH_5_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 5000   # about 30 days
+EPOCH_6_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 5000   # about 30 days
 
 EPOCH_1_PRICE_MULTIPLIER_id = 1.0
 EPOCH_2_PRICE_MULTIPLIER_id = 1.0
 EPOCH_3_PRICE_MULTIPLIER_id = 0.1
 # after epoch 3, this becomes an integer divisor
 EPOCH_4_PRICE_DIVISOR_id = 10
+EPOCH_5_PRICE_DIVISOR_id = 10
+EPOCH_6_PRICE_DIVISOR_id = 10
 
 EPOCH_1_PRICE_MULTIPLIER_STACKS = 1.0
 EPOCH_2_PRICE_MULTIPLIER_STACKS = 1.0
 EPOCH_3_PRICE_MULTIPLIER_STACKS = 1.0
 # after epcoh 3, this becomes an integer divisor
 EPOCH_4_PRICE_DIVISOR_STACKS = 1
+EPOCH_5_PRICE_DIVISOR_STACKS = 1
+EPOCH_6_PRICE_DIVISOR_STACKS = 1
 
 EPOCH_1_NAMESPACE_RECEIVE_FEES_PERIOD_id = 0
 EPOCH_2_NAMESPACE_RECEIVE_FEES_PERIOD_id = 0
 EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD_id = BLOCKS_PER_YEAR
 EPOCH_4_NAMESPACE_RECEIVE_FEES_PERIOD_id = BLOCKS_PER_YEAR
+EPOCH_5_NAMESPACE_RECEIVE_FEES_PERIOD_id = BLOCKS_PER_YEAR
+EPOCH_6_NAMESPACE_RECEIVE_FEES_PERIOD_id = BLOCKS_PER_YEAR
 
 EPOCH_1_FEATURES = []
 EPOCH_2_FEATURES = [EPOCH_FEATURE_MULTISIG]
@@ -380,8 +564,36 @@ EPOCH_4_FEATURES = [
     EPOCH_FEATURE_TOKEN_TRANSFER,
     EPOCH_FEATURE_INT_DIVISION,
 ]
+EPOCH_5_FEATURES = [
+    EPOCH_FEATURE_MULTISIG,
+    EPOCH_FEATURE_SEGWIT,
+    EPOCH_FEATURE_OP_REGISTER_UPDATE,
+    EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE,
+    EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR,
+    EPOCH_FEATURE_NAMESPACE_PAY_WITH_STACKS,
+    EPOCH_FEATURE_STACKS_BUY_NAMESPACES,
+    EPOCH_FEATURE_FIX_PREORDER_EXPIRE,
+    EPOCH_FEATURE_NAMEOPS_COST_TOKENS,
+    EPOCH_FEATURE_TOKEN_TRANSFER,
+    EPOCH_FEATURE_INT_DIVISION,
+    EPOCH_FEATURE_TOKEN_TRANSFER_CONSENSUS_HASH_OPTIONAL
+]
+EPOCH_6_FEATURES = [
+    EPOCH_FEATURE_MULTISIG,
+    EPOCH_FEATURE_SEGWIT,
+    EPOCH_FEATURE_OP_REGISTER_UPDATE,
+    EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE,
+    EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR,
+    EPOCH_FEATURE_NAMESPACE_PAY_WITH_STACKS,
+    EPOCH_FEATURE_STACKS_BUY_NAMESPACES,
+    EPOCH_FEATURE_FIX_PREORDER_EXPIRE,
+    EPOCH_FEATURE_NAMEOPS_COST_TOKENS,
+    EPOCH_FEATURE_TOKEN_TRANSFER,
+    EPOCH_FEATURE_INT_DIVISION,
+    EPOCH_FEATURE_TOKEN_TRANSFER_CONSENSUS_HASH_OPTIONAL
+]
 
-NUM_EPOCHS = 4
+NUM_EPOCHS = 6
 for i in xrange(1, NUM_EPOCHS+1):
     # epoch lengths can be altered by the test framework, for ease of tests
     if os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i, None) is not None and BLOCKSTACK_TEST:
@@ -615,6 +827,108 @@ EPOCHS = [
         ],
         "namespace_price_units": "STACKS",
         "features": EPOCH_4_FEATURES,
+        'script_types': ['nulldata', 'p2pkh', 'p2sh', 'p2sh-p2wpkh', 'p2sh-p2wsh'],
+        'sender_types': ['p2pkh', 'p2sh'],
+    },
+    {
+        # epoch 5
+        "end_block": EPOCH_5_END_BLOCK,
+        "namespaces": {
+            "id": {
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_5_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_5_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": None,
+                "PRICE_MULTIPLIER_STACKS": None,
+                "PRICE_DIVISOR": EPOCH_5_PRICE_DIVISOR_id,
+                "PRICE_DIVISOR_STACKS": EPOCH_5_PRICE_DIVISOR_STACKS,
+                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_5_NAMESPACE_RECEIVE_FEES_PERIOD_id,
+            },
+            "*": {
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_5_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_5_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": None,
+                "PRICE_MULTIPLIER_STACKS": None,
+                "PRICE_DIVISOR": EPOCH_5_PRICE_DIVISOR_id,
+                "PRICE_DIVISOR_STACKS": EPOCH_5_PRICE_DIVISOR_STACKS,
+                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_5_NAMESPACE_RECEIVE_FEES_PERIOD_id,
+            },
+        },
+        "namespace_prices": None,
+        "namespace_prices_stacks": [
+            None,
+            NAMESPACE_1_CHAR_COST_STACKS,
+            NAMESPACE_23_CHAR_COST_STACKS,
+            NAMESPACE_23_CHAR_COST_STACKS,
+            NAMESPACE_4567_CHAR_COST_STACKS,
+            NAMESPACE_4567_CHAR_COST_STACKS,
+            NAMESPACE_4567_CHAR_COST_STACKS,
+            NAMESPACE_4567_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+        ],
+        "namespace_price_units": "STACKS",
+        "features": EPOCH_5_FEATURES,
+        'script_types': ['nulldata', 'p2pkh', 'p2sh', 'p2sh-p2wpkh', 'p2sh-p2wsh'],
+        'sender_types': ['p2pkh', 'p2sh'],
+    },
+    {
+        # epoch 6
+        "end_block": EPOCH_6_END_BLOCK,
+        "namespaces": {
+            "id": {
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_6_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_6_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": None,
+                "PRICE_MULTIPLIER_STACKS": None,
+                "PRICE_DIVISOR": EPOCH_6_PRICE_DIVISOR_id,
+                "PRICE_DIVISOR_STACKS": EPOCH_6_PRICE_DIVISOR_STACKS,
+                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_6_NAMESPACE_RECEIVE_FEES_PERIOD_id,
+            },
+            "*": {
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_6_NAMESPACE_LIFETIME_MULTIPLIER_id,
+                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_6_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+                "PRICE_MULTIPLIER": None,
+                "PRICE_MULTIPLIER_STACKS": None,
+                "PRICE_DIVISOR": EPOCH_6_PRICE_DIVISOR_id,
+                "PRICE_DIVISOR_STACKS": EPOCH_6_PRICE_DIVISOR_STACKS,
+                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_6_NAMESPACE_RECEIVE_FEES_PERIOD_id,
+            },
+        },
+        "namespace_prices": None,
+        "namespace_prices_stacks": [
+            None,
+            NAMESPACE_1_CHAR_COST_STACKS,
+            NAMESPACE_23_CHAR_COST_STACKS,
+            NAMESPACE_23_CHAR_COST_STACKS,
+            NAMESPACE_4567_CHAR_COST_STACKS,
+            NAMESPACE_4567_CHAR_COST_STACKS,
+            NAMESPACE_4567_CHAR_COST_STACKS,
+            NAMESPACE_4567_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+            NAMESPACE_8UP_CHAR_COST_STACKS,
+        ],
+        "namespace_price_units": "STACKS",
+        "features": EPOCH_6_FEATURES,
         'script_types': ['nulldata', 'p2pkh', 'p2sh', 'p2sh-p2wpkh', 'p2sh-p2wsh'],
         'sender_types': ['p2pkh', 'p2sh'],
     },
@@ -1495,7 +1809,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
    or from sane defaults.
    """
 
-   global RPC_SERVER_IP, RPC_SERVER_PORT
+   global RPC_SERVER_IP, RPC_SERVER_PORT, BACKUP_FREQUENCY_ENV_VAR, BACKUP_MAX_AGE_ENV_VAR, SAVE_REJECTED_ENV_VAR
 
    from .util import url_to_host_port
    from .scripts import is_name_valid
@@ -1508,11 +1822,36 @@ def default_blockstack_opts( working_dir, config_file=None ):
    parser = SafeConfigParser()
    parser.read( config_file )
 
+   backup_frequency = 144       # about once per day
+   backup_max_age = 10008       # about 1 week
+   save_rejected = False        # save rejected transactions?
+
+   backup_frequency_environ = False
+   backup_max_age_environ = False
+   save_rejected_environ = False
+
+   try:
+       backup_frequency = int(os.environ.get(BACKUP_FREQUENCY_ENV_VAR, None))
+       backup_frequency_environ = True
+   except:
+       pass
+
+   try:
+       backup_max_age = int(os.environ.get(BACKUP_MAX_AGE_ENV_VAR, None))
+       backup_max_age_environ = True
+   except:
+       pass
+
+   try:
+       save_rejected_value = int(os.environ.get(SAVE_REJECTED_ENV_VAR, None))
+       save_rejected = save_rejected_value != 0
+       save_rejected_environ = True
+   except:
+       pass
+
    blockstack_opts = {}
    announcers = "judecn.id,muneeb.id,shea256.id"
    announcements = None
-   backup_frequency = 144   # once a day; 10 minute block time
-   backup_max_age = 1008    # one week
    rpc_port = RPC_SERVER_PORT 
    zonefile_dir = os.path.join( os.path.dirname(config_file), "zonefiles")
    server_version = VERSION
@@ -1530,10 +1869,10 @@ def default_blockstack_opts( working_dir, config_file=None ):
       if parser.has_option('blockstack', 'enabled'):
          run_indexer = parser.get('blockstack', 'enabled').lower() in ['1', 'true', 'on']
 
-      if parser.has_option('blockstack', 'backup_frequency'):
+      if parser.has_option('blockstack', 'backup_frequency') and not backup_frequency_environ:
          backup_frequency = int( parser.get('blockstack', 'backup_frequency'))
 
-      if parser.has_option('blockstack', 'backup_max_age'):
+      if parser.has_option('blockstack', 'backup_max_age') and not backup_max_age_environ:
          backup_max_age = int( parser.get('blockstack', 'backup_max_age') )
 
       if parser.has_option('blockstack', 'rpc_port'):
@@ -1562,7 +1901,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
 
       if parser.has_option('blockstack', 'atlas'):
          atlas_enabled = parser.get('blockstack', 'atlas')
-         if atlas_enabled.lower() in ['true', '1', 'enabled', 'enabled', 'on']:
+         if atlas_enabled.lower() in ['true', '1', 'enabled', 'on']:
             atlas_enabled = True
          else:
             atlas_enabled = False
@@ -1593,6 +1932,13 @@ def default_blockstack_opts( working_dir, config_file=None ):
 
       if parser.has_option('blockstack', 'subdomaindb_path'):
          subdomaindb_path = parser.get('blockstack', 'subdomaindb_path')
+
+      if parser.has_option('blockstack', 'save_rejected') and not save_rejected_environ:
+          save_rejected = parser.get('blockstack', 'save_rejected')
+          if save_rejected.lower() in ['true', '1', 'enabled', 'on']:
+              save_rejected = True
+          else:
+              save_rejected = False
 
    if os.environ.get(ATLAS_SEEDS_ENV_VAR, False):
        atlas_seed_peers = os.environ[ATLAS_SEEDS_ENV_VAR]
@@ -1665,6 +2011,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
        'atlas_port': atlas_port,
        'zonefiles': zonefile_dir,
        'subdomaindb_path': subdomaindb_path,
+       'save_rejected': save_rejected,
        'enabled': run_indexer
    }
 

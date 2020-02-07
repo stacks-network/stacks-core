@@ -89,7 +89,7 @@ spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 
 [blockstack]
 enabled = true
-server_version = 0.19.0
+server_version = 0.0.0.1
 rpc_port = %s
 backup_frequency = 1
 backup_max_age = 30
@@ -99,10 +99,11 @@ atlas = True
 atlas_seeds =
 atlas_blacklist =
 atlas_hostname = localhost
+save_rejected = 1
 
 [blockstack-api]
 enabled = true
-server_version = 0.19.0
+server_version = 0.0.0.1
 api_port = %s
 api_host = %s
 api_protocol = http
@@ -407,13 +408,13 @@ class GaiaServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
             self.send_response(res.status_code)
             for h in res.headers:
-                if h.lower() == 'transfer-encoding':
-                    continue
+                # if h.lower() == 'transfer-encoding':
+                #    continue
 
                 self.send_header(h, res.headers[h])
 
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Content-Length', '{}'.format(len(res.text)))
+            # self.send_header('Access-Control-Allow-Origin', '*')
+            # self.send_header('Content-Length', '{}'.format(len(res.text)))
             self.end_headers()
             self.wfile.write(res.text)
             return
@@ -457,6 +458,7 @@ class GaiaServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         """
         Send to upstream Gaia hub
         """
+        """
         length = int(self.headers['content-length'])
         data = self.rfile.read(length)
         res = requests.post(self.server.upstream_gaia_url + self.path, data=data, headers=self.headers)
@@ -470,6 +472,10 @@ class GaiaServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(res.text)
         return
+        """
+        self.send_response(302)
+        self.send_header("Location", "{}{}".format(self.server.upstream_gaia_url, self.path))
+        self.end_headers()
 
 
     def do_OPTONS(self):
@@ -785,7 +791,7 @@ def transaction_broadcaster_start(config_path):
     TRANSACTION_BROADCASTER_SUBPROCESS = p
 
     print 'Waiting for transaction broadcaster to start up...'
-    attempts = 10
+    attempts = 30
     while attempts > 0:
         time.sleep(2)
         try:
@@ -935,7 +941,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     print "working_dir: %s" % working_dir
 
     # set up test environment
-    blockstackd.genesis_block_load()
+    blockstackd.genesis_block_load(virtualchain_working_dir)
     db = get_blockstack_db(virtualchain_working_dir, disposition=blockstackd.DISPOSITION_RW)
     testlib.set_utxo_opts( utxo_opts )
     testlib.set_bitcoind( bitcoind )
@@ -1243,7 +1249,7 @@ def bitcoin_regtest_reset(working_dir):
 
     # start up
     log.debug("Starting up bitcoind in regtest mode")
-    rc = os.system("bitcoind -daemon -deprecatedrpc=addwitnessaddress -rpcport=%s -conf=%s" % (18332, bitcoin_conf))
+    rc = os.system("bitcoind -daemon -deprecatedrpc=addwitnessaddress -deprecatedrpc=generate -rpcport=%s -conf=%s" % (18332, bitcoin_conf))
     if rc != 0:
         log.error("Failed to start `bitcoind`: rc = %s" % rc)
         return False
@@ -1882,6 +1888,7 @@ if __name__ == "__main__":
         f.write('import json\n')
         f.write('false = False\n')
         f.write('true = True\n')
+        f.write('GENESIS_BLOCK_PATCHES = {}\n')
         f.write('GENESIS_BLOCK_STAGES = [{}]\n'.format(json.dumps(genesis_block_data)))
         f.write('GENESIS_BLOCK = GENESIS_BLOCK_STAGES[-1]')
 
