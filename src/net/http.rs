@@ -546,26 +546,52 @@ impl HttpRequestPreamble {
         }
     }
 
-    pub fn new_serialized<W: Write>(fd: &mut W, verb: &str, path: &str, host: &PeerHost, request_id: u32, content_length: Option<u32>, content_type: Option<&HttpContentType>, headers: &str) -> Result<(), net_error> {
-        // TODO: can we avoid allocating these?
-        let content_type_header = match content_type {
-            Some(ref c) => format!("Content-Type: {}\r\n", c),
-            None => "".to_string()
-        };
-        let content_length_header = match content_length {
-            Some(l) => format!("Content-Length: {}\r\n", l),
-            None => "".to_string()
-        };
+    pub fn new_serialized<W: Write, F>(fd: &mut W, verb: &str, path: &str, host: &PeerHost, request_id: u32, content_length: Option<u32>, content_type: Option<&HttpContentType>, mut write_headers: F) -> Result<(), net_error>
+    where
+        F: FnMut(&mut W) -> Result<(), net_error>
+    {
+        // "$verb $path HTTP/1.1\r\n"
+        fd.write_all(verb.as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(" ".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(path.as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(" HTTP/1.1\r\n".as_bytes()).map_err(net_error::WriteError)?;
 
-        let txt = format!("{} {} HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: {}\r\n{}\r\n{}{}X-Request-Id: {}{}\r\n\r\n", 
-                          verb, path,
-                          host,
-                          default_accept_header(),
-                          content_type_header,
-                          content_length_header,
-                          request_id,
-                          headers);
-        fd.write_all(txt.as_bytes()).map_err(net_error::WriteError)
+        // "User-Agent: $agent\r\nHost: $host\r\n"
+        fd.write_all("User-Agent: stacks/2.0\r\nHost: ".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(format!("{}", host).as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
+
+        // content-type
+        match content_type {
+            Some(ref c) => {
+                fd.write_all("Content-Type: ".as_bytes()).map_err(net_error::WriteError)?;
+                fd.write_all(c.as_str().as_bytes()).map_err(net_error::WriteError)?;
+                fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
+            },
+            None => {}
+        }
+        
+        // content-length
+        match content_length {
+            Some(l) => {
+                fd.write_all("Content-Length: ".as_bytes()).map_err(net_error::WriteError)?;
+                fd.write_all(format!("{}", l).as_bytes()).map_err(net_error::WriteError)?;
+                fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
+            },
+            None => {}
+        }
+
+        // request ID
+        fd.write_all("X-Request-Id: ".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(format!("{}", request_id).as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
+
+        // headers
+        write_headers(fd)?;
+
+        // end-of-headers
+        fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
+        Ok(())
     }
 
     #[cfg(test)]
@@ -619,18 +645,18 @@ impl HttpRequestPreamble {
     }
 }
 
-fn headers_to_string(headers: &HashMap<String, String>) -> String {
-    let mut headers_list : Vec<String> = Vec::with_capacity(headers.len());
+fn empty_headers<W: Write>(fd: &mut W) -> Result<(), net_error> {
+    Ok(())
+}
+
+fn write_headers<W: Write>(fd: &mut W, headers: &HashMap<String, String>) -> Result<(), net_error> {
     for (ref key, ref value) in headers.iter() {
-        let hdr = format!("{}: {}", key, value);
-        headers_list.push(hdr);
+        fd.write_all(key.as_str().as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(": ".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(value.as_str().as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
     }
-    if headers_list.len() == 0 {
-        "".to_string()
-    }
-    else {
-        format!("\r\n{}", headers_list.join("\r\n"))
-    }
+    Ok(())
 }
 
 fn default_accept_header() -> String {
@@ -661,7 +687,7 @@ fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, net_error> {
 
 impl StacksMessageCodec for HttpRequestPreamble {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        HttpRequestPreamble::new_serialized(fd, &self.verb, &self.path, &self.host, self.request_id, self.content_length.clone(), self.content_type.as_ref(), &headers_to_string(&self.headers))
+        HttpRequestPreamble::new_serialized(fd, &self.verb, &self.path, &self.host, self.request_id, self.content_length.clone(), self.content_type.as_ref(), |ref mut fd| write_headers(fd, &self.headers))
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpRequestPreamble, net_error> {
@@ -763,23 +789,37 @@ impl HttpResponsePreamble {
         }
     }
     
-    pub fn new_serialized<W: Write>(fd: &mut W, status_code: u16, reason: &str, content_length: Option<u32>, content_type: &HttpContentType, request_id: u32, request_path: &str, headers: &str) -> Result<(), net_error> {
-        // TODO: can we avoid allocating these?
-        let content_header = match content_length {
-            Some(len) => format!("Content-Length: {}", len),
-            None => format!("Transfer-Encoding: chunked")
-        };
+    pub fn new_serialized<W: Write, F>(fd: &mut W, status_code: u16, reason: &str, content_length: Option<u32>, content_type: &HttpContentType, request_id: u32, request_path: &str, mut write_headers: F) -> Result<(), net_error>
+    where 
+        F: FnMut(&mut W) -> Result<(), net_error>
+    {
+        fd.write_all("HTTP/1.1 ".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(format!("{} {}\r\n", status_code, reason).as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("Server: stacks/2.0\r\nDate: ".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(rfc7231_now().as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("\r\nContent-Type: ".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(content_type.as_str().as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
 
-        let txt = format!("HTTP/1.1 {} {}\r\nServer: stacks/2.0\r\nDate: {}\r\nContent-Type: {}\r\n{}\r\nX-Request-Id: {}\r\nX-Request-Path: {}{}\r\n\r\n",
-                          status_code, reason,
-                          rfc7231_now(),
-                          content_type,
-                          content_header,
-                          request_id,
-                          request_path,
-                          headers);
+        match content_length {
+            Some(len) => {
+                fd.write_all("Content-Length: ".as_bytes()).map_err(net_error::WriteError)?;
+                fd.write_all(format!("{}", len).as_bytes()).map_err(net_error::WriteError)?;
+            }
+            None => {
+                fd.write_all("Transfer-Encoding: chunked".as_bytes()).map_err(net_error::WriteError)?;
+            }
+        }
 
-        fd.write_all(txt.as_bytes()).map_err(net_error::WriteError)
+        fd.write_all("\r\nX-Request-Id: ".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(format!("{}\r\nX-Request-Path: ", request_id).as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(request_path.as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
+
+        write_headers(fd)?;
+
+        fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
+        Ok(())
     }
 
     pub fn new_error(status_code: u16, request_id: u32, request_path: String, error_message: Option<String>) -> HttpResponsePreamble {
@@ -851,7 +891,7 @@ fn rfc7231_now() -> String {
 
 impl StacksMessageCodec for HttpResponsePreamble {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        HttpResponsePreamble::new_serialized(fd, self.status_code, &self.reason, self.content_length, &self.content_type, self.request_id, &self.request_path, &headers_to_string(&self.headers))
+        HttpResponsePreamble::new_serialized(fd, self.status_code, &self.reason, self.content_length, &self.content_type, self.request_id, &self.request_path, |ref mut fd| write_headers(fd, &self.headers))
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpResponsePreamble, net_error> {
@@ -1067,19 +1107,19 @@ impl HttpRequestType {
     pub fn send<W: Write>(&self, protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
         match *self {
             HttpRequestType::GetNeighbors(ref md) => {
-                HttpRequestPreamble::new_serialized(fd, "GET", "/v2/neighbors", &md.peer, md.request_id, None, None, "")?;
+                HttpRequestPreamble::new_serialized(fd, "GET", "/v2/neighbors", &md.peer, md.request_id, None, None, empty_headers)?;
             },
             HttpRequestType::GetBlock(ref md, ref block_hash) => {
-                HttpRequestPreamble::new_serialized(fd, "GET", &format!("/v2/blocks/{}", block_hash.to_hex()), &md.peer, md.request_id, None, None, "")?;
+                HttpRequestPreamble::new_serialized(fd, "GET", &format!("/v2/blocks/{}", block_hash.to_hex()), &md.peer, md.request_id, None, None, empty_headers)?;
             },
             HttpRequestType::GetMicroblocks(ref md, ref block_hash) => {
-                HttpRequestPreamble::new_serialized(fd, "GET", &format!("/v2/microblocks/{}", block_hash.to_hex()), &md.peer, md.request_id, None, None, "")?;
+                HttpRequestPreamble::new_serialized(fd, "GET", &format!("/v2/microblocks/{}", block_hash.to_hex()), &md.peer, md.request_id, None, None, empty_headers)?;
             },
             HttpRequestType::PostTransaction(ref md, ref tx) => {
                 let mut tx_bytes = vec![];
                 write_next(&mut tx_bytes, tx)?;
 
-                HttpRequestPreamble::new_serialized(fd, "POST", "/v2/transactions", &md.peer, md.request_id, Some(tx_bytes.len() as u32), Some(&HttpContentType::Bytes), "")?;
+                HttpRequestPreamble::new_serialized(fd, "POST", "/v2/transactions", &md.peer, md.request_id, Some(tx_bytes.len() as u32), Some(&HttpContentType::Bytes), empty_headers)?;
                 fd.write_all(&tx_bytes).map_err(net_error::WriteError)?;
             }
         }
@@ -1311,7 +1351,7 @@ impl HttpResponseType {
 
     fn error_response<W: Write>(&self, fd: &mut W, code: u16, message: &str) -> Result<(), net_error> {
         let md = self.metadata();
-        HttpResponsePreamble::new_serialized(fd, code, HttpResponseType::error_reason(code), Some(message.len() as u32), &HttpContentType::Text, md.request_id, &md.request_path, "")?;
+        HttpResponsePreamble::new_serialized(fd, code, HttpResponseType::error_reason(code), Some(message.len() as u32), &HttpContentType::Text, md.request_id, &md.request_path, empty_headers)?;
         fd.write_all(message.as_bytes()).map_err(net_error::WriteError)?;
         Ok(())
     }
@@ -1373,22 +1413,22 @@ impl HttpResponseType {
     pub fn send<W: Write>(&self, protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
         match *self {
             HttpResponseType::Neighbors(ref md, ref neighbor_data) => {
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, &md.request_path, "")?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, &md.request_path, empty_headers)?;
                 HttpResponseType::send_json(protocol, md, fd, neighbor_data)?;
             },
             HttpResponseType::Block(ref md, ref block) => {
                 // TODO; stream from disk using `protocol`
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Bytes, md.request_id, &md.request_path, "")?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Bytes, md.request_id, &md.request_path, empty_headers)?;
                 HttpResponseType::send_bytestream(protocol, md, fd, block)?;
             },
             HttpResponseType::Microblocks(ref md, ref microblocks) => {
                 // TODO: stream from disk using `protocol`
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Bytes, md.request_id, &md.request_path, "")?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Bytes, md.request_id, &md.request_path, empty_headers)?;
                 HttpResponseType::send_bytestream(protocol, md, fd, microblocks)?;
             },
             HttpResponseType::TransactionID(ref md, ref txid) => {
                 let txid_bytes = txid.to_hex().into_bytes();
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Text, md.request_id, &md.request_path, "")?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Text, md.request_id, &md.request_path, empty_headers)?;
                 HttpResponseType::send_text(protocol, md, fd, &txid_bytes)?;
             },
             HttpResponseType::BadRequest(ref md, ref msg) => self.error_response(fd, 400, msg)?,
