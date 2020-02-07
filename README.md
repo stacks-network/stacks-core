@@ -1,15 +1,15 @@
 # Stacks 2.0
 
-Reference implementation of https://blockstack.org/whitepaper.pdf in Rust.
+Reference implementation of https://blockstack.org/whitepaper.pdf is in Rust.
 
-[![CircleCI](https://circleci.com/gh/blockstack/blockstack-core/tree/develop.svg?style=svg)](https://circleci.com/gh/blockstack/blockstack-core/tree/develop)
+[![CircleCI](https://circleci.com/gh/blockstack/blockstack-core/tree/master.svg?style=svg)](https://circleci.com/gh/blockstack/blockstack-core/tree/master)
 
 ## Repository
 
 | Blockstack Topic/Tech | Where to learn more more |
 |---------------------------------|------------------------------------------------------------------------------|
 | Stacks 2.0 | [master branch](https://github.com/blockstack/blockstack-core/tree/master) |
-| Stacks 1.0 | [legacy branch](https://github.com/blockstack/blockstack-core/tree/develop) |
+| Stacks 1.0 | [legacy branch](https://github.com/blockstack/blockstack-core/tree/stacks-1.0) |
 | Use the package | [our core docs](https://docs.blockstack.org/core/naming/introduction.html) |
 | Develop a Blockstack App | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html) |
 | Use a Blockstack App | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
@@ -27,22 +27,23 @@ To unpack this definition:
 
 ## Roadmap
 
-- [x] [SIP 001: Burn Election](https://github.com/blockstack/blockstack-core/blob/develop/sip/sip-001-burn-election.md)
-- [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/blockstack/blockstack-core/blob/develop/sip/sip-002-smart-contract-language.md)
-- [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/blockstack/blockstack-core/blob/develop/sip/sip-004-materialized-view.md)
-- [x] SIP 005: Blocks, Transactions, and Accounts
-- [ ] [SIP 003: Peer Network](https://github.com/blockstack/blockstack-core/blob/develop/sip/sip-003-peer-network.md) (Q1 2020)
+- [x] [SIP 001: Burn Election](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-001-burn-election.md)
+- [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-002-smart-contract-language.md)
+- [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-004-materialized-view.md)
+- [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-005-blocks-and-transactions.md
+)
+- [ ] [SIP 003: Peer Network](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-003-peer-network.md) (Q1 2020)
 - [ ] SIP 006: Clarity Execution Cost Assessment (Q1 2020)
 
-Stacks improvement proposals (SIP) are documented design proposals aimed at improving the Stacks blockchain. They should contain concise technical specifications of features or standards and the rationale behind it. SIPs are intended to be the primary mechanism of proposing new features, for collecting of community input on an issue and for documenting design decisions.
+Stacks improvement proposals (SIPs) are aimed at describing the implementation of the Stacks blockchain, as well as proposing improvements. They should contain concise technical specifications of features or standards and the rationale behind it. SIPs are intended to be the primary medium for proposing new features, for collecting community input on a system-wide issue, and for documenting design decisions.
 
-See [SIP 000](https://github.com/blockstack/blockstack-core/blob/develop/sip/sip-000-stacks-improvement-proposal-process.md) for more details.
+See [SIP 000](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-000-stacks-improvement-proposal-process.md) for more details.
 
 ### Testnet versions
 
-- [x] **Local Testnet** is a developer local setup, mono-node, assembling SIP 001, SIP 002, SIP 004 and SIP 005. With this version, developers can run Stack 2.0 on their development machines, but also write, execute and tests smart contracts. See the instructions below for more details.
+- [x] **Local Testnet** is a developer local setup, mono-node, assembling SIP 001, SIP 002, SIP 004 and SIP 005. With this version, developers can not only run Stacks 2.0 on their development machines, but also write, execute, and test smart contracts. See the instructions below for more details.
 
-- [ ] **Open Testnet** is the incoming version of our testnet, that we're intending to ship in Q1 2020. This testnet will ship with SIP 003 and be an open membership network, where participants will be able to observe and experience the consensus running at scale.
+- [ ] **Open Testnet** is the upcoming version of our public testnet, that we're anticipating will ship in Q1 2020. This testnet will ship with SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
 
 - [ ] **Mainet** is the fully functional version, that we're intending to ship in Q2 2020.
 
@@ -64,7 +65,7 @@ git clone https://github.com/blockstack/blockstack-core.git
 cd blockstack-core
 ```
 
-Then build the project:ca
+Then build the project:
 
 ```bash
 cargo build
@@ -91,7 +92,7 @@ cargo run --bin blockstack-cli generate-sk --testnet
 # }
 ```
 
-We are considering the following simple contract `kv-store`, that you can save to `./kv-store.clar`:
+We will interact with the following simple contract `kv-store`. In our examples, we will assume this contract is saved to `./kv-store.clar`:
 
 ```scheme
 (define-map store ((key (buff 32))) ((value (buff 32))))
@@ -107,7 +108,7 @@ We are considering the following simple contract `kv-store`, that you can save t
         (ok 'true)))
 ```
 
-We want to publish this contract on chain, and issuing some transactions interacting with it, setting some keys and getting some values, so we can observe read and writes.
+We want to publish this contract on chain, then issue some transactions that interact with it by setting some keys and getting some values, so we can observe read and writes.
 
 Our first step is to generate and sign, using your private key, the transaction that will publish the contract `kv-store`.
 To do that, we will use the subcommand:
@@ -122,7 +123,7 @@ With the following arguments:
 cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 0 kv-store ./kv-store.clar --testnet
 ```
 
-This command will output the **binary format** of the transaction. In our case, we want to pipe this output and dump it to a file that will be used later in this step by step.
+This command will output the **binary format** of the transaction. In our case, we want to pipe this output and dump it to a file that will be used later in this tutorial.
 
 ```bash
 cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 0 kv-store ./kv-store.clar --testnet | xxd -r -p > tx1.bin
@@ -173,7 +174,10 @@ With the following arguments:
 cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 1 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store get-value -e \"foo\" --testnet | xxd -r -p > tx2.bin
 ```
 
-And submit it by moving it to the mempool path:
+`contract-call` generates and signs a contract-call transaction.
+Note: the third argument `1` is a nonce, that must be increased monotonically with each new transaction.
+
+We can submit the transaction by moving it to the mempool path:
 
 ```bash
 cp ./tx2.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
