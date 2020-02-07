@@ -1,0 +1,72 @@
+[package]
+name = "blockstack-core"
+version = "0.0.1"
+authors = ["Jude Nelson <jude@blockstack.com>", "Aaron Blankstein <aaron@blockstack.com>"]
+license = "GPLv3"
+homepage = "https://github.com/blockstack/blockstack-core"
+repository = "https://github.com/blockstack/blockstack-core"
+description = "Reference implementation of Blockstack Core"
+keywords = [ "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
+readme = "README.md"
+
+[lib]
+name = "blockstack_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "blockstack-core"
+path = "src/main.rs"
+
+[[bin]]
+name = "clarity-cli"
+path = "src/clarity_cli.rs"
+
+[[bin]]
+name = "blockstack-cli"
+path = "src/blockstack_cli.rs"
+
+[[bench]]
+name = "marf_bench"
+harness = false
+
+[features]
+developer-mode = []
+default = ["developer-mode"]
+
+[dependencies]
+byteorder = "1.1"
+rust-ini = "0.13"
+rand = "=0.7.2"
+serde = "1"
+serde_derive = "1"
+serde_json = "1.0"
+sha3 = "0.8.2"
+ripemd160 = "0.8.0"
+dirs = "1.0.4"
+regex = "1"
+mio = "0.6.16"
+libc = "0.2"
+
+[dependencies.secp256k1]
+version = "0.11.5"
+features = ["serde"]
+
+[dependencies.rusqlite]
+version = "=0.16.0"
+features = ["i128_blob", "bundled"]
+
+[dependencies.ed25519-dalek]
+version = "=1.0.0-pre.3"
+features = ["serde"]
+
+[dependencies.curve25519-dalek]
+version = "=2.0.0"
+features = ["serde"]
+
+[dependencies.sha2]
+version = "0.8.0"
+features = ["asm"]
+
+[dev-dependencies]
+assert-json-diff = "1.0.0"
+criterion = "0.3"

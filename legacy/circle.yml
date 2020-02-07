@@ -1,0 +1,28 @@
+version: 2
+jobs:
+  build:
+    working_directory: ~/blockstack
+    docker:
+      - image: circleci/python:2.7
+        environment:
+          PIPENV_VENV_IN_PROJECT: true
+    steps:
+      - checkout
+      - restore_cache:
+          key: deps9-{{ .Branch }}-{{ checksum "setup.py" }}-{{ checksum "integration_tests/setup.py" }}
+      - run:
+          command: |
+            python -m virtualenv venv
+            source venv/bin/activate
+            pip install ./integration_tests --upgrade --upgrade-strategy only-if-needed
+            pip install . --upgrade --upgrade-strategy only-if-needed
+      - save_cache:
+          key: deps9-{{ .Branch }}-{{ checksum "setup.py" }}-{{ checksum "integration_tests/setup.py" }}
+          paths:
+            - "venv"
+      - run:
+          command: |
+            source venv/bin/activate
+            yes '' | blockstack-core configure || true
+            sed -i -e 's#http://localhost:6264#https://node.blockstack.org:6263#' ~/.blockstack-server/blockstack-server.ini
+            python -m blockstack_integration_tests.live_tests.api_tests
