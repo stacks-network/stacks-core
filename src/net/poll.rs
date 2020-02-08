@@ -97,9 +97,9 @@ impl NetworkState {
                     Err(e) => match e.kind() {
                         io::ErrorKind::AddrInUse => {
                             debug!("Waiting {} millis and trying to bind {:?} again", backoff, addr);
-                            sleep_ms(count);
+                            sleep_ms(backoff);
+                            backoff = count + (rng.next_u64() % count);
                             count += count;
-                            backoff = rng.next_u64() % count;
                             continue;
                         },
                         _ => {

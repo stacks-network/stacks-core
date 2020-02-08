@@ -938,8 +938,7 @@ impl ProtocolFamily for StacksP2P {
             return Err(net_error::UnderflowError("Not enough bytes to form a P2P preamble".to_string()));
         }
 
-        let mut cursor = io::Cursor::new(&buf[0..(PREAMBLE_ENCODED_SIZE as usize)]);
-        let preamble : Preamble = read_next(&mut cursor)?;
+        let preamble : Preamble = read_next(&mut &buf[0..(PREAMBLE_ENCODED_SIZE as usize)])?;
         Ok((preamble, PREAMBLE_ENCODED_SIZE as usize))
     }
     
@@ -1029,7 +1028,7 @@ pub mod test {
     fn check_deserialize_failure<T: StacksMessageCodec + fmt::Debug + Clone + PartialEq>(obj: &T) -> bool {
         let mut bytes : Vec<u8> = vec![];
         obj.consensus_serialize(&mut bytes).unwrap();
-        check_deserialize(T::consensus_deserialize(&mut io::Cursor::new(&bytes)))
+        check_deserialize(T::consensus_deserialize(&mut &bytes[..]))
     }
     
     pub fn check_codec_and_corruption<T : StacksMessageCodec + fmt::Debug + Clone + PartialEq>(obj: &T, bytes: &Vec<u8>) -> () {
@@ -1040,7 +1039,7 @@ pub mod test {
        
         // bytes should deserialize to obj
         let read_buf : Vec<u8> = write_buf.clone();
-        let res = T::consensus_deserialize(&mut io::Cursor::new(&read_buf));
+        let res = T::consensus_deserialize(&mut &read_buf[..]);
         match res {
             Ok(out) => {
                 assert_eq!(out, *obj);
@@ -1058,7 +1057,7 @@ pub mod test {
             let short_len = short_buf.len() - 1;
             short_buf.truncate(short_len);
 
-            let underflow_res = T::consensus_deserialize(&mut io::Cursor::new(&short_buf));
+            let underflow_res = T::consensus_deserialize(&mut &short_buf[..]);
             match underflow_res {
                 Ok(oops) => {
                     test_debug!("\nMissing Underflow: Parsed {:?}\nFrom {:?}\n", &oops, &write_buf[0..short_len].to_vec());

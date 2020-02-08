@@ -1695,8 +1695,7 @@ impl ProtocolFamily for StacksHttp {
 
                         // we now know the content-length, so pass it into the parser.
                         let len_hint = message_bytes.len();
-                        let mut cursor = io::Cursor::new(message_bytes);
-                        match HttpResponseType::parse(self, http_response_preamble, &mut cursor, Some(len_hint)) {
+                        match HttpResponseType::parse(self, http_response_preamble, &mut &message_bytes[..], Some(len_hint)) {
                             Ok(data_response) => Ok((Some((StacksHttpMessage::Response(data_response), total_bytes_consumed)), num_read)),
                             Err(e) => Err(e)
                         }
@@ -2006,8 +2005,8 @@ mod test {
 
             let mut decoded_data = vec![0u8; 256];
             {
-                let mut decode_fd = io::Cursor::new(&mut encoded_data);
-                let mut decoder = HttpChunkedTransferReader::from_reader(&mut decode_fd, 256);
+                let mut cursor = io::Cursor::new(&encoded_data);
+                let mut decoder = HttpChunkedTransferReader::from_reader(&mut cursor, 256);
                 decoder.read_exact(&mut decoded_data).unwrap();
             }
 
@@ -2055,11 +2054,11 @@ mod test {
         ];
 
         for (data, request) in tests.iter() {
-            let req = HttpRequestPreamble::consensus_deserialize(&mut io::Cursor::new(data));
+            let req = HttpRequestPreamble::consensus_deserialize(&mut data.as_bytes());
             assert!(req.is_ok(), format!("{:?}", &req));
             assert_eq!(req.unwrap(), *request);
 
-            let sreq = StacksHttpPreamble::consensus_deserialize(&mut io::Cursor::new(data));
+            let sreq = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
             assert!(sreq.is_ok(), format!("{:?}", &sreq));
             assert_eq!(sreq.unwrap(), StacksHttpPreamble::Request((*request).clone()));
         }
@@ -2087,7 +2086,7 @@ mod test {
         ];
 
         for (data, errstr) in tests.iter() {
-            let res = HttpRequestPreamble::consensus_deserialize(&mut io::Cursor::new(data));
+            let res = HttpRequestPreamble::consensus_deserialize(&mut data.as_bytes());
             test_debug!("Expect '{}'", errstr);
             let expected_errstr = format!("{:?}", &res);
             assert!(res.is_err(), expected_errstr);
@@ -2117,7 +2116,7 @@ mod test {
         ];
 
         for (data, errstr) in tests.iter() {
-            let sres = StacksHttpPreamble::consensus_deserialize(&mut io::Cursor::new(data));
+            let sres = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
             let expected_serrstr = format!("{:?}", &sres);
             test_debug!("Expect '{}'", errstr);
             assert!(sres.is_err(), expected_serrstr);
@@ -2167,11 +2166,11 @@ mod test {
 
         for (data, response) in tests.iter() {
             test_debug!("Try parsing:\n{}\n", data);
-            let res = HttpResponsePreamble::consensus_deserialize(&mut io::Cursor::new(data));
+            let res = HttpResponsePreamble::consensus_deserialize(&mut data.as_bytes());
             assert!(res.is_ok(), format!("{:?}", &res));
             assert_eq!(res.unwrap(), *response);
             
-            let sres = StacksHttpPreamble::consensus_deserialize(&mut io::Cursor::new(data));
+            let sres = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
             assert!(sres.is_ok(), format!("{:?}", &sres));
             assert_eq!(sres.unwrap(), StacksHttpPreamble::Response((*response).clone()));
         }
@@ -2237,7 +2236,7 @@ mod test {
         ];
 
         for (data, errstr) in tests.iter() {
-            let res = HttpResponsePreamble::consensus_deserialize(&mut io::Cursor::new(data));
+            let res = HttpResponsePreamble::consensus_deserialize(&mut data.as_bytes());
             test_debug!("Expect '{}', got: {:?}", errstr, &res);
             assert!(res.is_err(), format!("{:?}", &res));
             assert!(res.unwrap_err().to_string().find(errstr).is_some());
@@ -2276,7 +2275,7 @@ mod test {
         ];
 
         for (data, errstr) in tests.iter() {
-            let sres = StacksHttpPreamble::consensus_deserialize(&mut io::Cursor::new(data));
+            let sres = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
             let expected_serrstr = format!("{:?}", &sres);
             test_debug!("Expect '{}', got: {:?}", errstr, &sres);
             assert!(sres.is_err(), expected_serrstr);
@@ -2608,8 +2607,7 @@ mod test {
 
             let (message, total_len) = 
                 if expected_http_preamble.is_chunked() {
-                    let mut cursor = io::Cursor::new(&bytes[offset..]);
-                    let (msg_opt, len) = http.stream_payload(&preamble, &mut cursor).unwrap();
+                    let (msg_opt, len) = http.stream_payload(&preamble, &mut &bytes[offset..]).unwrap();
                     (msg_opt.unwrap().0, len)
                 }
                 else {
@@ -2670,11 +2668,11 @@ mod test {
         let bad_request_preamble = format!("GET /v2/neighbors HTTP/1.1\r\nHost: localhost:1234\r\nX-Request-ID: 123\r\nBad-Header: {}\r\n\r\n", &bad_header_value);
         let bad_response_preamble = format!("HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Path: /v2/transactions\r\nX-Request-ID: 123\r\nContent-Type: text/plain\r\nContent-Length: 64\r\nBad-Header: {}\r\n\r\n", &bad_header_value);
 
-        let request_err = HttpRequestPreamble::consensus_deserialize(&mut io::Cursor::new(bad_request_preamble.as_bytes())).unwrap_err();
-        let response_err = HttpResponsePreamble::consensus_deserialize(&mut io::Cursor::new(bad_response_preamble.as_bytes())).unwrap_err();
+        let request_err = HttpRequestPreamble::consensus_deserialize(&mut bad_request_preamble.as_bytes()).unwrap_err();
+        let response_err = HttpResponsePreamble::consensus_deserialize(&mut bad_response_preamble.as_bytes()).unwrap_err();
 
-        let protocol_request_err = StacksHttpPreamble::consensus_deserialize(&mut io::Cursor::new(bad_request_preamble.as_bytes())).unwrap_err();
-        let protocol_response_err = StacksHttpPreamble::consensus_deserialize(&mut io::Cursor::new(bad_response_preamble.as_bytes())).unwrap_err();
+        let protocol_request_err = StacksHttpPreamble::consensus_deserialize(&mut bad_request_preamble.as_bytes()).unwrap_err();
+        let protocol_response_err = StacksHttpPreamble::consensus_deserialize(&mut bad_response_preamble.as_bytes()).unwrap_err();
         
         eprintln!("request_err: {:?}", &request_err);
         eprintln!("response_err: {:?}", &response_err);
@@ -2694,11 +2692,11 @@ mod test {
         let bad_request_preamble = format!("GET /v2/neighbors HTTP/1.1\r\nHost: localhost:1234\r\nX-Request-ID: 123\r\n{}\r\n", &too_many_headers);
         let bad_response_preamble = format!("HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Path: /v2/transactions\r\nX-Request-ID: 123\r\nContent-Type: text/plain\r\nContent-Length: 64\r\n{}\r\n", &too_many_headers);
         
-        let request_err = HttpRequestPreamble::consensus_deserialize(&mut io::Cursor::new(bad_request_preamble.as_bytes())).unwrap_err();
-        let response_err = HttpResponsePreamble::consensus_deserialize(&mut io::Cursor::new(bad_response_preamble.as_bytes())).unwrap_err();
+        let request_err = HttpRequestPreamble::consensus_deserialize(&mut bad_request_preamble.as_bytes()).unwrap_err();
+        let response_err = HttpResponsePreamble::consensus_deserialize(&mut bad_response_preamble.as_bytes()).unwrap_err();
 
-        let protocol_request_err = StacksHttpPreamble::consensus_deserialize(&mut io::Cursor::new(bad_request_preamble.as_bytes())).unwrap_err();
-        let protocol_response_err = StacksHttpPreamble::consensus_deserialize(&mut io::Cursor::new(bad_response_preamble.as_bytes())).unwrap_err();
+        let protocol_request_err = StacksHttpPreamble::consensus_deserialize(&mut bad_request_preamble.as_bytes()).unwrap_err();
+        let protocol_response_err = StacksHttpPreamble::consensus_deserialize(&mut bad_response_preamble.as_bytes()).unwrap_err();
         
         eprintln!("request_err: {:?}", &request_err);
         eprintln!("response_err: {:?}", &response_err);
