@@ -1349,7 +1349,7 @@ mod test {
         for (ref block, ref msg) in invalid_blocks.iter() {
             let mut bytes : Vec<u8> = vec![];
             block.consensus_serialize(&mut bytes).unwrap();
-            assert!(StacksBlock::consensus_deserialize(&mut io::Cursor::new(&bytes)).unwrap_err().to_string().find(msg).is_some());
+            assert!(StacksBlock::consensus_deserialize(&mut &bytes[..]).unwrap_err().to_string().find(msg).is_some());
         }
     }
     
@@ -1442,7 +1442,7 @@ mod test {
         for (ref block, ref msg) in invalid_blocks.iter() {
             let mut bytes : Vec<u8> = vec![];
             block.consensus_serialize(&mut bytes).unwrap();
-            assert!(StacksMicroblock::consensus_deserialize(&mut io::Cursor::new(&bytes)).unwrap_err().to_string().find(msg).is_some());
+            assert!(StacksMicroblock::consensus_deserialize(&mut &bytes[..]).unwrap_err().to_string().find(msg).is_some());
         }
     }
 

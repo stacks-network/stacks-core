@@ -225,7 +225,7 @@ impl FromRow<StagingUserBurnSupport> for StagingUserBurnSupport {
 impl StagingMicroblock {
     #[cfg(test)]
     pub fn try_into_microblock(self) -> Result<StacksMicroblock, StagingMicroblock> {
-        StacksMicroblock::consensus_deserialize(&mut io::Cursor::new(&self.block_data)).map_err(|_e| self)
+        StacksMicroblock::consensus_deserialize(&mut &self.block_data[..]).map_err(|_e| self)
     }
 }
 
@@ -515,7 +515,7 @@ impl StacksChainState {
             return Ok(None);
         }
 
-        let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_bytes)).map_err(Error::NetError)?;
+        let block = StacksBlock::consensus_deserialize(&mut &block_bytes[..]).map_err(Error::NetError)?;
         Ok(Some(block))
     }
     
@@ -531,7 +531,7 @@ impl StacksChainState {
             return Ok(None);
         }
 
-        let block_header = StacksBlockHeader::consensus_deserialize(&mut io::Cursor::new(&block_bytes)).map_err(Error::NetError)?;
+        let block_header = StacksBlockHeader::consensus_deserialize(&mut &block_bytes[..]).map_err(Error::NetError)?;
         Ok(Some(block_header))
     }
 
@@ -695,7 +695,7 @@ impl StacksChainState {
                     return Ok(None);
                 }
 
-                match StacksBlock::consensus_deserialize(&mut io::Cursor::new(&staging_block.block_data)) {
+                match StacksBlock::consensus_deserialize(&mut &staging_block.block_data[..]) {
                     Ok(block) => Ok(Some(block)),
                     Err(e) => Err(Error::NetError(e))
                 }
@@ -773,7 +773,7 @@ impl StacksChainState {
                     return Err(Error::NetError(net_error::DeserializeError(format!("Microblock {} does not have block data", staging_microblocks[i].microblock_hash))));
                 }
 
-                let microblock = StacksMicroblock::consensus_deserialize(&mut io::Cursor::new(&staging_microblocks[i].block_data))
+                let microblock = StacksMicroblock::consensus_deserialize(&mut &staging_microblocks[i].block_data[..])
                     .map_err(Error::NetError)?;
                 microblocks.push(microblock);
             }
@@ -789,7 +789,7 @@ impl StacksChainState {
                         return Err(Error::NetError(net_error::DeserializeError(format!("Microblock {} does not have block data", staging_microblocks[i].microblock_hash))));
                     }
 
-                    let microblock = StacksMicroblock::consensus_deserialize(&mut io::Cursor::new(&staging_microblocks[i].block_data))
+                    let microblock = StacksMicroblock::consensus_deserialize(&mut &staging_microblocks[i].block_data[..])
                         .map_err(Error::NetError)?;
                     microblocks.push(microblock);
                 }
@@ -2111,7 +2111,7 @@ impl StacksChainState {
         };
 
         let block = {
-            StacksBlock::consensus_deserialize(&mut io::Cursor::new(&next_staging_block.block_data))
+            StacksBlock::consensus_deserialize(&mut &next_staging_block.block_data[..])
                 .map_err(Error::NetError)?
         };
 
@@ -2365,7 +2365,7 @@ pub mod test {
             let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
             let tx_smart_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                            auth.clone(),
-                                                           TransactionPayload::new_smart_contract(&"name".to_string(), &format!("hello smart contract {}", i)).unwrap());
+                                                           TransactionPayload::new_smart_contract(&"hello-microblock".to_string(), &format!("hello smart contract {}", i)).unwrap());
             let mut tx_signer = StacksTransactionSigner::new(&tx_smart_contract);
             tx_signer.sign_origin(&privk).unwrap();
 

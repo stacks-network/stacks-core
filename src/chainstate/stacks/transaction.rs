@@ -1548,7 +1548,7 @@ mod test {
             0x03
         ];
 
-        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&payload_bytes_bad_parent)).unwrap_err().to_string().find("microblock headers do not identify a fork").is_some());
+        assert!(TransactionPayload::consensus_deserialize(&mut &payload_bytes_bad_parent[..]).unwrap_err().to_string().find("microblock headers do not identify a fork").is_some());
         
         let payload_bytes_equal = vec![
             // payload type ID
@@ -1583,7 +1583,7 @@ mod test {
             0x02
         ];
 
-        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&payload_bytes_equal)).unwrap_err().to_string().find("microblock headers match").is_some());
+        assert!(TransactionPayload::consensus_deserialize(&mut &payload_bytes_equal[..]).unwrap_err().to_string().find("microblock headers match").is_some());
     }
 
     #[test]
@@ -1610,7 +1610,7 @@ mod test {
         ];
         transaction_contract_call.append(&mut contract_call_bytes.clone());
 
-        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&transaction_contract_call)).unwrap_err().to_string().find("unknown payload ID").is_some());
+        assert!(TransactionPayload::consensus_deserialize(&mut &transaction_contract_call[..]).unwrap_err().to_string().find("unknown payload ID").is_some());
     }
     
     #[test]
@@ -1638,7 +1638,7 @@ mod test {
         ];
         transaction_contract_call.append(&mut contract_call_bytes);
 
-        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&transaction_contract_call)).unwrap_err().to_string().find("Failed to parse Contract name").is_some());
+        assert!(TransactionPayload::consensus_deserialize(&mut &transaction_contract_call[..]).unwrap_err().to_string().find("Failed to parse Contract name").is_some());
     }
     
     #[test]
@@ -1665,7 +1665,7 @@ mod test {
         ];
         transaction_contract_call.append(&mut contract_call_bytes);
 
-        assert!(TransactionPayload::consensus_deserialize(&mut io::Cursor::new(&transaction_contract_call)).unwrap_err().to_string().find("Failed to parse Clarity name").is_some());
+        assert!(TransactionPayload::consensus_deserialize(&mut &transaction_contract_call[..]).unwrap_err().to_string().find("Failed to parse Clarity name").is_some());
     }
     
     #[test]
@@ -1707,7 +1707,7 @@ mod test {
         asset_info.consensus_serialize(&mut actual_asset_info_bytes).unwrap();
         assert_eq!(actual_asset_info_bytes, asset_info_bytes);
 
-        assert_eq!(AssetInfo::consensus_deserialize(&mut io::Cursor::new(&asset_info_bytes)).unwrap(), asset_info);
+        assert_eq!(AssetInfo::consensus_deserialize(&mut &asset_info_bytes[..]).unwrap(), asset_info);
     }
 
     #[test]
@@ -1817,7 +1817,7 @@ mod test {
 
         let bad_pc_bytes = vec![stx_pc_bytes_bad_condition, fungible_pc_bytes_bad_condition, nonfungible_pc_bytes_bad_condition];
         for i in 0..3 {
-            assert!(TransactionPostCondition::consensus_deserialize(&mut io::Cursor::new(&bad_pc_bytes[i])).is_err());
+            assert!(TransactionPostCondition::consensus_deserialize(&mut &bad_pc_bytes[i][..]).is_err());
         }
         
         // can't parse a postcondition with an invalid principal
@@ -1856,7 +1856,7 @@ mod test {
 
         let bad_pc_bytes = vec![stx_pc_bytes_bad_principal, fungible_pc_bytes_bad_principal, nonfungible_pc_bytes_bad_principal];
         for i in 0..3 {
-            assert!(TransactionPostCondition::consensus_deserialize(&mut io::Cursor::new(&bad_pc_bytes[i])).is_err());
+            assert!(TransactionPostCondition::consensus_deserialize(&mut &bad_pc_bytes[i][..]).is_err());
         }
     }
 

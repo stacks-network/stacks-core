@@ -1490,15 +1490,15 @@ mod test {
         bad_p2wsh_uncompressed.consensus_serialize(&mut actual_bytes).unwrap();
         assert_eq!(actual_bytes, bad_p2wsh_uncompressed_bytes);
 
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_public_key_count_bytes)).is_err());
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_public_key_count_bytes_2)).is_err());
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_hash_mode_bytes)).is_err());
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_hash_mode_multisig_bytes)).is_err());
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_p2wpkh_uncompressed_bytes)).is_err());
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_p2wsh_uncompressed_bytes)).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_public_key_count_bytes[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_public_key_count_bytes_2[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_hash_mode_bytes[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_hash_mode_multisig_bytes[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_p2wpkh_uncompressed_bytes[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_p2wsh_uncompressed_bytes[..]).is_err());
         
         // corrupt but will parse with trailing bits
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_hash_mode_singlesig_bytes_parseable)).is_ok());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_hash_mode_singlesig_bytes_parseable[..]).is_ok());
     }
 
     #[test]
