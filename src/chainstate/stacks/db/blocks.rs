@@ -2931,7 +2931,7 @@ pub mod test {
                         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
                         let tx_smart_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                                        auth.clone(),
-                                                                       TransactionPayload::new_smart_contract(&"name".to_string(), &format!("conflicting smart contract {}", i)).unwrap());
+                                                                       TransactionPayload::new_smart_contract(&"name-contract".to_string(), &format!("conflicting smart contract {}", i)).unwrap());
                         let mut tx_signer = StacksTransactionSigner::new(&tx_smart_contract);
                         tx_signer.sign_origin(&privk).unwrap();
                         tx_signer.get_tx().unwrap()

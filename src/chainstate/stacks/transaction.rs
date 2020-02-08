@@ -1930,7 +1930,7 @@ mod test {
 
         let tx_smart_contract = StacksTransaction::new(TransactionVersion::Mainnet,
                                                        auth.clone(),
-                                                       TransactionPayload::new_smart_contract(&"name".to_string(), &"hello smart contract".to_string()).unwrap());
+                                                       TransactionPayload::new_smart_contract(&"name-contract".to_string(), &"hello smart contract".to_string()).unwrap());
 
         let tx_coinbase = StacksTransaction::new(TransactionVersion::Mainnet,
                                                  auth.clone(),
