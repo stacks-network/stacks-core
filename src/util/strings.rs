@@ -35,7 +35,7 @@ use net::Error as net_error;
 use regex::Regex;
 
 use vm::representations::{ClarityName, ContractName, SymbolicExpression, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH};
-use vm::ast::parser::{lex, LexItem};
+use vm::ast::parser::{lex, LexItem, CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH};
 
 pub use vm::representations::UrlString;
 
@@ -138,8 +138,8 @@ impl StacksMessageCodec for ClarityName {
 
 impl StacksMessageCodec for ContractName {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        if self.as_bytes().len() > CLARITY_MAX_STRING_LENGTH as usize {
-            return Err(net_error::SerializeError("Failed to serialize contract name: too long".to_string()));
+        if self.as_bytes().len() < CONTRACT_MIN_NAME_LENGTH as usize || self.as_bytes().len() > CONTRACT_MAX_NAME_LENGTH as usize {
+            return Err(net_error::SerializeError(format!("Failed to serialize contract name: too short or too long: {}", self.as_bytes().len())));
         }
         write_next(fd, &(self.as_bytes().len() as u8))?;
         fd.write_all(self.as_bytes()).map_err(net_error::WriteError)?;
@@ -148,8 +148,8 @@ impl StacksMessageCodec for ContractName {
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ContractName, net_error> {
         let len_byte : u8 = read_next(fd)?;
-        if len_byte > CLARITY_MAX_STRING_LENGTH {
-            return Err(net_error::DeserializeError("Failed to deserialize contract name: too long".to_string()));
+        if (len_byte as usize) < CONTRACT_MIN_NAME_LENGTH || (len_byte as usize) > CONTRACT_MAX_NAME_LENGTH {
+            return Err(net_error::DeserializeError(format!("Failed to deserialize contract name: too short or too long: {}", len_byte)));
         }
         let mut bytes = vec![0u8; len_byte as usize];
         fd.read_exact(&mut bytes).map_err(net_error::ReadError)?;
@@ -314,6 +314,21 @@ mod test {
 
         let s = "hello\x01world";
         assert!(StacksString::from_str(&s).is_none());
+    }
+
+    #[test]
+    fn test_contract_name_invalid() {
+        let s = vec![0u8];
+        assert!(ContractName::consensus_deserialize(&mut &s[..]).is_err());
+
+        let s = vec![5u8, 0x66, 0x6f, 0x6f, 0x6f, 0x6f];    // "foooo"
+        assert!(ContractName::consensus_deserialize(&mut &s[..]).is_ok());
+
+        let s_body = [0x6fu8; CONTRACT_MAX_NAME_LENGTH+1];
+        let mut s_payload = vec![s_body.len() as u8];
+        s_payload.extend_from_slice(&s_body);
+
+        assert!(ContractName::consensus_deserialize(&mut &s_payload[..]).is_err());
     }
 }
 
