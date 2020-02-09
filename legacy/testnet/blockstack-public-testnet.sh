@@ -34,6 +34,7 @@ while true; do
        bzip2 "$BACKUP_LOGFILE" &
    fi
 
+   rm -rf /tmp/blockstack-test-databases-*
    blockstack-test-scenario blockstack_integration_tests.scenarios.testnet_public > "$LOGFILE" 2>&1 &
    TEST_PID=$!
   

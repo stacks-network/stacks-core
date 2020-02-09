@@ -326,7 +326,7 @@ class BlockstackSnapshotServer(SocketServer.TCPServer):
         self.server_activate()
 
 
-def make_snapshot(working_dir, snapshots_dir, private_key, block_number):
+def make_snapshot(working_dir, snapshots_dir, private_key, block_number, tmpfile_dir=None):
     """
     Make a snapshot from the given block height at {snapshots_dir}/snapshot.bsk.{block_number}
     Also copy it to {snapshots_dir}/snapshot.bsk
@@ -339,7 +339,7 @@ def make_snapshot(working_dir, snapshots_dir, private_key, block_number):
     log.debug("Make snapshot for {} in {}".format(block_number, tmp_snapshot_path))
 
     try:
-        res = blockstack.fast_sync_snapshot(working_dir, tmp_snapshot_path, private_key, block_number)
+        res = blockstack.fast_sync_snapshot(working_dir, tmp_snapshot_path, private_key, block_number, tmpfile_dir=tmpfile_dir)
         assert res
     except Exception as e:
         log.exception(e)
@@ -494,7 +494,7 @@ def clear_old_snapshots(snapshots_dir, cur_block, max_age):
     return
 
 
-def snapshotter_thread_main(working_dir, snapshots_dir, private_key, check_running, max_age=None):
+def snapshotter_thread_main(working_dir, snapshots_dir, private_key, check_running, max_age=None, tmpdir=None):
     """
     Continuously watch the snapshots directory.
     Periodically check that we're not running with 
@@ -544,7 +544,7 @@ def snapshotter_thread_main(working_dir, snapshots_dir, private_key, check_runni
         # have new snapshots to make.
         # start with the oldest
         for new_block in sorted(new_block_numbers):
-            res = make_snapshot(working_dir, snapshots_dir, private_key, new_block)
+            res = make_snapshot(working_dir, snapshots_dir, private_key, new_block, tmpdir)
             if 'error' in res:
                 log.error("Failed to make snapshot for {}: {}".format(new_block, res['error']))
 
@@ -577,6 +577,7 @@ def read_config(config_path=SNAPSHOTS_CONFIG_PATH):
             'log_file': os.path.join( os.path.dirname(config_path), 'blockstack-snapshots.log' ),
             'port': 31128,
             'max_age': 2016,
+            'tmpdir': None
         },
     }
 
@@ -586,6 +587,7 @@ def read_config(config_path=SNAPSHOTS_CONFIG_PATH):
     log_file = None
     port = None
     max_age = None
+    tmpdir = None
 
     if parser.has_section("blockstack-snapshots"):
         if parser.has_option('blockstack-snapshots', 'private_key'):
@@ -614,6 +616,9 @@ def read_config(config_path=SNAPSHOTS_CONFIG_PATH):
                 print >> sys.stderr, "Failed to parse `port` in config file"
                 sys.exit(1)
 
+        if parser.has_option('blockstack-snapshots', 'tmpdir'):
+            tmpdir = parser.get("blockstack-snapshots", 'tmpdir')
+
     ret = {
         'blockstack-snapshots': {
             'private_key': private_key_path,
@@ -622,6 +627,7 @@ def read_config(config_path=SNAPSHOTS_CONFIG_PATH):
             'log_file': log_file,
             'port': port,
             'max_age': max_age,
+            'tmpdir': tmpdir
         },
     }
 
@@ -647,6 +653,7 @@ def merge_config_args(conf, args):
         'log_file':    'blockstack-snapshots.log_file',
         'port':        'blockstack-snapshots.port',
         'max_age':     'blockstack-snapshots.max_age',
+        'tmpdir':      'blockstack-snapshots.tmpdir',
     }
     
     required = fields.keys()
@@ -762,6 +769,22 @@ def signal_exit(ignored_1, ignored_2):
     sys.exit(0)
 
 
+def setup_tmpdir(tmpdir):
+    """
+    set up snapshot tmp directory
+    """
+    if tmpdir:
+        if not os.path.exists(tmpdir):
+            try:
+                os.makedirs(tmpdir)
+            except e:
+                print >> sys.stderr, "Failed to create directory '{}': {}".format(tmpdir, e)
+                sys.exit(1)
+        elif not os.path.isdir(tmpdir):
+            print >> sys.stderr, "Not a directory: '{}'".format(tmpdir)
+            sys.exit(1)
+
+
 if __name__ == '__main__':
 
     config_path = SNAPSHOTS_CONFIG_PATH
@@ -810,6 +833,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--max_age', action='store',
         help='maximum snapshot age, in blocks')
+
+    parser.add_argument(
+        '--tmpdir', action='store',
+        help='location on disk to which to store temporary snapshot data')
 
     parser.add_argument(
         '--working_dir', action='store',
@@ -894,8 +921,12 @@ if __name__ == '__main__':
         log_file = snapshots_conf.get('log_file', None)
         port = snapshots_conf.get('port', None)
         max_age = snapshots_conf.get('max_age', None)
+        tmpdir = snapshots_conf.get('tmpdir', None)
         if max_age:
             max_age = int(max_age)
+
+        if tmpdir:
+            setup_tmpdir(tmpdir)
 
         if snapshots_path is None or private_key_path is None or public_keys_path is None or log_file is None or port is None:
             argparser.print_help()
@@ -1001,7 +1032,7 @@ if __name__ == '__main__':
 
         # daemon child continues here
         # start snapshotter thread
-        thr = thread.start_new_thread( snapshotter_thread_main, (working_dir, snapshots_path, private_key, is_running, max_age) )
+        thr = thread.start_new_thread( snapshotter_thread_main, (working_dir, snapshots_path, private_key, is_running, max_age, tmpdir) )
 
         # start HTTP server
         srv = BlockstackSnapshotServer( port, trusted_public_keys, private_key, snapshots_path )
@@ -1042,8 +1073,12 @@ if __name__ == '__main__':
         snapshots_path = snapshots_conf.get('snapshots_dir', None)
         private_key_path = snapshots_conf.get('private_key', None)
         max_age = snapshots_conf.get('max_age', None)
+        tmpdir = snapshots_conf.get("tmpdir", None)
         if max_age:
             max_age = int(max_age)
+
+        if tmpdir:
+            setup_tmpdir(tmpdir)
 
         if snapshots_path is None or private_key_path is None:
             argparser.print_help()
@@ -1080,5 +1115,5 @@ if __name__ == '__main__':
             print >> sys.stderr, "Invalid key data"
             sys.exit(1)
 
-        snapshotter_thread_main(working_dir, snapshots_path, private_key, _snapshot_running, max_age)
+        snapshotter_thread_main(working_dir, snapshots_path, private_key, _snapshot_running, max_age, tmpdir)
         sys.exit(0)

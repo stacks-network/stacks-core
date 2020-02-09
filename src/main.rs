@@ -203,6 +203,9 @@ fn main() {
             }]
         };
         
+        println!("Starting testnet...");
+        println!("*** Mempool path: {}", conf.node_config[0].mem_pool_path);
+
         let mut run_loop = testnet::RunLoop::new(conf);
         let num_round = 0; // Infinite number of rounds
         run_loop.start(num_round);

@@ -373,6 +373,7 @@ def db_check( block_id, new_ops, op, op_data, txid, vtxindex, checked_ops, db_st
                 os.abort()
 
         else:
+            db_state.log_reject(block_id, vtxindex, op, op_data, do_print=False)
             accept = False 
 
     return accept
@@ -479,6 +480,14 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
         blockstack_opts = get_blockstack_opts()
         new_zonefile_infos = None
 
+        # apply any pending deltas to the genesis block (in-situ upgrades to grant tokens)
+        try:
+            db_state.commit_genesis_patch(block_height+1)
+        except Exception as e:
+            log.exception(e)
+            log.fatal("Failed to apply genesis patch at {}+1".format(block_height))
+            os.abort()
+
         # vest any tokens for the next block (so they'll be immediately usable in the next block)
         try:
             db_state.commit_account_vesting(block_height+1)
@@ -486,6 +495,13 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
             log.exception(e)
             log.fatal("Failed to vest accounts at {}+1".format(block_height))
             os.abort()
+
+        # record all rejected transactions
+        try:
+            db_state.store_rejected(block_height)
+        except Exception as e:
+            log.exception(e)
+            log.error("Failed to log rejected txs for block {}".format(block_height))
 
         try:
             # flush the database
