@@ -81,11 +81,8 @@ impl <'a> LeaderTenure {
 
         self.handle_txs(&mut clarity_tx, vec![self.coinbase_tx.clone()]);
 
-        while time::Instant::now() < should_commit_block_at {
-            let txs = self.mem_pool.poll();
-            self.handle_txs(&mut clarity_tx, txs);
-            thread::sleep(mempool_poll_interval);
-        }
+        let txs = self.mem_pool.poll();
+        self.handle_txs(&mut clarity_tx, txs);
 
         let anchored_block = self.block_builder.mine_anchored_block(&mut clarity_tx);
 

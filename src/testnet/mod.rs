@@ -12,6 +12,7 @@ pub use self::node::{Node, SortitionedBlock};
 pub use self::burnchain::{BurnchainSimulator, BurnchainState};
 pub use self::tenure::{LeaderTenure};
 
+#[derive(Clone)]
 pub struct Config {
     pub testnet_name: String,
     pub chain: String,

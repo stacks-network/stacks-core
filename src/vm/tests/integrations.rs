@@ -28,7 +28,10 @@ fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
     let unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
     tx_signer.sign_origin(sender).unwrap();
-    tx_signer.get_tx().unwrap().serialize()    
+
+    let mut buf = vec![];
+    tx_signer.get_tx().unwrap().consensus_serialize(&mut buf).unwrap();
+    buf
 }
 
 fn make_contract_publish(sender: &StacksPrivateKey, nonce: u64, contract_name: &str, contract_content: &str) -> Vec<u8> {

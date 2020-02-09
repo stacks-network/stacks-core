@@ -1,11 +1,10 @@
 use super::{Config, Node, BurnchainSimulator, BurnchainState, LeaderTenure};
 
-use std::time;
-use std::thread;
-
 use chainstate::burn::{ConsensusHash};
 use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState};
 use chainstate::burn::{BlockHeaderHash};
+
+use util::sleep_ms;
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
@@ -35,7 +34,7 @@ impl RunLoop {
             nodes,
             new_burnchain_state_callback: None,
             new_tenure_callback: None,
-            new_chain_state_callback: None,        
+            new_chain_state_callback: None,
         }
     }
 
@@ -48,37 +47,27 @@ impl RunLoop {
     pub fn start(&mut self, expected_num_rounds: u8) {
 
         // Initialize and start the burnchain.
-        let mut burnchain = BurnchainSimulator::new();
+        let mut burnchain = BurnchainSimulator::new(self.config.clone());
 
-        // Start the burnchain - happening on a separate thread. 
-        // Keep a mpsc::Receiver (burnchain_block_rx), used for receiving blocks, and
-        // a mpsc::Sender, cloned by each node and used for submitting ops (key registrations, 
-        // block commits) on the burnchain.
-        let (burnchain_block_rx, burnchain_op_tx) = burnchain.start(&self.config);
-
-        // Setup each node with a mpsc::Sender used for channeling ops to the burnchain
-        for node in self.nodes.iter_mut() {
-            node.setup(burnchain_op_tx.clone());
-        }
-
-        // Wait on the genesis state from the burnchain.
-        let genesis_state = match burnchain_block_rx.recv() {
-            Ok(res) => res,
-            Err(err) => panic!("Error while expecting genesis block from burnchain: {:?}", err)
-        };
+        let genesis_state = burnchain.make_genesis_block();
 
         // Update each node with the genesis block.
         for node in self.nodes.iter_mut() {
             node.process_burnchain_state(&genesis_state);
         }
 
+        // make first non-genesis block, with initial VRF keys
+        let mut initial_ops = vec![];
+        for node in self.nodes.iter_mut() {
+            let key_op = node.setup();
+            initial_ops.push(key_op);
+        }
+
         // Waiting on the 1st block (post-genesis) from the burnchain, containing the first key registrations 
         // that will be used for bootstraping the chain.
         let mut round_index = 0;
-        let state_1 = match burnchain_block_rx.recv() {
-            Ok(res) => res,
-            Err(err) => panic!("Error while expecting block #1 from burnchain: {:?}", err)
-        };
+
+        let state_1 = burnchain.make_next_block(initial_ops);
 
         // Update each node with this new block.
         for node in self.nodes.iter_mut() {
@@ -107,15 +96,9 @@ impl RunLoop {
         // while having the option of running multiple tenures concurrently and try different strategies.
         // As a result, once the tenure ran and we have the artifacts (anchored_blocks, microblocks),
         // we have the 1st node (leading) updating its chainstate with the artifacts from its tenure.
-        leader.receive_tenure_artifacts(&anchored_block_1, &parent_block_1);
-
-        // Bootstraping phase is done. Waiting on the next block from the burnchain, that 
-        // will include a block commit op and consequently a sortition.
-        let mut burnchain_state = match burnchain_block_rx.recv() {
-            Ok(res) => res,
-            Err(err) => panic!("Error while expecting block #2 from burnchain: {:?}", err)
-        };
-
+        let block_ops_2 = leader.receive_tenure_artifacts(&anchored_block_1, &parent_block_1);
+        
+        let mut burnchain_state = burnchain.make_next_block(block_ops_2);
         RunLoop::handle_burnchain_state_cb(&self.new_burnchain_state_callback, round_index, &burnchain_state);
 
         let mut leader_tenure = None;
@@ -130,17 +113,15 @@ impl RunLoop {
             
             // Have each node process the previous tenure.
             // We should have some additional checks here, and ensure that the previous artifacts are legit.
-            // Note: we're cloning ARC<burn_db>, not burn_db instances.
 
             node.process_tenure(
                 &anchored_block_1, 
                 &last_sortitioned_block.burn_header_hash, 
                 &last_sortitioned_block.parent_burn_header_hash, 
-                microblocks.clone(), 
-                burnchain_state.db.clone());
+                microblocks.clone(),
+                burnchain.burndb_mut());
 
-            let index_bhh = anchored_block_1.header.index_block_hash(
-                &last_sortitioned_block.burn_header_hash);
+            let index_bhh = anchored_block_1.header.index_block_hash(&last_sortitioned_block.burn_header_hash);
             RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index, &mut node.chain_state, &index_bhh);
 
             // If the node we're looping on won the sortition, initialize and configure the next tenure
@@ -165,22 +146,20 @@ impl RunLoop {
                 None => None
             };
 
+            let mut next_burn_ops = vec![];
             match artifacts_from_tenure {
                 Some(ref artifacts) => {
                     // Have each node receive artifacts from the current tenure
                     let (anchored_block, _, parent_block) = artifacts;
                     for node in self.nodes.iter_mut() {
-                        node.receive_tenure_artifacts(&anchored_block, &parent_block);                    
+                        let mut ops = node.receive_tenure_artifacts(&anchored_block, &parent_block);
+                        next_burn_ops.append(&mut ops);
                     }    
                 },
                 None => {}
             }
 
-            // Wait on the next block from the burnchain.
-            burnchain_state = match burnchain_block_rx.recv() {
-                Ok(res) => res,
-                Err(err) => panic!("Error while expecting block from burnchain: {:?}", err)
-            };
+            burnchain_state = burnchain.make_next_block(next_burn_ops);
             RunLoop::handle_burnchain_state_cb(&self.new_burnchain_state_callback, round_index, &burnchain_state);
     
             leader_tenure = None;
@@ -199,12 +178,14 @@ impl RunLoop {
                         // Have each node process the previous tenure.
                         // We should have some additional checks here, and ensure that the previous artifacts are legit.
                         let (anchored_block, microblocks, _) = artifacts;
+
                         node.process_tenure(
                             &anchored_block, 
                             &burnchain_state.chain_tip.burn_header_hash, 
                             &burnchain_state.chain_tip.parent_burn_header_hash,             
-                            microblocks.to_vec(), 
-                            burnchain_state.db.clone());
+                            microblocks.to_vec(),
+                            burnchain.burndb_mut());
+
                         let index_bhh = anchored_block.header.index_block_hash(
                             &burnchain_state.chain_tip.burn_header_hash);
                         RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index,
@@ -219,6 +200,8 @@ impl RunLoop {
             }
             
             round_index += 1;
+
+            sleep_ms(self.config.burnchain_block_time);
         }
     }
 
