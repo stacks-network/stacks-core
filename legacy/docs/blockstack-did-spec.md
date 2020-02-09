@@ -63,9 +63,9 @@ an on-chain address indicated by the `NAME_REGISTRATION` transaction itself.
 This address is the name's *owner*.
 
 Since these transactions are written to the blockchain, the blockchain provides
-a total ordering of name-to-address assignments.  Thus, a DID instanted for an
+a total ordering of name-to-address assignments.  Thus, a DID instantiated for an
 on-chain name may be referenced by the name's owner address, and the number of
-names evern assigned to the owner address *at the time of this DID's
+names ever assigned to the owner address *at the time of this DID's
 instantiation*.  For example, the DID
 `did:stack:v0:15gxXgJyT5tM5A4Cbx99nwccynHYsBouzr-3` was instantiated when the
 fourth on-chain name was created and initially assigned to the address `15gxXgJyT5tM5A4Cbx99nwccynHYsBouzr` 

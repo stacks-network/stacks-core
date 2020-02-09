@@ -382,7 +382,7 @@ Op: `;`
 
 Description:  This transaction registers a name and some name state into a
 namespace that has been revealed, but not been launched.  Only the namespace
-creator can import names.  See the [namespace creation section]({{ site.baseurl }}/core/naming/namespace.html) for details.
+creator can import names.  See the [namespace creation section]({{ site.baseurl }}/core/naming/namespaces.html) for details.
 
 Example: [c698ac4b4a61c90b2c93dababde867dea359f971e2efcf415c37c9a4d9c4f312](https://www.blocktrail.com/BTC/tx/c698ac4b4a61c90b2c93dababde867dea359f971e2efcf415c37c9a4d9c4f312)
 
@@ -438,6 +438,34 @@ Outputs:
 
 Notes:
 * This transaction must be sent within 1 year of the corresponding `NAMESPACE_REVEAL` to be accepted.
+
+### TOKEN_TRANSFER
+
+Op: `$`
+
+Description:  This transaction transfers tokens from one account to another.  Only `STACKS` tokens can be transferred at this time.  The transaction encodes the number of *micro-Stacks* to send.
+
+Example: [093983ca71a6a9dd041c0bdb8b3012824d726ee26fe51da8335a06e8a08c2798](https://www.blocktrail.com/BTC/tx/093983ca71a6a9dd041c0bdb8b3012824d726ee26fe51da8335a06e8a08c2798)
+
+`OP_RETURN` wire format:
+```
+    0     2  3              19         38          46                        80
+    |-----|--|--------------|----------|-----------|-------------------------|
+    magic op  consensus_hash token_type amount (LE) scratch area
+```
+
+Inputs:
+* Sender's scriptSig's
+
+Outputs:
+* `OP_RETURN` payload
+* Recipient scriptPubKey (encodes the address of the receiving account)
+* Change address for the sender
+
+Notes:
+* The `amount` field is an 8-byte litte-endian number that encodes the number of micro-Stacks.
+* The `token_type` field must be `STACKS`.  All other unused bytes in this field must be `\x00`.
+* The `scratch area` field is optional -- it can be up to 34 bytes, and include any data you want.
 
 ## Method Glossary
 

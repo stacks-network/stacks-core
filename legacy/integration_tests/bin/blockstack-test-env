@@ -1,0 +1,47 @@
+#!/bin/sh
+
+if [ "$1" = "deactivate" ]; then
+    unset BLOCKSTACK_TEST
+    unset BLOCKSTACK_TESTNET
+    unset BLOCKSTACK_DEBUG
+    unset BLOCKSTACK_CLIENT_CONFIG
+
+    if [ -n "$BLOCKSTACK_OLD_PS1" ]; then
+        export PS1="$BLOCKSTACK_OLD_PS1"
+        unset BLOCKSTACK_OLD_PS1
+    fi
+
+    unset BLOCKSTACK_EPOCH_1_END_BLOCK
+    unset BLOCKSTACK_EPOCH_2_END_BLOCK
+    return
+
+elif [ -z "$1" ]; then 
+    echo "Usage:"
+    echo "   $0 NAME_OF_TEST"
+    echo "   $0 deactivate"
+    return
+fi
+
+BLOCKSTACK_CLIENT_CONFIG="/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.$1/client/client.ini"
+if ! [ -f "$BLOCKSTACK_CLIENT_CONFIG" ]; then 
+    echo "No such file or directory: $BLOCKSTACK_CLIENT_CONFIG"
+    echo "No test data for $BLOCKSTACK_CLIENT_CONFIG"
+    return
+fi
+
+echo "Using config file at $BLOCKSTACK_CLIENT_CONFIG"
+
+export BLOCKSTACK_TEST=1
+export BLOCKSTACK_TESTNET=1
+export BLOCKSTACK_DEBUG=1
+export BLOCKSTACK_CLIENT_CONFIG
+
+if [ -z "$BLOCKSTACK_OLD_PS1" ]; then
+    export BLOCKSTACK_OLD_PS1="$PS1"
+fi
+
+# force us into the current epoch
+export BLOCKSTACK_EPOCH_1_END_BLOCK=1
+export BLOCKSTACK_EPOCH_2_END_BLOCK=2
+
+export PS1="|blockstack-test $1| $PS1"

@@ -38,7 +38,7 @@ setup(
     author='Blockstack.org',
     author_email='support@blockstack.org',
     description='Name registrations on the Bitcoin blockchain with external storage',
-    long_description=README,
+    # long_description=README,
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
     scripts=['bin/blockstack-server', 'bin/blockstack-core', 'bin/blockstack-snapshots'],
@@ -46,7 +46,7 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=20.0.0.0',
+        'virtualchain>=20.0.1.0',
         'keychain>=0.14.2.0',
         'protocoin>=0.2',
         'blockstack-zones>=0.19.0',
@@ -55,9 +55,12 @@ setup(
         'keylib>=0.1.1',
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1, <=2.99',
-        'jsontokens>=0.0.4',
+        'jsontokens>=0.0.5',
+        'cryptography>=2.6',
         'pyparsing>=2.2.0',     # not required, but causes problems if not installed properly,
-        'requests>=2.18',
+        'requests>=2.20',
+        'cachetools==2.0.0',
+        'base58<2.0.0'
     ],
     classifiers=[
         'Intended Audience :: Developers',
