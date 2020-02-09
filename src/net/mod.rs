@@ -402,16 +402,16 @@ pub enum HttpContentType {
 
 impl fmt::Display for HttpContentType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl HttpContentType {
+    pub fn as_str(&self) -> &'static str {
         match *self {
-            HttpContentType::Bytes => {
-                write!(f, "application/octet-stream")
-            },
-            HttpContentType::Text => {
-                write!(f, "text/plain")
-            },
-            HttpContentType::JSON => {
-                write!(f, "application/json")
-            }
+            HttpContentType::Bytes => "application/octet-stream",
+            HttpContentType::Text => "text/plain",
+            HttpContentType::JSON => "application/json"
         }
     }
 }

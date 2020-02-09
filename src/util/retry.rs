@@ -29,7 +29,6 @@ use util::hash::to_hex;
 pub struct RetryReader<'a, R: Read> {
     fd: &'a mut R,
     buf: Vec<u8>,
-    do_buffer: bool,
     i: usize
 }
 
@@ -38,7 +37,6 @@ impl<'a, R: Read> RetryReader<'a, R> {
         RetryReader {
             fd: fd,
             buf: vec![],
-            do_buffer: true,
             i: 0
         }
     }
@@ -56,16 +54,10 @@ impl<'a, R: Read> RetryReader<'a, R> {
         self.i
     }
 
-    pub fn disable_bufferring(&mut self) -> () {
-        self.do_buffer = false;
-    }
-
     fn read_and_buffer(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let nr = self.fd.read(buf)?;
-        if self.do_buffer {
-            self.buf.extend_from_slice(buf);
-            self.i += buf.len();
-        }
+        self.buf.extend_from_slice(buf);
+        self.i += buf.len();
         Ok(nr)
     }
 }
@@ -75,15 +67,7 @@ impl<'a, R: Read> Read for RetryReader<'a, R> {
         let nr_buf = 
             if self.i < self.buf.len() {
                 // consume from inner buffer
-                let bytes_copied = 
-                    if buf.len() < self.buf.len() - self.i {
-                        buf.len()
-                    }
-                    else {
-                        self.buf.len() - self.i
-                    };
-
-                buf.copy_from_slice(&self.buf[self.i..(self.i + bytes_copied)]);
+                let bytes_copied = (&self.buf[self.i..]).read(buf)?;
                 self.i += bytes_copied;
                 bytes_copied
             }

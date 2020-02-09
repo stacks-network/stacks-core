@@ -56,7 +56,7 @@ impl MemPool for MemPoolFS {
                 let mut reader = BufReader::new(file);
                 let mut encoded_tx = vec![];
                 reader.read_to_end(&mut encoded_tx).unwrap();
-                match StacksTransaction::consensus_deserialize(&mut io::Cursor::new(&encoded_tx)) {
+                match StacksTransaction::consensus_deserialize(&mut &encoded_tx[..]) {
                     Ok(tx) => decoded_txs.push(tx),
                     Err(e) => warn!("Failed to decode transaction {:?}\ntx: {}\n", e, to_hex(&encoded_tx))
                 };

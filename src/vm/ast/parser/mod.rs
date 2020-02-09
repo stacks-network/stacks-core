@@ -8,6 +8,9 @@ use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, ContractName};
 use vm::types::{Value, PrincipalData, QualifiedContractIdentifier};
 
+pub const CONTRACT_MIN_NAME_LENGTH : usize = 5;
+pub const CONTRACT_MAX_NAME_LENGTH : usize = 40;
+
 pub enum LexItem {
     LeftParen,
     RightParen,
@@ -76,8 +79,8 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
-        LexMatcher::new(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}(\.)([[:alnum:]]|[-]){5,40})"#, TokenType::QualifiedContractPrincipalLiteral),
-        LexMatcher::new(r#"(?P<value>(\.)([[:alnum:]]|[-]){5,40})"#, TokenType::UnexpandedContractNameLiteral),
+        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}})"#, CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::QualifiedContractPrincipalLiteral),
+        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}})"#, CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::UnexpandedContractNameLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("(?P<value>([[:word:]]|[-!?+<>=/*])+)", TokenType::Variable),
     ];

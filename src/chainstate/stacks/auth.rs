@@ -397,11 +397,9 @@ impl StacksMessageCodec for TransactionSpendingCondition {
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionSpendingCondition, net_error> {
         // peek the hash mode byte
-        let mut rrd = RetryReader::new(fd);
-        let hash_mode_u8 : u8 = read_next(&mut rrd)?;
-        rrd.set_position(0);
-        rrd.disable_bufferring();
-
+        let hash_mode_u8 : u8 = read_next(fd)?;
+        let peek_buf = [hash_mode_u8];
+        let mut rrd = peek_buf.chain(fd);
         let cond = { 
             if SinglesigHashMode::from_u8(hash_mode_u8).is_some() {
                 let cond = SinglesigSpendingCondition::consensus_deserialize(&mut rrd)?;
@@ -1492,15 +1490,15 @@ mod test {
         bad_p2wsh_uncompressed.consensus_serialize(&mut actual_bytes).unwrap();
         assert_eq!(actual_bytes, bad_p2wsh_uncompressed_bytes);
 
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_public_key_count_bytes)).is_err());
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_public_key_count_bytes_2)).is_err());
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_hash_mode_bytes)).is_err());
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_hash_mode_multisig_bytes)).is_err());
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_p2wpkh_uncompressed_bytes)).is_err());
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_p2wsh_uncompressed_bytes)).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_public_key_count_bytes[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_public_key_count_bytes_2[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_hash_mode_bytes[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_hash_mode_multisig_bytes[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_p2wpkh_uncompressed_bytes[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_p2wsh_uncompressed_bytes[..]).is_err());
         
         // corrupt but will parse with trailing bits
-        assert!(TransactionSpendingCondition::consensus_deserialize(&mut io::Cursor::new(&bad_hash_mode_singlesig_bytes_parseable)).is_ok());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_hash_mode_singlesig_bytes_parseable[..]).is_ok());
     }
 
     #[test]
