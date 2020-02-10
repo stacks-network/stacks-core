@@ -1454,18 +1454,20 @@ mod test {
 
         let mut h = p2p.new_handle();
 
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:2100").unwrap();
+
         // start fake endpoint, which will accept once and wait 5 seconds
         let endpoint_thread = thread::spawn(move || {
-            use std::net::TcpListener;
-            let listener = TcpListener::bind("127.0.0.1:2100").unwrap();
             let (sock, addr) = listener.accept().unwrap();
             test_debug!("Accepted {:?}", &addr);
             thread::sleep(time::Duration::from_millis(5000));
         });
+        
+        p2p.bind(&"127.0.0.1:2000".parse().unwrap()).unwrap();
 
         // start dispatcher
         let p2p_thread = thread::spawn(move || {
-            p2p.bind(&"127.0.0.1:2000".parse().unwrap()).unwrap();
             for i in 0..3 {
                 test_debug!("dispatch batch {}", i);
                 let dispatch_count = p2p.dispatch_requests();
