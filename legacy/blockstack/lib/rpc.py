@@ -1186,7 +1186,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def GET_blockchain_consensus( self, path_info, blockchain_name ):
         """
-        Handle GET /blockchain/:blockchainID/consensus
+        Handle GET /blockchains/:blockchainID/consensus
         Reply the consensus hash at this blockchain's tip
         Reply 404 for blockchains that we don't support
         Reply 502 for any error we have in talking to the blockstack server
@@ -1204,6 +1204,87 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': info['error']}, status_code=status_code)
 
         self._reply_json({'consensus_hash': info['consensus']})
+        return
+
+
+    def GET_blockchain_consensus_at(self, path_info, blockchain_name, block_height):
+        """
+        Handle GET /blockchains/:blockchainID/consensus/:block_height
+        Reply the consensus hash at this block height on success
+        Reply 400 on invalid block height
+        Reply 404 if there is no consensus hash for this block height
+        Reply 502 for any other error
+        """
+        if blockchain_name != 'bitcoin':
+            # not supported
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=404)
+            return
+
+        try:
+            block_height = int(block_height)
+            assert check_block(block_height)
+        except:
+            return self._reply_json({'error': 'Invalid block'}, status_code=400)
+            return
+
+        blockstackd_url = get_blockstackd_url()
+        info = blockstackd_client.get_consensus_at(block_height, hostport=blockstackd_url)
+        if json_is_error(info):
+            # error
+            status_code = info.get('http_status', 502)
+            return self._reply_json({'error': info['error']}, status_code=status_code)
+
+        self._reply_json({'consensus_hash': info})
+        return
+
+    
+    def GET_blockchain_consensus_block(self, path_info, blockchain_name, consensus_hash):
+        """
+        Handle GET /blockchains/:blockchainID/consensus-block/:consensus_hash
+        Reply the block height of the given consensus hash on success
+        Reply 404 if there is no block with this consensus hash
+        Reply 502 for any other error
+        """
+        if blockchain_name != 'bitcoin':
+            # not supported
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=404)
+            return
+
+        blockstackd_url = get_blockstackd_url()
+        info = blockstackd_client.get_block_from_consensus(consensus_hash, hostport=blockstackd_url)
+        if json_is_error(info):
+            # error
+            status_code = info.get('http_status', 502)
+            return self._reply_json({'error': info['error']}, status_code=status_code)
+
+        if info is None:
+            # not found
+            return self._reply_json({'error': 'No block for this consensus hash'}, status_code=404)
+
+        self._reply_json({'block_height': info})
+        return
+
+
+    def GET_transaction_status(self, path_info, blockchain_name, txid):
+        """
+        Handle GET /blockchains/:blockchainID/transactions/:txid
+        Reply the status of the transaction on success
+        Reply 404 if we don't support the blockchain
+        Reply 502 for any other error
+        """
+        if blockchain_name != 'bitcoin':
+            # not supported
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=404)
+            return
+
+        blockstackd_url = get_blockstackd_url()
+        info = blockstackd_client.get_transaction_status(txid, hostport=blockstackd_url)
+        if json_is_error(info):
+            # error
+            status_code = info.get('http_status', 502)
+            return self._reply_json({'error': info['error']}, status_code=status_code)
+
+        self._reply_json(info)
         return
 
 
@@ -1313,6 +1394,27 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(info)
 
 
+    def GET_meminfo(self, path_info):
+        """
+        get mem_top info if mem_top is installed
+        """
+        if path_info.get('client_address', (None, None))[0] not in ['localhost', '127.0.0.1', '::1']:
+            return self._reply_json({'error': 'Forbidden'}, status_code=403)
+
+        status_code = 500
+        message = "Internal server error: mem_top is not installed"
+        try:
+            import mem_top
+            message = mem_top.mem_top(limit=100, width=200)
+            status_code = 200
+        except:
+            pass
+
+        self._send_headers(status_code=status_code, content_type='text/plain')
+        self.wfile.write(message)
+        return
+
+
     def _dispatch(self, method_name):
         """
         Top-level dispatch method
@@ -1328,6 +1430,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             r'^/v1/info$': {
                 'routes': {
                     'GET': self.GET_getinfo,
+                },
+            },
+            r'^/v1/meminfo$': {
+                'routes': {
+                    'GET': self.GET_meminfo
                 },
             },
             r'^/v1/addresses/({}{{1,256}})/({}{{1,40}})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
@@ -1383,6 +1490,21 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             r'^/v1/blockchains/({}{{1,40}})/consensus$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_consensus,
+                },
+            },
+            r'^/v1/blockchains/({}{{1,40}})/consensus/([0-9]+)$'.format(URLENCODING_CLASS): {
+                'routes': {
+                    'GET': self.GET_blockchain_consensus_at,
+                },
+            },
+            r'^/v1/blockchains/({}{{1,40}})/consensus-block/([0-9a-f]{{{}}})$'.format(URLENCODING_CLASS, LENGTHS['consensus_hash'] * 2): {
+                'routes': {
+                    'GET': self.GET_blockchain_consensus_block,
+                },
+            },
+            r'^/v1/blockchains/({}{{1,40}})/transactions/([0-9a-f]{{64}})$'.format(URLENCODING_CLASS): {
+                'routes': {
+                    'GET': self.GET_transaction_status,
                 },
             },
             r'^/v1/dids/(did:stack:v0:{}+-[0-9]+)$'.format(OP_BASE58CHECK_CLASS): {
@@ -1522,6 +1644,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if 'error' in path_info:
             self._send_headers(status_code=400, content_type='text/plain')
             return
+
+        path_info['client_address'] = self.client_address
 
         qs_values = path_info['qs_values']
 

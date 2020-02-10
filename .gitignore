@@ -34,7 +34,6 @@ nosetests.xml
 
 ignore
 secrets*
-data
 
 *.pickle
 *.pid

@@ -3,7 +3,7 @@ jobs:
   deploy:
     working_directory: /build
     docker:
-      - image: rust:1.39-stretch
+      - image: rust:1.40-stretch
     steps:
       - checkout
       - run:
@@ -15,7 +15,7 @@ jobs:
   test_demo:
     working_directory: /test
     docker:
-      - image: rust:1.39-stretch
+      - image: rust:1.40-stretch
     steps:
       - checkout
       - run:
@@ -44,7 +44,7 @@ jobs:
       - run:
           name: Pull Rust Nightly
           command: |
-            docker pull rustlang/rust:nightly-stretch
+             docker pull rustlang/rust:nightly-stretch
       - run:
           name: Build and Test
           command: |
@@ -53,6 +53,7 @@ jobs:
             bash -c "cd /blockstack && rustup override set nightly && cargo build --verbose && cargo test -- --test-threads 1"
           environment:
             RUSTFLAGS: -Zprofile -Copt-level=2 -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
+          no_output_timeout: 30m
       - run:
           name: Collect debug outputs
           command: |

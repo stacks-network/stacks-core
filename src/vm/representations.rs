@@ -69,6 +69,7 @@ macro_rules! guarded_string {
 
 guarded_string!(ClarityName, "ClarityName", Regex::new("^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$"));
 guarded_string!(ContractName, "ContractName", Regex::new("^[a-zA-Z]([a-zA-Z0-9]|[-_])*$|^__transient$"));
+guarded_string!(UrlString, "UrlString", Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#));
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum PreSymbolicExpressionType {

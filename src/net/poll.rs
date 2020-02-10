@@ -25,15 +25,19 @@ use net::Error as net_error;
 use util::db::Error as db_error;
 use util::db::DBConn;
 
+use std::net;
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::time::Duration;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::io::Error as io_error;
 use std::io::ErrorKind;
+use std::time;
 
 use util::log;
+use util::sleep_ms;
 
 use mio;
 use mio::net as mio_net;
@@ -42,6 +46,9 @@ use mio::Token;
 use mio::PollOpt;
 
 use std::net::Shutdown;
+
+use rand::RngCore;
+use rand;
 
 pub const NUM_NEIGHBORS : u32 = 32;
 
@@ -70,13 +77,43 @@ pub struct NetworkState {
 }
 
 impl NetworkState {
-    pub fn bind(addr: &SocketAddr, capacity: usize) -> Result<NetworkState, net_error> {
-        let server = mio_net::TcpListener::bind(addr)
-            .map_err(|e| {
-                error!("Failed to bind to {:?}: {:?}", addr, e);
-                net_error::BindError
-            })?;
+    fn bind_address(addr: &SocketAddr) -> Result<mio_net::TcpListener, net_error> {
+        if !cfg!(test) {
+            mio_net::TcpListener::bind(addr)
+                .map_err(|e| {
+                    error!("Failed to bind to {:?}: {:?}", addr, e);
+                    net_error::BindError
+                })
+        }
+        else {
+            let mut backoff = 1000;
+            let mut rng = rand::thread_rng();
+            let mut count = 1000;
+            loop {
+                match mio_net::TcpListener::bind(addr) {
+                    Ok(server) => {
+                        return Ok(server);
+                    },
+                    Err(e) => match e.kind() {
+                        io::ErrorKind::AddrInUse => {
+                            debug!("Waiting {} millis and trying to bind {:?} again", backoff, addr);
+                            sleep_ms(backoff);
+                            backoff = count + (rng.next_u64() % count);
+                            count += count;
+                            continue;
+                        },
+                        _ => {
+                            debug!("Failed to bind {:?}: {:?}", addr, &e);
+                            return Err(net_error::BindError);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
+    pub fn bind(addr: &SocketAddr, capacity: usize) -> Result<NetworkState, net_error> {
+        let server = NetworkState::bind_address(addr)?;
         let poll = mio::Poll::new()
             .map_err(|e| {
                 error!("Failed to initialize poller: {:?}", e);
@@ -132,17 +169,43 @@ impl NetworkState {
     }
 
     /// Connect to a remote peer, but don't register it with the poll handle.
+    /// Connect *synchronously*, and then put the socket into non-blocking mode.
     pub fn connect(&mut self, addr: &SocketAddr) -> Result<mio_net::TcpStream, net_error> {
-        let stream = std::net::TcpStream::connect_timeout(
-            addr, std::time::Duration::from_millis(5000))
+        // connect and abort after 5 seconds of waiting.
+        // TODO: revert to non-blocking connect to avoid slow neighbors starving socket work
+        let inner_stream = net::TcpStream::connect_timeout(addr, time::Duration::from_millis(5000))
             .map_err(|e| {
-                test_debug!("failed to connect to {:?}: {:?}", addr, &e);
+                test_debug!("Failed to connect to {:?}: {:?}", addr, &e);
                 net_error::ConnectionError
             })?;
 
-        let stream = mio_net::TcpStream::from_stream(stream)
+        // NOTE: this will put the socket into non-blocking mode
+        let stream = mio_net::TcpStream::from_stream(inner_stream)
             .map_err(|e| {
-                test_debug!("failed to connect to {:?}: {:?}", addr, &e);
+                test_debug!("Failed to convert to mio stream: {:?}", &e);
+                net_error::ConnectionError
+            })?;
+
+        // set some helpful defaults
+        // Don't go crazy on TIME_WAIT states; have them all die after 5 seconds
+        stream.set_linger(Some(time::Duration::from_millis(5000)))
+            .map_err(|e| {
+                test_debug!("Failed to set SO_LINGER: {:?}", &e);
+                net_error::ConnectionError
+            })?;
+
+        // Disable Nagle algorithm
+        stream.set_nodelay(true)
+            .map_err(|e| {
+                test_debug!("Failed to set TCP_NODELAY: {:?}", &e);
+                net_error::ConnectionError
+            })?;
+
+        // Make sure keep-alive is on, since at least in p2p messages, we keep sockets around
+        // for a while.  Linux default is 7200 seconds, so make sure we keep it here.
+        stream.set_keepalive(Some(time::Duration::from_millis(7200 * 1000)))
+            .map_err(|e| {
+                test_debug!("Failed to set TCP_KEEPALIVE and/or SO_KEEPALIVE: {:?}", &e);
                 net_error::ConnectionError
             })?;
 

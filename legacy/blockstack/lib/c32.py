@@ -379,10 +379,11 @@ def c32checkDecode(c32data):
     >>> c32checkDecode('2G000003FNKA3P')
     (2, '0100000000')
     """
+    c32data = c32normalize(c32data)
+
     if not re.match(r'^[' + C32 + ']*$', c32data):
         raise ValueError('Must be c32 data')
 
-    c32data = c32normalize(c32data)
     data_hex = c32decode(c32data[1:])
 
     if len(data_hex) < 8:

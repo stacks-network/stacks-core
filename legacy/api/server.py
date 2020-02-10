@@ -38,7 +38,8 @@ from flask_crossdomain import crossdomain
 from .parameters import parameters_required
 from .utils import get_api_calls, cache_control
 from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL, BASE_INDEXER_API_URL, DEFAULT_CACHE_TIMEOUT
-from .config import SEARCH_NODE_URL, SEARCH_API_ENDPOINT_ENABLED
+from .config import SEARCH_NODE_URL, SEARCH_API_ENDPOINT_ENABLED, API_BLOCKCHAIN_URL, API_PROFILE_URL
+from .config import PROXY_TIMEOUT
 
 # hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -69,18 +70,28 @@ def default_cache_off(response):
     return response
 
 def forwarded_get(url, params = None):
-    if params:
-        resp = requests.get(url, params = params, allow_redirects=False)
-    else:
-        resp = requests.get(url, allow_redirects=False)
+    try:
+        if params:
+            resp = requests.get(url, params = params, allow_redirects=False, timeout=PROXY_TIMEOUT)
+        else:
+            resp = requests.get(url, allow_redirects=False, timeout=PROXY_TIMEOUT)
+    except Exception as e:
+        log.error("Exception proxying request to blockstack core: {}".format(e))
+        return jsonify({'error': 'Server error processing request'}), 400
 
     try:
         log.debug("{} => {}".format(resp.url, resp.status_code))
-        if resp.status_code == 301:
-            return jsonify(resp.json()), resp.status_code, resp.headers['Location']
+
+        if resp.headers['content-type'] and 'application/json' in resp.headers['content-type']:
+            respData = jsonify(resp.json())
         else:
-            return jsonify(resp.json()), resp.status_code
-    except:
+            respData = resp.text
+
+        if resp.status_code == 301:
+            return respData, resp.status_code, resp.headers['Location']
+        else:
+            return respData, resp.status_code
+    except Exception as e:
         log.error("Bad response from API URL: {} \n {}".format(resp.url, resp.text))
         return jsonify({'error': 'Not found'}), resp.status_code
 
@@ -98,7 +109,7 @@ def search_people():
     search_url = SEARCH_NODE_URL + '/search'
 
     try:
-        resp = requests.get(url=search_url, params={'query': query})
+        resp = requests.get(url=search_url, params={'query': query}, timeout=PROXY_TIMEOUT)
     except (RequestsConnectionError, RequestsTimeout) as e:
         raise InternalProcessingError()
 
@@ -108,15 +119,43 @@ def search_people():
 
     return jsonify(data), 200
 
+@app.route('/v1/index_files/blockchain', methods=['GET'])
+@cache_control(10*60)
+@crossdomain(origin='*')
+def fetch_index_blockchain_files():
+    if API_BLOCKCHAIN_URL and API_PROFILE_URL:
+        response = make_response((jsonify({ 'blockchainData': API_BLOCKCHAIN_URL }), 302))
+        response.headers['Location'] = API_BLOCKCHAIN_URL
+        return response
+    else:
+        err = { 'error': 'Index file serving not configured on this server.' }
+        return jsonify(err), 404
+
+@app.route('/v1/index_files/profiles', methods=['GET'])
+@cache_control(10*60)
+@crossdomain(origin='*')
+def fetch_index_profile_files():
+    if API_BLOCKCHAIN_URL and API_PROFILE_URL:
+        response = make_response((jsonify({ 'profileData': API_PROFILE_URL }), 302))
+        response.headers['Location'] = API_PROFILE_URL
+        return response
+    else:
+        err = { 'error': 'Index file serving not configured on this server.' }
+        return jsonify(err), 404
+
 CACHE_SPECIFIC = [ re.compile(regex) for regex in
                    [r'^/v1/node/ping/?$',
+                    r'^/v1/accounts/[\w\.]+/history/?$',
                     r'^/v1/blockchains/bitcoin/consensus/?$',
+                    r'^/v1/info/?$',
                     r'^/v1/names/[\w\.]+/?$'] ]
 
 SPECIFIED = {
     0 : 'public, max-age=30',
-    1 : 'public, max-age=30',
-    2 : 'public, max-age=300' }
+    1 : 'public, max-age=60',
+    2 : 'public, max-age=30',
+    3 : 'public, max-age=30',
+    4 : 'public, max-age=300' }
 
 
 @app.route('/<path:path>', methods=['GET'])
@@ -125,6 +164,7 @@ def catch_all_get(path):
     API_URL = BASE_API_URL + '/' + path
     params = dict(request.args)
 
+    log.debug('Begin ' + path)
     inner_resp = forwarded_get(API_URL, params = params)
     resp = make_response(inner_resp[:2])
 
@@ -148,7 +188,7 @@ def catch_all_post(path):
 
     API_URL = BASE_API_URL + '/' + path
 
-    resp = requests.post(API_URL, data=requests.data)
+    resp = requests.post(API_URL, data=requests.data, timeout=PROXY_TIMEOUT)
 
     return jsonify(resp.json()), 200
 

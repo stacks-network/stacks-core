@@ -1,0 +1,171 @@
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
+"""
+    Blockstack
+    ~~~~~
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
+
+    This file is part of Blockstack
+
+    Blockstack is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Blockstack is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
+""" 
+
+import testlib
+import virtualchain
+import blockstack
+import json
+
+STACKS = testlib.TOKEN_TYPE_STACKS
+
+# activate tokens
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 682
+TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 683
+TEST ENV BLOCKSTACK_EPOCH_3_END_BLOCK 684
+TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 1
+TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER 1
+"""
+
+wallets = [
+    testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
+    testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
+    testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
+    testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 100000000000 ),
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 )
+]
+
+consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
+
+def scenario( wallets, **kw ):
+
+    # force paying in bitcoin.  It should fail
+    testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey, price={'units': 'BTC', 'amount': 40000000}, expect_fail=True)
+    testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
+
+    # should fail, since not preordered
+    testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
+    testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
+
+    # try again, but underpay
+    namespace_price_info = json.loads(testlib.nodejs_cli('price_namespace', 'test'))
+    assert namespace_price_info['units'] == STACKS
+    namespace_cost = int(namespace_price_info['amount'])
+    
+    # should succeed
+    testlib.blockstack_namespace_preorder( "test", wallets[2].addr, wallets[0].privkey, price={'units': STACKS, 'amount': namespace_cost - 1})
+    testlib.next_block( **kw )
+
+    # should fail, since we underpaid by 1 microstack
+    testlib.blockstack_namespace_reveal( "test", wallets[2].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
+    testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
+
+    # try again, but overpay (should succeed)
+    testlib.blockstack_namespace_preorder( "test", wallets[3].addr, wallets[0].privkey, price={'units': STACKS, 'amount': namespace_cost + 1})
+    testlib.next_block( **kw )
+    
+    # should succeed
+    testlib.blockstack_namespace_reveal( "test", wallets[3].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
+    testlib.next_block( **kw )
+
+    testlib.blockstack_namespace_ready( "test", wallets[3].privkey )
+    testlib.next_block( **kw )
+
+    # force paying in Bitcoin.  It should succeed, but the register should fail
+    testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[0].addr, price={'units': 'BTC', 'amount': 640000})
+    testlib.next_block( **kw )
+
+    # should fail, since the preorder didn't pay the right type of currency
+    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[0].addr )
+    testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('foo.test', testlib.get_current_block(**kw))
+
+    name_price_info = json.loads(testlib.nodejs_cli('price', 'foo.test'))
+    assert namespace_price_info['units'] == STACKS
+    name_cost = int(name_price_info['amount'])
+
+    # try underpaying in STACKs.  It should succeed, but the register should fail
+    testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[1].addr, price={'units': STACKS, 'amount': name_cost - 1})
+    testlib.next_block(**kw)
+    
+    # should fail, since the preorder didn't pay enough money
+    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[1].addr )
+    testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('foo.test', testlib.get_current_block(**kw))
+
+    # try overpaying in STACKs.  It should succeed
+    testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, price={'units': STACKS, 'amount': name_cost + 1} )
+    testlib.next_block(**kw)
+
+    # should succeed this time
+    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, zonefile_hash='11' * 20 )
+    testlib.next_block( **kw )
+    
+    # try renewing with BTC (should fail)
+    testlib.blockstack_name_renew('foo.test', wallets[3].privkey, price={'units': 'BTC', 'amount': 640000}, expect_fail=True)
+    testlib.next_block(**kw)
+    testlib.expect_snv_fail_at('foo.test', testlib.get_current_block(**kw))
+
+    # try renewing with STACKs, but underpaying (should fail)
+    testlib.blockstack_name_renew('foo.test', wallets[3].privkey, price={'units': STACKS, 'amount': name_cost - 1}, expect_fail=True)
+    testlib.next_block(**kw)
+    testlib.expect_snv_fail_at('foo.test', testlib.get_current_block(**kw))
+
+    # try renewing with STACKs but overpay (should succeed)
+    testlib.blockstack_name_renew('foo.test', wallets[3].privkey, recipient_addr=wallets[4].addr, zonefile_hash='44' * 20, price={'units': STACKS, 'amount': name_cost + 1})
+    testlib.next_block(**kw)
+
+
+def check( state_engine ):
+
+    # not revealed, but ready 
+    ns = state_engine.get_namespace_reveal( "test" )
+    if ns is not None:
+        print "namespace reveal exists"
+        return False 
+
+    ns = state_engine.get_namespace( "test" )
+    if ns is None:
+        print "no namespace"
+        return False 
+
+    if ns['namespace_id'] != 'test':
+        print "wrong namespace"
+        return False 
+
+    # not preordered
+    preorder = state_engine.get_name_preorder( "foo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
+    if preorder is not None:
+        print "preorder exists"
+        return False
+    
+    # registered 
+    name_rec = state_engine.get_name( "foo.test" )
+    if name_rec is None:
+        print "name does not exist"
+        return False 
+
+    # owned by
+    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[4].addr):
+        print "sender is wrong"
+        return False 
+
+    # zonefile hash 
+    if name_rec['value_hash'] != '44' * 20:
+        print 'wrong zonefile hash'
+        return False
+
+    return True

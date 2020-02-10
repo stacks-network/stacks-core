@@ -991,6 +991,7 @@ class SubdomainDB(object):
         self.blocked_table = "blocked_table"
         self.zonefiles_dir = zonefiles_dir
         self.conn = sqlite3.connect(db_path, isolation_level=None, timeout=2**30)
+        db_query_execute(self.conn, 'pragma mmap_size=536870912', ())
         self.conn.row_factory = SubdomainDB.subdomain_row_factory
         self._create_tables()
 
@@ -1586,6 +1587,9 @@ class SubdomainDB(object):
         PRIMARY KEY(fully_qualified_subdomain,parent_zonefile_index));
         """.format(self.subdomain_table)
         db_query_execute(cursor, create_cmd, ())
+
+        index_cmd = "CREATE INDEX IF NOT EXISTS subdomain_owners on {}(owner,fully_qualified_subdomain);".format(self.subdomain_table)
+        db_query_execute(cursor, index_cmd, ())
 
         # set up a queue as well
         queue_con = queuedb_open(self.queue_path)
