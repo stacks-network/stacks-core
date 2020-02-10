@@ -1903,10 +1903,10 @@ mod test {
                     test_debug!("no peer 2");
                 },
                 Some(p2) => {
-                    assert_eq!(p2.out_degree, 11);
-                    assert_eq!(p2.in_degree, 1);        // just peer 1
-
-                    did_connect = true;
+                    if p2.out_degree >= 11 && p2.in_degree >= 1 {
+                        assert_eq!(p2.out_degree, 11);
+                        did_connect = true;
+                    }
                 }
             }
         }
@@ -2038,10 +2038,10 @@ mod test {
                     test_debug!("no peer 2");
                 },
                 Some(p2) => {
-                    assert_eq!(p2.out_degree, 6);
-                    assert_eq!(p2.in_degree, 1);        // just peer 1
-
-                    did_handshakes = true;
+                    if p2.out_degree >= 6 && p2.in_degree >= 1 {
+                        assert_eq!(p2.out_degree, 6);
+                        did_handshakes = true;
+                    }
                 }
             }
         }        
