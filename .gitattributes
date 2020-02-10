@@ -1,0 +1,2 @@
+# Have linguist ignoring `legacy` folder when computing stats on repo
+legacy/* linguist-detectable=false
