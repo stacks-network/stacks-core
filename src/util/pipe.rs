@@ -123,9 +123,9 @@ impl PipeRead {
                         if self.block {
                             match self.input.recv() {
                                 Ok(bytes) => bytes,
-                                Err(e) => {
+                                Err(_e) => {
                                     // dead
-                                    trace!("Pipe read disconnect on blocking read");
+                                    trace!("Pipe read disconnect on blocking read ({})", _e);
                                     disconnected = true;
                                     vec![]
                                 }
@@ -201,18 +201,18 @@ impl PipeWrite {
         
         // will be Some() either way
         let data = self.buf.take().unwrap();
-        let len = data.len();
+        let _len = data.len();
 
         // ...and try to send the whole thing over
         match self.output.try_send(data) {
             Ok(_) => {
-                trace!("Pipe wrote {} bytes", len);
+                trace!("Pipe wrote {} bytes", _len);
             }
             Err(TrySendError::Full(data)) => {
                 trace!("Pipe write bufferred {} bytes", data.len());
                 self.buf = Some(data);
             }
-            Err(TrySendError::Disconnected(data)) => {
+            Err(TrySendError::Disconnected(_)) => {
                 // will never succeed
                 return Err(io::Error::from(io::ErrorKind::BrokenPipe));
             }
@@ -228,7 +228,6 @@ impl PipeWrite {
         let data = self.buf.take();
         match data {
             Some(bytes) => {
-                let len = bytes.len();
                 match self.output.try_send(bytes) {
                     Ok(_) => {
                         // sent!
@@ -298,11 +297,11 @@ impl Write for PipeWrite {
         let data = self.buf.take();
         match data {
             Some(bytes) => {
-                let len = bytes.len();
+                let _len = bytes.len();
                 self.output.send(bytes)
                     .map_err(|_e| io::Error::from(io::ErrorKind::BrokenPipe))?;
 
-                trace!("Pipe wrote {} bytes on flush", len);
+                trace!("Pipe wrote {} bytes on flush", _len);
             },
             None => {}
         }

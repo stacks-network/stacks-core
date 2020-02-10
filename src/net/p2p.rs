@@ -384,7 +384,7 @@ impl PeerNetwork {
     /// Count how many outbound conversations are going on 
     pub fn count_outbound_conversations(peers: &HashMap<usize, Conversation>) -> u64 {
         let mut ret = 0;
-        for (event_id, convo) in peers.iter() {
+        for (_, convo) in peers.iter() {
             if convo.stats.outbound {
                 ret += 1;
             }
@@ -395,7 +395,7 @@ impl PeerNetwork {
     /// Count how many connections to a given IP address we have 
     pub fn count_ip_connections(ipaddr: &SocketAddr, sockets: &HashMap<usize, mio_net::TcpStream>) -> u64 {
         let mut ret = 0;
-        for (event_id, socket) in sockets.iter() {
+        for (_, socket) in sockets.iter() {
             match socket.peer_addr() {
                 Ok(addr) => {
                     if addr.ip() == ipaddr.ip() {
@@ -434,10 +434,10 @@ impl PeerNetwork {
 
         // TODO: register asynchronously after connect completes.
 
-        let sock_str = format!("{:?}", &sock).to_string();
+        let _sock_str = format!("{:?}", &sock).to_string();
         self.register(next_event_id, sock, true, None)
             .map_err(|e| {
-                test_debug!("{:?}: failed to register {:?} ({:?})", &self.local_peer, &sock_str, &e);
+                test_debug!("{:?}: failed to register {:?} ({:?})", &self.local_peer, &_sock_str, &e);
                 e
             })?;
 
@@ -593,7 +593,7 @@ impl PeerNetwork {
         let conn = self.peerdb.conn();
         let addrbytes = PeerAddress::from_socketaddr(peer_addr);
         let neighbor_opt = PeerDB::get_peer(conn, self.burnchain.network_id, &addrbytes, peer_addr.port())
-            .map_err(|e| net_error::DBError)?;
+            .map_err(|_| net_error::DBError)?;
 
         match neighbor_opt {
             None => Ok(None),
@@ -775,7 +775,7 @@ impl PeerNetwork {
 
             let res = self.register(event_id, client_sock, false, None);
             match res {
-                Err(e) => {
+                Err(_) => {
                     continue;
                 }
                 Ok(_) => {
@@ -917,7 +917,7 @@ impl PeerNetwork {
     fn handle_getneighbors(dbconn: &DBConn, burnchain: &Burnchain, local_peer: &LocalPeer, chain_view: &BurnchainView, convo: &mut Conversation, getneighbors_msg: &StacksMessage) -> Result<ReplyHandleP2P, net_error> {
         // get neighbors at random as long as they're fresh
         let neighbors = PeerDB::get_random_neighbors(dbconn, burnchain.network_id, MAX_NEIGHBORS_DATA_LEN, chain_view.burn_block_height, false)
-            .map_err(|e| net_error::DBError)?;
+            .map_err(|_| net_error::DBError)?;
 
         let neighbor_addrs : Vec<NeighborAddress> = neighbors
             .iter()
@@ -938,7 +938,7 @@ impl PeerNetwork {
     }
 
     /// Handle an unsolicited handshake 
-    fn handle_handshake<'a>(tx: &mut Transaction<'a>, local_peer: &LocalPeer, preamble: &Preamble, data: &HandshakeData) -> Option<NeighborKey> {
+    fn handle_handshake<'a>(tx: &mut Transaction<'a>, _local_peer: &LocalPeer, preamble: &Preamble, data: &HandshakeData) -> Option<NeighborKey> {
         match Neighbor::from_handshake(tx, preamble.peer_version, preamble.network_id, data) {
             Ok(neighbor) => {
                 let res = neighbor.save_update(tx)
@@ -947,7 +947,7 @@ impl PeerNetwork {
                     });
                 
                 if res.is_ok() {
-                    test_debug!("{:?}: Re-key {:?} to {:?} expires {}", local_peer, &neighbor.addr, &to_hex(&neighbor.public_key.to_bytes_compressed()), neighbor.expire_block);
+                    test_debug!("{:?}: Re-key {:?} to {:?} expires {}", _local_peer, &neighbor.addr, &to_hex(&neighbor.public_key.to_bytes_compressed()), neighbor.expire_block);
                     Some(neighbor.addr.clone())
                 }
                 else {
@@ -990,13 +990,12 @@ impl PeerNetwork {
                                 // unsolicited handshake whose signature is valid, which means the remote peer is re-keying.
                                 // however, only store the new key if outbound -- we don't trust inbounds to tell us persistent state.
                                 if convo.stats.outbound {
-                                    let new_nk_opt = match self.peerdb.tx_begin() {
+                                    match self.peerdb.tx_begin() {
                                         Ok(mut tx) => {
-                                            let res = PeerNetwork::handle_handshake(&mut tx, &self.local_peer, &msg.preamble, data);
+                                            let _ = PeerNetwork::handle_handshake(&mut tx, &self.local_peer, &msg.preamble, data);
                                             let _ = tx.commit();
-                                            res
                                         }
-                                        Err(_) => None
+                                        Err(_) => {}
                                     };
                                 }
                             },
@@ -1072,7 +1071,7 @@ impl PeerNetwork {
     /// alive.
     fn queue_ping_heartbeats(&mut self) -> () {
         let now = get_epoch_time_secs();
-        for (event_id, convo) in self.peers.iter_mut() {
+        for (_, convo) in self.peers.iter_mut() {
             if convo.stats.last_handshake_time > 0 && convo.stats.last_send_time + (convo.peer_heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
                 // haven't talked to this neighbor in a while
                 let payload = StacksMessageType::Ping(PingData::new());
@@ -1164,7 +1163,7 @@ impl PeerNetwork {
         let new_handles = match handles {
             None => {
                 assert!(old_local_peer_opt.is_some());
-                let old_local_peer = old_local_peer_opt.unwrap();
+                let _old_local_peer = old_local_peer_opt.unwrap();
 
                 // begin re-key 
                 let mut inflight_handshakes = HashMap::new();
@@ -1174,7 +1173,7 @@ impl PeerNetwork {
                     let handshake = StacksMessageType::Handshake(handshake_data);
         
                     test_debug!("{:?}: send re-key Handshake ({:?} --> {:?}) to {:?}", &self.local_peer, 
-                           &to_hex(&Secp256k1PublicKey::from_private(&old_local_peer.private_key).to_bytes_compressed()),
+                           &to_hex(&Secp256k1PublicKey::from_private(&_old_local_peer.private_key).to_bytes_compressed()),
                            &to_hex(&Secp256k1PublicKey::from_private(&self.local_peer.private_key).to_bytes_compressed()), &nk);
                     
                     let msg_res = convo.sign_message(&self.chain_view, &self.local_peer.private_key, handshake);
@@ -1236,7 +1235,7 @@ impl PeerNetwork {
         for mut relay_handle in self.relay_handles.drain(..) {
             let res = match relay_handle.try_flush() {
                 Ok(b) => b,
-                Err(e) => {
+                Err(_) => {
                     // broken pipe
                     continue;
                 }
@@ -1263,7 +1262,7 @@ impl PeerNetwork {
        
         // synchronize
         self.local_peer = PeerDB::get_local_peer(self.peerdb.conn())
-            .map_err(|e| net_error::DBError)?;
+            .map_err(|_| net_error::DBError)?;
 
         // handle network I/O requests from other threads, and get back reply handles to them
         self.dispatch_requests();
@@ -1324,7 +1323,7 @@ impl PeerNetwork {
         // NOTE: must come last since it invalidates local_peer
         if self.local_peer.private_key_expire < self.chain_view.burn_block_height + 1 {
             let new_local_peer = self.peerdb.rekey(self.local_peer.private_key_expire + self.connection_opts.private_key_lifetime)
-                .map_err(|e| net_error::DBError)?;
+                .map_err(|_| net_error::DBError)?;
 
             let old_local_peer = self.local_peer.clone();
             self.local_peer = new_local_peer;

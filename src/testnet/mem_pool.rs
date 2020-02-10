@@ -85,11 +85,11 @@ impl MemPool for MemPoolFS {
         // no op - irrelevant in the case of MemPoolFS
     }
 
-    fn handle_incoming_tx(&mut self, tx: StacksTransaction) {
+    fn handle_incoming_tx(&mut self, _tx: StacksTransaction) {
         // no op - irrelevant in the case of MemPoolFS
     }
 
-    fn archive_tx(&mut self, tx: StacksTransaction) {
+    fn archive_tx(&mut self, _tx: StacksTransaction) {
         // no op - irrelevant in the case of MemPoolFS
     }
 }

@@ -270,7 +270,7 @@ impl HttpChunkedTransferReaderState {
                 return Ok(nr);
             },
             Ok(httparse::Status::Complete((offset, chunk_len))) => (offset, chunk_len),
-            Err(e) => {
+            Err(_) => {
                 test_debug!("Invalid chunk boundary: {:?}", self.chunk_buffer[0..self.i].to_vec());
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid HTTP chunk boundary: could not parse".to_string()));
             }
@@ -645,7 +645,7 @@ impl HttpRequestPreamble {
     }
 }
 
-fn empty_headers<W: Write>(fd: &mut W) -> Result<(), net_error> {
+fn empty_headers<W: Write>(_fd: &mut W) -> Result<(), net_error> {
     Ok(())
 }
 
@@ -703,7 +703,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                 // partial
                 return Err(net_error::UnderflowError("Not enough bytes to form a HTTP request preamble".to_string()));
             },
-            httparse::Status::Complete(body_offset) => {
+            httparse::Status::Complete(_) => {
                 // consumed all headers.  body_offset points to the start of the request body
                 let verb = req.method.ok_or(net_error::DeserializeError("No HTTP method".to_string()))?.to_string();
                 let path = req.path.ok_or(net_error::DeserializeError("No HTTP path".to_string()))?.to_string();
@@ -907,7 +907,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                 // try again
                 return Err(net_error::UnderflowError("Not enough bytes to form a HTTP response preamble".to_string()));
             },
-            httparse::Status::Complete(body_offset) => {
+            httparse::Status::Complete(_) => {
                 // consumed all headers.  body_offset points to the start of the response body
                 let status_code = resp.code.ok_or(net_error::DeserializeError("No HTTP status code".to_string()))?;
                 let reason = resp.reason.ok_or(net_error::DeserializeError("No HTTP status reason".to_string()))?.to_string();
@@ -949,7 +949,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                             Ok(i) => {
                                 request_id = Some(i);
                             }
-                            Err(e) => {}
+                            Err(_) => {}
                         }
                     }
                     else if key == "x-request-path" {
@@ -1030,7 +1030,7 @@ impl HttpRequestType {
         return Err(net_error::DeserializeError("Http request could not be parsed".to_string()));
     }
     
-    fn parse_getneighbors<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_getneighbors<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetNeighbors".to_string()));
         }
@@ -1038,7 +1038,7 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetNeighbors(HttpRequestMetadata::from_preamble(preamble)))
     }
 
-    fn parse_getblock<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_getblock<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetBlock".to_string()));
         }
@@ -1056,7 +1056,7 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetBlock(HttpRequestMetadata::from_preamble(preamble), block_hash))
     }
 
-    fn parse_getmicroblocks<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_getmicroblocks<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicrolocks".to_string()));
         }
@@ -1074,7 +1074,7 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetMicroblocks(HttpRequestMetadata::from_preamble(preamble), block_hash))
     }
 
-    fn parse_posttransaction<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Regex, fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_posttransaction<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Regex, fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() == 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected non-zero-length body for PostTransaction".to_string()));
         }
@@ -1104,7 +1104,7 @@ impl HttpRequestType {
         }
     }
 
-    pub fn send<W: Write>(&self, protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
+    pub fn send<W: Write>(&self, _protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
         match *self {
             HttpRequestType::GetNeighbors(ref md) => {
                 HttpRequestPreamble::new_serialized(fd, "GET", "/v2/neighbors", &md.peer, md.request_id, None, None, empty_headers)?;
@@ -1141,7 +1141,7 @@ impl HttpResponseType {
         }
     }
 
-    fn parse_error<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R) -> Result<HttpResponseType, net_error> {
+    fn parse_error<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R) -> Result<HttpResponseType, net_error> {
         if preamble.status_code < 400 || preamble.status_code > 599 {
             return Err(net_error::DeserializeError("Inavlid response: not an error".to_string()));
         }
@@ -1307,22 +1307,22 @@ impl HttpResponseType {
         return Err(net_error::DeserializeError("Http response could not be parsed".to_string()));
     }
 
-    fn parse_neighbors<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_neighbors<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let neighbors_data = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
         Ok(HttpResponseType::Neighbors(HttpResponseMetadata::from_preamble(preamble), neighbors_data))
     }
 
-    fn parse_block<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_block<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let block : StacksBlock = HttpResponseType::parse_bytestream(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
         Ok(HttpResponseType::Block(HttpResponseMetadata::from_preamble(preamble), block))
     }
 
-    fn parse_microblocks<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_microblocks<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let microblocks : Vec<StacksMicroblock> = HttpResponseType::parse_bytestream(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
         Ok(HttpResponseType::Microblocks(HttpResponseMetadata::from_preamble(preamble), microblocks))
     }
 
-    fn parse_txid<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_txid<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let txid_buf = HttpResponseType::parse_text(preamble, fd, len_hint, 64)?;
         if txid_buf.len() != 64 {
             return Err(net_error::DeserializeError("Invalid txid: expected 64 bytes".to_string()));
@@ -1431,14 +1431,14 @@ impl HttpResponseType {
                 HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Text, md.request_id, &md.request_path, empty_headers)?;
                 HttpResponseType::send_text(protocol, md, fd, &txid_bytes)?;
             },
-            HttpResponseType::BadRequest(ref md, ref msg) => self.error_response(fd, 400, msg)?,
-            HttpResponseType::Unauthorized(ref md, ref msg) => self.error_response(fd, 401, msg)?,
-            HttpResponseType::PaymentRequired(ref md, ref msg) => self.error_response(fd, 402, msg)?,
-            HttpResponseType::Forbidden(ref md, ref msg) => self.error_response(fd, 403, msg)?,
-            HttpResponseType::NotFound(ref md, ref msg) => self.error_response(fd, 404, msg)?,
-            HttpResponseType::ServerError(ref md, ref msg) => self.error_response(fd, 500, msg)?,
-            HttpResponseType::ServiceUnavailable(ref md, ref msg) => self.error_response(fd, 503, msg)?,
-            HttpResponseType::Error(ref md, ref error_code, ref msg) => self.error_response(fd, *error_code, msg)?
+            HttpResponseType::BadRequest(_, ref msg) => self.error_response(fd, 400, msg)?,
+            HttpResponseType::Unauthorized(_, ref msg) => self.error_response(fd, 401, msg)?,
+            HttpResponseType::PaymentRequired(_, ref msg) => self.error_response(fd, 402, msg)?,
+            HttpResponseType::Forbidden(_, ref msg) => self.error_response(fd, 403, msg)?,
+            HttpResponseType::NotFound(_, ref msg) => self.error_response(fd, 404, msg)?,
+            HttpResponseType::ServerError(_, ref msg) => self.error_response(fd, 500, msg)?,
+            HttpResponseType::ServiceUnavailable(_, ref msg) => self.error_response(fd, 503, msg)?,
+            HttpResponseType::Error(_, ref error_code, ref msg) => self.error_response(fd, *error_code, msg)?
         };
         Ok(())
     }
@@ -1679,7 +1679,7 @@ impl ProtocolFamily for StacksHttp {
     fn stream_payload<R: Read>(&mut self, preamble: &StacksHttpPreamble, fd: &mut R) -> Result<(Option<(StacksHttpMessage, usize)>, usize), net_error> {
         assert!(self.payload_len(preamble).is_none());
         match preamble {
-            StacksHttpPreamble::Request(ref http_request_preamble) => {
+            StacksHttpPreamble::Request(_) => {
                 // HTTP requests can't be chunk-encoded, so this should never be reached
                 unreachable!()
             },

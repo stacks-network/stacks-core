@@ -261,13 +261,6 @@ impl StacksChainState {
 
         // how many blocks this miner mined or supported
         let mut num_mined : u128 = 0;
-
-        // this miner gets (r*b)/(R*B) of the coinbases over the reward window, where:
-        // * r is the number of tokens added by the blocks mined (or supported) by this miner
-        // * R is the number of tokens added by all blocks mined in this interval
-        // * b is the amount of burn tokens destroyed by this miner 
-        // * B is the total amount of burn tokens destroyed over this interval
-        let mut coinbase_reward : u128 = 0;
         
         ////////////////////// number of blocks this miner mined or supported //////
         for i in 0..sample.len() {
@@ -316,7 +309,12 @@ impl StacksChainState {
             }
         };
 
-        coinbase_reward = 
+        // this miner gets (r*b)/(R*B) of the coinbases over the reward window, where:
+        // * r is the number of tokens added by the blocks mined (or supported) by this miner
+        // * R is the number of tokens added by all blocks mined in this interval
+        // * b is the amount of burn tokens destroyed by this miner 
+        // * B is the total amount of burn tokens destroyed over this interval
+        let coinbase_reward : u128 =  
             if num_mined == 0 {
                 // this miner didn't help at all
                 0

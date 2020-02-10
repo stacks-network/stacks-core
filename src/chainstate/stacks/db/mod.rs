@@ -860,7 +860,7 @@ impl StacksChainState {
         // a single epoch)
         let parent_hash = StacksChainState::get_index_hash(tip_burn_hash, tip_header);
         match headers_tx.get_indexed(&parent_hash, &format!("chainstate::pubkey_hash::{}", pubkey_hash)).map_err(Error::DBError)? {
-            Some(status_str) => {
+            Some(_) => {
                 // pubkey hash was seen before
                 debug!("Public key hash {} already used", pubkey_hash);
                 return Ok(true);
