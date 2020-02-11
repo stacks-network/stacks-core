@@ -55,8 +55,7 @@ fn test_get_trait_reference_from_tuple() {
     match err.err {
         CheckErrors::ContractCallExpectName => {},
         _ => {
-            println!("{:?}", err);
-            panic!("Attempt to call init-factorial should fail!")
+            panic!("{:?}", err)
         }
     }
 }
@@ -80,8 +79,7 @@ fn test_define_map_storing_trait_references() {
     match err.err {
         CheckErrors::TraitReferenceNotAllowed => {},
         _ => {
-            println!("{:?}", err);
-            panic!("Attempt to call init-factorial should fail!")
+            panic!("{:?}", err)
         }
     }
 }
@@ -106,8 +104,7 @@ fn test_cycle_in_traits_1_contract() {
     match err.err {
         CheckErrors::CircularReference(_) => {},
         _ => {
-            println!("{:?}", err);
-            panic!("Attempt to call init-factorial should fail!")
+            panic!("{:?}", err)
         }
     }
 }
@@ -138,8 +135,7 @@ fn test_cycle_in_traits_2_contracts() {
     match err.err {
         CheckErrors::NoSuchContract(_) => {},
         _ => {
-            println!("{:?}", err);
-            panic!("Attempt to call init-factorial should fail!")
+            panic!("{:?}", err)
         }
     }
 }
@@ -169,8 +165,7 @@ fn test_dynamic_dispatch_unknown_method() {
     match err.err {
         CheckErrors::TraitMethodUnknown(_, _) => {},
         _ => {
-            println!("{:?}", err);
-            panic!("Attempt to call init-factorial should fail!")
+            panic!("{:?}", err)
         }
     }
 }
@@ -200,8 +195,7 @@ fn test_semi_dynamic_looping_methods() {
     match err.err {
         CheckErrors::TypeError(TypeSignature::TraitReferenceType(_), TypeSignature::PrincipalType) => {},
         _ => {
-            println!("{:?}", err);
-            panic!("Attempt to call init-factorial should fail!")
+            panic!("{:?}", err)
         }
     }
 }
@@ -254,8 +248,7 @@ fn test_dynamic_dispatch_collision_trait() {
     match err.err {
         CheckErrors::NameAlreadyUsed(_) => {},
         _ => {
-            println!("{:?}", err);
-            panic!("Attempt to call init-factorial should fail!")
+            panic!("{:?}", err)
         }
     }
 }
@@ -291,8 +284,7 @@ fn test_dynamic_dispatch_importing_non_existant_trait() {
     match err.err {
         CheckErrors::TraitReferenceUnknown(_) => {},
         _ => {
-            println!("{:?}", err);
-            panic!("Attempt to call init-factorial should fail!")
+            panic!("{:?}", err)
         }
     }
 }
@@ -417,8 +409,7 @@ fn test_dynamic_dispatch_including_wrong_nested_trait() {
     match err.err {
         CheckErrors::TypeError(TypeSignature::TraitReferenceType(_), TypeSignature::TraitReferenceType(_)) => {},
         _ => {
-            println!("{:?}", err);
-            panic!("Attempt to call init-factorial should fail!")
+            panic!("{:?}", err)
         }
     }
 }
@@ -449,8 +440,7 @@ fn test_dynamic_dispatch_mismatched_args() {
     match err.err {
         CheckErrors::TypeError(_, _) => {},
         _ => {
-            println!("{:?}", err);
-            panic!("Attempt to call init-factorial should fail!")
+            panic!("{:?}", err)
         }
     }
 }
@@ -481,8 +471,7 @@ fn test_dynamic_dispatch_mismatched_returns() {
     match err.err {
         CheckErrors::BadTraitImplementation(_, _) => {},
         _ => {
-            println!("{:?}", err);
-            panic!("Attempt to call init-factorial should fail!")
+            panic!("{:?}", err)
         }
     }
 }
