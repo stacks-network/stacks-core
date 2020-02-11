@@ -63,8 +63,6 @@ impl BurnchainSimulator {
     }
    
     pub fn make_genesis_block(&mut self) -> BurnchainState {
-        let block_time = time::Duration::from_millis(self.config.burnchain_block_time);
-
         let db = match BurnDB::connect(&self.config.burnchain_path, 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
             Ok(db) => db,
             Err(_) => panic!("Error while connecting to burnchain db")

@@ -342,10 +342,10 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 max_preamble_len - self.buf.len() 
             };
 
-        let l = self.buf.len();
+        let _len = self.buf.len();
         self.buf.extend_from_slice(&bytes[0..to_consume]);
         
-        trace!("Buffer {} bytes out of max {} for preamble (buf went from {} to {} bytes)", to_consume, max_preamble_len, l, self.buf.len());
+        trace!("Buffer {} bytes out of max {} for preamble (buf went from {} to {} bytes)", to_consume, max_preamble_len, _len, self.buf.len());
         to_consume
     }
 
@@ -486,8 +486,8 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             .ok_or(net_error::OverflowError("Overflowed payload pointer".to_string()))?;
 
         let ret = match message_opt {
-            Some((message, message_len)) => {
-                test_debug!("Got preamble {:?}, streamed {} bytes to form a message", preamble, message_len);
+            Some((message, _message_len)) => {
+                test_debug!("Got preamble {:?}, streamed {} bytes to form a message", preamble, _message_len);
 
                 let next_message_ptr = self.payload_ptr;
 
@@ -608,21 +608,21 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 let mut consumed_message = false;
 
                 if self.preamble.is_none() {
-                    let (preamble_opt, bytes_consumed) = self.consume_preamble(protocol, &[])?;
+                    let (preamble_opt, _bytes_consumed) = self.consume_preamble(protocol, &[])?;
                     self.preamble = preamble_opt;
                     if self.preamble.is_some() {
-                        test_debug!("Consumed bufferred message preamble in {} bytes", bytes_consumed);
+                        test_debug!("Consumed bufferred message preamble in {} bytes", _bytes_consumed);
                     }
                 };
 
                 if self.preamble.is_some() {
                     let mut preamble_opt = self.preamble.take();
                     if let Some(ref mut preamble) = preamble_opt {
-                        let (message_opt, bytes_consumed) = self.consume_payload(protocol, preamble, &[])?;
+                        let (message_opt, _bytes_consumed) = self.consume_payload(protocol, preamble, &[])?;
                         match message_opt {
                             Some(message) => {
                                 // queue up
-                                test_debug!("Consumed bufferred message '{}' (request {}) from {} input buffer bytes", message.get_message_name(), message.request_id(), bytes_consumed);
+                                test_debug!("Consumed bufferred message '{}' (request {}) from {} input buffer bytes", message.get_message_name(), message.request_id(), _bytes_consumed);
                                 self.inbox.push_back(message);
                                 consumed_message = true;
                             },
@@ -793,7 +793,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
                 self.pending_message_fd = self.begin_next_message();
             }
            
-            let nr_input = match self.pending_message_fd {
+            let _nr_input = match self.pending_message_fd {
                 Some(ref mut message_fd) => {
                     // consume from message-writer until we're out of data
                     let mut buf = [0u8; 8192];
@@ -960,7 +960,6 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     /// Send any messages we got to waiting receivers.
     /// Return the list of unsolicited messages (such as blocks and transactions).
     pub fn drain_inbox(&mut self) -> Vec<P::Message> {
-        let inflight_index = 0;
         let mut unsolicited = vec![];
         loop {
             let in_msg_opt = self.inbox.next_message();

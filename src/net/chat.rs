@@ -540,8 +540,8 @@ impl Conversation {
         };
 
         let their_public_key_res = handshake_data.node_public_key.to_public_key();
-        let their_public_key = match their_public_key_res {
-            Ok(pubk) => pubk,
+        match their_public_key_res {
+            Ok(_) => {},
             Err(_e) => {
                 // bad public key
                 test_debug!("{:?}: invalid handshake -- invalid public key", &self);
@@ -616,9 +616,9 @@ impl Conversation {
        
         let new_pubkey_opt = self.connection.get_public_key();
 
-        let authentic_msg = if old_pubkey_opt == new_pubkey_opt { "same" } else if old_pubkey_opt.is_none() { "new" } else { "upgraded" };
+        let _authentic_msg = if old_pubkey_opt == new_pubkey_opt { "same" } else if old_pubkey_opt.is_none() { "new" } else { "upgraded" };
 
-        test_debug!("Handshake from {:?} {} public key {:?} expires at {:?}", &self, authentic_msg,
+        test_debug!("Handshake from {:?} {} public key {:?} expires at {:?}", &self, _authentic_msg,
                     &to_hex(&handshake_data.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_data.expire_block_height);
 
         let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat);
@@ -680,7 +680,7 @@ impl Conversation {
 
         let mut unsolicited = vec![];
         let mut responses = vec![];
-        for i in 0..num_inbound {
+        for _ in 0..num_inbound {
             let mut solicited = true;
             let mut consume_unsolicited = false;
 
@@ -749,7 +749,7 @@ impl Conversation {
                                             true        // consume if unsolicited
                                         }
                                     },
-                                    (None, Some(new_public_key)) => {
+                                    (None, Some(_)) => {
                                         // learned the initial key, so forward back if not solicited 
                                         false
                                     },
@@ -814,7 +814,7 @@ impl Conversation {
                             // don't NACK this back just because we were rejected
                             Ok(None)
                         },
-                        StacksMessageType::Nack(ref data) => {
+                        StacksMessageType::Nack(_) => {
                             test_debug!("{:?}: Got unauthenticated Nack", &self);
                             
                             // don't NACK back
@@ -868,20 +868,20 @@ impl Conversation {
                 self.stats.msgs_rx_unsolicited += 1;
             }
 
-            let msgtype = msg.payload.get_message_name().to_owned();
+            let _msgtype = msg.payload.get_message_name().to_owned();
 
             // Is there someone else waiting for this message?  If so, pass it along.
             let fulfill_opt = self.connection.fulfill_request(msg);
             match fulfill_opt {
                 None => {
-                    test_debug!("{:?}: Fulfilled pending message request (type {})", &self, msgtype);
+                    test_debug!("{:?}: Fulfilled pending message request (type {})", &self, _msgtype);
                 },
                 Some(m) => {
                     if consume_unsolicited {
-                        test_debug!("{:?}: Consuming unsolicited message (type {})", &self, msgtype);
+                        test_debug!("{:?}: Consuming unsolicited message (type {})", &self, _msgtype);
                     }
                     else {
-                        test_debug!("{:?}: Forwarding along unsolicited message (type {})", &self, msgtype);
+                        test_debug!("{:?}: Forwarding along unsolicited message (type {})", &self, _msgtype);
                         unsolicited.push(m);
                     }
                 }
@@ -894,7 +894,7 @@ impl Conversation {
     /// Remove all timed-out messages, and ding the remote peer as unhealthy
     pub fn clear_timeouts(&mut self) -> () {
        let num_drained = self.connection.drain_timeouts();
-       for i in 0..num_drained {
+       for _ in 0..num_drained {
            self.stats.add_healthpoint(false);
        }
     }

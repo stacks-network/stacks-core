@@ -545,7 +545,7 @@ impl Burnchain {
         // classify and check each transaction
         for blockstack_op in block_ops {
             match Burnchain::check_transaction(tx, burnchain, block_header, blockstack_op) {
-                Err(e) => {
+                Err(_) => {
                     // check failed
                     continue;
                 }

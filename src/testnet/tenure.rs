@@ -75,10 +75,6 @@ impl <'a> LeaderTenure {
 
         let mut clarity_tx = self.block_builder.epoch_begin(&mut chain_state).unwrap();
 
-        let mempool_poll_interval = time::Duration::from_millis(250);
-        let tenure_duration = time::Duration::from_millis(self.average_block_time * 1 / 2);
-        let should_commit_block_at = self.started_at.checked_add(tenure_duration).unwrap();
-
         self.handle_txs(&mut clarity_tx, vec![self.coinbase_tx.clone()]);
 
         let txs = self.mem_pool.poll();

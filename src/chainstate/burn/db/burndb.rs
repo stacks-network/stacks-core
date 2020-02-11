@@ -1195,7 +1195,7 @@ impl BurnDB {
         };
 
         let key_status = match BurnDB::index_value_get(tx, &tip_snapshot.burn_header_hash, &format!("burndb::vrf::{}", key.to_hex()))? {
-            Some(status_str) => {
+            Some(_) => {
                 // key was seen before
                 true
             },
@@ -1212,13 +1212,11 @@ impl BurnDB {
     pub fn get_fresh_consensus_hashes<'a>(tx: &mut BurnDBTx<'a>, current_block_height: u64, consensus_hash_lifetime: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Vec<ConsensusHash>, db_error> {
         assert!(current_block_height < BLOCK_HEIGHT_MAX);
         let first_snapshot = BurnDB::get_first_block_snapshot(tx)?;
-        let tip_snapshot = match BurnDB::get_block_snapshot(tx, tip_block_hash)? {
+        match BurnDB::get_block_snapshot(tx, tip_block_hash)? {
             None => {
                 return Err(db_error::NotFoundError);
             }
-            Some(sn) => {
-                sn
-            }
+            Some(_) => {}
         };
 
         let mut oldest_height = 
@@ -1266,13 +1264,11 @@ impl BurnDB {
     pub fn is_fresh_consensus_hash<'a>(tx: &mut BurnDBTx<'a>, current_block_height: u64, consensus_hash_lifetime: u64, consensus_hash: &ConsensusHash, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
         assert!(current_block_height < BLOCK_HEIGHT_MAX);
         let first_snapshot = BurnDB::get_first_block_snapshot(tx)?;
-        let tip_snapshot = match BurnDB::get_block_snapshot(tx, tip_block_hash)? {
+        match BurnDB::get_block_snapshot(tx, tip_block_hash)? {
             None => {
                 return Err(db_error::NotFoundError);
             }
-            Some(sn) => {
-                sn
-            }
+            Some(_) => {}
         };
 
         let mut oldest_height = 
@@ -1468,7 +1464,7 @@ impl BurnDB {
     /// i.e. is this block hash part of the fork history identified by tip_block_hash?
     pub fn expects_stacks_block_in_fork<'a>(tx: &mut BurnDBTx<'a>, block_hash: &BlockHeaderHash, tip_block_hash: &BurnchainHeaderHash) -> Result<bool, db_error> {
         match BurnDB::index_value_get(tx, tip_block_hash, &format!("burndb::sortition_block_hash::{}", block_hash))? {
-            Some(block_hash) => {
+            Some(_) => {
                 Ok(true)
             },
             None => {
@@ -1479,7 +1475,7 @@ impl BurnDB {
 }
 
 impl ChainstateDB for BurnDB {
-    fn backup(backup_path: &String) -> Result<(), db_error> {
+    fn backup(_backup_path: &String) -> Result<(), db_error> {
         return Err(db_error::NotImplemented);
     }
 }

@@ -120,7 +120,7 @@ impl MarfedKV {
         let mut path = PathBuf::from(path_str);
 
         std::fs::create_dir_all(&path)
-            .map_err(|err| InterpreterError::FailedToCreateDataDirectory)?;
+            .map_err(|_| InterpreterError::FailedToCreateDataDirectory)?;
 
         path.push("marf");
         let marf_path = path.to_str()

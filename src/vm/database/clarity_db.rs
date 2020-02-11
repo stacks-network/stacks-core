@@ -480,7 +480,7 @@ impl <'a> ClarityDatabase <'a> {
     }
 
     pub fn get_ft_balance(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, principal: &PrincipalData) -> Result<u128> {
-        let descriptor = self.load_ft(contract_identifier, token_name)?;
+        self.load_ft(contract_identifier, token_name)?;
 
         let key =  ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::FungibleToken, token_name, principal.serialize());
 

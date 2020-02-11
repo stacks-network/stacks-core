@@ -307,7 +307,7 @@ impl Node {
             // let db = burn_db.lock().unwrap();
             let mut res = None;
             loop {
-                match self.chain_state.process_blocks(db.conn(), 1) {
+                match self.chain_state.process_blocks(1) {
                     Err(e) => panic!("Error while processing block - {:?}", e),
                     Ok(blocks) => {
                         if blocks.len() == 0 {
