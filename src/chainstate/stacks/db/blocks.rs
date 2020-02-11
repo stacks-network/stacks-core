@@ -2244,7 +2244,7 @@ impl StacksChainState {
     /// Process some staging blocks, up to max_blocks.
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
     /// found.
-    pub fn process_blocks(&mut self, burndb_conn: &DBConn, max_blocks: usize) -> Result<Vec<(Option<StacksHeaderInfo>, Option<TransactionPayload>)>, Error> {
+    pub fn process_blocks(&mut self, max_blocks: usize) -> Result<Vec<(Option<StacksHeaderInfo>, Option<TransactionPayload>)>, Error> {
         let mut ret = vec![];
 
         if max_blocks == 0 {
@@ -2274,7 +2274,7 @@ impl StacksChainState {
         }
 
         let mut block_tx = self.blocks_tx_begin()?;
-        for i in 0..max_blocks {
+        for _ in 0..max_blocks {
             // delete up to max_blocks blocks
             let deleted = StacksChainState::process_next_orphaned_staging_block(&mut block_tx)?;
             if !deleted {

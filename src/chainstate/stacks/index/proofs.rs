@@ -347,11 +347,10 @@ impl TrieMerkleProof {
         let ancestor_root_hash = read_root_hash(storage)?;
 
         let mut found_backptr = false;
-        let miner_tip = storage.get_miner_tip();
-
-        let ancestor_height = MARF::get_block_height_miner_tip(storage, &ancestor_block_hash, &block_header, miner_tip.as_ref())?
+        
+        let ancestor_height = MARF::get_block_height_miner_tip(storage, &ancestor_block_hash, &block_header)?
             .ok_or_else(|| Error::CorruptionError(format!("Could not find block height of ancestor block {} from {}", &ancestor_block_hash, &block_header)))?;
-        let mut current_height = MARF::get_block_height_miner_tip(storage, &block_header, &block_header, miner_tip.as_ref())?
+        let mut current_height = MARF::get_block_height_miner_tip(storage, &block_header, &block_header)?
             .ok_or_else(|| Error::CorruptionError(format!("Could not find block height of current block {} from {}", &block_header, &block_header)))?;
 
         if current_height == ancestor_height {

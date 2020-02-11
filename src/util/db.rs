@@ -346,15 +346,14 @@ impl<'a, C> IndexDBTx<'a, C> {
     }
 
     /// Store some data to the index storage.
-    /// key must be globally-unique
-    fn store_indexed(&mut self, key: &String, value: &String) -> Result<MARFValue, Error> {
+    fn store_indexed(&mut self, value: &String) -> Result<MARFValue, Error> {
         let marf_value = MARFValue::from_value(value);
         self.tx.execute("INSERT OR REPLACE INTO __fork_storage (value_hash, value) VALUES (?1, ?2)", &[&to_hex(&marf_value.to_vec()), value]).map_err(Error::SqliteError)?;
         Ok(marf_value)
     }
 
     /// Load some index data
-    fn load_indexed(&self, key: &String, marf_value: &MARFValue) -> Result<Option<String>, Error> {
+    fn load_indexed(&self, marf_value: &MARFValue) -> Result<Option<String>, Error> {
         let mut stmt = self.tx.prepare("SELECT value FROM __fork_storage WHERE value_hash = ?1 LIMIT 2").map_err(Error::SqliteError)?;
         let mut rows = stmt.query(&[&to_hex(&marf_value.to_vec())]).map_err(Error::SqliteError)?;
         let mut all_values = vec![];
@@ -365,7 +364,7 @@ impl<'a, C> IndexDBTx<'a, C> {
                     all_values.push(value_str);
                 },
                 Err(e) => {
-                    panic!("FATAL: Failed to read row from Sqlite");
+                    panic!("FATAL: Failed to read row from Sqlite ({})", e);
                 }
             };
         }
@@ -408,7 +407,7 @@ impl<'a, C> IndexDBTx<'a, C> {
             Ok(marf_value_opt) => { 
                 match marf_value_opt {
                     Some(marf_value) => {
-                        let value = self.load_indexed(key, &marf_value)?
+                        let value = self.load_indexed(&marf_value)?
                             .expect(&format!("FATAL: corrupt index: key '{}' from {} (root index {}) is present in the index but missing a value in the DB", &key, &header_hash, &parent_index_root));
 
                         return Ok(Some(value));
@@ -453,7 +452,7 @@ impl<'a, C> IndexDBTx<'a, C> {
 
         let mut marf_values = Vec::with_capacity(values.len());
         for i in 0..values.len() {
-            let marf_value = self.store_indexed(&keys[i], &values[i])?;
+            let marf_value = self.store_indexed(&values[i])?;
             marf_values.push(marf_value);
         }
 

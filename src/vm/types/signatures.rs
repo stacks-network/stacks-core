@@ -674,7 +674,7 @@ impl TypeSignature {
             // These types all only use ~1 byte for their type enum
             NoType | IntType | UIntType | BoolType | PrincipalType => Some(1),
             // u32 length + type enum
-            BufferType(len) => Some(1 + 4),
+            BufferType(_) => Some(1 + 4),
             TupleType(tuple_sig) => tuple_sig.type_size(),
             ListType(list_type) => list_type.type_size(),
             OptionalType(t) => {

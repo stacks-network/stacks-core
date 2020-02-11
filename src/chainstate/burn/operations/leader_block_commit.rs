@@ -246,7 +246,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         LeaderBlockCommitOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
         
-    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), op_error> {
+    fn check<'a>(&self, _burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
         let parent_block_height = self.parent_block_ptr as u64;
         

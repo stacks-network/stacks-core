@@ -174,38 +174,38 @@ impl NetworkState {
         // connect and abort after 5 seconds of waiting.
         // TODO: revert to non-blocking connect to avoid slow neighbors starving socket work
         let inner_stream = net::TcpStream::connect_timeout(addr, time::Duration::from_millis(5000))
-            .map_err(|e| {
-                test_debug!("Failed to connect to {:?}: {:?}", addr, &e);
+            .map_err(|_e| {
+                test_debug!("Failed to connect to {:?}: {:?}", addr, &_e);
                 net_error::ConnectionError
             })?;
 
         // NOTE: this will put the socket into non-blocking mode
         let stream = mio_net::TcpStream::from_stream(inner_stream)
-            .map_err(|e| {
-                test_debug!("Failed to convert to mio stream: {:?}", &e);
+            .map_err(|_e| {
+                test_debug!("Failed to convert to mio stream: {:?}", &_e);
                 net_error::ConnectionError
             })?;
 
         // set some helpful defaults
         // Don't go crazy on TIME_WAIT states; have them all die after 5 seconds
         stream.set_linger(Some(time::Duration::from_millis(5000)))
-            .map_err(|e| {
-                test_debug!("Failed to set SO_LINGER: {:?}", &e);
+            .map_err(|_e| {
+                test_debug!("Failed to set SO_LINGER: {:?}", &_e);
                 net_error::ConnectionError
             })?;
 
         // Disable Nagle algorithm
         stream.set_nodelay(true)
-            .map_err(|e| {
-                test_debug!("Failed to set TCP_NODELAY: {:?}", &e);
+            .map_err(|_e| {
+                test_debug!("Failed to set TCP_NODELAY: {:?}", &_e);
                 net_error::ConnectionError
             })?;
 
         // Make sure keep-alive is on, since at least in p2p messages, we keep sockets around
         // for a while.  Linux default is 7200 seconds, so make sure we keep it here.
         stream.set_keepalive(Some(time::Duration::from_millis(7200 * 1000)))
-            .map_err(|e| {
-                test_debug!("Failed to set TCP_KEEPALIVE and/or SO_KEEPALIVE: {:?}", &e);
+            .map_err(|_e| {
+                test_debug!("Failed to set TCP_KEEPALIVE and/or SO_KEEPALIVE: {:?}", &_e);
                 net_error::ConnectionError
             })?;
 
@@ -227,7 +227,7 @@ impl NetworkState {
                 SERVER => {
                     // new inbound connection(s)
                     loop {
-                        let (client_sock, client_addr) = match self.server.accept() {
+                        let (client_sock, _client_addr) = match self.server.accept() {
                             Ok((client_sock, client_addr)) => (client_sock, client_addr),
                             Err(e) => {
                                 match e.kind() {
@@ -241,7 +241,7 @@ impl NetworkState {
                             }
                         };
 
-                        test_debug!("New socket accepted from {:?} (event {}): {:?}", &client_addr, self.count, &client_sock);
+                        test_debug!("New socket accepted from {:?} (event {}): {:?}", &_client_addr, self.count, &client_sock);
                         poll_state.new.insert(self.count, client_sock);
                         self.count += 1;
                     }

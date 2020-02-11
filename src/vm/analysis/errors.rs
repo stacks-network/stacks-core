@@ -220,8 +220,7 @@ pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), Ch
 }
 
 fn formatted_expected_types(expected_types: & Vec<TypeSignature>) -> String {
-    let mut expected_types_joined = String::new();
-    expected_types_joined = format!("'{}'", expected_types[0]);
+    let mut expected_types_joined = format!("'{}'", expected_types[0]);
 
     if expected_types.len() > 2 {
         for expected_type in expected_types[1..expected_types.len()-1].into_iter() {
