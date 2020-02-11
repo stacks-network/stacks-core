@@ -61,6 +61,33 @@ fn test_get_trait_reference_from_tuple() {
 }
 
 #[test]
+fn test_dynamic_dispatch_by_defining_and_impl_trait() {
+    let dispatching_contract_src =
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))
+        (impl-trait .dispatching-contract.trait-1)
+        (define-public (wrapped-get-1 (contract <trait-1>)) 
+            (contract-call? contract get-1 u0))
+        (define-public (get-1 (x uint)) (ok u1))";
+
+    let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
+
+    let mut dispatching_contract = parse(&dispatching_contract_id, dispatching_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let err = db.execute(|db| {
+        type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)
+    }).unwrap_err();
+    match err.err {
+        CheckErrors::NoSuchContract(_) => {},
+        _ => {
+            panic!("{:?}", err)
+        }
+    }
+}
+
+#[test]
 fn test_define_map_storing_trait_references() {
     let dispatching_contract_src =
         "(define-trait trait-1 (
