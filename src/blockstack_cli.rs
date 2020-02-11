@@ -307,7 +307,7 @@ fn handle_token_transfer(args: &[String], version: TransactionVersion) -> Result
     let amount = &args[4].parse()?;
     let memo = {
         let mut memo = [0; 34];
-        let mut bytes = if args.len() == 6 { args[4].as_bytes().to_vec() } else { vec![] };
+        let mut bytes = if args.len() == 6 { args[5].as_bytes().to_vec() } else { vec![] };
         bytes.resize(34, 0);
         memo.copy_from_slice(&bytes);
         TokenTransferMemo(memo)
