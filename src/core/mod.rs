@@ -49,7 +49,7 @@ pub const EMPTY_MICROBLOCK_PARENT_HASH : BlockHeaderHash = BlockHeaderHash([0u8;
 pub const BOOT_BLOCK_HASH : BlockHeaderHash = BlockHeaderHash([0xff; 32]);
 pub const BURNCHAIN_BOOT_BLOCK_HASH : BurnchainHeaderHash = BurnchainHeaderHash([0xff; 32]);
 
-pub const CHAINSTATE_VERSION: &'static str = "22.0.0.0";
+pub const CHAINSTATE_VERSION: &'static str = "23.0.0.0";
 
 /// Synchronize burn transactions from the Bitcoin blockchain 
 pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Result<u64, burnchain_error> {
