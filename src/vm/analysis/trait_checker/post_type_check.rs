@@ -65,7 +65,6 @@ impl PostTypeCheckingTraitChecker {
                         }
 
                         if !expected_sig.returns.admits_type(&func.returns) {
-                            // todo(ludo): investigate (response uint uint) admiting (response uint)
                             return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
                         }
                     }
