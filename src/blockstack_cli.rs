@@ -71,7 +71,7 @@ e.g.,
                        -x 050011deadbeef11ababffff11deadbeef11ababffff
 ";
 
-const TOKEN_TRANSFER_USAGE: &str = "blockstack-cli (options) token-transfer [origin-secret-key-hex] [fee-rate] [nonce] [recipient-address] [amount] [args...]
+const TOKEN_TRANSFER_USAGE: &str = "blockstack-cli (options) token-transfer [origin-secret-key-hex] [fee-rate] [nonce] [recipient-address] [amount] [memo] [args...]
 
 The transfer command generates and signs a STX transfer transaction. If successful,
 this command outputs the hex string encoding of the transaction to stdout, and exits with
@@ -305,7 +305,13 @@ fn handle_token_transfer(args: &[String], version: TransactionVersion) -> Result
     let nonce = args[2].parse()?;
     let recipient_address = StacksAddress::from_string(&args[3]).ok_or("Failed to parse contract address")?;
     let amount = &args[4].parse()?;
-    let memo = TokenTransferMemo([0u8; 34]);
+    let memo = {
+        let mut memo = [0; 34];
+        let mut bytes = if args.len() == 6 { args[4].as_bytes().to_vec() } else { vec![] };
+        bytes.resize(34, 0);
+        memo.copy_from_slice(&bytes);
+        TokenTransferMemo(memo)
+    };
 
     let payload = TransactionPayload::TokenTransfer(recipient_address, *amount, memo);
     let unsigned_tx = make_standard_single_sig_tx(version, payload, &StacksPublicKey::from_private(&sk_origin),
@@ -441,6 +447,18 @@ mod test {
             "1",
             "0",
             "ST1A14RBKJ289E3DP89QAZE2RRHDPWP5RHMYFRCHV",
+            "10",
+            "Memo"];
+
+        assert!(main_handler(to_string_vec(&tt_args)).is_ok());
+
+
+        let tt_args = [
+            "token-transfer",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "ST1A14RBKJ289E3DP89QAZE2RRHDPWP5RHMYFRCHV",
             "-1"];
 
         assert!(format!("{}", main_handler(to_string_vec(&tt_args)).unwrap_err())
@@ -452,7 +470,7 @@ mod test {
             "1",
             "0",
             "SX1A14RBKJ289E3DP89QAZE2RRHDPWP5RHMYFRCHV",
-            "-1"];
+            "10"];
 
         assert!(format!("{}", main_handler(to_string_vec(&tt_args)).unwrap_err())
                 .contains("IO error"));        
