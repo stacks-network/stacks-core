@@ -293,8 +293,6 @@ fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<
     Ok(to_hex(&signed_tx_bytes))
 }
 
-// const TRANSFER_USAGE: &str = "blockstack-cli (options) transfer [origin-secret-key-hex] [fee-rate] [nonce] [recipient-address] [amount] [args...]
-
 fn handle_token_transfer(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
     if args.len() >= 1 && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", TOKEN_TRANSFER_USAGE)))
@@ -423,6 +421,41 @@ mod test {
         assert!(format!("{}", main_handler(to_string_vec(&publish_args)).unwrap_err())
                 .contains("IO error"));
 
+    }
+
+    #[test]
+    fn simple_token_transfer() {
+        let tt_args = [
+            "token-transfer",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "ST1A14RBKJ289E3DP89QAZE2RRHDPWP5RHMYFRCHV",
+            "10"];
+
+        assert!(main_handler(to_string_vec(&tt_args)).is_ok());
+
+        let tt_args = [
+            "token-transfer",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "ST1A14RBKJ289E3DP89QAZE2RRHDPWP5RHMYFRCHV",
+            "-1"];
+
+        assert!(format!("{}", main_handler(to_string_vec(&tt_args)).unwrap_err())
+                .contains("IO error"));
+
+        let tt_args = [
+            "token-transfer",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SX1A14RBKJ289E3DP89QAZE2RRHDPWP5RHMYFRCHV",
+            "-1"];
+
+        assert!(format!("{}", main_handler(to_string_vec(&tt_args)).unwrap_err())
+                .contains("IO error"));        
     }
 
     #[test]
