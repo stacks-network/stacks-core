@@ -55,10 +55,6 @@ impl PreTypeCheckingTraitChecker {
                 &trait_identifier.name)?;
             existing_trait.ok_or(CheckError::new(CheckErrors::TraitReferenceUnknown(trait_name.to_string())))?;
             
-            // Check for eventual collisions
-            if contract_analysis.referenced_traits.contains_key(&trait_name) {
-                return Err(CheckErrors::NameAlreadyUsed(trait_name.to_string()).into())
-            }
             contract_analysis.referenced_traits.insert(trait_name, trait_identifier.clone());
         }
 
@@ -69,7 +65,7 @@ impl PreTypeCheckingTraitChecker {
                 contract_identifier: contract_analysis.contract_identifier.clone()      
             };
 
-            // Check for eventual collisions
+            // Check for collisions between defined traits and imported traits
             if contract_analysis.referenced_traits.contains_key(&name) {
                 return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
             }
@@ -101,6 +97,11 @@ impl PreTypeCheckingTraitChecker {
             match define_type {
                 DefineFunctions::Trait => {
                     if let Some(trait_name) = args[0].match_atom() {
+                        // Check for collisions between defined traits
+                        if defined_traits.contains_key(trait_name) {
+                            return Err(CheckErrors::NameAlreadyUsed(trait_name.to_string()).into())
+                        }
+
                         defined_traits.insert(trait_name.clone(), exp.clone());
                         // Traverse and probe for generics nested in the trait definition
                         if let Some(trait_definition) = &args[1].match_list() {
@@ -110,11 +111,21 @@ impl PreTypeCheckingTraitChecker {
                 },
                 DefineFunctions::UseTrait => {
                     if let Some(trait_name) = args[0].match_atom() {
+                        // Check for collisions between imported traits
+                        if imported_traits.contains_key(trait_name) {
+                            return Err(CheckErrors::NameAlreadyUsed(trait_name.to_string()).into())
+                        }
+
                         imported_traits.insert(trait_name.clone(), exp.clone());
                     }
                 },
                 DefineFunctions::ImplTrait => {
                     if let Some(trait_identifier) = args[0].match_field() {
+                        // Check for multiple impl-trait statements targeting the same trait
+                        if implemented_traits.contains(trait_identifier) {
+                            return Err(CheckErrors::NameAlreadyUsed(trait_identifier.name.to_string()).into())
+                        }
+                        
                         implemented_traits.insert(trait_identifier.clone());
                     }
                 },
