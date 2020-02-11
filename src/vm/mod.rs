@@ -2,6 +2,10 @@ extern crate regex;
 
 pub mod errors;
 pub mod diagnostic;
+
+#[macro_use]
+pub mod costs;
+
 pub mod types;
 
 pub mod contracts;
@@ -31,13 +35,18 @@ use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, Interpr
 use vm::database::MemoryBackingStore;
 use vm::types::QualifiedContractIdentifier;
 
+use vm::costs::cost_functions;
+
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
 pub use vm::contexts::MAX_CONTEXT_DEPTH;
+use std::convert::TryInto;
 
 const MAX_CALL_STACK_DEPTH: usize = 128;
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
+    runtime_cost!(cost_functions::LOOKUP_VARIABLE, env, context.depth())?;
+
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         Err(InterpreterError::BadSymbolicRepresentation(format!("Unexpected variable name: {}", name)).into())
     } else {
@@ -54,6 +63,8 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
 }
 
 pub fn lookup_function(name: &str, env: &Environment)-> Result<CallableType> {
+    runtime_cost!(cost_functions::LOOKUP_FUNCTION, env, 0)?;
+
     if let Some(result) = functions::lookup_reserved_functions(name) {
         Ok(result)
     } else {
@@ -161,9 +172,13 @@ fn eval_all (expressions: &[SymbolicExpression],
         };
         match try_define {
             DefineResult::Variable(name, value) => {
+                runtime_cost!(cost_functions::BIND_NAME, global_context, 0)?;
+
                 contract_context.variables.insert(name, value);
             },
             DefineResult::Function(name, value) => {
+                runtime_cost!(cost_functions::BIND_NAME, global_context, 0)?;
+
                 contract_context.functions.insert(name, value);
             },
             DefineResult::PersistedVariable(name, value_type, value) => {

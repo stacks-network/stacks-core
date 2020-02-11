@@ -9,6 +9,7 @@ use vm::database::{ClarityDatabase};
 use vm::representations::{SymbolicExpression, ClarityName, ContractName};
 use vm::contracts::Contract;
 use vm::ast::ContractAST;
+use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker, cost_functions};
 use vm::ast;
 use vm::eval;
 
@@ -53,6 +54,7 @@ pub struct AssetMap {
     burn_map: HashMap<PrincipalData, u128>,
     token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, u128>>,
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>
+        
 }
 
 /** GlobalContext represents the outermost context for a single transaction's
@@ -65,6 +67,7 @@ pub struct GlobalContext<'a> {
     asset_maps: Vec<AssetMap>,
     pub database: ClarityDatabase<'a>,
     read_only: Vec<bool>,
+    pub cost_track: LimitedCostTracker,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -458,6 +461,12 @@ impl <'a> OwnedEnvironment <'a> {
     }
 }
 
+impl CostTracker for Environment<'_,'_> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CheckErrors> {
+        self.global_context.cost_track.add_cost(cost)
+    }
+}
+
 impl <'a,'b> Environment <'a,'b> {
     // Environments pack a reference to the global context (which is basically the db),
     //   the current contract context, a call stack, and the current sender.
@@ -615,10 +624,11 @@ impl <'a,'b> Environment <'a,'b> {
                                         contract_content: &ContractAST, contract_string: &str) -> Result<()> {
         self.global_context.begin();
 
+        runtime_cost!(cost_functions::CONTRACT_STORAGE, self, contract_string.len())?;
+
         // first, store the contract _content hash_ in the data store.
         //    this is necessary before creating and accessing metadata fields in the data store,
         //      --or-- storing any analysis metadata in the data store.
-        // TODO: pass the actual string data in.
         self.global_context.database.insert_contract_hash(&contract_identifier, contract_string)?;
 
         let result = Contract::initialize_from_ast(contract_identifier.clone(), 
@@ -646,7 +656,8 @@ impl <'a> GlobalContext<'a> {
         GlobalContext {
             database: database,
             read_only: Vec::new(),
-            asset_maps: Vec::new()
+            asset_maps: Vec::new(),
+            cost_track: LimitedCostTracker::new(ExecutionCost::max_value())
         }
     }
 
@@ -798,6 +809,10 @@ impl <'a> LocalContext <'a> {
             parent: Option::None,
             variables: HashMap::new(),
         }
+    }
+
+    pub fn depth(&self) -> u16 {
+        self.depth
     }
     
     pub fn extend(&'a self) -> Result<LocalContext<'a>> {

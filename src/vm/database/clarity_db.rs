@@ -278,7 +278,7 @@ impl <'a> ClarityDatabase <'a> {
         self.insert_metadata(contract_identifier, &key, &variable_data)
     }
 
-    fn load_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str) -> Result<DataVariableMetadata> {
+    pub fn load_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str) -> Result<DataVariableMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
         map_no_contract_as_none(
@@ -325,7 +325,7 @@ impl <'a> ClarityDatabase <'a> {
         self.insert_metadata(contract_identifier, &key, &data)
     }
 
-    fn load_map(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str) -> Result<DataMapMetadata> {
+    pub fn load_map(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str) -> Result<DataMapMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
 
         map_no_contract_as_none(

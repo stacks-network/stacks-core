@@ -233,19 +233,17 @@ READ_LENGTH:  Z
 ```
 
 X := size of the map's _key_ tuple
-Y := the length of the map's name
 Z := the size of the map's _value_ tuple
 
 
 ### contract-map-get
 
 ```
-RUNTIME_COST: data_hash_cost(X+Y) + read_data_cost(Z)
+RUNTIME_COST: data_hash_cost(X) + read_data_cost(Z)
 READ_LENGTH:  Z
 ```
 
 X := size of the map's _key_ tuple
-Y := the length of the map's name
 Z := the size of the map's _value_ tuple
 
 ### map-set
@@ -256,7 +254,6 @@ WRITE_LENGTH:  Z
 ```
 
 X := size of the map's _key_ tuple
-Y := the length of the map's name
 Z := the size of the map's _value_ tuple
 
 ### map-insert
@@ -267,7 +264,6 @@ WRITE_LENGTH:  Z
 ```
 
 X := size of the map's _key_ tuple
-Y := the length of the map's name
 Z := the size of the map's _value_ tuple
 
 ### map-delete
@@ -283,31 +279,28 @@ Y := the length of the map's name
 ### var-get
 
 ```
-RUNTIME_COST: data_hash_cost(X) + read_data_cost(Y)
+RUNTIME_COST: data_hash_cost(1) + read_data_cost(Y)
 READ_LENGTH: Y
 ```
 
-X := length of the variable's name
 Y := the size of the variable's _value_ type
 
 ### var-set
 
 ```
-RUNTIME_COST: data_hash_cost(X) + write_data_cost(Y)
+RUNTIME_COST: data_hash_cost(1) + write_data_cost(Y)
 WRITE_LENGTH: Y
 ```
 
-X := length of the variable's name
 Y := the size of the variable's _value_ type
 
 ### nft-mint
 
 ```
-RUNTIME_COST: data_hash_cost(X+Y) + write_data_cost(a) + b
+RUNTIME_COST: data_hash_cost(Y) + write_data_cost(a) + b
 WRITE_LENGTH: a
 ```
 
-X := length of the token name
 Y := size of the NFT type
 
 a is a constant: the size of a token owner
@@ -316,11 +309,10 @@ b is a constant cost (for tracking the asset in the assetmap)
 ### nft-get-owner
 
 ```
-RUNTIME_COST: data_hash_cost(X+Y) + read_data_cost(a)
+RUNTIME_COST: data_hash_cost(Y) + read_data_cost(a)
 READ_LENGTH: a
 ```
 
-X := length of the token name
 Y := size of the NFT type
 
 a is a constant: the size of a token owner
@@ -329,12 +321,11 @@ a is a constant: the size of a token owner
 ### nft-transfer
 
 ```
-RUNTIME_COST: data_hash_cost(X+Y) + write_data_cost(a) + write_data_cost(a) + b
+RUNTIME_COST: data_hash_cost(Y) + write_data_cost(a) + write_data_cost(a) + b
 READ_LENGTH: a
 WRITE_LENGTH: a
 ```
 
-X := length of the token name
 Y := size of the NFT type
 
 a is a constant: the size of a token owner

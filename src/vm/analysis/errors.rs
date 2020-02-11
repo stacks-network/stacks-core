@@ -1,6 +1,7 @@
 use vm::representations::SymbolicExpression;
 use vm::diagnostic::{Diagnostic, DiagnosableError};
 use vm::types::{TypeSignature, TupleTypeSignature, Value};
+use vm::costs::{ExecutionCost};
 use std::error;
 use std::fmt;
 
@@ -10,6 +11,7 @@ pub type CheckResult <T> = Result<T, CheckError>;
 pub enum CheckErrors {
     // cost checker errors
     CostOverflow,
+    CostBalanceExceeded(ExecutionCost, ExecutionCost),
 
     ValueTooLarge,
     ExpectedName,
@@ -246,6 +248,7 @@ impl DiagnosableError for CheckErrors {
                 format!("match requires an input of either a response or optional, found input: '{}'", t),
             CheckErrors::TypeAnnotationExpectedFailure => "analysis expected type to already be annotated for expression".into(),
             CheckErrors::CostOverflow => "contract execution cost overflowed cost counter".into(),
+            CheckErrors::CostBalanceExceeded(a, b) => format!("contract execution cost exceeded budget: {:?} > {:?}", a, b),
             CheckErrors::InvalidTypeDescription => "supplied type description is invalid".into(),
             CheckErrors::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             CheckErrors::BadSyntaxExpectedListOfPairs => "bad syntax: function expects a list of pairs to bind names, e.g., ((name-0 a) (name-1 b) ...)".into(),

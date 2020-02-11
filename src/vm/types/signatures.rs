@@ -5,6 +5,7 @@ use std::convert::{TryFrom, TryInto};
 use std::collections::BTreeMap;
 
 use address::c32;
+use vm::costs::cost_functions;
 use vm::types::{Value, MAX_VALUE_SIZE, QualifiedContractIdentifier, StandardPrincipalData};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 use vm::errors::{RuntimeErrorType, CheckErrors, IncomparableError, Error as VMError};
@@ -351,9 +352,10 @@ impl TupleTypeSignature {
         return true
     }
 
-    pub fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature> {
+    pub fn parse_name_type_pair_list <A: CostTracker>
+        (type_def: &SymbolicExpression, accounting: &mut A) -> Result<TupleTypeSignature> {
         if let SymbolicExpressionType::List(ref name_type_pairs) = type_def.expr {
-            let mapped_key_types = parse_name_type_pairs(name_type_pairs)?;
+            let mapped_key_types = parse_name_type_pairs(name_type_pairs, accounting)?;
             TupleTypeSignature::try_from(mapped_key_types)
         } else {
             Err(CheckErrors::BadSyntaxExpectedListOfPairs)
@@ -544,14 +546,14 @@ impl TypeSignature {
 
     // Parses list type signatures ->
     // (list maximum-length atomic-type)
-    fn parse_list_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+    fn parse_list_type_repr<A: CostTracker>(type_args: &[SymbolicExpression], accounting: &mut A) -> Result<TypeSignature> {
         if type_args.len() != 2 {
             return Err(CheckErrors::InvalidTypeDescription);
         }
 
         if let SymbolicExpressionType::LiteralValue(Value::Int(max_len)) = &type_args[0].expr {            
             let atomic_type_arg = &type_args[type_args.len()-1];
-            let entry_type = TypeSignature::parse_type_repr(atomic_type_arg)?;
+            let entry_type = TypeSignature::parse_type_repr(atomic_type_arg, accounting)?;
             let max_len = u32::try_from(*max_len)
                 .map_err(|_| CheckErrors::ValueTooLarge)?;
             ListTypeData::new_list(entry_type, max_len).map(|x| x.into())
@@ -562,8 +564,8 @@ impl TypeSignature {
 
     // Parses type signatures of the following form:
     // (tuple (key-name-0 value-type-0) (key-name-1 value-type-1))
-    fn parse_tuple_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
-        let mapped_key_types = parse_name_type_pairs(type_args)?;
+    fn parse_tuple_type_repr<A: CostTracker> (type_args: &[SymbolicExpression], accounting: &mut A) -> Result<TypeSignature> {
+        let mapped_key_types = parse_name_type_pairs(type_args, accounting)?;
         let tuple_type_signature = TupleTypeSignature::try_from(mapped_key_types)?;
         Ok(TypeSignature::from(tuple_type_signature))
     }
@@ -582,25 +584,27 @@ impl TypeSignature {
         }
     }
 
-    fn parse_optional_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+    fn parse_optional_type_repr<A: CostTracker>(type_args: &[SymbolicExpression], accounting: &mut A) -> Result<TypeSignature> {
         if type_args.len() != 1 {
             return Err(CheckErrors::InvalidTypeDescription)
         }
-        let inner_type = TypeSignature::parse_type_repr(&type_args[0])?;
+        let inner_type = TypeSignature::parse_type_repr(&type_args[0], accounting)?;
         
         Ok(TypeSignature::new_option(inner_type))
     }
 
-    fn parse_response_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+    fn parse_response_type_repr<A: CostTracker>(type_args: &[SymbolicExpression], accounting: &mut A) -> Result<TypeSignature> {
         if type_args.len() != 2 {
             return Err(CheckErrors::InvalidTypeDescription)
         }
-        let ok_type = TypeSignature::parse_type_repr(&type_args[0])?;
-        let err_type = TypeSignature::parse_type_repr(&type_args[1])?;
+        let ok_type = TypeSignature::parse_type_repr(&type_args[0], accounting)?;
+        let err_type = TypeSignature::parse_type_repr(&type_args[1], accounting)?;
         Ok(TypeSignature::new_response(ok_type, err_type))
     }
 
-    pub fn parse_type_repr(x: &SymbolicExpression) -> Result<TypeSignature> {
+    pub fn parse_type_repr<A: CostTracker>(x: &SymbolicExpression, accounting: &mut A) -> Result<TypeSignature> {
+        runtime_cost!(cost_functions::TYPE_PARSE_STEP, accounting, 0)?;
+
         match x.expr {
             SymbolicExpressionType::Atom(ref atom_type_str) => {
                 let atomic_type = TypeSignature::parse_atom_type(atom_type_str)?;
@@ -611,11 +615,11 @@ impl TypeSignature {
                     .ok_or(CheckErrors::InvalidTypeDescription)?;
                 if let SymbolicExpressionType::Atom(ref compound_type) = compound_type.expr {
                     match compound_type.as_ref() {
-                        "list" => TypeSignature::parse_list_type_repr(rest),
+                        "list" => TypeSignature::parse_list_type_repr(rest, accounting),
                         "buff" => TypeSignature::parse_buff_type_repr(rest),
-                        "tuple" => TypeSignature::parse_tuple_type_repr(rest),
-                        "optional" => TypeSignature::parse_optional_type_repr(rest),
-                        "response" => TypeSignature::parse_response_type_repr(rest),
+                        "tuple" => TypeSignature::parse_tuple_type_repr(rest, accounting),
+                        "optional" => TypeSignature::parse_optional_type_repr(rest, accounting),
+                        "response" => TypeSignature::parse_response_type_repr(rest, accounting),
                         _ => Err(CheckErrors::InvalidTypeDescription)
                     }
                 } else {
@@ -763,7 +767,10 @@ impl TupleTypeSignature {
     }
 }
 
-pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<Vec<(ClarityName, TypeSignature)>> {
+use vm::costs::CostTracker;
+
+pub fn parse_name_type_pairs<A: CostTracker> (name_type_pairs: &[SymbolicExpression], accounting: &mut A) ->
+    Result<Vec<(ClarityName, TypeSignature)>> {
     // this is a pretty deep nesting here, but what we're trying to do is pick out the values of
     // the form:
     // ((name1 type1) (name2 type2) (name3 type3) ...)
@@ -791,7 +798,7 @@ pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<V
             let name = name_symbol.match_atom()
                 .ok_or(CheckErrors::BadSyntaxExpectedListOfPairs)?
                 .clone();
-            let type_info = TypeSignature::parse_type_repr(type_symbol)?;
+            let type_info = TypeSignature::parse_type_repr(type_symbol, accounting)?;
             Ok((name, type_info))
         }).collect();
     

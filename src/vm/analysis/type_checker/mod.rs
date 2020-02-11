@@ -255,7 +255,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             .ok_or(CheckErrors::RequiresAtLeastArguments(1, 0))?;
         let function_name = function_name.match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
-        let mut args = parse_name_type_pairs(args)
+        let mut args = parse_name_type_pairs::<()>(args, &mut ())
             .map_err(|_| { CheckErrors::BadSyntaxBinding })?;
 
         if self.function_return_tracker.is_some() {
@@ -309,10 +309,10 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         // should we set the type of the subexpressions of the signature to no-type as well?
 
         let key_type = TypeSignature::from(
-            TupleTypeSignature::parse_name_type_pair_list(key_type)
+            TupleTypeSignature::parse_name_type_pair_list::<()>(key_type, &mut ())
                 .map_err(|_| { CheckErrors::BadMapTypeDefinition })?);
         let value_type = TypeSignature::from(
-            TupleTypeSignature::parse_name_type_pair_list(value_type)
+            TupleTypeSignature::parse_name_type_pair_list::<()>(value_type, &mut ())
                 .map_err(|_| { CheckErrors::BadMapTypeDefinition })?);
 
         Ok((map_name.clone(), (key_type, value_type)))
@@ -380,7 +380,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     fn type_check_define_persisted_variable(&mut self, var_name: &ClarityName, var_type: &SymbolicExpression, initial: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
-        let expected_type = TypeSignature::parse_type_repr(var_type)
+        let expected_type = TypeSignature::parse_type_repr::<()>(var_type, &mut ())
             .map_err(|_e| CheckErrors::DefineVariableBadSignature)?;
 
         self.type_check_expects(initial, context, &expected_type)?;
@@ -397,7 +397,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     fn type_check_define_nft(&mut self, asset_name: &ClarityName, nft_type: &SymbolicExpression, _context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
-        let asset_type = TypeSignature::parse_type_repr(&nft_type)
+        let asset_type = TypeSignature::parse_type_repr::<()>(&nft_type, &mut ())
             .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?;
 
         Ok((asset_name.clone(), asset_type))

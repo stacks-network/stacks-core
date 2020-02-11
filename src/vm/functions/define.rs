@@ -59,7 +59,7 @@ fn handle_define_variable(variable: &ClarityName, expression: &SymbolicExpressio
 
 fn handle_define_function(signature: &[SymbolicExpression],
                           expression: &SymbolicExpression,
-                          env: &Environment,
+                          env: &mut Environment,
                           define_type: DefineType) -> Result<DefineResult> {
     let (function_symbol, arg_symbols) = signature.split_first()
         .ok_or(CheckErrors::DefineFunctionBadSignature)?;
@@ -69,7 +69,7 @@ fn handle_define_function(signature: &[SymbolicExpression],
 
     check_legal_define(&function_name, &env.contract_context)?;
 
-    let arguments = parse_name_type_pairs(arg_symbols)?;
+    let arguments = parse_name_type_pairs(arg_symbols, env)?;
 
     for (argument, _) in arguments.iter() {
         check_legal_define(argument, &env.contract_context)?;
@@ -88,7 +88,7 @@ fn handle_define_function(signature: &[SymbolicExpression],
 fn handle_define_persisted_variable(variable_str: &ClarityName, value_type: &SymbolicExpression, value: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     check_legal_define(&variable_str, &env.contract_context)?;
 
-    let value_type_signature = TypeSignature::parse_type_repr(value_type)?;
+    let value_type_signature = TypeSignature::parse_type_repr(value_type, env)?;
 
     let context = LocalContext::new();
     let value = eval(value, env, &context)?;
@@ -99,7 +99,7 @@ fn handle_define_persisted_variable(variable_str: &ClarityName, value_type: &Sym
 fn handle_define_nonfungible_asset(asset_name: &ClarityName, key_type: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     check_legal_define(&asset_name, &env.contract_context)?;
 
-    let key_type_signature = TypeSignature::parse_type_repr(key_type)?;
+    let key_type_signature = TypeSignature::parse_type_repr(key_type, env)?;
 
     Ok(DefineResult::NonFungibleAsset(asset_name.to_string(), key_type_signature))
 }
@@ -123,11 +123,11 @@ fn handle_define_fungible_token(asset_name: &ClarityName, total_supply: Option<&
 fn handle_define_map(map_str: &ClarityName,
                      key_type: &SymbolicExpression,
                      value_type: &SymbolicExpression,
-                     env: &Environment) -> Result<DefineResult> {
+                     env: &mut Environment) -> Result<DefineResult> {
     check_legal_define(&map_str, &env.contract_context)?;
 
-    let key_type_signature = TupleTypeSignature::parse_name_type_pair_list(key_type)?;
-    let value_type_signature = TupleTypeSignature::parse_name_type_pair_list(value_type)?;
+    let key_type_signature = TupleTypeSignature::parse_name_type_pair_list(key_type, env)?;
+    let value_type_signature = TupleTypeSignature::parse_name_type_pair_list(value_type, env)?;
 
     Ok(DefineResult::Map(map_str.to_string(), key_type_signature, value_type_signature))
 }
