@@ -244,6 +244,7 @@ pub struct BurnchainBlockHeader {
     pub parent_block_hash: BurnchainHeaderHash,
     pub parent_index_root: TrieHash,
     pub num_txs: u64,
+    pub timestamp: u64,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -373,6 +374,7 @@ pub mod test {
     use util::vrf::*;
     use util::secp256k1::*;
     use util::db::*;
+    use util::get_epoch_time_secs;
 
     use burnchains::Burnchain;
     use chainstate::burn::operations::BlockstackOperationType;
@@ -420,7 +422,8 @@ pub mod test {
         pub block_height: u64,
         pub parent_snapshot: BlockSnapshot,
         pub txs: Vec<BlockstackOperationType>,
-        pub fork_id: u64
+        pub fork_id: u64,
+        pub timestamp: u64
     }
 
     #[derive(Debug, Clone)]
@@ -648,7 +651,8 @@ pub mod test {
                 parent_snapshot: parent_snapshot.clone(),
                 block_height: parent_snapshot.block_height + 1,
                 txs: vec![],
-                fork_id: fork_id
+                fork_id: fork_id,
+                timestamp: get_epoch_time_secs()
             }
         }
 
@@ -747,7 +751,7 @@ pub mod test {
 
         pub fn mine<'a>(&self, tx: &mut BurnDBTx<'a>, burnchain: &Burnchain) -> BlockSnapshot {
             let block_hash = BurnchainHeaderHash::from_test_data(self.block_height, &self.parent_snapshot.index_root, self.fork_id);
-            let mock_bitcoin_block = BitcoinBlock::new(self.block_height, &block_hash, &self.parent_snapshot.burn_header_hash, &vec![]);
+            let mock_bitcoin_block = BitcoinBlock::new(self.block_height, &block_hash, &self.parent_snapshot.burn_header_hash, &vec![], get_epoch_time_secs());
             let block = BurnchainBlock::Bitcoin(mock_bitcoin_block);
             
             // this is basically lifted verbatum from Burnchain::process_block_ops()
