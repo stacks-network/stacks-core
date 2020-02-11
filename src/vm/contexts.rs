@@ -838,7 +838,7 @@ impl ContractContext {
         self.referenced_traits.get(name).cloned()
     }
 
-    pub fn is_explicitely_implementing_trait(&self, trait_identifier: &TraitIdentifier) -> bool {
+    pub fn is_explicitly_implementing_trait(&self, trait_identifier: &TraitIdentifier) -> bool {
         self.implemented_traits.contains(trait_identifier)
     }
 }

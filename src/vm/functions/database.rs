@@ -41,7 +41,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
                     // then we can simply rely on the analysis performed at publish time.
-                    if contract_context_to_check.is_explicitely_implementing_trait(&trait_identifier) {
+                    if contract_context_to_check.is_explicitly_implementing_trait(&trait_identifier) {
                         (contract_identifier, None)
                     } else {
                         let trait_name = trait_identifier.name.to_string();
