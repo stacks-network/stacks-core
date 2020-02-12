@@ -18,7 +18,7 @@ use blockstack_lib::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
     StacksPublicKey, TransactionPayload, StacksTransactionSigner,
-    StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress };
+    StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress, TokenTransferMemo };
 use blockstack_lib::burnchains::Address;
 use blockstack_lib::address::AddressHashMode;
 use blockstack_lib::net::{Error as NetError, StacksMessageCodec};
@@ -33,6 +33,7 @@ This CLI has these methods:
   publish          used to generate and sign a contract publish transaction
   contract-call    used to generate and sign a contract-call transaction
   generate-sk      used to generate a secret key for transaction signing
+  token-transfer   used to generate and sign a transfer transaction
 
 For usage information on those methods, call `blockstack-cli [method] -h`
 
@@ -69,6 +70,12 @@ e.g.,
                        -x 0000000000000000000000000000000001 \\
                        -x 050011deadbeef11ababffff11deadbeef11ababffff
 ";
+
+const TOKEN_TRANSFER_USAGE: &str = "blockstack-cli (options) token-transfer [origin-secret-key-hex] [fee-rate] [nonce] [recipient-address] [amount] [memo] [args...]
+
+The transfer command generates and signs a STX transfer transaction. If successful,
+this command outputs the hex string encoding of the transaction to stdout, and exits with
+code 0";
 
 const GENERATE_USAGE: &str = "blockstack-cli (options) generate-sk
 
@@ -286,6 +293,40 @@ fn handle_contract_call(args: &[String], version: TransactionVersion) -> Result<
     Ok(to_hex(&signed_tx_bytes))
 }
 
+fn handle_token_transfer(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
+    if args.len() >= 1 && args[0] == "-h" {
+        return Err(CliError::Message(format!("USAGE:\n {}", TOKEN_TRANSFER_USAGE)))
+    }
+    if args.len() < 5 {
+        return Err(CliError::Message(format!("Incorrect argument count supplied \n\nUSAGE:\n {}", CALL_USAGE)))
+    }
+    let sk_origin = StacksPrivateKey::from_hex(&args[0])?;
+    let fee_rate = args[1].parse()?;
+    let nonce = args[2].parse()?;
+    let recipient_address = StacksAddress::from_string(&args[3]).ok_or("Failed to parse contract address")?;
+    let amount = &args[4].parse()?;
+    let memo = {
+        let mut memo = [0; 34];
+        let mut bytes = if args.len() == 6 { args[5].as_bytes().to_vec() } else { vec![] };
+        bytes.resize(34, 0);
+        memo.copy_from_slice(&bytes);
+        TokenTransferMemo(memo)
+    };
+
+    let payload = TransactionPayload::TokenTransfer(recipient_address, *amount, memo);
+    let unsigned_tx = make_standard_single_sig_tx(version, payload, &StacksPublicKey::from_private(&sk_origin),
+                                                  nonce, fee_rate);
+    let mut unsigned_tx_bytes = vec![];
+    unsigned_tx.consensus_serialize(&mut unsigned_tx_bytes).expect("FATAL: invalid transaction");
+    let signed_tx = sign_transaction_single_sig_standard(
+        &to_hex(&unsigned_tx_bytes), &sk_origin)?;
+
+    let mut signed_tx_bytes = vec![];
+    signed_tx.consensus_serialize(&mut signed_tx_bytes).expect("FATAL: invalid signed transaction");
+    Ok(to_hex(&signed_tx_bytes))
+}
+
+
 fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
     if args.len() >= 1 && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", GENERATE_USAGE)))
@@ -340,6 +381,7 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
         match method.as_str() {
             "contract-call" => handle_contract_call(args, tx_version),
             "publish" => handle_contract_publish(args, tx_version),
+            "token-transfer" => handle_token_transfer(args, tx_version),
             "generate-sk" => generate_secret_key(args, tx_version),
             _ => Err(CliError::Usage)
         }
@@ -385,6 +427,53 @@ mod test {
         assert!(format!("{}", main_handler(to_string_vec(&publish_args)).unwrap_err())
                 .contains("IO error"));
 
+    }
+
+    #[test]
+    fn simple_token_transfer() {
+        let tt_args = [
+            "token-transfer",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "ST1A14RBKJ289E3DP89QAZE2RRHDPWP5RHMYFRCHV",
+            "10"];
+
+        assert!(main_handler(to_string_vec(&tt_args)).is_ok());
+
+        let tt_args = [
+            "token-transfer",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "ST1A14RBKJ289E3DP89QAZE2RRHDPWP5RHMYFRCHV",
+            "10",
+            "Memo"];
+
+        assert!(main_handler(to_string_vec(&tt_args)).is_ok());
+
+
+        let tt_args = [
+            "token-transfer",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "ST1A14RBKJ289E3DP89QAZE2RRHDPWP5RHMYFRCHV",
+            "-1"];
+
+        assert!(format!("{}", main_handler(to_string_vec(&tt_args)).unwrap_err())
+                .contains("Failed to parse integer"));
+
+        let tt_args = [
+            "token-transfer",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SX1A14RBKJ289E3DP89QAZE2RRHDPWP5RHMYFRCHV",
+            "10"];
+
+        assert!(format!("{}", main_handler(to_string_vec(&tt_args)).unwrap_err())
+                .contains("Failed to parse contract address"));        
     }
 
     #[test]
