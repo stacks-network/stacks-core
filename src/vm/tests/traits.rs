@@ -13,6 +13,7 @@ use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbo
 #[test]
 fn test_all() {
     let to_test = [
+        test_dynamic_dispatch_intra_contract_call,
         test_dynamic_dispatch_by_defining_trait,
         test_dynamic_dispatch_by_implementing_imported_trait,
         test_dynamic_dispatch_by_importing_trait,
@@ -52,6 +53,38 @@ fn test_dynamic_dispatch_by_defining_trait(owned_env: &mut OwnedEnvironment) {
         assert_eq!(
             env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap(),
             Value::okay(Value::UInt(1)));
+    }
+}
+
+fn test_dynamic_dispatch_intra_contract_call(owned_env: &mut OwnedEnvironment) {
+    let contract_defining_trait = 
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))";
+    let dispatching_contract =
+        "(use-trait trait-1 .contract-defining-trait.trait-1)
+        (define-public (wrapped-get-1 (contract <trait-1>)) 
+            (contract-call? contract get-1 u0))
+        (define-public (get-1 (x uint)) (ok u1))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    {
+        let mut env = owned_env.get_exec_environment(None);
+        env.initialize_contract(QualifiedContractIdentifier::local("contract-defining-trait").unwrap(), contract_defining_trait).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("dispatching-contract").unwrap(), dispatching_contract).unwrap();
+    }
+
+    {
+        let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("dispatching-contract").unwrap()));
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap_err();
+        match err_result {
+            Error::Unchecked(CheckErrors::CircularReference(_)) => {},
+            _ => {
+                println!("{:?}", err_result);
+                panic!("Attempt to call init-factorial should fail!")
+            }
+        }
     }
 }
 

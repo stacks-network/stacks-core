@@ -34,6 +34,11 @@ pub fn special_contract_call(args: &[SymbolicExpression],
             // Dynamic dispatch
             match context.callable_contracts.get(contract_ref) {
                 Some((ref contract_identifier, trait_identifier)) => {
+                    // Ensure that contract-call is used for inter-contract calls only 
+                    if *contract_identifier == env.contract_context.contract_identifier {
+                        return Err(CheckErrors::CircularReference(vec![contract_identifier.name.to_string()]).into());
+                    }
+                    
                     let contract_to_check = env.global_context.database.get_contract(contract_identifier)
                         .map_err(|_e| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
                     let contract_context_to_check = contract_to_check.contract_context;
