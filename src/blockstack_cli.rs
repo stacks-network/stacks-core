@@ -462,7 +462,7 @@ mod test {
             "-1"];
 
         assert!(format!("{}", main_handler(to_string_vec(&tt_args)).unwrap_err())
-                .contains("IO error"));
+                .contains("Failed to parse integer"));        
 
         let tt_args = [
             "token-transfer",
@@ -473,7 +473,7 @@ mod test {
             "10"];
 
         assert!(format!("{}", main_handler(to_string_vec(&tt_args)).unwrap_err())
-                .contains("IO error"));        
+                .contains("Failed to parse contract address"));        
     }
 
     #[test]
