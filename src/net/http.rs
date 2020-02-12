@@ -94,8 +94,8 @@ impl FromStr for PeerHost {
                     Ok(socketaddr) => Ok(PeerHost::IP(PeerAddress::from_socketaddr(&socketaddr), socketaddr.port())),
                     Err(_) => {
                         // try as DNS-name:port
-                        let mut host = None;
-                        let mut port = None;
+                        let host;
+                        let port;
                         let parts : Vec<&str> = header.split(":").collect();
                         if parts.len() == 0 {
                             return Err(net_error::DeserializeError("Failed to parse PeerHost: no parts".to_string()));

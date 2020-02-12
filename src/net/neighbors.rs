@@ -1835,38 +1835,78 @@ mod test {
         // next, make peer 1 discover peer 2's neighbors and peer 2's in/out degree.
         // Do two full walks
         let mut i = 0;
-        let mut walk_1_count = 0;
-        let mut walk_2_count = 0;
-        while walk_1_count < 20 && walk_2_count < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+        let mut did_connect = false;
+        while !did_connect {
+            let mut walk_1_count = 0;
+            let mut walk_2_count = 0;
+            while walk_1_count < 20 && walk_2_count < 20 {
+                let _ = peer_1.step();
+                let _ = peer_2.step();
 
-            for j in 0..10 {
-                let _ = peer_2_neighbors[j].step();
+                for j in 0..10 {
+                    let _ = peer_2_neighbors[j].step();
+                }
+                
+                walk_1_count = peer_1.network.walk_total_step_count;
+                walk_2_count = peer_2.network.walk_total_step_count;
+
+                test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
+                
+                match peer_1.network.walk {
+                    Some(ref w) => {
+                        assert_eq!(w.result.broken_connections.len(), 0);
+                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    }
+                    None => {}
+                };
+
+                match peer_2.network.walk {
+                    Some(ref w) => {
+                        assert_eq!(w.result.broken_connections.len(), 0);
+                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    }
+                    None => {}
+                };
+
+                i += 1;
+            }
+
+            // peer 1 must have handshaked with all of peer 2's neighbors if this test will pass
+            let peer_1_dbconn = peer_1.get_peerdb_conn();
+            let mut num_handshakes = 0;
+            for peer in &peer_2_neighbors {
+                let n = peer.to_neighbor();
+                let p_opt = PeerDB::get_peer(peer_1_dbconn, n.addr.network_id, &n.addr.addrbytes, n.addr.port).unwrap();
+                match p_opt {
+                    None => {
+                        test_debug!("no such peer: {:?}", &n.addr);
+                    },
+                    Some(p) => {
+                        assert_eq!(p.public_key, n.public_key);
+                        assert_eq!(p.expire_block, n.expire_block);
+                        num_handshakes += 1;
+                    }
+                }
+            }
+
+            if num_handshakes < 10 {
+                continue;
             }
             
-            walk_1_count = peer_1.network.walk_total_step_count;
-            walk_2_count = peer_2.network.walk_total_step_count;
-
-            test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
-            
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+            // peer 1 learned that peer 2 has an out-degree of 10 (10 neighbors) and an in-degree of 1 if this test will pass
+            let n2 = peer_2.to_neighbor();
+            let p2_opt = PeerDB::get_peer(peer_1_dbconn, n2.addr.network_id, &n2.addr.addrbytes, n2.addr.port).unwrap();
+            match p2_opt {
+                None => {
+                    test_debug!("no peer 2");
+                },
+                Some(p2) => {
+                    if p2.out_degree >= 11 && p2.in_degree >= 1 {
+                        assert_eq!(p2.out_degree, 11);
+                        did_connect = true;
+                    }
                 }
-                None => {}
-            };
-
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
-            };
-
-            i += 1;
+            }
         }
         
         info!("Completed walk round {} step(s)", i);
@@ -1879,37 +1919,6 @@ mod test {
         assert!(stats_1.last_recv_time > 0);
         assert!(stats_1.bytes_rx > 0);
         assert!(stats_1.bytes_tx > 0);
-
-        // peer 1 handshaked with all of peer 2's neighbors
-        let peer_1_dbconn = peer_1.get_peerdb_conn();
-        for peer in &peer_2_neighbors {
-            let n = peer.to_neighbor();
-            let p_opt = PeerDB::get_peer(peer_1_dbconn, n.addr.network_id, &n.addr.addrbytes, n.addr.port).unwrap();
-            match p_opt {
-                None => {
-                    test_debug!("no such peer: {:?}", &n.addr);
-                    assert!(false);
-                },
-                Some(p) => {
-                    assert_eq!(p.public_key, n.public_key);
-                    assert_eq!(p.expire_block, n.expire_block);
-                }
-            }
-        }
-        
-        // peer 1 learned that peer 2 has an out-degree of 10 (10 neighbors) and an in-degree of 1 
-        let n2 = peer_2.to_neighbor();
-        let p2_opt = PeerDB::get_peer(peer_1_dbconn, n2.addr.network_id, &n2.addr.addrbytes, n2.addr.port).unwrap();
-        match p2_opt {
-            None => {
-                test_debug!("no peer 2");
-                assert!(false);
-            },
-            Some(p2) => {
-                assert_eq!(p2.out_degree, 11);
-                assert_eq!(p2.in_degree, 1);        // just peer 1
-            }
-        }
     }
     
     #[test]
@@ -1946,39 +1955,94 @@ mod test {
         // next, make peer 1 discover peer 2's neighbors and peer 2's in/out degree.
         // Do two full walks
         let mut i = 0;
-        let mut walk_1_count = 0;
-        let mut walk_2_count = 0;
-        while walk_1_count < 20 && walk_2_count < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
-            
-            for j in 0..10 {
-                let _ = peer_2_neighbors[j].step();
+        let mut did_handshakes = false;
+        while !did_handshakes {
+            let mut walk_1_count = 0;
+            let mut walk_2_count = 0;
+            while walk_1_count < 20 && walk_2_count < 20 {
+                let _ = peer_1.step();
+                let _ = peer_2.step();
+                
+                for j in 0..10 {
+                    let _ = peer_2_neighbors[j].step();
+                }
+                
+                walk_1_count = peer_1.network.walk_total_step_count;
+                walk_2_count = peer_2.network.walk_total_step_count;
+
+                test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
+
+                match peer_1.network.walk {
+                    Some(ref w) => {
+                        assert_eq!(w.result.broken_connections.len(), 0);
+                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    }
+                    None => {}
+                };
+
+                match peer_2.network.walk {
+                    Some(ref w) => {
+                        assert_eq!(w.result.broken_connections.len(), 0);
+                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    }
+                    None => {}
+                };
+                
+                i += 1;
+            }
+        
+            peer_1.dump_frontier();
+            peer_2.dump_frontier();
+
+            // check if peer 1 handshaked with all of peer 2's _fresh_ neighbors
+            let peer_1_dbconn = peer_1.get_peerdb_conn();
+            let mut num_contacted = 0;      // should be 5 when test finishes
+            for i in 0..5 {
+                let peer = &peer_2_neighbors[i];
+                let n = peer.to_neighbor();
+                let p_opt = PeerDB::get_peer(peer_1_dbconn, n.addr.network_id, &n.addr.addrbytes, n.addr.port).unwrap();
+                match p_opt {
+                    None => {
+                        test_debug!("no such peer: {:?}", &n.addr);
+                    },
+                    Some(p) => {
+                        assert_eq!(p.public_key, n.public_key);
+                        assert_eq!(p.expire_block, n.expire_block);
+                        num_contacted += 1;
+                    }
+                }
+                
+                let stale_peer = &peer_2_neighbors[i+5];
+                let stale_n = stale_peer.to_neighbor();
+                let stale_peer_opt = PeerDB::get_peer(peer_1_dbconn, stale_n.addr.network_id, &stale_n.addr.addrbytes, stale_n.addr.port).unwrap();
+                match stale_peer_opt {
+                    None => {},
+                    Some(_) => {
+                        test_debug!("stale peer contacted: {:?}", &stale_n.addr);
+                        assert!(false);
+                    }
+                }
+            }
+
+            if num_contacted < 5 {
+                continue;
             }
             
-            walk_1_count = peer_1.network.walk_total_step_count;
-            walk_2_count = peer_2.network.walk_total_step_count;
-
-            test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
-
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+            // peer 1 learned that peer 2 has an out-degree of 6 (peer_1 + 5 fresh neighbors) and an in-degree of 1 
+            let n2 = peer_2.to_neighbor();
+            let p2_opt = PeerDB::get_peer(peer_1_dbconn, n2.addr.network_id, &n2.addr.addrbytes, n2.addr.port).unwrap();
+            match p2_opt {
+                None => {
+                    test_debug!("no peer 2");
+                },
+                Some(p2) => {
+                    if p2.out_degree >= 6 && p2.in_degree >= 1 {
+                        assert_eq!(p2.out_degree, 6);
+                        did_handshakes = true;
+                    }
                 }
-                None => {}
-            };
-
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
-            };
-            
-            i += 1;
-        }
+            }
+        }        
 
         info!("Completed walk round {} step(s)", i);
         
@@ -1990,49 +2054,6 @@ mod test {
         assert!(stats_1.last_recv_time > 0);
         assert!(stats_1.bytes_rx > 0);
         assert!(stats_1.bytes_tx > 0);
-
-        // peer 1 handshaked with all of peer 2's _fresh_ neighbors
-        let peer_1_dbconn = peer_1.get_peerdb_conn();
-        for i in 0..5 {
-            let peer = &peer_2_neighbors[i];
-            let n = peer.to_neighbor();
-            let p_opt = PeerDB::get_peer(peer_1_dbconn, n.addr.network_id, &n.addr.addrbytes, n.addr.port).unwrap();
-            match p_opt {
-                None => {
-                    test_debug!("no such peer: {:?}", &n.addr);
-                    assert!(false);
-                },
-                Some(p) => {
-                    assert_eq!(p.public_key, n.public_key);
-                    assert_eq!(p.expire_block, n.expire_block);
-                }
-            }
-
-            let stale_peer = &peer_2_neighbors[i+5];
-            let stale_n = stale_peer.to_neighbor();
-            let stale_peer_opt = PeerDB::get_peer(peer_1_dbconn, stale_n.addr.network_id, &stale_n.addr.addrbytes, stale_n.addr.port).unwrap();
-            match stale_peer_opt {
-                None => {},
-                Some(_) => {
-                    test_debug!("stale peer contacted: {:?}", &stale_n.addr);
-                    assert!(false);
-                }
-            }
-        }
-        
-        // peer 1 learned that peer 2 has an out-degree of 5 (5 fresh neighbors) and an in-degree of 1 
-        let n2 = peer_2.to_neighbor();
-        let p2_opt = PeerDB::get_peer(peer_1_dbconn, n2.addr.network_id, &n2.addr.addrbytes, n2.addr.port).unwrap();
-        match p2_opt {
-            None => {
-                test_debug!("no peer 2");
-                assert!(false);
-            },
-            Some(p2) => {
-                assert_eq!(p2.out_degree, 6);
-                assert_eq!(p2.in_degree, 1);        // just peer 1
-            }
-        }
     }
 
     #[test]

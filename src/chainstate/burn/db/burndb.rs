@@ -33,6 +33,7 @@ use std::ops::DerefMut;
 
 use util::db::{FromRow, FromColumn, query_rows, query_row_columns, query_count, IndexDBTx, db_mkdirs};
 use util::db::Error as db_error;
+use util::get_epoch_time_secs;
 
 use chainstate::ChainstateDB;
 
@@ -106,6 +107,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
     fn from_row<'a>(row: &'a Row) -> Result<BlockSnapshot, db_error> {
         let block_height_i64 : i64 = row.get("block_height");
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+        let burn_header_timestamp_i64 : i64 = row.get("burn_header_timestamp");
         let parent_burn_header_hash = BurnchainHeaderHash::from_column(row, "parent_burn_header_hash")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let ops_hash = OpsHash::from_column(row, "ops_hash")?;
@@ -125,11 +127,16 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
             return Err(db_error::ParseError);
         }
 
+        if burn_header_timestamp_i64 < 0 {
+            return Err(db_error::ParseError);
+        }
+
         let total_burn = total_burn_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
 
         let snapshot = BlockSnapshot {
             block_height: block_height_i64 as u64,
+            burn_header_timestamp: burn_header_timestamp_i64 as u64,
             burn_header_hash: burn_header_hash,
             parent_burn_header_hash: parent_burn_header_hash,
             consensus_hash: consensus_hash,
@@ -285,6 +292,7 @@ const BURNDB_SETUP : &'static [&'static str]= &[
     CREATE TABLE snapshots(
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT UNIQUE NOT NULL,
+        burn_header_timestamp INT NOT NULL,
         parent_burn_header_hash TEXT NOT NULL,
         consensus_hash TEXT NOT NULL,
         ops_hash TEXT NOT NULL,
@@ -399,11 +407,11 @@ fn burndb_get_ancestor_block_hash<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, 
 }
 
 impl BurnDB {
-    fn instantiate(conn: &mut Connection, index_path: &str, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash) -> Result<(), db_error> {
+    fn instantiate(conn: &mut Connection, index_path: &str, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash, first_burn_header_timestamp: u64) -> Result<(), db_error> {
         let tx = conn.transaction().map_err(db_error::SqliteError)?;
 
         // create first (sentinel) snapshot
-        let mut first_snapshot = BlockSnapshot::initial(first_block_height, first_burn_header_hash);
+        let mut first_snapshot = BlockSnapshot::initial(first_block_height, first_burn_header_hash, first_burn_header_timestamp);
         
         assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
         assert_eq!(first_snapshot.parent_burn_header_hash.as_bytes(), TrieFileStorage::block_sentinel().as_bytes());
@@ -423,9 +431,9 @@ impl BurnDB {
         first_snapshot.index_root = index_root;
 
         burndbtx.tx.execute("INSERT INTO snapshots \
-                   (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions) \
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                   &[&(first_snapshot.block_height as i64) as &dyn ToSql, &first_snapshot.burn_header_hash, &first_snapshot.parent_burn_header_hash, &first_snapshot.consensus_hash, &first_snapshot.ops_hash, &"0".to_string(),
+                   (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                   &[&(first_snapshot.block_height as i64) as &dyn ToSql, &first_snapshot.burn_header_hash, &(first_snapshot.burn_header_timestamp as i64), &first_snapshot.parent_burn_header_hash, &first_snapshot.consensus_hash, &first_snapshot.ops_hash, &"0".to_string(),
                      &first_snapshot.sortition as &dyn ToSql, &first_snapshot.sortition_hash, &first_snapshot.winning_block_txid, &first_snapshot.winning_stacks_block_hash, &first_snapshot.index_root, 
                      &(first_snapshot.num_sortitions as i64) as &dyn ToSql])
             .map_err(db_error::SqliteError)?;
@@ -436,7 +444,7 @@ impl BurnDB {
 
     /// Open the burn database at the given path.  Open read-only or read/write.
     /// If opened for read/write and it doesn't exist, instantiate it.
-    pub fn connect(path: &String, first_block_height: u64, first_burn_hash: &BurnchainHeaderHash, readwrite: bool) -> Result<BurnDB, db_error> {
+    pub fn connect(path: &String, first_block_height: u64, first_burn_hash: &BurnchainHeaderHash, first_burn_header_timestamp: u64, readwrite: bool) -> Result<BurnDB, db_error> {
         let mut create_flag = false;
         let open_flags = match fs::metadata(path) {
             Err(e) => {
@@ -470,7 +478,7 @@ impl BurnDB {
 
         if create_flag {
             // instantiate!
-            BurnDB::instantiate(&mut conn, &index_path, first_block_height, first_burn_hash)?;
+            BurnDB::instantiate(&mut conn, &index_path, first_block_height, first_burn_hash, first_burn_header_timestamp)?;
         }
         else {
             // validate -- must contain the given first block and first block hash 
@@ -513,7 +521,7 @@ impl BurnDB {
         let db_path_dir = format!("/tmp/test-blockstack-burndb-{}", to_hex(&buf));
         let (db_path, index_path) = db_mkdirs(&db_path_dir)?;
 
-        BurnDB::instantiate(&mut conn, &index_path, first_block_height, first_burn_hash)?;
+        BurnDB::instantiate(&mut conn, &index_path, first_block_height, first_burn_hash, get_epoch_time_secs())?;
 
         let marf = BurnDB::open_index(&index_path)?;
 
@@ -580,9 +588,9 @@ impl BurnDB {
         let total_burn_str = format!("{}", snapshot.total_burn);
 
         tx.execute("INSERT INTO snapshots \
-                   (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions) \
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                   &[&(snapshot.block_height as i64) as &dyn ToSql, &snapshot.burn_header_hash, &snapshot.parent_burn_header_hash, &snapshot.consensus_hash, &snapshot.ops_hash, &total_burn_str,
+                   (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                   &[&(snapshot.block_height as i64) as &dyn ToSql, &snapshot.burn_header_hash, &(snapshot.burn_header_timestamp as i64), &snapshot.parent_burn_header_hash, &snapshot.consensus_hash, &snapshot.ops_hash, &total_burn_str,
                      &snapshot.sortition as &dyn ToSql, &snapshot.sortition_hash, &snapshot.winning_block_txid, &snapshot.winning_stacks_block_hash, &snapshot.index_root,
                      &(snapshot.num_sortitions as i64) as &dyn ToSql])
             .map_err(db_error::SqliteError)?;
@@ -1477,6 +1485,7 @@ mod tests {
     use super::*;
 
     use util::db::Error as db_error;
+    use util::get_epoch_time_secs;
 
     use chainstate::burn::operations::{
         LeaderBlockCommitOp,
@@ -1949,6 +1958,7 @@ mod tests {
             for i in 0..255 {
                 let snapshot_row = BlockSnapshot {
                     block_height: i+1,
+                    burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
@@ -2015,6 +2025,7 @@ mod tests {
             for i in 0..256 {
                 let snapshot_row = BlockSnapshot {
                     block_height: i+1,
+                    burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -2162,6 +2173,7 @@ mod tests {
 
         let mut first_snapshot = BlockSnapshot {
             block_height: block_height - 2,
+            burn_header_timestamp: get_epoch_time_secs(),
             burn_header_hash: first_burn_hash.clone(),
             parent_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
             consensus_hash: ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
@@ -2177,6 +2189,7 @@ mod tests {
 
         let mut snapshot_with_sortition = BlockSnapshot {
             block_height: block_height,
+            burn_header_timestamp: get_epoch_time_secs(),
             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
             parent_burn_header_hash:  BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
             consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
@@ -2192,6 +2205,7 @@ mod tests {
 
         let snapshot_without_sortition = BlockSnapshot {
             block_height: block_height - 1,
+            burn_header_timestamp: get_epoch_time_secs(),
             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
             parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
             consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
