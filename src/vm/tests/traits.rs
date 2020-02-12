@@ -81,8 +81,7 @@ fn test_dynamic_dispatch_intra_contract_call(owned_env: &mut OwnedEnvironment) {
         match err_result {
             Error::Unchecked(CheckErrors::CircularReference(_)) => {},
             _ => {
-                println!("{:?}", err_result);
-                panic!("Attempt to call init-factorial should fail!")
+                panic!("{:?}", err_result)
             }
         }
     }
@@ -212,8 +211,7 @@ fn test_dynamic_dispatch_mismatched_args(owned_env: &mut OwnedEnvironment) {
         match err_result {
             Error::Unchecked(CheckErrors::BadTraitImplementation(_, _)) => {},
             _ => {
-                println!("{:?}", err_result);
-                panic!("Attempt to call init-factorial should fail!")
+                panic!("{:?}", err_result)
             }
         }
     }
@@ -243,8 +241,7 @@ fn test_dynamic_dispatch_mismatched_returned(owned_env: &mut OwnedEnvironment) {
         match err_result {
             Error::Unchecked(CheckErrors::ReturnTypesMustMatch(_, _)) => {},
             _ => {
-                println!("{:?}", err_result);
-                panic!("Attempt to call init-factorial should fail!")
+                panic!("{:?}", err_result)
             }
         }
     }
@@ -276,8 +273,7 @@ fn test_reentrant_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
         match err_result {
             Error::Unchecked(CheckErrors::CircularReference(_)) => {},
             _ => {
-                println!("{:?}", err_result);
-                panic!("Attempt to call init-factorial should fail!")
+                panic!("{:?}", err_result)
             }
         }
     }
@@ -331,8 +327,7 @@ fn test_readwrite_violation_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
         match err_result {
             Error::Unchecked(CheckErrors::WriteAttemptedInReadOnly) => {},
             _ => {
-                println!("{:?}", err_result);
-                panic!("Attempt to call init-factorial should fail!")
+                panic!("{:?}", err_result)
             }
         }
     }
