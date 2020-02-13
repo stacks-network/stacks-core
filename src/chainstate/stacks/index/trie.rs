@@ -570,8 +570,7 @@ impl Trie {
         // here is where some mind-bending things begin to happen.
         //   we want to find the block at a given _height_. but how to do so?
         //   use the data stored already in the MARF.
-        let miner_tip = storage.get_miner_tip();
-        let cur_block_height = MARF::get_block_height_miner_tip(storage, &cur_block_header, &cur_block_header, miner_tip.as_ref())
+        let cur_block_height = MARF::get_block_height_miner_tip(storage, &cur_block_header, &cur_block_header)
             .map_err(|e| match e {
                 Error::NotFoundError => Error::CorruptionError(format!("Could not obtain block height for block {}", &cur_block_header)),
                 x => x
@@ -736,8 +735,8 @@ impl Trie {
 
                                 if is_trace() {
                                     let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &content_hash)
-                                        .and_then(|hs| {
-                                            trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &_cur_hash, &content_hash, &hs[1..].to_vec(), &h);
+                                        .and_then(|_hs| {
+                                            trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &_cur_hash, &content_hash, &_hs[1..].to_vec(), &h);
                                             Ok(())
                                         });
                                 }

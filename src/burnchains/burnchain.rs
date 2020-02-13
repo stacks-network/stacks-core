@@ -79,6 +79,7 @@ use util::get_epoch_time_ms;
 use util::db::DBConn;
 use util::db::DBTx;
 use util::vrf::VRFPublicKey;
+use util::get_epoch_time_secs;
 
 use core::PEER_VERSION;
 use core::NETWORK_ID_MAINNET;
@@ -255,6 +256,12 @@ impl BurnchainBlock {
             BurnchainBlock::Bitcoin(ref data) => data.txs.iter().map(|ref tx| BurnchainTransaction::Bitcoin((*tx).clone())).collect()
         }
     }
+
+    pub fn timestamp(&self) -> u64 {
+        match *self {
+            BurnchainBlock::Bitcoin(ref data) => data.timestamp
+        }
+    }
     
     pub fn header(&self, parent_snapshot: &BlockSnapshot) -> BurnchainBlockHeader {
         match *self {
@@ -264,7 +271,8 @@ impl BurnchainBlock {
                     block_hash: data.block_hash.clone(),
                     parent_block_hash: data.parent_block_hash.clone(),
                     num_txs: data.txs.len() as u64,
-                    parent_index_root: parent_snapshot.index_root.clone()
+                    parent_index_root: parent_snapshot.index_root.clone(),
+                    timestamp: data.timestamp
                 }
             }
         }
@@ -386,9 +394,10 @@ impl Burnchain {
 
         let first_block_height = indexer.get_first_block_height();
         let first_block_header_hash = indexer.get_first_block_header_hash(&indexer.get_headers_path())?;
+        let first_block_header_timestamp = indexer.get_first_block_header_timestamp(&indexer.get_headers_path())?;
         
         let db_path = self.get_db_path();
-        BurnDB::connect(&db_path, first_block_height, &first_block_header_hash, readwrite)
+        BurnDB::connect(&db_path, first_block_height, &first_block_header_hash, first_block_header_timestamp, readwrite)
             .map_err(burnchain_error::DBError)
     }
 
@@ -536,7 +545,7 @@ impl Burnchain {
         // classify and check each transaction
         for blockstack_op in block_ops {
             match Burnchain::check_transaction(tx, burnchain, block_header, blockstack_op) {
-                Err(e) => {
+                Err(_) => {
                     // check failed
                     continue;
                 }
@@ -861,6 +870,7 @@ pub mod tests {
 
     use util::hash::hex_bytes;
     use util::log;
+    use util::get_epoch_time_secs;
 
     use chainstate::burn::operations::{
         LeaderBlockCommitOp,
@@ -1130,6 +1140,7 @@ pub mod tests {
         let mut block_121_snapshot = BlockSnapshot {
             block_height: 121,
             burn_header_hash: block_121_hash.clone(),
+            burn_header_timestamp: 121,
             parent_burn_header_hash: first_burn_hash.clone(),
             ops_hash: block_opshash_121.clone(),
             consensus_hash: ConsensusHash::from_ops(&block_opshash_121, 0, &block_prev_chs_121),
@@ -1154,6 +1165,7 @@ pub mod tests {
         let mut block_122_snapshot = BlockSnapshot {
             block_height: 122,
             burn_header_hash: block_122_hash.clone(),
+            burn_header_timestamp: 122,
             parent_burn_header_hash: block_121_hash.clone(),
             ops_hash: block_opshash_122.clone(),
             consensus_hash: ConsensusHash::from_ops(&block_opshash_122, 0, &block_prev_chs_122),
@@ -1184,6 +1196,7 @@ pub mod tests {
         let mut block_123_snapshot = BlockSnapshot {
             block_height: 123,
             burn_header_hash: block_123_hash.clone(),
+            burn_header_timestamp: 123,
             parent_burn_header_hash: block_122_hash.clone(),
             ops_hash: block_opshash_123.clone(),
             consensus_hash: ConsensusHash::from_ops(&block_opshash_123, 0, &block_prev_chs_123),        // user burns not included, so zero burns this block
@@ -1230,11 +1243,11 @@ pub mod tests {
         let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
        
         // NOTE: the .txs() method will NOT be called, so we can pass an empty vec![] here
-        let block121 = BurnchainBlock::Bitcoin(BitcoinBlock::new(121, &block_121_hash, &first_burn_hash, &vec![]));
-        let block122 = BurnchainBlock::Bitcoin(BitcoinBlock::new(122, &block_122_hash, &block_121_hash, &vec![]));
-        let block123 = BurnchainBlock::Bitcoin(BitcoinBlock::new(123, &block_123_hash, &block_122_hash, &vec![]));
+        let block121 = BurnchainBlock::Bitcoin(BitcoinBlock::new(121, &block_121_hash, &first_burn_hash, &vec![], 121));
+        let block122 = BurnchainBlock::Bitcoin(BitcoinBlock::new(122, &block_122_hash, &block_121_hash, &vec![], 122));
+        let block123 = BurnchainBlock::Bitcoin(BitcoinBlock::new(123, &block_123_hash, &block_122_hash, &vec![], 123));
 
-        let initial_snapshot = BlockSnapshot::initial(first_block_height, &first_burn_hash);
+        let initial_snapshot = BlockSnapshot::initial(first_block_height, &first_burn_hash, first_block_height as u64);
 
         // process up to 124 
         {
@@ -1321,6 +1334,7 @@ pub mod tests {
             let mut block_124_snapshot = BlockSnapshot {
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
+                burn_header_timestamp: 124,
                 parent_burn_header_hash: block_123_snapshot.burn_header_hash.clone(),
                 ops_hash: block_opshash_124.clone(),
                 consensus_hash: ConsensusHash::from_ops(&block_opshash_124, burn_total, &block_prev_chs_124),
@@ -1341,7 +1355,7 @@ pub mod tests {
                 block_124_snapshot.sortition_hash = block_124_snapshot.sortition_hash.mix_VRF_seed(&block_124_winners[scenario_idx].new_seed);
             }
 
-            let block124 = BurnchainBlock::Bitcoin(BitcoinBlock::new(124, &block_124_hash, &block_123_hash, &vec![]));
+            let block124 = BurnchainBlock::Bitcoin(BitcoinBlock::new(124, &block_124_hash, &block_123_hash, &vec![], 124));
 
             // process this scenario
             let sn124 = {
@@ -1431,7 +1445,7 @@ pub mod tests {
 
         // insert all operations
         let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
-        let mut prev_snapshot = BlockSnapshot::initial(first_block_height, &first_burn_hash);
+        let mut prev_snapshot = BlockSnapshot::initial(first_block_height, &first_burn_hash, first_block_height as u64);
         let mut all_stacks_block_hashes = vec![];
 
         for i in 0..32 {
@@ -1490,7 +1504,7 @@ pub mod tests {
 
             block_ops.push(BlockstackOperationType::LeaderKeyRegister(next_leader_key));
 
-            let block = BurnchainBlock::Bitcoin(BitcoinBlock::new(first_block_height + (i + 1) as u64, &burn_block_hash, &parent_burn_block_hash, &vec![]));
+            let block = BurnchainBlock::Bitcoin(BitcoinBlock::new(first_block_height + (i + 1) as u64, &burn_block_hash, &parent_burn_block_hash, &vec![], get_epoch_time_secs()));
 
             // process this block
             let snapshot = {

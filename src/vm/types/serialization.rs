@@ -125,7 +125,7 @@ impl From<&Value> for TypePrefix {
                 }
             },
             Optional(OptionalData{ data: None }) => TypePrefix::OptionalNone,
-            Optional(OptionalData{ data: Some(value) }) => TypePrefix::OptionalSome,
+            Optional(OptionalData{ data: Some(_) }) => TypePrefix::OptionalSome,
             List(_) => TypePrefix::List,
             Tuple(_) => TypePrefix::Tuple,
         }

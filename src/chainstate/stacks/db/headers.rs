@@ -112,11 +112,13 @@ impl StacksChainState {
     /// Insert a block header that is paired with an already-existing block commit and snapshot
     pub fn insert_stacks_block_header<'a>(tx: &mut StacksDBTx<'a>, tip_info: &StacksHeaderInfo) -> Result<(), Error> {
         assert_eq!(tip_info.block_height, tip_info.anchored_header.total_work.work);
+        assert!(tip_info.burn_header_timestamp < i64::max_value() as u64);
 
         let header = &tip_info.anchored_header;
         let index_root = &tip_info.index_root;
         let burn_header_hash = &tip_info.burn_header_hash;
         let block_height = tip_info.block_height;
+        let burn_header_timestamp = tip_info.burn_header_timestamp;
 
         let total_work_str = format!("{}", header.total_work.work);
         let total_burn_str = format!("{}", header.total_work.burn);
@@ -127,11 +129,11 @@ impl StacksChainState {
         let args: &[&dyn ToSql] = &[
             &header.version, &total_burn_str, &total_work_str, &header.proof, &header.parent_block, &header.parent_microblock, &header.parent_microblock_sequence,
             &header.tx_merkle_root, &header.state_index_root, &header.microblock_pubkey_hash,
-            &block_hash, &tip_info.index_block_hash(), &burn_header_hash, &(block_height as i64), &index_root];
+            &block_hash, &tip_info.index_block_hash(), &burn_header_hash, &(burn_header_timestamp as i64), &(block_height as i64), &index_root];
 
         tx.execute("INSERT INTO block_headers \
-                    (version, total_burn, total_work, proof, parent_block, parent_microblock, parent_microblock_sequence, tx_merkle_root, state_index_root, microblock_pubkey_hash, block_hash, index_block_hash, burn_header_hash, block_height, index_root) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", args)
+                    (version, total_burn, total_work, proof, parent_block, parent_microblock, parent_microblock_sequence, tx_merkle_root, state_index_root, microblock_pubkey_hash, block_hash, index_block_hash, burn_header_hash, burn_header_timestamp, block_height, index_root) \
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())

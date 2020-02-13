@@ -14,6 +14,7 @@ use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, Blo
 use net::StacksMessageType;
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
+use util::get_epoch_time_secs;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
 
@@ -283,8 +284,9 @@ impl Node {
 
             // Preprocess the anchored block
             self.chain_state.preprocess_anchored_block(
-                &mut tx, 
+                &mut tx,
                 &burn_header_hash,
+                get_epoch_time_secs(),
                 &anchored_block, 
                 &parent_burn_header_hash).unwrap();
 
@@ -305,7 +307,7 @@ impl Node {
             // let db = burn_db.lock().unwrap();
             let mut res = None;
             loop {
-                match self.chain_state.process_blocks(db.conn(), 1) {
+                match self.chain_state.process_blocks(1) {
                     Err(e) => panic!("Error while processing block - {:?}", e),
                     Ok(blocks) => {
                         if blocks.len() == 0 {

@@ -630,6 +630,16 @@ impl BurnchainIndexer for BitcoinIndexer {
         Ok(first_block_header_hash)
     }
 
+    /// Get the first block header timestamp
+    fn get_first_block_header_timestamp(&self, headers_path: &String) -> Result<u64, burnchain_error> {
+        let first_block_height = self.get_first_block_height();
+        let first_headers = self.read_spv_headers(headers_path, first_block_height, first_block_height+1)
+            .map_err(burnchain_error::Bitcoin)?;
+
+        let first_block_header_timestamp = first_headers[0].header.time as u64;
+        Ok(first_block_header_timestamp)
+    }
+
     /// Read downloaded headers within a range 
     fn read_headers(&self, headers_path: &String, start_block: u64, end_block: u64) -> Result<Vec<BitcoinHeaderIPC>, burnchain_error> {
         let headers = self.read_spv_headers(headers_path, start_block, end_block)

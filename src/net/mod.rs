@@ -1376,7 +1376,7 @@ mod test {
                 block_hash: BurnchainHeaderHash(block_hash_bytes),
                 parent_block_hash: BurnchainHeaderHash(prev_block_hash_bytes),
                 txs: vec![],
-                // timestamp: get_epoch_time_secs()
+                timestamp: get_epoch_time_secs()
             })
         }
 
