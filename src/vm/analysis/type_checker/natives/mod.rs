@@ -197,12 +197,6 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 
     let mut contract_call_args = Vec::new();
     for arg in args[2..].iter() {
-        if let Some(var_name) = arg.match_trait_reference() {
-            if let Some(trait_reference) = context.lookup_trait_reference_type(var_name) {
-                contract_call_args.push(trait_reference.clone());
-                continue;
-            }
-        }
         contract_call_args.push(checker.type_check(arg, context)?);
     }
 
