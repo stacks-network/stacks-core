@@ -467,6 +467,12 @@ impl CostTracker for Environment<'_,'_> {
     }
 }
 
+impl CostTracker for GlobalContext<'_> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CheckErrors> {
+        self.cost_track.add_cost(cost)
+    }
+}
+
 impl <'a,'b> Environment <'a,'b> {
     // Environments pack a reference to the global context (which is basically the db),
     //   the current contract context, a call stack, and the current sender.

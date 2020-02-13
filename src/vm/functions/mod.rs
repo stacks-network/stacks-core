@@ -7,13 +7,13 @@ mod database;
 mod options;
 mod assets;
 
-use std::convert::TryInto;
 use vm::errors::{CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::CallableType;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
+use vm::costs::cost_functions;
 use util::hash;
 
 define_named_enum!(NativeFunctions {
@@ -234,6 +234,7 @@ fn native_print(args: &[Value]) -> Result<Value> {
 fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(3, args)?;
 
+    runtime_cost!(cost_functions::IF, env, 0)?;
     // handle the conditional clause.
     let conditional = eval(&args[0], env, context)?;
     match conditional {
@@ -307,14 +308,17 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     // arg1..n => body
     check_arguments_at_least(2, args)?;
 
-    // create a new context.
-    let mut inner_context = context.extend()?;
-
+    // parse and eval the bindings.
     let bindings = args[0].match_list()
         .ok_or(CheckErrors::BadLetSyntax)?;
 
-    // parse and eval the bindings.
     let mut binding_results = parse_eval_bindings(bindings, env, context)?;
+
+    runtime_cost!(cost_functions::LET, env, binding_results.len())?;
+
+    // create a new context.
+    let mut inner_context = context.extend()?;
+
     for (binding_name, binding_value) in binding_results.drain(..) {
         if is_reserved(&binding_name) ||
            env.contract_context.lookup_function(&binding_name).is_some() ||

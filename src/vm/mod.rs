@@ -34,7 +34,6 @@ use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result};
 use vm::database::MemoryBackingStore;
 use vm::types::QualifiedContractIdentifier;
-
 use vm::costs::cost_functions;
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
@@ -62,7 +61,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
     }
 }
 
-pub fn lookup_function(name: &str, env: &Environment)-> Result<CallableType> {
+pub fn lookup_function(name: &str, env: &mut Environment)-> Result<CallableType> {
     runtime_cost!(cost_functions::LOOKUP_FUNCTION, env, 0)?;
 
     if let Some(result) = functions::lookup_reserved_functions(name) {

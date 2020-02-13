@@ -7,11 +7,18 @@ type Result<T> = std::result::Result<T, CheckErrors>;
 
 macro_rules! runtime_cost {
     ( $cost_spec:expr, $env:expr, $input:expr ) => {
-        $input.try_into()
-            .map_err(|_| CheckErrors::CostOverflow)
-            .and_then(|input| {
-                ($cost_spec).compute_cost(input)
-            })
+        {
+            use vm::costs::CostTracker;
+            use std::convert::TryInto;
+            $input.try_into()
+                .map_err(|_| CheckErrors::CostOverflow)
+                .and_then(|input| {
+                    ($cost_spec).compute_cost(input)
+                })
+                .and_then(|cost| {
+                    CostTracker::add_cost($env, cost)
+                })
+        }
     }
 }
 

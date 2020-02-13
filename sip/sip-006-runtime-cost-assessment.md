@@ -387,25 +387,40 @@ to the cost of function evaluation, without the cost of type checks).
 
 
 ```
-a + sum(binding_cost(Y), ARGS) + costEval(body)
+a + b * Y + costEval(body) + costEval(bindings)
 ```
 
-where a is a constant,
-ARGS := the length of the let argument names
+where a and b are constants,
+Y := the number of let arguments
 costEval(body) := the cost of executing the body of the let
+costEval(bindings) := the cost of evaluating the value of each let binding
 
 ### if
 
 ```
-costEval(condition) + costEval(chosenBranch)
+a + costEval(condition) + costEval(chosenBranch)
 ```
 
-where
+where a is a constant
 costEval(condition) := the cost of evaluating the if condition
 costEval(chosenBranch) := the cost of evaluating the chosen branch
 
 if computed during _static analysis_, the chosen branch cost is the
 `max` of the two possible branches.
+
+### asserts!
+
+```
+a + costEval(condition) + costEval(throwBranch)
+```
+
+where a is a constant
+costEval(condition) := the cost of evaluating the asserts condition
+costEval(throwBranch) := the cost of evaluating the throw branch in
+the event that condition is false
+
+if computed during _static analysis_, the thrown branch cost is always
+included.
 
 ## List iteration
 ### map

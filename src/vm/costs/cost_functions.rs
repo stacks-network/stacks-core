@@ -20,6 +20,8 @@ def_runtime_cost!(BIND_NAME { Constant(1) });
 def_runtime_cost!(INNER_TYPE_CHECK_COST { Linear(1, 1) });
 def_runtime_cost!(USER_FUNCTION_APPLICATION { Linear(1, 1) });
 
+def_runtime_cost!(LET { Linear(1, 1) });
+def_runtime_cost!(IF { Constant(1) });
 def_runtime_cost!(TYPE_PARSE_STEP { Constant(1) });
 def_runtime_cost!(DATA_HASH_COST { Linear(1, 1) });
 
