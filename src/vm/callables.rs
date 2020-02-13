@@ -1,7 +1,8 @@
 use std::fmt;
 use std::convert::TryInto;
 
-use vm::costs::cost_functions;
+use vm::costs::{cost_functions, SimpleCostSpecification};
+
 use vm::errors::{InterpreterResult as Result, Error};
 use vm::analysis::errors::CheckErrors;
 use vm::representations::{SymbolicExpression, ClarityName};
@@ -10,7 +11,7 @@ use vm::{eval, Value, LocalContext, Environment};
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
-    NativeFunction(&'static str, &'static dyn Fn(&[Value]) -> Result<Value>),
+    NativeFunction(&'static str, &'static dyn Fn(&[Value]) -> Result<Value>, SimpleCostSpecification),
     SpecialFunction(&'static str, &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
 }
 
@@ -121,7 +122,7 @@ impl CallableType {
     pub fn get_identifier(&self) -> FunctionIdentifier {
         match self {
             CallableType::UserFunction(f) => f.get_identifier(),
-            CallableType::NativeFunction(s, _) => FunctionIdentifier::new_native_function(s),
+            CallableType::NativeFunction(s, _, _) => FunctionIdentifier::new_native_function(s),
             CallableType::SpecialFunction(s, _) => FunctionIdentifier::new_native_function(s),
         }
     }

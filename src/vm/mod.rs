@@ -113,7 +113,11 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
         let evaluated_args = eval_tried?;
         env.call_stack.insert(&identifier, track_recursion);
         let mut resp = match function {
-            CallableType::NativeFunction(_, function) => function(&evaluated_args),
+            CallableType::NativeFunction(_, function, cost_function) => {
+                let arg_size = evaluated_args.len();
+                runtime_cost!(cost_function, env, arg_size)?;
+                function(&evaluated_args)
+            },
             CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
             _ => panic!("Should be unreachable.")
         };

@@ -22,9 +22,50 @@ def_runtime_cost!(USER_FUNCTION_APPLICATION { Linear(1, 1) });
 
 def_runtime_cost!(LET { Linear(1, 1) });
 def_runtime_cost!(IF { Constant(1) });
+def_runtime_cost!(ASSERTS { Constant(1) });
+def_runtime_cost!(MAP { Constant(1) });
+def_runtime_cost!(FILTER { Constant(1) });
+def_runtime_cost!(LEN { Constant(1) });
+def_runtime_cost!(FOLD { Constant(1) });
+def_runtime_cost!(LIST_CONS { Linear(1, 1) });
 def_runtime_cost!(TYPE_PARSE_STEP { Constant(1) });
 def_runtime_cost!(DATA_HASH_COST { Linear(1, 1) });
 
+
+def_runtime_cost!(ADD { Linear(1, 1) });
+def_runtime_cost!(SUB { Linear(1, 1) });
+def_runtime_cost!(MUL { Linear(1, 1) });
+def_runtime_cost!(DIV { Linear(1, 1) });
+def_runtime_cost!(GEQ { Constant(1) });
+def_runtime_cost!(LEQ { Constant(1) });
+def_runtime_cost!(LE  { Constant(1) });
+def_runtime_cost!(GE  { Constant(1) });
+def_runtime_cost!(INT_CAST { Constant(1) });
+def_runtime_cost!(MOD { Constant(1) });
+def_runtime_cost!(POW { Constant(1) });
+def_runtime_cost!(XOR { Constant(1) });
+def_runtime_cost!(NOT { Constant(1) });
+def_runtime_cost!(EQ { Linear(1, 1) });
+def_runtime_cost!(BEGIN { Constant(1) });
+def_runtime_cost!(HASH160 { Constant(1) });
+def_runtime_cost!(SHA256 { Constant(1) });
+def_runtime_cost!(SHA512 { Constant(1) });
+def_runtime_cost!(SHA512T256 { Constant(1) });
+def_runtime_cost!(KECCAK256 { Constant(1) });
+def_runtime_cost!(PRINT { Constant(1) });
+def_runtime_cost!(SOME_CONS { Constant(1) });
+def_runtime_cost!(OK_CONS { Constant(1) });
+def_runtime_cost!(ERR_CONS { Constant(1) });
+def_runtime_cost!(DEFAULT_TO { Constant(1) });
+def_runtime_cost!(UNWRAP_RET { Constant(1) });
+def_runtime_cost!(UNWRAP_ERR_OR_RET { Constant(1) });
+def_runtime_cost!(IS_OKAY { Constant(1) });
+def_runtime_cost!(IS_NONE { Constant(1) });
+def_runtime_cost!(IS_ERR { Constant(1) });
+def_runtime_cost!(IS_SOME { Constant(1) });
+def_runtime_cost!(UNWRAP { Constant(1) });
+def_runtime_cost!(UNWRAP_ERR { Constant(1) });
+def_runtime_cost!(TRY_RET { Constant(1) });
 
 pub const FETCH_ENTRY: SimpleCostSpecification = SimpleCostSpecification {
     write_length: Constant(0),
