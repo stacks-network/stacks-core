@@ -378,7 +378,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 self.type_check_function_application(expression, context)?
             },
             TraitReference(_) | Field(_) => {
-                return Err(CheckErrors::InvalidTypeDescription.into());
+                return Err(CheckErrors::UnexpectedTraitOrFieldReference.into());
             }
         };
 

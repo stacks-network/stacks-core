@@ -233,6 +233,16 @@ fn test_at_block(){
 }
 
 #[test]
+fn test_unexpected_use_of_field_or_trait_reference(){
+    let bad = [("(+ 1 <kvstore>)", CheckErrors::UnexpectedTraitOrFieldReference),
+               ("(+ 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract.field)", CheckErrors::UnexpectedTraitOrFieldReference)];
+    
+    for (bad_test, expected) in bad.iter() {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
 fn test_simple_arithmetic_checks() {
     let good = ["(>= (+ 1 2 3) (- 1 2))",
                 "(is-eq (+ 1 2 3) 6 0)",

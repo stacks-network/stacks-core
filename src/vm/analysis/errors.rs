@@ -137,6 +137,7 @@ pub enum CheckErrors {
     TraitReferenceNotAllowed,
     BadTraitImplementation(String, String),
     DefineTraitBadSignature,
+    UnexpectedTraitOrFieldReference,
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly
@@ -333,6 +334,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ImportTraitBadSignature => format!("(use-trait ...) expects a trait name and a trait identifier"),
             CheckErrors::BadTraitImplementation(trait_name, func_name) => format!("invalid signature for method '{}' regarding trait's specification <{}>", func_name, trait_name),
             CheckErrors::ExpectedTraitIdentifier => format!("expecting expression of type trait identifier"),
+            CheckErrors::UnexpectedTraitOrFieldReference => format!("unexpected use of trait reference or field"),
             CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
             CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
