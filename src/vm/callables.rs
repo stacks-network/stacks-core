@@ -3,7 +3,7 @@ use std::convert::TryInto;
 
 use vm::costs::{cost_functions, SimpleCostSpecification};
 
-use vm::errors::{InterpreterResult as Result, Error};
+use vm::errors::{InterpreterResult as Result, Error, check_argument_count};
 use vm::analysis::errors::CheckErrors;
 use vm::representations::{SymbolicExpression, ClarityName};
 use vm::types::TypeSignature;
@@ -11,7 +11,7 @@ use vm::{eval, Value, LocalContext, Environment};
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
-    NativeFunction(&'static str, &'static dyn Fn(Vec<Value>) -> Result<Value>, SimpleCostSpecification),
+    NativeFunction(&'static str, NativeHandle, SimpleCostSpecification),
     SpecialFunction(&'static str, &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
 }
 
@@ -29,6 +29,32 @@ pub struct DefinedFunction {
     define_type: DefineType,
     arguments: Vec<ClarityName>,
     body: SymbolicExpression
+}
+
+pub enum NativeHandle {
+    SingleArg(&'static dyn Fn(Value) -> Result<Value>),
+    DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value>),
+    MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value>)
+}
+
+impl NativeHandle {
+    pub fn apply(&self, mut args: Vec<Value>) -> Result<Value> {
+        match self {
+            NativeHandle::SingleArg(function) => {
+                check_argument_count(1, &args)?;
+                function(args.pop().unwrap())
+            },
+            NativeHandle::DoubleArg(function) => {
+                check_argument_count(2, &args)?;
+                let second = args.pop().unwrap();
+                let first = args.pop().unwrap();
+                function(first, second)
+            },
+            NativeHandle::MoreArg(function) => {
+                function(args)
+            }
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]

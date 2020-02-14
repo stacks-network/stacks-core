@@ -41,10 +41,7 @@ fn inner_unwrap_err(to_unwrap: Value) -> Result<Option<Value>> {
     Ok(result)
 }
 
-pub fn native_unwrap(mut args: Vec<Value>) -> Result<Value> {
-    check_argument_count(1, &args)?;
-    let input = args.pop().unwrap();
-
+pub fn native_unwrap(input: Value) -> Result<Value> {
     inner_unwrap(input)
         .and_then(|opt_value| {
             match opt_value {
@@ -54,14 +51,7 @@ pub fn native_unwrap(mut args: Vec<Value>) -> Result<Value> {
         })
 }
 
-pub fn native_unwrap_or_ret(mut args: Vec<Value>) -> Result<Value> {
-    check_argument_count(2, &args)?;
-
-    args.reverse();
-
-    let input = args.pop().unwrap();
-    let thrown = args.pop().unwrap();
-
+pub fn native_unwrap_or_ret(input: Value, thrown: Value) -> Result<Value> {
     inner_unwrap(input)
         .and_then(|opt_value| {
             match opt_value {
@@ -71,10 +61,7 @@ pub fn native_unwrap_or_ret(mut args: Vec<Value>) -> Result<Value> {
         })
 }
 
-pub fn native_unwrap_err(mut args: Vec<Value>) -> Result<Value> {
-    check_argument_count(1, &args)?;
-    let input = args.pop().unwrap();
-
+pub fn native_unwrap_err(input: Value) -> Result<Value> {
     inner_unwrap_err(input)
         .and_then(|opt_value| {
             match opt_value {
@@ -84,14 +71,7 @@ pub fn native_unwrap_err(mut args: Vec<Value>) -> Result<Value> {
         })
 }
 
-pub fn native_unwrap_err_or_ret(mut args: Vec<Value>) -> Result<Value> {
-    check_argument_count(2, &args)?;
-
-    args.reverse();
-
-    let input = args.pop().unwrap();
-    let thrown = args.pop().unwrap();
-
+pub fn native_unwrap_err_or_ret(input: Value, thrown: Value) -> Result<Value> {
     inner_unwrap_err(input)
         .and_then(|opt_value| {
             match opt_value {
@@ -101,11 +81,7 @@ pub fn native_unwrap_err_or_ret(mut args: Vec<Value>) -> Result<Value> {
         })
 }
 
-pub fn native_try_ret(mut args: Vec<Value>) -> Result<Value> {
-    check_argument_count(1, &args)?;
-
-    let input = args.pop().unwrap();
-
+pub fn native_try_ret(input: Value) -> Result<Value> {
     match input {
         Value::Optional(data) => {
             match data.data {
@@ -198,73 +174,53 @@ pub fn special_match(args: &[SymbolicExpression], env: &mut Environment, context
     }
 }
 
-pub fn native_some(mut args: Vec<Value>) -> Result<Value> {
-    check_argument_count(1, &args)?;
-
-    Ok(Value::some(args.pop().unwrap()))
+pub fn native_some(input: Value) -> Result<Value> {
+    Ok(Value::some(input))
 }
 
-fn is_some(mut args: Vec<Value>) -> Result<bool> {
-    check_argument_count(1, &args)?;
-    let input = args.pop().unwrap();
-
+fn is_some(input: Value) -> Result<bool> {
     match input {
         Value::Optional(ref data) => Ok(data.data.is_some()),
         _ => Err(CheckErrors::ExpectedOptionalValue(input).into())
     }
 }
 
-fn is_okay(mut args: Vec<Value>) -> Result<bool> {
-    check_argument_count(1, &args)?;
-    let input = args.pop().unwrap();
-
+fn is_okay(input: Value) -> Result<bool> {
     match input {
         Value::Response(data) => Ok(data.committed),
         _ => Err(CheckErrors::ExpectedResponseValue(input).into())
     }
 }
 
-pub fn native_is_some(args: Vec<Value>) -> Result<Value> {
-    is_some(args)
+pub fn native_is_some(input: Value) -> Result<Value> {
+    is_some(input)
         .map(|is_some| { Value::Bool(is_some) })
 }
 
-pub fn native_is_none(args: Vec<Value>) -> Result<Value> {
-    is_some(args)
+pub fn native_is_none(input: Value) -> Result<Value> {
+    is_some(input)
         .map(|is_some| { Value::Bool(!is_some) })
 }
 
-pub fn native_is_okay(args: Vec<Value>) -> Result<Value> {
-    is_okay(args)
+pub fn native_is_okay(input: Value) -> Result<Value> {
+    is_okay(input)
         .map(|is_ok| { Value::Bool(is_ok) })
 }
 
-pub fn native_is_err(args: Vec<Value>) -> Result<Value> {
-    is_okay(args)
+pub fn native_is_err(input: Value) -> Result<Value> {
+    is_okay(input)
         .map(|is_ok| { Value::Bool(!is_ok) })
 }
 
-pub fn native_okay(mut args: Vec<Value>) -> Result<Value> {
-    check_argument_count(1, &args)?;
-    let input = args.pop().unwrap();
-
+pub fn native_okay(input: Value) -> Result<Value> {
     Ok(Value::okay(input))
 }
 
-pub fn native_error(mut args: Vec<Value>) -> Result<Value> {
-    check_argument_count(1, &args)?;
-    let input = args.pop().unwrap();
-        
+pub fn native_error(input: Value) -> Result<Value> {
     Ok(Value::error(input))
 }
 
-pub fn native_default_to(mut args: Vec<Value>) -> Result<Value> {
-    check_argument_count(2, &args)?;
-    args.reverse();
-
-    let default = args.pop().unwrap();
-    let input = args.pop().unwrap();
-
+pub fn native_default_to(default: Value, input: Value) -> Result<Value> {
     match input {
         Value::Optional(data) => {
             match data.data {
