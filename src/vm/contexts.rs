@@ -802,8 +802,8 @@ impl ContractContext {
         }
     }
 
-    pub fn lookup_variable(&self, name: &str) -> Option<Value> {
-        self.variables.get(name).cloned()
+    pub fn lookup_variable(&self, name: &str) -> Option<&Value> {
+        self.variables.get(name)
     }
 
     pub fn lookup_function(&self, name: &str) -> Option<DefinedFunction> {
@@ -836,13 +836,13 @@ impl <'a> LocalContext <'a> {
         }
     }
 
-    pub fn lookup_variable(&self, name: &str) -> Option<Value> {
+    pub fn lookup_variable(&self, name: &str) -> Option<&Value> {
         match self.variables.get(name) {
-            Some(value) => Option::Some(value.clone()),
+            Some(value) => Some(value),
             None => {
                 match self.parent {
                     Some(parent) => parent.lookup_variable(name),
-                    None => Option::None
+                    None => None
                 }
             }
         }

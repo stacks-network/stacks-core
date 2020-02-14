@@ -44,19 +44,20 @@ use std::convert::TryInto;
 const MAX_CALL_STACK_DEPTH: usize = 128;
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
-    runtime_cost!(cost_functions::LOOKUP_VARIABLE, env, context.depth())?;
-
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         Err(InterpreterError::BadSymbolicRepresentation(format!("Unexpected variable name: {}", name)).into())
     } else {
         if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
             Ok(value)
-        } else if let Some(value) = context.lookup_variable(name) {
-            Ok(value)
-        } else if let Some(value) = env.contract_context.lookup_variable(name) {
-            Ok(value)
         } else {
-            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
+            runtime_cost!(cost_functions::LOOKUP_VARIABLE_DEPTH, env, context.depth())?;
+            if let Some(value) = context.lookup_variable(name).or_else(
+                || env.contract_context.lookup_variable(name)) {
+                runtime_cost!(cost_functions::LOOKUP_VARIABLE_SIZE, env, value.size())?;
+                Ok(value.clone())
+            } else {
+                Err(CheckErrors::UndefinedVariable(name.to_string()).into())
+            }
         }
     }
 }

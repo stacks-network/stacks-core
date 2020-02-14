@@ -74,14 +74,20 @@ to name length.
 The stack depth affects the lookup cost because the variable must be
 checked for in each context on the stack.
 
+The cost model of Clarity depends on a copy-on-read semantic for
+objects. This allows operations like appends, matches, wrapping/unwrapping,
+to be constant cost, but it requires that variable lookups be charged for
+copies.
+
 Cost Function:
 
 ```
-a*X+b
+a*X+b*Y+c
 ```
 
-where a, and b are constants,
+where a, b, and c are constants,
 X := stack depth
+Y := variable size
 
 ### Function Lookup
 
@@ -529,30 +535,50 @@ X := the total size of all arguments to the list constructor
 ### tuple
 
 The cost of constructing a new tuple is `O(nlogn)` with respect to the number of
-keys in the tuple (because tuples are represented as BTrees) and linear in 
-name length due to the cost of name binding.
+keys in the tuple (because tuples are represented as BTrees).
 
 ```
-a*(X*log(X)) + b + sum(binding_cost(Y), KEY_NAMES)
+a*(X*log(X)) + b
 ```
 
 where a and b are constants,
 X := the number of keys in the tuple
-KEY_NAMES := the names of the keys in the tuple
 
 ### get
 
 Reading from a tuple is `O(nlogn)` with respect to the number of
-keys in the tuple (because tuples are represented as BTrees) and linear in 
-name length due to the cost of equality check after lookup.
+keys in the tuple (because tuples are represented as BTrees).
 
 ```
-a*(X*log(X)) + b + c*Y
+a*(X*log(X)) + b
 ```
 
 where a and b are constants,
 X := the number of keys in the tuple
-Y := the length of the looked up key
+
+## Option/Response Operations
+
+### match
+
+Match imposes a constant cost for evaluating the match, a cost for checking
+that the match-bound name does not _shadow_ a previous variable. The
+total cost of execution is:
+
+```
+a + evalCost(chosenBranch) + cost(lookupVariable)
+```
+
+where a is a constant, and `chosenBranch` is whichever branch
+is chosen by the match. In static analysis, this will be:
+`max(branch1, branch2)` 
+
+### is-some, is-none, is-error, is-okay
+
+These check functions all have constant cost.
+
+### unwrap, unwrap-err, unwrap-panic, unwrap-err-panic
+
+These functions all have constant cost.
 
 ## Arithmetic and Logic Operations
 

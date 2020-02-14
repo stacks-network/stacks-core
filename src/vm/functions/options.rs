@@ -1,6 +1,7 @@
 use vm::errors::{CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result,
                  check_argument_count, check_arguments_at_least};
 use vm::types::{Value, ResponseData, OptionalData, TypeSignature};
+use vm::costs::cost_functions;
 use vm::contexts::{LocalContext, Environment};
 use vm::{SymbolicExpression, ClarityName};
 use vm;
@@ -162,6 +163,8 @@ pub fn special_match(args: &[SymbolicExpression], env: &mut Environment, context
     check_arguments_at_least(1, args)?;
 
     let input = vm::eval(&args[0], env, context)?;
+
+    runtime_cost!(cost_functions::MATCH, env, 0)?;
 
     match input {
         Value::Response(data) => {

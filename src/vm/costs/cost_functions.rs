@@ -14,7 +14,8 @@ macro_rules! def_runtime_cost {
     }
 }
 
-def_runtime_cost!(LOOKUP_VARIABLE { Linear(1, 1) });
+def_runtime_cost!(LOOKUP_VARIABLE_DEPTH { Linear(1, 1) });
+def_runtime_cost!(LOOKUP_VARIABLE_SIZE { Linear(1, 0) });
 def_runtime_cost!(LOOKUP_FUNCTION { Constant(1) });
 def_runtime_cost!(BIND_NAME { Constant(1) });
 def_runtime_cost!(INNER_TYPE_CHECK_COST { Linear(1, 1) });
@@ -30,7 +31,8 @@ def_runtime_cost!(FOLD { Constant(1) });
 def_runtime_cost!(LIST_CONS { Linear(1, 1) });
 def_runtime_cost!(TYPE_PARSE_STEP { Constant(1) });
 def_runtime_cost!(DATA_HASH_COST { Linear(1, 1) });
-
+def_runtime_cost!(TUPLE_GET { NLogN(1, 1) });
+def_runtime_cost!(TUPLE_CONS { NLogN(1, 1) });
 
 def_runtime_cost!(ADD { Linear(1, 1) });
 def_runtime_cost!(SUB { Linear(1, 1) });
@@ -66,6 +68,7 @@ def_runtime_cost!(IS_SOME { Constant(1) });
 def_runtime_cost!(UNWRAP { Constant(1) });
 def_runtime_cost!(UNWRAP_ERR { Constant(1) });
 def_runtime_cost!(TRY_RET { Constant(1) });
+def_runtime_cost!(MATCH { Constant(1) });
 def_runtime_cost!(OR { Linear(1, 1) });
 def_runtime_cost!(AND { Linear(1, 1) });
 
