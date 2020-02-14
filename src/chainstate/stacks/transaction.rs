@@ -17,6 +17,10 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::io::prelude::*;
+use std::io;
+use std::io::{Read, Write};
+
 use std::convert::TryFrom;
 
 use net::StacksMessageCodec;
@@ -30,10 +34,12 @@ use chainstate::stacks::*;
 use core::*;
 
 use net::StacksPublicKeyBuffer;
+use net::MAX_MESSAGE_LEN;
 
 use util::hash::Sha512Trunc256Sum;
 use util::hash::to_hex;
 use util::secp256k1::MessageSignature;
+use util::retry::BoundReader;
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::ast::build_ast;
 use vm::types::{
@@ -46,45 +52,39 @@ use vm::representations::{
     ClarityName
 };
 
+use vm::types::serialization::SerializationError as clarity_serialization_error;
+
 impl StacksMessageCodec for Value {
-    fn serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
-        let mut bytes = vec![];
-        self.serialize_write(&mut bytes)
-            .expect("FATAL: failed to serialize Value to byte Vec");        // should never happen, unless something's seriously wrong
-        write_next(&mut res, &bytes);
-        res
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        self.serialize_write(fd).map_err(net_error::WriteError)
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<Value, net_error> {
-        let mut index = *index_ptr;
-        let bytes : Vec<u8> = read_next(buf, &mut index, max_size)?;
-
-        let value = Value::try_deserialize_bytes_untyped(&bytes)
-            .map_err(|e| net_error::DeserializeError(format!("Failed to decode Value from '{}': {:?}", &to_hex(&bytes), &e)))?;
-       
-        *index_ptr = index;
-        Ok(value)
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Value, net_error> {
+        Value::deserialize_read(fd, None)
+            .map_err(|e| match e {
+                clarity_serialization_error::IOError(e) => net_error::ReadError(e.err),
+                _ => net_error::DeserializeError(format!("Failed to decode clarity value: {:?}", &e))
+            })
     }
 }
 
 impl StacksMessageCodec for TransactionContractCall {
-    fn serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
-        write_next(&mut res, &self.address);
-        write_next(&mut res, &self.contract_name);
-        write_next(&mut res, &self.function_name);
-        write_next(&mut res, &self.function_args);
-        res
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.address)?;
+        write_next(fd, &self.contract_name)?;
+        write_next(fd, &self.function_name)?;
+        write_next(fd, &self.function_args)?;
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<TransactionContractCall, net_error> {
-        let mut index = *index_ptr;
-      
-        let address : StacksAddress = read_next(buf, &mut index, max_size)?;
-        let contract_name : ContractName = read_next(buf, &mut index, max_size)?;
-        let function_name: ClarityName = read_next(buf, &mut index, max_size)?;
-        let function_args: Vec<Value> = read_next(buf, &mut index, max_size)?;        // TODO: maximum number of arguments?
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionContractCall, net_error> {
+        let address : StacksAddress = read_next(fd)?;
+        let contract_name : ContractName = read_next(fd)?;
+        let function_name: ClarityName = read_next(fd)?;
+        let function_args: Vec<Value> = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
 
         // function name must be valid Clarity variable
         if !StacksString::from(function_name.clone()).is_clarity_variable() {
@@ -92,7 +92,6 @@ impl StacksMessageCodec for TransactionContractCall {
             return Err(net_error::DeserializeError("Failed to parse transaction: invalid function name -- not a Clarity variable".to_string()));
         }
 
-        *index_ptr = index;
         Ok(TransactionContractCall {
             address,
             contract_name,
@@ -109,21 +108,15 @@ impl TransactionContractCall {
 }
 
 impl StacksMessageCodec for TransactionSmartContract {
-    fn serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
-        write_next(&mut res, &self.name);
-        write_next(&mut res, &self.code_body);
-        res
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.name)?;
+        write_next(fd, &self.code_body)?;
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<TransactionSmartContract, net_error> {
-        let mut index = *index_ptr;
-
-        let name : ContractName = read_next(buf, &mut index, max_size)?;
-        let code_body : StacksString = read_next(buf, &mut index, max_size)?;
-
-        *index_ptr = index;
-
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionSmartContract, net_error> {
+        let name : ContractName = read_next(fd)?;
+        let code_body : StacksString = read_next(fd)?;
         Ok(TransactionSmartContract {
             name,
             code_body
@@ -132,62 +125,55 @@ impl StacksMessageCodec for TransactionSmartContract {
 }
 
 impl StacksMessageCodec for TransactionPayload {
-    fn serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         match *self {
             TransactionPayload::TokenTransfer(ref address, ref amount, ref memo) => {
-                write_next(&mut res, &(TransactionPayloadID::TokenTransfer as u8));
-                write_next(&mut res, address);
-                write_next(&mut res, amount);
-                write_next(&mut res, memo);
+                write_next(fd, &(TransactionPayloadID::TokenTransfer as u8))?;
+                write_next(fd, address)?;
+                write_next(fd, amount)?;
+                write_next(fd, memo)?;
             },
             TransactionPayload::ContractCall(ref cc) => {
-                write_next(&mut res, &(TransactionPayloadID::ContractCall as u8));
-                let mut body = cc.serialize();
-                res.append(&mut body);
+                write_next(fd, &(TransactionPayloadID::ContractCall as u8))?;
+                cc.consensus_serialize(fd)?;
             },
             TransactionPayload::SmartContract(ref sc) => {
-                write_next(&mut res, &(TransactionPayloadID::SmartContract as u8));
-                let mut body = sc.serialize();
-                res.append(&mut body)
+                write_next(fd, &(TransactionPayloadID::SmartContract as u8))?;
+                sc.consensus_serialize(fd)?;
             },
             TransactionPayload::PoisonMicroblock(ref h1, ref h2) => {
-                write_next(&mut res, &(TransactionPayloadID::PoisonMicroblock as u8));
-                let mut h1_body = h1.serialize();
-                let mut h2_body = h2.serialize();
-                res.append(&mut h1_body);
-                res.append(&mut h2_body);
+                write_next(fd, &(TransactionPayloadID::PoisonMicroblock as u8))?;
+                h1.consensus_serialize(fd)?;
+                h2.consensus_serialize(fd)?;
             },
             TransactionPayload::Coinbase(ref buf) => {
-                write_next(&mut res, &(TransactionPayloadID::Coinbase as u8));
-                write_next(&mut res, buf);
+                write_next(fd, &(TransactionPayloadID::Coinbase as u8))?;
+                write_next(fd, buf)?;
             }
         }
-        res
+        Ok(())
     }
     
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<TransactionPayload, net_error> {
-        let mut index = *index_ptr;
-
-        let type_id : u8 = read_next(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionPayload, net_error> {
+        let type_id : u8 = read_next(fd)?;
         let payload = match type_id {
             x if x == TransactionPayloadID::TokenTransfer as u8 => {
-                let addr : StacksAddress = read_next(buf, &mut index, max_size)?;
-                let amount : u64 = read_next(buf, &mut index, max_size)?;
-                let memo : TokenTransferMemo = read_next(buf, &mut index, max_size)?;
+                let addr : StacksAddress = read_next(fd)?;
+                let amount : u64 = read_next(fd)?;
+                let memo : TokenTransferMemo = read_next(fd)?;
                 TransactionPayload::TokenTransfer(addr, amount, memo)
             },
             x if x == TransactionPayloadID::ContractCall as u8 => {
-                let payload = TransactionContractCall::deserialize(buf, &mut index, max_size)?;
+                let payload : TransactionContractCall = read_next(fd)?;
                 TransactionPayload::ContractCall(payload)
             }
             x if x == TransactionPayloadID::SmartContract as u8 => {
-                let payload = TransactionSmartContract::deserialize(buf, &mut index, max_size)?;
+                let payload : TransactionSmartContract = read_next(fd)?;
                 TransactionPayload::SmartContract(payload)
             }
             x if x == TransactionPayloadID::PoisonMicroblock as u8 => {
-                let h1 = StacksMicroblockHeader::deserialize(buf, &mut index, max_size)?;
-                let h2 = StacksMicroblockHeader::deserialize(buf, &mut index, max_size)?;
+                let h1 : StacksMicroblockHeader = read_next(fd)?;
+                let h2 : StacksMicroblockHeader = read_next(fd)?;
 
                 // must differ in some field
                 if h1 == h2 {
@@ -202,7 +188,7 @@ impl StacksMessageCodec for TransactionPayload {
                 TransactionPayload::PoisonMicroblock(h1, h2)
             },
             x if x == TransactionPayloadID::Coinbase as u8 => {
-                let payload : CoinbasePayload = CoinbasePayload::deserialize(buf, &mut index, max_size)?;
+                let payload : CoinbasePayload = read_next(fd)?;
                 TransactionPayload::Coinbase(payload)
             },
             _ => {
@@ -210,7 +196,6 @@ impl StacksMessageCodec for TransactionPayload {
             }
         };
 
-        *index_ptr = index;
         Ok(payload)
     }
 }
@@ -250,23 +235,17 @@ impl TransactionPayload {
 }
 
 impl StacksMessageCodec for AssetInfo {
-    fn serialize(&self) -> Vec<u8> {
-        let mut ret = vec![];
-        write_next(&mut ret, &self.contract_address);
-        write_next(&mut ret, &self.contract_name);
-        write_next(&mut ret, &self.asset_name);
-        ret
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.contract_address)?;
+        write_next(fd, &self.contract_name)?;
+        write_next(fd, &self.asset_name)?;
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<AssetInfo, net_error> {
-        let mut index = *index_ptr;
-
-        let contract_address : StacksAddress = read_next(buf, &mut index, max_size)?;
-        let contract_name : ContractName = read_next(buf, &mut index, max_size)?;
-        let asset_name : ClarityName = read_next(buf, &mut index, max_size)?;
-        
-        *index_ptr = index;
-
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<AssetInfo, net_error> {
+        let contract_address : StacksAddress = read_next(fd)?;
+        let contract_name : ContractName = read_next(fd)?;
+        let asset_name : ClarityName = read_next(fd)?;
         Ok(AssetInfo {
             contract_address,
             contract_name,
@@ -276,87 +255,81 @@ impl StacksMessageCodec for AssetInfo {
 }
 
 impl StacksMessageCodec for PostConditionPrincipal {
-    fn serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         match *self {
             PostConditionPrincipal::Origin => {
-                write_next(&mut res, &(PostConditionPrincipalID::Origin as u8));
+                write_next(fd, &(PostConditionPrincipalID::Origin as u8))?;
             },
             PostConditionPrincipal::Standard(ref address) => {
-                write_next(&mut res, &(PostConditionPrincipalID::Standard as u8));
-                write_next(&mut res, address);
+                write_next(fd, &(PostConditionPrincipalID::Standard as u8))?;
+                write_next(fd, address)?;
             },
             PostConditionPrincipal::Contract(ref address, ref contract_name) => {
-                write_next(&mut res, &(PostConditionPrincipalID::Contract as u8));
-                write_next(&mut res, address);
-                write_next(&mut res, contract_name);
+                write_next(fd, &(PostConditionPrincipalID::Contract as u8))?;
+                write_next(fd, address)?;
+                write_next(fd, contract_name)?;
             }
         }
-        res
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<PostConditionPrincipal, net_error> {
-        let mut index = *index_ptr;
-        let principal_id : u8 = read_next(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PostConditionPrincipal, net_error> {
+        let principal_id : u8 = read_next(fd)?;
         let principal = match principal_id {
             x if x == PostConditionPrincipalID::Origin as u8 => {
                 PostConditionPrincipal::Origin
             },
             x if x == PostConditionPrincipalID::Standard as u8 => {
-                let addr : StacksAddress = read_next(buf, &mut index, max_size)?;
+                let addr : StacksAddress = read_next(fd)?;
                 PostConditionPrincipal::Standard(addr)
             },
             x if x == PostConditionPrincipalID::Contract as u8 => {
-                let addr : StacksAddress = read_next(buf, &mut index, max_size)?;
-                let contract_name : ContractName = read_next(buf, &mut index, max_size)?;
+                let addr : StacksAddress = read_next(fd)?;
+                let contract_name : ContractName = read_next(fd)?;
                 PostConditionPrincipal::Contract(addr, contract_name)
             },
             _ => {
                 return Err(net_error::DeserializeError(format!("Failed to parse transaction: unknown post condition principal ID {}", principal_id)));
             }
         };
-
-        *index_ptr = index;
         Ok(principal)
     }
 }
 
 impl StacksMessageCodec for TransactionPostCondition {
-    fn serialize(&self) -> Vec<u8> {
-        let mut ret = vec![];
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         match *self {
             TransactionPostCondition::STX(ref principal, ref fungible_condition, ref amount) => {
-                write_next(&mut ret, &(AssetInfoID::STX as u8));
-                write_next(&mut ret, principal);
-                write_next(&mut ret, &(*fungible_condition as u8));
-                write_next(&mut ret, amount);
+                write_next(fd, &(AssetInfoID::STX as u8))?;
+                write_next(fd, principal)?;
+                write_next(fd, &(*fungible_condition as u8))?;
+                write_next(fd, amount)?;
             },
             TransactionPostCondition::Fungible(ref principal, ref asset_info, ref fungible_condition, ref amount) => {
-                write_next(&mut ret, &(AssetInfoID::FungibleAsset as u8));
-                write_next(&mut ret, principal);
-                write_next(&mut ret, asset_info);
-                write_next(&mut ret, &(*fungible_condition as u8));
-                write_next(&mut ret, amount);
+                write_next(fd, &(AssetInfoID::FungibleAsset as u8))?;
+                write_next(fd, principal)?;
+                write_next(fd, asset_info)?;
+                write_next(fd, &(*fungible_condition as u8))?;
+                write_next(fd, amount)?;
             }
             TransactionPostCondition::Nonfungible(ref principal, ref asset_info, ref asset_value, ref nonfungible_condition) => {
-                write_next(&mut ret, &(AssetInfoID::NonfungibleAsset as u8));
-                write_next(&mut ret, principal);
-                write_next(&mut ret, asset_info);
-                write_next(&mut ret, asset_value);
-                write_next(&mut ret, &(*nonfungible_condition as u8));
+                write_next(fd, &(AssetInfoID::NonfungibleAsset as u8))?;
+                write_next(fd, principal)?;
+                write_next(fd, asset_info)?;
+                write_next(fd, asset_value)?;
+                write_next(fd, &(*nonfungible_condition as u8))?;
             }
         };
-        ret
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<TransactionPostCondition, net_error> {
-        let mut index = *index_ptr;
-        let asset_info_id : u8 = read_next(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionPostCondition, net_error> {
+        let asset_info_id : u8 = read_next(fd)?;
         let postcond = match asset_info_id {
             x if x == AssetInfoID::STX as u8 => {
-                let principal : PostConditionPrincipal = read_next(buf, &mut index, max_size)?;
-                let condition_u8 : u8 = read_next(buf, &mut index, max_size)?;
-                let amount : u64 = read_next(buf, &mut index, max_size)?;
+                let principal : PostConditionPrincipal = read_next(fd)?;
+                let condition_u8 : u8 = read_next(fd)?;
+                let amount : u64 = read_next(fd)?;
 
                 let condition_code = FungibleConditionCode::from_u8(condition_u8)
                     .ok_or(net_error::DeserializeError(format!("Failed to parse transaction: Failed to parse STX fungible condition code {}", condition_u8)))?;
@@ -364,10 +337,10 @@ impl StacksMessageCodec for TransactionPostCondition {
                 TransactionPostCondition::STX(principal, condition_code, amount)
             },
             x if x == AssetInfoID::FungibleAsset as u8 => {
-                let principal : PostConditionPrincipal = read_next(buf, &mut index, max_size)?;
-                let asset : AssetInfo = read_next(buf, &mut index, max_size)?;
-                let condition_u8 : u8 = read_next(buf, &mut index, max_size)?;
-                let amount : u64 = read_next(buf, &mut index, max_size)?;
+                let principal : PostConditionPrincipal = read_next(fd)?;
+                let asset : AssetInfo = read_next(fd)?;
+                let condition_u8 : u8 = read_next(fd)?;
+                let amount : u64 = read_next(fd)?;
 
                 let condition_code = FungibleConditionCode::from_u8(condition_u8)
                     .ok_or(net_error::DeserializeError(format!("Failed to parse transaction: Failed to parse FungibleAsset condition code {}", condition_u8)))?;
@@ -375,10 +348,10 @@ impl StacksMessageCodec for TransactionPostCondition {
                 TransactionPostCondition::Fungible(principal, asset, condition_code, amount)
             },
             x if x == AssetInfoID::NonfungibleAsset as u8 => {
-                let principal : PostConditionPrincipal = read_next(buf, &mut index, max_size)?;
-                let asset : AssetInfo = read_next(buf, &mut index, max_size)?;
-                let asset_value : Value = read_next(buf, &mut index, max_size)?;
-                let condition_u8 : u8 = read_next(buf, &mut index, max_size)?;
+                let principal : PostConditionPrincipal = read_next(fd)?;
+                let asset : AssetInfo = read_next(fd)?;
+                let asset_value : Value = read_next(fd)?;
+                let condition_u8 : u8 = read_next(fd)?;
 
                 let condition_code = NonfungibleConditionCode::from_u8(condition_u8)
                     .ok_or(net_error::DeserializeError(format!("Failed to parse transaction: Failed to parse NonfungibleAsset condition code {}", condition_u8)))?;
@@ -390,36 +363,34 @@ impl StacksMessageCodec for TransactionPostCondition {
             }
         };
         
-        *index_ptr = index;
         Ok(postcond)
     }
 }
 
 impl StacksMessageCodec for StacksTransaction {
-    fn serialize(&self) -> Vec<u8> {
-        let mut ret = vec![];
-
-        write_next(&mut ret, &(self.version as u8));
-        write_next(&mut ret, &self.chain_id);
-        write_next(&mut ret, &self.auth);
-        write_next(&mut ret, &(self.anchor_mode as u8));
-        write_next(&mut ret, &(self.post_condition_mode as u8));
-        write_next(&mut ret, &self.post_conditions);
-        write_next(&mut ret, &self.payload);
-        
-        ret
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &(self.version as u8))?;
+        write_next(fd, &self.chain_id)?;
+        write_next(fd, &self.auth)?;
+        write_next(fd, &(self.anchor_mode as u8))?;
+        write_next(fd, &(self.post_condition_mode as u8))?;
+        write_next(fd, &self.post_conditions)?;
+        write_next(fd, &self.payload)?;
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksTransaction, net_error> {
-        let mut index = *index_ptr;
-
-        let version_u8 : u8             = read_next(buf, &mut index, max_size)?;
-        let chain_id : u32              = read_next(buf, &mut index, max_size)?;
-        let auth : TransactionAuth      = read_next(buf, &mut index, max_size)?;
-        let anchor_mode_u8 : u8         = read_next(buf, &mut index, max_size)?;
-        let post_condition_mode_u8 : u8 = read_next(buf, &mut index, max_size)?;
-        let post_conditions : Vec<TransactionPostCondition> = read_next(buf, &mut index, max_size)?;
-        let payload : TransactionPayload = read_next(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksTransaction, net_error> {
+        let version_u8 : u8             = read_next(fd)?;
+        let chain_id : u32              = read_next(fd)?;
+        let auth : TransactionAuth      = read_next(fd)?;
+        let anchor_mode_u8 : u8         = read_next(fd)?;
+        let post_condition_mode_u8 : u8 = read_next(fd)?;
+        let post_conditions : Vec<TransactionPostCondition> = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
+        
+        let payload : TransactionPayload = read_next(fd)?;
 
         let version = 
             if (version_u8 & 0x80) == 0 {
@@ -477,8 +448,7 @@ impl StacksMessageCodec for StacksTransaction {
             }
         };
 
-        *index_ptr = index;
-        let ret = StacksTransaction {
+        Ok(StacksTransaction {
             version,
             chain_id,
             auth,
@@ -486,9 +456,7 @@ impl StacksMessageCodec for StacksTransaction {
             post_condition_mode,
             post_conditions,
             payload
-        };
-
-        Ok(ret)
+        })
     }
 }
 
@@ -571,7 +539,9 @@ impl StacksTransaction {
 
     /// a txid of a stacks transaction is its sha512/256 hash
     pub fn txid(&self) -> Txid {
-        Txid::from_stacks_tx(&self.serialize()[..])
+        let mut bytes = vec![];
+        self.consensus_serialize(&mut bytes).expect("BUG: failed to serialize to a vec");
+        Txid::from_stacks_tx(&bytes)
     }
     
     /// Get a mutable reference to the internal auth structure
@@ -896,6 +866,8 @@ mod test {
 
     use util::log;
     use util::hash::*;
+    use util::retry::BoundReader;
+    use util::retry::LogReader;
 
     use vm::representations::{ClarityName, ContractName};
 
@@ -1377,15 +1349,21 @@ mod test {
         }
         
         // exhaustive test -- mutate each byte
-        let mut tx_bytes = signed_tx.serialize();
+        let mut tx_bytes : Vec<u8> = vec![];
+        signed_tx.consensus_serialize(&mut tx_bytes).unwrap();
+        test_debug!("mutate tx: {}", to_hex(&tx_bytes));
         for i in 0..tx_bytes.len() {
             let next_byte = tx_bytes[i] as u16;
             tx_bytes[i] = ((next_byte + 1) % 0xff) as u8;
 
-            let mut index = 0;
-            match StacksTransaction::deserialize(&tx_bytes, &mut index, tx_bytes.len() as u32) {
+            // test_debug!("mutate byte {}", &i);
+            let mut cursor = io::Cursor::new(&tx_bytes);
+            let mut reader = LogReader::from_reader(&mut cursor);
+            match StacksTransaction::consensus_deserialize(&mut reader) {
                 Ok(corrupt_tx) => {
-                    if index < tx_bytes.len() as u32 {
+                    let mut corrupt_tx_bytes = vec![];
+                    corrupt_tx.consensus_serialize(&mut corrupt_tx_bytes).unwrap();
+                    if corrupt_tx_bytes.len() < tx_bytes.len() {
                         // didn't parse fully; the block-parsing logic would reject this block.
                         tx_bytes[i] = next_byte as u8;
                         continue;
@@ -1417,7 +1395,7 @@ mod test {
         // wire encodings of the same
         let mut tt_stx_bytes = vec![];
         tt_stx_bytes.push(TransactionPayloadID::TokenTransfer as u8);
-        tt_stx_bytes.append(&mut addr.serialize());
+        addr.consensus_serialize(&mut tt_stx_bytes).unwrap();
         tt_stx_bytes.append(&mut vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 123]);
         tt_stx_bytes.append(&mut vec![1u8; 34]);
 
@@ -1444,14 +1422,14 @@ mod test {
         };
 
         let mut contract_call_bytes = vec![];
-        contract_call_bytes.append(&mut contract_call.address.serialize());
-        contract_call_bytes.append(&mut contract_call.contract_name.serialize());
-        contract_call_bytes.append(&mut contract_call.function_name.serialize());
-        contract_call_bytes.append(&mut contract_call.function_args.serialize());
+        contract_call.address.consensus_serialize(&mut contract_call_bytes).unwrap();
+        contract_call.contract_name.consensus_serialize(&mut contract_call_bytes).unwrap();
+        contract_call.function_name.consensus_serialize(&mut contract_call_bytes).unwrap();
+        contract_call.function_args.consensus_serialize(&mut contract_call_bytes).unwrap();
 
         let mut smart_contract_bytes = vec![];
-        smart_contract_bytes.append(&mut smart_contract.name.serialize());
-        smart_contract_bytes.append(&mut smart_contract.code_body.serialize());
+        smart_contract.name.consensus_serialize(&mut smart_contract_bytes).unwrap();
+        smart_contract.code_body.consensus_serialize(&mut smart_contract_bytes).unwrap();
 
         let mut transaction_contract_call = vec![
             TransactionPayloadID::ContractCall as u8
@@ -1570,9 +1548,7 @@ mod test {
             0x03
         ];
 
-        let mut idx = 0;
-        assert!(TransactionPayload::deserialize(&payload_bytes_bad_parent, &mut idx, payload_bytes_bad_parent.len() as u32).unwrap_err().to_string().find("microblock headers do not identify a fork").is_some());
-        assert_eq!(idx, 0);
+        assert!(TransactionPayload::consensus_deserialize(&mut &payload_bytes_bad_parent[..]).unwrap_err().to_string().find("microblock headers do not identify a fork").is_some());
         
         let payload_bytes_equal = vec![
             // payload type ID
@@ -1607,9 +1583,7 @@ mod test {
             0x02
         ];
 
-        let mut idx = 0;
-        assert!(TransactionPayload::deserialize(&payload_bytes_equal, &mut idx, payload_bytes_equal.len() as u32).unwrap_err().to_string().find("microblock headers match").is_some());
-        assert_eq!(idx, 0);
+        assert!(TransactionPayload::consensus_deserialize(&mut &payload_bytes_equal[..]).unwrap_err().to_string().find("microblock headers match").is_some());
     }
 
     #[test]
@@ -1626,19 +1600,17 @@ mod test {
         };
 
         let mut contract_call_bytes = vec![];
-        contract_call_bytes.append(&mut contract_call.address.serialize());
-        contract_call_bytes.append(&mut contract_call.contract_name.serialize());
-        contract_call_bytes.append(&mut contract_call.function_name.serialize());
-        contract_call_bytes.append(&mut contract_call.function_args.serialize());
+        contract_call.address.consensus_serialize(&mut contract_call_bytes).unwrap();
+        contract_call.contract_name.consensus_serialize(&mut contract_call_bytes).unwrap();
+        contract_call.function_name.consensus_serialize(&mut contract_call_bytes).unwrap();
+        contract_call.function_args.consensus_serialize(&mut contract_call_bytes).unwrap();
 
         let mut transaction_contract_call = vec![
             0xff as u8
         ];
         transaction_contract_call.append(&mut contract_call_bytes.clone());
 
-        let mut idx = 0;
-        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).unwrap_err().to_string().find("unknown payload ID").is_some());
-        assert_eq!(idx, 0);
+        assert!(TransactionPayload::consensus_deserialize(&mut &transaction_contract_call[..]).unwrap_err().to_string().find("unknown payload ID").is_some());
     }
     
     #[test]
@@ -1655,19 +1627,18 @@ mod test {
         contract_name_bytes.extend_from_slice(contract_name.as_bytes());
 
         let mut contract_call_bytes = vec![];
-        contract_call_bytes.extend_from_slice(&mut address.serialize());
-        contract_call_bytes.extend_from_slice(&mut contract_name_bytes);
-        contract_call_bytes.extend_from_slice(&mut function_name.serialize());
-        contract_call_bytes.extend_from_slice(&mut function_args.serialize());
+        address.consensus_serialize(&mut contract_call_bytes).unwrap();
+        contract_call_bytes.push(contract_name.len() as u8);
+        contract_call_bytes.extend_from_slice(contract_name.as_bytes());
+        function_name.consensus_serialize(&mut contract_call_bytes).unwrap();
+        function_args.consensus_serialize(&mut contract_call_bytes).unwrap();
         
         let mut transaction_contract_call = vec![
             TransactionPayloadID::ContractCall as u8
         ];
         transaction_contract_call.append(&mut contract_call_bytes);
 
-        let mut idx = 0;
-        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).unwrap_err().to_string().find("Failed to parse Contract name").is_some());
-        assert_eq!(idx, 0);
+        assert!(TransactionPayload::consensus_deserialize(&mut &transaction_contract_call[..]).unwrap_err().to_string().find("Failed to parse Contract name").is_some());
     }
     
     #[test]
@@ -1681,23 +1652,20 @@ mod test {
         ];
         hello_function_name_bytes.extend_from_slice(hello_function_name.as_bytes());
 
-        let function_name = ClarityName::try_from("hello-function-name").unwrap();
         let function_args = vec![Value::Int(0)];
         
         let mut contract_call_bytes = vec![];
-        contract_call_bytes.extend_from_slice(&mut address.serialize());
-        contract_call_bytes.extend_from_slice(&mut contract_name.serialize());
-        contract_call_bytes.extend_from_slice(&mut hello_function_name_bytes);
-        contract_call_bytes.extend_from_slice(&mut function_args.serialize());
+        address.consensus_serialize(&mut contract_call_bytes).unwrap();
+        contract_name.consensus_serialize(&mut contract_call_bytes).unwrap();
+        contract_call_bytes.extend_from_slice(&hello_function_name_bytes);
+        function_args.consensus_serialize(&mut contract_call_bytes).unwrap();
         
         let mut transaction_contract_call = vec![
             TransactionPayloadID::ContractCall as u8
         ];
         transaction_contract_call.append(&mut contract_call_bytes);
 
-        let mut idx = 0;
-        assert!(TransactionPayload::deserialize(&transaction_contract_call, &mut idx, transaction_contract_call.len() as u32).unwrap_err().to_string().find("Failed to parse Clarity name").is_some());
-        assert_eq!(idx, 0);
+        assert!(TransactionPayload::consensus_deserialize(&mut &transaction_contract_call[..]).unwrap_err().to_string().find("Failed to parse Clarity name").is_some());
     }
     
     #[test]
@@ -1735,11 +1703,11 @@ mod test {
         asset_info_bytes.extend_from_slice(&contract_name_bytes[..]);
         asset_info_bytes.extend_from_slice(&asset_name_bytes[..]);
 
-        assert_eq!(asset_info.serialize(), asset_info_bytes);
+        let mut actual_asset_info_bytes = vec![];
+        asset_info.consensus_serialize(&mut actual_asset_info_bytes).unwrap();
+        assert_eq!(actual_asset_info_bytes, asset_info_bytes);
 
-        let mut idx = 0;
-        assert_eq!(AssetInfo::deserialize(&asset_info_bytes, &mut idx, asset_info_bytes.len() as u32).unwrap(), asset_info);
-        assert_eq!(idx, asset_info_bytes.len() as u32);
+        assert_eq!(AssetInfo::consensus_deserialize(&mut &asset_info_bytes[..]).unwrap(), asset_info);
     }
 
     #[test]
@@ -1768,8 +1736,9 @@ mod test {
                 Value::buff_from(vec![0, 1, 2, 3]).unwrap(),
                 NonfungibleConditionCode::NotSent);
 
-            let mut stx_pc_bytes = (AssetInfoID::STX as u8).serialize();
-            stx_pc_bytes.append(&mut tx_pcp.serialize());
+            let mut stx_pc_bytes = vec![];
+            (AssetInfoID::STX as u8).consensus_serialize(&mut stx_pc_bytes).unwrap();
+            tx_pcp.consensus_serialize(&mut stx_pc_bytes).unwrap();
             stx_pc_bytes.append(&mut vec![
                 // condition code
                 FungibleConditionCode::SentGt as u8,
@@ -1777,9 +1746,10 @@ mod test {
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x39
             ]);
 
-            let mut fungible_pc_bytes = (AssetInfoID::FungibleAsset as u8).serialize();
-            fungible_pc_bytes.append(&mut tx_pcp.serialize());
-            fungible_pc_bytes.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
+            let mut fungible_pc_bytes = vec![];
+            (AssetInfoID::FungibleAsset as u8).consensus_serialize(&mut fungible_pc_bytes).unwrap();
+            tx_pcp.consensus_serialize(&mut fungible_pc_bytes).unwrap();
+            AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.consensus_serialize(&mut fungible_pc_bytes).unwrap();
             fungible_pc_bytes.append(&mut vec![
                 // condition code 
                 FungibleConditionCode::SentGt as u8,
@@ -1787,10 +1757,11 @@ mod test {
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5b, 0xa0
             ]);
 
-            let mut nonfungible_pc_bytes = (AssetInfoID::NonfungibleAsset as u8).serialize();
-            nonfungible_pc_bytes.append(&mut tx_pcp.serialize());
-            nonfungible_pc_bytes.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
-            nonfungible_pc_bytes.append(&mut Value::buff_from(vec![0, 1, 2, 3]).unwrap().serialize());
+            let mut nonfungible_pc_bytes = vec![];
+            (AssetInfoID::NonfungibleAsset as u8).consensus_serialize(&mut nonfungible_pc_bytes).unwrap();
+            tx_pcp.consensus_serialize(&mut nonfungible_pc_bytes).unwrap();
+            AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.consensus_serialize(&mut nonfungible_pc_bytes).unwrap();
+            Value::buff_from(vec![0, 1, 2, 3]).unwrap().consensus_serialize(&mut nonfungible_pc_bytes).unwrap();
             nonfungible_pc_bytes.append(&mut vec![
                 // condition code
                 NonfungibleConditionCode::NotSent as u8
@@ -1812,7 +1783,8 @@ mod test {
 
         // can't parse a postcondition with an invalid condition code
 
-        let mut stx_pc_bytes_bad_condition = (AssetInfoID::STX as u8).serialize();
+        let mut stx_pc_bytes_bad_condition = vec![];
+        (AssetInfoID::STX as u8).consensus_serialize(&mut stx_pc_bytes_bad_condition).unwrap();
         stx_pc_bytes_bad_condition.append(&mut vec![
             // principal
             PostConditionPrincipalID::Origin as u8,
@@ -1822,9 +1794,10 @@ mod test {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x39
         ]);
 
-        let mut fungible_pc_bytes_bad_condition = (AssetInfoID::FungibleAsset as u8).serialize();
+        let mut fungible_pc_bytes_bad_condition = vec![];
+        (AssetInfoID::FungibleAsset as u8).consensus_serialize(&mut fungible_pc_bytes_bad_condition).unwrap();
         fungible_pc_bytes_bad_condition.append(&mut vec![PostConditionPrincipalID::Origin as u8]);
-        fungible_pc_bytes_bad_condition.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
+        AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.consensus_serialize(&mut fungible_pc_bytes_bad_condition).unwrap();
         fungible_pc_bytes_bad_condition.append(&mut vec![
             // condition code 
             NonfungibleConditionCode::Sent as u8,
@@ -1832,10 +1805,11 @@ mod test {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5b, 0xa0
         ]);
         
-        let mut nonfungible_pc_bytes_bad_condition = (AssetInfoID::NonfungibleAsset as u8).serialize();
+        let mut nonfungible_pc_bytes_bad_condition = vec![];
+        (AssetInfoID::NonfungibleAsset as u8).consensus_serialize(&mut nonfungible_pc_bytes_bad_condition).unwrap();
         nonfungible_pc_bytes_bad_condition.append(&mut vec![PostConditionPrincipalID::Origin as u8]);
-        nonfungible_pc_bytes_bad_condition.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
-        nonfungible_pc_bytes_bad_condition.append(&mut Value::buff_from(vec![0, 1, 2, 3]).unwrap().serialize());
+        AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.consensus_serialize(&mut nonfungible_pc_bytes_bad_condition).unwrap();
+        Value::buff_from(vec![0, 1, 2, 3]).unwrap().consensus_serialize(&mut nonfungible_pc_bytes_bad_condition).unwrap();
         nonfungible_pc_bytes_bad_condition.append(&mut vec![
             // condition code
             FungibleConditionCode::SentGt as u8
@@ -1843,14 +1817,13 @@ mod test {
 
         let bad_pc_bytes = vec![stx_pc_bytes_bad_condition, fungible_pc_bytes_bad_condition, nonfungible_pc_bytes_bad_condition];
         for i in 0..3 {
-            let mut idx = 0;
-            assert!(TransactionPostCondition::deserialize(&bad_pc_bytes[i], &mut idx, bad_pc_bytes[i].len() as u32).is_err());
-            assert_eq!(idx, 0);
+            assert!(TransactionPostCondition::consensus_deserialize(&mut &bad_pc_bytes[i][..]).is_err());
         }
         
         // can't parse a postcondition with an invalid principal
 
-        let mut stx_pc_bytes_bad_principal = (AssetInfoID::STX as u8).serialize();
+        let mut stx_pc_bytes_bad_principal = vec![];
+        (AssetInfoID::STX as u8).consensus_serialize(&mut stx_pc_bytes_bad_principal).unwrap();
         stx_pc_bytes_bad_principal.append(&mut vec![
             // principal
             0xff,
@@ -1860,9 +1833,10 @@ mod test {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x39
         ]);
 
-        let mut fungible_pc_bytes_bad_principal = (AssetInfoID::FungibleAsset as u8).serialize();
+        let mut fungible_pc_bytes_bad_principal = vec![];
+        (AssetInfoID::FungibleAsset as u8).consensus_serialize(&mut fungible_pc_bytes_bad_principal).unwrap();
         fungible_pc_bytes_bad_principal.append(&mut vec![0xff]);
-        fungible_pc_bytes_bad_principal.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
+        AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.consensus_serialize(&mut fungible_pc_bytes_bad_principal).unwrap();
         fungible_pc_bytes_bad_principal.append(&mut vec![
             // condition code 
             NonfungibleConditionCode::Sent as u8,
@@ -1870,10 +1844,11 @@ mod test {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5b, 0xa0
         ]);
         
-        let mut nonfungible_pc_bytes_bad_principal = (AssetInfoID::NonfungibleAsset as u8).serialize();
+        let mut nonfungible_pc_bytes_bad_principal = vec![];
+        (AssetInfoID::NonfungibleAsset as u8).consensus_serialize(&mut nonfungible_pc_bytes_bad_principal).unwrap();
         nonfungible_pc_bytes_bad_principal.append(&mut vec![0xff]);
-        nonfungible_pc_bytes_bad_principal.append(&mut AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.serialize());
-        nonfungible_pc_bytes_bad_principal.append(&mut Value::buff_from(vec![0, 1, 2, 3]).unwrap().serialize());
+        AssetInfo {contract_address: addr.clone(), contract_name: contract_name.clone(), asset_name: asset_name.clone()}.consensus_serialize(&mut nonfungible_pc_bytes_bad_principal).unwrap();
+        Value::buff_from(vec![0, 1, 2, 3]).unwrap().consensus_serialize(&mut nonfungible_pc_bytes_bad_principal).unwrap();
         nonfungible_pc_bytes_bad_principal.append(&mut vec![
             // condition code
             FungibleConditionCode::SentGt as u8
@@ -1881,9 +1856,7 @@ mod test {
 
         let bad_pc_bytes = vec![stx_pc_bytes_bad_principal, fungible_pc_bytes_bad_principal, nonfungible_pc_bytes_bad_principal];
         for i in 0..3 {
-            let mut idx = 0;
-            assert!(TransactionPostCondition::deserialize(&bad_pc_bytes[i], &mut idx, bad_pc_bytes[i].len() as u32).is_err());
-            assert_eq!(idx, 0);
+            assert!(TransactionPostCondition::consensus_deserialize(&mut &bad_pc_bytes[i][..]).is_err());
         }
     }
 
@@ -1898,11 +1871,11 @@ mod test {
                 0x00, 0x00, 0x00, 0x00
             ];
             
-            tx_bytes.append(&mut (tx.auth.serialize()));
+            tx.auth.consensus_serialize(&mut tx_bytes).unwrap();
             tx_bytes.append(&mut vec![TransactionAnchorMode::OnChainOnly as u8]);
             tx_bytes.append(&mut vec![TransactionPostConditionMode::Deny as u8]);
-            tx_bytes.append(&mut (tx.post_conditions.serialize()));
-            tx_bytes.append(&mut (tx.payload.serialize()));
+            tx.post_conditions.consensus_serialize(&mut tx_bytes).unwrap();
+            tx.payload.consensus_serialize(&mut tx_bytes).unwrap();
 
             test_debug!("---------");
             test_debug!("test tx:\n{:?}", &tx);
@@ -1957,7 +1930,7 @@ mod test {
 
         let tx_smart_contract = StacksTransaction::new(TransactionVersion::Mainnet,
                                                        auth.clone(),
-                                                       TransactionPayload::new_smart_contract(&"name".to_string(), &"hello smart contract".to_string()).unwrap());
+                                                       TransactionPayload::new_smart_contract(&"name-contract".to_string(), &"hello smart contract".to_string()).unwrap());
 
         let tx_coinbase = StacksTransaction::new(TransactionVersion::Mainnet,
                                                  auth.clone(),

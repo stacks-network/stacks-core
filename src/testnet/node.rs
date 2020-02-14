@@ -14,6 +14,7 @@ use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, Blo
 use net::StacksMessageType;
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
+use util::get_epoch_time_secs;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
 
@@ -57,7 +58,6 @@ pub struct Node {
     active_registered_key: Option<RegisteredKey>,
     average_block_time: u64,
     bootstraping_chain: bool,
-    burnchain_ops_tx: Option<Sender<BlockstackOperationType>>,
     burnchain_tip: Option<BlockSnapshot>,
     pub chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
@@ -93,26 +93,17 @@ impl Node {
             last_sortitioned_block: None,
             mem_pool,
             average_block_time,
-            burnchain_ops_tx: None,
             burnchain_tip: None,
             nonce: 0,
         }
     }
     
-    /// Setup the node so that it can transmit ops to the underlying burnchain.
-    /// Submit a KeyRegisterOp.
-    pub fn setup(&mut self, burnchain_ops_tx: Sender<BlockstackOperationType>) {
+    pub fn setup(&mut self) -> BlockstackOperationType {
         // Register a new key
         let vrf_pk = self.keychain.rotate_vrf_keypair();
         let consensus_hash = ConsensusHash::empty();
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
-        match burnchain_ops_tx.send(key_reg_op) {
-            Ok(res) => res,
-            Err(_) => panic!("Error while transmitting op to the burnchain")
-        };
-
-        // Keep the burnchain_ops_tx for subsequent ops submissions
-        self.burnchain_ops_tx = Some(burnchain_ops_tx);
+        key_reg_op
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -254,12 +245,8 @@ impl Node {
         Some(tenure)
     }
 
-    /// Handles artifacts coming from an ongoing tenure.
-    /// At this point, we're not updating the chainstate, we're simply having the node
-    /// candidating for the next tenure.
-    pub fn receive_tenure_artifacts(&mut self, anchored_block_from_ongoing_tenure: &StacksBlock, parent_block: &SortitionedBlock) {
-        let ops_tx = self.burnchain_ops_tx.take().unwrap();
-
+    pub fn receive_tenure_artifacts(&mut self, anchored_block_from_ongoing_tenure: &StacksBlock, parent_block: &SortitionedBlock) -> Vec<BlockstackOperationType> {
+        let mut ops = vec![];
         if self.active_registered_key.is_some() {
             let registered_key = self.active_registered_key.clone().unwrap();
 
@@ -275,30 +262,31 @@ impl Node {
                 &parent_block,
                 VRFSeed::from_proof(&vrf_proof));
 
-            ops_tx.send(op).unwrap();
+            ops.push(op);
         }
-
+        
         // Naive implementation: we keep registering new keys
         let vrf_pk = self.keychain.rotate_vrf_keypair();
         let burnchain_tip_consensus_hash = self.burnchain_tip.as_ref().unwrap().consensus_hash;
         let op = self.generate_leader_key_register_op(vrf_pk, &burnchain_tip_consensus_hash);
-        ops_tx.send(op).unwrap();
 
-        self.burnchain_ops_tx = Some(ops_tx);
+        ops.push(op);
+        ops
     }
 
     /// Process artifacts from the tenure.
     /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
-    pub fn process_tenure(&mut self, anchored_block: &StacksBlock, burn_header_hash: &BurnchainHeaderHash, parent_burn_header_hash: &BurnchainHeaderHash, microblocks: Vec<StacksMicroblock>, burn_db: Arc<Mutex<BurnDB>>) {
+    pub fn process_tenure(&mut self, anchored_block: &StacksBlock, burn_header_hash: &BurnchainHeaderHash, parent_burn_header_hash: &BurnchainHeaderHash, microblocks: Vec<StacksMicroblock>, db: &mut BurnDB) {
 
         {
-            let mut db = burn_db.lock().unwrap();
+            // let mut db = burn_db.lock().unwrap();
             let mut tx = db.tx_begin().unwrap();
 
             // Preprocess the anchored block
             self.chain_state.preprocess_anchored_block(
-                &mut tx, 
+                &mut tx,
                 &burn_header_hash,
+                get_epoch_time_secs(),
                 &anchored_block, 
                 &parent_burn_header_hash).unwrap();
 
@@ -316,10 +304,10 @@ impl Node {
 
         self.chain_tip = {
             // We are intentionally scoping this snippet, in order to limit the scope of the lock.
-            let db = burn_db.lock().unwrap();
+            // let db = burn_db.lock().unwrap();
             let mut res = None;
             loop {
-                match self.chain_state.process_blocks(db.conn(), 1) {
+                match self.chain_state.process_blocks(1) {
                     Err(e) => panic!("Error while processing block - {:?}", e),
                     Ok(blocks) => {
                         if blocks.len() == 0 {

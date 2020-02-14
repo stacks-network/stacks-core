@@ -202,22 +202,24 @@ impl StacksChainState {
         assert!(block_reward.burnchain_commit_burn < i64::max_value() as u64);
         assert!(block_reward.burnchain_sortition_burn < i64::max_value() as u64);
 
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(&block_reward.burn_header_hash, &block_reward.block_hash);
+
         let args: &[&dyn ToSql] = &[&block_reward.address.to_string(), &block_reward.block_hash, &block_reward.burn_header_hash, &block_reward.parent_block_hash, &block_reward.parent_burn_header_hash,
                     &format!("{}", block_reward.coinbase), &format!("{}", block_reward.tx_fees_anchored), &format!("{}", block_reward.tx_fees_streamed), &format!("{}", block_reward.stx_burns), 
                     &(block_reward.burnchain_commit_burn as i64) as &dyn ToSql, &(block_reward.burnchain_sortition_burn as i64) as &dyn ToSql, &format!("{}", block_reward.fill), &(block_reward.stacks_block_height as i64) as &dyn ToSql, 
-                    &true as &dyn ToSql, &0i64 as &dyn ToSql];
+                    &true as &dyn ToSql, &0i64 as &dyn ToSql, &index_block_hash as &dyn ToSql];
 
-        tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex) \
-                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)", args)
+        tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex,index_block_hash) \
+                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         for user_support in user_burns.iter() {
             let args: &[&dyn ToSql] = &[&user_support.address.to_string(), &block_reward.block_hash, &block_reward.burn_header_hash, &block_reward.parent_block_hash, &block_reward.parent_burn_header_hash,
                         &format!("{}", block_reward.coinbase), &"0".to_string(), &"0".to_string(), &"0".to_string(),
                         &(user_support.burn_amount as i64) as &dyn ToSql, &(block_reward.burnchain_sortition_burn as i64) as &dyn ToSql, &format!("{}", block_reward.fill), &(block_reward.stacks_block_height as i64) as &dyn ToSql,
-                        &false as &dyn ToSql, &user_support.vtxindex as &dyn ToSql];
-            tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex) \
-                        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                        &false as &dyn ToSql, &user_support.vtxindex as &dyn ToSql, &index_block_hash as &dyn ToSql];
+            tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex,index_block_hash) \
+                        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
                        args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
         }
@@ -241,6 +243,26 @@ impl StacksChainState {
         Ok(rows)
     }
 
+    /// Get the miner info at a particular burn/stacks block
+    pub fn get_miner_info(conn: &DBConn, burn_block_hash: &BurnchainHeaderHash, stacks_block_hash: &BlockHeaderHash) -> Result<Option<MinerPaymentSchedule>, Error> {
+        let qry = "SELECT * FROM payments WHERE burn_header_hash = ?1 AND block_hash = ?2 AND miner = 1".to_string();
+        let args = [burn_block_hash as &dyn ToSql, stacks_block_hash as &dyn ToSql];
+        let mut rows = query_rows::<MinerPaymentSchedule, _>(conn, &qry, &args).map_err(Error::DBError)?;
+        let len = rows.len();
+        match len {
+            0 => {
+                test_debug!("No miner information for {}/{}", burn_block_hash, stacks_block_hash);
+                Ok(None)
+            },
+            1 => {
+                Ok(rows.pop())
+            },
+            _ => {
+                panic!("Multiple miners for {}/{}", burn_block_hash, stacks_block_hash);
+            }
+        }
+    }
+
     /// Calculate the total reward for a miner (or user burn support), given a sample of scheduled miner payments.
     /// The scheduled miner payments must be in order by block height (sample[0] is the oldest).
     /// The first tuple item is the miner's reward; the second tuple item is the list of
@@ -261,13 +283,6 @@ impl StacksChainState {
 
         // how many blocks this miner mined or supported
         let mut num_mined : u128 = 0;
-
-        // this miner gets (r*b)/(R*B) of the coinbases over the reward window, where:
-        // * r is the number of tokens added by the blocks mined (or supported) by this miner
-        // * R is the number of tokens added by all blocks mined in this interval
-        // * b is the amount of burn tokens destroyed by this miner 
-        // * B is the total amount of burn tokens destroyed over this interval
-        let mut coinbase_reward : u128 = 0;
         
         ////////////////////// number of blocks this miner mined or supported //////
         for i in 0..sample.len() {
@@ -316,7 +331,12 @@ impl StacksChainState {
             }
         };
 
-        coinbase_reward = 
+        // this miner gets (r*b)/(R*B) of the coinbases over the reward window, where:
+        // * r is the number of tokens added by the blocks mined (or supported) by this miner
+        // * R is the number of tokens added by all blocks mined in this interval
+        // * b is the amount of burn tokens destroyed by this miner 
+        // * B is the total amount of burn tokens destroyed over this interval
+        let coinbase_reward : u128 =  
             if num_mined == 0 {
                 // this miner didn't help at all
                 0
@@ -462,7 +482,15 @@ mod test {
         }
         
         let mut tx = chainstate.headers_tx_begin().unwrap();
-        let tip = StacksChainState::advance_tip(&mut tx, &parent_header_info.anchored_header, &parent_header_info.burn_header_hash, &new_tip.anchored_header, &new_tip.burn_header_hash, new_tip.microblock_tail.clone(), &block_reward, &user_burns).unwrap();
+        let tip = StacksChainState::advance_tip(&mut tx, 
+                                                &parent_header_info.anchored_header, 
+                                                &parent_header_info.burn_header_hash, 
+                                                &new_tip.anchored_header, 
+                                                &new_tip.burn_header_hash, 
+                                                new_tip.burn_header_timestamp, 
+                                                new_tip.microblock_tail.clone(), 
+                                                &block_reward, 
+                                                &user_burns).unwrap();
         tx.commit().unwrap();
         tip
     }

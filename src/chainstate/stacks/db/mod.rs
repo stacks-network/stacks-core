@@ -132,7 +132,8 @@ pub struct StacksHeaderInfo {
     pub microblock_tail: Option<StacksMicroblockHeader>,
     pub block_height: u64,
     pub index_root: TrieHash,
-    pub burn_header_hash: BurnchainHeaderHash
+    pub burn_header_hash: BurnchainHeaderHash,
+    pub burn_header_timestamp: u64
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -153,6 +154,7 @@ impl StacksHeaderInfo {
             block_height: StacksBlockHeader::genesis().total_work.work,
             index_root: TrieHash([0u8; 32]),
             burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+            burn_header_timestamp: FIRST_BURNCHAIN_BLOCK_TIMESTAMP
         }
     }
     pub fn is_genesis(&self) -> bool {
@@ -182,9 +184,13 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let block_height_i64 : i64 = row.get("block_height");
         let index_root = TrieHash::from_column(row, "index_root")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+        let burn_header_timestamp_i64 : i64 = row.get("burn_header_timestamp");
         let stacks_header = StacksBlockHeader::from_row(row)?;
         
         if block_height_i64 < 0 {
+            return Err(db_error::ParseError);
+        }
+        if burn_header_timestamp_i64 < 0 {
             return Err(db_error::ParseError);
         }
 
@@ -197,7 +203,8 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             microblock_tail: None,
             block_height: block_height_i64 as u64,
             index_root: index_root,
-            burn_header_hash: burn_header_hash
+            burn_header_hash: burn_header_hash,
+            burn_header_timestamp: burn_header_timestamp_i64 as u64
         })
     }
 }
@@ -321,6 +328,7 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
         block_height INTEGER NOT NULL,
         index_root TEXT NOT NULL,                    -- root hash of the internal, not-consensus-critical MARF that allows us to track chainstate fork metadata
         burn_header_hash TEXT UNIQUE NOT NULL,       -- all burn header hashes are guaranteed to be unique
+        burn_header_timestamp INT NOT NULL,          -- timestamp from burnchain block header
 
         PRIMARY KEY(burn_header_hash,block_hash)
     );
@@ -349,6 +357,7 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
         
         -- internal use
         stacks_block_height INTEGER NOT NULL,
+        index_block_hash TEXT NOT NULL,     -- NOTE: can't enforce UNIQUE here, because there will be multiple entries per block
         vtxindex INT NOT NULL               -- user burn support vtxindex
     );
     "#,
@@ -656,6 +665,7 @@ impl StacksChainState {
                 index_root: first_root_hash,
                 block_height: 0,
                 burn_header_hash: FIRST_BURNCHAIN_BLOCK_HASH.clone(),
+                burn_header_timestamp: FIRST_BURNCHAIN_BLOCK_TIMESTAMP
             };
 
             StacksChainState::insert_stacks_block_header(&mut headers_tx, &first_tip_info)?;
@@ -860,7 +870,7 @@ impl StacksChainState {
         // a single epoch)
         let parent_hash = StacksChainState::get_index_hash(tip_burn_hash, tip_header);
         match headers_tx.get_indexed(&parent_hash, &format!("chainstate::pubkey_hash::{}", pubkey_hash)).map_err(Error::DBError)? {
-            Some(status_str) => {
+            Some(_) => {
                 // pubkey hash was seen before
                 debug!("Public key hash {} already used", pubkey_hash);
                 return Ok(true);
@@ -879,6 +889,7 @@ impl StacksChainState {
                            parent_burn_block: &BurnchainHeaderHash, 
                            new_tip: &StacksBlockHeader, 
                            new_burn_block: &BurnchainHeaderHash, 
+                           new_burn_block_timestamp: u64,
                            microblock_tail_opt: Option<StacksMicroblockHeader>,
                            block_reward: &MinerPaymentSchedule,
                            user_burns: &Vec<StagingUserBurnSupport>) -> Result<StacksHeaderInfo, Error>
@@ -890,14 +901,7 @@ impl StacksChainState {
                        new_tip.total_work.work);
         }
         
-        let parent_hash = 
-            if parent_tip.is_genesis() {
-                TrieFileStorage::block_sentinel()
-            }
-            else {
-                parent_tip.index_block_hash(parent_burn_block)
-            };
-
+        let parent_hash = StacksChainState::get_index_hash(parent_burn_block, parent_tip); 
         let indexed_keys = vec![
             format!("chainstate::pubkey_hash::{}", new_tip.microblock_pubkey_hash)
         ];
@@ -919,7 +923,8 @@ impl StacksChainState {
             microblock_tail: microblock_tail_opt,
             index_root: root_hash,
             block_height: new_tip.total_work.work,
-            burn_header_hash: new_burn_block.clone()
+            burn_header_hash: new_burn_block.clone(),
+            burn_header_timestamp: new_burn_block_timestamp
         };
 
         StacksChainState::insert_stacks_block_header(headers_tx, &new_tip_info)?;

@@ -241,8 +241,13 @@ impl BurnSamplePoint {
             burn_sample[i].range_end = ((Uint512::from_uint256(&Uint256::max()) * burn_acc) / total_burns).to_uint256();
         }
 
-        for i in 0..burn_sample.len() {
-            test_debug!("Range for block {}: {} / {}: {} - {}", burn_sample[i].candidate.block_header_hash, burn_sample[i].burns, total_burns_u128, burn_sample[i].range_start, burn_sample[i].range_end);
+        for _i in 0..burn_sample.len() {
+            test_debug!("Range for block {}: {} / {}: {} - {}", 
+                burn_sample[_i].candidate.block_header_hash, 
+                burn_sample[_i].burns, 
+                total_burns_u128, 
+                burn_sample[_i].range_start, 
+                burn_sample[_i].range_end);
         }
     }
 

@@ -18,8 +18,6 @@
 */
 
 #![allow(unused_imports)]
-#![allow(unused_assignments)]
-#![allow(unused_variables)]
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -32,14 +30,14 @@ extern crate serde;
 extern crate rusqlite;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
+#[macro_use] extern crate lazy_static;
 extern crate sha2;
 extern crate sha3;
 extern crate ripemd160;
-extern crate dirs;
 extern crate regex;
+extern crate time;
 extern crate byteorder;
 extern crate mio;
-extern crate libc;
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;

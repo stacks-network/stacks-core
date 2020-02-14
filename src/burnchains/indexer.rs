@@ -61,6 +61,7 @@ pub trait BurnchainIndexer {
 
     fn get_first_block_height(&self) -> u64;
     fn get_first_block_header_hash(&self, headers_path: &String) -> Result<BurnchainHeaderHash, burnchain_error>;
+    fn get_first_block_header_timestamp(&self, headers_path: &String) -> Result<u64, burnchain_error>;
 
     fn get_headers_path(&self) -> String;
     fn get_headers_height(&self, headers_path: &String) -> Result<u64, burnchain_error>;

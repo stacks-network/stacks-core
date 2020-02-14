@@ -402,7 +402,8 @@ impl BitcoinBlockParser {
             block_height: block_height,
             block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.bitcoin_hash()),
             parent_block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.header.prev_blockhash),
-            txs: accepted_txs
+            txs: accepted_txs,
+            timestamp: block.header.time as u64
         }
     }
 
@@ -783,7 +784,8 @@ mod tests {
                                 }
                             ]
                         }
-                    ]
+                    ],
+                    timestamp: 1543267060,
                 })
             },
             BlockFixture {
@@ -795,6 +797,7 @@ mod tests {
                     block_height: 32,
                     block_hash: to_block_hash(&hex_bytes("4f3757bc236e58b87d6208aa795115002b739bf39268cf69640f0b092e8cdafe").unwrap()),
                     parent_block_hash: to_block_hash(&hex_bytes("25af4b7151b77f6f8235bda83a8062fba621591beef57e18f4697c8b88a298ad").unwrap()),
+                    timestamp: 1543272755,
                     txs: vec![
                         BitcoinTransaction {
                             // TOKEN_TRANSFER

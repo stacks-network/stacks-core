@@ -246,7 +246,7 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         LeaderBlockCommitOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
         
-    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), op_error> {
+    fn check<'a>(&self, _burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
         let parent_block_height = self.parent_block_ptr as u64;
         
@@ -395,6 +395,7 @@ mod tests {
     use util::vrf::VRFPublicKey;
     use util::hash::hex_bytes;
     use util::log;
+    use util::get_epoch_time_secs;
     
     use chainstate::stacks::StacksAddress;
     use chainstate::stacks::StacksPublicKey;
@@ -483,7 +484,8 @@ mod tests {
                         block_hash: op.burn_header_hash.clone(),
                         parent_block_hash: op.burn_header_hash.clone(),
                         num_txs: 1,
-                        parent_index_root: TrieHash::from_empty_data()
+                        parent_index_root: TrieHash::from_empty_data(),
+                        timestamp: get_epoch_time_secs()
                     }
                 },
                 None => {
@@ -492,7 +494,8 @@ mod tests {
                         block_hash: BurnchainHeaderHash([0u8; 32]),
                         parent_block_hash: BurnchainHeaderHash([0u8; 32]),
                         num_txs: 0,
-                        parent_index_root: TrieHash::from_empty_data()
+                        parent_index_root: TrieHash::from_empty_data(),
+                        timestamp: get_epoch_time_secs()
                     }
                 }
             };
@@ -636,6 +639,7 @@ mod tests {
             for i in 0..block_header_hashes.len() {
                 let mut snapshot_row = BlockSnapshot {
                     block_height: (i + 1 + first_block_height as usize) as u64,
+                    burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
@@ -913,7 +917,8 @@ mod tests {
                 block_hash: fixture.op.burn_header_hash.clone(),
                 parent_block_hash: fixture.op.burn_header_hash.clone(),
                 num_txs: 1,
-                parent_index_root: tip_index_root.clone()
+                parent_index_root: tip_index_root.clone(),
+                timestamp: get_epoch_time_secs()
             };
             assert_eq!(fixture.res, fixture.op.check(&burnchain, &header, &mut tx));
         }

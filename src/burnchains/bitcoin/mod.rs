@@ -185,15 +185,17 @@ pub struct BitcoinBlock {
     pub block_hash: BurnchainHeaderHash,
     pub parent_block_hash: BurnchainHeaderHash,
     pub txs: Vec<BitcoinTransaction>,
+    pub timestamp: u64
 }
 
 impl BitcoinBlock {
-    pub fn new(height: u64, hash: &BurnchainHeaderHash, parent: &BurnchainHeaderHash, txs: &Vec<BitcoinTransaction>) -> BitcoinBlock {
+    pub fn new(height: u64, hash: &BurnchainHeaderHash, parent: &BurnchainHeaderHash, txs: &Vec<BitcoinTransaction>, timestamp: u64) -> BitcoinBlock {
         BitcoinBlock {
             block_height: height,
             block_hash: hash.clone(),
             parent_block_hash: parent.clone(),
             txs: txs.clone(),
+            timestamp: timestamp
         }
     }
 }

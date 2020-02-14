@@ -3,7 +3,7 @@ use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError,
 use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, BufferLength,
                 TypeSignature, TupleData, QualifiedContractIdentifier, ResponseData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
-use vm::representations::{ClarityName, ContractName};
+use vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 
 use std::borrow::Borrow;
 use std::convert::{TryFrom, TryInto};
@@ -51,12 +51,23 @@ impl error::Error for SerializationError {
     }
 }
 
+/*
+ * jude -- it would be better for the transaction-parsing logic to know, through the type system,
+ * whether or not a failure to parse a Clarity value was due to an unexpected EOF or
+ * semantically-invalid data.  Disabling this From impl fixes this.
 impl From<std::io::Error> for SerializationError {
     fn from(err: std::io::Error) -> Self {
         match err.kind() {
             std::io::ErrorKind::UnexpectedEof => "Unexpected end of byte stream".into(),
             _ => SerializationError::IOError(IncomparableError { err })
         }
+    }
+}
+*/
+
+impl From<std::io::Error> for SerializationError {
+    fn from(err: std::io::Error) -> Self {
+        SerializationError::IOError(IncomparableError { err })
     }
 }
 
@@ -114,7 +125,7 @@ impl From<&Value> for TypePrefix {
                 }
             },
             Optional(OptionalData{ data: None }) => TypePrefix::OptionalNone,
-            Optional(OptionalData{ data: Some(value) }) => TypePrefix::OptionalSome,
+            Optional(OptionalData{ data: Some(_) }) => TypePrefix::OptionalSome,
             List(_) => TypePrefix::List,
             Tuple(_) => TypePrefix::Tuple
         }
@@ -159,6 +170,10 @@ impl ClarityValueSerializable<$Name> for $Name {
         let mut len = [0; 1];
         r.read_exact(&mut len)?;
         let len = u8::from_be_bytes(len);
+        if len > MAX_STRING_LEN {
+            return Err(SerializationError::DeserializationError("String too long".to_string()));
+        }
+
         let mut data = vec![0; len as usize];
         r.read_exact(&mut data)?;
 
@@ -541,12 +556,23 @@ mod tests {
         // list length
         Write::write_all(&mut eof.get_mut(1..5).unwrap(), &(1+MAX_VALUE_SIZE).to_be_bytes()).unwrap();
 
+        /*
+         * jude -- this should return an IOError
         assert_eq!(
             Value::deserialize_read(&mut eof.as_slice(), None).unwrap_err(),
             "Unexpected end of byte stream".into());
+        */
 
-
-
+        match Value::deserialize_read(&mut eof.as_slice(), None) {
+            Ok(_) => assert!(false, "Accidentally parsed truncated slice"),
+            Err(eres) => match eres {
+                SerializationError::IOError(ioe) => match ioe.err.kind() {
+                    std::io::ErrorKind::UnexpectedEof => {},
+                    _ => assert!(false, format!("Invalid I/O error: {:?}", &ioe)),
+                },
+                _ => assert!(false, format!("Invalid deserialize error: {:?}", &eres))
+            }
+        }
     }
 
     #[test]

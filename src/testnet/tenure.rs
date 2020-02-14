@@ -42,7 +42,7 @@ impl <'a> LeaderTenure {
         };
 
         let block_builder = match last_sortitioned_block.block_height {
-            1 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, &vrf_proof, &microblock_secret_key),
+            1 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, parent_block.burn_header_timestamp, &vrf_proof, &microblock_secret_key),
             _ => StacksBlockBuilder::from_parent(1, &parent_block, &ratio, &vrf_proof, &microblock_secret_key)
         };
 
@@ -75,17 +75,10 @@ impl <'a> LeaderTenure {
 
         let mut clarity_tx = self.block_builder.epoch_begin(&mut chain_state).unwrap();
 
-        let mempool_poll_interval = time::Duration::from_millis(250);
-        let tenure_duration = time::Duration::from_millis(self.average_block_time * 1 / 2);
-        let should_commit_block_at = self.started_at.checked_add(tenure_duration).unwrap();
-
         self.handle_txs(&mut clarity_tx, vec![self.coinbase_tx.clone()]);
 
-        while time::Instant::now() < should_commit_block_at {
-            let txs = self.mem_pool.poll();
-            self.handle_txs(&mut clarity_tx, txs);
-            thread::sleep(mempool_poll_interval);
-        }
+        let txs = self.mem_pool.poll();
+        self.handle_txs(&mut clarity_tx, txs);
 
         let anchored_block = self.block_builder.mine_anchored_block(&mut clarity_tx);
 

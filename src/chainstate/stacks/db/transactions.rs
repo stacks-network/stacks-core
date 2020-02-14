@@ -19,6 +19,8 @@
 
 use std::io;
 use std::io::prelude::*;
+use std::io::{Read, Write};
+
 use std::fmt;
 use std::fs;
 use std::collections::{HashSet, HashMap};
@@ -79,7 +81,8 @@ use vm::contracts::Contract;
 // make it possible to have a set of Values
 impl std::hash::Hash for Value {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let s = self.serialize();
+        let mut s = vec![];
+        self.consensus_serialize(&mut s).expect("FATAL: failed to serialize to vec");
         s.hash(state);
     }
 }
@@ -472,7 +475,7 @@ impl StacksChainState {
 
     /// Process a transaction.  Return the fee and amount of STX destroyed
     pub fn process_transaction<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(u64, u128), Error> {
-        test_debug!("Process transaction {}", tx.txid());
+        debug!("Process transaction {}", tx.txid());
 
         StacksChainState::process_transaction_precheck(clarity_tx, tx)?;
 

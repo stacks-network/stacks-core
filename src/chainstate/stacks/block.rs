@@ -17,6 +17,10 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::io::prelude::*;
+use std::io;
+use std::io::{Read, Write};
+
 use std::collections::{HashSet, HashMap};
 
 use chainstate::stacks::*;
@@ -26,6 +30,7 @@ use chainstate::burn::BlockHeaderHash;
 
 use net::StacksMessageCodec;
 use net::Error as net_error;
+use net::MAX_MESSAGE_LEN;
 use net::codec::{read_next, write_next};
 
 use util::hash::MerkleTree;
@@ -49,45 +54,34 @@ use core::*;
 
 use util::vrf::*;
 
+use util::retry::BoundReader;
+
 impl StacksMessageCodec for VRFProof {
-    fn serialize(&self) -> Vec<u8> {
-        self.to_bytes().to_vec()
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        fd.write_all(&self.to_bytes()).map_err(net_error::WriteError)
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<VRFProof, net_error> {
-        let index = *index_ptr;
-        if index > u32::max_value() - VRF_PROOF_ENCODED_SIZE {
-            return Err(net_error::OverflowError("Would overflow u32 to read VRF proof".to_string()));
-        }
-        if index + VRF_PROOF_ENCODED_SIZE > max_size {
-            return Err(net_error::OverflowError("Would read beyond end of buffer to read VRF proof".to_string()));
-        }
-        if (buf.len() as u32) < index + VRF_PROOF_ENCODED_SIZE {
-            return Err(net_error::UnderflowError("Not enough bytes to read VRF proof".to_string()));
-        }
-
-        let res = VRFProof::from_slice(&buf[(index as usize)..((index+VRF_PROOF_ENCODED_SIZE) as usize)])
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<VRFProof, net_error> {
+        let mut bytes = [0u8; VRF_PROOF_ENCODED_SIZE as usize];
+        fd.read_exact(&mut bytes).map_err(net_error::ReadError)?;
+        let res = VRFProof::from_slice(&bytes)
             .ok_or(net_error::DeserializeError("Failed to parse VRF proof".to_string()))?;
             
-        *index_ptr += VRF_PROOF_ENCODED_SIZE;
         Ok(res)
     }
 }
 
 impl StacksMessageCodec for StacksWorkScore {
-    fn serialize(&self) -> Vec<u8> {
-        let mut ret = vec![];
-        write_next(&mut ret, &self.burn);
-        write_next(&mut ret, &self.work);
-        ret
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.burn)?;
+        write_next(fd, &self.work)?;
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksWorkScore, net_error> {
-        let mut index = *index_ptr;
-        let burn = read_next(buf, &mut index, max_size)?;
-        let work = read_next(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksWorkScore, net_error> {
+        let burn = read_next(fd)?;
+        let work = read_next(fd)?;
 
-        *index_ptr = index;
         Ok(StacksWorkScore {
             burn,
             work
@@ -102,45 +96,33 @@ impl StacksWorkScore {
             work: 1     // block 0 is the boot code
         }
     }
-
-    /*
-    pub fn add(&self, work_delta: &StacksWorkScore) -> StacksWorkScore {
-        let mut ret = self.clone();
-        ret.burn = self.burn.checked_add(work_delta.burn).expect("FATAL: numeric overflow on calculating new total burn");
-        ret
-    }
-    */
 }
 
 impl StacksMessageCodec for StacksBlockHeader {
-    fn serialize(&self) -> Vec<u8> {
-        let mut ret = vec![];
-        write_next(&mut ret, &self.version);
-        write_next(&mut ret, &self.total_work);
-        write_next(&mut ret, &self.proof);
-        write_next(&mut ret, &self.parent_block);
-        write_next(&mut ret, &self.parent_microblock);
-        write_next(&mut ret, &self.parent_microblock_sequence);
-        write_next(&mut ret, &self.tx_merkle_root);
-        write_next(&mut ret, &self.state_index_root);
-        write_next(&mut ret, &self.microblock_pubkey_hash);
-        ret
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.version)?;
+        write_next(fd, &self.total_work)?;
+        write_next(fd, &self.proof)?;
+        write_next(fd, &self.parent_block)?;
+        write_next(fd, &self.parent_microblock)?;
+        write_next(fd, &self.parent_microblock_sequence)?;
+        write_next(fd, &self.tx_merkle_root)?;
+        write_next(fd, &self.state_index_root)?;
+        write_next(fd, &self.microblock_pubkey_hash)?;
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksBlockHeader, net_error> {
-        let mut index = *index_ptr;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksBlockHeader, net_error> {
+        let version: u8                         = read_next(fd)?;
+        let total_work : StacksWorkScore        = read_next(fd)?;
+        let proof : VRFProof                    = read_next(fd)?;
+        let parent_block: BlockHeaderHash       = read_next(fd)?;
+        let parent_microblock: BlockHeaderHash  = read_next(fd)?;
+        let parent_microblock_sequence: u16     = read_next(fd)?;
+        let tx_merkle_root: Sha512Trunc256Sum   = read_next(fd)?;
+        let state_index_root: TrieHash          = read_next(fd)?;
+        let pubkey_hash_buf: Hash160            = read_next(fd)?;
 
-        let version: u8                         = read_next(buf, &mut index, max_size)?;
-        let total_work : StacksWorkScore        = read_next(buf, &mut index, max_size)?;
-        let proof : VRFProof                    = read_next(buf, &mut index, max_size)?;
-        let parent_block: BlockHeaderHash       = read_next(buf, &mut index, max_size)?;
-        let parent_microblock: BlockHeaderHash  = read_next(buf, &mut index, max_size)?;
-        let parent_microblock_sequence: u16     = read_next(buf, &mut index, max_size)?;
-        let tx_merkle_root: Sha512Trunc256Sum   = read_next(buf, &mut index, max_size)?;
-        let state_index_root: TrieHash          = read_next(buf, &mut index, max_size)?;
-        let pubkey_hash_buf: Hash160            = read_next(buf, &mut index, max_size)?;
-
-        *index_ptr = index;
         Ok(StacksBlockHeader {
             version,
             total_work,
@@ -158,7 +140,8 @@ impl StacksMessageCodec for StacksBlockHeader {
 impl StacksBlockHeader {
     pub fn pubkey_hash(pubk: &StacksPublicKey) -> Hash160 {
         let pubkey_buf = StacksPublicKeyBuffer::from_public_key(pubk);
-        let bytes = pubkey_buf.serialize();
+        let mut bytes = vec![];
+        pubkey_buf.consensus_serialize(&mut bytes).expect("BUG: failed to serialize public key to a vec");
         Hash160::from_data(&bytes[..])
     }
    
@@ -183,7 +166,8 @@ impl StacksBlockHeader {
     }
 
     pub fn block_hash(&self) -> BlockHeaderHash {
-        let buf = self.serialize();
+        let mut buf = vec![];
+        self.consensus_serialize(&mut buf).expect("BUG: failed to serialize to a vec");
         BlockHeaderHash::from_serialized_header(&buf[..])
     }
 
@@ -306,30 +290,20 @@ impl StacksBlockHeader {
 }
 
 impl StacksMessageCodec for StacksBlock {
-    fn serialize(&self) -> Vec<u8> {
-        let mut ret = vec![];
-        write_next(&mut ret, &self.header);
-        write_next(&mut ret, &self.txs);
-        ret
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.header)?;
+        write_next(fd, &self.txs)?;
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksBlock, net_error> {
-        // no matter what, do not allow us to parse a block bigger than the epoch max
-        let mut index = *index_ptr;
-        if index > u32::max_value() - MAX_EPOCH_SIZE {
-            return Err(net_error::OverflowError("Would overflow u32 to read Stacks block".to_string()));
-        }
-
-        let size_clamp = 
-            if index + MAX_EPOCH_SIZE < max_size {
-                index + MAX_EPOCH_SIZE
-            }
-            else {
-                max_size
-            };
-
-        let header : StacksBlockHeader      = read_next(buf, &mut index, size_clamp)?;
-        let txs : Vec<StacksTransaction>    = read_next(buf, &mut index, size_clamp)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksBlock, net_error> {
+        // NOTE: don't worry about size clamps here; do that when receiving the data from the peer
+        // network.  This code assumes that the block will be small enough.
+        let header : StacksBlockHeader      = read_next(fd)?;
+        let txs : Vec<StacksTransaction>    = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
 
         // there must be at least one transaction (the coinbase)
         if txs.len() == 0 {
@@ -384,7 +358,6 @@ impl StacksMessageCodec for StacksBlock {
             return Err(net_error::DeserializeError("Invalid block: no coinbase found at first transaction slot".to_string()));
         }
 
-        *index_ptr = index;
         Ok(StacksBlock {
             header,
             txs
@@ -571,30 +544,25 @@ impl StacksBlock {
 
 
 impl StacksMessageCodec for StacksMicroblockHeader {
-    fn serialize(&self) -> Vec<u8> {
-        let mut ret = vec![];
-        write_next(&mut ret, &self.version);
-        write_next(&mut ret, &self.sequence);
-        write_next(&mut ret, &self.prev_block);
-        write_next(&mut ret, &self.tx_merkle_root);
-        write_next(&mut ret, &self.signature);
-        ret
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.version)?;
+        write_next(fd, &self.sequence)?;
+        write_next(fd, &self.prev_block)?;
+        write_next(fd, &self.tx_merkle_root)?;
+        write_next(fd, &self.signature)?;
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMicroblockHeader, net_error> {
-        let mut index = *index_ptr;
-
-        let version : u8                        = read_next(buf, &mut index, max_size)?;
-        let sequence : u16                      = read_next(buf, &mut index, max_size)?;
-        let prev_block : BlockHeaderHash        = read_next(buf, &mut index, max_size)?;
-        let tx_merkle_root : Sha512Trunc256Sum  = read_next(buf, &mut index, max_size)?;
-        let signature : MessageSignature        = read_next(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMicroblockHeader, net_error> {
+        let version : u8                        = read_next(fd)?;
+        let sequence : u16                      = read_next(fd)?;
+        let prev_block : BlockHeaderHash        = read_next(fd)?;
+        let tx_merkle_root : Sha512Trunc256Sum  = read_next(fd)?;
+        let signature : MessageSignature        = read_next(fd)?;
 
         // signature must be well-formed
         let _ = signature.to_secp256k1_recoverable()
             .ok_or(net_error::DeserializeError("Failed to parse signature".to_string()))?;
-        
-        *index_ptr = index;
 
         Ok(StacksMicroblockHeader {
             version,
@@ -609,7 +577,8 @@ impl StacksMessageCodec for StacksMicroblockHeader {
 impl StacksMicroblockHeader {
     pub fn sign(&mut self, privk: &StacksPrivateKey) -> Result<(), net_error> {
         self.signature = MessageSignature::empty();
-        let bytes = self.serialize();
+        let mut bytes = vec![];
+        self.consensus_serialize(&mut bytes).expect("BUG: failed to serialize to a vec");
         
         let mut digest_bits = [0u8; 32];
         let mut sha2 = Sha512Trunc256::new();
@@ -630,7 +599,9 @@ impl StacksMicroblockHeader {
 
         let sig_bits = self.signature.clone();
         self.signature = MessageSignature::empty();
-        let bytes = self.serialize();
+
+        let mut bytes = vec![];
+        self.consensus_serialize(&mut bytes).expect("BUG: failed to serialize to a vec");
         self.signature = sig_bits;
         
         sha2.input(&bytes[..]);
@@ -649,7 +620,8 @@ impl StacksMicroblockHeader {
     }
 
     pub fn block_hash(&self) -> BlockHeaderHash {
-        let bytes = self.serialize();
+        let mut bytes = vec![];
+        self.consensus_serialize(&mut bytes).expect("BUG: failed to serialize to a vec");
         BlockHeaderHash::from_serialized_header(&bytes[..])
     }
     
@@ -706,31 +678,19 @@ impl StacksMicroblockHeader {
 
 
 impl StacksMessageCodec for StacksMicroblock {
-    fn serialize(&self) -> Vec<u8> {
-        let mut ret = vec![];
-        write_next(&mut ret, &self.header);
-        write_next(&mut ret, &self.txs);
-        ret
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.header)?;
+        write_next(fd, &self.txs)?;
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMicroblock, net_error> {
-        // no matter what, do not allow us to parse a block bigger than the maximal epoch size
-        let mut index = *index_ptr;
-
-        if index > u32::max_value() - MAX_EPOCH_SIZE {
-            return Err(net_error::OverflowError("Would overflow u32 to read Stacks microblock".to_string()));
-        }
-
-        let size_clamp = 
-            if index + MAX_EPOCH_SIZE < max_size {
-                index + MAX_EPOCH_SIZE
-            }
-            else {
-                max_size
-            };
-
-        let header : StacksMicroblockHeader = read_next(buf, &mut index, size_clamp)?;
-        let txs : Vec<StacksTransaction>    = read_next(buf, &mut index, size_clamp)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMicroblock, net_error> {
+        // NOTE: maximum size must be checked elsewhere!
+        let header : StacksMicroblockHeader = read_next(fd)?;
+        let txs : Vec<StacksTransaction>    = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
 
         if txs.len() == 0 {
             warn!("Invalid microblock: zero transactions");
@@ -765,7 +725,6 @@ impl StacksMessageCodec for StacksMicroblock {
             return Err(net_error::DeserializeError("Invalid microblock: found coinbase transaction".to_string()));
         }
 
-        *index_ptr = index;
         Ok(StacksMicroblock {
             header,
             txs
@@ -861,6 +820,8 @@ mod test {
     use burnchains::BurnchainSigner;
 
     use burnchains::bitcoin::BitcoinNetworkType;
+    
+    use chainstate::stacks::test::make_codec_test_block;
 
     use std::error::Error;
 
@@ -964,6 +925,7 @@ mod test {
 
     #[test]
     fn codec_stacks_block() {
+        /*
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
 
@@ -1021,6 +983,11 @@ mod test {
             microblock_pubkey_hash: Hash160([9u8; 20])
         };
         
+
+        let mut block = StacksBlock::from_parent(&parent_header, &parent_microblock_header, txs_anchored.clone(), &work_score, &proof, &TrieHash([2u8; 32]), &Hash160([3u8; 20]));
+        block.header.version = 0x24;
+        */
+        
         let parent_microblock_header = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
@@ -1029,19 +996,22 @@ mod test {
             signature: MessageSignature([0x0cu8; 65]),
         };
 
-        let mut block = StacksBlock::from_parent(&parent_header, &parent_microblock_header, txs_anchored.clone(), &work_score, &proof, &TrieHash([2u8; 32]), &Hash160([3u8; 20]));
+        let mut block = make_codec_test_block(100000000);
         block.header.version = 0x24;
 
-        let ph = parent_header.block_hash().as_bytes().to_vec();
-        let mh = parent_microblock_header.block_hash().as_bytes().to_vec();
+        let ph = block.header.parent_block.as_bytes().to_vec();
+        let mh = block.header.parent_microblock.as_bytes().to_vec();
+        let tr = block.header.tx_merkle_root.as_bytes().to_vec();
+        let sr = block.header.state_index_root.as_bytes().to_vec();
+        let pk = block.header.microblock_pubkey_hash.as_bytes().to_vec();
 
         let mut block_bytes = vec![
             // header
             // version
             0x24,
             // work score (parent work score + current work score)
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 123,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 200,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 234,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 55,
             // proof
             0x92, 0x75, 0xdf, 0x67, 0xa6, 0x8c, 0x87, 0x45, 0xc0, 0xff, 0x97, 0xb4, 0x82, 0x01, 0xee, 0x6d, 0xb4, 0x47, 0xf7, 0xc9, 
             0x3b, 0x23, 0xae, 0x24, 0xcd, 0xc2, 0x40, 0x0f, 0x52, 0xfd, 0xb0, 0x8a, 0x1a, 0x6a, 0xc7, 0xec, 0x71, 0xbf, 0x9c, 0x9c, 
@@ -1052,20 +1022,22 @@ mod test {
             // parent microblock
             mh[0], mh[1], mh[2], mh[3], mh[4], mh[5], mh[6], mh[7], mh[8], mh[9], mh[10], mh[11], mh[12], mh[13], mh[14], mh[15], mh[16], mh[17], mh[18], mh[19], mh[20], mh[21], mh[22], mh[23], mh[24], mh[25], mh[26], mh[27], mh[28], mh[29], mh[30], mh[31],
             // parent microblock sequence
-            0x00, 0x34,
+            0x00, 0x04,
             // tx merkle root
             tr[0], tr[1], tr[2], tr[3], tr[4], tr[5], tr[6], tr[7], tr[8], tr[9], tr[10], tr[11], tr[12], tr[13], tr[14], tr[15], tr[16], tr[17], tr[18], tr[19], tr[20], tr[21], tr[22], tr[23], tr[24], tr[25], tr[26], tr[27], tr[28], tr[29], tr[30], tr[31],
             // state index root
-            0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+            sr[0], sr[1], sr[2], sr[3], sr[4], sr[5], sr[6], sr[7], sr[8], sr[9], sr[10], sr[11], sr[12], sr[13], sr[14], sr[15], sr[16], sr[17], sr[18], sr[19], sr[20], sr[21], sr[22], sr[23], sr[24], sr[25], sr[26], sr[27], sr[28], sr[29], sr[30], sr[31],
             // public key hash buf
-            0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
+            pk[0], pk[1], pk[2], pk[3], pk[4], pk[5], pk[6], pk[7], pk[8], pk[9], pk[10], pk[11], pk[12], pk[13], pk[14], pk[15], pk[16], pk[17], pk[18], pk[19]
         ];
 
         check_codec_and_corruption::<StacksBlockHeader>(&block.header, &block_bytes);
+        
+        let mut tx_bytes : Vec<u8> = vec![];
+        block.txs.consensus_serialize(&mut tx_bytes).unwrap();
+        block_bytes.append(&mut tx_bytes);
 
-        block_bytes.append(&mut txs_anchored.serialize());
-
-        eprintln!("block is {} bytes with {} txs", block_bytes.len(), txs_anchored.len());
+        eprintln!("block is {} bytes with {} txs", block_bytes.len(), block.txs.len());
         check_codec_and_corruption::<StacksBlock>(&block, &block_bytes);
     }
     
@@ -1134,7 +1106,9 @@ mod test {
                 0xe6
             ];
 
-            block_bytes.append(&mut txs.serialize());
+            let mut tx_bytes : Vec<u8> = vec![];
+            txs.consensus_serialize(&mut tx_bytes).unwrap();
+            block_bytes.append(&mut tx_bytes);
 
             let mblock = StacksMicroblock {
                 header: header,
@@ -1205,9 +1179,9 @@ mod test {
             microblock_pubkey_hash: Hash160([9u8; 20])
         };
        
-        let mut burn_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]));
-        let mut stacks_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]));
-        let sortition_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]));
+        let mut burn_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]), 0);
+        let mut stacks_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]), 1);
+        let sortition_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]), 2);
 
         let leader_key = LeaderKeyRegisterOp {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
@@ -1373,9 +1347,9 @@ mod test {
             "zero transactions")
         ];
         for (ref block, ref msg) in invalid_blocks.iter() {
-            let mut index = 0;
-            let bytes = block.serialize();
-            assert!(StacksBlock::deserialize(&bytes, &mut index, bytes.len() as u32).unwrap_err().to_string().find(msg).is_some());
+            let mut bytes : Vec<u8> = vec![];
+            block.consensus_serialize(&mut bytes).unwrap();
+            assert!(StacksBlock::consensus_deserialize(&mut &bytes[..]).unwrap_err().to_string().find(msg).is_some());
         }
     }
     
@@ -1466,9 +1440,9 @@ mod test {
             "zero transactions")
         ];
         for (ref block, ref msg) in invalid_blocks.iter() {
-            let mut index = 0;
-            let bytes = block.serialize();
-            assert!(StacksMicroblock::deserialize(&bytes, &mut index, bytes.len() as u32).unwrap_err().to_string().find(msg).is_some());
+            let mut bytes : Vec<u8> = vec![];
+            block.consensus_serialize(&mut bytes).unwrap();
+            assert!(StacksMicroblock::consensus_deserialize(&mut &bytes[..]).unwrap_err().to_string().find(msg).is_some());
         }
     }
 

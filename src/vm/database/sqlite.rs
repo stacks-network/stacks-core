@@ -51,7 +51,7 @@ impl SqliteConnection {
 
     pub fn commit_metadata_to(&mut self, from: &BlockHeaderHash, to: &BlockHeaderHash) {
         let params = [to, from];
-        let rows_updated = self.conn.execute(
+        self.conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             &params)
             .expect(SQL_FAIL_MESSAGE);
@@ -59,7 +59,7 @@ impl SqliteConnection {
 
     pub fn move_metadata_to(&mut self, from: &BlockHeaderHash, to: &str) {
         let params: [&dyn ToSql; 2] = [&to.to_string(), from];
-        let rows_updated = self.conn.execute(
+        self.conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             &params)
             .expect(SQL_FAIL_MESSAGE);

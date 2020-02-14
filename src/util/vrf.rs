@@ -383,9 +383,8 @@ impl VRF {
     /// https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html)
     fn hash_to_curve(y: &VRFPublicKey, alpha: &Vec<u8>) -> EdwardsPoint {
         let mut ctr : u64 = 0;
-        let mut h : Option<EdwardsPoint> = None;
 
-        loop {
+        let h: EdwardsPoint = loop {
             let mut hasher = Sha512::new();
             hasher.input(&[SUITE, 0x01]);
             hasher.input(y.as_bytes());
@@ -405,15 +404,14 @@ impl VRF {
             }
 
             let y = CompressedEdwardsY::from_slice(&hasher.result()[0..32]);
-            if y.decompress().is_some() {
-                h = Some(y.decompress().unwrap());
-                break;
+            if let Some(h) = y.decompress() {
+                break h;
             }
            
             ctr = ctr.checked_add(1).expect("Too many attempts at try-and-increment hash-to-curve");
-        }
+        };
 
-        let ed = h.unwrap().mul_by_cofactor();
+        let ed = h.mul_by_cofactor();
         ed
     }
 

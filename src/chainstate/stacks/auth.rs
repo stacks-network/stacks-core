@@ -17,8 +17,13 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::io::prelude::*;
+use std::io;
+use std::io::{Read, Write};
+
 use net::StacksMessageCodec;
 use net::Error as net_error;
+use net::MAX_MESSAGE_LEN;
 use net::codec::{read_next, write_next};
 
 use address::AddressHashMode;
@@ -53,10 +58,11 @@ use util::hash::to_hex;
 use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+use util::retry::RetryReader;
+use util::retry::BoundReader;
 
 impl StacksMessageCodec for TransactionAuthField {
-    fn serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         match *self {
             TransactionAuthField::PublicKey(ref pubk) => {
                 let field_id = 
@@ -69,8 +75,8 @@ impl StacksMessageCodec for TransactionAuthField {
 
                 let pubkey_buf = StacksPublicKeyBuffer::from_public_key(pubk);
 
-                write_next(&mut res, &(field_id as u8));
-                write_next(&mut res, &pubkey_buf);
+                write_next(fd, &(field_id as u8))?;
+                write_next(fd, &pubkey_buf)?;
             },
             TransactionAuthField::Signature(ref key_encoding, ref sig) => {
                 let field_id = 
@@ -81,37 +87,36 @@ impl StacksMessageCodec for TransactionAuthField {
                         TransactionAuthFieldID::SignatureUncompressed
                     };
                 
-                write_next(&mut res, &(field_id as u8));
-                write_next(&mut res, sig);
+                write_next(fd, &(field_id as u8))?;
+                write_next(fd, sig)?;
             }
         }
-        res
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<TransactionAuthField, net_error> {
-        let mut index = *index_ptr;
-        let field_id : u8 = read_next(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionAuthField, net_error> {
+        let field_id : u8 = read_next(fd)?;
         let field = match field_id {
             x if x == TransactionAuthFieldID::PublicKeyCompressed as u8 => {
-                let pubkey_buf : StacksPublicKeyBuffer = read_next(buf, &mut index, max_size)?;
+                let pubkey_buf : StacksPublicKeyBuffer = read_next(fd)?;
                 let mut pubkey = pubkey_buf.to_public_key()?;
                 pubkey.set_compressed(true);
                 
                 TransactionAuthField::PublicKey(pubkey)
             },
             x if x == TransactionAuthFieldID::PublicKeyUncompressed as u8 => {
-                let pubkey_buf : StacksPublicKeyBuffer = read_next(buf, &mut index, max_size)?;
+                let pubkey_buf : StacksPublicKeyBuffer = read_next(fd)?;
                 let mut pubkey = pubkey_buf.to_public_key()?;
                 pubkey.set_compressed(false);
                 
                 TransactionAuthField::PublicKey(pubkey)
             },
             x if x == TransactionAuthFieldID::SignatureCompressed as u8 => {
-                let sig : MessageSignature = read_next(buf, &mut index, max_size)?;
+                let sig : MessageSignature = read_next(fd)?;
                 TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, sig)
             },
             x if x == TransactionAuthFieldID::SignatureUncompressed as u8 => {
-                let sig : MessageSignature = read_next(buf, &mut index, max_size)?;
+                let sig : MessageSignature = read_next(fd)?;
                 TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, sig)
             },
             _ => {
@@ -119,38 +124,35 @@ impl StacksMessageCodec for TransactionAuthField {
                 return Err(net_error::DeserializeError(format!("Failed to parse auth field: unkonwn auth field ID {}", field_id)));
             }
         };
-
-        *index_ptr = index;
         Ok(field)
     }
 }
 
 impl StacksMessageCodec for MultisigSpendingCondition {
-    fn serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
-       
-        write_next(&mut res, &(self.hash_mode.clone() as u8));
-        write_next(&mut res, &self.signer);
-        write_next(&mut res, &self.nonce);
-        write_next(&mut res, &self.fee_rate);
-        write_next(&mut res, &self.fields);
-        write_next(&mut res, &self.signatures_required);
-        
-        res
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &(self.hash_mode.clone() as u8))?;
+        write_next(fd, &self.signer)?;
+        write_next(fd, &self.nonce)?;
+        write_next(fd, &self.fee_rate)?;
+        write_next(fd, &self.fields)?;
+        write_next(fd, &self.signatures_required)?;
+        Ok(()) 
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<MultisigSpendingCondition, net_error> {
-        let mut index = *index_ptr;
-
-        let hash_mode_u8 : u8 = read_next(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<MultisigSpendingCondition, net_error> {
+        let hash_mode_u8 : u8 = read_next(fd)?;
         let hash_mode = MultisigHashMode::from_u8(hash_mode_u8)
             .ok_or(net_error::DeserializeError(format!("Failed to parse multisig spending condition: unknown hash mode {}", hash_mode_u8)))?;
 
-        let signer : Hash160 = read_next(buf, &mut index, max_size)?;
-        let nonce : u64 = read_next(buf, &mut index, max_size)?;
-        let fee_rate : u64 = read_next(buf, &mut index, max_size)?;
-        let fields : Vec<TransactionAuthField> = read_next(buf, &mut index, max_size)?;
-        let signatures_required: u16 = read_next(buf, &mut index, max_size)?;
+        let signer : Hash160 = read_next(fd)?;
+        let nonce : u64 = read_next(fd)?;
+        let fee_rate : u64 = read_next(fd)?;
+        let fields : Vec<TransactionAuthField> = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
+
+        let signatures_required: u16 = read_next(fd)?;
         
         // read and decode _exactly_ num_signatures signature buffers
         let mut num_sigs_given : u16 = 0;
@@ -182,8 +184,6 @@ impl StacksMessageCodec for MultisigSpendingCondition {
             test_debug!("Failed to deserialize multisig spending condition: expected compressed keys only");
             return Err(net_error::DeserializeError("Failed to parse multisig spending condition: expected compressed keys only".to_string()));
         }
-
-        *index_ptr = index;
 
         Ok(MultisigSpendingCondition {
             signer,
@@ -279,41 +279,36 @@ impl MultisigSpendingCondition {
 }
 
 impl StacksMessageCodec for SinglesigSpendingCondition {
-    fn serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
-       
-        write_next(&mut res, &(self.hash_mode.clone() as u8));
-        write_next(&mut res, &self.signer);
-        write_next(&mut res, &self.nonce);
-        write_next(&mut res, &self.fee_rate);
-        write_next(&mut res, &(self.key_encoding.clone() as u8));
-        write_next(&mut res, &self.signature);
-        res
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &(self.hash_mode.clone() as u8))?;
+        write_next(fd, &self.signer)?;
+        write_next(fd, &self.nonce)?;
+        write_next(fd, &self.fee_rate)?;
+        write_next(fd, &(self.key_encoding.clone() as u8))?;
+        write_next(fd, &self.signature)?;
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<SinglesigSpendingCondition, net_error> {
-        let mut index = *index_ptr;
-        let hash_mode_u8 : u8 = read_next(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<SinglesigSpendingCondition, net_error> {
+        let hash_mode_u8 : u8 = read_next(fd)?;
         let hash_mode = SinglesigHashMode::from_u8(hash_mode_u8)
             .ok_or(net_error::DeserializeError(format!("Failed to parse singlesig spending condition: unknown hash mode {}", hash_mode_u8)))?;
 
-        let signer : Hash160 = read_next(buf, &mut index, max_size)?;
-        let nonce : u64 = read_next(buf, &mut index, max_size)?;
-        let fee_rate : u64 = read_next(buf, &mut index, max_size)?;
+        let signer : Hash160 = read_next(fd)?;
+        let nonce : u64 = read_next(fd)?;
+        let fee_rate : u64 = read_next(fd)?;
 
-        let key_encoding_u8 : u8 = read_next(buf, &mut index, max_size)?;
+        let key_encoding_u8 : u8 = read_next(fd)?;
         let key_encoding = TransactionPublicKeyEncoding::from_u8(key_encoding_u8)
             .ok_or(net_error::DeserializeError(format!("Failed to parse singlesig spending condition: unknown key encoding {}", key_encoding_u8)))?;
         
-        let signature : MessageSignature = read_next(buf, &mut index, max_size)?;
+        let signature : MessageSignature = read_next(fd)?;
 
         // sanity check -- must be compressed if we're using p2wpkh
         if hash_mode == SinglesigHashMode::P2WPKH && key_encoding != TransactionPublicKeyEncoding::Compressed {
             test_debug!("Incompatible hashing mode and key encoding");
             return Err(net_error::DeserializeError("Failed to parse singlesig spending condition: incomaptible hash mode and key encoding".to_string()))
         }
-        
-        *index_ptr = index;
 
         Ok(SinglesigSpendingCondition {
             signer: signer,
@@ -388,39 +383,38 @@ impl SinglesigSpendingCondition {
 }
 
 impl StacksMessageCodec for TransactionSpendingCondition {
-    fn serialize(&self) -> Vec<u8> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         match *self {
-            TransactionSpendingCondition::Singlesig(ref data) => data.serialize(),
-            TransactionSpendingCondition::Multisig(ref data) => data.serialize()
+            TransactionSpendingCondition::Singlesig(ref data) => {
+                data.consensus_serialize(fd)?;
+            },
+            TransactionSpendingCondition::Multisig(ref data) => {
+                data.consensus_serialize(fd)?;
+            }
         }
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<TransactionSpendingCondition, net_error> {
-        let mut index = *index_ptr;
-
-        if (buf.len() as u32) <= index {
-            return Err(net_error::UnderflowError("Not enough bytes to read spending condition".to_string()));
-        }
-
-        // NOTE: this takes advantage of the fact that the first byte of each type variant's
-        // serialized byte representation -- the hash mode -- uniquely identifies the variant.
-        let hash_mode_u8 = buf[index as usize];
-        let cond = match hash_mode_u8 {
-            x if x == SinglesigHashMode::P2PKH as u8 || x == SinglesigHashMode::P2WPKH as u8 => {
-                let cond = SinglesigSpendingCondition::deserialize(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionSpendingCondition, net_error> {
+        // peek the hash mode byte
+        let hash_mode_u8 : u8 = read_next(fd)?;
+        let peek_buf = [hash_mode_u8];
+        let mut rrd = peek_buf.chain(fd);
+        let cond = { 
+            if SinglesigHashMode::from_u8(hash_mode_u8).is_some() {
+                let cond = SinglesigSpendingCondition::consensus_deserialize(&mut rrd)?;
                 TransactionSpendingCondition::Singlesig(cond)
             }
-            x if x == MultisigHashMode::P2SH as u8 || x == MultisigHashMode::P2WSH as u8 => {
-                let cond = MultisigSpendingCondition::deserialize(buf, &mut index, max_size)?;
+            else if MultisigHashMode::from_u8(hash_mode_u8).is_some() {
+                let cond = MultisigSpendingCondition::consensus_deserialize(&mut rrd)?;
                 TransactionSpendingCondition::Multisig(cond)
             }
-            _ => {
-                test_debug!("Invalid hash mode {}", hash_mode_u8);
+            else {
+                test_debug!("Invalid address hash mode {}", hash_mode_u8);
                 return Err(net_error::DeserializeError(format!("Failed to parse spending condition: invalid hash mode {}", hash_mode_u8)));
             }
         };
 
-        *index_ptr = index;
         Ok(cond)
     }
 }
@@ -697,34 +691,31 @@ impl TransactionSpendingCondition {
 }
 
 impl StacksMessageCodec for TransactionAuth {
-    fn serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         match *self {
             TransactionAuth::Standard(ref origin_condition) => {
-                write_next(&mut res, &(TransactionAuthFlags::AuthStandard as u8));
-                write_next(&mut res, origin_condition);
+                write_next(fd, &(TransactionAuthFlags::AuthStandard as u8))?;
+                write_next(fd, origin_condition)?;
             },
             TransactionAuth::Sponsored(ref origin_condition, ref sponsor_condition) => {
-                write_next(&mut res, &(TransactionAuthFlags::AuthSponsored as u8));
-                write_next(&mut res, origin_condition);
-                write_next(&mut res, sponsor_condition);
+                write_next(fd, &(TransactionAuthFlags::AuthSponsored as u8))?;
+                write_next(fd, origin_condition)?;
+                write_next(fd, sponsor_condition)?;
             }
         }
-        res
+        Ok(())
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<TransactionAuth, net_error> {
-        let mut index = *index_ptr;
-        
-        let type_id : u8 = read_next(buf, &mut index, max_size)?;
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionAuth, net_error> {
+        let type_id : u8 = read_next(fd)?;
         let auth = match type_id {
             x if x == TransactionAuthFlags::AuthStandard as u8 => {
-                let origin_auth : TransactionSpendingCondition = read_next(buf, &mut index, max_size)?;
+                let origin_auth : TransactionSpendingCondition = read_next(fd)?;
                 TransactionAuth::Standard(origin_auth)
             },
             x if x == TransactionAuthFlags::AuthSponsored as u8 => {
-                let origin_auth : TransactionSpendingCondition = read_next(buf, &mut index, max_size)?;
-                let sponsor_auth : TransactionSpendingCondition = read_next(buf, &mut index, max_size)?;
+                let origin_auth : TransactionSpendingCondition = read_next(fd)?;
+                let sponsor_auth : TransactionSpendingCondition = read_next(fd)?;
                 TransactionAuth::Sponsored(origin_auth, sponsor_auth)
             },
             _ => {
@@ -732,8 +723,6 @@ impl StacksMessageCodec for TransactionAuth {
                 return Err(net_error::DeserializeError(format!("Failed to parse transaction authorization: unrecognized auth flags {}", type_id)));
             }
         };
-        
-        *index_ptr = index;
         Ok(auth)
     }
 }
@@ -1262,18 +1251,21 @@ mod test {
         ];
 
         for i in 0..spending_conditions.len() {
-            let spending_condition_bytes = spending_conditions[i].serialize();
-            let spending_condition_2_bytes = spending_conditions[(i+1) % spending_conditions.len()].serialize();
+            let mut spending_condition_bytes = vec![];
+            spending_conditions[i].consensus_serialize(&mut spending_condition_bytes).unwrap();
+
+            let mut spending_condition_2_bytes = vec![];
+            spending_conditions[(i+1) % spending_conditions.len()].consensus_serialize(&mut spending_condition_2_bytes).unwrap();
 
             let auth_standard = TransactionAuth::Standard(spending_conditions[i].clone());
             let mut auth_standard_bytes = vec![
-                TransactionAuthFlags::AuthStandard as u8
+                TransactionAuthFlags::AuthStandard as u8,
             ];
             auth_standard_bytes.append(&mut spending_condition_bytes.clone());
 
             let auth_sponsored = TransactionAuth::Sponsored(spending_conditions[i].clone(), spending_conditions[(i+1) % spending_conditions.len()].clone());
             let mut auth_sponsored_bytes = vec![
-                TransactionAuthFlags::AuthSponsored as u8
+                TransactionAuthFlags::AuthSponsored as u8,
             ];
             auth_sponsored_bytes.append(&mut spending_condition_bytes.clone());
             auth_sponsored_bytes.append(&mut spending_condition_2_bytes.clone());
@@ -1286,6 +1278,7 @@ mod test {
     #[test]
     fn tx_stacks_invalid_spending_conditions() {
         let bad_hash_mode_bytes = vec![
+            // singlesig
             // hash mode
             0xff,
             // signer
@@ -1488,39 +1481,24 @@ mod test {
         ];
 
         // we can serialize the invalid p2wpkh uncompressed condition, but we can't deserialize it
-        assert_eq!(bad_p2wpkh_uncompressed.serialize(), bad_p2wpkh_uncompressed_bytes);
+        let mut actual_bytes = vec![];
+        bad_p2wpkh_uncompressed.consensus_serialize(&mut actual_bytes).unwrap();
+        assert_eq!(actual_bytes, bad_p2wpkh_uncompressed_bytes);
         
         // we can serialize the invalid p2wsh uncompressed condition, but we can't deserialize it
-        assert_eq!(bad_p2wsh_uncompressed.serialize(), bad_p2wsh_uncompressed_bytes);
+        let mut actual_bytes = vec![];
+        bad_p2wsh_uncompressed.consensus_serialize(&mut actual_bytes).unwrap();
+        assert_eq!(actual_bytes, bad_p2wsh_uncompressed_bytes);
 
-        let mut index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_public_key_count_bytes, &mut index, bad_public_key_count_bytes.len() as u32).is_err());
-        assert_eq!(index, 0);
-        
-        let mut index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_public_key_count_bytes_2, &mut index, bad_public_key_count_bytes_2.len() as u32).is_err());
-        assert_eq!(index, 0);
-
-        index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_hash_mode_bytes, &mut index, bad_hash_mode_bytes.len() as u32).is_err());
-        assert_eq!(index, 0);
-
-        index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_hash_mode_multisig_bytes, &mut index, bad_hash_mode_multisig_bytes.len() as u32).is_err());
-        assert_eq!(index, 0);
-        
-        index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_p2wpkh_uncompressed_bytes, &mut index, bad_p2wpkh_uncompressed_bytes.len() as u32).is_err());
-        assert_eq!(index, 0);
-        
-        index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_p2wsh_uncompressed_bytes, &mut index, bad_p2wsh_uncompressed_bytes.len() as u32).is_err());
-        assert_eq!(index, 0);
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_public_key_count_bytes[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_public_key_count_bytes_2[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_hash_mode_bytes[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_hash_mode_multisig_bytes[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_p2wpkh_uncompressed_bytes[..]).is_err());
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_p2wsh_uncompressed_bytes[..]).is_err());
         
         // corrupt but will parse with trailing bits
-        index = 0;
-        assert!(TransactionSpendingCondition::deserialize(&bad_hash_mode_singlesig_bytes_parseable, &mut index, bad_hash_mode_singlesig_bytes_parseable.len() as u32).is_ok());
-        assert!(index < bad_hash_mode_singlesig_bytes_parseable.len() as u32);   // should be trailing bytes, which isn't allowed
+        assert!(TransactionSpendingCondition::consensus_deserialize(&mut &bad_hash_mode_singlesig_bytes_parseable[..]).is_ok());
     }
 
     #[test]
