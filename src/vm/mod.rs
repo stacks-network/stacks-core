@@ -34,7 +34,7 @@ use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result};
 use vm::database::MemoryBackingStore;
 use vm::types::QualifiedContractIdentifier;
-use vm::costs::cost_functions;
+use vm::costs::{cost_functions, CostOverflowingMath};
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
@@ -185,16 +185,23 @@ fn eval_all (expressions: &[SymbolicExpression],
                 contract_context.functions.insert(name, value);
             },
             DefineResult::PersistedVariable(name, value_type, value) => {
+                runtime_cost!(cost_functions::CREATE_VAR, global_context, value_type.size())?;
                 global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type);
                 global_context.database.set_variable(&contract_context.contract_identifier, &name, value)?;
             },
             DefineResult::Map(name, key_type, value_type) => {
+                runtime_cost!(cost_functions::CREATE_MAP, global_context,
+                              u64::from(key_type.size()).cost_overflow_add(
+                                  u64::from(value_type.size()))?)?;
                 global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type);
             },
             DefineResult::FungibleToken(name, total_supply) => {
+                runtime_cost!(cost_functions::CREATE_FT, global_context, 0)?;
+
                 global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply);
             },
             DefineResult::NonFungibleAsset(name, asset_type) => {
+                runtime_cost!(cost_functions::CREATE_NFT, global_context, asset_type.size())?;
                 global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
             },
             DefineResult::NoDefine => {

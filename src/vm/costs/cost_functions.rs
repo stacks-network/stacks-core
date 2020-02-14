@@ -66,6 +66,62 @@ def_runtime_cost!(IS_SOME { Constant(1) });
 def_runtime_cost!(UNWRAP { Constant(1) });
 def_runtime_cost!(UNWRAP_ERR { Constant(1) });
 def_runtime_cost!(TRY_RET { Constant(1) });
+def_runtime_cost!(OR { Linear(1, 1) });
+def_runtime_cost!(AND { Linear(1, 1) });
+
+def_runtime_cost!(APPEND { Linear(1, 1) });
+def_runtime_cost!(CONCAT { Linear(1, 1) });
+def_runtime_cost!(AS_MAX_LEN { Constant(1) });
+
+def_runtime_cost!(CONTRACT_CALL { Constant(1) });
+
+pub const AT_BLOCK: SimpleCostSpecification = SimpleCostSpecification {
+    write_length: Constant(0),
+    write_count: Constant(0),
+    runtime: Constant(1),
+    read_count: Constant(1),
+    read_length: Constant(1)
+};
+
+pub const LOAD_CONTRACT: SimpleCostSpecification = SimpleCostSpecification {
+    write_length: Constant(0),
+    write_count: Constant(0),
+    runtime: Linear(1, 1),
+    read_count: Constant(1),
+    read_length: Linear(1, 1)
+};
+
+pub const CREATE_MAP: SimpleCostSpecification = SimpleCostSpecification {
+    write_length: Linear(1, 1),
+    write_count: Constant(1),
+    runtime: Linear(1, 1),
+    read_count: Constant(0),
+    read_length: Constant(0)
+};
+
+pub const CREATE_VAR: SimpleCostSpecification = SimpleCostSpecification {
+    write_length: Linear(1, 1),
+    write_count: Constant(2),
+    runtime: Linear(1, 1),
+    read_count: Constant(0),
+    read_length: Constant(0)
+};
+
+pub const CREATE_NFT: SimpleCostSpecification = SimpleCostSpecification {
+    write_length: Linear(1, 1),
+    write_count: Constant(1),
+    runtime: Linear(1, 1),
+    read_count: Constant(0),
+    read_length: Constant(0)
+};
+
+pub const CREATE_FT: SimpleCostSpecification = SimpleCostSpecification {
+    write_length: Constant(1),
+    write_count: Constant(2),
+    runtime: Constant(1),
+    read_count: Constant(0),
+    read_length: Constant(0)
+};
 
 pub const FETCH_ENTRY: SimpleCostSpecification = SimpleCostSpecification {
     write_length: Constant(0),

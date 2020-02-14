@@ -193,6 +193,10 @@ impl <'a> ClarityDatabase <'a> {
     pub fn insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
         let hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
         self.store.prepare_for_contract_metadata(contract_identifier, hash);
+        // insert contract-size
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+        self.insert_metadata(contract_identifier, &key,
+                             &(contract_content.len() as u64));
         Ok(())
     }
 
@@ -210,9 +214,16 @@ impl <'a> ClarityDatabase <'a> {
             .map(|x_opt| x_opt.map(|x| T::deserialize(&x)))
     }
 
+    pub fn get_contract_size(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<u64> {
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+        let data = self.fetch_metadata(contract_identifier, &key)?
+            .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
+        Ok(data)
+    }
+
     pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: Contract) {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
-       self.insert_metadata(contract_identifier, &key, &contract);
+        self.insert_metadata(contract_identifier, &key, &contract);
     }
 
     pub fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Contract> {
@@ -220,7 +231,6 @@ impl <'a> ClarityDatabase <'a> {
         let data = self.fetch_metadata(contract_identifier, &key)?
             .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
         Ok(data)
-
     }
 }
 

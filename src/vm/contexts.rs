@@ -555,6 +555,9 @@ impl <'a,'b> Environment <'a,'b> {
 
     pub fn execute_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, 
                             tx_name: &str, args: &[SymbolicExpression]) -> Result<Value> {
+        let contract_size = self.global_context.database.get_contract_size(contract_identifier)?;
+        runtime_cost!(cost_functions::LOAD_CONTRACT, self, contract_size)?;
+
         let contract = self.global_context.database.get_contract(contract_identifier)?;
 
         let func = contract.contract_context.lookup_function(tx_name)

@@ -17,6 +17,11 @@ pub fn special_contract_call(args: &[SymbolicExpression],
                              context: &LocalContext) -> Result<Value> {
     check_arguments_at_least(2, args)?;
 
+    // the second part of the contract_call cost (i.e., the load contract cost)
+    //   is checked in `execute_contract`, and the function _application_ cost
+    //   is checked in callables::DefinedFunction::execute_apply.
+    runtime_cost!(cost_functions::CONTRACT_CALL, env, 0)?;
+
     let contract_identifier = match args[0].expr {
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
         _ => return Err(CheckErrors::ContractCallExpectName.into())
@@ -114,6 +119,8 @@ pub fn special_at_block(args: &[SymbolicExpression],
                         env: &mut Environment,
                         context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
+
+    runtime_cost!(cost_functions::AT_BLOCK, env, 0)?;
 
     let bhh = match eval(&args[0], env, &context)? {
         Value::Buffer(BuffData { data }) => {

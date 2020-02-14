@@ -6,7 +6,7 @@ use vm::representations::{SymbolicExpression};
 use vm::errors::{Error, InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
 use vm::{eval, LocalContext, Environment};
 use vm::costs::cost_functions;
-use std::convert::{TryFrom, TryInto};
+use std::convert::{TryFrom};
 
 enum MintAssetErrorCodes { ALREADY_EXIST = 1 }
 enum MintTokenErrorCodes { NON_POSITIVE_AMOUNT = 1 }

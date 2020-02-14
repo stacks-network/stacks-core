@@ -39,6 +39,7 @@ pub enum CheckErrors {
     UnionTypeError(Vec<TypeSignature>, TypeSignature),
     UnionTypeValueError(Vec<TypeSignature>, Value),
 
+    ExpectedLiteral,
     ExpectedOptionalType(TypeSignature),
     ExpectedResponseType(TypeSignature),
     ExpectedOptionalOrResponseType(TypeSignature),
@@ -237,6 +238,7 @@ impl DiagnosableError for CheckErrors {
 
     fn message(&self) -> String {
         match &self {
+            CheckErrors::ExpectedLiteral => "expected a literal argument".into(),
             CheckErrors::BadMatchOptionSyntax(source) =>
                 format!("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",
                         source.message()),

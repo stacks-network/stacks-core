@@ -30,7 +30,7 @@ pub trait CostTracker {
 
 // Don't track!
 impl CostTracker for () {
-    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CheckErrors> {
+    fn add_cost(&mut self, _cost: ExecutionCost) -> std::result::Result<(), CheckErrors> {
         Ok(())
     }
 }

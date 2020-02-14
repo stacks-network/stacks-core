@@ -83,6 +83,13 @@ impl DefinedFunction {
     }
 
     pub fn execute_apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
+        runtime_cost!(cost_functions::USER_FUNCTION_APPLICATION,
+                      env, self.arguments.len())?;
+        for arg_type in self.arg_types.iter() {
+            runtime_cost!(cost_functions::TYPE_CHECK_COST,
+                          env, arg_type)?;
+        }
+
         let mut context = LocalContext::new();
         if args.len() != self.arguments.len() {
             Err(CheckErrors::IncorrectArgumentCount(self.arguments.len(), args.len()))?
@@ -117,13 +124,6 @@ impl DefinedFunction {
     }
 
     pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
-        runtime_cost!(cost_functions::USER_FUNCTION_APPLICATION,
-                      env, self.arguments.len())?;
-        for arg_type in self.arg_types.iter() {
-            runtime_cost!(cost_functions::TYPE_CHECK_COST,
-                          env, arg_type)?;
-        }
-
         match self.define_type {
             DefineType::Private => self.execute_apply(args, env),
             DefineType::Public => env.execute_function_as_transaction(self, args, None),

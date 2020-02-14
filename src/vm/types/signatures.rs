@@ -742,6 +742,10 @@ impl TupleTypeSignature {
         }
     }
 
+    pub fn size(&self) -> u32 {
+        self.inner_size().expect("size() overflowed on a constructed type.")
+    }
+
     /// Tuple Size:
     ///    size( btreemap<name, value> ) + type_size
     ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) + sum(values)

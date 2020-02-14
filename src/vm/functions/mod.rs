@@ -121,7 +121,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Concat => SpecialFunction("native_concat", &iterables::native_concat),
             AsMaxLen => SpecialFunction("native_as_max_len", &iterables::native_as_max_len),
             Append => SpecialFunction("native_append", &iterables::native_append),
-            Len => SpecialFunction("native_len", &iterables::native_len),
+            Len => NativeFunction("native_len", NativeHandle::SingleArg(&iterables::native_len), cost_functions::LEN),
             ListCons => SpecialFunction("special_list_cons", &iterables::list_cons),
             FetchEntry => SpecialFunction("native_map-get?", &database::special_fetch_entry),
             FetchContractEntry => SpecialFunction("native_contract-map-get?", &database::special_fetch_contract_entry),

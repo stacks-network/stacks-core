@@ -422,7 +422,37 @@ the event that condition is false
 if computed during _static analysis_, the thrown branch cost is always
 included.
 
-## List iteration
+## List and Buffer iteration
+### append
+
+The cost of appending an item to a list is the cost of checking the
+type of the added item, plus some fixed cost.
+
+```
+a + b * X
+```
+
+where a and b is a constant
+X := the size of the list _entry_ type
+
+### concat
+
+The cost of concatting two lists or buffers is linear in
+the size of the two iterables:
+
+```
+a + b * (X+Y)
+```
+
+where a and b are constants
+X := the size of the right-hand iterable
+Y := the size of the left-hand iterable
+
+### as-max-len?
+
+The cost of evaluating an `as-max-len?` function is constant (the function
+is performing a constant-time length check)
+
 ### map
 
 The cost of mapping a list is the cost of the function lookup,
