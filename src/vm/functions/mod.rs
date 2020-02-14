@@ -131,12 +131,12 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             TupleCons => SpecialFunction("native_tuple", &tuples::tuple_cons),
             TupleGet => SpecialFunction("native_get-tuple", &tuples::tuple_get),
             Begin => NativeFunction("native_begin", NativeHandle::MoreArg(&native_begin), cost_functions::BEGIN),
-            Hash160 => NativeFunction("native_hash160", NativeHandle::MoreArg(&native_hash160), cost_functions::HASH160),
-            Sha256 => NativeFunction("native_sha256", NativeHandle::MoreArg(&native_sha256), cost_functions::SHA256),
-            Sha512 => NativeFunction("native_sha512", NativeHandle::MoreArg(&native_sha512), cost_functions::SHA512),
-            Sha512Trunc256 => NativeFunction("native_sha512trunc256", NativeHandle::MoreArg(&native_sha512trunc256), cost_functions::SHA512T256),
-            Keccak256 => NativeFunction("native_keccak256", NativeHandle::MoreArg(&native_keccak256), cost_functions::KECCAK256),
-            Print => NativeFunction("native_print", NativeHandle::MoreArg(&native_print), cost_functions::PRINT),
+            Hash160 => NativeFunction("native_hash160", NativeHandle::SingleArg(&native_hash160), cost_functions::HASH160),
+            Sha256 => NativeFunction("native_sha256", NativeHandle::SingleArg(&native_sha256), cost_functions::SHA256),
+            Sha512 => NativeFunction("native_sha512", NativeHandle::SingleArg(&native_sha512), cost_functions::SHA512),
+            Sha512Trunc256 => NativeFunction("native_sha512trunc256", NativeHandle::SingleArg(&native_sha512trunc256), cost_functions::SHA512T256),
+            Keccak256 => NativeFunction("native_keccak256", NativeHandle::SingleArg(&native_keccak256), cost_functions::KECCAK256),
+            Print => NativeFunction("native_print", NativeHandle::SingleArg(&native_print), cost_functions::PRINT),
             ContractCall => SpecialFunction("native_contract-call", &database::special_contract_call),
             AsContract => SpecialFunction("native_as-contract", &special_as_contract),
             GetBlockInfo => SpecialFunction("native_get_block_info", &database::special_get_block_info),
@@ -194,10 +194,7 @@ fn native_eq(args: Vec<Value>) -> Result<Value> {
 
 macro_rules! native_hash_func {
     ($name:ident, $module:ty) => {
-        fn $name(mut args: Vec<Value>) -> Result<Value> {
-            check_argument_count(1, &args)?;
-            let input = args.pop().unwrap();
-
+        fn $name(input: Value) -> Result<Value> {
             let bytes = match input {
                 Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
@@ -223,10 +220,7 @@ fn native_begin(mut args: Vec<Value>) -> Result<Value> {
     }
 }
 
-fn native_print(mut args: Vec<Value>) -> Result<Value> {
-    check_argument_count(1, &args)?;
-    let input = args.pop().unwrap();
-
+fn native_print(input: Value) -> Result<Value> {
     if cfg!(feature = "developer-mode") {
         eprintln!("{}", &input);
     }
