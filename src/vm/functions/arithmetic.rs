@@ -22,12 +22,15 @@ impl I128Ops {
 //   the corresponding Rust integer type.
 macro_rules! type_force_binary_arithmetic { ($function: ident, $args: expr) => {
 {
-    check_argument_count(2, $args)?;
-    match (&$args[0], &$args[1]) {
-        (Value::Int(x), Value::Int(y)) => I128Ops::$function(*x, *y),
-        (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(*x, *y),
-        _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType],
-                                                  $args[0].clone()).into())
+    check_argument_count(2, &$args)?;
+    $args.reverse();
+    let x = $args.pop().unwrap();
+    let y = $args.pop().unwrap();
+    match (x, y) {
+        (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
+        (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
+        (x, _) => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType],
+                                                       x).into())
     }
 }
 }}
@@ -41,9 +44,9 @@ macro_rules! type_force_variadic_arithmetic { ($function: ident, $args: expr) =>
         .ok_or(CheckErrors::IncorrectArgumentCount(1, $args.len()))?;
     match first {
         Value::Int(_) => {
-            let typed_args: Result<Vec<_>, _> = $args.iter().map(
+            let typed_args: Result<Vec<_>, _> = $args.drain(..).map(
                 |x| match x {
-                    Value::Int(value) => Ok(value.clone()),
+                    Value::Int(value) => Ok(value),
                     _ => Err(CheckErrors::TypeValueError(TypeSignature::IntType, x.clone()))
                 })
                 .collect();
@@ -51,9 +54,9 @@ macro_rules! type_force_variadic_arithmetic { ($function: ident, $args: expr) =>
             I128Ops::$function(&checked_args)
         },
         Value::UInt(_) => {
-            let typed_args: Result<Vec<_>, _> = $args.iter().map(
+            let typed_args: Result<Vec<_>, _> = $args.drain(..).map(
                 |x| match x {
-                    Value::UInt(value) => Ok(value.clone()),
+                    Value::UInt(value) => Ok(value),
                     _ => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x.clone()))
                 })
                 .collect();
@@ -143,58 +146,60 @@ macro_rules! make_arithmetic_ops { ($struct_name: ident, $type:ty) => {
 make_arithmetic_ops!(U128Ops, u128);
 make_arithmetic_ops!(I128Ops, i128);
 
-pub fn native_xor(args: &[Value]) -> InterpreterResult<Value> {
+pub fn native_xor(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(xor, args)
 }
-pub fn native_geq(args: &[Value]) -> InterpreterResult<Value> {
+pub fn native_geq(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(geq, args)
 }
-pub fn native_leq(args: &[Value]) -> InterpreterResult<Value> {
+pub fn native_leq(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(leq, args)
 }
-pub fn native_ge(args: &[Value]) -> InterpreterResult<Value> {
+pub fn native_ge(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(greater, args)
 }
-pub fn native_le(args: &[Value]) -> InterpreterResult<Value> {
+pub fn native_le(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(less, args)
 }
-pub fn native_add(args: &[Value]) -> InterpreterResult<Value> {
+pub fn native_add(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_variadic_arithmetic!(add, args)
 }
-pub fn native_sub(args: &[Value]) -> InterpreterResult<Value> {
+pub fn native_sub(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_variadic_arithmetic!(sub, args)
 }
-pub fn native_mul(args: &[Value]) -> InterpreterResult<Value> {
+pub fn native_mul(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_variadic_arithmetic!(mul, args)
 }
-pub fn native_div(args: &[Value]) -> InterpreterResult<Value> {
+pub fn native_div(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_variadic_arithmetic!(div, args)
 }
-pub fn native_pow(args: &[Value]) -> InterpreterResult<Value> {
+pub fn native_pow(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(pow, args)
 }
-pub fn native_mod(args: &[Value]) -> InterpreterResult<Value> {
+pub fn native_mod(mut args: Vec<Value>) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(modulo, args)
 }
 
-pub fn native_to_uint(args: &[Value]) -> InterpreterResult<Value> {
-    check_argument_count(1, args)?;
-    if let Value::Int(int_val) = args[0] {
+pub fn native_to_uint(mut args: Vec<Value>) -> InterpreterResult<Value> {
+    check_argument_count(1, &args)?;
+    let x = args.pop().unwrap();
+    if let Value::Int(int_val) = x {
         let uint_val = u128::try_from(int_val)
             .map_err(|_| RuntimeErrorType::ArithmeticUnderflow)?;
         Ok(Value::UInt(uint_val))
     } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::IntType, args[0].clone()).into())
+        Err(CheckErrors::TypeValueError(TypeSignature::IntType, x).into())
     }
 }
 
-pub fn native_to_int(args: &[Value]) -> InterpreterResult<Value> {
-    check_argument_count(1, args)?;
-    if let Value::UInt(uint_val) = args[0] {
+pub fn native_to_int(mut args: Vec<Value>) -> InterpreterResult<Value> {
+    check_argument_count(1, &args)?;
+    let x = args.pop().unwrap();
+    if let Value::UInt(uint_val) = x {
         let int_val = i128::try_from(uint_val)
             .map_err(|_| RuntimeErrorType::ArithmeticOverflow)?;
         Ok(Value::Int(int_val))
     } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, args[0].clone()).into())
+        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x).into())
     }
 }

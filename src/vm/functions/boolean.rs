@@ -38,8 +38,8 @@ pub fn special_and(args: &[SymbolicExpression], env: &mut Environment, context: 
     Ok(Value::Bool(true))
 }
 
-pub fn native_not(args: &[Value]) -> Result<Value> {
-    check_argument_count(1, args)?;
+pub fn native_not(args: Vec<Value>) -> Result<Value> {
+    check_argument_count(1, &args)?;
     let value = type_force_bool(&args[0])?;
     Ok(Value::Bool(!value))
 }

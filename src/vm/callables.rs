@@ -11,7 +11,7 @@ use vm::{eval, Value, LocalContext, Environment};
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
-    NativeFunction(&'static str, &'static dyn Fn(&[Value]) -> Result<Value>, SimpleCostSpecification),
+    NativeFunction(&'static str, &'static dyn Fn(Vec<Value>) -> Result<Value>, SimpleCostSpecification),
     SpecialFunction(&'static str, &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
 }
 

@@ -103,7 +103,7 @@ impl From<&str> for TypeSignature {
     fn from(val: &str) -> Self {
         use vm::ast::parse;
         let expr = &parse(&QualifiedContractIdentifier::transient(), val).unwrap()[0];
-        TypeSignature::parse_type_repr(expr).unwrap()
+        TypeSignature::parse_type_repr(expr, &mut ()).unwrap()
     }
 }
 
@@ -859,7 +859,7 @@ mod test {
     fn fail_parse(val: &str) -> CheckErrors {
         use vm::ast::parse;
         let expr = &parse(&QualifiedContractIdentifier::transient(), val).unwrap()[0];
-        TypeSignature::parse_type_repr(expr).unwrap_err()
+        TypeSignature::parse_type_repr(expr, &mut ()).unwrap_err()
     }
 
     #[test]

@@ -116,7 +116,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
             CallableType::NativeFunction(_, function, cost_function) => {
                 let arg_size = evaluated_args.len();
                 runtime_cost!(cost_function, env, arg_size)?;
-                function(&evaluated_args)
+                function(evaluated_args)
             },
             CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
             _ => panic!("Should be unreachable.")

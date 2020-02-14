@@ -170,7 +170,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
     }
 }
 
-fn native_eq(args: &[Value]) -> Result<Value> {
+fn native_eq(args: Vec<Value>) -> Result<Value> {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
@@ -193,15 +193,15 @@ fn native_eq(args: &[Value]) -> Result<Value> {
 
 macro_rules! native_hash_func {
     ($name:ident, $module:ty) => {
-        fn $name(args: &[Value]) -> Result<Value> {
-            check_argument_count(1, args)?;
+        fn $name(mut args: Vec<Value>) -> Result<Value> {
+            check_argument_count(1, &args)?;
+            let input = args.pop().unwrap();
 
-            let input = &args[0];
             let bytes = match input {
                 Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
-                Value::Buffer(value) => Ok(value.data.clone()),
-                _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], input.clone()))
+                Value::Buffer(value) => Ok(value.data),
+                _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType, TypeSignature::max_buffer()], input))
             }?;
             let hash = <$module>::from_data(&bytes);
             Value::buff_from(hash.as_bytes().to_vec())
@@ -215,20 +215,21 @@ native_hash_func!(native_sha512, hash::Sha512Sum);
 native_hash_func!(native_sha512trunc256, hash::Sha512Trunc256Sum);
 native_hash_func!(native_keccak256, hash::Keccak256Hash);
 
-fn native_begin(args: &[Value]) -> Result<Value> {
-    match args.last() {
-        Some(v) => Ok(v.clone()),
+fn native_begin(mut args: Vec<Value>) -> Result<Value> {
+    match args.pop() {
+        Some(v) => Ok(v),
         None => Err(CheckErrors::RequiresAtLeastArguments(1,0).into())
     }
 }
 
-fn native_print(args: &[Value]) -> Result<Value> {
-    check_argument_count(1, args)?;
+fn native_print(mut args: Vec<Value>) -> Result<Value> {
+    check_argument_count(1, &args)?;
+    let input = args.pop().unwrap();
 
     if cfg!(feature = "developer-mode") {
-        eprintln!("{:?}", args[0]);
+        eprintln!("{}", &input);
     }
-    Ok(args[0].clone())
+    Ok(input)
 }
 
 fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
