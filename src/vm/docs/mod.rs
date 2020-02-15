@@ -347,15 +347,19 @@ input list, and returns the same list with any elements removed for which the `f
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(A, B) -> B, (list A)",
+    input_type: "Function(A, B) -> B, (list A), B",
     output_type: "B",
     signature: "(fold func list initial-value)",
-    description: "The `fold` function applies the input function `func` to each element of the
+    description: "The `fold` special form applies the input function `func` to each element of the
 input list _and_ the output of the previous application of the `fold` function. When invoked on
 the first list element, it uses the `initial-value` as the second input. `fold` returns the last
-value return by the successive applications.",
+value returned by the successive applications. Note that the first argument is not evaluated thus 
+has to be a literal function name.",
     example: "(fold * (list 2 2 2) 1) ;; Returns 8
-(fold * (list 2 2 2) 0) ;; Returns 0"
+(fold * (list 2 2 2) 0) ;; Returns 0
+(fold - (list 3 7 11) 2) ;; Returns 5 by calculating (- 11 (- 7 (- 3 2)))
+(fold concat "cdef" "ab")   ;; Returns \"fedcab\"
+(fold concat (list "cd" "ef") "ab")   ;; Returns \"efcdab\""
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
