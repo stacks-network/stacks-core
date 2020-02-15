@@ -366,9 +366,18 @@ impl fmt::Display for AssetMap {
 
 
 impl <'a> OwnedEnvironment <'a> {
+    #[cfg(test)]
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment <'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(database),
+            context: GlobalContext::new(database, LimitedCostTracker::new_max_limit()),
+            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            call_stack: CallStack::new()
+        }
+    }
+
+    pub fn new_cost_limited(database: ClarityDatabase<'a>, cost_tracker: LimitedCostTracker) -> OwnedEnvironment <'a> {
+        OwnedEnvironment {
+            context: GlobalContext::new(database, cost_tracker),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new()
         }
@@ -456,7 +465,7 @@ impl <'a> OwnedEnvironment <'a> {
     /// Destroys this environment, returning ownership of its database reference.
     ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
     ///   because the database is not guaranteed to be in a sane state.
-    pub fn destruct(self) -> Option<ClarityDatabase<'a>> {
+    pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
         self.context.destruct()
     }
 }
@@ -661,12 +670,11 @@ impl <'a,'b> Environment <'a,'b> {
 impl <'a> GlobalContext<'a> {
 
     // Instantiate a new Global Context
-    pub fn new(database: ClarityDatabase) -> GlobalContext {
+    pub fn new(database: ClarityDatabase, cost_track: LimitedCostTracker) -> GlobalContext {
         GlobalContext {
-            database: database,
+            database, cost_track,
             read_only: Vec::new(),
-            asset_maps: Vec::new(),
-            cost_track: LimitedCostTracker::new(ExecutionCost::max_value())
+            asset_maps: Vec::new()
         }
     }
 
@@ -784,9 +792,9 @@ impl <'a> GlobalContext<'a> {
     /// Destroys this context, returning ownership of its database reference.
     ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
     ///   because the database is not guaranteed to be in a sane state.
-    pub fn destruct(self) -> Option<ClarityDatabase<'a>> {
+    pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
         if self.is_top_level() {
-            Some(self.database)
+            Some((self.database, self.cost_track))
         } else {
             None
         }

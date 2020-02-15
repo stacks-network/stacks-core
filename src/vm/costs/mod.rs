@@ -1,5 +1,6 @@
 pub mod cost_functions;
 
+use std::fmt;
 use vm::errors::CheckErrors;
 use vm::types::TypeSignature;
 
@@ -44,6 +45,9 @@ impl LimitedCostTracker {
     pub fn new(limit: ExecutionCost) -> LimitedCostTracker {
         LimitedCostTracker { limit, total: ExecutionCost::zero() }
     }
+    pub fn new_max_limit() -> LimitedCostTracker {
+        LimitedCostTracker { limit: ExecutionCost::max_value(), total: ExecutionCost::zero() }
+    }
 }
 
 impl CostTracker for LimitedCostTracker {
@@ -87,6 +91,13 @@ pub struct ExecutionCost {
     pub read_length: u64,
     pub read_count: u64,
     pub runtime: u64
+}
+
+impl fmt::Display for ExecutionCost {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{{\"runtime\": {}, \"write_length\": {}, \"write_count\": {}, \"read_length\": {}, \"read_count\": {}}}",
+               self.runtime, self.write_length, self.write_count, self.read_length, self.read_count)
+    }
 }
 
 pub trait CostOverflowingMath <T> {

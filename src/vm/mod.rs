@@ -34,7 +34,7 @@ use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result};
 use vm::database::MemoryBackingStore;
 use vm::types::QualifiedContractIdentifier;
-use vm::costs::{cost_functions, CostOverflowingMath};
+use vm::costs::{cost_functions, CostOverflowingMath, LimitedCostTracker};
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
@@ -225,13 +225,15 @@ fn eval_all (expressions: &[SymbolicExpression],
 
 /* Run provided program in a brand new environment, with a transient, empty
  *  database.
+ *
+ *  Only used by CLI.
  */
 pub fn execute(program: &str) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone());
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(conn);
+    let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
     global_context.execute(|g| {
         let parsed = ast::parse(&contract_id, program)?;
         eval_all(&parsed, &mut contract_context, g)
@@ -246,6 +248,7 @@ mod test {
     use vm::types::{TypeSignature, QualifiedContractIdentifier};
     use vm::callables::{DefinedFunction, DefineType};
     use vm::eval;
+    use vm::costs::LimitedCostTracker;
 
     #[test]
     fn test_simple_user_function() {
@@ -272,7 +275,7 @@ mod test {
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
 
         let mut marf = MemoryBackingStore::new();
-        let mut global_context = GlobalContext::new(marf.as_clarity_db());
+        let mut global_context = GlobalContext::new(marf.as_clarity_db(), LimitedCostTracker::new_max_limit());
 
         contract_context.variables.insert("a".into(), Value::Int(59));
         contract_context.functions.insert("do_work".into(), user_function);
