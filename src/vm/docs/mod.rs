@@ -358,8 +358,8 @@ has to be a literal function name.",
     example: "(fold * (list 2 2 2) 1) ;; Returns 8
 (fold * (list 2 2 2) 0) ;; Returns 0
 (fold - (list 3 7 11) 2) ;; Returns 5 by calculating (- 11 (- 7 (- 3 2)))
-(fold concat "cdef" "ab")   ;; Returns \"fedcab\"
-(fold concat (list "cd" "ef") "ab")   ;; Returns \"efcdab\""
+(fold concat \"cdef\" \"ab\")   ;; Returns \"fedcab\"
+(fold concat (list \"cd\" \"ef\") \"ab\")   ;; Returns \"efcdab\""
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
