@@ -44,8 +44,10 @@ Execution cost of a block of Clarity code is broken into 5 categories:
 Importantly, these costs are used to set a _block limit_ for each
 block.  When it comes to selecting transactions for inclusion in a
 block, miners are free to make their own choices based on transaction
-fees, however, blocks may not exceed the _block limit_ (if they do so,
-the leader forfeits all rewards from the block).
+fees, however, blocks may not exceed the _block limit_. If they do so,
+the block is considered invalid by the network --- none of the block's
+transactions will be materialized and the leader forfeits all rewards
+from the block.
 
 # Static versus Dynamic Cost Assessment
 
@@ -146,6 +148,15 @@ type_parsing_cost(X) = (a*X+b)
 where a, b, are constants,
 X := the number of elements in the type description AST
 
+The type description AST is the tree of Clarity language elements used
+for describing the type, e.g.:
+
+* `(list 1 uint)` - this AST has four elements: `list`, `1`, `uint`
+  and the parentheses containing them.
+* `(response bool int)` - this AST has four elements: `response`, `bool`, `int`
+  and the parentheses containing them.
+* `int` - this AST is just one component.
+
 ### Function Definition
 
 Defining a function in Clarity incurs an execution cost at the
@@ -155,11 +166,11 @@ in the length of the type signatures, and linear in the length of the
 function name and argument names.
 
 ```
-binding_cost + sum(type_parsing_cost(Y) + a, ARG_TYPES)
+binding_cost + sum(a + type_parsing_cost(Y) for Y in ARG_TYPES)
 ```
 
-where
-ARG_TYPES := the length of the argument type signatures
+`type_parsing_cost(Y)` := the cost of parsing argument Y
+ARG_TYPES := the function definition's argument type signatures
 and a is a constant associated with the binding of argument types.
 
 ### Contract Storage Cost
@@ -204,7 +215,7 @@ X := size of the fetched value.
 
 ### Data Writing Costs
 
-Writing data from the datastore incurs a runtime cost, in addition to
+Writing data to the datastore incurs a runtime cost, in addition to
 any costs associated with MARF writes (which are simply counted as the
 integer number of times the MARF is written). That runtime cost
 is _linear_ in the size of the written value (due to data serialization).
