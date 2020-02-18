@@ -38,7 +38,11 @@
                     "kind": "bin"
                 }
             },
-            "args": ["testnet", "--sidecar_address=127.0.0.1:3700"],
+            "args": [
+                "testnet", 
+                "--sidecar_address=127.0.0.1:3700",
+                "--burnchain_block_time=40"
+            ],
             "cwd": "${workspaceFolder}"
         },
         {

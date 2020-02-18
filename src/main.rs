@@ -183,13 +183,27 @@ fn main() {
         use testnet;
         use rand::RngCore;
         use util::hash::{to_hex};
+        use std::net::SocketAddr;
         use getopts::Options;
 
-        let mut opts = Options::new();
-        opts.optopt("", "sidecar_address", "set a sidecar TCP socket address", "SIDECAR_ADDRESS");
-        let opt_matches = opts.parse(&argv[1..]).unwrap();
-        let sidecar_address = opt_matches.opt_str("sidecar_address");
+        fn print_error(opts: &Options, program: &str, err: &str, msg: &str) {
+            let usage = format!("Usage: {} testnet [options]", program);
+            eprintln!("{}", opts.usage(&usage));
+            eprintln!("ERROR {}: {}", msg, err);
+        }
 
+        let mut opts = Options::new();
+        opts.optopt("", "sidecar_address", "set a sidecar TCP socket address", "IP:PORT");
+        opts.optopt("", "burnchain_block_time", "set the burnchain block time milliseconds", "MS");
+        let opt_matches = opts.parse(&argv[1..]).unwrap();
+        let sidecar_address = opt_matches.opt_get::<SocketAddr>("sidecar_address").unwrap_or_else(|e| {
+            print_error(&opts, &argv[0], &e.to_string(), "could not parse sidecar_address");
+            process::exit(1)
+        });
+        let burnchain_block_time = opt_matches.opt_get::<u64>("burnchain_block_time").unwrap_or_else(|e| {
+            print_error(&opts, &argv[0], &e.to_string(), "could not parse burnchain_block_time");
+            process::exit(1)
+        });
 
         // Testnet's name
         let mut rng = rand::thread_rng();
@@ -201,7 +215,7 @@ fn main() {
             testnet_name: "testnet".to_string(),
             chain: "bitcoin".to_string(),
             burnchain_path: format!("/tmp/{}/burnchain", testnet_id),
-            burnchain_block_time: 2000,
+            burnchain_block_time: burnchain_block_time.unwrap_or(2000),
             node_config: vec![testnet::NodeConfig {
                 name: "L1".to_string(),
                 path: format!("/tmp/{}/L1", testnet_id),

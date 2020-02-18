@@ -12,6 +12,8 @@ pub use self::node::{Node, SortitionedBlock};
 pub use self::burnchain::{BurnchainSimulator, BurnchainState};
 pub use self::tenure::{LeaderTenure};
 
+use std::net::SocketAddr;
+
 #[derive(Clone)]
 pub struct Config {
     pub testnet_name: String,
@@ -19,7 +21,7 @@ pub struct Config {
     pub burnchain_path: String,
     pub burnchain_block_time: u64,
     pub node_config: Vec<NodeConfig>,
-    pub sidecar_socket_address: Option<String>,
+    pub sidecar_socket_address: Option<SocketAddr>,
 }
 
 #[derive(Clone)]
