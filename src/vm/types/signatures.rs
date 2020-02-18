@@ -5,8 +5,8 @@ use std::convert::{TryFrom, TryInto};
 use std::collections::{BTreeMap, HashMap};
 
 use address::c32;
-use vm::types::{Value, MAX_VALUE_SIZE, QualifiedContractIdentifier, StandardPrincipalData};
-use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
+use vm::types::{Value, MAX_VALUE_SIZE, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName, TraitDefinition};
 use vm::errors::{RuntimeErrorType, CheckErrors, IncomparableError, Error as VMError};
 use util::hash;
 
@@ -61,7 +61,7 @@ pub enum TypeSignature {
     TupleType(TupleTypeSignature),
     OptionalType(Box<TypeSignature>),
     ResponseType(Box<(TypeSignature, TypeSignature)>),
-    TraitReferenceType(ClarityName),
+    TraitReferenceType(TraitIdentifier),
 }
 
 use self::TypeSignature::{
@@ -640,8 +640,11 @@ impl TypeSignature {
                     Err(CheckErrors::InvalidTypeDescription)
                 }
             },
-            SymbolicExpressionType::TraitReference(ref trait_name) => {
-                Ok(TypeSignature::TraitReferenceType(trait_name.clone()))
+            SymbolicExpressionType::TraitReference(_, ref trait_definition) => {
+                match trait_definition {
+                    TraitDefinition::Local(trait_id) => Ok(TypeSignature::TraitReferenceType(trait_id.clone())),
+                    TraitDefinition::External(trait_id) => Ok(TypeSignature::TraitReferenceType(trait_id.clone())),
+                }
             },
             _ => Err(CheckErrors::InvalidTypeDescription)
         }
@@ -662,7 +665,7 @@ impl TypeSignature {
                 fn_args.push(arg_t);
             }
             let fn_return = TypeSignature::parse_type_repr(&args[2])
-                .map_err(|e| CheckErrors::DefineTraitBadSignature)?;
+                .map_err(|_e| CheckErrors::DefineTraitBadSignature)?;
 
             trait_signature.insert(fn_name.clone(), FunctionSignature {
                 args: fn_args,
@@ -693,9 +696,7 @@ impl TypeSignature {
             IntType => Some(16),
             UIntType => Some(16),
             BoolType => Some(1),
-            // TODO: This principal size isn't quite right.
-            //    it can be much larger due to contract principals.
-            PrincipalType => Some(21),
+            PrincipalType => Some(148), // 20+128
             BufferType(len) => Some(u32::from(len)),
             TupleType(tuple_sig) => tuple_sig.inner_size(),
             ListType(list_type) => list_type.inner_size(),
@@ -709,7 +710,7 @@ impl TypeSignature {
                 cmp::max(t_size, s_size)
                     .checked_add(1)
             },
-            TraitReferenceType(trait_alias) => Some(trait_alias.len().into()),
+            TraitReferenceType(_) => Some(276), // 20+128+128
         }
     }
 
@@ -734,7 +735,7 @@ impl TypeSignature {
                     .checked_add(s.type_size()?)?
                     .checked_add(1)
             },
-            TraitReferenceType(trait_alias) => Some(trait_alias.len().into()),
+            TraitReferenceType(_) => Some(1),
         }
     }
 }
