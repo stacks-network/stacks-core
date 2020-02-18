@@ -71,14 +71,13 @@ impl DefinedFunction {
 
         for arg in arg_iterator.drain(..) {
             let ((name, type_sig), value) = arg;
+            
             match (type_sig, value) {
-                (TypeSignature::TraitReferenceType(trait_reference), Value::Principal(PrincipalData::Contract(contract_id))) => {
+                (TypeSignature::TraitReferenceType(trait_identifier), Value::Principal(PrincipalData::Contract(callee_contract_id))) => {
                     // Argument is a trait reference, probably leading to a dynamic contract call
-                    // This is the moment when we're making sure that the target contract is 
-                    // conform.
-                    let trait_identifier = env.contract_context.lookup_trait_reference(trait_reference)
-                        .ok_or(CheckErrors::TraitReferenceUnknown(trait_reference.to_string()))?;
-                    context.callable_contracts.insert(name.clone(), (contract_id.clone(), trait_identifier));
+                    // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
+                    // The code fetching and checking the trait is implemented in the contract_call eval function.
+                    context.callable_contracts.insert(name.clone(), (callee_contract_id.clone(), trait_identifier.clone()));
                 },
                 _ => {
                     if !type_sig.admits(value) {
@@ -108,8 +107,7 @@ impl DefinedFunction {
 
     pub fn check_trait_expectations(&self, 
                                     contract_defining_trait: &ContractContext,
-                                    trait_identifier: &TraitIdentifier, 
-                                    contract_to_check: &ContractContext) -> Result<()> {
+                                    trait_identifier: &TraitIdentifier) -> Result<()> {
 
         let trait_name = trait_identifier.name.to_string();
         let constraining_trait = contract_defining_trait.lookup_trait_definition(&trait_name)
@@ -125,11 +123,7 @@ impl DefinedFunction {
         for (expected_arg, actual_arg) in args {
             match (expected_arg, actual_arg) {
                 (TypeSignature::TraitReferenceType(expected), TypeSignature::TraitReferenceType(ref actual)) => {
-                    let expected_trait_id = contract_defining_trait.lookup_trait_reference(&expected.to_string())
-                        .ok_or(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()))?;
-                    let actual_trait_id = contract_to_check.lookup_trait_reference(&actual.to_string())
-                        .ok_or(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()))?;
-                    if actual_trait_id != expected_trait_id {
+                    if actual != expected {
                         return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()).into())
                     }
                 }

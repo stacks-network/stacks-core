@@ -130,7 +130,7 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
             let f = lookup_function(&function_name, env)?;
             apply(&f, &rest, env, context)
         },
-        TraitReference(_) | Field(_) => unreachable!("can't be evaluated"),
+        TraitReference(_, _) | Field(_) => unreachable!("can't be evaluated"),
     }
 }
 
@@ -184,14 +184,9 @@ fn eval_all (expressions: &[SymbolicExpression],
                 global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
             },
             DefineResult::Trait(name, trait_type) => { 
-                let contract_identifier = contract_context.contract_identifier.clone();
-                let trait_identifier = TraitIdentifier { name: name.clone(), contract_identifier };
-                contract_context.referenced_traits.insert(name.clone(), trait_identifier);
                 contract_context.defined_traits.insert(name, trait_type);
             },
-            DefineResult::UseTrait(name, trait_identifier) => {
-                contract_context.referenced_traits.insert(name, trait_identifier);
-            },
+            DefineResult::UseTrait(_name, _trait_identifier) => {},
             DefineResult::ImplTrait(trait_identifier) => {
                 contract_context.implemented_traits.insert(trait_identifier);
             },

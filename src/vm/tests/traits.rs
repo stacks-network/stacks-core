@@ -23,6 +23,9 @@ fn test_all() {
         test_reentrant_dynamic_dispatch,
         test_readwrite_dynamic_dispatch,
         test_readwrite_violation_dynamic_dispatch,
+        test_bad_call_with_trait,
+        test_good_call_with_trait,
+        test_good_call_2_with_trait,
         ];
     for test in to_test.iter() {
         with_memory_environment(test, false);
@@ -156,7 +159,7 @@ fn test_dynamic_dispatch_including_nested_trait(owned_env: &mut OwnedEnvironment
             (get-1 (<trait-a>) (response uint uint))))";
     let dispatching_contract =
         "(use-trait trait-1 .contract-defining-trait.trait-1)
-         (use-trait trait-a .contract-defining-trait.trait-a)
+         (use-trait trait-a .contract-defining-nested-trait.trait-a)
          (define-public (wrapped-get-1 (contract <trait-1>) (nested-contract <trait-a>)) 
             (contract-call? contract get-1 nested-contract))";
     let target_contract =
@@ -330,6 +333,112 @@ fn test_readwrite_violation_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
                 panic!("{:?}", err_result)
             }
         }
+    }
+}
+
+fn test_bad_call_with_trait(owned_env: &mut OwnedEnvironment) {
+    // This set of contracts should be working in this context,
+    // the analysis is not being performed.
+    let contract_defining_trait = 
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))";
+    let dispatching_contract =
+        "(use-trait trait-1 .defun.trait-1)
+        (define-public (wrapped-get-1 (contract <trait-1>)) 
+            (contract-call? contract get-1 u0))";
+    let impl_contract =
+        "(impl-trait .defun.trait-1)
+        (define-public (get-1 (x uint)) (ok u99))";
+    let caller_contract =
+        "(define-constant contract .implem)
+        (define-public (foo-bar)
+        (contract-call? .dispatch wrapped-get-1 contract))"; 
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    {
+        let mut env = owned_env.get_exec_environment(None);
+        env.initialize_contract(QualifiedContractIdentifier::local("defun").unwrap(), contract_defining_trait).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("dispatch").unwrap(), dispatching_contract).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("implem").unwrap(), impl_contract).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("call").unwrap(), caller_contract).unwrap();
+    }
+
+    {
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        assert_eq!(
+            env.execute_contract(&QualifiedContractIdentifier::local("call").unwrap(), "foo-bar", &symbols_from_values(vec![])).unwrap(),
+            Value::okay(Value::UInt(99)));
+    }
+}
+
+fn test_good_call_with_trait(owned_env: &mut OwnedEnvironment) {
+    let contract_defining_trait = 
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))";
+    let dispatching_contract =
+        "(use-trait trait-1 .defun.trait-1)
+        (define-public (wrapped-get-1 (contract <trait-1>)) 
+            (contract-call? contract get-1 u0))";
+    let impl_contract =
+        "(impl-trait .defun.trait-1)
+        (define-public (get-1 (x uint)) (ok u99))";
+    let caller_contract =
+        "(define-public (foo-bar)
+        (contract-call? .dispatch wrapped-get-1 .implem))"; 
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    {
+        let mut env = owned_env.get_exec_environment(None);
+        env.initialize_contract(QualifiedContractIdentifier::local("defun").unwrap(), contract_defining_trait).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("dispatch").unwrap(), dispatching_contract).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("implem").unwrap(), impl_contract).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("call").unwrap(), caller_contract).unwrap();
+    }
+
+    {
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        assert_eq!(
+            env.execute_contract(&QualifiedContractIdentifier::local("call").unwrap(), "foo-bar", &symbols_from_values(vec![])).unwrap(),
+            Value::okay(Value::UInt(99)));
+    }
+}
+
+
+fn test_good_call_2_with_trait(owned_env: &mut OwnedEnvironment) {
+    let contract_defining_trait = 
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))";
+    let dispatching_contract =
+        "(use-trait trait-1 .defun.trait-1)
+        (define-public (wrapped-get-1 (contract <trait-1>)) 
+            (contract-call? contract get-1 u0))";
+    let impl_contract =
+        "(impl-trait .defun.trait-1)
+        (define-public (get-1 (x uint)) (ok u99))";
+    let caller_contract =
+        "(use-trait trait-2 .defun.trait-1)
+        (define-public (foo-bar (contract <trait-2>))
+            (contract-call? .dispatch wrapped-get-1 contract))"; 
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    {
+        let mut env = owned_env.get_exec_environment(None);
+        env.initialize_contract(QualifiedContractIdentifier::local("defun").unwrap(), contract_defining_trait).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("dispatch").unwrap(), dispatching_contract).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("implem").unwrap(), impl_contract).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("call").unwrap(), caller_contract).unwrap();
+    }
+
+    {
+        let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("implem").unwrap()));
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+
+        assert_eq!(
+            env.execute_contract(&QualifiedContractIdentifier::local("call").unwrap(), "foo-bar", &symbols_from_values(vec![target_contract])).unwrap(),
+            Value::okay(Value::UInt(99)));
     }
 }
 

@@ -81,9 +81,6 @@ pub struct ContractContext {
     #[serde(serialize_with = "ordered_map_defined_traits")]
     pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
 
-    #[serde(serialize_with = "ordered_map_referenced_traits")]
-    pub referenced_traits: HashMap<ClarityName, TraitIdentifier>,
-
     #[serde(serialize_with = "ordered_map_implemented_traits")]
     pub implemented_traits: HashSet<TraitIdentifier>,
 }
@@ -103,16 +100,10 @@ fn ordered_map_defined_traits<S: serde::Serializer>(value: &HashMap<ClarityName,
     ordered.serialize(serializer)
 }
 
-fn ordered_map_referenced_traits<S: serde::Serializer>(value: &HashMap<ClarityName, TraitIdentifier>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
-    let ordered: BTreeMap<_, _> = value.iter().collect();
-    ordered.serialize(serializer)
-}
-
 fn ordered_map_implemented_traits<S: serde::Serializer>(value: &HashSet<TraitIdentifier>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
     let ordered: BTreeSet<_> = value.iter().collect();
     ordered.serialize(serializer)
 }
-
 
 pub struct LocalContext <'a> {
     pub parent: Option< &'a LocalContext<'a>>,
@@ -817,7 +808,6 @@ impl ContractContext {
             variables: HashMap::new(),
             functions: HashMap::new(),
             defined_traits: HashMap::new(),
-            referenced_traits: HashMap::new(),
             implemented_traits: HashSet::new(),
         }
     }
@@ -832,10 +822,6 @@ impl ContractContext {
 
     pub fn lookup_trait_definition(&self, name: &str) -> Option<BTreeMap<ClarityName, FunctionSignature>> {
         self.defined_traits.get(name).cloned()
-    }
-
-    pub fn lookup_trait_reference(&self, name: &str) -> Option<TraitIdentifier> {
-        self.referenced_traits.get(name).cloned()
     }
 
     pub fn is_explicitly_implementing_trait(&self, trait_identifier: &TraitIdentifier) -> bool {

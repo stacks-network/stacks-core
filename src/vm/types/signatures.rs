@@ -642,8 +642,8 @@ impl TypeSignature {
             },
             SymbolicExpressionType::TraitReference(_, ref trait_definition) => {
                 match trait_definition {
-                    TraitDefinition::Local(trait_id) => Ok(TypeSignature::TraitReferenceType(trait_id.clone())),
-                    TraitDefinition::External(trait_id) => Ok(TypeSignature::TraitReferenceType(trait_id.clone())),
+                    TraitDefinition::Defined(trait_id) => Ok(TypeSignature::TraitReferenceType(trait_id.clone())),
+                    TraitDefinition::Imported(trait_id) => Ok(TypeSignature::TraitReferenceType(trait_id.clone())),
                 }
             },
             _ => Err(CheckErrors::InvalidTypeDescription)

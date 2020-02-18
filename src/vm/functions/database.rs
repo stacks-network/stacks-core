@@ -68,10 +68,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
                             (_, DefineType::ReadOnly) | (false, DefineType::Public) => { /* all clear */ },
                         }
 
-                        function_to_check.check_trait_expectations(
-                            &contract_context_defining_trait,
-                            &trait_identifier,
-                            &contract_context_to_check)?;
+                        function_to_check.check_trait_expectations(&contract_context_defining_trait, &trait_identifier)?;
 
                         // Retrieve the expected method signature
                         let constraining_trait = contract_context_defining_trait.lookup_trait_definition(&trait_name)
