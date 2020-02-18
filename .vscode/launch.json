@@ -7,6 +7,43 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Debug unit tests in library 'blockstack_lib'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "blockstack_lib",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'blockstack-core' testnet",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=blockstack-core",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "blockstack-core",
+                    "kind": "bin"
+                }
+            },
+            "args": ["testnet", "--sidecar_address=127.0.0.1:3700"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Debug executable 'blockstack-core'",
             "cargo": {
                 "args": [
@@ -20,8 +57,7 @@
                 }
             },
             "args": [],
-            "cwd": "${workspaceFolder}",
-            "terminal": "integrated"
+            "cwd": "${workspaceFolder}"
         },
         {
             "type": "lldb",
@@ -40,8 +76,7 @@
                 }
             },
             "args": [],
-            "cwd": "${workspaceFolder}",
-            "terminal": "integrated"
+            "cwd": "${workspaceFolder}"
         },
         {
             "type": "lldb",
@@ -59,8 +94,7 @@
                 }
             },
             "args": [],
-            "cwd": "${workspaceFolder}",
-            "terminal": "integrated"
+            "cwd": "${workspaceFolder}"
         },
         {
             "type": "lldb",
@@ -78,9 +112,45 @@
                     "kind": "bin"
                 }
             },
-            "args": ["vm"],
-            "cwd": "${workspaceFolder}",
-            "terminal": "integrated"
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'blockstack-cli'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=blockstack-cli",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "blockstack-cli",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'blockstack-cli'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=blockstack-cli",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "blockstack-cli",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
         }
     ]
 }

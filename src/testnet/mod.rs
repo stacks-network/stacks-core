@@ -18,7 +18,8 @@ pub struct Config {
     pub chain: String,
     pub burnchain_path: String,
     pub burnchain_block_time: u64,
-    pub node_config: Vec<NodeConfig>
+    pub node_config: Vec<NodeConfig>,
+    pub sidecar_socket_address: Option<String>,
 }
 
 #[derive(Clone)]

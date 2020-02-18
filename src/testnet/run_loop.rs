@@ -6,6 +6,11 @@ use chainstate::burn::{BlockHeaderHash};
 
 use util::sleep_ms;
 
+use net::StacksMessageCodec;
+
+use std::net::{TcpStream};
+use std::io::{Read, Write};
+
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
 pub struct RunLoop {
@@ -45,6 +50,20 @@ impl RunLoop {
     /// charge of coordinating the new blocks coming from the burnchain and 
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, expected_num_rounds: u8) {
+
+        let mut sidecar_stream: Option<TcpStream> = match &self.config.sidecar_socket_address {
+            Some(ref addr) => {
+                match TcpStream::connect(addr) {
+                    Ok(stream) => {
+                        println!("*** Connected to: {}", addr);
+                        Some(stream)
+                    },
+                    Err(e) => panic!("Error connecting to 'sidecar_socket_address' {}: {}", addr, e)
+                }
+            },
+            None => None
+        };
+
 
         // Initialize and start the burnchain.
         let mut burnchain = BurnchainSimulator::new(self.config.clone());
@@ -185,6 +204,26 @@ impl RunLoop {
                             &burnchain_state.chain_tip.parent_burn_header_hash,             
                             microblocks.to_vec(),
                             burnchain.burndb_mut());
+
+                        match sidecar_stream {
+                            Some(ref mut stream) => {
+                                let event_data_block_type: u32 = 1;
+                                match stream.write_all(&event_data_block_type.to_be_bytes()) {
+                                    Err(e) => {
+                                        panic!("Error serializing block for sidecar stream {}", e);
+                                    },
+                                    _ => {}
+                                }
+                                match anchored_block.consensus_serialize(stream) {
+                                    Err(e) => {
+                                        panic!("Error serializing block for sidecar stream {}", e);
+                                    },
+                                    _ => {}
+                                }
+                                stream.flush().unwrap();
+                            },
+                            None => {}
+                        }
 
                         let index_bhh = anchored_block.header.index_block_hash(
                             &burnchain_state.chain_tip.burn_header_hash);

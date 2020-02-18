@@ -22,7 +22,8 @@ pub fn new_test_conf() -> testnet::Config {
             name: "L1".to_string(),
             path: format!("/tmp/{}/L1", testnet_id),
             mem_pool_path: format!("/tmp/{}/L1/mempool", testnet_id)
-        }]
+        }],
+        sidecar_socket_address: None,
     };
     conf
 }

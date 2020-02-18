@@ -38,6 +38,7 @@ extern crate regex;
 extern crate time;
 extern crate byteorder;
 extern crate mio;
+extern crate getopts;
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;
@@ -182,7 +183,14 @@ fn main() {
         use testnet;
         use rand::RngCore;
         use util::hash::{to_hex};
-        
+        use getopts::Options;
+
+        let mut opts = Options::new();
+        opts.optopt("", "sidecar_address", "set a sidecar TCP socket address", "SIDECAR_ADDRESS");
+        let opt_matches = opts.parse(&argv[1..]).unwrap();
+        let sidecar_address = opt_matches.opt_str("sidecar_address");
+
+
         // Testnet's name
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 8];
@@ -198,7 +206,8 @@ fn main() {
                 name: "L1".to_string(),
                 path: format!("/tmp/{}/L1", testnet_id),
                 mem_pool_path: format!("/tmp/{}/L1/mempool", testnet_id)
-            }]
+            }],
+            sidecar_socket_address: sidecar_address,
         };
         
         println!("Starting testnet...");
