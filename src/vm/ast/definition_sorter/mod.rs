@@ -1,13 +1,12 @@
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
-use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
+use vm::representations::{PreSymbolicExpression, ClarityName};
+use vm::representations::PreSymbolicExpressionType::{AtomValue, Atom, List, SugaredContractIdentifier, SugaredFieldIdentifier, TraitReference, FieldIdentifier};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
-use vm::analysis::types::{ContractAnalysis, AnalysisPass};
-use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
+use vm::ast::types::{ContractAST, BuildASTPass};
+use vm::ast::errors::{ParseResult, ParseError, ParseErrors};
 use vm::types::{Value};
-use super::AnalysisDatabase;
 
 #[cfg(test)]
 mod tests;
@@ -17,11 +16,11 @@ pub struct DefinitionSorter {
     top_level_expressions_map: HashMap<ClarityName, TopLevelExpressionIndex>   
 }
 
-impl AnalysisPass for DefinitionSorter {
+impl BuildASTPass for DefinitionSorter {
     
-    fn run_pass(contract_analysis: &mut ContractAnalysis, _analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
-        let mut command = DefinitionSorter::new();
-        command.run(contract_analysis)?;
+    fn run_pass(contract_ast: &mut ContractAST) -> ParseResult<()> {
+        let mut pass = DefinitionSorter::new();
+        pass.run(contract_ast)?;
         Ok(())
     }
 }
@@ -35,9 +34,9 @@ impl <'a> DefinitionSorter {
         }
     }
 
-    pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
+    pub fn run(&mut self, contract_ast: &mut ContractAST) -> ParseResult<()> {
 
-        let exprs = contract_analysis.expressions[..].to_vec();
+        let exprs = contract_ast.pre_expressions[..].to_vec();
         for (expr_index, expr) in exprs.iter().enumerate() {
             self.graph.add_node(expr_index);
 
@@ -58,24 +57,25 @@ impl <'a> DefinitionSorter {
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
         
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
-            let deps_props: Vec<_> = deps.iter().map(|i| {
-                let exp = &contract_analysis.expressions[*i];
-                self.find_expression_definition(&exp).unwrap()
-            }).collect();
+            let mut deps_props = vec![];
+            for i in deps.iter() {
+                let exp = &contract_ast.pre_expressions[*i];
+                if let Some(def) = self.find_expression_definition(&exp) {
+                    deps_props.push(def);
+                }
+            }
             let functions_names = deps_props.iter().map(|i| i.0.to_string()).collect();
-            let exprs = deps_props.iter().map(|i| i.2.clone()).collect();
 
-            let mut error = CheckError::new(CheckErrors::CircularReference(functions_names));
-            error.set_expressions(exprs);
+            let error = ParseError::new(ParseErrors::CircularReference(functions_names));
             return Err(error)
         }
 
-        contract_analysis.top_level_expression_sorting = Some(sorted_indexes);
+        contract_ast.top_level_expression_sorting = Some(sorted_indexes);
         Ok(())
     }
 
-    fn probe_for_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
-        match expr.expr {
+    fn probe_for_dependencies(&mut self, expr: &PreSymbolicExpression, tle_index: usize) -> ParseResult<()> {
+        match expr.pre_expr {
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
@@ -84,7 +84,6 @@ impl <'a> DefinitionSorter {
                 }
                 Ok(())
             },
-            AtomValue(_) | LiteralValue(_) | Field(_) => Ok(()),
             TraitReference(ref name) => { 
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
@@ -201,18 +200,19 @@ impl <'a> DefinitionSorter {
                     self.probe_for_dependencies(expr, tle_index)?;
                 }
                 Ok(())
-            }
+            },
+            AtomValue(_) | FieldIdentifier(_) | SugaredContractIdentifier(_) | SugaredFieldIdentifier(_, _) => Ok(()),
         }
     }
 
-    fn probe_for_dependencies_in_tuple_list(&mut self, tuples: &[SymbolicExpression], tle_index: usize) -> CheckResult<()> {
+    fn probe_for_dependencies_in_tuple_list(&mut self, tuples: &[PreSymbolicExpression], tle_index: usize) -> ParseResult<()> {
         for index in 0..tuples.len() {
             self.probe_for_dependencies_in_tuple(&tuples[index], tle_index)?;
         } 
         Ok(())
     }
 
-    fn probe_for_dependencies_in_tuple(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
+    fn probe_for_dependencies_in_tuple(&mut self, expr: &PreSymbolicExpression, tle_index: usize) -> ParseResult<()> {
         if let Some(tuple) = expr.match_list() {
             for pair in tuple.into_iter() {
                 if let Some(pair) = pair.match_list() {
@@ -225,8 +225,14 @@ impl <'a> DefinitionSorter {
         Ok(())
     }
 
-    fn find_expression_definition<'b>(&mut self, exp: &'b SymbolicExpression) -> Option<(ClarityName, u64, &'b SymbolicExpression)> {
-        let (_define_type, args) = DefineFunctions::try_parse(exp)?;
+    fn find_expression_definition<'b>(&mut self, exp: &'b PreSymbolicExpression) -> Option<(ClarityName, u64, &'b PreSymbolicExpression)> {
+        let args = {
+            let exp = exp.match_list()?;
+            let (function_name, args) = exp.split_first()?;
+            let function_name = function_name.match_atom()?;
+            DefineFunctions::lookup_by_name(function_name)?;
+            Some(args)
+        }?;
         let defined_name = match args.get(0)?.match_list() {
             Some(list) => list.get(0)?,
             _ => &args[0]
@@ -279,7 +285,7 @@ impl GraphWalker {
     fn new() -> Self { Self { seen: HashSet::new() } }
 
     /// Depth-first search producing a post-order sort
-    fn get_sorted_dependencies(&mut self, graph: &Graph) -> CheckResult<Vec<usize>> {
+    fn get_sorted_dependencies(&mut self, graph: &Graph) -> ParseResult<Vec<usize>> {
         let mut sorted_indexes = Vec::<usize>::new();
         for expr_index in 0..graph.nodes_count() {
             self.sort_dependencies_recursion(expr_index, graph, &mut sorted_indexes);

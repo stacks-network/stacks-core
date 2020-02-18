@@ -1,26 +1,21 @@
-use vm::analysis::{CheckErrors, mem_type_check as run_analysis_helper};
-use vm::ast::parse;
+use vm::analysis::{mem_type_check as run_analysis_helper};
+use vm::ast::parser;
 use vm::types::QualifiedContractIdentifier;
-use vm::analysis::{CheckResult, AnalysisDatabase};
-use vm::analysis::types::{ContractAnalysis, AnalysisPass};
-use vm::analysis::definition_sorter::DefinitionSorter;
+use vm::ast::errors::{ParseResult};
+use vm::ast::types::{ContractAST, BuildASTPass};
+use vm::ast::errors::{ParseErrors};
+use vm::ast::definition_sorter::DefinitionSorter;
+use vm::ast::expression_identifier::ExpressionIdentifier;
 use vm::database::MemoryBackingStore;
 
-fn run_scoped_analysis_helper(contract: &str) -> CheckResult<ContractAnalysis> {
-    let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
-
+fn run_scoped_parsing_helper(contract: &str) -> ParseResult<ContractAST> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-
-    let expressions = parse(&contract_identifier, contract).unwrap();
-
-    db.execute(|db| {
-        let mut contract_analysis = ContractAnalysis::new(contract_identifier, expressions.to_vec());
-        DefinitionSorter::run_pass(&mut contract_analysis, db)?;
-        Ok(contract_analysis)
-    })
+    let pre_expressions = parser::parse(contract)?;
+    let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
+    ExpressionIdentifier::run_pass(&mut contract_ast)?;
+    DefinitionSorter::run_pass(&mut contract_ast)?;
+    Ok(contract_ast)
 }
-
 
 #[test]
 fn should_succeed_sorting_contract_case_1() {
@@ -33,7 +28,7 @@ fn should_succeed_sorting_contract_case_1() {
                 key))
         (define-map kv-store ((key int)) ((value int)))
     "#;
-    run_scoped_analysis_helper(contract).unwrap();
+    run_scoped_parsing_helper(contract).unwrap();
 }
 
 #[test]
@@ -49,7 +44,7 @@ fn should_succeed_sorting_contract_case_2() {
         (define-private (h (x int)) (a x))
         (+ (a 1) (b 1) c (d 1) e (f 1) g (h 1))
     "#;
-    run_scoped_analysis_helper(contract).unwrap();
+    run_scoped_parsing_helper(contract).unwrap();
 }
 
 
@@ -61,8 +56,8 @@ fn should_raise_dependency_cycle_case_1() {
         (define-private (c (x int)) (a x))
     "#;
 
-    let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false });
+    let err = run_scoped_parsing_helper(contract).unwrap_err();
+    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false });
 }
 
 #[test]
@@ -72,7 +67,7 @@ fn should_not_raise_dependency_cycle_case_let() {
         (define-private (bar (x int)) (let ((foo 1)) (+ 1 x))) 
     "#;
 
-    run_scoped_analysis_helper(contract).unwrap();
+    run_scoped_parsing_helper(contract).unwrap();
     run_analysis_helper(contract).unwrap();
 }
 
@@ -83,8 +78,8 @@ fn should_raise_dependency_cycle_case_let() {
         (define-private (bar (x int)) (let ((baz (foo 1))) (+ 1 x))) 
     "#;
 
-    let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
+    let err = run_scoped_parsing_helper(contract).unwrap_err();
+    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -94,7 +89,7 @@ fn should_not_raise_dependency_cycle_case_get() {
         (define-private (bar (x int)) (get foo (tuple (foo 1) (bar 2))))
     "#;
 
-    run_scoped_analysis_helper(contract).unwrap();
+    run_scoped_parsing_helper(contract).unwrap();
     run_analysis_helper(contract).unwrap();
 }
 
@@ -105,8 +100,8 @@ fn should_raise_dependency_cycle_case_get() {
         (define-private (bar (x int)) (let ((res (foo 1))) (+ 1 x))) 
     "#;
 
-    let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
+    let err = run_scoped_parsing_helper(contract).unwrap_err();
+    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -117,7 +112,7 @@ fn should_not_raise_dependency_cycle_case_fetch_entry() {
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
-    run_scoped_analysis_helper(contract).unwrap();
+    run_scoped_parsing_helper(contract).unwrap();
     run_analysis_helper(contract).unwrap();
 }
 
@@ -129,8 +124,8 @@ fn should_raise_dependency_cycle_case_fetch_entry() {
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
-    let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
+    let err = run_scoped_parsing_helper(contract).unwrap_err();
+    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -141,7 +136,7 @@ fn should_not_raise_dependency_cycle_case_delete_entry() {
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
-    run_scoped_analysis_helper(contract).unwrap();
+    run_scoped_parsing_helper(contract).unwrap();
     run_analysis_helper(contract).unwrap();
 }
 
@@ -153,8 +148,8 @@ fn should_raise_dependency_cycle_case_delete_entry() {
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
-    let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
+    let err = run_scoped_parsing_helper(contract).unwrap_err();
+    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -165,7 +160,7 @@ fn should_not_raise_dependency_cycle_case_set_entry() {
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
-    run_scoped_analysis_helper(contract).unwrap();
+    run_scoped_parsing_helper(contract).unwrap();
     run_analysis_helper(contract).unwrap();
 }
 
@@ -177,8 +172,8 @@ fn should_raise_dependency_cycle_case_set_entry() {
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
-    let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
+    let err = run_scoped_parsing_helper(contract).unwrap_err();
+    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -189,7 +184,7 @@ fn should_not_raise_dependency_cycle_case_insert_entry() {
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
-    run_scoped_analysis_helper(contract).unwrap();
+    run_scoped_parsing_helper(contract).unwrap();
     run_analysis_helper(contract).unwrap();
 }
 
@@ -201,8 +196,8 @@ fn should_raise_dependency_cycle_case_insert_entry() {
         (define-map kv-store ((foo int)) ((bar int)))
     "#;
 
-    let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
+    let err = run_scoped_parsing_helper(contract).unwrap_err();
+    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -212,7 +207,7 @@ fn should_not_raise_dependency_cycle_case_fetch_contract_entry() {
         (define-private (bar (x int)) (contract-map-get? .contract1 kv-store ((foo 1)))) 
     "#;
 
-    run_scoped_analysis_helper(contract).unwrap();
+    run_scoped_parsing_helper(contract).unwrap();
 }
 
 #[test]
@@ -222,8 +217,8 @@ fn should_raise_dependency_cycle_case_fetch_contract_entry() {
         (define-private (bar (x int)) (map-get? kv-store ((foo (foo 1))))) 
     "#;
 
-    let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
+    let err = run_scoped_parsing_helper(contract).unwrap_err();
+    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -233,6 +228,6 @@ fn should_not_conflict_with_atoms_from_trait_definitions() {
         (define-trait bar ((foo (int) (int))))
     "#;
 
-    run_scoped_analysis_helper(contract).unwrap();
+    run_scoped_parsing_helper(contract).unwrap();
 }
 
