@@ -82,7 +82,7 @@ fn handle_define_function(signature: &[SymbolicExpression],
 
     let arguments = parse_name_type_pairs(arg_symbols)?;
 
-    for (argument, p) in arguments.iter() {
+    for (argument, _) in arguments.iter() {
         check_legal_define(argument, &env.contract_context)?;
     }
 
@@ -153,14 +153,11 @@ fn handle_define_trait(name: &ClarityName,
     Ok(DefineResult::Trait(name.clone(), trait_signature))
 }
 
-fn handle_use_trait(name: &ClarityName,
-                    trait_identifier: &TraitIdentifier,
-                    env: &Environment) -> Result<DefineResult> {
+fn handle_use_trait(name: &ClarityName, trait_identifier: &TraitIdentifier) -> Result<DefineResult> {
     Ok(DefineResult::UseTrait(name.clone(), trait_identifier.clone()))
 }
 
-fn handle_impl_trait(trait_identifier: &TraitIdentifier,
-                     env: &Environment) -> Result<DefineResult> {
+fn handle_impl_trait(trait_identifier: &TraitIdentifier) -> Result<DefineResult> {
     Ok(DefineResult::ImplTrait(trait_identifier.clone()))
 }
 
@@ -293,10 +290,10 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                 handle_define_trait(name, functions, env)
             },
             DefineFunctionsParsed::UseTrait { name, trait_identifier } => {
-                handle_use_trait(name, trait_identifier, env)
+                handle_use_trait(name, trait_identifier)
             },
             DefineFunctionsParsed::ImplTrait { trait_identifier } => {
-                handle_impl_trait(trait_identifier, env)
+                handle_impl_trait(trait_identifier)
             }
         }
     } else {
