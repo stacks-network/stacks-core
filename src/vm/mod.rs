@@ -104,7 +104,13 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
         env.call_stack.insert(&identifier, track_recursion);
         let eval_tried: Result<Vec<Value>> =
             args.iter().map(|x| eval(x, env, context)).collect();
-        let evaluated_args = eval_tried?;
+        let evaluated_args = match eval_tried {
+            Ok(x) => x,
+            Err(e) => {
+                env.call_stack.remove(&identifier, track_recursion)?;
+                return Err(e)
+            }
+        };
         let mut resp = match function {
             CallableType::NativeFunction(_, function) => function(&evaluated_args),
             CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
