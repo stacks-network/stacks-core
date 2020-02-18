@@ -1,6 +1,6 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError, 
                  IncomparableError, Error as ClarityError, CheckErrors};
-use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, BufferLength,
+use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, BufferLength, MAX_VALUE_SIZE,
                 TypeSignature, TupleData, QualifiedContractIdentifier, ResponseData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 use vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
@@ -51,20 +51,8 @@ impl error::Error for SerializationError {
     }
 }
 
-/*
- * jude -- it would be better for the transaction-parsing logic to know, through the type system,
- * whether or not a failure to parse a Clarity value was due to an unexpected EOF or
- * semantically-invalid data.  Disabling this From impl fixes this.
-impl From<std::io::Error> for SerializationError {
-    fn from(err: std::io::Error) -> Self {
-        match err.kind() {
-            std::io::ErrorKind::UnexpectedEof => "Unexpected end of byte stream".into(),
-            _ => SerializationError::IOError(IncomparableError { err })
-        }
-    }
-}
-*/
-
+// Note: a byte stream that describes a longer type than
+//   there are available bytes to read will result in an IOError(UnexpectedEOF)
 impl From<std::io::Error> for SerializationError {
     fn from(err: std::io::Error) -> Self {
         SerializationError::IOError(IncomparableError { err })
@@ -308,6 +296,10 @@ impl Value {
                 r.read_exact(&mut len)?;
                 let len = u32::from_be_bytes(len);
 
+                if len > MAX_VALUE_SIZE {
+                    return Err("Illegal list type".into());
+                }
+
                 let (list_type, entry_type) = match expected_type {
                     None => (None, None),
                     Some(TypeSignature::ListType(list_type)) => {
@@ -337,6 +329,10 @@ impl Value {
                 let mut len = [0; 4];
                 r.read_exact(&mut len)?;
                 let len = u32::from_be_bytes(len);
+
+                if len > MAX_VALUE_SIZE {
+                    return Err(SerializationError::DeserializationError("Illegal tuple type".to_string()));
+                }
 
                 let tuple_type = match expected_type {
                     None => None,
@@ -549,12 +545,12 @@ mod tests {
 
 
         // make a list that says it is longer than it is!
-        //   this describes a list of size 1+MAX_VALUE_SIZE of Value::Bool(true)'s, but is actually only 59 bools.
+        //   this describes a list of size MAX_VALUE_SIZE of Value::Bool(true)'s, but is actually only 59 bools.
         let mut eof = vec![3u8; 64 as usize];
         // list prefix
         eof[0] = 11;
         // list length
-        Write::write_all(&mut eof.get_mut(1..5).unwrap(), &(1+MAX_VALUE_SIZE).to_be_bytes()).unwrap();
+        Write::write_all(&mut eof.get_mut(1..5).unwrap(), &(MAX_VALUE_SIZE).to_be_bytes()).unwrap();
 
         /*
          * jude -- this should return an IOError
@@ -743,6 +739,23 @@ mod tests {
                 expected,
                 &Value::try_deserialize_hex_untyped(test));
         }
+    }
+
+    #[test]
+    fn try_deser_large_list() {
+        let buff = vec![11, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255];
+
+        assert_eq!(Value::try_deserialize_bytes_untyped(&buff).unwrap_err(),
+                   SerializationError::DeserializationError("Illegal list type".to_string()));
+    }
+
+
+    #[test]
+    fn try_deser_large_tuple() {
+        let buff = vec![12, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255];
+
+        assert_eq!(Value::try_deserialize_bytes_untyped(&buff).unwrap_err(),
+                   SerializationError::DeserializationError("Illegal tuple type".to_string()));
     }
 
     #[test]
