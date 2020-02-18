@@ -3,7 +3,7 @@ use std::borrow::Borrow;
 use std::ops::Deref;
 use std::convert::TryFrom;
 use regex::{Regex};
-use vm::types::{Value, TraitIdentifier};
+use vm::types::{Value, TraitIdentifier, QualifiedContractIdentifier};
 use vm::errors::{RuntimeErrorType};
 
 pub const MAX_STRING_LEN: u8 = 128;
@@ -85,6 +85,7 @@ pub enum PreSymbolicExpressionType {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct PreSymbolicExpression {
     pub pre_expr: PreSymbolicExpressionType,
+    pub id: u64,
 
     #[cfg(feature = "developer-mode")]
     pub span: Span,
@@ -94,13 +95,15 @@ impl PreSymbolicExpression {
     #[cfg(feature = "developer-mode")]
     fn cons() -> PreSymbolicExpression {
         PreSymbolicExpression {
+            id: 0,
             span: Span::zero(),
             pre_expr: PreSymbolicExpressionType::AtomValue(Value::Bool(false))
         }
     }
     #[cfg(not(feature = "developer-mode"))]
     fn cons() -> PreSymbolicExpression {
-        PreSymboilcExpression {
+        PreSymbolicExpression {
+            id: 0,
             pre_expr: PreSymbolicExpressionType::AtomValue(Value::Bool(false))
         }
     }
@@ -184,6 +187,22 @@ impl PreSymbolicExpression {
         }
     }
 
+    pub fn match_atom(&self) -> Option<&ClarityName> {
+        if let PreSymbolicExpressionType::Atom(ref value) = self.pre_expr {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn match_list(&self) -> Option<&[PreSymbolicExpression]> {
+        if let PreSymbolicExpressionType::List(ref list) = self.pre_expr {
+            Some(list)
+        } else {
+            None
+        }
+    }
+
     pub fn match_field_identifier(&self) -> Option<&TraitIdentifier> {
         if let PreSymbolicExpressionType::FieldIdentifier(ref value) = self.pre_expr {
             Some(value)
@@ -199,8 +218,14 @@ pub enum SymbolicExpressionType {
     Atom(ClarityName),
     List(Box<[SymbolicExpression]>),
     LiteralValue(Value),
-    TraitReference(ClarityName),
     Field(TraitIdentifier),
+    TraitReference(ClarityName, TraitDefinition),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub enum TraitDefinition {
+    Defined(TraitIdentifier),
+    Imported(TraitIdentifier)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -277,9 +302,22 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn trait_reference(val: ClarityName) -> SymbolicExpression {
+    pub fn defined_trait_reference(val: ClarityName, contract_identifier: &QualifiedContractIdentifier) -> SymbolicExpression {
+        let trait_id = TraitIdentifier {
+            contract_identifier: contract_identifier.clone(),
+            name: val.clone(),
+        };
         SymbolicExpression {
-            expr: SymbolicExpressionType::TraitReference(val),
+            expr: SymbolicExpressionType::TraitReference(val, TraitDefinition::Defined(trait_id)),
+            .. SymbolicExpression::cons()
+        }
+    }
+
+    pub fn imported_trait_reference(val: ClarityName, trait_identifier: TraitIdentifier) -> SymbolicExpression {
+        SymbolicExpression {
+            expr: SymbolicExpressionType::TraitReference(
+                val, 
+                TraitDefinition::Imported(trait_identifier)),
             .. SymbolicExpression::cons()
         }
     }
@@ -329,7 +367,7 @@ impl SymbolicExpression {
     }
 
     pub fn match_trait_reference(&self) -> Option<&ClarityName> {
-        if let SymbolicExpressionType::TraitReference(ref value) = self.expr {
+        if let SymbolicExpressionType::TraitReference(ref value, _) = self.expr {
             Some(value)
         } else {
             None
@@ -361,7 +399,7 @@ impl fmt::Display for SymbolicExpression {
             SymbolicExpressionType::AtomValue(ref value) | SymbolicExpressionType::LiteralValue(ref value) => {
                 write!(f, "{}", value)?;
             },
-            SymbolicExpressionType::TraitReference(ref value) => { write!(f, "<{}>", &**value)?; },
+            SymbolicExpressionType::TraitReference(ref value, _) => { write!(f, "<{}>", &**value)?; },
             SymbolicExpressionType::Field(ref value) => { write!(f, "<{}>", value)?; },
         };
         
