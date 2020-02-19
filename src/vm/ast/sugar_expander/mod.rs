@@ -17,7 +17,7 @@ impl BuildASTPass for SugarExpander {
 
     fn run_pass(contract_ast: &mut ContractAST) -> ParseResult<()> {
         let pass = SugarExpander::new(contract_ast.contract_identifier.issuer.clone());
-        pass.run(contract_ast);
+        pass.run(contract_ast)?;
         Ok(())
     }
 }
@@ -32,12 +32,13 @@ impl SugarExpander {
      }
     }
 
-    pub fn run(&self, contract_ast: &mut ContractAST) {
-        let expressions = self.transform(contract_ast.pre_expressions_drain(), contract_ast);
+    pub fn run(&self, contract_ast: &mut ContractAST) -> ParseResult<()> {
+        let expressions = self.transform(contract_ast.pre_expressions_drain(), contract_ast)?;
         contract_ast.expressions = expressions;
+        Ok(())
     }
 
-    pub fn transform(&self, pre_exprs_iter: PreExpressionsDrain, contract_ast: &mut ContractAST) -> Vec<SymbolicExpression> {
+    pub fn transform(&self, pre_exprs_iter: PreExpressionsDrain, contract_ast: &mut ContractAST) -> ParseResult<Vec<SymbolicExpression>> {
         let mut expressions = Vec::new();
 
         for pre_expr in pre_exprs_iter {
@@ -50,7 +51,7 @@ impl SugarExpander {
                 },
                 PreSymbolicExpressionType::List(pre_exprs) => {
                     let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
-                    let expression = self.transform(drain, contract_ast);
+                    let expression = self.transform(drain, contract_ast)?;
                     SymbolicExpression::list(expression.into_boxed_slice())
                 }
                 PreSymbolicExpressionType::SugaredContractIdentifier(contract_name) => {
@@ -70,7 +71,7 @@ impl SugarExpander {
                     } else if let Some(trait_identifier) = contract_ast.get_referenced_trait(&name) {
                         SymbolicExpression::imported_trait_reference(name, trait_identifier.clone())
                     } else {
-                        unreachable!()
+                        return Err(ParseErrors::TraitReferenceUnknown(name.to_string()).into())
                     }                    
                 },
             };
@@ -78,7 +79,7 @@ impl SugarExpander {
             expr.span = pre_expr.span.clone();
             expressions.push(expr);
         }
-        expressions
+        Ok(expressions)
     }
 }
 
