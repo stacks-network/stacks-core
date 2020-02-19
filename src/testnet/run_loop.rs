@@ -1,3 +1,5 @@
+use chainstate::stacks::StacksBlock;
+use net::BlocksData;
 use super::{Config, Node, BurnchainSimulator, BurnchainState, LeaderTenure};
 
 use chainstate::burn::{ConsensusHash};
@@ -7,6 +9,7 @@ use chainstate::burn::{BlockHeaderHash};
 use util::sleep_ms;
 
 use net::StacksMessageCodec;
+use net::StacksMessageType;
 
 use std::net::{TcpStream};
 use std::io::{Read, Write};
@@ -205,30 +208,26 @@ impl RunLoop {
                             microblocks.to_vec(),
                             burnchain.burndb_mut());
 
-                        match sidecar_stream {
-                            Some(ref mut stream) => {
-                                let event_data_block_type: u32 = 1;
-                                match stream.write_all(&event_data_block_type.to_be_bytes()) {
-                                    Err(e) => {
-                                        panic!("Error serializing block for sidecar stream {}", e);
-                                    },
-                                    _ => {}
-                                }
-                                match anchored_block.consensus_serialize(stream) {
-                                    Err(e) => {
-                                        panic!("Error serializing block for sidecar stream {}", e);
-                                    },
-                                    _ => {}
-                                }
-                                stream.flush().unwrap();
-                            },
-                            None => {}
-                        }
-
                         let index_bhh = anchored_block.header.index_block_hash(
                             &burnchain_state.chain_tip.burn_header_hash);
                         RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index,
                                                            &mut node.chain_state, &index_bhh);
+                        
+                        match sidecar_stream {
+                            Some(ref mut stream) => {
+                                let blocks_message = StacksMessageType::Blocks(BlocksData {
+                                    blocks: vec![anchored_block.clone()]
+                                });
+                                match blocks_message.consensus_serialize(stream) {
+                                    Err(e) => {
+                                        panic!("Error serializing block for sidecar stream {}", e);
+                                    },
+                                    _ => {}
+                                };
+                                stream.flush().unwrap();
+                            },
+                            None => {}
+                        };
                     },
                 };
                 
