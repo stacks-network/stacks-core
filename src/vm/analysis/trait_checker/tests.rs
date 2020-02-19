@@ -31,6 +31,88 @@ fn test_dynamic_dispatch_by_defining_trait() {
     }).unwrap();
 }
 
+
+#[test]
+fn test_incomplete_impl_trait_1() {
+    let contract_defining_trait = 
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))
+            (get-2 (uint) (response uint uint))
+            (get-3 (uint) (response uint uint))))";
+    let impl_contract = 
+        "(impl-trait .defun.trait-1)
+        (define-public (get-1 (x uint)) (ok u1))";
+    let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
+    let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let err = db.execute(|db| {
+        type_check(&def_contract_id, &mut c1, db, true).unwrap();
+        type_check(&impl_contract_id, &mut c3, db, true)
+    }).unwrap_err();
+    match err.err {
+        CheckErrors::BadTraitImplementation(_, _) => {},
+        _ => {
+            panic!("{:?}", err)
+        }
+    }
+}
+
+#[test]
+fn test_incomplete_impl_trait_2() {
+    let contract_defining_trait = 
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))
+            (get-2 (uint) (response uint uint))
+            (get-3 (uint) (response uint uint))))";
+    let impl_contract = 
+        "(impl-trait .defun.trait-1)
+        (define-public (get-1 (x uint)) (ok u1))
+        (define-public (get-2 (x uint)) (ok u1))";    
+    let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
+    let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let err = db.execute(|db| {
+        type_check(&def_contract_id, &mut c1, db, true).unwrap();
+        type_check(&impl_contract_id, &mut c3, db, true)
+    }).unwrap_err();
+    match err.err {
+        CheckErrors::BadTraitImplementation(_, _) => {},
+        _ => {
+            panic!("{:?}", err)
+        }
+    }
+}
+
+#[test]
+fn test_complete_impl_trait() {
+    let contract_defining_trait = 
+        "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))
+            (get-2 (uint) (response uint uint))
+            (get-3 (uint) (response uint uint))))";
+    let impl_contract = 
+        "(impl-trait .defun.trait-1)
+        (define-public (get-1 (x uint)) (ok u1))
+        (define-public (get-2 (x uint)) (ok u1))
+        (define-public (get-3 (x uint)) (ok u1))";
+    let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
+    let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    db.execute(|db| {
+        type_check(&def_contract_id, &mut c1, db, true).unwrap();
+        type_check(&impl_contract_id, &mut c3, db, true)
+    }).unwrap();
+}
+
 #[test]
 fn test_get_trait_reference_from_tuple() {
     let dispatching_contract_src =
