@@ -442,7 +442,10 @@ const SET_ENTRY_API: SpecialAPI = SpecialAPI {
     signature: "(map-set map-name key-tuple value-tuple)",
     description: "The `map-set` function sets the value associated with the input key to the 
 inputted value. This function performs a _blind_ update; whether or not a value is already associated
-with the key, the function overwrites that existing association.",
+with the key, the function overwrites that existing association.
+
+Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
+and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
     example: "(map-set names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
 (map-set names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
@@ -455,7 +458,10 @@ const INSERT_ENTRY_API: SpecialAPI = SpecialAPI {
     description: "The `map-insert` function sets the value associated with the input key to the 
 inputted value if and only if there is not already a value associated with the key in the map.
 If an insert occurs, the function returns `true`. If a value already existed for
-this key in the data map, the function returns `false`.",
+this key in the data map, the function returns `false`.
+
+Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
+and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
     example: "(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
 (map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'false
 (map-insert names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple

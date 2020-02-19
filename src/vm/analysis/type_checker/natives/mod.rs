@@ -73,7 +73,7 @@ fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     } else if let TypeSignature::OptionalType(value_type_sig) = argument_type {
         if let TypeSignature::TupleType(tuple_type_sig) = *value_type_sig {
             let inner_type = inner_handle_tuple_get(&tuple_type_sig, field_to_get)?;
-            let option_type = TypeSignature::new_option(inner_type);
+            let option_type = TypeSignature::new_option(inner_type)?;
             Ok(option_type)
         } else {
             Err(CheckErrors::ExpectedTuple(*value_type_sig).into())
@@ -228,7 +228,7 @@ fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], 
 
     checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
 
-    Ok(TypeSignature::new_option(block_info_prop.type_result()))
+    Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
 
 impl TypedNativeFunction {
@@ -313,7 +313,7 @@ impl TypedNativeFunction {
                                          ClarityName::try_from("recipient".to_owned())
                                          .expect("FAIL: ClarityName failed to accept default arg name")),
                     ],
-                    returns: TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType) }))),
+                    returns: TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap() }))),
             StxBurn =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![
@@ -324,7 +324,7 @@ impl TypedNativeFunction {
                                          ClarityName::try_from("sender".to_owned())
                                          .expect("FAIL: ClarityName failed to accept default arg name")),
                     ],
-                    returns: TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType) }))),
+                    returns: TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap() }))),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
             TransferToken => Special(SpecialNativeFunction(&assets::check_special_transfer_token)),

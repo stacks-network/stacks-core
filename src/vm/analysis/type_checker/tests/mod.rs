@@ -186,13 +186,13 @@ fn test_destructuring_opts(){
                (err u3)
                (ok (+ u2 (try! (t1 x))))))",
          CheckErrors::ReturnTypesMustMatch(
-             TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType),
-             TypeSignature::new_response(TypeSignature::UIntType, TypeSignature::UIntType))),
+             TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType).unwrap(),
+             TypeSignature::new_response(TypeSignature::UIntType, TypeSignature::UIntType).unwrap())),
         ("(define-private (t1 (x uint)) (if (> x u1) (ok x) (err 'false)))
          (define-private (t2 (x uint))
            (> u2 (try! (t1 x))))",
          CheckErrors::ReturnTypesMustMatch(
-             TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType),
+             TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType).unwrap(),
              TypeSignature::BoolType)),
         ("(try! (ok 3))",
          CheckErrors::CouldNotDetermineResponseErrType),
@@ -366,7 +366,7 @@ fn test_eqs() {
 
     let bad_expected = [ CheckErrors::TypeError(BoolType, IntType),
                          CheckErrors::TypeError(TypeSignature::list_of(IntType, 1).unwrap(), IntType),
-                         CheckErrors::TypeError(TypeSignature::new_option(BoolType), TypeSignature::new_option(IntType)) ];
+                         CheckErrors::TypeError("(optional bool)".into(), "(optional int)".into()) ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
@@ -809,7 +809,7 @@ fn test_response_inference() {
                "(unwrap! (err 2) 'true)"
     ];
 
-    let bad_expected = [ CheckErrors::TypeError(TypeSignature::new_response(BoolType, IntType),
+    let bad_expected = [ CheckErrors::TypeError("(response bool int)".into(),
                                                 BoolType),
                          CheckErrors::ReturnTypesMustMatch(IntType, BoolType),
                          CheckErrors::CouldNotDetermineResponseOkType ];
@@ -929,8 +929,8 @@ fn test_options() {
     assert!(
         match mem_type_check(contract).unwrap_err().err {
             CheckErrors::TypeError(t1, t2) => {
-                t1 == TypeSignature::new_option(BoolType) &&
-                t2 == TypeSignature::new_option(IntType)
+                t1 == "(optional bool)".into() &&
+                t2 == "(optional int)".into()
             },
             _ => false
         });

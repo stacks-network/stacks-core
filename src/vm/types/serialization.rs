@@ -270,8 +270,14 @@ impl Value {
                     }
                 };
 
-                let data = Box::new(Value::deserialize_read(r, expect_contained_type)?);
-                Ok(Response(ResponseData { committed, data }))
+                let data = Value::deserialize_read(r, expect_contained_type)?;
+                let value = if committed {
+                    Value::okay(data)                        
+                } else {
+                    Value::error(data)
+                }.map_err(|_x| "Value too large")?;
+
+                Ok(value)
             },
             TypePrefix::OptionalNone => {
                 check_match!(expected_type, TypeSignature::OptionalType(_))?;
@@ -289,7 +295,10 @@ impl Value {
                     }
                 };
 
-                Ok(Value::some(Value::deserialize_read(r, expect_contained_type)?))
+                let value = Value::some(Value::deserialize_read(r, expect_contained_type)?)
+                    .map_err(|_x| "Value too large")?;
+
+                Ok(value)
             }
             TypePrefix::List => {
                 let mut len = [0; 4];

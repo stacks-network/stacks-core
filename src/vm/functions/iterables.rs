@@ -195,7 +195,7 @@ pub fn special_as_max_len(args: &[SymbolicExpression], env: &mut Environment, co
         if iterable_len as u128 > *expected_len {
             Ok(Value::none())
         } else {
-            Ok(Value::some(iterable))
+            Ok(Value::some(iterable)?)
         }
     } else {
         let actual_len = eval(&args[1], env, context)?;

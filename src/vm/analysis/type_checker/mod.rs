@@ -136,7 +136,7 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
             ContractCaller => TypeSignature::PrincipalType,
             BlockHeight => TypeSignature::UIntType,
             BurnBlockHeight => TypeSignature::UIntType,
-            NativeNone => TypeSignature::new_option(no_type()),
+            NativeNone => TypeSignature::new_option(no_type()).unwrap(),
         };
         Some(var_type)
     } else {

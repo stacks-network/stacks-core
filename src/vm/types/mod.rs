@@ -17,6 +17,8 @@ pub use vm::types::signatures::{
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
+// this is the charged size for wrapped values, i.e., response or optionals
+pub const WRAPPER_VALUE_SIZE: u32 = 1;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
@@ -138,21 +140,23 @@ define_named_enum!(BlockInfoProperty {
 
 impl OptionalData {
     pub fn type_signature(&self) -> TypeSignature {
-        match self.data {
+        let type_result = match self.data {
             Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(&v)),
             None => TypeSignature::new_option(TypeSignature::NoType)
-        }
+        };
+        type_result.expect("Should not have constructed too large of a type.")
     }
 }
 
 impl ResponseData {
     pub fn type_signature(&self) -> TypeSignature {
-        match self.committed {
+        let type_result = match self.committed {
             true => TypeSignature::new_response(
                 TypeSignature::type_of(&self.data), TypeSignature::NoType),
             false => TypeSignature::new_response(
                 TypeSignature::NoType, TypeSignature::type_of(&self.data))
-        }
+        };
+        type_result.expect("Should not have constructed too large of a type.")        
     }
 }
 
@@ -182,25 +186,45 @@ impl PartialEq for TupleData {
 pub const NONE: Value = Value::Optional(OptionalData { data: None });
 
 impl Value {
-    pub fn some(data: Value) -> Value {
-        Value::Optional(OptionalData {
-            data: Some(Box::new(data)) })
+    pub fn some(data: Value) -> Result<Value> {
+        if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge.into())
+        } else {
+            Ok(Value::Optional(OptionalData {
+                data: Some(Box::new(data)) }))
+        }
     }
 
     pub fn none() -> Value {
         NONE.clone()
     }
 
-    pub fn okay(data: Value) -> Value {
-        Value::Response(ResponseData { 
-            committed: true,
-            data: Box::new(data) })
+    pub fn okay_true() -> Value {
+        Value::Response(ResponseData { committed: true, data: Box::new(Value::Bool(true)) })
     }
 
-    pub fn error(data: Value) -> Value {
-        Value::Response(ResponseData { 
-            committed: false,
-            data: Box::new(data) })
+    pub fn err_uint(ecode: u128) -> Value {
+        Value::Response(ResponseData { committed: false, data: Box::new(Value::UInt(ecode)) })
+    }
+
+    pub fn okay(data: Value) -> Result<Value> {
+        if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge.into())
+        } else {
+            Ok(Value::Response(ResponseData { 
+                committed: true,
+                data: Box::new(data) }))
+        }
+    }
+
+    pub fn error(data: Value) -> Result<Value> {
+        if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge.into())
+        } else {
+            Ok(Value::Response(ResponseData { 
+                committed: false,
+                data: Box::new(data) }))
+        }
     }
 
     pub fn size(&self) -> u32 {

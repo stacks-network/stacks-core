@@ -323,5 +323,5 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
         },
     };
     
-    Ok(Value::some(result))
+    Ok(Value::some(result)?)
 }

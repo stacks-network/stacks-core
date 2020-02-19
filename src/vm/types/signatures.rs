@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use address::c32;
 use vm::costs::cost_functions;
-use vm::types::{Value, MAX_VALUE_SIZE, QualifiedContractIdentifier, StandardPrincipalData};
+use vm::types::{Value, MAX_VALUE_SIZE, WRAPPER_VALUE_SIZE, QualifiedContractIdentifier, StandardPrincipalData};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 use vm::errors::{RuntimeErrorType, CheckErrors, IncomparableError, Error as VMError};
 use util::hash;
@@ -193,12 +193,22 @@ impl ListTypeData {
 }
 
 impl TypeSignature {
-    pub fn new_option(inner_type: TypeSignature) -> TypeSignature {
-        OptionalType(Box::new(inner_type))
+    pub fn new_option(inner_type: TypeSignature) -> Result<TypeSignature> {
+        let new_size = WRAPPER_VALUE_SIZE + inner_type.size();
+        if new_size > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge)
+        } else {
+            Ok(OptionalType(Box::new(inner_type)))
+        }
     }
 
-    pub fn new_response(ok_type: TypeSignature, err_type: TypeSignature) -> TypeSignature {
-        ResponseType(Box::new((ok_type, err_type)))
+    pub fn new_response(ok_type: TypeSignature, err_type: TypeSignature) -> Result<TypeSignature> {
+        let new_size = WRAPPER_VALUE_SIZE + cmp::max(ok_type.size(), err_type.size());
+        if new_size > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge)
+        } else {
+            Ok(ResponseType(Box::new((ok_type, err_type))))
+        }
     }
 
     pub fn is_no_type(&self) -> bool {
@@ -448,11 +458,11 @@ impl TypeSignature {
             (ResponseType(resp_a), ResponseType(resp_b)) => {
                 let ok_type = Self::factor_out_no_type(&resp_a.0, &resp_b.0)?;
                 let err_type = Self::factor_out_no_type(&resp_a.1, &resp_b.1)?;
-                Ok(Self::new_response(ok_type, err_type))
+                Ok(Self::new_response(ok_type, err_type)?)
             },
             (OptionalType(some_a), OptionalType(some_b)) => {
                 let some_type = Self::factor_out_no_type(some_a, some_b)?;
-                Ok(Self::new_option(some_type))
+                Ok(Self::new_option(some_type)?)
             },
             (BufferType(buff_a), BufferType(buff_b)) => {
                 let buff_len = if u32::from(buff_a) > u32::from(buff_b) {
@@ -590,7 +600,7 @@ impl TypeSignature {
         }
         let inner_type = TypeSignature::parse_type_repr(&type_args[0], accounting)?;
         
-        Ok(TypeSignature::new_option(inner_type))
+        Ok(TypeSignature::new_option(inner_type)?)
     }
 
     fn parse_response_type_repr<A: CostTracker>(type_args: &[SymbolicExpression], accounting: &mut A) -> Result<TypeSignature> {
@@ -599,7 +609,7 @@ impl TypeSignature {
         }
         let ok_type = TypeSignature::parse_type_repr(&type_args[0], accounting)?;
         let err_type = TypeSignature::parse_type_repr(&type_args[1], accounting)?;
-        Ok(TypeSignature::new_response(ok_type, err_type))
+        Ok(TypeSignature::new_response(ok_type, err_type)?)
     }
 
     pub fn parse_type_repr<A: CostTracker>(x: &SymbolicExpression, accounting: &mut A) -> Result<TypeSignature> {
@@ -657,7 +667,7 @@ impl TypeSignature {
             BufferType(len) => Some(u32::from(len)),
             TupleType(tuple_sig) => tuple_sig.inner_size(),
             ListType(list_type) => list_type.inner_size(),
-            OptionalType(t) => t.size().checked_add(1),
+            OptionalType(t) => t.size().checked_add(WRAPPER_VALUE_SIZE),
             ResponseType(v) => {
                 // ResponseTypes are 1 byte for the committed bool,
                 //   plus max(err_type, ok_type)
@@ -665,7 +675,7 @@ impl TypeSignature {
                 let t_size = t.size();
                 let s_size = s.size();
                 cmp::max(t_size, s_size)
-                    .checked_add(1)
+                    .checked_add(WRAPPER_VALUE_SIZE)
             },
         }
     }
