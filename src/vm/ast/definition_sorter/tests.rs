@@ -221,6 +221,27 @@ fn should_raise_dependency_cycle_case_fetch_contract_entry() {
     assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
 }
 
+
+#[test]
+fn should_not_build_cycle_within_defined_args_types() {
+    let contract = r#"
+        (define-private (function-1 (function-2 int)) (+ 1 2))
+        (define-private (function-2 (function-1 int)) (+ 1 2))
+    "#;
+
+    run_scoped_parsing_helper(contract).unwrap();
+}
+
+#[test]
+fn should_reorder_traits_references() {
+    let contract = r#"
+        (define-private (foo (function-2 <trait-a>)) (+ 1 2))
+        (define-trait trait-a ((get-a () (response uint uint))))
+    "#;
+
+    run_scoped_parsing_helper(contract).unwrap();
+}
+
 #[test]
 fn should_not_conflict_with_atoms_from_trait_definitions() {
     let contract = r#"

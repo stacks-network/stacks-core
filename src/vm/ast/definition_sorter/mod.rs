@@ -103,9 +103,10 @@ impl <'a> DefinitionSorter {
                                 DefineFunctions::PublicFunction | DefineFunctions::PersistedVariable |
                                 DefineFunctions::ReadOnlyFunction => {
                                     // Args: [(define-name-and-types), ...]
-                                    for expr in function_args.into_iter() {
-                                        self.probe_for_dependencies(expr, tle_index)?;
-                                    }
+                                    if function_args.len() == 2 {
+                                        self.probe_for_dependencies_in_define_args(&function_args[0], tle_index)?;
+                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
+                                    } 
                                     return Ok(());
                                 },
                                 DefineFunctions::Map => {
@@ -209,6 +210,25 @@ impl <'a> DefinitionSorter {
         for index in 0..tuples.len() {
             self.probe_for_dependencies_in_tuple(&tuples[index], tle_index)?;
         } 
+        Ok(())
+    }
+    
+    fn probe_for_dependencies_in_define_args(&mut self, expr: &PreSymbolicExpression, tle_index: usize) -> ParseResult<()> {
+        if let Some(func_sig) = expr.match_list() {
+            // Func definitions can look like:
+            // 1. (define-public func_name body)
+            // 2. (define-public (func_name (arg uint) ...) body)
+            // The goal here is to traverse case 2, looking for trait references
+            if let Some((_, args)) = func_sig.split_first() {
+                for pair in args.into_iter() {
+                    if let Some(pair) = pair.match_list() {
+                        if pair.len() == 2 {
+                            self.probe_for_dependencies(&pair[1], tle_index)?;
+                        }
+                    }
+                }    
+            }
+        }
         Ok(())
     }
 
