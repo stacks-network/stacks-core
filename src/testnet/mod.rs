@@ -22,6 +22,8 @@ pub struct Config {
     pub burnchain_block_time: u64,
     pub node_config: Vec<NodeConfig>,
     pub sidecar_socket_address: Option<SocketAddr>,
+    pub sidecar_stream_blocks: bool,
+    pub sidecar_stream_transactions: bool,
 }
 
 #[derive(Clone)]

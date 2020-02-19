@@ -193,20 +193,24 @@ fn main() {
         }
 
         let mut opts = Options::new();
-        opts.optopt("", "sidecar_address", "set a sidecar TCP socket address", "IP:PORT");
-        opts.optopt("", "burnchain_block_time", "set the burnchain block time milliseconds", "MS");
+        opts.optopt("", "sidecar-address", "set a sidecar TCP socket address", "IP:PORT");
+        opts.optflag("", "sidecar-stream-blocks", "send blocks through the sidecar socket");
+        opts.optflag("", "sidecar-stream-transactions", "send transactions through the sidecar socket");
+        opts.optopt("", "burnchain-block-time", "set the burnchain block time milliseconds", "MS");
         let opt_matches = opts.parse(&argv[1..]).unwrap_or_else(|e| {
             print_error(&opts, &argv[0], &e.to_string(), "could not parse options");
             process::exit(1)
         });
-        let sidecar_address = opt_matches.opt_get::<SocketAddr>("sidecar_address").unwrap_or_else(|e| {
+        let sidecar_address = opt_matches.opt_get::<SocketAddr>("sidecar-address").unwrap_or_else(|e| {
             print_error(&opts, &argv[0], &e.to_string(), "could not parse sidecar_address");
             process::exit(1)
         });
-        let burnchain_block_time = opt_matches.opt_get::<u64>("burnchain_block_time").unwrap_or_else(|e| {
+        let burnchain_block_time = opt_matches.opt_get::<u64>("burnchain-block-time").unwrap_or_else(|e| {
             print_error(&opts, &argv[0], &e.to_string(), "could not parse burnchain_block_time");
             process::exit(1)
         });
+        let sidecar_stream_blocks = opt_matches.opt_present("sidecar-stream-blocks");
+        let sidecar_stream_transactions = opt_matches.opt_present("sidecar-stream-transactions");
 
         // Testnet's name
         let mut rng = rand::thread_rng();
@@ -225,6 +229,8 @@ fn main() {
                 mem_pool_path: format!("/tmp/{}/L1/mempool", testnet_id)
             }],
             sidecar_socket_address: sidecar_address,
+            sidecar_stream_blocks: sidecar_stream_blocks,
+            sidecar_stream_transactions: sidecar_stream_transactions,
         };
         
         println!("Starting testnet...");

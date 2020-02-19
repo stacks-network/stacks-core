@@ -214,13 +214,24 @@ impl RunLoop {
                         
                         match sidecar_stream {
                             Some(ref mut stream) => {
-                                let blocks_message = StacksMessageType::Blocks(BlocksData {
-                                    blocks: vec![anchored_block.clone()]
-                                });
-                                blocks_message.consensus_serialize(stream).unwrap_or_else(|e| {
-                                    eprintln!("Error serializing block for sidecar stream {}", e);
-                                    std::process::exit(1)
-                                });
+                                if self.config.sidecar_stream_transactions {
+                                    for tx in anchored_block.txs.iter() {
+                                        let tx_message = StacksMessageType::Transaction(tx.clone());
+                                        tx_message.consensus_serialize(stream).unwrap_or_else(|e| {
+                                            eprintln!("Error serializing tx for sidecar stream {}", e);
+                                            std::process::exit(1)
+                                        });
+                                    }
+                                }
+                                if self.config.sidecar_stream_blocks {
+                                    let blocks_message = StacksMessageType::Blocks(BlocksData {
+                                        blocks: vec![anchored_block.clone()]
+                                    });
+                                    blocks_message.consensus_serialize(stream).unwrap_or_else(|e| {
+                                        eprintln!("Error serializing block for sidecar stream {}", e);
+                                        std::process::exit(1)
+                                    });
+                                }
                                 stream.flush().unwrap_or_else(|e| {
                                     eprintln!("Error flushing sidecar socket {}", e);
                                     std::process::exit(1)

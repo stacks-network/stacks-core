@@ -40,8 +40,10 @@
             },
             "args": [
                 "testnet", 
-                "--sidecar_address=127.0.0.1:3700",
-                "--burnchain_block_time=40"
+                "--sidecar-address=127.0.0.1:3700",
+                "--burnchain-block-time=40",
+                "--sidecar-stream-transactions",
+                "--sidecar-stream-blocks"
             ],
             "cwd": "${workspaceFolder}"
         },

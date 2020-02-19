@@ -24,6 +24,8 @@ pub fn new_test_conf() -> testnet::Config {
             mem_pool_path: format!("/tmp/{}/L1/mempool", testnet_id)
         }],
         sidecar_socket_address: None,
+        sidecar_stream_transactions: false,
+        sidecar_stream_blocks: false,
     };
     conf
 }
