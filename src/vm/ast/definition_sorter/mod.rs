@@ -101,9 +101,9 @@ impl <'a> DefinitionSorter {
                                 DefineFunctions::PersistedVariable | DefineFunctions::Constant  => {
                                     // Args: [(define-name-and-types), ...]: ignore 1st arg
                                     if function_args.len() > 1 {
-                                        for expr in function_args[1..function_args.len()].into_iter() {		                                         
-                                            self.probe_for_dependencies(expr, tle_index)?;		
-                                        }		
+                                        for expr in function_args[1..function_args.len()].into_iter() {
+                                            self.probe_for_dependencies(expr, tle_index)?;
+                                        }
                                     }
                                     return Ok(());
                                 },
