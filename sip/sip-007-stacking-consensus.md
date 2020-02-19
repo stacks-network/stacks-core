@@ -220,28 +220,18 @@ cover the pool of participants (given 100% participation of liquid
 STX), the threshold for participation must be 0.02% (1/5000th) of the
 liquid supply of STX. However, if participation is _lower_ than 100%,
 the reward pool could admit lower STX holders. The Stacking protocol
-specifies **4 threshold operating levels**:
+specifies **2 operating levels**:
 
-* **25%** If fewer than `0.25 * STX_LIQUID_SUPPLY` STX participate in
+* **10%** If fewer than `0.10 * STX_LIQUID_SUPPLY` STX participate in
   a reward cycle, participant wallets controlling `x` STX may include
-  `floor(x / (0.00005*STX_LIQUID_SUPPLY))` addresses in the reward set.
-  (i.e., the minimum participation threshold is 1/20,000th of the liquid
-  supply).
-* **50%** If between `0.25 * STX_LIQUID_SUPPLY` and `0.5 * STX_LIQUID_SUPPLY`
+  `floor(x / (0.00002*STX_LIQUID_SUPPLY))` addresses in the reward set.
+  That is, the minimum participation threshold is 1/50,000th of the liquid
+  supply.
+* **10%-100%** If between `0.10 * STX_LIQUID_SUPPLY` and `1.0 * STX_LIQUID_SUPPLY`
   STX participate in a reward cycle, participant wallets controlling `x`
-  STX may include `floor(x / (0.00010*STX_LIQUID_SUPPLY))` addresses in
-  the reward set. (i.e., the minimum participation threshold is 1/10,000th
-  of the liquid supply).
-* **75%** If between `0.5 * STX_LIQUID_SUPPLY` and `0.75 * STX_LIQUID_SUPPLY`
-  STX participate in a reward cycle, participant wallets controlling `x`
-  STX may include `floor(x / (0.00015*STX_LIQUID_SUPPLY))` addresses in
-  the reward set. (i.e., the minimum participation threshold is 3/20,000th
-  of the liquid supply).
-* **100%** If more than `0.75 * STX_LIQUID_SUPPLY` STX participate in a
-  reward cycle, participant wallets controlling `x` STX may include
-  `floor(x / (0.0002*STX_LIQUID_SUPPLY))` addresses in the reward
-  set. (i.e., the minimum participation threshold is 1/5,000th of the
-  liquid supply).
+  STX may include `floor(x / (0.0002*PARTICIPATING_STX))` addresses in
+  the reward set. That is, the minimum threshold for participation is 1/5,000th
+  of the participating STX.
 
 In the event that a Stacker signals and locks up enough STX to submit
 multiple reward addresses, but only submits one reward address, that
