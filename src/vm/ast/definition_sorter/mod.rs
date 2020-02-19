@@ -98,9 +98,16 @@ impl <'a> DefinitionSorter {
                     if let Some(function_name) = function_name.match_atom() {
                         if let Some(define_function) = DefineFunctions::lookup_by_name(function_name) {
                             match define_function {
-                                DefineFunctions::NonFungibleToken | DefineFunctions::FungibleToken |
-                                DefineFunctions::PrivateFunction | DefineFunctions::Constant |
-                                DefineFunctions::PublicFunction | DefineFunctions::PersistedVariable |
+                                DefineFunctions::PersistedVariable | DefineFunctions::Constant  => {
+                                    // Args: [(define-name-and-types), ...]: ignore 1st arg
+                                    if function_args.len() > 1 {
+                                        for expr in function_args[1..function_args.len()].into_iter() {		                                         
+                                            self.probe_for_dependencies(expr, tle_index)?;		
+                                        }		
+                                    }
+                                    return Ok(());
+                                },
+                                DefineFunctions::PublicFunction | DefineFunctions::PrivateFunction |
                                 DefineFunctions::ReadOnlyFunction => {
                                     // Args: [(define-name-and-types), ...]
                                     if function_args.len() == 2 {
@@ -136,6 +143,9 @@ impl <'a> DefinitionSorter {
                                 DefineFunctions::ImplTrait | DefineFunctions::UseTrait => {
                                     return Ok(())
                                 },
+                                DefineFunctions::NonFungibleToken | DefineFunctions::FungibleToken => {
+                                    return Ok(())
+                                }
                             }
                         } else if let Some(native_function) = NativeFunctions::lookup_by_name(function_name) {
                             match native_function {
