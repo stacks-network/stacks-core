@@ -41,7 +41,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
 
     pub fn run(& mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
 
-        for exp in contract_analysis.expressions_iter() {
+        for exp in contract_analysis.expressions.iter() {
             let mut result = self.check_reads_only_valid(&exp);
             if let Err(ref mut error) = result {
                 if !error.has_expression() {
@@ -111,7 +111,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     /// Note that because of (1), this function _cannot_ short-circuit on read-only.
     fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
         match expr.expr {
-            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_) | Field(_) => {
+            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => {
                 Ok(true)
             },
             List(ref expression) => {

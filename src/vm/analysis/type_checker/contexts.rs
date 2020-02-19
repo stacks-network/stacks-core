@@ -218,6 +218,10 @@ impl ContractContext {
         for (name, trait_signature) in self.traits.drain() {
             contract_analysis.add_defined_trait(name, trait_signature);
         }
+
+        for trait_identifier in self.implemented_traits.drain() {
+            contract_analysis.add_implemented_trait(trait_identifier);
+        }
     }
 }
 
@@ -256,7 +260,7 @@ impl <'a> TypingContext <'a> {
         }
     }
 
-    pub fn add_trait_reference(&mut self, name: &ClarityName, value: &ClarityName) {
+    pub fn add_trait_reference(&mut self, name: &ClarityName, value: &TraitIdentifier) {
         self.traits_references.insert(name.clone(), TypeSignature::TraitReferenceType(value.clone()));
     }
 

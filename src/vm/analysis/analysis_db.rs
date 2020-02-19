@@ -1,6 +1,6 @@
-use std::collections::{HashMap, BTreeMap};
+use std::collections::{HashMap, BTreeMap, BTreeSet};
 
-use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
+use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier, TraitIdentifier};
 use vm::types::signatures::FunctionSignature;
 use vm::database::{ClaritySerializable, ClarityDeserializable,
                    RollbackWrapper, MarfedKV, ClarityBackingStore};
@@ -106,6 +106,12 @@ impl <'a> AnalysisDatabase <'a> {
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract.get_defined_trait(trait_name)
            .cloned())
+    }
+
+    pub fn get_implemented_traits(&mut self, contract_identifier: &QualifiedContractIdentifier) -> CheckResult<BTreeSet<TraitIdentifier>> {
+        let contract = self.load_contract(contract_identifier)
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+        Ok(contract.implemented_traits)
     }
 
     pub fn get_map_type(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str) -> CheckResult<(TypeSignature, TypeSignature)> {

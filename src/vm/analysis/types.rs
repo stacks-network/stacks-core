@@ -25,10 +25,7 @@ pub struct ContractAnalysis {
     pub fungible_tokens: BTreeSet<ClarityName>,
     pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
     pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
-    pub referenced_traits: BTreeMap<ClarityName, TraitIdentifier>,
     pub implemented_traits: BTreeSet<TraitIdentifier>,
-    #[serde(skip)]
-    pub top_level_expression_sorting: Option<Vec<usize>>,
     #[serde(skip)]
     pub expressions: Vec<SymbolicExpression>,
     #[serde(skip)]
@@ -48,9 +45,7 @@ impl ContractAnalysis {
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
             defined_traits: BTreeMap::new(),
-            referenced_traits: BTreeMap::new(),
             implemented_traits: BTreeSet::new(),
-            top_level_expression_sorting: Some(Vec::new()),
             fungible_tokens: BTreeSet::new(),
             non_fungible_tokens: BTreeMap::new(),
         }
@@ -122,46 +117,5 @@ impl ContractAnalysis {
 
     pub fn get_defined_trait(&self, name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
         self.defined_traits.get(name)
-    }
-
-    pub fn get_referenced_trait(&self, name: &str) -> Option<&TraitIdentifier> {
-        self.referenced_traits.get(name)
-    }
-
-    pub fn expressions_iter(&self) -> ExpressionsIterator {
-        let expressions = &self.expressions[..];
-        let sorting = match self.top_level_expression_sorting {
-            Some(ref exprs_ids) => Some(exprs_ids[..].to_vec()),
-            None => None
-        };
-
-        ExpressionsIterator {
-            expressions: expressions,
-            sorting: sorting,
-            index: 0,
-        }
-    }
-}
-
-pub struct ExpressionsIterator <'a> {
-    expressions: &'a [SymbolicExpression],
-    sorting: Option<Vec<usize>>,
-    index: usize,
-}
-
-impl <'a> Iterator for ExpressionsIterator <'a> {
-    type Item = &'a SymbolicExpression;
-
-    fn next(&mut self) -> Option<&'a SymbolicExpression> {
-        if self.index >= self.expressions.len() {
-            return None;
-        }
-        let expr_index = match self.sorting {
-            Some(ref indirections) => indirections[self.index],
-            None => self.index
-        };
-        let result = &self.expressions[expr_index];
-        self.index += 1;
-        Some(result)
     }
 }

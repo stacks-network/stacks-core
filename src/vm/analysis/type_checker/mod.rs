@@ -7,7 +7,7 @@ use std::collections::{HashMap, BTreeMap};
 use vm::representations::{SymbolicExpression, ClarityName};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 use vm::types::{TypeSignature, TupleTypeSignature, FunctionArg,
-                FunctionType, FixedFunction, parse_name_type_pairs, Value};
+                FunctionType, FixedFunction, parse_name_type_pairs, Value, PrincipalData};
 use vm::types::signatures::{FunctionSignature};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctionsParsed;
@@ -191,7 +191,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
         let mut local_context = TypingContext::new();
 
-        for exp in contract_analysis.expressions_iter() {
+        for exp in contract_analysis.expressions.iter() {
             let mut result_res = self.try_type_check_define(&exp, &mut local_context);
             if let Err(ref mut error) = result_res {
                 if !error.has_expression() {
@@ -209,6 +209,18 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
     // Type check an expression, with an expected_type that should _admit_ the expression.
     pub fn type_check_expects(&mut self, expr: &SymbolicExpression, context: &TypingContext, expected_type: &TypeSignature) -> TypeResult {
+        
+        match (&expr.expr, expected_type) {
+            (LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))), TypeSignature::TraitReferenceType(trait_identifier)) => {
+                let traits = self.db.get_implemented_traits(&contract_identifier).unwrap();
+                println!("===> HERE {:?}", traits);
+                if traits.contains(trait_identifier) {
+                    return Ok(expected_type.clone());
+                }    
+            }, 
+            _ => {}
+        }
+
         let actual_type = self.type_check(expr, context)?;
         if !expected_type.admits_type(&actual_type) {
             let mut err: CheckError = CheckErrors::TypeError(expected_type.clone(), actual_type).into();
@@ -271,8 +283,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             self.contract_context.check_name_used(arg_name)?;
             
             match arg_type {
-                TypeSignature::TraitReferenceType(trait_name) => {
-                    function_context.add_trait_reference(&arg_name, trait_name);
+                TypeSignature::TraitReferenceType(trait_id) => {
+                    function_context.add_trait_reference(&arg_name, &trait_id);
                 },
                 _ => { function_context.variable_types.insert(arg_name.clone(), arg_type.clone()); }
             }
@@ -377,7 +389,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             List(ref expression) => {
                 self.type_check_function_application(expression, context)?
             },
-            TraitReference(_) | Field(_) => {
+            TraitReference(_, _) | Field(_) => {
                 return Err(CheckErrors::UnexpectedTraitOrFieldReference.into());
             }
         };
@@ -475,7 +487,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 DefineFunctionsParsed::UseTrait { name, trait_identifier } => {
                     let result = self.db.get_defined_trait(&trait_identifier.contract_identifier, &trait_identifier.name)?;
                     match result {
-                        Some(trait_sig) => self.contract_context.add_trait(name.clone(), trait_sig)?,
+                        Some(trait_sig) => self.contract_context.add_trait(trait_identifier.name.clone(), trait_sig)?,
                         None => return Err(CheckErrors::TraitReferenceUnknown(name.to_string()).into())
                     }
                 },
@@ -488,36 +500,6 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             // not a define.
             Ok(None)
         }
-    }
-
-    pub fn check_method_from_trait(&mut self, trait_reference_instance: &ClarityName, func_name: &ClarityName, args: &[TypeSignature], context: &TypingContext) -> CheckResult<TypeSignature> {
-        // Retrieve the signature of the function invoked from the trait
-        let func_signature = {
-            let trait_reference = match context.lookup_trait_reference_type(trait_reference_instance) {
-                Some(TypeSignature::TraitReferenceType(trait_reference)) => trait_reference,
-                _ => return Err(CheckErrors::TraitReferenceUnknown(trait_reference_instance.to_string()).into())
-            };
-            let trait_signature = self.contract_context.get_trait(trait_reference)
-                .ok_or(CheckErrors::TraitReferenceUnknown(trait_reference.to_string()))?;
-            trait_signature.get(func_name)
-                .ok_or(CheckErrors::TraitMethodUnknown(trait_reference.to_string(), func_name.to_string()))?
-        };
-
-        // Ensure that the arguments passed are matching the args types specified
-        // by the trait definition
-        let expected_args = func_signature.args.clone();
-
-        // Return type specified by the trait definition to return
-        let return_type = func_signature.returns.clone();
-
-        check_argument_count(expected_args.len(), args)?;
-        for (i, func_arg) in expected_args.iter().enumerate() {
-            if !func_arg.admits_type(&args[i]) {
-                return Err(CheckErrors::TypeError(func_arg.clone(), args[i].clone()).into());
-            }
-        }
-
-        Ok(return_type)
     }
 }
 
