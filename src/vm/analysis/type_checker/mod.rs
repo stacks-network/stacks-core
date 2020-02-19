@@ -213,7 +213,6 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         match (&expr.expr, expected_type) {
             (LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))), TypeSignature::TraitReferenceType(trait_identifier)) => {
                 let traits = self.db.get_implemented_traits(&contract_identifier).unwrap();
-                println!("===> HERE {:?}", traits);
                 if traits.contains(trait_identifier) {
                     return Ok(expected_type.clone());
                 }    
