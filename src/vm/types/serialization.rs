@@ -613,23 +613,23 @@ mod tests {
     #[test]
     fn test_opts() {
         test_deser_ser(Value::none());
-        test_deser_ser(Value::some(Value::Int(15)));
+        test_deser_ser(Value::some(Value::Int(15)).unwrap());
 
         test_bad_expectation(Value::none(), TypeSignature::IntType);
-        test_bad_expectation(Value::some(Value::Int(15)), TypeSignature::IntType);
+        test_bad_expectation(Value::some(Value::Int(15)).unwrap(), TypeSignature::IntType);
         // bad expected _contained_ type
-        test_bad_expectation(Value::some(Value::Int(15)), TypeSignature::from("(optional uint)"));
+        test_bad_expectation(Value::some(Value::Int(15)).unwrap(), TypeSignature::from("(optional uint)"));
     }
 
     #[test]
     fn test_resp() {
-        test_deser_ser(Value::okay(Value::Int(15)));
-        test_deser_ser(Value::error(Value::Int(15)));
+        test_deser_ser(Value::okay(Value::Int(15)).unwrap());
+        test_deser_ser(Value::error(Value::Int(15)).unwrap());
 
         // Bad expected types.
-        test_bad_expectation(Value::okay(Value::Int(15)), TypeSignature::IntType);
-        test_bad_expectation(Value::okay(Value::Int(15)), TypeSignature::from("(response uint int)"));
-        test_bad_expectation(Value::error(Value::Int(15)), TypeSignature::from("(response int uint)"));
+        test_bad_expectation(Value::okay(Value::Int(15)).unwrap(), TypeSignature::IntType);
+        test_bad_expectation(Value::okay(Value::Int(15)).unwrap(), TypeSignature::from("(response uint int)"));
+        test_bad_expectation(Value::error(Value::Int(15)).unwrap(), TypeSignature::from("(response int uint)"));
     }
 
     #[test]
@@ -726,10 +726,10 @@ mod tests {
                         [0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
                          0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]),
                     "abcd".into()).into())),
-            ("0700ffffffffffffffffffffffffffffffff", Ok(Value::okay(Value::Int(-1)))),
-            ("0800ffffffffffffffffffffffffffffffff", Ok(Value::error(Value::Int(-1)))),
+            ("0700ffffffffffffffffffffffffffffffff", Ok(Value::okay(Value::Int(-1)).unwrap())),
+            ("0800ffffffffffffffffffffffffffffffff", Ok(Value::error(Value::Int(-1)).unwrap())),
             ("09", Ok(Value::none())),
-            ("0a00ffffffffffffffffffffffffffffffff", Ok(Value::some(Value::Int(-1)))),
+            ("0a00ffffffffffffffffffffffffffffffff", Ok(Value::some(Value::Int(-1)).unwrap())),
             ("0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
              Ok(Value::list_from(vec![
                  Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(-4)]).unwrap())),

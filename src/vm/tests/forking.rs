@@ -65,7 +65,7 @@ fn test_at_block_good() {
         initialize,
         |x| {
             assert_eq!(branch(x, 1, "set-val").unwrap(),
-                       Value::okay(Value::Int(10)));
+                       Value::okay(Value::Int(10)).unwrap());
         },
         |x| {
             let resp = branch(x, 1, "reset").unwrap_err();
@@ -78,7 +78,7 @@ fn test_at_block_good() {
         },
         |x| {
             assert_eq!(branch(x, 10, "reset").unwrap(),
-                       Value::okay(Value::Int(11)));
+                       Value::okay(Value::Int(11)).unwrap());
         });
 }
 

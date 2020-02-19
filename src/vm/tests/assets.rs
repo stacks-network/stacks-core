@@ -576,7 +576,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         assert_eq!(
             env.eval_read_only(&names_contract_id.clone(),
                                "(nft-get-owner? names 1)").unwrap(),
-            Value::some(p2.clone()));
+            Value::some(p2.clone()).unwrap());
     }
 
     // let's try some token-transfers

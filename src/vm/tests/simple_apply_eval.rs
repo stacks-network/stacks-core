@@ -469,7 +469,7 @@ fn test_option_destructs() {
     let expectations: &[Result<Value, Error>] = &[
         Ok(Value::Int(1)),
         Ok(Value::Int(1)),
-        Err(CheckErrors::ExpectedResponseValue(Value::some(Value::Int(2))).into()),
+        Err(CheckErrors::ExpectedResponseValue(Value::some(Value::Int(2)).unwrap()).into()),
         Ok(Value::Int(3)),
         Err(ShortReturnType::ExpectedValue(Value::Int(2)).into()),
         Ok(Value::Int(3)),
@@ -595,8 +595,8 @@ fn test_asserts() {
         "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 2) (err 1)) (ok 2))"];
 
     let expectations = [
-        Value::okay(Value::Int(1)),
-        Value::okay(Value::Int(2))];
+        Value::okay(Value::Int(1)).unwrap(),
+        Value::okay(Value::Int(2)).unwrap()];
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
@@ -609,8 +609,8 @@ fn test_asserts_short_circuit() {
         "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 1) (err 1)) (ok 2))"];
 
     let expectations: &[Error] = &[
-        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(0)))),
-        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(1))))];
+        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(0)).unwrap())),
+        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(1)).unwrap()))];
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!((*expectation), vm_execute(program).unwrap_err()));

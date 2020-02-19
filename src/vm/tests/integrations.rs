@@ -215,7 +215,7 @@ fn integration_test_get_info() {
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-1)"),
-                    Value::some(Value::UInt(headers[0].burn_header_timestamp as u128)));
+                    Value::some(Value::UInt(headers[0].burn_header_timestamp as u128)).unwrap());
                 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
@@ -230,12 +230,12 @@ fn integration_test_get_info() {
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-4 u1)"),
-                    Value::some(parent_val.clone()));
+                    Value::some(parent_val.clone()).unwrap());
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-5)"),
-                    Value::some(parent_val));
+                    Value::some(parent_val).unwrap());
 
                 // test-6 and test-7 return the block at height 1's VRF-seed,
                 //   which in this integration test, should be blocks[0]
@@ -250,17 +250,17 @@ fn integration_test_get_info() {
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-6)"),
-                    Value::some(Value::buff_from(last_burn_header).unwrap()));
+                    Value::some(Value::buff_from(last_burn_header).unwrap()).unwrap());
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-7)"),
-                    Value::some(Value::buff_from(last_vrf_seed).unwrap()));
+                    Value::some(Value::buff_from(last_vrf_seed).unwrap()).unwrap());
 
                 // verify that we can get the block miner
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-8)"),
-                    Value::some(Value::Principal(miners[0].address.to_account_principal())));
+                    Value::some(Value::Principal(miners[0].address.to_account_principal())).unwrap());
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(

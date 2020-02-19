@@ -538,11 +538,11 @@ mod test {
     fn test_some_displays() {
         assert_eq!(&format!("{}", Value::list_from(vec![Value::Int(10), Value::Int(5)]).unwrap()),
                    "(10 5)");
-        assert_eq!(&format!("{}", Value::some(Value::Int(10))),
+        assert_eq!(&format!("{}", Value::some(Value::Int(10)).unwrap()),
                    "(some 10)");
-        assert_eq!(&format!("{}", Value::okay(Value::Int(10))),
+        assert_eq!(&format!("{}", Value::okay(Value::Int(10)).unwrap()),
                    "(ok 10)");
-        assert_eq!(&format!("{}", Value::error(Value::Int(10))),
+        assert_eq!(&format!("{}", Value::error(Value::Int(10)).unwrap()),
                    "(err 10)");
         assert_eq!(&format!("{}", Value::none()),
                    "none");

@@ -42,7 +42,7 @@ fn test_accept_options() {
         Ok(Some(Value::Int(0))),
         Ok(Some(Value::Int(10))),
         Err(CheckErrors::TypeValueError(TypeSignature::from("(optional int)"),
-                                        Value::some(Value::Bool(true))).into()),
+                                        Value::some(Value::Bool(true)).unwrap()).into()),
     ];
     
     for (test, expect) in tests.iter().zip(expectations.iter()) {
