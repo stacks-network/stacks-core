@@ -20,7 +20,7 @@ pub fn list_cons(args: &[SymbolicExpression], env: &mut Environment, context: &L
     Value::list_from(args)
 }
 
-pub fn native_filter(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_filter(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     runtime_cost!(cost_functions::FILTER, env, 0)?;
@@ -67,7 +67,7 @@ pub fn native_filter(args: &[SymbolicExpression], env: &mut Environment, context
     }
 }
 
-pub fn native_fold(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_fold(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(3, args)?;
 
     runtime_cost!(cost_functions::FILTER, env, 0)?;
@@ -97,7 +97,7 @@ pub fn native_fold(args: &[SymbolicExpression], env: &mut Environment, context: 
     })
 }
 
-pub fn native_map(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_map(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     runtime_cost!(cost_functions::MAP, env, 0)?;
@@ -125,7 +125,7 @@ pub fn native_map(args: &[SymbolicExpression], env: &mut Environment, context: &
     Value::list_from(mapped_vec?)
 }
 
-pub fn native_append(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_append(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let iterable = eval(&args[0], env, context)?;
@@ -152,7 +152,7 @@ pub fn native_append(args: &[SymbolicExpression], env: &mut Environment, context
     }
 }
 
-pub fn native_concat(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_concat(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let lhs = eval(&args[0], env, context)?;
@@ -179,7 +179,7 @@ pub fn native_concat(args: &[SymbolicExpression], env: &mut Environment, context
     }
 }
 
-pub fn native_as_max_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_as_max_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let iterable = eval(&args[0], env, context)?;
