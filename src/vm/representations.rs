@@ -302,22 +302,9 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn defined_trait_reference(val: ClarityName, contract_identifier: &QualifiedContractIdentifier) -> SymbolicExpression {
-        let trait_id = TraitIdentifier {
-            contract_identifier: contract_identifier.clone(),
-            name: val.clone(),
-        };
+    pub fn trait_reference(val: ClarityName, trait_definition: TraitDefinition) -> SymbolicExpression {
         SymbolicExpression {
-            expr: SymbolicExpressionType::TraitReference(val, TraitDefinition::Defined(trait_id)),
-            .. SymbolicExpression::cons()
-        }
-    }
-
-    pub fn imported_trait_reference(val: ClarityName, trait_identifier: TraitIdentifier) -> SymbolicExpression {
-        SymbolicExpression {
-            expr: SymbolicExpressionType::TraitReference(
-                val, 
-                TraitDefinition::Imported(trait_identifier)),
+            expr: SymbolicExpressionType::TraitReference(val, trait_definition),
             .. SymbolicExpression::cons()
         }
     }

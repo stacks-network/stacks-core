@@ -655,17 +655,31 @@ impl TypeSignature {
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
         let functions_types = type_args[0].match_list().ok_or(CheckErrors::DefineTraitBadSignature)?;
 
-        for function_type in functions_types.iter() {
+        for function_type in functions_types.iter() {    
             let args = function_type.match_list().ok_or(CheckErrors::DefineTraitBadSignature)?;
+            if args.len() != 3 {
+                return Err(CheckErrors::InvalidTypeDescription)
+            }
+
+            // Extract function's name
             let fn_name = args[0].match_atom().ok_or(CheckErrors::DefineTraitBadSignature)?;
+
+            // Extract function's arguments
             let fn_args_exprs = args[1].match_list().ok_or(CheckErrors::DefineTraitBadSignature)?;
             let mut fn_args = vec![];
             for arg_type in fn_args_exprs.iter() {
                 let arg_t = TypeSignature::parse_type_repr(&arg_type)?;
                 fn_args.push(arg_t);
             }
-            let fn_return = TypeSignature::parse_type_repr(&args[2])
-                .map_err(|_e| CheckErrors::DefineTraitBadSignature)?;
+
+            // Extract function's type return - must be a response
+            let fn_return = match TypeSignature::parse_type_repr(&args[2]) {
+                Ok(response) => match response {
+                    TypeSignature::ResponseType(_) => Ok(response),
+                    _ => Err(CheckErrors::DefineTraitBadSignature)
+                },
+                _ => Err(CheckErrors::DefineTraitBadSignature)
+            }?;
 
             trait_signature.insert(fn_name.clone(), FunctionSignature {
                 args: fn_args,

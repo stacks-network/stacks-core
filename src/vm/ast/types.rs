@@ -1,7 +1,7 @@
 use std::collections::{HashSet, HashMap};
 use vm::{ClarityName};
 use vm::types::signatures::FunctionSignature;
-use vm::representations::{SymbolicExpression, PreSymbolicExpression};
+use vm::representations::{SymbolicExpression, PreSymbolicExpression, TraitDefinition};
 use vm::ast::errors::{ParseResult};
 use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 use std::vec::Drain;
@@ -16,8 +16,7 @@ pub struct ContractAST {
     pub pre_expressions: Vec<PreSymbolicExpression>,
     pub expressions: Vec<SymbolicExpression>,
     pub top_level_expression_sorting: Option<Vec<usize>>,
-    pub defined_traits: HashMap<ClarityName, HashMap<ClarityName, FunctionSignature>>,
-    pub referenced_traits: HashMap<ClarityName, TraitIdentifier>,
+    pub referenced_traits: HashMap<ClarityName, TraitDefinition>,
     pub implemented_traits: HashSet<TraitIdentifier>,
 }
 
@@ -28,7 +27,6 @@ impl ContractAST {
             pre_expressions,
             expressions: Vec::new(),
             top_level_expression_sorting: Some(Vec::new()),
-            defined_traits: HashMap::new(),
             referenced_traits: HashMap::new(),
             implemented_traits: HashSet::new(),
         }
@@ -43,19 +41,11 @@ impl ContractAST {
         PreExpressionsDrain::new(self.pre_expressions.drain(..), sorting)
     }
 
-    pub fn add_defined_trait(&mut self, name: ClarityName, function_types: HashMap<ClarityName, FunctionSignature>) {
-        self.defined_traits.insert(name, function_types);
-    }
-
     pub fn add_implemented_trait(&mut self, trait_identifier: TraitIdentifier) {
         self.implemented_traits.insert(trait_identifier);
     }
 
-    pub fn get_defined_trait(&self, name: &str) -> Option<&HashMap<ClarityName, FunctionSignature>> {
-        self.defined_traits.get(name)
-    }
-
-    pub fn get_referenced_trait(&self, name: &str) -> Option<&TraitIdentifier> {
+    pub fn get_referenced_trait(&self, name: &str) -> Option<&TraitDefinition> {
         self.referenced_traits.get(name)
     }
 }

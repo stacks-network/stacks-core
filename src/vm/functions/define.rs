@@ -226,7 +226,7 @@ impl <'a> DefineFunctionsParsed <'a> {
                 DefineFunctionsParsed::PersistedVariable { name, data_type: &args[1], initial: &args[2] }
             },
             DefineFunctions::Trait => {
-                check_arguments_at_least(2, args)?;
+                check_argument_count(2, args)?;
                 let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
                 DefineFunctionsParsed::Trait { name, functions: &args[1..] }
             },

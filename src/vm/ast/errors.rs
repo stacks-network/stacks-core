@@ -27,6 +27,8 @@ pub enum ParseErrors {
     NameAlreadyUsed(String),
     TraitReferenceNotAllowed,
     ImportTraitBadSignature,
+    DefineTraitBadSignature,
+    ImplTraitBadSignature,
     TraitReferenceUnknown(String),
 }
 
@@ -112,6 +114,8 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),
             ParseErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             ParseErrors::ImportTraitBadSignature => format!("(use-trait ...) expects a trait name and a trait identifier"),
+            ParseErrors::DefineTraitBadSignature => format!("(define-trait ...) expects a trait name and a trait definition"),
+            ParseErrors::ImplTraitBadSignature => format!("(impl-trait ...) expects a trait identifier"),
             ParseErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             ParseErrors::TraitReferenceUnknown(trait_name) => format!("use of undeclared trait <{}>", trait_name),
         }

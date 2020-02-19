@@ -66,11 +66,9 @@ impl SugarExpander {
                     SymbolicExpression::field(trait_identifier)
                 },
                 PreSymbolicExpressionType::TraitReference(name) => {
-                    if let Some(_) = contract_ast.get_defined_trait(&name) {
-                        SymbolicExpression::defined_trait_reference(name, &contract_ast.contract_identifier)
-                    } else if let Some(trait_identifier) = contract_ast.get_referenced_trait(&name) {
-                        SymbolicExpression::imported_trait_reference(name, trait_identifier.clone())
-                    } else {
+                    if let Some(trait_reference) = contract_ast.get_referenced_trait(&name) {
+                        SymbolicExpression::trait_reference(name, trait_reference.clone())
+                    }  else {
                         return Err(ParseErrors::TraitReferenceUnknown(name.to_string()).into())
                     }                    
                 },
