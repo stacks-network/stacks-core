@@ -195,7 +195,10 @@ fn main() {
         let mut opts = Options::new();
         opts.optopt("", "sidecar_address", "set a sidecar TCP socket address", "IP:PORT");
         opts.optopt("", "burnchain_block_time", "set the burnchain block time milliseconds", "MS");
-        let opt_matches = opts.parse(&argv[1..]).unwrap();
+        let opt_matches = opts.parse(&argv[1..]).unwrap_or_else(|e| {
+            print_error(&opts, &argv[0], &e.to_string(), "could not parse options");
+            process::exit(1)
+        });
         let sidecar_address = opt_matches.opt_get::<SocketAddr>("sidecar_address").unwrap_or_else(|e| {
             print_error(&opts, &argv[0], &e.to_string(), "could not parse sidecar_address");
             process::exit(1)

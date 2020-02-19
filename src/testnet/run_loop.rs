@@ -54,22 +54,18 @@ impl RunLoop {
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, expected_num_rounds: u8) {
 
-        let mut sidecar_stream: Option<TcpStream> = match &self.config.sidecar_socket_address {
-            Some(ref addr) => {
-                match TcpStream::connect(addr) {
-                    Ok(stream) => {
-                        println!("*** Connected to: {}", addr);
-                        Some(stream)
-                    },
-                    Err(e) => {
-                        eprintln!("Error connecting to 'sidecar_socket_address' {}: {}", addr, e);
-                        std::process::exit(1)
-                    },
-                }
-            },
-            None => None
-        };
-
+        let mut sidecar_stream = self.config.sidecar_socket_address.and_then(|ref addr| {
+            match TcpStream::connect(addr) {
+                Ok(stream) => {
+                    println!("*** Connected to: {}", addr);
+                    Some(stream)
+                },
+                Err(e) => {
+                    eprintln!("Error connecting to 'sidecar_socket_address' {}: {}", addr, e);
+                    std::process::exit(1)
+                },
+            }
+        });
 
         // Initialize and start the burnchain.
         let mut burnchain = BurnchainSimulator::new(self.config.clone());
@@ -221,20 +217,14 @@ impl RunLoop {
                                 let blocks_message = StacksMessageType::Blocks(BlocksData {
                                     blocks: vec![anchored_block.clone()]
                                 });
-                                match blocks_message.consensus_serialize(stream) {
-                                    Err(e) => {
-                                        eprintln!("Error serializing block for sidecar stream {}", e);
-                                        std::process::exit(1)
-                                    },
-                                    _ => {}
-                                };
-                                match stream.flush() {
-                                    Err(e) => {
-                                        eprintln!("Error flushing sidecar socket {}", e);
-                                        std::process::exit(1)
-                                    },
-                                    _ => {}
-                                };
+                                blocks_message.consensus_serialize(stream).unwrap_or_else(|e| {
+                                    eprintln!("Error serializing block for sidecar stream {}", e);
+                                    std::process::exit(1)
+                                });
+                                stream.flush().unwrap_or_else(|e| {
+                                    eprintln!("Error flushing sidecar socket {}", e);
+                                    std::process::exit(1)
+                                });
                             },
                             None => {}
                         };
