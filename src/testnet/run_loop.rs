@@ -61,7 +61,10 @@ impl RunLoop {
                         println!("*** Connected to: {}", addr);
                         Some(stream)
                     },
-                    Err(e) => panic!("Error connecting to 'sidecar_socket_address' {}: {}", addr, e)
+                    Err(e) => {
+                        eprintln!("Error connecting to 'sidecar_socket_address' {}: {}", addr, e);
+                        std::process::exit(1)
+                    },
                 }
             },
             None => None
@@ -220,11 +223,18 @@ impl RunLoop {
                                 });
                                 match blocks_message.consensus_serialize(stream) {
                                     Err(e) => {
-                                        panic!("Error serializing block for sidecar stream {}", e);
+                                        eprintln!("Error serializing block for sidecar stream {}", e);
+                                        std::process::exit(1)
                                     },
                                     _ => {}
                                 };
-                                stream.flush().unwrap();
+                                match stream.flush() {
+                                    Err(e) => {
+                                        eprintln!("Error flushing sidecar socket {}", e);
+                                        std::process::exit(1)
+                                    },
+                                    _ => {}
+                                };
                             },
                             None => {}
                         };
