@@ -120,7 +120,7 @@ of the method and its arguments:
     name-to-register)
 ```
 
-This approach must always be preferred, when adequat.
+This approach must always be preferred, when adequate.
 It makes static analysis easier, and eliminates the
 potential for reentrancy bugs when the contracts are
 being published (versus when being used).
@@ -163,8 +163,8 @@ conformance using the `impl-trait` statement:
 (impl-trait 'SC3H92H297DX3YDPFHZGH90G8Z4NPH4VE8E83YWAQ.contract-defining-trait.can-transfer-tokens)
 ```
 
-Explicit conformance should be prefered when adequat.
-It acts as a garde-fou and help the static analysis detecting
+Explicit conformance should be prefered when adequate.
+It acts as a safeguard by helping the static analysis system to detect
 deviations in method signatures before contract deployment.
 
 The following limitations are imposed on contract calls:
