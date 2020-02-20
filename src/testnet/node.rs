@@ -58,7 +58,7 @@ pub struct Node {
     active_registered_key: Option<RegisteredKey>,
     average_block_time: u64,
     bootstraping_chain: bool,
-    burnchain_tip: Option<BlockSnapshot>,
+    pub burnchain_tip: Option<BlockSnapshot>,
     pub chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
     config: NodeConfig,

@@ -1,15 +1,18 @@
-use chainstate::stacks::StacksBlock;
-use net::BlocksData;
 use super::{Config, Node, BurnchainSimulator, BurnchainState, LeaderTenure};
-
+use burnchains::Burnchain;
 use chainstate::burn::{ConsensusHash};
 use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState};
 use chainstate::burn::{BlockHeaderHash};
+use chainstate::stacks::StacksBlock;
+use chainstate::burn::BlockSnapshot;
 
 use util::sleep_ms;
+use util::secp256k1::Secp256k1PrivateKey;
 
 use net::StacksMessageCodec;
 use net::StacksMessageType;
+use net::StacksMessage;
+use net::BlocksData;
 
 use std::net::{TcpStream};
 use std::io::{Read, Write};
@@ -53,6 +56,8 @@ impl RunLoop {
     /// charge of coordinating the new blocks coming from the burnchain and 
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, expected_num_rounds: u8) {
+
+        let secp256k1Key: Secp256k1PrivateKey = Secp256k1PrivateKey::new();
 
         let mut sidecar_stream = self.config.sidecar_socket_address.and_then(|ref addr| {
             match TcpStream::connect(addr) {
@@ -212,12 +217,25 @@ impl RunLoop {
                         RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index,
                                                            &mut node.chain_state, &index_bhh);
                         
+
+                        fn create_stacks_message(burnchain: &Burnchain, chain_tip: &BlockSnapshot, private_key: &Secp256k1PrivateKey, message: StacksMessageType) -> StacksMessage {
+                            let mut msg = StacksMessage::new(
+                                burnchain.peer_version, burnchain.network_id,
+                                chain_tip.block_height, &chain_tip.consensus_hash,
+                                chain_tip.block_height, &chain_tip.consensus_hash,
+                                message,
+                            );
+                            msg.sign(1, private_key).unwrap();
+                            msg
+                        }
+
                         match sidecar_stream {
                             Some(ref mut stream) => {
                                 if self.config.sidecar_stream_transactions {
                                     for tx in anchored_block.txs.iter() {
                                         let tx_message = StacksMessageType::Transaction(tx.clone());
-                                        tx_message.consensus_serialize(stream).unwrap_or_else(|e| {
+                                        let msg = create_stacks_message(&burnchain.burnchain, &burnchain_state.chain_tip, &secp256k1Key, tx_message);
+                                        msg.consensus_serialize(stream).unwrap_or_else(|e| {
                                             eprintln!("Error serializing tx for sidecar stream {}", e);
                                             std::process::exit(1)
                                         });
@@ -227,7 +245,8 @@ impl RunLoop {
                                     let blocks_message = StacksMessageType::Blocks(BlocksData {
                                         blocks: vec![anchored_block.clone()]
                                     });
-                                    blocks_message.consensus_serialize(stream).unwrap_or_else(|e| {
+                                    let msg = create_stacks_message(&burnchain.burnchain, &burnchain_state.chain_tip, &secp256k1Key, blocks_message);
+                                    msg.consensus_serialize(stream).unwrap_or_else(|e| {
                                         eprintln!("Error serializing block for sidecar stream {}", e);
                                         std::process::exit(1)
                                     });

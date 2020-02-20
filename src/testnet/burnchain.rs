@@ -16,7 +16,7 @@ use util::get_epoch_time_secs;
 /// BurnchainSimulator is simulating a simplistic burnchain.
 pub struct BurnchainSimulator {
     config: Config,
-    burnchain: Burnchain,
+    pub burnchain: Burnchain,
     // mem_pool: Arc<Mutex<Vec<BlockstackOperationType>>>,
     // db: Option<Arc<Mutex<BurnDB>>>,
     db: Option<BurnDB>
