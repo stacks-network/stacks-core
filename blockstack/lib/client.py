@@ -38,6 +38,7 @@ import re
 import urllib
 import urllib2
 import socket
+import time
 from .util import url_to_host_port, url_protocol, parse_DID
 from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, BLOCKSTACK_TEST, get_blockstack_api_opts, TOKEN_TYPE_STACKS
 from .schemas import *
@@ -123,9 +124,10 @@ class TimeoutHTTPS(httplib.HTTP):
 
 
 class TimeoutTransport(Transport):
-    def __init__(self, protocol, *l, **kw):
+    def __init__(self, protocol, send_rpc_timestamp, *l, **kw):
         self.timeout = kw.pop('timeout', 10)
         self.protocol = protocol
+        self._send_rpc_timestamp = send_rpc_timestamp
         if protocol not in ['http', 'https']:
             raise Exception("Protocol {} not supported".format(protocol))
         Transport.__init__(self, *l, **kw)
@@ -139,6 +141,18 @@ class TimeoutTransport(Transport):
         conn.set_timeout(self.timeout)
         return conn
 
+    def send_content(self, connection, request_body):
+        # include timestamp
+        connection.putheader('Content-Type', 'text/xml')
+        connection.putheader('Content-Length', len(request_body))
+
+        if self._send_rpc_timestamp:
+            connection.putheader('x-rpc-timestamp', str(time.time()))
+
+        connection.endheaders()
+        if request_body:
+            connection.send(request_body)
+
     def send_host(self, connection, host):
         # NOTE: this is a no-op these days, so we have to send the Host header ourselves
         Transport.send_host(self, connection, host)
@@ -151,10 +165,10 @@ class TimeoutTransport(Transport):
 
 
 class TimeoutServerProxy(ServerProxy):
-    def __init__(self, uri, protocol, *l, **kw):
+    def __init__(self, uri, protocol, send_rpc_timestamp, *l, **kw):
         timeout = kw.pop('timeout', 10)
         use_datetime = kw.get('use_datetime', 0)
-        kw['transport'] = TimeoutTransport(protocol, timeout=timeout, use_datetime=use_datetime)
+        kw['transport'] = TimeoutTransport(protocol, send_rpc_timestamp, timeout=timeout, use_datetime=use_datetime)
         ServerProxy.__init__(self, uri, *l, **kw)
 
 
@@ -162,7 +176,7 @@ class BlockstackRPCClient(object):
     """
     RPC client for the blockstackd
     """
-    def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN,
+    def __init__(self, server, port, send_rpc_timestamp=False, max_rpc_len=MAX_RPC_LEN,
                  timeout=RPC_DEFAULT_TIMEOUT, debug_timeline=False, protocol=None, **kw):
 
         if protocol is None:
@@ -171,7 +185,7 @@ class BlockstackRPCClient(object):
             protocol = 'http'
 
         self.url = '{}://{}:{}'.format(protocol, server, port)
-        self.srv = TimeoutServerProxy(self.url, protocol, timeout=timeout, allow_none=True)
+        self.srv = TimeoutServerProxy(self.url, protocol, send_rpc_timestamp, timeout=timeout, allow_none=True)
         self.server = server
         self.port = port
         self.debug_timeline = debug_timeline
@@ -400,7 +414,12 @@ def connect_hostport(hostport, timeout=RPC_DEFAULT_TIMEOUT, my_hostport=None):
         else:
             protocol = 'https'
 
-    proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol=protocol)
+    send_rpc_timestamp = False
+    if hostport == get_blockstackd_url():
+        # sending to ourselves
+        send_rpc_timestamp = True
+
+    proxy = BlockstackRPCClient(host, port, send_rpc_timestamp=send_rpc_timestamp, timeout=timeout, src=my_hostport, protocol=protocol)
     return proxy
 
 
