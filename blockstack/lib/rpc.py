@@ -51,7 +51,7 @@ from util import BoundedThreadingMixIn, parse_DID
 
 import storage
 
-from config import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, get_bitcoin_opts, get_blockstack_opts, get_blockstack_api_opts, LENGTHS, VERSION, RPC_MAX_ZONEFILE_LEN, FIRST_BLOCK_MAINNET
+from config import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, get_bitcoin_opts, get_blockstack_opts, get_blockstack_api_opts, LENGTHS, VERSION, RPC_MAX_ZONEFILE_LEN, FIRST_BLOCK_MAINNET, MAX_RPC_THREADS, QUEUE_LIFETIME
 from client import json_is_error, json_is_exception, decode_name_zonefile, create_bitcoind_service_proxy
 
 import virtualchain
@@ -121,17 +121,46 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
     Blockstack RESTful API endpoint.
     '''
 
+    def _abandon_connection(self):
+        """
+        Abandon a connection whose request took too long
+        """
+        log.debug("Abandon connection to {}:{}".format(self.client_address[0], self.client_address[1]))
+        self.wfile = open('/dev/null', 'w+')
+         
+
     def _send_headers(self, status_code=200, content_type='application/json', more_headers={}):
         """
         Generate and reply headers
         """
-        self.send_response(status_code)
-        self.send_header('content-type', content_type)
-        self.send_header('Access-Control-Allow-Origin', '*')    # CORS
-        for (hdr, val) in more_headers.items():
-            self.send_header(hdr, val)
+        if self.request_start + QUEUE_LIFETIME < time.time():
+            # client has already closed
+            self._abandon_connection()
 
-        self.end_headers()
+        else:
+            self.send_response(status_code)
+            self.send_header('content-type', content_type)
+            self.send_header('Access-Control-Allow-Origin', '*')    # CORS
+            for (hdr, val) in more_headers.items():
+                self.send_header(hdr, val)
+
+            self.end_headers()
+
+
+    def _reply_redirect(self, redirect_location):
+        """
+        Reply 301
+        """
+        self._send_headers(status_code=301, more_headers={ 'Location': redirect_location })
+        self.wfile.write(json.dumps({'status': 'redirect'}))
+
+
+    def _reply_bytes(self, data, status_code=200):
+        """
+        Return raw data
+        """
+        self._send_headers(status_code=status_code, content_type='application/octet-stream')
+        self.wfile.write(data)
 
 
     def _reply_json(self, json_payload, status_code=200):
@@ -589,8 +618,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 redirect_location = resolver_target + '/v1/names/' + name
                 log.debug("Redirect lookup on {} to {}".format(name, redirect_location))
 
-                self._send_headers(status_code=301, more_headers={ 'Location': redirect_location })
-                return self.wfile.write(json.dumps({'status': 'redirect'}))
+                return self._reply_redirect(redirect_location)
 
             elif 'expired' in name_rec['error'].lower():
                 return self._reply_json({'error': name_rec['error']}, status_code=404)
@@ -723,9 +751,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Zone file is not serialized properly'}, status_code=400)
 
         if raw:
-            self._send_headers(status_code=200, content_type='application/octet-stream')
-            self.wfile.write(zonefile_txt)
-            return
+            return self._reply_bytes(zonefile_txt)
 
         else:
             res = decode_name_zonefile(name, zonefile_txt)
@@ -755,9 +781,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if str(zonefile_hash) not in resp['zonefiles']:
             return self._reply_json({'error': 'Blockstack node does not have this zonefile.  Try again later.'}, status_code=404)
 
-        self._send_headers(status_code=200, content_type='application/octet-stream')
-        self.wfile.write(resp['zonefiles'][str(zonefile_hash)])
-        return
+        return self._reply_bytes(resp['zonefiles'][str(zonefile_hash)])
         
     
     def POST_zonefile(self, path_info):
@@ -857,8 +881,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Blockstack does not have this zonefile.  Try again later.'}, status_code=404)
 
         if raw:
-            self._send_headers(status_code=200, content_type='application/octet-stream')
-            self.wfile.write(resp['zonefiles'][str(zonefile_hash)])
+            self._reply_data(resp['zonefiles'][str(zonefile_hash)])
 
         else:
             # make sure it's valid
@@ -1175,7 +1198,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if json_is_exception(num_names):
                 status_code = 406
             else:
-                status_code = 404
+                status_code = num_names.get('http_status', 502)
 
             self._reply_json({'error': num_names['error']}, status_code=status_code)
             return
@@ -1633,7 +1656,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
             },
         }
-        
+
+        self.request_start = time.time()
         conf = get_blockstack_api_opts()
         if not conf['enabled']:
             # this feature is not enabled
@@ -1754,7 +1778,6 @@ class BlockstackAPIEndpoint(BoundedThreadingMixIn, SocketServer.TCPServer):
         
         # we want daemon threads, so we join on abrupt shutdown (applies if multithreaded) 
         self.daemon_threads = True
-
         self.server_bind()
         self.server_activate()
 
