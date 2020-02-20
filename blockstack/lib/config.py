@@ -213,10 +213,15 @@ if os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"):
     MAX_RPC_LEN = int(os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"))
     print("Overriding MAX_RPC_LEN to {}".format(MAX_RPC_LEN))
 
-MAX_RPC_THREADS = 1000      # typical rlimit for the number of open file descriptors, minus a buffer
+MAX_RPC_THREADS = 100      # typical rlimit for the number of open file descriptors, minus a buffer
 if os.environ.get('BLOCKSTACK_RPC_MAX_THREADS'):
     MAX_RPC_THREADS = int(os.environ.get('BLOCKSTACK_RPC_MAX_THREADS'))
     print('Overriding MAX_RPC_THREADS to {}'.format(MAX_RPC_THREADS))
+
+QUEUE_LIFETIME = 8
+if os.environ.get("BLOCKSTACK_RPC_QUEUE_LIFETIME"):
+    QUEUE_LIFETIME = int(os.environ.get("BLOCKSTACK_RPC_QUEUE_LIFETIME"))
+    print('Overriding QUEUE_LIFETIME to {}'.format(QUEUE_LIFETIME))
 
 if BLOCKSTACK_TEST:
     RPC_MAX_INDEXING_DELAY = 5
