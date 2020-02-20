@@ -19,6 +19,7 @@ mod defines;
 mod simple_apply_eval;
 mod datamaps;
 mod contracts;
+mod costs;
 
 pub fn with_memory_environment<F>(f: F, top_level: bool)
 where F: FnOnce(&mut OwnedEnvironment) -> ()

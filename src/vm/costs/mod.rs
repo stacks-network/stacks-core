@@ -48,6 +48,9 @@ impl LimitedCostTracker {
     pub fn new_max_limit() -> LimitedCostTracker {
         LimitedCostTracker { limit: ExecutionCost::max_value(), total: ExecutionCost::zero() }
     }
+    pub fn get_total(&self) -> ExecutionCost {
+        self.total.clone()
+    }
 }
 
 impl CostTracker for LimitedCostTracker {

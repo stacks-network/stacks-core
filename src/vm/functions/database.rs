@@ -109,8 +109,7 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
     //   is loaded from the db.
     let data_types = env.global_context.database.load_map(contract, map_name)?;
     runtime_cost!(cost_functions::FETCH_ENTRY, env,
-                  cmp::max(data_types.value_type.size(),
-                           data_types.key_type.size()))?;
+                  data_types.value_type.size() + data_types.key_type.size())?;
 
     env.global_context.database.fetch_entry(contract, map_name, &key)
 }
@@ -159,8 +158,7 @@ pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
     //   is loaded from the db.
     let data_types = env.global_context.database.load_map(&contract_identifier, map_name)?;
     runtime_cost!(cost_functions::FETCH_ENTRY, env,
-                  cmp::max(data_types.value_type.size(),
-                           data_types.key_type.size()))?;
+                  data_types.value_type.size() + data_types.key_type.size())?;
 
     env.global_context.database.fetch_entry(&contract_identifier, map_name, &key)
 }
@@ -194,8 +192,7 @@ pub fn special_set_entry(args: &[SymbolicExpression],
     //   is loaded from the db.
     let data_types = env.global_context.database.load_map(contract, map_name)?;
     runtime_cost!(cost_functions::SET_ENTRY, env,
-                  cmp::max(data_types.value_type.size(),
-                           data_types.key_type.size()))?;
+                  data_types.value_type.size() + data_types.key_type.size())?;
 
     env.global_context.database.set_entry(contract, map_name, key, value)
 }
@@ -229,8 +226,7 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
     //   is loaded from the db.
     let data_types = env.global_context.database.load_map(contract, map_name)?;
     runtime_cost!(cost_functions::SET_ENTRY, env,
-                  cmp::max(data_types.value_type.size(),
-                           data_types.key_type.size()))?;
+                  data_types.value_type.size() + data_types.key_type.size())?;
 
     env.global_context.database.insert_entry(contract, map_name, key, value)
 }
