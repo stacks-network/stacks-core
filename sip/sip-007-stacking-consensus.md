@@ -209,8 +209,11 @@ can deduce that the transfer addresses are invalid).
 
 To reduce the complexity of the consensus algorithm, Stacking reward
 cycles are fixed length --- if fewer addresses participate in the
-Stacking rewards than there are slots in the cycle, then for the
-remaining blocks, all miners must send funds to burn addresses.
+Stacking rewards than there are slots in the cycle, then the remaining
+slots are filled with *burn* addresses. Burn addresses are included
+in miner commitments at fixed intervals (e.g, if there are 1000 burn
+addresses for a reward cycle, then each miner commitment would have
+1 burn address as an output).
 
 ## Adjusting Reward Threshold Based on Participation
 
@@ -222,16 +225,19 @@ liquid supply of STX. However, if participation is _lower_ than 100%,
 the reward pool could admit lower STX holders. The Stacking protocol
 specifies **2 operating levels**:
 
-* **10%** If fewer than `0.10 * STX_LIQUID_SUPPLY` STX participate in
+* **25%** If fewer than `0.25 * STX_LIQUID_SUPPLY` STX participate in
   a reward cycle, participant wallets controlling `x` STX may include
-  `floor(x / (0.00002*STX_LIQUID_SUPPLY))` addresses in the reward set.
-  That is, the minimum participation threshold is 1/50,000th of the liquid
+  `floor(x / (0.00005*STX_LIQUID_SUPPLY))` addresses in the reward set.
+  That is, the minimum participation threshold is 1/20,000th of the liquid
   supply.
-* **10%-100%** If between `0.10 * STX_LIQUID_SUPPLY` and `1.0 * STX_LIQUID_SUPPLY`
-  STX participate in a reward cycle, participant wallets controlling `x`
-  STX may include `floor(x / (0.0002*PARTICIPATING_STX))` addresses in
-  the reward set. That is, the minimum threshold for participation is 1/5,000th
-  of the participating STX.
+* **25%-100%** If between `0.25 * STX_LIQUID_SUPPLY` and `1.0 *
+  STX_LIQUID_SUPPLY` STX participate in a reward cycle, the reward
+  threshold is optimized in order to maximize the number of slots that
+  are filled. That is, the minimum threshold `T` for participation will be
+  roughly 1/5,000th of the participating STX (adjusted in increments
+  of 10,000 STX). Participant wallets controlling `x` STX may
+  include `floor(x / T)` addresses in the
+  reward set.
 
 In the event that a Stacker signals and locks up enough STX to submit
 multiple reward addresses, but only submits one reward address, that
@@ -253,10 +259,12 @@ reward period. If broadcast on the Bitcoin chain, they may be
 broadcast during the prepare phase, but must be included before
 the prepare phase finishes.
 
-These signed messages are valid for at most 4000 Bitcoin blocks (4
-reward cycles, or ~1 month). If the signed message specifies a lockup
-period `x` less than 4000 blocks, then the signed message is only valid for
-Stacking participation for `floor(x / 1000)` reward cycles.
+These signed messages are valid for at most 12000 Bitcoin blocks (12
+reward cycles, or ~3 month). If the signed message specifies a lockup
+period `x` less than 12000 blocks, then the signed message is only valid for
+Stacking participation for `floor(x / 1000)` reward cycles (the minimum 
+participation length is one cycle: 1000 blocks).
+
 
 # Anchor Blocks and Reward Consensus
 
