@@ -60,7 +60,7 @@ from lib import get_db_state
 from lib.client import BlockstackRPCClient
 from lib.client import ping as blockstack_ping
 from lib.client import OP_HEX_PATTERN, OP_CONSENSUS_HASH_PATTERN, OP_ADDRESS_PATTERN, OP_BASE64_EMPTY_PATTERN
-from lib.config import REINDEX_FREQUENCY, BLOCKSTACK_TEST, default_bitcoind_opts, is_subdomains_enabled
+from lib.config import REINDEX_FREQUENCY, BLOCKSTACK_TEST, default_bitcoind_opts, is_subdomains_enabled, QUEUE_LIFETIME, MAX_RPC_THREADS
 from lib.util import url_to_host_port, atlas_inventory_to_string, daemonize, make_DID, parse_DID, BoundedThreadingMixIn, GCThread
 from lib import *
 from lib.audit import find_gpg2, GENESIS_BLOCK_SIGNING_KEYS, genesis_block_audit
@@ -79,6 +79,9 @@ from lib.c32 import c32ToB58, b58ToC32
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.nameset.db as chainstate
 import lib.config as config
+
+import cProfile
+profile_inst = None
 
 # stop common XML attacks
 from defusedxml import xmlrpc
@@ -268,6 +271,26 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
 
     MAX_REQUEST_SIZE = 512 * 1024   # 500KB
 
+    @classmethod
+    def make_overload_json(cls, extra_fields={}):
+        body = {
+            'status': False,
+            'indexing': False,
+            'lastblock': -1,
+            'error': 'overloaded',
+            'http_status': 429,
+        }
+        body.update(extra_fields)
+        return body
+
+    @classmethod
+    def make_overload_message(cls):
+        body = BlockstackdRPCHandler.make_overload_json()
+        body_str = json.dumps(body)
+        resp = 'HTTP/1.0 200 OK\r\nServer: BaseHTTP/0.3 Python/2.7.14+\r\nContent-type: text/xml\r\nContent-length: {}\r\n\r\n'.format(len(body_str))
+        resp += '<methodResponse><params><param><value><string>{}</string></value></param></params></methodResponse>'.format(body_str)
+        return resp
+
     def do_POST(self):
         """
         Based on the original, available at https://github.com/python/cpython/blob/2.7/Lib/SimpleXMLRPCServer.py
@@ -278,7 +301,6 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
         Attempts to interpret all HTTP POST requests as XML-RPC calls,
         which are forwarded to the server's _dispatch method for handling.
         """
-
         # Check that the path is legal
         if not self.is_rpc_path_valid():
             self.report_404()
@@ -290,6 +312,24 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
             log.error("Reject request with encoding '{}'".format(encoding))
             self.send_response(501, "encoding %r not supported" % encoding)
             return
+
+        # if we're calling into ourselves, identify the time at which we did so
+        # if not, then the time is now.
+        local_timestamp = time.time()
+        if self.client_address[0] in ['localhost', '127.0.0.1', '::1']:
+            try:
+                local_timestamp = float(self.headers.get("x-rpc-timestamp", str(time.time())))
+                log.debug("Inbound JSON-RPC request has been pending for {} seconds".format(time.time() - local_timestamp))
+            except:
+                pass
+
+        response = None
+
+        # time out waiting from JSON-RPC front-end?
+        if local_timestamp + QUEUE_LIFETIME < time.time():
+            log.debug("Request spent {} seconds waiting from RPC front-end; timed out".format(time.time() - local_timestamp))
+            ret = BlockstackdRPCHandler.make_overload_json({'reason': 'timeout'})
+            return json.dumps(ret)
 
         try:
             size_remaining = int(self.headers["content-length"])
@@ -322,14 +362,15 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
             if data is None:
                 return #response has been sent
 
-            # In previous versions of SimpleXMLRPCServer, _dispatch
-            # could be overridden in this class, instead of in
-            # SimpleXMLRPCDispatcher. To maintain backwards compatibility,
-            # check to see if a subclass implements _dispatch and dispatch
-            # using that method if present.
-            response = self.server._marshaled_dispatch(
-                    data, getattr(self, '_dispatch', None), self.path
-                )
+            inner_dispatch = getattr(self, '_dispatch', None)
+            if inner_dispatch is not None:
+                def dispatch_wrapper(method, params):
+                    wrapped_dispatch = getattr(self, '_dispatch', None)
+                    return wrapped_dispatch(local_timestamp, method, params)
+
+                inner_dispatch = dispatch_wrapper
+
+            response = self.server._marshaled_dispatch(data, inner_dispatch, self.path)
 
         except Exception, e: # This should only happen if the module is buggy
             # internal error, report as HTTP server error
@@ -338,25 +379,55 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
             self.end_headers()
 
         else:
-            # got a valid XML RPC response
-            self.send_response(200)
-            self.send_header("Content-type", "text/xml")
-            if self.encode_threshold is not None:
-                if len(response) > self.encode_threshold:
-                    q = self.accept_encodings().get("gzip", 0)
-                    if q:
-                        try:
-                            response = xmlrpclib.gzip_encode(response)
-                            self.send_header("Content-Encoding", "gzip")
-                        except NotImplementedError:
-                            pass
+            if response is not None:
+                # got a valid XML RPC response
+                self.send_response(200)
+                self.send_header("Content-type", "text/xml")
+                if self.encode_threshold is not None:
+                    if len(response) > self.encode_threshold:
+                        q = self.accept_encodings().get("gzip", 0)
+                        if q:
+                            try:
+                                response = xmlrpclib.gzip_encode(response)
+                                self.send_header("Content-Encoding", "gzip")
+                            except NotImplementedError:
+                                pass
 
-            self.send_header("Content-length", str(len(response)))
-            self.end_headers()
-            self.wfile.write(response)
+                self.send_header("Content-length", str(len(response)))
+                self.end_headers()
+                self.wfile.write(response)
+            else:
+                # hint to close the connection
+                log.debug("No response from {}; taken as hint to close the connection".format(self.path))
+
+                # trick this module into thinking that all is well, since there isn't a supported way for having the handler take care of killing the connection.
+                self.wfile = open('/dev/null', 'w+')
 
 
-    def _dispatch(self, method, params):
+    def _handle_rpc(self, local_timestamp, method, params, con_info):
+        # time out waiting?
+        if local_timestamp + QUEUE_LIFETIME < time.time():
+            log.debug("Request spent {} seconds waiting for lock; timed out".format(time.time() - local_timestamp))
+            ret = BlockstackdRPCHandler.make_overload_json({'reason': 'timeout'})
+            return ret
+
+        if BLOCKSTACK_TEST:
+            log.debug('RPC thread enter {}'.format(threading.current_thread().ident))
+
+        t1 = time.time()
+        res = self.server.funcs["rpc_" + str(method)](*params, **con_info)
+        t2 = time.time()
+
+        if local_timestamp + QUEUE_LIFETIME < time.time() or t2 - t1 >= QUEUE_LIFETIME:
+            log.debug("LONG/OVERDUE REQUEST {}: {} seconds (overdue by {})".format(method, t2 - t1, time.time() - QUEUE_LIFETIME - local_timestamp))
+
+        if BLOCKSTACK_TEST:
+            log.debug('RPC thread exit {}'.format(threading.current_thread().ident))
+
+        return res
+
+
+    def _dispatch(self, local_timestamp, method, params):
         global gc_thread
         gc_thread.gc_event()
 
@@ -375,7 +446,6 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
             # the second argument is always the simulated client host/port
             # (for atlas-specific methods)
             if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1" and len(params) > 0 and params[0] == 'atlas_network':
-
                 client_hostport = params[1]
                 params = params[3:]
                 params_fmt = ','.join(str(p) for p in params)
@@ -409,27 +479,27 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
 
             res = None
             with self.server.rpc_guard:
-                # RPC calls should be sequential to ensure database integrity 
-                if BLOCKSTACK_TEST:
-                    log.debug('RPC thread enter {}'.format(threading.current_thread().ident))
+                res = self._handle_rpc(local_timestamp, method, params, con_info)
 
-                res = self.server.funcs["rpc_" + str(method)](*params, **con_info)
+            if res is not None:
+                # have a response
+                if 'deprecated' in res and res['deprecated']:
+                    log.warn("DEPRECATED method call {} from {}".format(method, self.client_address[0]))
 
-                if BLOCKSTACK_TEST:
-                    log.debug('RPC thread exit {}'.format(threading.current_thread().ident))
+                # lol jsonrpc within xmlrpc
+                ret = json.dumps(res)
 
-            if 'deprecated' in res and res['deprecated']:
-                log.warn("DEPRECATED method call {} from {}".format(method, self.client_address[0]))
+                if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1":
+                    log.debug("Inbound RPC end %s(%s) from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
+                else:
+                    log.debug("RPC %s(%s) end from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
 
-            # lol jsonrpc within xmlrpc
-            ret = json.dumps(res)
+                return ret
 
-            if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1":
-                log.debug("Inbound RPC end %s(%s) from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
             else:
-                log.debug("RPC %s(%s) end from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
+                # no response (e.g. overloaded)
+                return None
 
-            return ret
         except Exception, e:
             print >> sys.stderr, "\n\n%s(%s)\n%s\n\n" % ("rpc_" + str(method), params_fmt, traceback.format_exc())
             return json.dumps(rpc_traceback())
@@ -498,18 +568,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         Got too many requests.
         Send back a (precompiled) XMLRPC response saying as much
         """
-        body = {
-            'status': False,
-            'indexing': False,
-            'lastblock': -1,
-            'error': 'overloaded',
-            'http_status': 429
-        }
-        body_str = json.dumps(body)
-
-        resp = 'HTTP/1.0 200 OK\r\nServer: BaseHTTP/0.3 Python/2.7.14+\r\nContent-type: text/xml\r\nContent-length: {}\r\n\r\n'.format(len(body_str))
-        resp += '<methodResponse><params><param><value><string>{}</string></value></param></params></methodResponse>'.format(body_str)
-        return resp
+        return BlockstackdRPCHandler.make_overload_message()
 
 
     def success_response(self, method_resp, **kw):
@@ -2103,6 +2162,11 @@ def rpc_start( working_dir, port, subdomain_index=None, thread=True ):
     Start the global RPC server thread
     Returns the RPC server thread
     """
+    if os.environ.get("BLOCKSTACK_PROFILE") is not None:
+        global profile_inst
+        profile_inst = cProfile.Profile()
+        profile_inst.enable()
+
     rpc_srv = BlockstackdRPCServer( working_dir, port, subdomain_index=subdomain_index )
     log.debug("Starting RPC on port {}".format(port))
 
@@ -2663,6 +2727,11 @@ def server_shutdown(server_state):
     Shut down server subsystems.
     Remove PID file.
     """
+    if os.environ.get("BLOCKSTACK_PROFILE") is not None:
+        global profile_inst
+        profile_inst.disable()
+        profile_inst.dump_stats(str(os.environ.get("BLOCKSTACK_PROFILE")))
+
     set_running( False )
 
     # stop API servers

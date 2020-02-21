@@ -1074,7 +1074,7 @@ class SubdomainDB(object):
         else:
             accepted_filter = ''
 
-        get_cmd = "SELECT COUNT(DISTINCT fully_qualified_subdomain) as count FROM {} {};".format(
+        get_cmd = "SELECT COUNT(rowid) as count FROM {} {};".format(
             self.subdomain_table, accepted_filter)
 
         cursor = cur
