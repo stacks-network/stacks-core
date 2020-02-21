@@ -267,7 +267,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                     SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => {
                         self.db.get_read_only_function_type(&contract_identifier, function_name)?.is_some()
                     },
-                    SymbolicExpressionType::Atom(trait_reference) => {
+                    SymbolicExpressionType::Atom(_trait_reference) => {
                         // Dynamic dispatch from a readonly-function can only be guaranteed at runtime,
                         // which would defeat granting a static readonly stamp. 
                         // As such dynamic dispatch is currently forbidden.

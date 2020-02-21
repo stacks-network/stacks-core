@@ -370,7 +370,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     Some((ref mut list, _, _)) => list.push(pre_expr)
                 };
             },
-            LexItem::TraitReference(length, value) => {
+            LexItem::TraitReference(_length, value) => {
                 let end_column = column_pos + (value.len() as u32) - 1;
                 let value = value.clone().try_into()
                     .map_err(|_| { ParseError::new(ParseErrors::IllegalVariableName(value.to_string())) })?;
