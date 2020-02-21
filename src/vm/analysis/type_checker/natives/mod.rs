@@ -253,19 +253,6 @@ fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], 
     Ok(TypeSignature::new_option(block_info_prop.type_result()))
 }
 
-fn check_special_principal_of(_checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    check_arguments_at_least(1, args)?;
-    let trait_reference_instance = args[0].match_atom()
-        .ok_or(CheckErrors::ExpectedTraitIdentifier)?;
-
-    match context.lookup_trait_reference_type(trait_reference_instance) {
-        Some(TypeSignature::TraitReferenceType(trait_reference)) => trait_reference,
-        _ => return Err(CheckErrors::TraitReferenceUnknown(trait_reference_instance.to_string()).into())
-    };
-
-    Ok(TypeSignature::PrincipalType)
-}
-
 impl TypedNativeFunction {
     pub fn type_check_appliction(&self, checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
         use self::TypedNativeFunction::{Special, Simple};
@@ -407,7 +394,6 @@ impl TypedNativeFunction {
             IsNone => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             IsSome => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             AtBlock => Special(SpecialNativeFunction(&check_special_at_block)),
-            PrincipalOf => Special(SpecialNativeFunction(&check_special_principal_of))
         }
     }
 }

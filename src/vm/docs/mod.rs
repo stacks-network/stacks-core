@@ -1053,23 +1053,6 @@ definition (i.e., you cannot put such a statement in the middle of a function bo
 "
 };
 
-const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
-    input_type: "<A>",
-    output_type: "callable-principal",
-    signature: "(principal-of trait-reference)",
-    description: "`principal-of` is used in conjuncture with trait-reference, to obtain the principal of given
-trait reference instance.
-",
-    example: "
-(define-map last-contract-calls ((contract principal)) ((called-at uint)))
-(define-public (get-balance (user principal) (contract <token-a-trait>))
-    (begin
-        (map-insert last-contract-calls (contract (principal-of contract)) (called-at block-height))
-        (contract-call? contract get-balance user)
-        (ok 1)))
-"
-};
-
 const MINT_TOKEN: SpecialAPI = SpecialAPI {
     input_type: "TokenName, uint, principal",
     output_type: "(response bool uint)",
@@ -1292,7 +1275,6 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         AtBlock => make_for_special(&AT_BLOCK, name),
         StxTransfer => make_for_simple_native(&STX_TRANSFER, &StxTransfer, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
-        PrincipalOf => make_for_special(&PRINCIPAL_OF_API, name),
     }
 }
 

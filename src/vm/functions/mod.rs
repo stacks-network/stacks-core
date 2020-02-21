@@ -85,7 +85,6 @@ define_named_enum!(NativeFunctions {
     TransferAsset("nft-transfer?"),
     MintAsset("nft-mint?"),
     MintToken("ft-mint?"),
-    PrincipalOf("principal-of"),
     StxTransfer("stx-transfer?"),
     StxBurn("stx-burn?"),
 });
@@ -164,7 +163,6 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             AtBlock => CallableType::SpecialFunction("special_at_block", &database::special_at_block),
             StxTransfer => CallableType::SpecialFunction("special_stx_transfer", &assets::special_stx_transfer),
             StxBurn => CallableType::SpecialFunction("special_stx_burn", &assets::special_stx_burn),
-            PrincipalOf => CallableType::SpecialFunction("native_principal-of", &special_principal_of),
         };
         Some(callable)
     } else {
@@ -348,13 +346,4 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     let mut nested_env = env.nest_as_principal(contract_principal);
 
     eval(&args[0], &mut nested_env, context)
-}
-
-fn special_principal_of(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    // (principal-of (..))
-    // arg0 => trait-reference
-    check_argument_count(1, args)?;
-
-    let result = eval(&args[0], env, context)?;
-    Ok(result)
 }
