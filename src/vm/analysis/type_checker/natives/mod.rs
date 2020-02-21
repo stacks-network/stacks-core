@@ -232,7 +232,9 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
         _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
     };
     
-    for (expected_type, arg) in expected_args.iter().zip(args[2..].iter()) {
+    let func_args: Vec<SymbolicExpression> = args[2..].to_vec();
+    check_argument_count(expected_args.len(), &func_args)?;
+    for (expected_type, arg) in expected_args.iter().zip(func_args.iter()) {
         checker.type_check_expects(arg, context, expected_type)?;
     }
 
