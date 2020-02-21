@@ -116,7 +116,7 @@ impl DefinedFunction {
             .ok_or(CheckErrors::TraitMethodUnknown(trait_name.to_string(), self.name.to_string()))?;
         
         let args = self.arg_types.iter().map(|a| a.clone()).collect();
-        if !expected_sig.check_args(args) {
+        if !expected_sig.check_args_trait_compliance(args) {
             return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()).into())
         }
 

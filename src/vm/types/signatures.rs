@@ -381,7 +381,7 @@ impl TupleTypeSignature {
 
 impl FunctionSignature {
 
-    pub fn check_args(&self, args: Vec<TypeSignature>) -> bool {
+    pub fn check_args_trait_compliance(&self, args: Vec<TypeSignature>) -> bool {
         if args.len() != self.args.len() {
             return false
         }
