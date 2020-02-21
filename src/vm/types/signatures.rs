@@ -379,6 +379,31 @@ impl TupleTypeSignature {
     }
 }
 
+impl FunctionSignature {
+
+    pub fn check_args(&self, args: Vec<TypeSignature>) -> bool {
+        if args.len() != self.args.len() {
+            return false
+        }
+        let args_iter = self.args.iter().zip(args.iter());
+        for (expected_arg, arg) in args_iter {
+            match (expected_arg, arg) {
+                (TypeSignature::TraitReferenceType(expected), TypeSignature::TraitReferenceType(candidate)) => {
+                    if candidate != expected {
+                        return false
+                    }
+                }
+                _ => {
+                    if !arg.admits_type(&expected_arg) {
+                        return false
+                    }        
+                }
+            }
+        }
+        true
+    }
+}
+
 impl FunctionArg {
     pub fn new(signature: TypeSignature, name: ClarityName) -> FunctionArg {
         FunctionArg { signature, name }

@@ -3,7 +3,7 @@ use vm::{SymbolicExpression, ClarityName};
 use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier, TraitIdentifier};
 use vm::types::signatures::FunctionSignature;
 use vm::analysis::analysis_db::{AnalysisDatabase};
-use vm::analysis::errors::{CheckResult};
+use vm::analysis::errors::{CheckResult, CheckErrors};
 use vm::analysis::type_checker::contexts::TypeMap;
 
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
@@ -117,5 +117,30 @@ impl ContractAnalysis {
 
     pub fn get_defined_trait(&self, name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
         self.defined_traits.get(name)
+    }
+
+    pub fn check_trait_compliance(&self, trait_identifier: &TraitIdentifier, trait_definition: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<()> {
+
+        let trait_name = trait_identifier.name.to_string(); 
+
+        for (func_name, expected_sig) in trait_definition.iter() {
+            match (self.get_public_function_type(func_name), self.get_read_only_function_type(func_name)) {
+                (Some(FunctionType::Fixed(func)), None) | (None, Some(FunctionType::Fixed(func))) => {
+
+                    let args_sig = func.args.iter().map(|a| a.signature.clone()).collect();
+                    if !expected_sig.check_args(args_sig) {
+                        return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), func_name.to_string()).into())
+                    }
+            
+                    if !expected_sig.returns.admits_type(&func.returns) {
+                        return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
+                    }
+                }
+                (_, _) => {
+                    return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
+                }
+            }
+        }
+        Ok(())
     }
 }

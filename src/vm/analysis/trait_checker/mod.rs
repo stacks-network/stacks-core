@@ -35,40 +35,11 @@ impl TraitChecker {
             let trait_name = trait_identifier.name.to_string();
             let contract_defining_trait = analysis_db.load_contract(&trait_identifier.contract_identifier)
                 .ok_or(CheckErrors::TraitReferenceUnknown(trait_identifier.name.to_string()))?;
-            let trait_sig = contract_defining_trait.get_defined_trait(&trait_name)
+            
+            let trait_definition = contract_defining_trait.get_defined_trait(&trait_name)
                 .ok_or(CheckErrors::TraitReferenceUnknown(trait_identifier.name.to_string()))?;
 
-            for (func_name, expected_sig) in trait_sig.iter() {
-                match contract_analysis.get_public_function_type(func_name) {
-                    Some(FunctionType::Fixed(func)) => {
-                        if func.args.len() != expected_sig.args.len() {
-                            return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), func_name.to_string()).into())
-                        }
-                        let args = expected_sig.args.iter().zip(func.args.iter());
-                        for (expected_arg, arg) in args {
-                            match (expected_arg, &arg.signature) {
-                                (TypeSignature::TraitReferenceType(expected), TypeSignature::TraitReferenceType(actual)) => {
-                                    if actual != expected {
-                                        return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), func_name.to_string()).into())
-                                    }
-                                }
-                                _ => {
-                                    if !expected_arg.admits_type(&arg.signature) {
-                                        return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), func_name.to_string()).into())
-                                    }        
-                                }
-                            }
-                        }
-
-                        if !expected_sig.returns.admits_type(&func.returns) {
-                            return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
-                        }
-                    }
-                    _ => {
-                        return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
-                    }
-                }
-            }
+            contract_analysis.check_trait_compliance(trait_identifier, trait_definition)?;
         }
         Ok(())
     }

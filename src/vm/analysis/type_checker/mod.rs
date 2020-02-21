@@ -212,12 +212,19 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         
         match (&expr.expr, expected_type) {
             (LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))), TypeSignature::TraitReferenceType(trait_identifier)) => {
-                let traits = self.db.get_implemented_traits(&contract_identifier).unwrap();
-                if traits.contains(trait_identifier) {
-                    return Ok(expected_type.clone());
-                }    
-            }, 
-            _ => {}
+                let contract_to_check = self.db.load_contract(&contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+                let contract_defining_trait = self.db.load_contract(&trait_identifier.contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+                let trait_definition = contract_defining_trait.get_defined_trait(&trait_identifier.name)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+                contract_to_check.check_trait_compliance(trait_identifier, trait_definition)?;
+                return Ok(expected_type.clone());
+            }
+            (_, _) => {}
         }
 
         let actual_type = self.type_check(expr, context)?;
@@ -426,7 +433,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok((asset_name.clone(), asset_type))
     }
 
-    fn type_check_define_trait(&mut self, trait_name: &ClarityName, function_types: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
+    fn type_check_define_trait(&mut self, trait_name: &ClarityName, function_types: &[SymbolicExpression], _context: &mut TypingContext) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
         
         let trait_signature = TypeSignature::parse_trait_type_repr(&function_types)?;
 

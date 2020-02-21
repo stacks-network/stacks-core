@@ -114,26 +114,12 @@ impl DefinedFunction {
             .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
         let expected_sig = constraining_trait.get(&self.name)
             .ok_or(CheckErrors::TraitMethodUnknown(trait_name.to_string(), self.name.to_string()))?;
-
-        if expected_sig.args.len() != self.arg_types.len() {
+        
+        let args = self.arg_types.iter().map(|a| a.clone()).collect();
+        if !expected_sig.check_args(args) {
             return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()).into())
         }
 
-        let args = expected_sig.args.iter().zip(self.arg_types.iter());
-        for (expected_arg, actual_arg) in args {
-            match (expected_arg, actual_arg) {
-                (TypeSignature::TraitReferenceType(expected), TypeSignature::TraitReferenceType(ref actual)) => {
-                    if actual != expected {
-                        return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()).into())
-                    }
-                }
-                (_, arg_sig) => {
-                    if !expected_arg.admits_type(&arg_sig) {
-                        return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), self.name.to_string()).into())
-                    }        
-                }
-            }
-        }
         Ok(())
     }
 
