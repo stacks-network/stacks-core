@@ -136,6 +136,26 @@ where a and b are constants,
 X := the cumulative size of the argument types,
 costEval(body) := the cost of executing the body of the function
 
+### contract-call Transactions
+
+User-signed transactions for contract-calls are charged for the
+application of the function, as well as the loading of the contract
+data. This charge is the same as a normal contract-call. _However_,
+contract principals that are supplied as trait arguments must be
+checked by the runtime system to ensure that they validly implement
+the trait. The cost of this check is:
+
+```
+read_count = 2
+read_length = trait_size + contract_size
+runtime*cost = a*(contract_size) + b*(trait_size) + c
+```
+
+This check needs to read the trait, and then validate that the supplied
+contract fulfills that trait by reading the contract in, and checking
+the method signatures. This check must be performed for each such
+trait parameter.
+
 ### Type Parsing
 
 Parsing a type in Clarity incurs a linear cost in the size of the
@@ -241,6 +261,13 @@ where a and b are constants,
 Y := called contract size
 `func_lookup_apply_eval(X)` := the cost of looking up, applying, and
 evaluating the body of the function
+
+
+Note that contract-calls that use _trait_ definitions for dynamic dispatch
+are _not_ charged at a different cost rate. Instead, there is a cost for
+looking up the trait variable (assessed as a variable lookup), and the cost
+of validating any supplied trait implementors is assessed during a transaction's
+argument validation.
 
 ### map-get
 
