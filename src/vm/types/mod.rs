@@ -17,6 +17,7 @@ pub use vm::types::signatures::{
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
+pub const MAX_TYPE_DEPTH: u8 = 32;
 // this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
 
@@ -189,6 +190,8 @@ impl Value {
     pub fn some(data: Value) -> Result<Value> {
         if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge.into())
+        } else if data.depth() + 1 > MAX_TYPE_DEPTH {
+            Err(CheckErrors::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Optional(OptionalData {
                 data: Some(Box::new(data)) }))
@@ -210,6 +213,8 @@ impl Value {
     pub fn okay(data: Value) -> Result<Value> {
         if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge.into())
+        } else if data.depth() + 1 > MAX_TYPE_DEPTH {
+            Err(CheckErrors::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Response(ResponseData { 
                 committed: true,
@@ -220,6 +225,8 @@ impl Value {
     pub fn error(data: Value) -> Result<Value> {
         if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge.into())
+        } else if data.depth() + 1 > MAX_TYPE_DEPTH {
+            Err(CheckErrors::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Response(ResponseData { 
                 committed: false,
@@ -229,6 +236,10 @@ impl Value {
 
     pub fn size(&self) -> u32 {
         TypeSignature::type_of(self).size()
+    }
+
+    pub fn depth(&self) -> u8 {
+        TypeSignature::type_of(self).depth()
     }
 
     /// Invariant: the supplied Values have already been "checked", i.e., it's a valid Value object

@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 
 use address::c32;
 use vm::costs::cost_functions;
-use vm::types::{Value, MAX_VALUE_SIZE, WRAPPER_VALUE_SIZE, QualifiedContractIdentifier, StandardPrincipalData};
+use vm::types::{Value, MAX_VALUE_SIZE, MAX_TYPE_DEPTH, WRAPPER_VALUE_SIZE,
+                QualifiedContractIdentifier, StandardPrincipalData};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 use vm::errors::{RuntimeErrorType, CheckErrors, IncomparableError, Error as VMError};
 use util::hash;
@@ -166,6 +167,11 @@ impl TryFrom<i128> for BufferLength {
 
 impl ListTypeData {
     pub fn new_list(entry_type: TypeSignature, max_len: u32) -> Result<ListTypeData> {
+        let would_be_depth = 1 + entry_type.depth();
+        if would_be_depth > MAX_TYPE_DEPTH {
+            return Err(CheckErrors::TypeSignatureTooDeep)
+        }
+
         let list_data = ListTypeData { 
             entry_type: Box::new(entry_type),
             max_len: max_len as u32 
@@ -195,8 +201,11 @@ impl ListTypeData {
 impl TypeSignature {
     pub fn new_option(inner_type: TypeSignature) -> Result<TypeSignature> {
         let new_size = WRAPPER_VALUE_SIZE + inner_type.size();
+        let new_depth = 1 + inner_type.depth();
         if new_size > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge)
+        } else if new_depth > MAX_TYPE_DEPTH {
+            Err(CheckErrors::TypeSignatureTooDeep)
         } else {
             Ok(OptionalType(Box::new(inner_type)))
         }
@@ -204,8 +213,12 @@ impl TypeSignature {
 
     pub fn new_response(ok_type: TypeSignature, err_type: TypeSignature) -> Result<TypeSignature> {
         let new_size = WRAPPER_VALUE_SIZE + cmp::max(ok_type.size(), err_type.size());
+        let new_depth = 1 + cmp::max(ok_type.depth(), err_type.depth());
+
         if new_size > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge)
+        } else if new_depth > MAX_TYPE_DEPTH {
+            Err(CheckErrors::TypeSignatureTooDeep)
         } else {
             Ok(ResponseType(Box::new((ok_type, err_type))))
         }
@@ -303,14 +316,7 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
                 type_map.insert(name, type_info);
             }
         }
-        let result = TupleTypeSignature { type_map };
-        let would_be_size = result.inner_size()
-            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
-        if would_be_size > MAX_VALUE_SIZE {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            Ok(result)
-        }
+        TupleTypeSignature::try_from(type_map)
     }
 }
 
@@ -319,6 +325,11 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
     fn try_from(type_map: BTreeMap<ClarityName, TypeSignature>) -> Result<TupleTypeSignature> {
         if type_map.len() == 0 {
             return Err(CheckErrors::EmptyTuplesNotAllowed)
+        }
+        for child_sig in type_map.values() {
+            if (1 + child_sig.depth()) > MAX_TYPE_DEPTH {
+                return Err(CheckErrors::TypeSignatureTooDeep)
+            }
         }
         let result = TupleTypeSignature { type_map };
         let would_be_size = result.inner_size()
@@ -513,14 +524,6 @@ impl TypeSignature {
     }
 
     // Checks if resulting type signature is of valid size.
-    // Aaron:
-    //    currently, this does "loose admission" for higher-order lists --
-    //     but should it do the same for buffers and tuples or is it better
-    //     like it is now, where it requires an exact type match on those?
-    //     e.g.: (list "abcd" "abc") will currently error because one etry is
-    //           if type (buffer 4) and the other is of type (buffer 3)
-    //       my feeling is that this should probably be allowed, and the resulting
-    //       type should be (list 2 (buffer 4)) 
     pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData> {
         let children_types:Vec<_> = args.iter().map(|x| TypeSignature::type_of(x)).collect();
         TypeSignature::parent_list_type(&children_types)
@@ -648,6 +651,24 @@ impl TypeSignature {
 /// TypeSignature constructors will fail instead of constructing such a type.
 ///   because of this, the public interface to size is infallible.
 impl TypeSignature {
+    pub fn depth(&self) -> u8 {
+        // unlike inner_size, depth will never threaten to overflow,
+        //  because a new type can only increase depth by 1.
+        match self {
+            // NoType's may be asked for their size at runtime --
+            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
+            NoType | IntType | UIntType | BoolType | PrincipalType | BufferType(_) => 1,
+            TupleType(tuple_sig) => {
+                1 + tuple_sig.max_depth()
+            },
+            ListType(list_type) => 1 + list_type.get_list_item_type().depth(),
+            OptionalType(t) => 1 + t.depth(),
+            ResponseType(v) => {
+                1 + cmp::max(v.0.depth(), v.1.depth())
+            },
+        }
+    }
+
     pub fn size(&self) -> u32 {
         self.inner_size()
             .expect("FAIL: .size() overflowed on too large of a type. construction should have failed!")
@@ -754,6 +775,14 @@ impl TupleTypeSignature {
 
     pub fn size(&self) -> u32 {
         self.inner_size().expect("size() overflowed on a constructed type.")
+    }
+
+    fn max_depth(&self) -> u8 {
+        let mut max = 0;
+        for (_name, type_signature) in self.type_map.iter() {
+            max = cmp::max(max, type_signature.depth())
+        }
+        max
     }
 
     /// Tuple Size:
@@ -869,11 +898,19 @@ impl fmt::Display for FunctionArg {
 mod test {
     use super::*;
     use super::CheckErrors::*;
+    use vm::execute;
 
     fn fail_parse(val: &str) -> CheckErrors {
         use vm::ast::parse;
         let expr = &parse(&QualifiedContractIdentifier::transient(), val).unwrap()[0];
         TypeSignature::parse_type_repr(expr, &mut ()).unwrap_err()
+    }
+
+    #[test]
+    fn type_of_list_of_buffs() {
+        let value = execute("(list \"abc\" \"abcde\")").unwrap().unwrap();
+        let type_descr = "(list 2 (buff 5))".into();
+        assert_eq!(TypeSignature::type_of(&value), type_descr);
     }
 
     #[test]
