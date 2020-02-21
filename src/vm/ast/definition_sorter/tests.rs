@@ -61,6 +61,19 @@ fn should_raise_dependency_cycle_case_1() {
 }
 
 #[test]
+fn should_raise_dependency_cycle_case_2() {
+    let contract = r#"
+        (define-private (a (x int)) (b x))
+        (define-private (b (x int)) (c x))
+        (define-private (c (x int)) (a x))
+        (a 0)
+    "#;
+
+    let err = run_scoped_parsing_helper(contract).unwrap_err();
+    assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false });
+}
+
+#[test]
 fn should_not_raise_dependency_cycle_case_let() {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
