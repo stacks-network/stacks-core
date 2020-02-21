@@ -1,6 +1,6 @@
 pub mod types;
 pub mod errors;
-pub mod definition_sorter;
+pub mod trait_checker;
 pub mod type_checker;
 pub mod read_only_checker;
 pub mod analysis_db;
@@ -13,8 +13,8 @@ use vm::types::{TypeSignature, QualifiedContractIdentifier};
 pub use self::errors::{CheckResult, CheckError, CheckErrors};
 pub use self::analysis_db::{AnalysisDatabase};
 
-use self::definition_sorter::DefinitionSorter;
 use self::read_only_checker::ReadOnlyChecker;
+use self::trait_checker::TraitChecker;
 use self::type_checker::TypeChecker;
 
 #[cfg(test)]
@@ -49,9 +49,9 @@ pub fn run_analysis(contract_identifier: &QualifiedContractIdentifier,
 
     analysis_db.execute(|db| {
         let mut contract_analysis = ContractAnalysis::new(contract_identifier.clone(), expressions.to_vec());
-        DefinitionSorter::run_pass(&mut contract_analysis, db)?;
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         TypeChecker::run_pass(&mut contract_analysis, db)?;
+        TraitChecker::run_pass(&mut contract_analysis, db)?;
         if save_contract {
             db.insert_contract(&contract_identifier, &contract_analysis)?;
         }

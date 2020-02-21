@@ -1,8 +1,10 @@
-use vm::types::{Value, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
+use std::collections::{HashMap, BTreeMap};
+use vm::types::{Value, TypeSignature, TupleTypeSignature, PrincipalData, TraitIdentifier, QualifiedContractIdentifier, parse_name_type_pairs};
+use vm::types::signatures::FunctionSignature;
 use vm::callables::{DefinedFunction, DefineType};
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{Atom, AtomValue, List};
-use vm::errors::{RuntimeErrorType, CheckErrors, InterpreterResult as Result, check_argument_count};
+use vm::representations::SymbolicExpressionType::{Atom, AtomValue, List, LiteralValue, Field};
+use vm::errors::{RuntimeErrorType, CheckErrors, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::eval;
 
@@ -15,6 +17,9 @@ define_named_enum!(DefineFunctions {
     PersistedVariable("define-data-var"),
     FungibleToken("define-fungible-token"),
     NonFungibleToken("define-non-fungible-token"),
+    Trait("define-trait"),
+    UseTrait("use-trait"),
+    ImplTrait("impl-trait"),
 });
 
 pub enum DefineFunctionsParsed <'a> {
@@ -27,6 +32,9 @@ pub enum DefineFunctionsParsed <'a> {
     UnboundedFungibleToken { name: &'a ClarityName },
     Map { name: &'a ClarityName, key_type: &'a SymbolicExpression, value_type: &'a SymbolicExpression },
     PersistedVariable  { name: &'a ClarityName, data_type: &'a SymbolicExpression, initial: &'a SymbolicExpression },
+    Trait { name: &'a ClarityName, functions: &'a [SymbolicExpression] },
+    UseTrait { name: &'a ClarityName, trait_identifier: &'a TraitIdentifier },
+    ImplTrait { trait_identifier: &'a TraitIdentifier },
 }
 
 pub enum DefineResult {
@@ -36,6 +44,9 @@ pub enum DefineResult {
     PersistedVariable(String, TypeSignature, Value),
     FungibleToken(String, Option<u128>),
     NonFungibleAsset(String, TypeSignature),
+    Trait(ClarityName, BTreeMap<ClarityName, FunctionSignature>),
+    UseTrait(ClarityName, TraitIdentifier),
+    ImplTrait(TraitIdentifier),
     NoDefine
 }
 
@@ -132,6 +143,24 @@ fn handle_define_map(map_str: &ClarityName,
     Ok(DefineResult::Map(map_str.to_string(), key_type_signature, value_type_signature))
 }
 
+fn handle_define_trait(name: &ClarityName,
+                       functions: &[SymbolicExpression],
+                       env: &Environment) -> Result<DefineResult> {
+    check_legal_define(&name, &env.contract_context)?;
+    
+    let trait_signature = TypeSignature::parse_trait_type_repr(&functions)?;
+    
+    Ok(DefineResult::Trait(name.clone(), trait_signature))
+}
+
+fn handle_use_trait(name: &ClarityName, trait_identifier: &TraitIdentifier) -> Result<DefineResult> {
+    Ok(DefineResult::UseTrait(name.clone(), trait_identifier.clone()))
+}
+
+fn handle_impl_trait(trait_identifier: &TraitIdentifier) -> Result<DefineResult> {
+    Ok(DefineResult::ImplTrait(trait_identifier.clone()))
+}
+
 impl DefineFunctions {
     pub fn try_parse(expression: &SymbolicExpression) -> Option<(DefineFunctions, &[SymbolicExpression])> {
         let expression = expression.match_list()?;
@@ -145,7 +174,7 @@ impl DefineFunctions {
 impl <'a> DefineFunctionsParsed <'a> {
     /// Try to parse a Top-Level Expression (e.g., (define-private (foo) 1)) as
     /// a define-statement, returns None if the supplied expression is not a define.
-    pub fn try_parse (expression: &'a SymbolicExpression) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrors> {
+    pub fn try_parse(expression: &'a SymbolicExpression) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrors> {
         let (define_type, args) = match DefineFunctions::try_parse(expression) {
             Some(x) => x,
             None => return Ok(None)
@@ -195,7 +224,33 @@ impl <'a> DefineFunctionsParsed <'a> {
                 check_argument_count(3, args)?;
                 let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
                 DefineFunctionsParsed::PersistedVariable { name, data_type: &args[1], initial: &args[2] }
-            }
+            },
+            DefineFunctions::Trait => {
+                check_argument_count(2, args)?;
+                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                DefineFunctionsParsed::Trait { name, functions: &args[1..] }
+            },
+            DefineFunctions::UseTrait => {
+                check_argument_count(2, args)?;
+                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                match &args[1].expr {
+                    Field(ref field) => DefineFunctionsParsed::UseTrait { 
+                        name: &name, 
+                        trait_identifier: &field 
+                    },
+                    _ => return Err(CheckErrors::ExpectedTraitIdentifier.into())
+                }
+            },
+            DefineFunctions::ImplTrait => {
+                check_argument_count(1, args)?;
+                match &args[0].expr {
+                    Field(ref field) => DefineFunctionsParsed::ImplTrait { 
+                        trait_identifier: &field 
+                    },
+                    _ => return Err(CheckErrors::ExpectedTraitIdentifier.into())
+                }
+            },
+
         };
         Ok(Some(result))
     }
@@ -230,6 +285,15 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
             },
             DefineFunctionsParsed::PersistedVariable { name, data_type, initial } => {
                 handle_define_persisted_variable(name, data_type, initial, env)
+            }
+            DefineFunctionsParsed::Trait { name, functions } => {
+                handle_define_trait(name, functions, env)
+            },
+            DefineFunctionsParsed::UseTrait { name, trait_identifier } => {
+                handle_use_trait(name, trait_identifier)
+            },
+            DefineFunctionsParsed::ImplTrait { trait_identifier } => {
+                handle_impl_trait(trait_identifier)
             }
         }
     } else {

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, BTreeMap, HashSet};
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::types::{TypeSignature, FunctionType};
+use vm::types::{TypeSignature, FunctionType, TraitIdentifier};
+use vm::types::signatures::{FunctionSignature};
 
 use vm::contexts::MAX_CONTEXT_DEPTH;
 
@@ -14,6 +15,7 @@ pub struct TypeMap {
 
 pub struct TypingContext <'a> {
     pub variable_types: HashMap<ClarityName, TypeSignature>,
+    pub traits_references: HashMap<ClarityName, TraitIdentifier>,
     pub parent: Option<&'a TypingContext<'a>>,
     pub depth: u16
 }
@@ -26,7 +28,9 @@ pub struct ContractContext {
     read_only_function_types: HashMap<ClarityName, FunctionType>,
     persisted_variable_types: HashMap<ClarityName, TypeSignature>,
     fungible_tokens: HashSet<ClarityName>,
-    non_fungible_tokens: HashMap<ClarityName, TypeSignature>
+    non_fungible_tokens: HashMap<ClarityName, TypeSignature>,
+    traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    pub implemented_traits: HashSet<TraitIdentifier>,
 }
 
 impl TypeMap {
@@ -58,6 +62,8 @@ impl ContractContext {
             persisted_variable_types: HashMap::new(),
             fungible_tokens: HashSet::new(),
             non_fungible_tokens: HashMap::new(),
+            traits: HashMap::new(),
+            implemented_traits: HashSet::new(),
         }
     }
 
@@ -68,6 +74,7 @@ impl ContractContext {
             self.public_function_types.contains_key(name) ||
             self.fungible_tokens.contains(name) ||
             self.non_fungible_tokens.contains_key(name) ||
+            self.traits.contains_key(name) ||
             self.map_types.contains_key(name) {
                 Err(CheckError::new(CheckErrors::NameAlreadyUsed(name.to_string())))
             } else {
@@ -136,6 +143,20 @@ impl ContractContext {
         Ok(())
     }
 
+    pub fn add_trait(&mut self, trait_name: ClarityName, trait_signature: BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<()> {
+        self.traits.insert(trait_name, trait_signature);
+        Ok(())
+    }
+
+    pub fn add_implemented_trait(&mut self, trait_identifier: TraitIdentifier) -> CheckResult<()> {
+        self.implemented_traits.insert(trait_identifier);
+        Ok(())
+    }
+
+    pub fn get_trait(&mut self, trait_name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+        self.traits.get(trait_name)
+    }
+
     pub fn get_map_type(&self, map_name: &str) -> Option<&(TypeSignature, TypeSignature)> {
         self.map_types.get(map_name)
     }
@@ -193,6 +214,14 @@ impl ContractContext {
         for (name, nft_type) in self.non_fungible_tokens.drain() {
             contract_analysis.add_non_fungible_token(name.into(), nft_type);
         }
+
+        for (name, trait_signature) in self.traits.drain() {
+            contract_analysis.add_defined_trait(name, trait_signature);
+        }
+
+        for trait_identifier in self.implemented_traits.drain() {
+            contract_analysis.add_implemented_trait(trait_identifier);
+        }
     }
 }
 
@@ -200,6 +229,7 @@ impl <'a> TypingContext <'a> {
     pub fn new() -> TypingContext<'static> {
         TypingContext {
             variable_types: HashMap::new(),
+            traits_references: HashMap::new(),
             depth: 0,
             parent: None
         }
@@ -211,6 +241,7 @@ impl <'a> TypingContext <'a> {
         } else {
             Ok(TypingContext {
                 variable_types: HashMap::new(),
+                traits_references: HashMap::new(),
                 parent: Some(self),
                 depth: self.depth + 1
             })
@@ -223,6 +254,22 @@ impl <'a> TypingContext <'a> {
             None => {
                 match self.parent {
                     Some(parent) => parent.lookup_variable_type(name),
+                    None => None
+                }
+            }
+        }
+    }
+
+    pub fn add_trait_reference(&mut self, name: &ClarityName, value: &TraitIdentifier) {
+        self.traits_references.insert(name.clone(), value.clone());
+    }
+
+    pub fn lookup_trait_reference_type(&self, name: &str) -> Option<&TraitIdentifier> {
+        match self.traits_references.get(name) {
+            Some(value) => Some(value),
+            None => {
+                match self.parent {
+                    Some(parent) => parent.lookup_trait_reference_type(name),
                     None => None
                 }
             }

@@ -29,7 +29,7 @@ use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result};
 use vm::database::MemoryBackingStore;
-use vm::types::QualifiedContractIdentifier;
+use vm::types::{QualifiedContractIdentifier, TraitIdentifier, PrincipalData};
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
@@ -47,6 +47,9 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
             Ok(value)
         } else if let Some(value) = env.contract_context.lookup_variable(name) {
             Ok(value)
+        }  else if let Some(value) = context.callable_contracts.get(name) {
+            let contract_identifier = &value.0;
+            Ok(Value::Principal(PrincipalData::Contract(contract_identifier.clone())))
         } else {
             Err(CheckErrors::UndefinedVariable(name.to_string()).into())
         }
@@ -114,7 +117,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
 }
 
 pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &LocalContext) -> Result<Value> {
-    use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
+    use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 
     match exp.expr {
         AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
@@ -126,7 +129,8 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
                 .ok_or(CheckErrors::BadFunctionName)?;
             let f = lookup_function(&function_name, env)?;
             apply(&f, &rest, env, context)
-        }
+        },
+        TraitReference(_, _) | Field(_) => unreachable!("can't be evaluated"),
     }
 }
 
@@ -179,13 +183,20 @@ fn eval_all (expressions: &[SymbolicExpression],
             DefineResult::NonFungibleAsset(name, asset_type) => {
                 global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
             },
+            DefineResult::Trait(name, trait_type) => { 
+                contract_context.defined_traits.insert(name, trait_type);
+            },
+            DefineResult::UseTrait(_name, _trait_identifier) => {},
+            DefineResult::ImplTrait(trait_identifier) => {
+                contract_context.implemented_traits.insert(trait_identifier);
+            },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
                 global_context.execute(|global_context| {
                     let mut call_stack = CallStack::new();
                     let mut env = Environment::new(
                         global_context, contract_context, &mut call_stack, None, None);
-
+                    
                     let result = eval(exp, &mut env, &context)?;
                     last_executed = Some(result);
                     Ok(())
@@ -215,6 +226,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
     use vm::database::{MemoryBackingStore};
     use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression, CallStack};
     use vm::types::{TypeSignature, QualifiedContractIdentifier};
@@ -239,8 +251,11 @@ mod test {
                        SymbolicExpression::atom("x".into())]));
 
         let func_args = vec![("x".into(), TypeSignature::IntType)];
-        let user_function = DefinedFunction::new(func_args, func_body, DefineType::Private,
-                                                 &"do_work".into(), &"");
+        let user_function = DefinedFunction::new(func_args, 
+                                                 func_body, 
+                                                 DefineType::Private,
+                                                 &"do_work".into(), 
+                                                 &"");
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());

@@ -997,6 +997,66 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 "
 };
 
+const DEFINE_TRAIT_API: DefineAPI = DefineAPI {
+    input_type: "VarName, [MethodSignature]",
+    output_type: "Not Applicable",
+    signature: "(define-trait trait-name ((func1-name (arg1-type arg2-type ...) (return-type))))",
+    description: "`define-trait` is used to define a new trait definition for use in a smart contract. Other contracts 
+can implement a given trait and then have their contract identifier being passed as function arguments in order to be called 
+dynamically with `contract-call?`.
+
+Traits are defined with a name, and a list functions defined with a name, a list of argument types, and return type.
+
+Like other kinds of definition statements, `define-trait` may only be used at the top level of a smart contract
+definition (i.e., you cannot put a define statement in the middle of a function body).
+",
+    example: "
+(define-trait token-trait
+    ((transfer? (principal principal uint) (response uint uint))
+     (get-balance (principal) (response uint uint))))
+"
+};
+
+const USE_TRAIT_API: DefineAPI = DefineAPI {
+    input_type: "VarName, TraitIdentifier",
+    output_type: "Not Applicable",
+    signature: "(use-trait trait-alias trait-identifier)",
+    description: "`use-trait` is used to bring a trait, defined in another contract, to the current contract. Subsequent 
+references to an imported trait are signaled with the syntax <trait-alias>.
+
+Traits import are defined with a name, used as an alias, and a trait identifier. Trait identifiers can either be 
+using the sugared syntax (.token-a.token-trait), or be fully qualified ('SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait).
+
+Like other kinds of definition statements, `use-trait` may only be used at the top level of a smart contract
+definition (i.e., you cannot put such a statement in the middle of a function body).
+    ",
+    example: "
+(use-trait token-a-trait 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait)
+(define-public (forward-get-balance (user principal) (contract <token-a-trait>))
+  (begin
+    (ok 1)))
+"
+};
+
+const IMPL_TRAIT_API: DefineAPI = DefineAPI {
+    input_type: "TraitIdentifier",
+    output_type: "Not Applicable",
+    signature: "(impl-trait trait-identifier)",
+    description: "`impl-trait` can be use for asserting that a contract is fully implementing a given trait. 
+Additional checks are being performed when the contract is being published, rejecting the deployment if the
+contract is violating the trait specification.
+
+Trait identifiers can either be using the sugared syntax (.token-a.token-trait), or be fully qualified 
+('SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait).
+
+Like other kinds of definition statements, `impl-trait` may only be used at the top level of a smart contract
+definition (i.e., you cannot put such a statement in the middle of a function body).
+",
+    example: "
+(impl-trait 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait)
+"
+};
+
 const MINT_TOKEN: SpecialAPI = SpecialAPI {
     input_type: "TokenName, uint, principal",
     output_type: "(response bool uint)",
@@ -1266,6 +1326,9 @@ fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
         FungibleToken => make_for_define(&DEFINE_TOKEN_API, name),
         ReadOnlyFunction => make_for_define(&DEFINE_READ_ONLY_API, name),
         PersistedVariable => make_for_define(&DEFINE_DATA_VAR_API, name),
+        Trait => make_for_define(&DEFINE_TRAIT_API, name),
+        UseTrait => make_for_define(&USE_TRAIT_API, name),
+        ImplTrait => make_for_define(&IMPL_TRAIT_API, name),
     }
 }
 

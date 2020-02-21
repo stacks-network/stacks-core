@@ -129,6 +129,17 @@ pub enum CheckErrors {
     IllegalOrUnknownFunctionApplication(String),
     UnknownFunction(String),
 
+    // traits
+    TraitReferenceUnknown(String),
+    TraitMethodUnknown(String, String),
+    ExpectedTraitIdentifier,
+    ImportTraitBadSignature,
+    TraitReferenceNotAllowed,
+    BadTraitImplementation(String, String),
+    DefineTraitBadSignature,
+    UnexpectedTraitOrFieldReference,
+    TraitBasedContractCallInReadOnly,
+
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly
 }
@@ -312,6 +323,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::TooManyExpressions => format!("reached limit of expressions"),
             CheckErrors::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{}", function_name),
             CheckErrors::UnknownFunction(function_name) => format!("use of unresolved function '{}'", function_name),
+            CheckErrors::TraitBasedContractCallInReadOnly => format!("use of trait based contract calls are not allowed in read-only context"),
             CheckErrors::WriteAttemptedInReadOnly => format!("expecting read-only statements, detected a writing operation"),
             CheckErrors::AtBlockClosureMustBeReadOnly => format!("(at-block ...) closures expect read-only statements, but detected a writing operation"),
             CheckErrors::BadTokenName => format!("expecting an token name as an argument"),
@@ -319,6 +331,14 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::DefineNFTBadSignature => format!("(define-asset ...) expects an asset name and an asset identifier type signature as arguments"),
             CheckErrors::NoSuchNFT(asset_name) => format!("tried to use asset function with a undefined asset ('{}')", asset_name),
             CheckErrors::NoSuchFT(asset_name) => format!("tried to use token function with a undefined token ('{}')", asset_name),
+            CheckErrors::TraitReferenceUnknown(trait_name) => format!("use of undeclared trait <{}>", trait_name),
+            CheckErrors::TraitMethodUnknown(trait_name, func_name) => format!("method '{}' unspecified in trait <{}>", func_name, trait_name),
+            CheckErrors::ImportTraitBadSignature => format!("(use-trait ...) expects a trait name and a trait identifier"),
+            CheckErrors::BadTraitImplementation(trait_name, func_name) => format!("invalid signature for method '{}' regarding trait's specification <{}>", func_name, trait_name),
+            CheckErrors::ExpectedTraitIdentifier => format!("expecting expression of type trait identifier"),
+            CheckErrors::UnexpectedTraitOrFieldReference => format!("unexpected use of trait reference or field"),
+            CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
+            CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },
@@ -329,6 +349,7 @@ impl DiagnosableError for CheckErrors {
         match &self {
             CheckErrors::BadSyntaxBinding => Some(format!("binding syntax example: ((supply int) (ttl int))")),
             CheckErrors::BadLetSyntax => Some(format!("'let' syntax example: (let ((supply 1000) (ttl 60)) <next-expression>)")),
+            CheckErrors::TraitReferenceUnknown(_) => Some(format!("traits should be either defined, with define-trait, or imported, with use-trait.")),
             CheckErrors::NoSuchBlockInfoProperty(_) => Some(format!("properties available: time, header-hash, burnchain-header-hash, vrf-seed")),
             _ => None
         }
