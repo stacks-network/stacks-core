@@ -148,7 +148,7 @@ the trait. The cost of this check is:
 ```
 read_count = 2
 read_length = trait_size + contract_size
-runtime*cost = a*(contract_size) + b*(trait_size) + c
+runtime_cost = a*(contract_size) + b*(trait_size) + c
 ```
 
 This check needs to read the trait, and then validate that the supplied
@@ -614,7 +614,7 @@ is chosen by the match. In static analysis, this will be:
 
 These check functions all have constant cost.
 
-### unwrap, unwrap-err, unwrap-panic, unwrap-err-panic
+### unwrap, unwrap-err, unwrap-panic, unwrap-err-panic, try!
 
 These functions all have constant cost.
 
