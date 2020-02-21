@@ -335,7 +335,14 @@ fn test_readwrite_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
     {
         let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
-        env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap();
+        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap_err();
+        match err_result {
+            Error::Unchecked(CheckErrors::TraitBasedContractCallInReadOnly) => {},
+            _ => {
+                panic!("{:?}", err_result)
+            }
+        }
+
     }
 }
 
@@ -361,7 +368,7 @@ fn test_readwrite_violation_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap_err();
         match err_result {
-            Error::Unchecked(CheckErrors::WriteAttemptedInReadOnly) => {},
+            Error::Unchecked(CheckErrors::TraitBasedContractCallInReadOnly) => {},
             _ => {
                 panic!("{:?}", err_result)
             }

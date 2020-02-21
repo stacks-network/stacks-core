@@ -60,12 +60,14 @@ pub fn special_contract_call(args: &[SymbolicExpression],
                         let function_to_check = contract_context_to_check.lookup_function(function_name)
                             .ok_or(CheckErrors::BadTraitImplementation(trait_name.clone(), function_name.to_string()))?;
                         
-                        // Check read/write compatibilty: if we are in a readonly context, then the next function should be readonly.
-                        // Otherwise the method should be public
-                        match (env.global_context.is_read_only(), &function_to_check.define_type) {
-                            (_, DefineType::Private) => return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), function_name.to_string()).into()),
-                            (true, DefineType::Public) => return Err(CheckErrors::WriteAttemptedInReadOnly.into()),
-                            (_, DefineType::ReadOnly) | (false, DefineType::Public) => { /* all clear */ },
+                        // Check read/write compatibility
+                        if env.global_context.is_read_only() {
+                            return Err(CheckErrors::TraitBasedContractCallInReadOnly.into());
+                        }
+                        
+                        // Check visibility
+                        if function_to_check.define_type == DefineType::Private {
+                            return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), function_name.to_string()).into());
                         }
 
                         function_to_check.check_trait_expectations(&contract_context_defining_trait, &trait_identifier)?;

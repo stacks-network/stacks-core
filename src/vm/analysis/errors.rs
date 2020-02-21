@@ -138,6 +138,7 @@ pub enum CheckErrors {
     BadTraitImplementation(String, String),
     DefineTraitBadSignature,
     UnexpectedTraitOrFieldReference,
+    TraitBasedContractCallInReadOnly,
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly
@@ -322,6 +323,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::TooManyExpressions => format!("reached limit of expressions"),
             CheckErrors::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{}", function_name),
             CheckErrors::UnknownFunction(function_name) => format!("use of unresolved function '{}'", function_name),
+            CheckErrors::TraitBasedContractCallInReadOnly => format!("use of trait based contract calls are not allowed in read-only context"),
             CheckErrors::WriteAttemptedInReadOnly => format!("expecting read-only statements, detected a writing operation"),
             CheckErrors::AtBlockClosureMustBeReadOnly => format!("(at-block ...) closures expect read-only statements, but detected a writing operation"),
             CheckErrors::BadTokenName => format!("expecting an token name as an argument"),
