@@ -360,7 +360,7 @@ fn test_dynamic_dispatch_unknown_method() {
 }
 
 #[test]
-fn test_nested_literal_implicitely_compliant() {
+fn test_nested_literal_implicitly_compliant() {
     let dispatching_contract_src =
         "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
