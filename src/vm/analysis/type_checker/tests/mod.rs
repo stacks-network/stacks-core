@@ -1,4 +1,5 @@
-use vm::ast::parse;
+use vm::ast::{parse, build_ast};
+use vm::ast::errors::ParseErrors;
 use vm::representations::SymbolicExpression;
 use vm::analysis::type_checker::{TypeResult, TypeChecker, TypingContext};
 use vm::analysis::{AnalysisDatabase};
@@ -51,6 +52,84 @@ fn test_get_block_info(){
     
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_define_trait(){
+    let good = [
+        "(define-trait trait-1 ((get-1 (uint) (response uint uint))))",
+        "(define-trait trait-1 ((get-1 () (response uint (buff 32)))))",
+        "(define-trait trait-1 ((get-1 () (response (buff 32) (buff 32)))))"];
+
+    for good_test in good.iter() {
+        mem_type_check(&good_test).unwrap();
+    }
+            
+    let bad = [
+        "(define-trait trait-1 ((get-1 uint)))",
+        "(define-trait trait-1 ((get-1 uint uint)))",
+        "(define-trait trait-1 ((get-1 (uint) (uint))))",
+        "(define-trait trait-1 ((get-1 (response uint uint))))",
+        "(define-trait trait-1)",
+        "(define-trait)"];
+    let bad_expected = [
+        CheckErrors::InvalidTypeDescription,
+        CheckErrors::DefineTraitBadSignature,
+        CheckErrors::DefineTraitBadSignature,
+        CheckErrors::InvalidTypeDescription];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+
+    let bad = [
+        "(define-trait trait-1)",
+        "(define-trait)"];
+    let bad_expected = [
+        ParseErrors::DefineTraitBadSignature,
+        ParseErrors::DefineTraitBadSignature];
+
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        let res = build_ast(&contract_identifier, bad_test).unwrap_err();
+        assert_eq!(expected, &res.err);
+    }
+}
+
+#[test]
+fn test_use_trait(){
+    let bad = [
+        "(use-trait trait-1 ((get-1 (uint) (response uint uint))))",
+        "(use-trait trait-1 ((get-1 uint)))",
+        "(use-trait trait-1)",
+        "(use-trait)"];
+    let bad_expected = [
+        ParseErrors::ImportTraitBadSignature,
+        ParseErrors::ImportTraitBadSignature,
+        ParseErrors::ImportTraitBadSignature,
+        ParseErrors::ImportTraitBadSignature];
+    
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        let res = build_ast(&contract_identifier, bad_test).unwrap_err();
+        assert_eq!(expected, &res.err);
+    }
+}
+
+#[test]
+fn test_impl_trait(){
+    let bad = [
+        "(impl-trait trait-1)",
+        "(impl-trait)"];
+    let bad_expected = [
+        ParseErrors::ImplTraitBadSignature,
+        ParseErrors::ImplTraitBadSignature];
+    
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        let res = build_ast(&contract_identifier, bad_test).unwrap_err();
+        assert_eq!(expected, &res.err);
     }
 }
 
@@ -231,6 +310,27 @@ fn test_at_block(){
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
     }
 }
+
+#[test]
+fn test_trait_reference_unknown(){
+    let bad = [("(+ 1 <kvstore>)", ParseErrors::TraitReferenceUnknown("kvstore".to_string()))];
+    
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    for (bad_test, expected) in bad.iter() {
+        let res = build_ast(&contract_identifier, bad_test).unwrap_err();
+        assert_eq!(expected, &res.err);
+    }
+}
+
+#[test]
+fn test_unexpected_use_of_field_or_trait_reference(){
+    let bad = [("(+ 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract.field)", CheckErrors::UnexpectedTraitOrFieldReference)];
+    
+    for (bad_test, expected) in bad.iter() {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
 
 #[test]
 fn test_simple_arithmetic_checks() {

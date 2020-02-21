@@ -1,7 +1,7 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError, 
                  IncomparableError, Error as ClarityError, CheckErrors};
 use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, BufferLength,
-                TypeSignature, TupleData, QualifiedContractIdentifier, ResponseData};
+                TypeSignature, TupleData, QualifiedContractIdentifier, TraitIdentifier, ResponseData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 use vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 
@@ -127,7 +127,7 @@ impl From<&Value> for TypePrefix {
             Optional(OptionalData{ data: None }) => TypePrefix::OptionalNone,
             Optional(OptionalData{ data: Some(_) }) => TypePrefix::OptionalSome,
             List(_) => TypePrefix::List,
-            Tuple(_) => TypePrefix::Tuple
+            Tuple(_) => TypePrefix::Tuple,
         }
     }
 }
@@ -302,7 +302,7 @@ impl Value {
                 };
 
                 Ok(Value::some(Value::deserialize_read(r, expect_contained_type)?))
-            }
+            },
             TypePrefix::List => {
                 let mut len = [0; 4];
                 r.read_exact(&mut len)?;
@@ -759,5 +759,4 @@ mod tests {
         test_bad_expectation(contract_p2, TypeSignature::BoolType);
         test_bad_expectation(standard_p, TypeSignature::BoolType);
     }
-
 }

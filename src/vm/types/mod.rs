@@ -35,7 +35,7 @@ pub struct ListData {
     pub type_signature: ListTypeData
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
 impl StandardPrincipalData {
@@ -45,7 +45,7 @@ impl StandardPrincipalData {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct QualifiedContractIdentifier {
     pub issuer: StandardPrincipalData,
     pub name: ContractName
@@ -114,6 +114,53 @@ pub struct ResponseData {
     pub data: Box<Value>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+pub struct TraitIdentifier {
+    pub name: ClarityName,
+    pub contract_identifier: QualifiedContractIdentifier,
+}
+
+impl TraitIdentifier {
+
+    pub fn new(issuer: StandardPrincipalData, contract_name: ContractName, name: ClarityName) -> TraitIdentifier {
+        Self { 
+            name, 
+            contract_identifier: QualifiedContractIdentifier {
+                issuer,
+                name: contract_name
+            }
+        }
+    }
+
+    pub fn parse_fully_qualified(literal: &str) -> Result<TraitIdentifier> {
+        let (issuer, contract_name, name) = Self::parse(literal)?;
+        let issuer = issuer.ok_or(RuntimeErrorType::BadTypeConstruction)?;
+        Ok(TraitIdentifier::new(issuer, contract_name, name))
+    }
+
+    pub fn parse_sugared_syntax(literal: &str) -> Result<(ContractName, ClarityName)> {
+        let (_ , contract_name, name) = Self::parse(literal)?;
+        Ok((contract_name, name))
+    }
+
+    pub fn parse(literal: &str) -> Result<(Option<StandardPrincipalData>, ContractName, ClarityName)> {
+        let split: Vec<_> = literal.splitn(3, ".").collect();
+        if split.len() != 3 {
+            return Err(RuntimeErrorType::ParseError(
+                "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
+        }
+
+        let issuer = match split[0].len() {
+            0 => None,
+            _ => Some(PrincipalData::parse_standard_principal(split[0])?),
+        };
+        let contract_name = split[1].to_string().try_into()?;
+        let name = split[2].to_string().try_into()?;
+
+        Ok((issuer, contract_name, name))
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     Int(i128),
@@ -124,7 +171,7 @@ pub enum Value {
     Principal(PrincipalData),
     Tuple(TupleData),
     Optional(OptionalData),
-    Response(ResponseData)
+    Response(ResponseData),
 }
 
 define_named_enum!(BlockInfoProperty {
@@ -364,6 +411,12 @@ impl fmt::Display for PrincipalData {
                 write!(f, "'{}.{}", contract_identifier.issuer, contract_identifier.name.to_string())
             }
         }
+    }
+}
+
+impl fmt::Display for TraitIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}.{}", self.contract_identifier, self.name.to_string())
     }
 }
 

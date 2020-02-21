@@ -190,31 +190,55 @@ fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], cont
 
 fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(2, args)?;
-    let contract_identifier = match args[0].expr {
-        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
-        _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
-    };
 
-    let function_name = args[1].match_atom()
+    let func_name = args[1].match_atom()
         .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
     checker.type_map.set_type(&args[1], no_type())?;
 
-    let contract_call_function_type = {
-        if let Some(function_type) = checker.db.get_public_function_type(&contract_identifier, function_name)? {
-            Ok(function_type)
-        } else if let Some(function_type) = checker.db.get_read_only_function_type(&contract_identifier, function_name)? {
-            Ok(function_type)
-        } else {
-            Err(CheckError::new(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(),
-                                                                  function_name.to_string())))
-        }
-    }?;
+    let (expected_args, expected_returns) = match &args[0].expr {
+        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => {
+            // Static dispatch
+            let contract_call_function = {
+                if let Some(FunctionType::Fixed(function)) = checker.db.get_public_function_type(&contract_identifier, func_name)? {
+                    Ok(function)
+                } else if let Some(FunctionType::Fixed(function)) = checker.db.get_read_only_function_type(&contract_identifier, func_name)? {
+                    Ok(function)
+                } else {
+                    Err(CheckError::new(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(),
+                                                                          func_name.to_string())))
+                }
+            }?;
 
-    let contract_call_args = checker.type_check_all(&args[2..], context)?;
+            let expected_args: Vec<TypeSignature> = contract_call_function.args.iter().map(|x| x.signature.clone()).collect();
+            let expected_returns = contract_call_function.returns;
+            (expected_args, expected_returns)
+        },
+        SymbolicExpressionType::Atom(trait_instance) => {
+            // Dynamic dispatch
+            let trait_id = match context.lookup_trait_reference_type(trait_instance) {
+                Some(trait_id) => trait_id,
+                _ => return Err(CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into())
+            };
+
+            let trait_signature = checker.contract_context.get_trait(&trait_id.name)
+                .ok_or(CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
+            let func_signature = trait_signature.get(func_name)
+                .ok_or(CheckErrors::TraitMethodUnknown(trait_id.name.to_string(), func_name.to_string()))?;
+
+            let expected_args = func_signature.args.clone();
+            let expected_returns = func_signature.returns.clone();
+            (expected_args, expected_returns)
+        }, 
+        _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
+    };
     
-    let return_type = contract_call_function_type.check_args(&contract_call_args)?;
-    
-    Ok(return_type)
+    let func_args: Vec<SymbolicExpression> = args[2..].to_vec();
+    check_argument_count(expected_args.len(), &func_args)?;
+    for (expected_type, arg) in expected_args.iter().zip(func_args.iter()) {
+        checker.type_check_expects(arg, context, expected_type)?;
+    }
+
+    Ok(expected_returns)
 }
 
 fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {

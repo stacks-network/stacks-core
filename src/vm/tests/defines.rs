@@ -1,6 +1,8 @@
 use vm::execute;
 use vm::errors::{CheckErrors, RuntimeErrorType, Error};
-use vm::types::{Value, TypeSignature};
+use vm::types::{Value, TypeSignature, QualifiedContractIdentifier};
+use vm::ast::build_ast;
+use vm::ast::errors::ParseErrors;
 
 fn assert_eq_err(e1: CheckErrors, e2: Error) {
     let e1: Error = e1.into();
@@ -155,7 +157,13 @@ fn test_recursive_panic() {
               (* a (factorial (- a 1)))))
          (factorial 10)";
 
-    assert_eq_err(CheckErrors::CircularReference(vec!["'S1G2081040G2081040G2081040G208105NK8PE5.__transient:factorial".into()]), execute(&tests).unwrap_err());
+    let err = build_ast(&QualifiedContractIdentifier::transient(), tests).unwrap_err();
+    match err.err {
+        ParseErrors::CircularReference(_) => {},
+        _ => {
+            panic!("{:?}", err)
+        }
+    }
 }
 
 #[test]

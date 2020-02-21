@@ -1,4 +1,4 @@
-use vm::representations::SymbolicExpression;
+use vm::representations::PreSymbolicExpression;
 use vm::diagnostic::{Diagnostic, DiagnosableError};
 use vm::types::{TypeSignature, TupleTypeSignature};
 use std::error;
@@ -19,15 +19,23 @@ pub enum ParseErrors {
     FailedParsingBuffer(String),
     FailedParsingHexValue(String, String),
     FailedParsingPrincipal(String),
+    FailedParsingField(String),
     FailedParsingRemainder(String),
     ClosingParenthesisUnexpected,
-    ClosingParenthesisExpected
+    ClosingParenthesisExpected,
+    CircularReference(Vec<String>),
+    NameAlreadyUsed(String),
+    TraitReferenceNotAllowed,
+    ImportTraitBadSignature,
+    DefineTraitBadSignature,
+    ImplTraitBadSignature,
+    TraitReferenceUnknown(String),
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ParseError {
     pub err: ParseErrors,
-    pub expressions: Option<Vec<SymbolicExpression>>,
+    pub pre_expressions: Option<Vec<PreSymbolicExpression>>,
     pub diagnostic: Diagnostic,
 }
 
@@ -36,23 +44,23 @@ impl ParseError {
         let diagnostic = Diagnostic::err(&err);
         ParseError {
             err,
-            expressions: None,
+            pre_expressions: None,
             diagnostic
         }
     }
 
-    pub fn has_expression(&self) -> bool {
-        self.expressions.is_some()
+    pub fn has_pre_expression(&self) -> bool {
+        self.pre_expressions.is_some()
     }
 
-    pub fn set_expression(&mut self, expr: &SymbolicExpression) {
+    pub fn set_pre_expression(&mut self, expr: &PreSymbolicExpression) {
         self.diagnostic.spans = vec![expr.span.clone()];
-        self.expressions.replace(vec![expr.clone()]);
+        self.pre_expressions.replace(vec![expr.clone()]);
     }
 
-    pub fn set_expressions(&mut self, exprs: Vec<SymbolicExpression>) {
+    pub fn set_pre_expressions(&mut self, exprs: Vec<PreSymbolicExpression>) {
         self.diagnostic.spans = exprs.iter().map(|e| e.span.clone()).collect();
-        self.expressions.replace(exprs.clone().to_vec());
+        self.pre_expressions.replace(exprs.clone().to_vec());
     }
 }
 
@@ -62,7 +70,7 @@ impl fmt::Display for ParseError {
             _ =>  write!(f, "{:?}", self.err)
         }?;
 
-        if let Some(ref e) = self.expressions {
+        if let Some(ref e) = self.pre_expressions {
             write!(f, "\nNear:\n{:?}", e)?;
         }
 
@@ -99,9 +107,17 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::FailedParsingHexValue(value, x) => format!("Invalid hex-string literal {}: {}", value, x),
             ParseErrors::FailedParsingPrincipal(value) => format!("Invalid principal literal: {}", value),
             ParseErrors::FailedParsingBuffer(value) => format!("Invalid buffer literal: {}", value),
+            ParseErrors::FailedParsingField(value) => format!("Invalid field literal: {}", value),
             ParseErrors::FailedParsingRemainder(remainder) => format!("Failed to lex input remainder: {}", remainder),
             ParseErrors::ClosingParenthesisUnexpected => format!("Tried to close list which isn't open."),
             ParseErrors::ClosingParenthesisExpected => format!("List expressions (..) left opened."),
+            ParseErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),
+            ParseErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
+            ParseErrors::ImportTraitBadSignature => format!("(use-trait ...) expects a trait name and a trait identifier"),
+            ParseErrors::DefineTraitBadSignature => format!("(define-trait ...) expects a trait name and a trait definition"),
+            ParseErrors::ImplTraitBadSignature => format!("(impl-trait ...) expects a trait identifier"),
+            ParseErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
+            ParseErrors::TraitReferenceUnknown(trait_name) => format!("use of undeclared trait <{}>", trait_name),
         }
     }
 

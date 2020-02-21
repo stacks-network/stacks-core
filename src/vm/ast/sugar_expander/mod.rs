@@ -1,20 +1,23 @@
 use std::convert::TryInto;
-use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, SymbolicExpression, SymbolicExpressionType};
-use vm::types::{QualifiedContractIdentifier, Value, PrincipalData, StandardPrincipalData};
-use vm::ast::types::{ContractAST, BuildASTPass};
+use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, SymbolicExpression, SymbolicExpressionType, ClarityName};
+use vm::types::{QualifiedContractIdentifier, Value, PrincipalData, StandardPrincipalData, TraitIdentifier};
+use vm::ast::types::{ContractAST, BuildASTPass, PreExpressionsDrain};
 use vm::ast::errors::{ParseResult, ParseError, ParseErrors};
 use vm::functions::NativeFunctions;
+use vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
+use std::collections::{HashMap, HashSet};
 
 pub struct SugarExpander {
-    issuer: StandardPrincipalData   
+    issuer: StandardPrincipalData,
+    defined_traits: HashSet<ClarityName>,
+    imported_traits: HashMap<ClarityName, TraitIdentifier>,
 }
 
 impl BuildASTPass for SugarExpander {
 
     fn run_pass(contract_ast: &mut ContractAST) -> ParseResult<()> {
         let pass = SugarExpander::new(contract_ast.contract_identifier.issuer.clone());
-        let expressions = pass.run(&mut contract_ast.pre_expressions);
-        contract_ast.expressions = expressions;
+        pass.run(contract_ast)?;
         Ok(())
     }
 }
@@ -22,17 +25,23 @@ impl BuildASTPass for SugarExpander {
 impl SugarExpander {
 
     fn new(issuer: StandardPrincipalData) -> Self {
-        Self { issuer }
+        Self { 
+            issuer,
+            defined_traits: HashSet::new(),
+            imported_traits: HashMap::new(),
+     }
     }
 
-    pub fn run(&self, pre_expressions: &mut Vec<PreSymbolicExpression>) -> Vec<SymbolicExpression> {
-        self.transform(pre_expressions)
+    pub fn run(&self, contract_ast: &mut ContractAST) -> ParseResult<()> {
+        let expressions = self.transform(contract_ast.pre_expressions_drain(), contract_ast)?;
+        contract_ast.expressions = expressions;
+        Ok(())
     }
 
-    pub fn transform(&self, pre_expressions: &mut Vec<PreSymbolicExpression>) -> Vec<SymbolicExpression> {
+    pub fn transform(&self, pre_exprs_iter: PreExpressionsDrain, contract_ast: &mut ContractAST) -> ParseResult<Vec<SymbolicExpression>> {
         let mut expressions = Vec::new();
-        for pre_expr in pre_expressions.drain(..) {
 
+        for pre_expr in pre_exprs_iter {
             let mut expr = match pre_expr.pre_expr {
                 PreSymbolicExpressionType::AtomValue(content) => {
                     SymbolicExpression::literal_value(content)
@@ -40,19 +49,35 @@ impl SugarExpander {
                 PreSymbolicExpressionType::Atom(content) => {
                     SymbolicExpression::atom(content)
                 },
-                PreSymbolicExpressionType::UnexpandedContractName(contract_name) => {
+                PreSymbolicExpressionType::List(pre_exprs) => {
+                    let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
+                    let expression = self.transform(drain, contract_ast)?;
+                    SymbolicExpression::list(expression.into_boxed_slice())
+                }
+                PreSymbolicExpressionType::SugaredContractIdentifier(contract_name) => {
                     let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name);
                     SymbolicExpression::literal_value(Value::Principal(PrincipalData::Contract(contract_identifier)))
                 },
-                PreSymbolicExpressionType::List(pre_exprs) => {
-                    let exprs = self.transform(&mut pre_exprs.to_vec());
-                    SymbolicExpression::list(exprs.into_boxed_slice())
-                }
+                PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, name) => {
+                    let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name);
+                    SymbolicExpression::field(TraitIdentifier { name, contract_identifier})
+                },
+                PreSymbolicExpressionType::FieldIdentifier(trait_identifier) => {
+                    SymbolicExpression::field(trait_identifier)
+                },
+                PreSymbolicExpressionType::TraitReference(name) => {
+                    if let Some(trait_reference) = contract_ast.get_referenced_trait(&name) {
+                        SymbolicExpression::trait_reference(name, trait_reference.clone())
+                    }  else {
+                        return Err(ParseErrors::TraitReferenceUnknown(name.to_string()).into())
+                    }                    
+                },
             };
+            expr.id = pre_expr.id;
             expr.span = pre_expr.span.clone();
             expressions.push(expr);
         }
-        expressions
+        Ok(expressions)
     }
 }
 
@@ -65,6 +90,7 @@ mod test {
     use vm::types::{QualifiedContractIdentifier, PrincipalData};
     use vm::ast::errors::{ParseErrors, ParseError};
     use vm::ast::sugar_expander::SugarExpander;
+    use vm::ast::types::{ContractAST};
 
     fn make_pre_atom(x: &str, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::atom(x.into());
@@ -84,8 +110,8 @@ mod test {
         e
     }
 
-    fn make_unexpanded_contract_name(x: ContractName, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> PreSymbolicExpression {
-        let mut e = PreSymbolicExpression::unexpanded_contract_name(x);
+    fn make_sugared_contract_identifier(x: ContractName, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> PreSymbolicExpression {
+        let mut e = PreSymbolicExpression::sugared_contract_identifier(x);
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
@@ -116,7 +142,7 @@ mod test {
 
     #[test]
     fn test_transform_pre_ast() {
-        let mut pre_ast = vec![
+        let pre_ast = vec![
             make_pre_atom("z", 1, 1, 1, 1),
             make_pre_list(1, 3, 6, 11, Box::new([
                 make_pre_atom("let", 1, 4, 1, 6),
@@ -175,19 +201,23 @@ mod test {
         ];
 
         let contract_id = QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.contract-a").unwrap();
+        let mut contract_ast = ContractAST::new(contract_id.clone(), pre_ast);
         let expander = SugarExpander::new(contract_id.issuer);
-        assert_eq!(expander.run(&mut pre_ast), ast, "Should match expected symbolic expression");
+        expander.run(&mut contract_ast);
+        assert_eq!(contract_ast.expressions, ast, "Should match expected symbolic expression");
     }
 
     #[test]
-    fn test_transform_unexpanded_contract_name() {
+    fn test_transform_sugared_contract_identifier() {
         let contract_name = "tokens".into();
-        let mut pre_ast = vec![make_unexpanded_contract_name(contract_name, 1, 1, 1, 1)];
+        let pre_ast = vec![make_sugared_contract_identifier(contract_name, 1, 1, 1, 1)];
         let unsugared_contract_id = QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.tokens").unwrap();
         let ast = vec![make_literal_value(Value::Principal(PrincipalData::Contract(unsugared_contract_id)), 1, 1, 1, 1)];
 
         let contract_id = QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.contract-a").unwrap();
+        let mut contract_ast = ContractAST::new(contract_id.clone(), pre_ast);
         let expander = SugarExpander::new(contract_id.issuer);
-        assert_eq!(expander.run(&mut pre_ast), ast, "Should match expected symbolic expression");
+        expander.run(&mut contract_ast);
+        assert_eq!(contract_ast.expressions, ast, "Should match expected symbolic expression");
     }
 }
