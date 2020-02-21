@@ -216,7 +216,7 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
         SymbolicExpressionType::Atom(trait_instance) => {
             // Dynamic dispatch
             let trait_id = match context.lookup_trait_reference_type(trait_instance) {
-                Some(TypeSignature::TraitReferenceType(trait_id)) => trait_id,
+                Some(trait_id) => trait_id,
                 _ => return Err(CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into())
             };
 

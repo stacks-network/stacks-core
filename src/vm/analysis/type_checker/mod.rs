@@ -378,7 +378,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         } else if let Some(type_result) = context.lookup_variable_type(name) {
             Ok(type_result.clone())
         } else if let Some(type_result) = context.lookup_trait_reference_type(name) {
-            Ok(type_result.clone())
+            Ok(TypeSignature::TraitReferenceType(type_result.clone()))
         } else {
             Err(CheckErrors::UndefinedVariable(name.to_string()).into())
         }
