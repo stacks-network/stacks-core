@@ -679,7 +679,7 @@ impl TypeSignature {
         }
     }
 
-    pub fn parse_trait_type_repr(type_args: &[SymbolicExpression]) -> Result<BTreeMap<ClarityName, FunctionSignature>> {
+    pub fn parse_trait_type_repr<A: CostTracker>(type_args: &[SymbolicExpression], accounting: &mut A) -> Result<BTreeMap<ClarityName, FunctionSignature>> {
 
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
         let functions_types = type_args[0].match_list().ok_or(CheckErrors::DefineTraitBadSignature)?;
@@ -697,12 +697,12 @@ impl TypeSignature {
             let fn_args_exprs = args[1].match_list().ok_or(CheckErrors::DefineTraitBadSignature)?;
             let mut fn_args = vec![];
             for arg_type in fn_args_exprs.iter() {
-                let arg_t = TypeSignature::parse_type_repr(&arg_type)?;
+                let arg_t = TypeSignature::parse_type_repr(&arg_type, accounting)?;
                 fn_args.push(arg_t);
             }
 
             // Extract function's type return - must be a response
-            let fn_return = match TypeSignature::parse_type_repr(&args[2]) {
+            let fn_return = match TypeSignature::parse_type_repr(&args[2], accounting) {
                 Ok(response) => match response {
                     TypeSignature::ResponseType(_) => Ok(response),
                     _ => Err(CheckErrors::DefineTraitBadSignature)

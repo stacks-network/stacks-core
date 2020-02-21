@@ -41,7 +41,7 @@ pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, Clarit
 pub use vm::contexts::MAX_CONTEXT_DEPTH;
 use std::convert::TryInto;
 
-const MAX_CALL_STACK_DEPTH: usize = 128;
+const MAX_CALL_STACK_DEPTH: usize = 64;
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {

@@ -435,7 +435,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
     fn type_check_define_trait(&mut self, trait_name: &ClarityName, function_types: &[SymbolicExpression], _context: &mut TypingContext) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
         
-        let trait_signature = TypeSignature::parse_trait_type_repr(&function_types)?;
+        let trait_signature = TypeSignature::parse_trait_type_repr(&function_types, &mut ())?;
 
         Ok((trait_name.clone(), trait_signature))
     } 

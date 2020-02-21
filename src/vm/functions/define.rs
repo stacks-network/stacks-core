@@ -145,10 +145,10 @@ fn handle_define_map(map_str: &ClarityName,
 
 fn handle_define_trait(name: &ClarityName,
                        functions: &[SymbolicExpression],
-                       env: &Environment) -> Result<DefineResult> {
+                       env: &mut Environment) -> Result<DefineResult> {
     check_legal_define(&name, &env.contract_context)?;
     
-    let trait_signature = TypeSignature::parse_trait_type_repr(&functions)?;
+    let trait_signature = TypeSignature::parse_trait_type_repr(&functions, env)?;
     
     Ok(DefineResult::Trait(name.clone(), trait_signature))
 }

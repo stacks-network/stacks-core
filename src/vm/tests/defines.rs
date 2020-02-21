@@ -128,20 +128,20 @@ fn test_define_read_only() {
 fn test_stack_depth() {
     let mut function_defines = Vec::new();
     function_defines.push("(define-private (foo-0 (x int)) (+ 1 x))".to_string());
-    for i in 1..129 {
+    for i in 1..65 {
         function_defines.push(
             format!("(define-private (foo-{} (x int)) (foo-{} (+ 1 x)))",
                     i, i-1));
     }
     function_defines.push(
-        format!("(foo-126 1)"));
+        format!("(foo-62 1)"));
 
     let test0 = function_defines.join("\n");
     function_defines.push(
-        format!("(foo-127 2)"));
+        format!("(foo-63 2)"));
     let test1 = function_defines.join("\n");
 
-    assert_eq!(Ok(Some(Value::Int(128))), execute(&test0));
+    assert_eq!(Ok(Some(Value::Int(64))), execute(&test0));
     assert!(match execute(&test1).unwrap_err() {
         Error::Runtime(RuntimeErrorType::MaxStackDepthReached, _) => true,
         _ => false
