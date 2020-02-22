@@ -112,10 +112,16 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
         env.call_stack.remove(&identifier, track_recursion)?;
         resp
     } else {
+        env.call_stack.insert(&identifier, track_recursion);
         let eval_tried: Result<Vec<Value>> =
             args.iter().map(|x| eval(x, env, context)).collect();
-        let evaluated_args = eval_tried?;
-        env.call_stack.insert(&identifier, track_recursion);
+        let evaluated_args = match eval_tried {
+            Ok(x) => x,
+            Err(e) => {
+                env.call_stack.remove(&identifier, track_recursion)?;
+                return Err(e)
+            }
+        };
         let mut resp = match function {
             CallableType::NativeFunction(_, function, cost_function) => {
                 let arg_size = evaluated_args.len();
@@ -261,6 +267,27 @@ mod test {
     use vm::callables::{DefinedFunction, DefineType};
     use vm::eval;
     use vm::costs::LimitedCostTracker;
+    use vm::execute;
+    use vm::errors::RuntimeErrorType;
+
+    #[test]
+    fn test_stack_depth() {
+        let program = "(+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
+                       (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
+                       (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
+                       (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
+                       (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
+                       1 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+                         1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+                         1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+                         1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+                         1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
+
+                      ";
+            assert_eq!(
+                execute(program).unwrap_err(),
+                RuntimeErrorType::MaxStackDepthReached.into());
+    }
 
     #[test]
     fn test_simple_user_function() {
