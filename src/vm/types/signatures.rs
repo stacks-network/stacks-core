@@ -2,13 +2,13 @@
 use std::hash::{Hash, Hasher};
 use std::{fmt, cmp};
 use std::convert::{TryFrom, TryInto};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use address::c32;
 use vm::costs::cost_functions;
 use vm::types::{Value, MAX_VALUE_SIZE, MAX_TYPE_DEPTH, WRAPPER_VALUE_SIZE,
-                QualifiedContractIdentifier, StandardPrincipalData};
-use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
+                QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName, TraitDefinition};
 use vm::errors::{RuntimeErrorType, CheckErrors, IncomparableError, Error as VMError};
 use util::hash;
 
@@ -62,11 +62,23 @@ pub enum TypeSignature {
     ListType(ListTypeData),
     TupleType(TupleTypeSignature),
     OptionalType(Box<TypeSignature>),
-    ResponseType(Box<(TypeSignature, TypeSignature)>)
+    ResponseType(Box<(TypeSignature, TypeSignature)>),
+    TraitReferenceType(TraitIdentifier),
 }
 
-use self::TypeSignature::{NoType, IntType, UIntType, BoolType, BufferType,
-                          PrincipalType, ListType, TupleType, OptionalType, ResponseType};
+use self::TypeSignature::{
+    NoType, 
+    IntType, 
+    UIntType, 
+    BoolType, 
+    BufferType,
+    PrincipalType, 
+    ListType, 
+    TupleType, 
+    OptionalType, 
+    ResponseType,
+    TraitReferenceType
+};
 
 pub const BUFF_64: TypeSignature = BufferType(BufferLength(64));
 pub const BUFF_32: TypeSignature = BufferType(BufferLength(32));
@@ -76,6 +88,12 @@ pub const BUFF_20: TypeSignature = BufferType(BufferLength(20));
 pub struct ListTypeData {
     max_len: u32,
     entry_type: Box<TypeSignature>
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FunctionSignature {
+    pub args: Vec<TypeSignature>,
+    pub returns: TypeSignature
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -384,6 +402,31 @@ impl TupleTypeSignature {
     }
 }
 
+impl FunctionSignature {
+
+    pub fn check_args_trait_compliance(&self, args: Vec<TypeSignature>) -> bool {
+        if args.len() != self.args.len() {
+            return false
+        }
+        let args_iter = self.args.iter().zip(args.iter());
+        for (expected_arg, arg) in args_iter {
+            match (expected_arg, arg) {
+                (TypeSignature::TraitReferenceType(expected), TypeSignature::TraitReferenceType(candidate)) => {
+                    if candidate != expected {
+                        return false
+                    }
+                }
+                _ => {
+                    if !arg.admits_type(&expected_arg) {
+                        return false
+                    }        
+                }
+            }
+        }
+        true
+    }
+}
+
 impl FunctionArg {
     pub fn new(signature: TypeSignature, name: ClarityName) -> FunctionArg {
         FunctionArg { signature, name }
@@ -606,7 +649,7 @@ impl TypeSignature {
         Ok(TypeSignature::new_option(inner_type)?)
     }
 
-    fn parse_response_type_repr<A: CostTracker>(type_args: &[SymbolicExpression], accounting: &mut A) -> Result<TypeSignature> {
+    pub fn parse_response_type_repr<A: CostTracker>(type_args: &[SymbolicExpression], accounting: &mut A) -> Result<TypeSignature> {
         if type_args.len() != 2 {
             return Err(CheckErrors::InvalidTypeDescription)
         }
@@ -639,8 +682,53 @@ impl TypeSignature {
                     Err(CheckErrors::InvalidTypeDescription)
                 }
             },
+            SymbolicExpressionType::TraitReference(_, ref trait_definition) => {
+                match trait_definition {
+                    TraitDefinition::Defined(trait_id) => Ok(TypeSignature::TraitReferenceType(trait_id.clone())),
+                    TraitDefinition::Imported(trait_id) => Ok(TypeSignature::TraitReferenceType(trait_id.clone())),
+                }
+            },
             _ => Err(CheckErrors::InvalidTypeDescription)
         }
+    }
+
+    pub fn parse_trait_type_repr<A: CostTracker>(type_args: &[SymbolicExpression], accounting: &mut A) -> Result<BTreeMap<ClarityName, FunctionSignature>> {
+
+        let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
+        let functions_types = type_args[0].match_list().ok_or(CheckErrors::DefineTraitBadSignature)?;
+
+        for function_type in functions_types.iter() {    
+            let args = function_type.match_list().ok_or(CheckErrors::DefineTraitBadSignature)?;
+            if args.len() != 3 {
+                return Err(CheckErrors::InvalidTypeDescription)
+            }
+
+            // Extract function's name
+            let fn_name = args[0].match_atom().ok_or(CheckErrors::DefineTraitBadSignature)?;
+
+            // Extract function's arguments
+            let fn_args_exprs = args[1].match_list().ok_or(CheckErrors::DefineTraitBadSignature)?;
+            let mut fn_args = vec![];
+            for arg_type in fn_args_exprs.iter() {
+                let arg_t = TypeSignature::parse_type_repr(&arg_type, accounting)?;
+                fn_args.push(arg_t);
+            }
+
+            // Extract function's type return - must be a response
+            let fn_return = match TypeSignature::parse_type_repr(&args[2], accounting) {
+                Ok(response) => match response {
+                    TypeSignature::ResponseType(_) => Ok(response),
+                    _ => Err(CheckErrors::DefineTraitBadSignature)
+                },
+                _ => Err(CheckErrors::DefineTraitBadSignature)
+            }?;
+
+            trait_signature.insert(fn_name.clone(), FunctionSignature {
+                args: fn_args,
+                returns: fn_return,
+            });
+        }
+        Ok(trait_signature)
     }
 }
 
@@ -682,9 +770,7 @@ impl TypeSignature {
             IntType => Some(16),
             UIntType => Some(16),
             BoolType => Some(1),
-            // TODO: This principal size isn't quite right.
-            //    it can be much larger due to contract principals.
-            PrincipalType => Some(21),
+            PrincipalType => Some(148), // 20+128
             BufferType(len) => Some(u32::from(len)),
             TupleType(tuple_sig) => tuple_sig.inner_size(),
             ListType(list_type) => list_type.inner_size(),
@@ -698,6 +784,7 @@ impl TypeSignature {
                 cmp::max(t_size, s_size)
                     .checked_add(WRAPPER_VALUE_SIZE)
             },
+            TraitReferenceType(_) => Some(276), // 20+128+128
         }
     }
 
@@ -722,6 +809,7 @@ impl TypeSignature {
                     .checked_add(s.type_size()?)?
                     .checked_add(1)
             },
+            TraitReferenceType(_) => Some(1),
         }
     }
 }
@@ -871,12 +959,13 @@ impl fmt::Display for TypeSignature {
             IntType => write!(f, "int"),
             UIntType => write!(f, "uint"),
             BoolType => write!(f, "bool"),
-            PrincipalType => write!(f, "principal"),
             BufferType(len) => write!(f, "(buff {})", len),
             OptionalType(t) => write!(f, "(optional {})", t),
             ResponseType(v) => write!(f, "(response {} {})", v.0, v.1),
             TupleType(t) => write!(f, "{}", t),
-            ListType(list_type_data) => write!(f, "(list {} {})", list_type_data.max_len, list_type_data.entry_type)
+            PrincipalType => write!(f, "principal"),
+            ListType(list_type_data) => write!(f, "(list {} {})", list_type_data.max_len, list_type_data.entry_type),
+            TraitReferenceType(trait_alias) => write!(f, "<{}>", trait_alias.to_string()),
         }
     }
 }

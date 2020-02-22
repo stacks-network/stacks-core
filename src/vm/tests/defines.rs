@@ -1,6 +1,8 @@
 use vm::execute;
 use vm::errors::{CheckErrors, RuntimeErrorType, Error};
-use vm::types::{Value, TypeSignature};
+use vm::types::{Value, TypeSignature, QualifiedContractIdentifier};
+use vm::ast::build_ast;
+use vm::ast::errors::ParseErrors;
 
 fn assert_eq_err(e1: CheckErrors, e2: Error) {
     let e1: Error = e1.into();
@@ -126,20 +128,20 @@ fn test_define_read_only() {
 fn test_stack_depth() {
     let mut function_defines = Vec::new();
     function_defines.push("(define-private (foo-0 (x int)) (+ 1 x))".to_string());
-    for i in 1..129 {
+    for i in 1..65 {
         function_defines.push(
             format!("(define-private (foo-{} (x int)) (foo-{} (+ 1 x)))",
                     i, i-1));
     }
     function_defines.push(
-        format!("(foo-126 1)"));
+        format!("(foo-62 1)"));
 
     let test0 = function_defines.join("\n");
     function_defines.push(
-        format!("(foo-127 2)"));
+        format!("(foo-63 2)"));
     let test1 = function_defines.join("\n");
 
-    assert_eq!(Ok(Some(Value::Int(128))), execute(&test0));
+    assert_eq!(Ok(Some(Value::Int(64))), execute(&test0));
     assert!(match execute(&test1).unwrap_err() {
         Error::Runtime(RuntimeErrorType::MaxStackDepthReached, _) => true,
         _ => false
@@ -155,7 +157,13 @@ fn test_recursive_panic() {
               (* a (factorial (- a 1)))))
          (factorial 10)";
 
-    assert_eq_err(CheckErrors::CircularReference(vec!["'S1G2081040G2081040G2081040G208105NK8PE5.__transient:factorial".into()]), execute(&tests).unwrap_err());
+    let err = build_ast(&QualifiedContractIdentifier::transient(), tests).unwrap_err();
+    match err.err {
+        ParseErrors::CircularReference(_) => {},
+        _ => {
+            panic!("{:?}", err)
+        }
+    }
 }
 
 #[test]

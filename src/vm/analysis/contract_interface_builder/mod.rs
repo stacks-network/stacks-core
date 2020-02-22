@@ -15,7 +15,8 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         map_types,
         fungible_tokens,
         non_fungible_tokens,
-        top_level_expression_sorting: _,
+        defined_traits: _,
+        implemented_traits: _,
         expressions: _,
         contract_identifier: _,
         type_map: _,
@@ -88,6 +89,7 @@ pub enum ContractInterfaceAtomType {
         type_f: Box<ContractInterfaceAtomType>, 
         length: u32, 
     },
+    trait_reference,
 }
 
 #[derive(Debug, Serialize)]
@@ -127,6 +129,7 @@ impl ContractInterfaceAtomType {
             UIntType => ContractInterfaceAtomType::uint128,
             BoolType => ContractInterfaceAtomType::bool,
             PrincipalType => ContractInterfaceAtomType::principal,
+            TraitReferenceType(_) => ContractInterfaceAtomType::trait_reference,
             BufferType(len) => ContractInterfaceAtomType::buffer { length: len.into() },
             TupleType(sig) => Self::from_tuple_type(sig),
             ListType(list_data) => {

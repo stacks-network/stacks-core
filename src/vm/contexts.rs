@@ -1,9 +1,10 @@
-use std::collections::{HashMap, HashSet, BTreeMap};
+use std::collections::{HashMap, HashSet, BTreeMap, BTreeSet};
 use std::fmt;
 use std::convert::TryInto;
 
 use vm::errors::{InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result};
-use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
+use vm::types::{Value, AssetIdentifier, PrincipalData, TraitIdentifier, QualifiedContractIdentifier, TypeSignature};
+use vm::types::signatures::{FunctionSignature};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase};
 use vm::representations::{SymbolicExpression, ClarityName, ContractName};
@@ -79,6 +80,12 @@ pub struct ContractContext {
     
     #[serde(serialize_with = "ordered_map_functions")]
     pub functions: HashMap<ClarityName, DefinedFunction>,
+
+    #[serde(serialize_with = "ordered_map_defined_traits")]
+    pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+
+    #[serde(serialize_with = "ordered_map_implemented_traits")]
+    pub implemented_traits: HashSet<TraitIdentifier>,
 }
 
 fn ordered_map_variables<S: serde::Serializer>(value: &HashMap<ClarityName, Value>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
@@ -91,9 +98,20 @@ fn ordered_map_functions<S: serde::Serializer>(value: &HashMap<ClarityName, Defi
     ordered.serialize(serializer)
 }
 
+fn ordered_map_defined_traits<S: serde::Serializer>(value: &HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
+}
+
+fn ordered_map_implemented_traits<S: serde::Serializer>(value: &HashSet<TraitIdentifier>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    let ordered: BTreeSet<_> = value.iter().collect();
+    ordered.serialize(serializer)
+}
+
 pub struct LocalContext <'a> {
     pub parent: Option< &'a LocalContext<'a>>,
     pub variables: HashMap<ClarityName, Value>,
+    pub callable_contracts: HashMap<ClarityName, (QualifiedContractIdentifier, TraitIdentifier)>,
     depth: u16
 }
 
@@ -586,7 +604,14 @@ impl <'a,'b> Environment <'a,'b> {
 
         let args = args?;
 
-        self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context)) 
+        let func_identifier = func.get_identifier();
+        if self.call_stack.contains(&func_identifier) {
+            return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
+        }
+        self.call_stack.insert(&func_identifier, true);
+        let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
+        self.call_stack.remove(&func_identifier, true)?;
+        res
     }
 
     pub fn execute_function_as_transaction(&mut self, function: &DefinedFunction, args: &[Value],
@@ -806,7 +831,9 @@ impl ContractContext {
         Self {
             contract_identifier,
             variables: HashMap::new(),
-            functions: HashMap::new()
+            functions: HashMap::new(),
+            defined_traits: HashMap::new(),
+            implemented_traits: HashSet::new(),
         }
     }
 
@@ -817,14 +844,23 @@ impl ContractContext {
     pub fn lookup_function(&self, name: &str) -> Option<DefinedFunction> {
         self.functions.get(name).cloned()
     }
+
+    pub fn lookup_trait_definition(&self, name: &str) -> Option<BTreeMap<ClarityName, FunctionSignature>> {
+        self.defined_traits.get(name).cloned()
+    }
+
+    pub fn is_explicitly_implementing_trait(&self, trait_identifier: &TraitIdentifier) -> bool {
+        self.implemented_traits.contains(trait_identifier)
+    }
 }
 
 impl <'a> LocalContext <'a> {
     pub fn new() -> LocalContext<'a> {
         LocalContext {
-            depth: 0,
             parent: Option::None,
+            callable_contracts: HashMap::new(),
             variables: HashMap::new(),
+            depth: 0,
         }
     }
 
@@ -838,8 +874,9 @@ impl <'a> LocalContext <'a> {
         } else {
             Ok(LocalContext {
                 parent: Some(self),
+                callable_contracts: HashMap::new(),
                 variables: HashMap::new(),
-                depth: self.depth + 1
+                depth: self.depth + 1,
             })
         }
     }

@@ -1,8 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use vm::{SymbolicExpression, ClarityName};
-use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
+use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier, TraitIdentifier};
+use vm::types::signatures::FunctionSignature;
 use vm::analysis::analysis_db::{AnalysisDatabase};
-use vm::analysis::errors::{CheckResult};
+use vm::analysis::errors::{CheckResult, CheckErrors};
 use vm::analysis::type_checker::contexts::TypeMap;
 
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
@@ -15,9 +16,6 @@ pub trait AnalysisPass {
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractAnalysis {
     pub contract_identifier: QualifiedContractIdentifier,
-    #[serde(skip)]
-    pub type_map: Option<TypeMap>,
-    // matt: is okay to let these new fields end up in the db?
     pub private_function_types: BTreeMap<ClarityName, FunctionType>,
     pub variable_types: BTreeMap<ClarityName, TypeSignature>,
     pub public_function_types: BTreeMap<ClarityName, FunctionType>,
@@ -26,10 +24,12 @@ pub struct ContractAnalysis {
     pub persisted_variable_types: BTreeMap<ClarityName, TypeSignature>,
     pub fungible_tokens: BTreeSet<ClarityName>,
     pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
-    #[serde(skip)]
-    pub top_level_expression_sorting: Option<Vec<usize>>,
+    pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    pub implemented_traits: BTreeSet<TraitIdentifier>,
     #[serde(skip)]
     pub expressions: Vec<SymbolicExpression>,
+    #[serde(skip)]
+    pub type_map: Option<TypeMap>,
 }
 
 impl ContractAnalysis {
@@ -44,9 +44,10 @@ impl ContractAnalysis {
             variable_types: BTreeMap::new(),
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
-            top_level_expression_sorting: Some(Vec::new()),
+            defined_traits: BTreeMap::new(),
+            implemented_traits: BTreeSet::new(),
             fungible_tokens: BTreeSet::new(),
-            non_fungible_tokens: BTreeMap::new()
+            non_fungible_tokens: BTreeMap::new(),
         }
     }
 
@@ -82,6 +83,14 @@ impl ContractAnalysis {
         self.fungible_tokens.insert(name);
     }
 
+    pub fn add_defined_trait(&mut self, name: ClarityName, function_types: BTreeMap<ClarityName, FunctionSignature>) {
+        self.defined_traits.insert(name, function_types);
+    }
+
+    pub fn add_implemented_trait(&mut self, trait_identifier: TraitIdentifier) {
+        self.implemented_traits.insert(trait_identifier);
+    }
+
     pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {
         self.public_function_types.get(name)
     }
@@ -106,40 +115,32 @@ impl ContractAnalysis {
         self.persisted_variable_types.get(name)
     }
 
-    pub fn expressions_iter(&self) -> ExpressionsIterator {
-        let expressions = &self.expressions[..];
-        let sorting = match self.top_level_expression_sorting {
-            Some(ref exprs_ids) => Some(exprs_ids[..].to_vec()),
-            None => None
-        };
-
-        ExpressionsIterator {
-            expressions: expressions,
-            sorting: sorting,
-            index: 0,
-        }
+    pub fn get_defined_trait(&self, name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+        self.defined_traits.get(name)
     }
-}
 
-pub struct ExpressionsIterator <'a> {
-    expressions: &'a [SymbolicExpression],
-    sorting: Option<Vec<usize>>,
-    index: usize,
-}
+    pub fn check_trait_compliance(&self, trait_identifier: &TraitIdentifier, trait_definition: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<()> {
 
-impl <'a> Iterator for ExpressionsIterator <'a> {
-    type Item = &'a SymbolicExpression;
+        let trait_name = trait_identifier.name.to_string(); 
 
-    fn next(&mut self) -> Option<&'a SymbolicExpression> {
-        if self.index >= self.expressions.len() {
-            return None;
+        for (func_name, expected_sig) in trait_definition.iter() {
+            match (self.get_public_function_type(func_name), self.get_read_only_function_type(func_name)) {
+                (Some(FunctionType::Fixed(func)), None) | (None, Some(FunctionType::Fixed(func))) => {
+
+                    let args_sig = func.args.iter().map(|a| a.signature.clone()).collect();
+                    if !expected_sig.check_args_trait_compliance(args_sig) {
+                        return Err(CheckErrors::BadTraitImplementation(trait_name.clone(), func_name.to_string()).into())
+                    }
+            
+                    if !expected_sig.returns.admits_type(&func.returns) {
+                        return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
+                    }
+                }
+                (_, _) => {
+                    return Err(CheckErrors::BadTraitImplementation(trait_name, func_name.to_string()).into())
+                }
+            }
         }
-        let expr_index = match self.sorting {
-            Some(ref indirections) => indirections[self.index],
-            None => self.index
-        };
-        let result = &self.expressions[expr_index];
-        self.index += 1;
-        Some(result)
+        Ok(())
     }
 }

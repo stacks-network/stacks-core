@@ -5,8 +5,8 @@ use regex::{Regex, Captures};
 use address::c32::c32_address_decode;
 use vm::ast::errors::{ParseResult, ParseErrors, ParseError};
 use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
-use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, ContractName};
-use vm::types::{Value, PrincipalData, QualifiedContractIdentifier};
+use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, ContractName, ClarityName, MAX_STRING_LEN};
+use vm::types::{Value, PrincipalData, TraitIdentifier, QualifiedContractIdentifier};
 
 pub const CONTRACT_MIN_NAME_LENGTH : usize = 5;
 pub const CONTRACT_MAX_NAME_LENGTH : usize = 40;
@@ -15,7 +15,10 @@ pub enum LexItem {
     LeftParen,
     RightParen,
     LiteralValue(usize, Value),
-    UnexpandedContractName(usize, ContractName),
+    SugaredContractIdentifier(usize, ContractName),
+    SugaredFieldIdentifier(usize, ContractName, ClarityName),
+    FieldIdentifier(usize, TraitIdentifier),
+    TraitReference(usize, ClarityName),
     Variable(String),
     Whitespace
 }
@@ -25,9 +28,11 @@ enum TokenType {
     LParens, RParens, Whitespace,
     StringLiteral, HexStringLiteral,
     UIntLiteral, IntLiteral, QuoteLiteral,
-    Variable, PrincipalLiteral,
-    QualifiedContractPrincipalLiteral,
-    UnexpandedContractNameLiteral
+    Variable, TraitReferenceLiteral, PrincipalLiteral,
+    SugaredContractIdentifierLiteral,
+    FullyQualifiedContractIdentifierLiteral,
+    SugaredFieldIdentifierLiteral,
+    FullyQualifiedFieldIdentifierLiteral,
 }
 
 struct LexMatcher {
@@ -75,12 +80,20 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
+        LexMatcher::new("<(?P<value>([[:word:]]|[-])+)>", TokenType::TraitReferenceLiteral),
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
-        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}})"#, CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::QualifiedContractPrincipalLiteral),
-        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}})"#, CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::UnexpandedContractNameLiteral),
+        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}}(\.)([[:alnum:]]|[-]){{1,{}}})"#, 
+            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH, MAX_STRING_LEN), 
+            TokenType::FullyQualifiedFieldIdentifierLiteral),
+        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}}(\.)([[:alnum:]]|[-]){{1,{}}})"#, 
+            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH, MAX_STRING_LEN), TokenType::SugaredFieldIdentifierLiteral),
+        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}})"#, 
+            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::FullyQualifiedContractIdentifierLiteral),
+        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}})"#, 
+            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::SugaredContractIdentifierLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("(?P<value>([[:word:]]|[-!?+<>=/*])+)", TokenType::Variable),
     ];
@@ -175,7 +188,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
-                    TokenType::QualifiedContractPrincipalLiteral => {
+                    TokenType::FullyQualifiedContractIdentifierLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match PrincipalData::parse_qualified_contract_principal(&str_value) {
                             Ok(parsed) => Ok(Value::Principal(parsed)),
@@ -183,13 +196,29 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
-                    TokenType::UnexpandedContractNameLiteral => {
+                    TokenType::SugaredContractIdentifierLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match str_value[1..].to_string().try_into() {
                             Ok(parsed) => Ok(parsed),
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone())))
                         }?;
-                        Ok(LexItem::UnexpandedContractName(str_value.len(), value))
+                        Ok(LexItem::SugaredContractIdentifier(str_value.len(), value))
+                    },
+                    TokenType::FullyQualifiedFieldIdentifierLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let value = match TraitIdentifier::parse_fully_qualified(&str_value) {
+                            Ok(parsed) => Ok(parsed),
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingField(str_value.clone())))
+                        }?;
+                        Ok(LexItem::FieldIdentifier(str_value.len(), value))
+                    },
+                    TokenType::SugaredFieldIdentifierLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let (contract_name, field_name) = match TraitIdentifier::parse_sugared_syntax(&str_value) {
+                            Ok((contract_name, field_name)) => Ok((contract_name, field_name)),
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingField(str_value.clone())))
+                        }?;
+                        Ok(LexItem::SugaredFieldIdentifier(str_value.len(), contract_name, field_name))
                     },
                     TokenType::PrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
@@ -198,6 +227,12 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone())))
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
+                    },
+                    TokenType::TraitReferenceLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let data = str_value.clone().try_into()
+                            .map_err(|_| { ParseError::new(ParseErrors::IllegalVariableName(str_value.to_string())) })?;
+                        Ok(LexItem::TraitReference(str_value.len(), data))
                     },
                     TokenType::HexStringLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
@@ -293,13 +328,13 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     Some((ref mut list, _, _)) => list.push(pre_expr)
                 };
             },
-            LexItem::UnexpandedContractName(length, value) => {
+            LexItem::SugaredContractIdentifier(length, value) => {
                 let mut end_column = column_pos + (length as u32);
                 // Avoid underflows on cases like empty strings
                 if length > 0 {
                     end_column = end_column - 1;
                 }
-                let mut pre_expr = PreSymbolicExpression::unexpanded_contract_name(value);
+                let mut pre_expr = PreSymbolicExpression::sugared_contract_identifier(value);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
 
                 match parse_stack.last_mut() {
@@ -307,6 +342,46 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     Some((ref mut list, _, _)) => list.push(pre_expr)
                 };
             },
+            LexItem::SugaredFieldIdentifier(length, contract_name, name) => {
+                let mut end_column = column_pos + (length as u32);
+                // Avoid underflows on cases like empty strings
+                if length > 0 {
+                    end_column = end_column - 1;
+                }
+                let mut pre_expr = PreSymbolicExpression::sugared_field_identifier(contract_name, name);
+                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
+
+                match parse_stack.last_mut() {
+                    None => output_list.push(pre_expr),
+                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                };
+            },
+            LexItem::FieldIdentifier(length, trait_identifier) => {
+                let mut end_column = column_pos + (length as u32);
+                // Avoid underflows on cases like empty strings
+                if length > 0 {
+                    end_column = end_column - 1;
+                }
+                let mut pre_expr = PreSymbolicExpression::field_identifier(trait_identifier);
+                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
+
+                match parse_stack.last_mut() {
+                    None => output_list.push(pre_expr),
+                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                };
+            },
+            LexItem::TraitReference(_length, value) => {
+                let end_column = column_pos + (value.len() as u32) - 1;
+                let value = value.clone().try_into()
+                    .map_err(|_| { ParseError::new(ParseErrors::IllegalVariableName(value.to_string())) })?;
+                let mut pre_expr = PreSymbolicExpression::trait_reference(value);
+                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
+
+                match parse_stack.last_mut() {
+                    None => output_list.push(pre_expr),
+                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                };
+            }
             LexItem::Whitespace => ()
         };
     }
@@ -327,10 +402,11 @@ pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
 
 #[cfg(test)]
 mod test {
-    use vm::representations::{PreSymbolicExpression};
+    use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
     use vm::{Value, ast};
-    use vm::types::{QualifiedContractIdentifier};
+    use vm::types::{QualifiedContractIdentifier, PrincipalData};
     use vm::ast::errors::{ParseErrors, ParseError};
+    use vm::types::{TraitIdentifier};
 
     fn make_atom(x: &str, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::atom(x.into());
@@ -409,7 +485,6 @@ r#"z (let ((x 1) (y 2))
 
     #[test]
     fn test_parse_contract_principals() {
-        use vm::types::PrincipalData;
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract-a";
         let parsed = ast::parser::parse(&input).unwrap();
 
@@ -419,6 +494,49 @@ r#"z (let ((x 1) (y 2))
                 format!("{}", 
                     PrincipalData::Standard(identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
                     identifier.name == "contract-a".into()
+            },
+            _ => false
+        });
+    }
+
+    #[test]
+    fn test_parse_generics() {
+        let input = "<a>";
+        let parsed = ast::parser::parse(&input).unwrap();
+
+        let x1 = &parsed[0];
+        assert!( match x1.match_trait_reference() {
+            Some(trait_name) => *trait_name == "a".into(),
+            _ => false
+        });
+    }
+
+    #[test]
+    fn test_parse_field_identifiers() {
+        use vm::types::PrincipalData;
+        let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.my-contract.my-trait";
+        let parsed = ast::parser::parse(&input).unwrap();
+
+        let x1 = &parsed[0];
+        assert!( match x1.match_field_identifier() {
+            Some(data) => {
+                format!("{}", PrincipalData::Standard(data.contract_identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
+                    data.contract_identifier.name == "my-contract".into() &&
+                    data.name == "my-trait".into()
+            },
+            _ => false
+        });
+    }
+
+    #[test]
+    fn test_parse_sugared_field_identifiers() {
+        let input = ".my-contract.my-trait";
+        let parsed = ast::parser::parse(&input).unwrap();
+
+        let x1 = &parsed[0];
+        assert!( match &x1.pre_expr {
+            PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, field_name) => {
+                *contract_name == "my-contract".into() && *field_name == "my-trait".into()
             },
             _ => false
         });

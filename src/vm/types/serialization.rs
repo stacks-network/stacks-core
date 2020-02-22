@@ -115,7 +115,7 @@ impl From<&Value> for TypePrefix {
             Optional(OptionalData{ data: None }) => TypePrefix::OptionalNone,
             Optional(OptionalData{ data: Some(_) }) => TypePrefix::OptionalSome,
             List(_) => TypePrefix::List,
-            Tuple(_) => TypePrefix::Tuple
+            Tuple(_) => TypePrefix::Tuple,
         }
     }
 }
@@ -299,7 +299,7 @@ impl Value {
                     .map_err(|_x| "Value too large")?;
 
                 Ok(value)
-            }
+            },
             TypePrefix::List => {
                 let mut len = [0; 4];
                 r.read_exact(&mut len)?;
@@ -781,5 +781,4 @@ mod tests {
         test_bad_expectation(contract_p2, TypeSignature::BoolType);
         test_bad_expectation(standard_p, TypeSignature::BoolType);
     }
-
 }
