@@ -572,7 +572,11 @@ impl StacksChainState {
 
     /// Install the boot code into the chain history.
     /// TODO: instantiate all account balances as well.
-    fn install_boot_code(chainstate: &mut StacksChainState, mainnet: bool, additional_boot_code_contract_names: &Vec<String>, additional_boot_code: &Vec<String>) -> Result<(), Error> {
+    fn install_boot_code(chainstate: &mut StacksChainState, 
+                         mainnet: bool, 
+                         additional_boot_code_contract_names: &Vec<String>, 
+                         additional_boot_code: &Vec<String>, 
+                         initial_balances: &Vec<(PrincipalData, u64)>) -> Result<(), Error> {
         assert_eq!(STACKS_BOOT_CODE.len(), STACKS_BOOT_CODE_CONTRACT_NAMES.len());
         assert_eq!(additional_boot_code_contract_names.len(), additional_boot_code.len());
         
@@ -630,6 +634,10 @@ impl StacksChainState {
                 boot_code_account.nonce += 1;
             }
 
+            for (address, amount) in initial_balances {
+                StacksChainState::account_credit(&mut clarity_tx, address, *amount);
+            }
+
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
         
@@ -675,8 +683,8 @@ impl StacksChainState {
 
         Ok(())
     }
-    
-    pub fn open(mainnet: bool, chain_id: u32, path_str: &str) -> Result<StacksChainState, Error> {
+
+    pub fn do_open(mainnet: bool, chain_id: u32, path_str: &str, initial_balances: &Vec<(PrincipalData, u64)>) -> Result<StacksChainState, Error> {
         let mut path = PathBuf::from(path_str);
 
         let chain_id_str = 
@@ -748,10 +756,18 @@ impl StacksChainState {
         };
 
         if !index_exists {
-            StacksChainState::install_boot_code(&mut chainstate, mainnet, &vec![], &vec![])?;
+            StacksChainState::install_boot_code(&mut chainstate, mainnet, &vec![], &vec![], &initial_balances)?;
         }
 
         Ok(chainstate)
+    }
+    
+    pub fn open(mainnet: bool, chain_id: u32, path_str: &str) -> Result<StacksChainState, Error> {
+        StacksChainState::do_open(mainnet, chain_id, path_str, &vec![])
+    }
+
+    pub fn open_testnet(chain_id: u32, path_str: &str, initial_balances: &Vec<(PrincipalData, u64)>) -> Result<StacksChainState, Error> {        
+        StacksChainState::do_open(false, chain_id, path_str, initial_balances)
     }
 
     pub fn config(&self) -> DBConfig {

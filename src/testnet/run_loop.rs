@@ -24,7 +24,7 @@ impl RunLoop {
         let mut nodes = vec![]; 
         let mut nodes_confs = config.node_config.clone();
         for conf in nodes_confs.drain(..) {
-            let node = Node::new(conf, config.burnchain_block_time);
+            let node = Node::new(conf, config.genesis_config.clone(), config.burnchain_block_time);
             nodes.push(node);
         }
 

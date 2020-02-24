@@ -182,23 +182,36 @@ fn main() {
         use testnet;
         use rand::RngCore;
         use util::hash::{to_hex};
-        
+        use blockstack_lib::burnchains::Address;
+        use vm::types::PrincipalData;
+
         // Testnet's name
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 8];
         rng.fill_bytes(&mut buf);
         let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
-        
+
+        // {
+        //     secretKey: "f5f94d5c6e99ecb014babfb28341ec215b1f574de993eb55d08bf9d367e2252a01",
+        //     publicKey: "032b882313e24f770374936c5f2998d7b39f1034686108c2644d7db5fb6c7cbd35",
+        //     stacksAddress: "ST1SYJMN6XXQRN4BVF4RV7VXNWNA6EWK934CJ6D9F"
+        // }
+
+        let genesis_config = testnet::GenesisConfig { initial_balances: vec![
+            (PrincipalData::parse_standard_principal("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT").unwrap().into(), 10000),
+            (PrincipalData::parse_standard_principal("ST1SYJMN6XXQRN4BVF4RV7VXNWNA6EWK934CJ6D9F").unwrap().into(), 5000)] };
+    
         let conf = testnet::Config {
             testnet_name: "testnet".to_string(),
             chain: "bitcoin".to_string(),
             burnchain_path: format!("/tmp/{}/burnchain", testnet_id),
-            burnchain_block_time: 2000,
+            burnchain_block_time: 5000,
             node_config: vec![testnet::NodeConfig {
                 name: "L1".to_string(),
                 path: format!("/tmp/{}/L1", testnet_id),
                 mem_pool_path: format!("/tmp/{}/L1/mempool", testnet_id)
-            }]
+            }],
+            genesis_config,
         };
         
         println!("Starting testnet...");

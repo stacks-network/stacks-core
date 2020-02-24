@@ -12,13 +12,21 @@ pub use self::node::{Node, SortitionedBlock};
 pub use self::burnchain::{BurnchainSimulator, BurnchainState};
 pub use self::tenure::{LeaderTenure};
 
+use vm::types::PrincipalData;
+
 #[derive(Clone)]
 pub struct Config {
     pub testnet_name: String,
     pub chain: String,
     pub burnchain_path: String,
     pub burnchain_block_time: u64,
-    pub node_config: Vec<NodeConfig>
+    pub node_config: Vec<NodeConfig>,
+    pub genesis_config: GenesisConfig,
+}
+
+#[derive(Clone)]
+pub struct GenesisConfig {
+    pub initial_balances: Vec<(PrincipalData, u64)>,
 }
 
 #[derive(Clone)]
