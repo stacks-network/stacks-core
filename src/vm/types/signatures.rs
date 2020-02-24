@@ -745,7 +745,7 @@ impl TypeSignature {
         match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            NoType | IntType | UIntType | BoolType | PrincipalType | BufferType(_) => 1,
+            TraitReferenceType(_) | NoType | IntType | UIntType | BoolType | PrincipalType | BufferType(_) => 1,
             TupleType(tuple_sig) => {
                 1 + tuple_sig.max_depth()
             },

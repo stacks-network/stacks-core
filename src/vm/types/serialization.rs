@@ -10,6 +10,7 @@ use std::convert::{TryFrom, TryInto};
 use std::collections::HashMap;
 use serde_json::{Value as JSONValue};
 use util::hash::{hex_bytes, to_hex};
+use util::retry::{BoundReader};
 
 use std::{error, fmt};
 use std::io::{Write, Read};
@@ -189,8 +190,17 @@ macro_rules! check_match {
 
 impl Value {
     pub fn deserialize_read<R: Read>(r: &mut R, expected_type: Option<&TypeSignature>) -> Result<Value, SerializationError> {
+        let mut bound_reader = BoundReader::from_reader(r, 2 * MAX_VALUE_SIZE as u64);
+        Value::inner_deserialize_read(&mut bound_reader, expected_type, 0)
+    }
+
+    fn inner_deserialize_read<R: Read>(r: &mut R, expected_type: Option<&TypeSignature>, depth: u8) -> Result<Value, SerializationError> {
         use super::Value::*;
         use super::PrincipalData::*;
+
+        if depth >= 16 {
+            return Err(CheckErrors::TypeSignatureTooDeep.into())
+        }
 
         let mut header = [0];
         r.read_exact(&mut header)?;
@@ -270,7 +280,7 @@ impl Value {
                     }
                 };
 
-                let data = Value::deserialize_read(r, expect_contained_type)?;
+                let data = Value::inner_deserialize_read(r, expect_contained_type, depth+1)?;
                 let value = if committed {
                     Value::okay(data)                        
                 } else {
@@ -295,7 +305,7 @@ impl Value {
                     }
                 };
 
-                let value = Value::some(Value::deserialize_read(r, expect_contained_type)?)
+                let value = Value::some(Value::inner_deserialize_read(r, expect_contained_type, depth + 1)?)
                     .map_err(|_x| "Value too large")?;
 
                 Ok(value)
@@ -323,7 +333,7 @@ impl Value {
 
                 let mut items = Vec::with_capacity(len as usize);
                 for _i in 0..len {
-                    items.push(Value::deserialize_read(r, entry_type)?);
+                    items.push(Value::inner_deserialize_read(r, entry_type, depth + 1)?);
                 }
 
                 if let Some(list_type) = list_type {
@@ -367,7 +377,7 @@ impl Value {
                                 .ok_or_else(|| SerializationError::DeserializeExpected(expected_type.unwrap().clone()))?)
                     };
 
-                    let value = Value::deserialize_read(r, expected_field_type)?;
+                    let value = Value::inner_deserialize_read(r, expected_field_type, depth + 1)?;
                     items.push((key, value))
                 }
 
