@@ -74,38 +74,10 @@ pub struct GlobalContext<'a> {
 #[derive(Serialize, Deserialize)]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
-    
-    #[serde(serialize_with = "ordered_map_variables")]
     pub variables: HashMap<ClarityName, Value>,
-    
-    #[serde(serialize_with = "ordered_map_functions")]
     pub functions: HashMap<ClarityName, DefinedFunction>,
-
-    #[serde(serialize_with = "ordered_map_defined_traits")]
     pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
-
-    #[serde(serialize_with = "ordered_map_implemented_traits")]
     pub implemented_traits: HashSet<TraitIdentifier>,
-}
-
-fn ordered_map_variables<S: serde::Serializer>(value: &HashMap<ClarityName, Value>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
-    let ordered: BTreeMap<_, _> = value.iter().collect();
-    ordered.serialize(serializer)
-}
-
-fn ordered_map_functions<S: serde::Serializer>(value: &HashMap<ClarityName, DefinedFunction>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
-    let ordered: BTreeMap<_, _> = value.iter().collect();
-    ordered.serialize(serializer)
-}
-
-fn ordered_map_defined_traits<S: serde::Serializer>(value: &HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
-    let ordered: BTreeMap<_, _> = value.iter().collect();
-    ordered.serialize(serializer)
-}
-
-fn ordered_map_implemented_traits<S: serde::Serializer>(value: &HashSet<TraitIdentifier>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
-    let ordered: BTreeSet<_> = value.iter().collect();
-    ordered.serialize(serializer)
 }
 
 pub struct LocalContext <'a> {
