@@ -571,6 +571,50 @@ mod test {
                 vec![0; (MAX_VALUE_SIZE+1) as usize]),
             Err(CheckErrors::ValueTooLarge.into()));
 
+        // Test that wrappers (okay, error, some)
+        //   correctly error when _they_ cause the value size
+        //   to exceed the max value size (note, the buffer constructor
+        //   isn't causing the error).
+        assert_eq!(
+            Value::okay(
+                Value::buff_from(
+                    vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
+            Err(CheckErrors::ValueTooLarge.into()));
+
+        assert_eq!(
+            Value::error(
+                Value::buff_from(
+                    vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
+            Err(CheckErrors::ValueTooLarge.into()));
+
+        assert_eq!(
+            Value::some(
+                Value::buff_from(
+                    vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
+            Err(CheckErrors::ValueTooLarge.into()));
+
+        // Test that the depth limit is correctly enforced:
+        //   for tuples, lists, somes, okays, errors.
+
+        let cons = || {
+            Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(
+                Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(
+                    Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(
+                        Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(
+                            Value::Int(1))?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?) };
+        let inner_value = cons().unwrap();
+        assert_eq!(TupleData::from_data(vec![("a".into(), inner_value.clone())]),
+                   Err(CheckErrors::TypeSignatureTooDeep.into()));
+
+        assert_eq!(Value::list_from(vec![inner_value.clone()]),
+                   Err(CheckErrors::TypeSignatureTooDeep.into()));
+        assert_eq!(Value::okay(inner_value.clone()),
+                   Err(CheckErrors::TypeSignatureTooDeep.into()));
+        assert_eq!(Value::error(inner_value.clone()),
+                   Err(CheckErrors::TypeSignatureTooDeep.into()));
+        assert_eq!(Value::some(inner_value.clone()),
+                   Err(CheckErrors::TypeSignatureTooDeep.into()));
+
         if std::env::var("CIRCLE_TESTING") == Ok("1".to_string()) {
             println!("Skipping allocation test on Circle");
             return;
