@@ -1,4 +1,5 @@
 use std::convert::{TryFrom, TryInto};
+use std::cmp;
 
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
@@ -7,6 +8,7 @@ use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty,
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{CheckErrors, InterpreterError, RuntimeErrorType, InterpreterResult as Result,
                  check_argument_count, check_arguments_at_least};
+use vm::costs::cost_functions;
 use vm::{eval, LocalContext, Environment};
 use vm::callables::{DefineType};
 use chainstate::burn::{BlockHeaderHash};
@@ -15,6 +17,11 @@ pub fn special_contract_call(args: &[SymbolicExpression],
                              env: &mut Environment,
                              context: &LocalContext) -> Result<Value> {
     check_arguments_at_least(2, args)?;
+
+    // the second part of the contract_call cost (i.e., the load contract cost)
+    //   is checked in `execute_contract`, and the function _application_ cost
+    //   is checked in callables::DefinedFunction::execute_apply.
+    runtime_cost!(cost_functions::CONTRACT_CALL, env, 0)?;
 
     let function_name = args[1].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
@@ -113,7 +120,15 @@ pub fn special_fetch_variable(args: &[SymbolicExpression],
     let var_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
-    env.global_context.database.lookup_variable(&env.contract_context.contract_identifier, var_name)
+    let contract = &env.contract_context.contract_identifier;
+
+    // optimization todo: db metadata like this should just get stored
+    //   in the contract object, so that it gets loaded in when the contract
+    //   is loaded from the db.
+    let data_types = env.global_context.database.load_variable(contract, var_name)?;
+    runtime_cost!(cost_functions::FETCH_VAR, env, data_types.value_type.size())?;
+
+    env.global_context.database.lookup_variable(contract, var_name)
 }
 
 pub fn special_set_variable(args: &[SymbolicExpression],
@@ -130,7 +145,15 @@ pub fn special_set_variable(args: &[SymbolicExpression],
     let var_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
-    env.global_context.database.set_variable(&env.contract_context.contract_identifier, var_name, value)
+    let contract = &env.contract_context.contract_identifier;
+
+    // optimization todo: db metadata like this should just get stored
+    //   in the contract object, so that it gets loaded in when the contract
+    //   is loaded from the db.
+    let data_types = env.global_context.database.load_variable(contract, var_name)?;
+    runtime_cost!(cost_functions::SET_VAR, env, data_types.value_type.size())?;
+
+    env.global_context.database.set_variable(contract, var_name, value)
 }
 
 pub fn special_fetch_entry(args: &[SymbolicExpression],
@@ -146,13 +169,24 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
         Explicit => eval(&args[1], env, &context)?
     };
 
-    env.global_context.database.fetch_entry(&env.contract_context.contract_identifier, map_name, &key)
+    let contract = &env.contract_context.contract_identifier;
+
+    // optimization todo: db metadata like this should just get stored
+    //   in the contract object, so that it gets loaded in when the contract
+    //   is loaded from the db.
+    let data_types = env.global_context.database.load_map(contract, map_name)?;
+    runtime_cost!(cost_functions::FETCH_ENTRY, env,
+                  data_types.value_type.size() + data_types.key_type.size())?;
+
+    env.global_context.database.fetch_entry(contract, map_name, &key)
 }
 
 pub fn special_at_block(args: &[SymbolicExpression],
                         env: &mut Environment,
                         context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
+
+    runtime_cost!(cost_functions::AT_BLOCK, env, 0)?;
 
     let bhh = match eval(&args[0], env, &context)? {
         Value::Buffer(BuffData { data }) => {
@@ -186,6 +220,13 @@ pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
         Explicit => eval(&args[2], env, &context)?
     };
 
+    // optimization todo: db metadata like this should just get stored
+    //   in the contract object, so that it gets loaded in when the contract
+    //   is loaded from the db.
+    let data_types = env.global_context.database.load_map(&contract_identifier, map_name)?;
+    runtime_cost!(cost_functions::FETCH_ENTRY, env,
+                  data_types.value_type.size() + data_types.key_type.size())?;
+
     env.global_context.database.fetch_entry(&contract_identifier, map_name, &key)
 }
 
@@ -211,7 +252,16 @@ pub fn special_set_entry(args: &[SymbolicExpression],
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
-    env.global_context.database.set_entry(&env.contract_context.contract_identifier, map_name, key, value)
+    let contract = &env.contract_context.contract_identifier;
+
+    // optimization todo: db metadata like this should just get stored
+    //   in the contract object, so that it gets loaded in when the contract
+    //   is loaded from the db.
+    let data_types = env.global_context.database.load_map(contract, map_name)?;
+    runtime_cost!(cost_functions::SET_ENTRY, env,
+                  data_types.value_type.size() + data_types.key_type.size())?;
+
+    env.global_context.database.set_entry(contract, map_name, key, value)
 }
 
 pub fn special_insert_entry(args: &[SymbolicExpression],
@@ -236,7 +286,16 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
-    env.global_context.database.insert_entry(&env.contract_context.contract_identifier, map_name, key, value)
+    let contract = &env.contract_context.contract_identifier;
+
+    // optimization todo: db metadata like this should just get stored
+    //   in the contract object, so that it gets loaded in when the contract
+    //   is loaded from the db.
+    let data_types = env.global_context.database.load_map(contract, map_name)?;
+    runtime_cost!(cost_functions::SET_ENTRY, env,
+                  data_types.value_type.size() + data_types.key_type.size())?;
+
+    env.global_context.database.insert_entry(contract, map_name, key, value)
 }
 
 pub fn special_delete_entry(args: &[SymbolicExpression],
@@ -256,7 +315,15 @@ pub fn special_delete_entry(args: &[SymbolicExpression],
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
-    env.global_context.database.delete_entry(&env.contract_context.contract_identifier, map_name, &key)
+    let contract = &env.contract_context.contract_identifier;
+
+    // optimization todo: db metadata like this should just get stored
+    //   in the contract object, so that it gets loaded in when the contract
+    //   is loaded from the db.
+    let data_types = env.global_context.database.load_map(contract, map_name)?;
+    runtime_cost!(cost_functions::SET_ENTRY, env, data_types.key_type.size())?;
+
+    env.global_context.database.delete_entry(contract, map_name, &key)
 }
 
 pub fn special_get_block_info(args: &[SymbolicExpression], 
@@ -264,6 +331,7 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
                               context: &LocalContext) -> Result<Value> {
 
     // (get-block-info? property-name block-height-int)
+    runtime_cost!(cost_functions::BLOCK_INFO, env, 0)?;
 
     check_argument_count(2, args)?;
 

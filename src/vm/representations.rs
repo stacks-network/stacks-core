@@ -228,6 +228,23 @@ pub enum TraitDefinition {
     Imported(TraitIdentifier)
 }
 
+pub fn depth_traverse<F,T,E>(expr: &SymbolicExpression, mut visit: F) -> Result<T, E>
+where F: FnMut(&SymbolicExpression) -> Result<T, E> {
+    let mut stack = vec![];
+    let mut last = None;
+    stack.push(expr);
+    while let Some(current) = stack.pop() {
+        last = Some(visit(current)?);
+        if let Some(list) = current.match_list() {
+            for item in list.iter() {
+                stack.push(item);
+            }
+        }
+    }
+
+    Ok(last.unwrap())
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct SymbolicExpression {
     pub expr: SymbolicExpressionType,

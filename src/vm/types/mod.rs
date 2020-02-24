@@ -462,6 +462,10 @@ impl TupleData {
         Ok(t)
     }
 
+    pub fn len(&self) -> u64 {
+        self.data_map.len() as u64
+    }
+
     pub fn from_data(mut data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();

@@ -3,12 +3,9 @@ use vm::types::{Value, TupleData, TypeSignature};
 use vm::representations::{SymbolicExpression,SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{List};
 use vm::{LocalContext, Environment, eval};
+use vm::costs::cost_functions;
 
 pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    // (tuple #arg-name value
-    //        #arg-name value ...)
-
-    // or actually:
     //    (tuple (arg-name value)
     //           (arg-name value))
     use super::parse_eval_bindings;
@@ -16,6 +13,7 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
     check_arguments_at_least(1, args)?;
 
     let bindings = parse_eval_bindings(args, env, context)?;
+    runtime_cost!(cost_functions::TUPLE_CONS, env, bindings.len())?;
 
     TupleData::from_data(bindings).map(Value::from)
 }
@@ -35,6 +33,7 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
             match opt_data.data {
                 Some(data) => {
                     if let Value::Tuple(tuple_data) = *data {
+                        runtime_cost!(cost_functions::TUPLE_GET, env, tuple_data.len())?;
                         Ok(Value::some(tuple_data.get_owned(arg_name)?))
                     } else {
                         Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&data)).into())
@@ -43,7 +42,10 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
                 None => Ok(Value::none()) // just pass through none-types.
             }
         },
-        Value::Tuple(tuple_data) => tuple_data.get_owned(arg_name),
+        Value::Tuple(tuple_data) => {
+            runtime_cost!(cost_functions::TUPLE_GET, env, tuple_data.len())?;
+            tuple_data.get_owned(arg_name)
+        },
         _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&value)).into())
     }
 }

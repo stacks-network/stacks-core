@@ -1,15 +1,29 @@
+use vm::costs::{cost_functions, CostOverflowingMath};
 use vm::errors::{CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
-use vm::types::{Value, TypeSignature::BoolType, TypeSignature};
+use vm::types::{Value, ListData, signatures::ListTypeData, TypeSignature::BoolType, TypeSignature};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::{LocalContext, Environment, eval, apply, lookup_function};
 use std::convert::TryInto;
 
-pub fn list_cons(args: &[Value]) -> Result<Value> {
-    Value::list_from(Vec::from(args))
+pub fn list_cons(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    let eval_tried: Result<Vec<Value>> =
+        args.iter().map(|x| eval(x, env, context)).collect();
+    let args = eval_tried?;
+
+    let mut arg_size = 0;
+    for a in args.iter() {
+        arg_size = arg_size.cost_overflow_add(a.size().into())?;
+    }
+
+    runtime_cost!(cost_functions::LIST_CONS, env, arg_size)?;
+
+    Value::list_from(args)
 }
 
-pub fn native_filter(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_filter(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
+
+    runtime_cost!(cost_functions::FILTER, env, 0)?;
 
     let function_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
@@ -53,8 +67,10 @@ pub fn native_filter(args: &[SymbolicExpression], env: &mut Environment, context
     }
 }
 
-pub fn native_fold(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_fold(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(3, args)?;
+
+    runtime_cost!(cost_functions::FILTER, env, 0)?;
 
     let function_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
@@ -81,8 +97,10 @@ pub fn native_fold(args: &[SymbolicExpression], env: &mut Environment, context: 
     })
 }
 
-pub fn native_map(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_map(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
+
+    runtime_cost!(cost_functions::MAP, env, 0)?;
 
     let function_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
@@ -107,26 +125,42 @@ pub fn native_map(args: &[SymbolicExpression], env: &mut Environment, context: &
     Value::list_from(mapped_vec?)
 }
 
-pub fn native_append(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_append(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let iterable = eval(&args[0], env, context)?;
     match iterable {
         Value::List(list) => {
-            let element = eval(&args[1], env, context)?;
-            let mut data_appended = list.data.clone();
-            data_appended.push(element);
-            Value::list_from(data_appended)
+            let element =  eval(&args[1], env, context)?;
+            let ListData { mut data, type_signature } = list;
+            let (entry_type, size) = type_signature.destruct();
+            runtime_cost!(cost_functions::APPEND, env, entry_type.size())?;
+            if entry_type.is_no_type() {
+                assert_eq!(size, 0);
+                Value::list_from(vec![ element ])
+            } else if !entry_type.admits(&element) {
+                Err(CheckErrors::TypeValueError(entry_type, element).into())
+            } else {
+                let next_type_signature = ListTypeData::new_list(entry_type, size + 1)?;
+                data.push(element);
+                Ok(Value::List(ListData {
+                    type_signature: next_type_signature,
+                    data }))
+            }
         },
         _ => Err(CheckErrors::ExpectedListApplication.into())
     }
 }
 
-pub fn native_concat(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_concat(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let lhs = eval(&args[0], env, context)?;
     let rhs = eval(&args[1], env, context)?;
+
+    runtime_cost!(cost_functions::CONCAT, env,
+                  u64::from(lhs.size()).cost_overflow_add(
+                      u64::from(rhs.size()))?)?;
 
     match (lhs, rhs) {
         (Value::List(lhs_data), Value::List(mut rhs_data)) => {
@@ -145,10 +179,12 @@ pub fn native_concat(args: &[SymbolicExpression], env: &mut Environment, context
     }
 }
 
-pub fn native_as_max_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+pub fn special_as_max_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
 
     let iterable = eval(&args[0], env, context)?;
+
+    runtime_cost!(cost_functions::AS_MAX_LEN, env, 0)?;
 
     if let Some(Value::UInt(expected_len)) = args[1].match_literal_value() {
         let iterable_len = match iterable {
@@ -167,10 +203,7 @@ pub fn native_as_max_len(args: &[SymbolicExpression], env: &mut Environment, con
     }
 }
 
-pub fn native_len(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    check_argument_count(1, args)?;
-    
-    let iterable = eval(&args[0], env, context)?;
+pub fn native_len(iterable: Value) -> Result<Value> {
     match iterable {
         Value::List(list) => Ok(Value::UInt(list.data.len() as u128)),
         Value::Buffer(buff) => Ok(Value::UInt(buff.data.len() as u128)),

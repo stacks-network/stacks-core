@@ -6,6 +6,7 @@ use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
 use vm::types::{TypeSignature, BuffData, QualifiedContractIdentifier};
 use vm::ast::parse;
+use vm::costs::LimitedCostTracker;
 use util::hash::{hex_bytes, to_hex};
 use std::collections::HashMap;
 use vm::tests::{execute};
@@ -206,7 +207,7 @@ fn test_simple_if_functions() {
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
         let mut marf = MemoryBackingStore::new();
-        let mut global_context = GlobalContext::new(marf.as_clarity_db());
+        let mut global_context = GlobalContext::new(marf.as_clarity_db(), LimitedCostTracker::new_max_limit());
 
         contract_context.functions.insert("with_else".into(), user_function1);
         contract_context.functions.insert("without_else".into(), user_function2);

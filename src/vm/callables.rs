@@ -1,8 +1,11 @@
 use std::fmt;
+use std::convert::TryInto;
 use std::collections::{HashMap};
 use std::iter::FromIterator;
 
-use vm::errors::{InterpreterResult as Result, Error};
+use vm::costs::{cost_functions, SimpleCostSpecification};
+
+use vm::errors::{InterpreterResult as Result, Error, check_argument_count};
 use vm::analysis::errors::CheckErrors;
 use vm::representations::{SymbolicExpression, ClarityName};
 use vm::types::{TypeSignature, QualifiedContractIdentifier, TraitIdentifier, PrincipalData, FunctionType};
@@ -11,7 +14,7 @@ use vm::contexts::ContractContext;
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
-    NativeFunction(&'static str, &'static dyn Fn(&[Value]) -> Result<Value>),
+    NativeFunction(&'static str, NativeHandle, SimpleCostSpecification),
     SpecialFunction(&'static str, &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
 }
 
@@ -30,6 +33,32 @@ pub struct DefinedFunction {
     pub define_type: DefineType,
     arguments: Vec<ClarityName>,
     body: SymbolicExpression
+}
+
+pub enum NativeHandle {
+    SingleArg(&'static dyn Fn(Value) -> Result<Value>),
+    DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value>),
+    MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value>)
+}
+
+impl NativeHandle {
+    pub fn apply(&self, mut args: Vec<Value>) -> Result<Value> {
+        match self {
+            NativeHandle::SingleArg(function) => {
+                check_argument_count(1, &args)?;
+                function(args.pop().unwrap())
+            },
+            NativeHandle::DoubleArg(function) => {
+                check_argument_count(2, &args)?;
+                let second = args.pop().unwrap();
+                let first = args.pop().unwrap();
+                function(first, second)
+            },
+            NativeHandle::MoreArg(function) => {
+                function(args)
+            }
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
@@ -62,6 +91,13 @@ impl DefinedFunction {
     }
 
     pub fn execute_apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
+        runtime_cost!(cost_functions::USER_FUNCTION_APPLICATION,
+                      env, self.arguments.len())?;
+        for arg_type in self.arg_types.iter() {
+            runtime_cost!(cost_functions::TYPE_CHECK_COST,
+                          env, arg_type)?;
+        }
+
         let mut context = LocalContext::new();
         if args.len() != self.arguments.len() {
             Err(CheckErrors::IncorrectArgumentCount(self.arguments.len(), args.len()))?
@@ -152,7 +188,7 @@ impl CallableType {
     pub fn get_identifier(&self) -> FunctionIdentifier {
         match self {
             CallableType::UserFunction(f) => f.get_identifier(),
-            CallableType::NativeFunction(s, _) => FunctionIdentifier::new_native_function(s),
+            CallableType::NativeFunction(s, _, _) => FunctionIdentifier::new_native_function(s),
             CallableType::SpecialFunction(s, _) => FunctionIdentifier::new_native_function(s),
         }
     }

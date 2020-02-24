@@ -1,77 +1,69 @@
 use vm::errors::{CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result,
                  check_argument_count, check_arguments_at_least};
 use vm::types::{Value, ResponseData, OptionalData, TypeSignature};
+use vm::costs::cost_functions;
 use vm::contexts::{LocalContext, Environment};
 use vm::{SymbolicExpression, ClarityName};
 use vm;
 
-fn inner_unwrap(to_unwrap: &Value) -> Result<Option<Value>> {
+fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>> {
     let result = match to_unwrap {
         Value::Optional(data) => {
             match data.data {
-                Some(ref data) => Some((**data).clone()),
+                Some(data) => Some(*data),
                 None => None
             }
         },
         Value::Response(data) => {
             if data.committed {
-                Some((*data.data).clone())
+                Some(*data.data)
             } else {
                 None
             }
         },
-        _ => return Err(CheckErrors::ExpectedOptionalOrResponseValue(to_unwrap.clone()).into())
+        _ => return Err(CheckErrors::ExpectedOptionalOrResponseValue(to_unwrap).into())
     };
 
     Ok(result)
 }
 
-fn inner_unwrap_err(to_unwrap: &Value) -> Result<Option<Value>> {
+fn inner_unwrap_err(to_unwrap: Value) -> Result<Option<Value>> {
     let result = match to_unwrap {
         Value::Response(data) => {
             if !data.committed {
-                Some((*data.data).clone())
+                Some(*data.data)
             } else {
                 None
             }
         },
-        _ => return Err(CheckErrors::ExpectedResponseValue(to_unwrap.clone()).into())
+        _ => return Err(CheckErrors::ExpectedResponseValue(to_unwrap).into())
     };
 
     Ok(result)
 }
 
-pub fn native_unwrap(args: &[Value]) -> Result<Value> {
-    check_argument_count(1, args)?;
-
-    inner_unwrap(&args[0])
-        .and_then(|opt_value| {
-            match opt_value {
-                Some(v) => Ok(v),
-                None => Err(RuntimeErrorType::UnwrapFailure.into())
-            }
-        })
-}
-
-pub fn native_unwrap_or_ret(args: &[Value]) -> Result<Value> {
-    check_argument_count(2, args)?;
-
-    let input = &args[0];
-    let thrown = &args[1];
-
+pub fn native_unwrap(input: Value) -> Result<Value> {
     inner_unwrap(input)
         .and_then(|opt_value| {
             match opt_value {
                 Some(v) => Ok(v),
-                None => Err(ShortReturnType::ExpectedValue(thrown.clone()).into())
+                None => Err(RuntimeErrorType::UnwrapFailure.into())
             }
         })
 }
 
-pub fn native_unwrap_err(args: &[Value]) -> Result<Value> {
-    check_argument_count(1, args)?;
+pub fn native_unwrap_or_ret(input: Value, thrown: Value) -> Result<Value> {
+    inner_unwrap(input)
+        .and_then(|opt_value| {
+            match opt_value {
+                Some(v) => Ok(v),
+                None => Err(ShortReturnType::ExpectedValue(thrown).into())
+            }
+        })
+}
 
-    inner_unwrap_err(&args[0])
+pub fn native_unwrap_err(input: Value) -> Result<Value> {
+    inner_unwrap_err(input)
         .and_then(|opt_value| {
             match opt_value {
                 Some(v) => Ok(v),
@@ -80,41 +72,32 @@ pub fn native_unwrap_err(args: &[Value]) -> Result<Value> {
         })
 }
 
-pub fn native_unwrap_err_or_ret(args: &[Value]) -> Result<Value> {
-    check_argument_count(2, args)?;
-
-    let input = &args[0];
-    let thrown = &args[1];
-
+pub fn native_unwrap_err_or_ret(input: Value, thrown: Value) -> Result<Value> {
     inner_unwrap_err(input)
         .and_then(|opt_value| {
             match opt_value {
                 Some(v) => Ok(v),
-                None => Err(ShortReturnType::ExpectedValue(thrown.clone()).into())
+                None => Err(ShortReturnType::ExpectedValue(thrown).into())
             }
         })
 }
 
-pub fn native_try_ret(args: &[Value]) -> Result<Value> {
-    check_argument_count(1, args)?;
-
-    let input = &args[0];
-
+pub fn native_try_ret(input: Value) -> Result<Value> {
     match input {
         Value::Optional(data) => {
             match data.data {
-                Some(ref data) => Ok((**data).clone()),
+                Some(data) => Ok(*data),
                 None => Err(ShortReturnType::ExpectedValue(Value::none()).into())
             }
         },
         Value::Response(data) => {
             if data.committed {
-                Ok((*data.data).clone())
+                Ok(*data.data)
             } else {
-                Err(ShortReturnType::ExpectedValue((*data.data).clone()).into())
+                Err(ShortReturnType::ExpectedValue(*data.data).into())
             }
         },
-        _ => Err(CheckErrors::ExpectedOptionalOrResponseValue(input.clone()).into())
+        _ => Err(CheckErrors::ExpectedOptionalOrResponseValue(input).into())
     }
 }
 
@@ -181,6 +164,8 @@ pub fn special_match(args: &[SymbolicExpression], env: &mut Environment, context
 
     let input = vm::eval(&args[0], env, context)?;
 
+    runtime_cost!(cost_functions::MATCH, env, 0)?;
+
     match input {
         Value::Response(data) => {
             special_match_resp(data, &args[1..], env, context) 
@@ -192,81 +177,60 @@ pub fn special_match(args: &[SymbolicExpression], env: &mut Environment, context
     }
 }
 
-pub fn native_some(args: &[Value]) -> Result<Value> {
-    check_argument_count(1, args)?;
-
-    Ok(Value::some(args[0].clone()))
+pub fn native_some(input: Value) -> Result<Value> {
+    Ok(Value::some(input))
 }
 
-fn is_some(args: &[Value]) -> Result<bool> {
-    check_argument_count(1, args)?;
-
-    let input = &args[0];
-
+fn is_some(input: Value) -> Result<bool> {
     match input {
         Value::Optional(ref data) => Ok(data.data.is_some()),
-        _ => Err(CheckErrors::ExpectedOptionalValue(input.clone()).into())
+        _ => Err(CheckErrors::ExpectedOptionalValue(input).into())
     }
 }
 
-fn is_okay(args: &[Value]) -> Result<bool> {
-    check_argument_count(1, args)?;
-
-    let input = &args[0];
-
+fn is_okay(input: Value) -> Result<bool> {
     match input {
         Value::Response(data) => Ok(data.committed),
-        _ => Err(CheckErrors::ExpectedResponseValue(input.clone()).into())
+        _ => Err(CheckErrors::ExpectedResponseValue(input).into())
     }
 }
 
-pub fn native_is_some(args: &[Value]) -> Result<Value> {
-    is_some(args)
+pub fn native_is_some(input: Value) -> Result<Value> {
+    is_some(input)
         .map(|is_some| { Value::Bool(is_some) })
 }
 
-pub fn native_is_none(args: &[Value]) -> Result<Value> {
-    is_some(args)
+pub fn native_is_none(input: Value) -> Result<Value> {
+    is_some(input)
         .map(|is_some| { Value::Bool(!is_some) })
 }
 
-pub fn native_is_okay(args: &[Value]) -> Result<Value> {
-    is_okay(args)
+pub fn native_is_okay(input: Value) -> Result<Value> {
+    is_okay(input)
         .map(|is_ok| { Value::Bool(is_ok) })
 }
 
-pub fn native_is_err(args: &[Value]) -> Result<Value> {
-    is_okay(args)
+pub fn native_is_err(input: Value) -> Result<Value> {
+    is_okay(input)
         .map(|is_ok| { Value::Bool(!is_ok) })
 }
 
-pub fn native_okay(args: &[Value]) -> Result<Value> {
-    check_argument_count(1, args)?;
-
-    let input = &args[0];
-    Ok(Value::okay(input.clone()))
+pub fn native_okay(input: Value) -> Result<Value> {
+    Ok(Value::okay(input))
 }
 
-pub fn native_error(args: &[Value]) -> Result<Value> {
-    check_argument_count(1, args)?;
-
-    let input = &args[0];
-    Ok(Value::error(input.clone()))
+pub fn native_error(input: Value) -> Result<Value> {
+    Ok(Value::error(input))
 }
 
-pub fn native_default_to(args: &[Value]) -> Result<Value> {
-    check_argument_count(2, args)?;
-
-    let default = &args[0];
-    let input = &args[1];
-
+pub fn native_default_to(default: Value, input: Value) -> Result<Value> {
     match input {
         Value::Optional(data) => {
             match data.data {
-                Some(ref data) => Ok((**data).clone()),
-                None => Ok(default.clone())
+                Some(data) => Ok(*data),
+                None => Ok(default)
             }
         },
-        _ => Err(CheckErrors::ExpectedOptionalValue(input.clone()).into())
+        _ => Err(CheckErrors::ExpectedOptionalValue(input).into())
     }
 }
