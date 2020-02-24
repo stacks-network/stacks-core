@@ -237,7 +237,7 @@ specifies **4 threshold operating levels**:
   STX may include `floor(x / (0.00015*STX_LIQUID_SUPPLY))` addresses in
   the reward set. (i.e., the minimum participation threshold is 3/20,000th
   of the liquid supply).
-* **100%** If more than `0.75 * STX_LIQUID_SUPPLY` STX participate in a
+* **75%** If more than `0.75 * STX_LIQUID_SUPPLY` STX participate in a
   reward cycle, participant wallets controlling `x` STX may include
   `floor(x / (0.0002*STX_LIQUID_SUPPLY))` addresses in the reward
   set. (i.e., the minimum participation threshold is 1/5,000th of the
@@ -258,7 +258,7 @@ Stacking participants must broadcast signed messages for three purposes:
 
 These messages may be broadcast either on the Stacks chain or the
 Bitcoin chain. If broadcast on the Stacks chain, these messages must
-be confirmed on the Stacks chain _before_ the anchor block for the
+be included in the Stacks chain _before_ the anchor block for the
 reward period. If broadcast on the Bitcoin chain, they may be
 broadcast during the prepare phase, but must be included before
 the prepare phase finishes.
