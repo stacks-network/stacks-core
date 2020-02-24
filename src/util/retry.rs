@@ -104,7 +104,7 @@ impl<'a, R: Read> BoundReader<'a, R> {
 impl <'a, R: Read> Read for BoundReader<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let intended_read = self.read_so_far.checked_add(buf.len() as u64)
-            .ok_or_else(|| Err(io::Error::new(io::ErrorKind::Other, "Read would overflow u64".to_string())))?;
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Read would overflow u64".to_string()))?;
         let max_read = 
             if intended_read > self.max_len {
                 self.max_len - self.read_so_far
