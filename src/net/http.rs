@@ -50,6 +50,8 @@ use net::NeighborsData;
 use net::NeighborAddress;
 use net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
 use net::MAX_MESSAGE_LEN;
+use net::MAX_MICROBLOCKS_UNCONFIRMED;
+use net::HTTP_REQUEST_ID_RESERVED;
 
 use chainstate::burn::BlockHeaderHash;
 use burnchains::Txid;
@@ -74,7 +76,6 @@ enum HttpReservedHeader {
     ContentLength(u32),
     ContentType(HttpContentType),
     XRequestID(u32),
-    XRequestPath(String),
     Host(PeerHost)
 }
 
@@ -145,7 +146,7 @@ impl HttpReservedHeader {
     pub fn is_reserved(header: &str) -> bool {
         let hdr = header.to_string();
         match hdr.as_str() {
-            "content-length" | "content-type" | "x-request-id" | "x-request-path" | "host" => true,
+            "content-length" | "content-type" | "x-request-id" | "host" => true,
             _ => false
         }
     }
@@ -165,7 +166,6 @@ impl HttpReservedHeader {
                 Ok(rid) => Some(HttpReservedHeader::XRequestID(rid)),
                 Err(_) => None
             },
-            "x-request-path" => Some(HttpReservedHeader::XRequestPath(value.to_string())),
             "host" => match value.parse::<PeerHost>() {
                 Ok(ph) => Some(HttpReservedHeader::Host(ph)),
                 Err(_) => None
@@ -433,18 +433,32 @@ impl<'a, R: Read> Read for HttpChunkedTransferReader<'a, R> {
     }
 }
 
-struct HttpChunkedTransferWriter<'a, W: Write> {
-    fd: &'a mut W,
+pub struct HttpChunkedTransferWriterState {
     chunk_size: usize,
     chunk_buf: Vec<u8>,
+    corked: bool
 }
 
-impl<'a, W: Write> HttpChunkedTransferWriter<'a, W> {
-    pub fn from_writer(fd: &'a mut W, chunk_size: usize) -> HttpChunkedTransferWriter<'a, W> {
-        HttpChunkedTransferWriter {
-            fd: fd,
+impl HttpChunkedTransferWriterState {
+    pub fn new(chunk_size: usize) -> HttpChunkedTransferWriterState {
+        HttpChunkedTransferWriterState {
             chunk_size: chunk_size,
             chunk_buf: vec![],
+            corked: false
+        }
+    }
+}
+
+pub struct HttpChunkedTransferWriter<'a, 'state, W: Write> {
+    fd: &'a mut W,
+    state: &'state mut HttpChunkedTransferWriterState
+}
+
+impl<'a, 'state, W: Write> HttpChunkedTransferWriter<'a, 'state, W> {
+    pub fn from_writer_state(fd: &'a mut W, state: &'state mut HttpChunkedTransferWriterState) -> HttpChunkedTransferWriter<'a, 'state, W> {
+        HttpChunkedTransferWriter {
+            fd: fd,
+            state: state
         }
     }
 
@@ -464,41 +478,50 @@ impl<'a, W: Write> HttpChunkedTransferWriter<'a, W> {
     }
 
     fn flush_chunk(&mut self) -> io::Result<usize> {
-        let sent = HttpChunkedTransferWriter::send_chunk(&mut self.fd, self.chunk_size, &self.chunk_buf)?;
-        self.chunk_buf.clear();
+        let sent = HttpChunkedTransferWriter::send_chunk(&mut self.fd, self.state.chunk_size, &self.state.chunk_buf)?;
+        self.state.chunk_buf.clear();
         Ok(sent)
     }
 
     fn buf_chunk(&mut self, buf: &[u8]) -> usize {
         let to_copy = 
-            if self.chunk_size - self.chunk_buf.len() < buf.len() {
-                self.chunk_size - self.chunk_buf.len()
+            if self.state.chunk_size - self.state.chunk_buf.len() < buf.len() {
+                self.state.chunk_size - self.state.chunk_buf.len()
             }
             else {
                 buf.len()
             };
 
-        self.chunk_buf.extend_from_slice(&buf[0..to_copy]);
+        self.state.chunk_buf.extend_from_slice(&buf[0..to_copy]);
         to_copy
+    }
+
+    pub fn cork(&mut self) -> () {
+        // block future flushes from sending trailing empty chunks -- we're done sending
+        self.state.corked = true;
+    }
+
+    pub fn corked(&self) -> bool {
+        self.state.corked
     }
 }
 
-impl<'a, W: Write> Write for HttpChunkedTransferWriter<'a, W> {
+impl<'a, 'state, W: Write> Write for HttpChunkedTransferWriter<'a, 'state, W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut written = 0;
-        while written < buf.len() {
-            if self.chunk_buf.len() > 0 {
-                if self.chunk_buf.len() < self.chunk_size {
+        while written < buf.len() && !self.state.corked {
+            if self.state.chunk_buf.len() > 0 {
+                if self.state.chunk_buf.len() < self.state.chunk_size {
                     let nw = self.buf_chunk(&buf[written..]);
                     written += nw;
                 }
-                if self.chunk_buf.len() >= self.chunk_size {
+                if self.state.chunk_buf.len() >= self.state.chunk_size {
                     self.flush_chunk()?;
                 }
             }
             else { 
-                if written + self.chunk_size < buf.len() {
-                    let nw = HttpChunkedTransferWriter::send_chunk(&mut self.fd, self.chunk_size, &buf[written..(written + self.chunk_size)])?;
+                if written + self.state.chunk_size < buf.len() {
+                    let nw = HttpChunkedTransferWriter::send_chunk(&mut self.fd, self.state.chunk_size, &buf[written..(written + self.state.chunk_size)])?;
                     written += nw;
                 }
                 else {
@@ -512,41 +535,39 @@ impl<'a, W: Write> Write for HttpChunkedTransferWriter<'a, W> {
 
     fn flush(&mut self) -> io::Result<()> {
         // send out any bufferred chunk data
-        self.flush_chunk()
-            .and_then(|nw| {
-                if nw > 0 {
-                    // send empty chunk
-                    self.fd.write_all(format!("0\r\n\r\n").as_bytes())
-                        .and_then(|_nw| Ok(()))
-                }
-                else {
-                    Ok(())
-                }
-            })
+        if !self.state.corked {
+            self.flush_chunk()
+                .and_then(|nw| {
+                    if nw > 0 {
+                        // send empty chunk
+                        self.fd.write_all(format!("0\r\n\r\n").as_bytes())
+                            .and_then(|_nw| Ok(()))
+                    }
+                    else {
+                        Ok(())
+                    }
+                })
+        }
+        else {
+            Ok(())
+        }
     }
 }
-
-impl<'a, W: Write> Drop for HttpChunkedTransferWriter<'a, W> {
-    fn drop(&mut self) -> () {
-        let _ = self.flush();
-    }
-}
-
 
 impl HttpRequestPreamble {
-    pub fn new(verb: String, path: String, hostname: String, port: u16, request_id: u32) -> HttpRequestPreamble {
+    pub fn new(verb: String, path: String, hostname: String, port: u16) -> HttpRequestPreamble {
         HttpRequestPreamble {
             verb: verb,
             path: path,
             host: PeerHost::from_host_port(hostname, port),
-            request_id: request_id,
             content_type: None,
             content_length: None,
+            keep_alive: true,
             headers: HashMap::new()
         }
     }
 
-    pub fn new_serialized<W: Write, F>(fd: &mut W, verb: &str, path: &str, host: &PeerHost, request_id: u32, content_length: Option<u32>, content_type: Option<&HttpContentType>, mut write_headers: F) -> Result<(), net_error>
+    pub fn new_serialized<W: Write, F>(fd: &mut W, verb: &str, path: &str, host: &PeerHost, keep_alive: bool, content_length: Option<u32>, content_type: Option<&HttpContentType>, mut write_headers: F) -> Result<(), net_error>
     where
         F: FnMut(&mut W) -> Result<(), net_error>
     {
@@ -581,10 +602,9 @@ impl HttpRequestPreamble {
             None => {}
         }
 
-        // request ID
-        fd.write_all("X-Request-Id: ".as_bytes()).map_err(net_error::WriteError)?;
-        fd.write_all(format!("{}", request_id).as_bytes()).map_err(net_error::WriteError)?;
-        fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
+        if !keep_alive {
+            fd.write_all("Connection: close\r\n".as_bytes()).map_err(net_error::WriteError)?;
+        }
 
         // headers
         write_headers(fd)?;
@@ -595,9 +615,11 @@ impl HttpRequestPreamble {
     }
 
     #[cfg(test)]
-    pub fn from_headers(verb: String, path: String, hostname: String, port: u16, request_id: u32, mut keys: Vec<String>, values: Vec<String>) -> HttpRequestPreamble {
+    pub fn from_headers(verb: String, path: String, hostname: String, port: u16, keep_alive: bool, mut keys: Vec<String>, values: Vec<String>) -> HttpRequestPreamble {
         assert_eq!(keys.len(), values.len());
-        let mut req = HttpRequestPreamble::new(verb, path, hostname, port, request_id);
+        let mut req = HttpRequestPreamble::new(verb, path, hostname, port);
+        req.keep_alive = keep_alive;
+
         for (k, v) in keys.drain(..).zip(values) {
             req.add_header(k, v);
         }
@@ -606,12 +628,17 @@ impl HttpRequestPreamble {
 
     pub fn add_header(&mut self, key: String, value: String) -> () {
         let hdr = key.to_lowercase();
-        if HttpReservedHeader::is_reserved(&key) {
-            match HttpReservedHeader::try_from_str(&key, &value) {
+        if HttpReservedHeader::is_reserved(&hdr) {
+            match HttpReservedHeader::try_from_str(&hdr, &value) {
                 Some(h) => match h {
-                    HttpReservedHeader::Host(ph) => self.host = ph,
-                    HttpReservedHeader::XRequestID(rid) => self.request_id = rid,
-                    HttpReservedHeader::ContentType(ct) => self.content_type = Some(ct),
+                    HttpReservedHeader::Host(ph) => {
+                        self.host = ph;
+                        return;
+                    },
+                    HttpReservedHeader::ContentType(ct) => {
+                        self.content_type = Some(ct);
+                        return;
+                    }
                     _ => {}     // can just fall through and insert
                 },
                 None => {
@@ -621,10 +648,6 @@ impl HttpRequestPreamble {
         }
 
         self.headers.insert(hdr, value);
-    }
-
-    pub fn set_request_id(&mut self, id: u32) -> () {
-        self.request_id = id;
     }
 
     /// Content-Length for this request.
@@ -682,12 +705,12 @@ fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, net_error> {
             }
         }
     }
-    Ok(ret)      
+    Ok(ret)
 }
 
 impl StacksMessageCodec for HttpRequestPreamble {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        HttpRequestPreamble::new_serialized(fd, &self.verb, &self.path, &self.host, self.request_id, self.content_length.clone(), self.content_type.as_ref(), |ref mut fd| write_headers(fd, &self.headers))
+        HttpRequestPreamble::new_serialized(fd, &self.verb, &self.path, &self.host, self.keep_alive, self.content_length.clone(), self.content_type.as_ref(), |ref mut fd| write_headers(fd, &self.headers))
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpRequestPreamble, net_error> {
@@ -711,7 +734,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                 let mut peerhost = None;
                 let mut content_type = None;
                 let mut content_length = None;
-                let mut request_id = 0;
+                let mut keep_alive = true;
 
                 let mut headers : HashMap<String, String> = HashMap::new();
                 let mut all_headers : HashSet<String> = HashSet::new();
@@ -737,10 +760,6 @@ impl StacksMessageCodec for HttpRequestPreamble {
                             Err(_) => None
                         };
                     }
-                    else if key == "x-request-id" {
-                        // parse 
-                        request_id = value.parse::<u32>().unwrap_or(request_id);
-                    }
                     else if key == "content-type" {
                         // parse
                         let ctype = value.parse::<HttpContentType>()?;
@@ -751,6 +770,18 @@ impl StacksMessageCodec for HttpRequestPreamble {
                         content_length = match value.parse::<u32>() {
                             Ok(len) => Some(len),
                             Err(_) => None
+                        }
+                    }
+                    else if key == "connection" {
+                        // parse
+                        if value == "close" {
+                            keep_alive = false;
+                        }
+                        else if value == "keep-alive" {
+                            keep_alive = true;
+                        }
+                        else {
+                            return Err(net_error::DeserializeError("Inavlid HTTP request: invalid Connection: header".to_string()));
                         }
                     }
                     else {
@@ -766,9 +797,9 @@ impl StacksMessageCodec for HttpRequestPreamble {
                     verb: verb,
                     path: path,
                     host: peerhost.unwrap(),
-                    request_id: request_id,
                     content_type: content_type,
                     content_length: content_length,
+                    keep_alive: keep_alive,
                     headers: headers
                 })
             }
@@ -777,19 +808,19 @@ impl StacksMessageCodec for HttpRequestPreamble {
 }
 
 impl HttpResponsePreamble {
-    pub fn new(status_code: u16, reason: String, content_length_opt: Option<u32>, content_type: HttpContentType, request_id: u32, request_path: String) -> HttpResponsePreamble {
+    pub fn new(status_code: u16, reason: String, content_length_opt: Option<u32>, content_type: HttpContentType, request_id: u32) -> HttpResponsePreamble {
         HttpResponsePreamble {
             status_code: status_code,
             reason: reason,
+            keep_alive: true,
             content_length: content_length_opt,
             content_type: content_type,
             request_id: request_id,
-            request_path: request_path,
             headers: HashMap::new()
         }
     }
     
-    pub fn new_serialized<W: Write, F>(fd: &mut W, status_code: u16, reason: &str, content_length: Option<u32>, content_type: &HttpContentType, request_id: u32, request_path: &str, mut write_headers: F) -> Result<(), net_error>
+    pub fn new_serialized<W: Write, F>(fd: &mut W, status_code: u16, reason: &str, keep_alive: bool, content_length: Option<u32>, content_type: &HttpContentType, request_id: u32, mut write_headers: F) -> Result<(), net_error>
     where 
         F: FnMut(&mut W) -> Result<(), net_error>
     {
@@ -800,6 +831,10 @@ impl HttpResponsePreamble {
         fd.write_all("\r\nContent-Type: ".as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all(content_type.as_str().as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
+        
+        if !keep_alive {
+            fd.write_all("Connection: close\r\n".as_bytes()).map_err(net_error::WriteError)?;
+        }
 
         match content_length {
             Some(len) => {
@@ -812,9 +847,7 @@ impl HttpResponsePreamble {
         }
 
         fd.write_all("\r\nX-Request-Id: ".as_bytes()).map_err(net_error::WriteError)?;
-        fd.write_all(format!("{}\r\nX-Request-Path: ", request_id).as_bytes()).map_err(net_error::WriteError)?;
-        fd.write_all(request_path.as_bytes()).map_err(net_error::WriteError)?;
-        fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all(format!("{}\r\n", request_id).as_bytes()).map_err(net_error::WriteError)?;
 
         write_headers(fd)?;
 
@@ -822,22 +855,24 @@ impl HttpResponsePreamble {
         Ok(())
     }
 
-    pub fn new_error(status_code: u16, request_id: u32, request_path: String, error_message: Option<String>) -> HttpResponsePreamble {
+    pub fn new_error(status_code: u16, request_id: u32, error_message: Option<String>) -> HttpResponsePreamble {
         HttpResponsePreamble {
             status_code: status_code,
+            keep_alive: true,
             reason: HttpResponseType::error_reason(status_code).to_string(),
             content_length: Some(error_message.unwrap_or("".to_string()).len() as u32),
             content_type: HttpContentType::Text,
-            request_id: request_id, 
-            request_path: request_path,
+            request_id: request_id,
             headers: HashMap::new()
         }
     }
 
     #[cfg(test)]
-    pub fn from_headers(status_code: u16, reason: String, content_length: Option<u32>, content_type: HttpContentType, request_id: u32, request_path: String, mut keys: Vec<String>, values: Vec<String>) -> HttpResponsePreamble {
+    pub fn from_headers(status_code: u16, reason: String, keep_alive: bool, content_length: Option<u32>, content_type: HttpContentType, request_id: u32, mut keys: Vec<String>, values: Vec<String>) -> HttpResponsePreamble {
         assert_eq!(keys.len(), values.len());
-        let mut res = HttpResponsePreamble::new(status_code, reason, content_length, content_type, request_id, request_path);
+        let mut res = HttpResponsePreamble::new(status_code, reason, content_length, content_type, request_id);
+        res.keep_alive = keep_alive;
+
         for (k, v) in keys.drain(..).zip(values) {
             res.add_header(k, v);
         }
@@ -847,13 +882,21 @@ impl HttpResponsePreamble {
 
     pub fn add_header(&mut self, key: String, value: String) -> () {
         let hdr = key.to_lowercase();
-        if HttpReservedHeader::is_reserved(&key) {
-            match HttpReservedHeader::try_from_str(&key, &value) {
+        if HttpReservedHeader::is_reserved(&hdr) {
+            match HttpReservedHeader::try_from_str(&hdr, &value) {
                 Some(h) => match h {
-                    HttpReservedHeader::XRequestID(rid) => self.request_id = rid,
-                    HttpReservedHeader::XRequestPath(p) => self.request_path = p,
-                    HttpReservedHeader::ContentLength(cl) => self.content_length = Some(cl),
-                    HttpReservedHeader::ContentType(ct) => self.content_type = ct,
+                    HttpReservedHeader::XRequestID(rid) => {
+                        self.request_id = rid;
+                        return;
+                    },
+                    HttpReservedHeader::ContentLength(cl) => {
+                        self.content_length = Some(cl);
+                        return;
+                    },
+                    HttpReservedHeader::ContentType(ct) => {
+                        self.content_type = ct;
+                        return;
+                    },
                     _ => {}     // can just fall through and insert
                 },
                 None => {
@@ -867,10 +910,6 @@ impl HttpResponsePreamble {
 
     pub fn set_request_id(&mut self, request_id: u32) -> () {
         self.request_id = request_id;
-    }
-
-    pub fn set_request_path(&mut self, request_path: String) -> () {
-        self.request_path = request_path;
     }
 
     pub fn add_CORS_headers(&mut self) -> () {
@@ -891,7 +930,7 @@ fn rfc7231_now() -> String {
 
 impl StacksMessageCodec for HttpResponsePreamble {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        HttpResponsePreamble::new_serialized(fd, self.status_code, &self.reason, self.content_length, &self.content_type, self.request_id, &self.request_path, |ref mut fd| write_headers(fd, &self.headers))
+        HttpResponsePreamble::new_serialized(fd, self.status_code, &self.reason, self.keep_alive, self.content_length, &self.content_type, self.request_id, |ref mut fd| write_headers(fd, &self.headers))
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpResponsePreamble, net_error> {
@@ -918,8 +957,8 @@ impl StacksMessageCodec for HttpResponsePreamble {
                 let mut content_type = None;
                 let mut content_length = None;
                 let mut request_id = None;
-                let mut request_path = None;
                 let mut chunked_encoding = false;
+                let mut keep_alive = true;
 
                 for i in 0..resp.headers.len() {
                     let value = String::from_utf8(resp.headers[i].value.to_vec()).map_err(|_e| net_error::DeserializeError("Invalid HTTP header value: not utf-8".to_string()))?;
@@ -952,8 +991,17 @@ impl StacksMessageCodec for HttpResponsePreamble {
                             Err(_) => {}
                         }
                     }
-                    else if key == "x-request-path" {
-                        request_path = Some(value.to_string());
+                    else if key == "connection" {
+                        // parse
+                        if value == "close" {
+                            keep_alive = false;
+                        }
+                        else if value == "keep-alive" {
+                            keep_alive = true;
+                        }
+                        else {
+                            return Err(net_error::DeserializeError("Inavlid HTTP request: invalid Connection: header".to_string()));
+                        }
                     }
                     else if key == "transfer-encoding" {
                         if value == "chunked" {
@@ -972,17 +1020,17 @@ impl StacksMessageCodec for HttpResponsePreamble {
                     return Err(net_error::DeserializeError("Invalid HTTP response: incompatible transfer-encoding and content-length".to_string()));
                 }
 
-                if content_type.is_none() || request_path.is_none() || request_id.is_none() || (content_length.is_none() && !chunked_encoding) {
-                    return Err(net_error::DeserializeError("Invalid HTTP response: missing Content-Type, Content-Length || Transfer-Encoding: chunked, X-Request-ID, and/or X-Request-Path".to_string()));
+                if content_type.is_none() || (content_length.is_none() && !chunked_encoding) {
+                    return Err(net_error::DeserializeError("Invalid HTTP response: missing Content-Type, Content-Length".to_string()));
                 }
 
                 Ok(HttpResponsePreamble {
                     status_code: status_code,
                     reason: reason,
+                    keep_alive: keep_alive,
                     content_type: content_type.unwrap(),
                     content_length: content_length,
-                    request_id: request_id.unwrap(),
-                    request_path: request_path.unwrap(),
+                    request_id: request_id.unwrap_or(HTTP_REQUEST_ID_RESERVED),
                     headers: headers
                 })
             }
@@ -1006,10 +1054,12 @@ impl HttpRequestType {
 
     pub fn parse<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, fd: &mut R) -> Result<HttpRequestType, net_error> {
         // TODO: make this static somehow
-        let REQUEST_METHODS : [(&str, &Regex, &dyn Fn(&mut StacksHttp, &HttpRequestPreamble, &Regex, &mut R) -> Result<HttpRequestType, net_error>); 4] = [
+        let REQUEST_METHODS : [(&str, &Regex, &dyn Fn(&mut StacksHttp, &HttpRequestPreamble, &Regex, &mut R) -> Result<HttpRequestType, net_error>); 6] = [
+            ("GET", &PATH_GETINFO, &HttpRequestType::parse_getinfo),
             ("GET", &PATH_GETNEIGHBORS, &HttpRequestType::parse_getneighbors),
             ("GET", &PATH_GETBLOCK, &HttpRequestType::parse_getblock),
             ("GET", &PATH_GETMICROBLOCKS, &HttpRequestType::parse_getmicroblocks),
+            ("GET", &PATH_GETMICROBLOCKS_UNCONFIRMED, &HttpRequestType::parse_getmicroblocks_unconfirmed),
             ("POST", &PATH_POSTTRANSACTION, &HttpRequestType::parse_posttransaction)
         ];
 
@@ -1028,6 +1078,14 @@ impl HttpRequestType {
         }
 
         return Err(net_error::DeserializeError("Http request could not be parsed".to_string()));
+    }
+
+    fn parse_getinfo<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetInfo".to_string()));
+        }
+
+        Ok(HttpRequestType::GetInfo(HttpRequestMetadata::from_preamble(preamble)))
     }
     
     fn parse_getneighbors<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
@@ -1056,7 +1114,7 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetBlock(HttpRequestMetadata::from_preamble(preamble), block_hash))
     }
 
-    fn parse_getmicroblocks<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_getmicroblocks<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicrolocks".to_string()));
         }
@@ -1072,6 +1130,33 @@ impl HttpRequestType {
             .map_err(|_e| net_error::DeserializeError("Failed to parse microblock hash".to_string()))?;
 
         Ok(HttpRequestType::GetMicroblocks(HttpRequestMetadata::from_preamble(preamble), block_hash))
+    }
+    
+    fn parse_getmicroblocks_unconfirmed<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicrolocksUnconfirmed".to_string()));
+        }
+
+        let block_hash_str = regex
+            .captures(&preamble.path)
+            .ok_or(net_error::DeserializeError("Failed to match path to microblock hash".to_string()))?
+            .get(1)
+            .ok_or(net_error::DeserializeError("Failed to match path to microblock hash group".to_string()))?
+            .as_str();
+
+        let min_seq_str = regex
+            .captures(&preamble.path)
+            .ok_or(net_error::DeserializeError("Failed to match path to microblock minimum sequence".to_string()))?
+            .get(2)
+            .ok_or(net_error::DeserializeError("Failed to match path to microblock minimum sequence group".to_string()))?
+            .as_str();
+            
+        let block_hash = BlockHeaderHash::from_hex(block_hash_str)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse microblock hash".to_string()))?;
+
+        let min_seq = min_seq_str.parse::<u16>().map_err(|_e| net_error::DeserializeError("Failed to parse microblock minimum sequence".to_string()))?;
+
+        Ok(HttpRequestType::GetMicroblocksUnconfirmed(HttpRequestMetadata::from_preamble(preamble), block_hash, min_seq))
     }
 
     fn parse_posttransaction<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Regex, fd: &mut R) -> Result<HttpRequestType, net_error> {
@@ -1097,29 +1182,59 @@ impl HttpRequestType {
 
     pub fn metadata(&self) -> &HttpRequestMetadata {
         match *self {
+            HttpRequestType::GetInfo(ref md) => md,
             HttpRequestType::GetNeighbors(ref md) => md,
             HttpRequestType::GetBlock(ref md, _) => md,
             HttpRequestType::GetMicroblocks(ref md, _) => md,
+            HttpRequestType::GetMicroblocksUnconfirmed(ref md, _, _) => md,
             HttpRequestType::PostTransaction(ref md, _) => md,
+        }
+    }
+    
+    pub fn metadata_mut(&mut self) -> &mut HttpRequestMetadata {
+        match *self {
+            HttpRequestType::GetInfo(ref mut md) => md,
+            HttpRequestType::GetNeighbors(ref mut md) => md,
+            HttpRequestType::GetBlock(ref mut md, _) => md,
+            HttpRequestType::GetMicroblocks(ref mut md, _) => md,
+            HttpRequestType::GetMicroblocksUnconfirmed(ref mut md, _, _) => md,
+            HttpRequestType::PostTransaction(ref mut md, _) => md,
+        }
+    }
+
+    pub fn request_path(&self) -> String {
+        match *self {
+            HttpRequestType::GetInfo(ref _md) => "/v2/info".to_string(),
+            HttpRequestType::GetNeighbors(ref _md) => "/v2/neighbors".to_string(),
+            HttpRequestType::GetBlock(ref _md, ref block_hash) => format!("/v2/blocks/{}", block_hash.to_hex()),
+            HttpRequestType::GetMicroblocks(ref _md, ref block_hash) => format!("/v2/microblocks/{}", block_hash.to_hex()),
+            HttpRequestType::GetMicroblocksUnconfirmed(ref _md, ref block_hash, ref min_seq) => format!("/v2/microblocks/unconfirmed/{}/{}", block_hash.to_hex(), min_seq),
+            HttpRequestType::PostTransaction(ref _md, ref _tx) => "/v2/transactions".to_string()
         }
     }
 
     pub fn send<W: Write>(&self, _protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
         match *self {
+            HttpRequestType::GetInfo(ref md) => {
+                HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
+            },
             HttpRequestType::GetNeighbors(ref md) => {
-                HttpRequestPreamble::new_serialized(fd, "GET", "/v2/neighbors", &md.peer, md.request_id, None, None, empty_headers)?;
+                HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
             HttpRequestType::GetBlock(ref md, ref block_hash) => {
-                HttpRequestPreamble::new_serialized(fd, "GET", &format!("/v2/blocks/{}", block_hash.to_hex()), &md.peer, md.request_id, None, None, empty_headers)?;
+                HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
             HttpRequestType::GetMicroblocks(ref md, ref block_hash) => {
-                HttpRequestPreamble::new_serialized(fd, "GET", &format!("/v2/microblocks/{}", block_hash.to_hex()), &md.peer, md.request_id, None, None, empty_headers)?;
+                HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
+            },
+            HttpRequestType::GetMicroblocksUnconfirmed(ref md, ref block_hash, ref min_seq) => {
+                HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
             HttpRequestType::PostTransaction(ref md, ref tx) => {
                 let mut tx_bytes = vec![];
                 write_next(&mut tx_bytes, tx)?;
 
-                HttpRequestPreamble::new_serialized(fd, "POST", "/v2/transactions", &md.peer, md.request_id, Some(tx_bytes.len() as u32), Some(&HttpContentType::Bytes), empty_headers)?;
+                HttpRequestPreamble::new_serialized(fd, "POST", &self.request_path(), &md.peer, md.keep_alive, Some(tx_bytes.len() as u32), Some(&HttpContentType::Bytes), empty_headers)?;
                 fd.write_all(&tx_bytes).map_err(net_error::WriteError)?;
             }
         }
@@ -1128,11 +1243,11 @@ impl HttpRequestType {
 }
 
 impl HttpResponseType {
-    fn try_parse<R: Read, F>(protocol: &mut StacksHttp, regex: &Regex, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>, parser: F) -> Result<Option<HttpResponseType>, net_error>
+    fn try_parse<R: Read, F>(protocol: &mut StacksHttp, regex: &Regex, preamble: &HttpResponsePreamble, request_path: &String, fd: &mut R, len_hint: Option<usize>, parser: F) -> Result<Option<HttpResponseType>, net_error>
     where
         F: Fn(&mut StacksHttp, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>
     {
-        if regex.is_match(&preamble.request_path) {
+        if regex.is_match(request_path) {
             let payload = parser(protocol, preamble, fd, len_hint)?;
             Ok(Some(payload))
         }
@@ -1235,10 +1350,10 @@ impl HttpResponseType {
 
         item_result.map_err(|e| {
             if e.is_eof() {
-                net_error::UnderflowError(format!("Not enough bytes to parse Neighbors JSON"))
+                net_error::UnderflowError(format!("Not enough bytes to parse JSON"))
             }
             else {
-                net_error::DeserializeError(format!("Failed to parse Neighbors JSON: {:?}", &e))
+                net_error::DeserializeError(format!("Failed to parse JSON: {:?}", &e))
             }
         })
     }
@@ -1277,21 +1392,23 @@ impl HttpResponseType {
     }
 
     // len_hint is given by the StacksHttp protocol implementation
-    pub fn parse<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    pub fn parse<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, request_path: String, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         if preamble.status_code >= 400 {
             return HttpResponseType::parse_error(protocol, preamble, fd);
         }
 
         // TODO: make this static somehow
-        let RESPONSE_METHODS : [(&Regex, &dyn Fn(&mut StacksHttp, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>); 4] = [
+        let RESPONSE_METHODS : [(&Regex, &dyn Fn(&mut StacksHttp, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>); 6] = [
+            (&PATH_GETINFO, &HttpResponseType::parse_peerinfo),
             (&PATH_GETNEIGHBORS, &HttpResponseType::parse_neighbors),
             (&PATH_GETBLOCK, &HttpResponseType::parse_block),
             (&PATH_GETMICROBLOCKS, &HttpResponseType::parse_microblocks),
+            (&PATH_GETMICROBLOCKS_UNCONFIRMED, &HttpResponseType::parse_microblocks_unconfirmed),
             (&PATH_POSTTRANSACTION, &HttpResponseType::parse_txid)
         ];
 
         for (regex, parser) in RESPONSE_METHODS.iter() {
-            match HttpResponseType::try_parse(protocol, regex, preamble, fd, len_hint, parser) {
+            match HttpResponseType::try_parse(protocol, regex, preamble, &request_path, fd, len_hint, parser) {
                 Ok(Some(request)) => {
                     return Ok(request);
                 },
@@ -1299,15 +1416,22 @@ impl HttpResponseType {
                     continue;
                 },
                 Err(e) => {
+                    test_debug!("Failed to parse {}: {:?}", &request_path, &e);
                     return Err(e);
                 }
             }
         }
 
+        test_debug!("Failed to match request path {} to a handler", &request_path);
         return Err(net_error::DeserializeError("Http response could not be parsed".to_string()));
     }
 
-    fn parse_neighbors<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_peerinfo<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+        let peer_info = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::PeerInfo(HttpResponseMetadata::from_preamble(preamble), peer_info))
+    }
+
+    fn parse_neighbors<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let neighbors_data = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
         Ok(HttpResponseType::Neighbors(HttpResponseMetadata::from_preamble(preamble), neighbors_data))
     }
@@ -1322,7 +1446,36 @@ impl HttpResponseType {
         Ok(HttpResponseType::Microblocks(HttpResponseMetadata::from_preamble(preamble), microblocks))
     }
 
-    fn parse_txid<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_microblocks_unconfirmed<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+        // NOTE: there will be no length prefix on this, but we won't ever get more than
+        // MAX_MICROBLOCKS_UNCONFIRMED microblocks
+        let mut microblocks = vec![];
+        let max_len = len_hint.unwrap_or(MAX_MESSAGE_LEN as usize) as u64;
+        let mut bound_reader = BoundReader::from_reader(fd, max_len);
+        loop {
+            let mblock : StacksMicroblock = match read_next(&mut bound_reader) {
+                Ok(mblock) => Ok(mblock),
+                Err(e) => match e {
+                    net_error::ReadError(ref ioe) => match ioe.kind() {
+                        io::ErrorKind::UnexpectedEof => {
+                            // end of stream -- this is fine
+                            break;
+                        },
+                        _ => Err(e)
+                    },
+                    _ => Err(e)
+                }
+            }?;
+            
+            microblocks.push(mblock);
+            if microblocks.len() == MAX_MICROBLOCKS_UNCONFIRMED {
+                break;
+            }
+        }
+        Ok(HttpResponseType::Microblocks(HttpResponseMetadata::from_preamble(preamble), microblocks))
+    }
+
+    fn parse_txid<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let txid_buf = HttpResponseType::parse_text(preamble, fd, len_hint, 64)?;
         if txid_buf.len() != 64 {
             return Err(net_error::DeserializeError("Invalid txid: expected 64 bytes".to_string()));
@@ -1351,16 +1504,19 @@ impl HttpResponseType {
 
     fn error_response<W: Write>(&self, fd: &mut W, code: u16, message: &str) -> Result<(), net_error> {
         let md = self.metadata();
-        HttpResponsePreamble::new_serialized(fd, code, HttpResponseType::error_reason(code), Some(message.len() as u32), &HttpContentType::Text, md.request_id, &md.request_path, empty_headers)?;
+        HttpResponsePreamble::new_serialized(fd, code, HttpResponseType::error_reason(code), md.keep_alive, Some(message.len() as u32), &HttpContentType::Text, md.request_id, empty_headers)?;
         fd.write_all(message.as_bytes()).map_err(net_error::WriteError)?;
         Ok(())
     }
     
     pub fn metadata(&self) -> &HttpResponseMetadata {
         match *self {
+            HttpResponseType::PeerInfo(ref md, _) => md,
             HttpResponseType::Neighbors(ref md, _) => md,
             HttpResponseType::Block(ref md, _) => md,
+            HttpResponseType::BlockStream(ref md) => md,
             HttpResponseType::Microblocks(ref md, _) => md,
+            HttpResponseType::MicroblockStream(ref md) => md,
             HttpResponseType::TransactionID(ref md, _) => md,
             // errors
             HttpResponseType::BadRequest(ref md, _) => md,
@@ -1381,8 +1537,11 @@ impl HttpResponseType {
         }
         else {
             // no content-length, so send as chunk-encoded
-            let mut encoder = HttpChunkedTransferWriter::from_writer(fd, protocol.chunk_size);
-            write_next(&mut encoder, message)
+            let mut write_state = HttpChunkedTransferWriterState::new(protocol.chunk_size as usize);
+            let mut encoder = HttpChunkedTransferWriter::from_writer_state(fd, &mut write_state);
+            write_next(&mut encoder, message)?;
+            encoder.flush().map_err(net_error::WriteError)?;
+            Ok(())
         }
     }
 
@@ -1393,8 +1552,11 @@ impl HttpResponseType {
         }
         else {
             // no content-length, so send as chunk-encoded
-            let mut encoder = HttpChunkedTransferWriter::from_writer(fd, protocol.chunk_size);
-            encoder.write_all(text).map_err(net_error::WriteError)
+            let mut write_state = HttpChunkedTransferWriterState::new(protocol.chunk_size as usize);
+            let mut encoder = HttpChunkedTransferWriter::from_writer_state(fd, &mut write_state);
+            encoder.write_all(text).map_err(net_error::WriteError)?;
+            encoder.flush().map_err(net_error::WriteError)?;
+            Ok(())
         }
     }
     
@@ -1405,30 +1567,45 @@ impl HttpResponseType {
         }
         else {
             // no content-length, so send as chunk-encoded
-            let mut encoder = HttpChunkedTransferWriter::from_writer(fd, protocol.chunk_size);
-            serde_json::to_writer(&mut encoder, message).map_err(|e| net_error::SerializeError(format!("Failed to send as chunk-encoded JSON: {:?}", &e)))
+            let mut write_state = HttpChunkedTransferWriterState::new(protocol.chunk_size as usize);
+            let mut encoder = HttpChunkedTransferWriter::from_writer_state(fd, &mut write_state);
+            serde_json::to_writer(&mut encoder, message).map_err(|e| net_error::SerializeError(format!("Failed to send as chunk-encoded JSON: {:?}", &e)))?;
+            encoder.flush().map_err(net_error::WriteError)?;
+            Ok(())
         }
     }
 
     pub fn send<W: Write>(&self, protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
         match *self {
+            HttpResponseType::PeerInfo(ref md, ref peer_info) => {
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, md.content_length.clone(), &HttpContentType::JSON, md.request_id, empty_headers)?;
+                HttpResponseType::send_json(protocol, md, fd, peer_info)?;
+            },
             HttpResponseType::Neighbors(ref md, ref neighbor_data) => {
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, &md.request_path, empty_headers)?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, md.content_length.clone(), &HttpContentType::JSON, md.request_id, empty_headers)?;
                 HttpResponseType::send_json(protocol, md, fd, neighbor_data)?;
             },
             HttpResponseType::Block(ref md, ref block) => {
-                // TODO; stream from disk using `protocol`
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Bytes, md.request_id, &md.request_path, empty_headers)?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, md.content_length.clone(), &HttpContentType::Bytes, md.request_id, empty_headers)?;
                 HttpResponseType::send_bytestream(protocol, md, fd, block)?;
             },
+            HttpResponseType::BlockStream(ref md) => {
+                // only send the preamble.  The caller will need to figure out how to send along
+                // the block data itself.
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, None, &HttpContentType::Bytes, md.request_id, empty_headers)?;
+            },
             HttpResponseType::Microblocks(ref md, ref microblocks) => {
-                // TODO: stream from disk using `protocol`
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Bytes, md.request_id, &md.request_path, empty_headers)?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, md.content_length.clone(), &HttpContentType::Bytes, md.request_id, empty_headers)?;
                 HttpResponseType::send_bytestream(protocol, md, fd, microblocks)?;
+            },
+            HttpResponseType::MicroblockStream(ref md) => {
+                // only send the preamble.  The caller will need to figure out how to send along
+                // the microblock data itself.
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, None, &HttpContentType::Bytes, md.request_id, empty_headers)?;
             },
             HttpResponseType::TransactionID(ref md, ref txid) => {
                 let txid_bytes = txid.to_hex().into_bytes();
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Text, md.request_id, &md.request_path, empty_headers)?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, md.content_length.clone(), &HttpContentType::Text, md.request_id, empty_headers)?;
                 HttpResponseType::send_text(protocol, md, fd, &txid_bytes)?;
             },
             HttpResponseType::BadRequest(_, ref msg) => self.error_response(fd, 400, msg)?,
@@ -1445,9 +1622,11 @@ impl HttpResponseType {
 }
 
 lazy_static! {
-    static ref PATH_GETNEIGHBORS: Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
+    static ref PATH_GETINFO : Regex = Regex::new(r#"^/v[12]/info$"#).unwrap();
+    static ref PATH_GETNEIGHBORS : Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
     static ref PATH_GETBLOCK : Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_GETMICROBLOCKS : Regex = Regex::new(r#"^/v2/microblocks/([0-9a-f]{64})$"#).unwrap();
+    static ref PATH_GETMICROBLOCKS_UNCONFIRMED : Regex = Regex::new(r#"^/v2/microblocks/unconfirmed/([0-9a-f]{64})/([0-9]{1,5})$"#).unwrap();
     static ref PATH_POSTTRANSACTION : Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
 }
 
@@ -1493,24 +1672,27 @@ impl StacksMessageCodec for StacksHttpPreamble {
 
 impl MessageSequence for StacksHttpMessage {
     fn request_id(&self) -> u32 {
-        match *self {
-            StacksHttpMessage::Request(ref req) => req.metadata().request_id,
-            StacksHttpMessage::Response(ref res) => res.metadata().request_id,
-        }
+        // there is at most one in-flight HTTP request, as far as a Connection<P> is concerned
+        HTTP_REQUEST_ID_RESERVED
     }
 
     fn get_message_name(&self) -> &'static str {
         match *self {
             StacksHttpMessage::Request(ref req) => match req {
+                HttpRequestType::GetInfo(_) => "HTTP(GetInfo)",
                 HttpRequestType::GetNeighbors(_) => "HTTP(GetNeighbors)",
                 HttpRequestType::GetBlock(_, _) => "HTTP(GetBlock)",
                 HttpRequestType::GetMicroblocks(_, _) => "HTTP(GetMicroblocks)",
+                HttpRequestType::GetMicroblocksUnconfirmed(_, _, _) => "HTTP(GetMicroblocksUnconfirmed)",
                 HttpRequestType::PostTransaction(_, _) => "HTTP(PostTransaction)"
             },
             StacksHttpMessage::Response(ref res) => match res {
+                HttpResponseType::PeerInfo(_, _) => "HTTP(PeerInfo)",
                 HttpResponseType::Neighbors(_, _) => "HTTP(Neighbors)",
                 HttpResponseType::Block(_, _) => "HTTP(Block)",
-                HttpResponseType::Microblocks(_, _) => "HTTP(Microbloks)",
+                HttpResponseType::BlockStream(_) => "HTTP(BlockStream)",
+                HttpResponseType::Microblocks(_, _) => "HTTP(Microblocks)",
+                HttpResponseType::MicroblockStream(_) => "HTTP(MicroblockStream)",
                 HttpResponseType::TransactionID(_, _) => "HTTP(Transaction)",
                 HttpResponseType::BadRequest(_, _) => "HTTP(400)",
                 HttpResponseType::Unauthorized(_, _) => "HTTP(401)",
@@ -1526,18 +1708,18 @@ impl MessageSequence for StacksHttpMessage {
 }
 
 
-/// A partially-decoded, streamed HTTP message (response).
+/// A partially-decoded, streamed HTTP message (response) being received.
 /// Internally used by StacksHttp to keep track of chunk-decoding state.
 #[derive(Debug, Clone, PartialEq)]
-struct HttpMessageStream {
+struct HttpRecvStream {
     state: HttpChunkedTransferReaderState,
     data: Vec<u8>,
     total_consumed: usize,      // number of *encoded* bytes consumed
 }
 
-impl HttpMessageStream {
-    pub fn new(max_size: u64) -> HttpMessageStream {
-        HttpMessageStream {
+impl HttpRecvStream {
+    pub fn new(max_size: u64) -> HttpRecvStream {
+        HttpRecvStream {
             state: HttpChunkedTransferReaderState::new(max_size),
             data: vec![],
             total_consumed: 0
@@ -1598,20 +1780,31 @@ impl HttpMessageStream {
     }
 }
 
-/// Stacks HTTP implementation, for bufferring up data
+/// Information about an in-flight request
+#[derive(Debug, Clone, PartialEq)]
+struct HttpReplyData {
+    request_id: u32,
+    stream: HttpRecvStream,
+}
+
+/// Stacks HTTP implementation, for bufferring up data.
+/// One of these exists per Connection<P: Protocol>.
+/// There can be at most one HTTP request in-flight (i.e. we don't do pipelining)
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksHttp {
-    /// Partially-received chunk-encoded messages, keyed by request ID and path
-    pending: HashMap<(u32, String), HttpMessageStream>,
+    /// Path we requested
+    request_path: Option<String>,
+    /// Incoming reply
+    reply: Option<HttpReplyData>,
     /// Size of HTTP chunks to write
     chunk_size: usize
 }
 
 impl StacksHttp {
-    // TODO; link this to the stacks chain state, peer db, and so on.
     pub fn new() -> StacksHttp {
         StacksHttp {
-            pending: HashMap::new(),
+            reply: None,
+            request_path: None,
             chunk_size: 8192
         }
     }
@@ -1620,21 +1813,110 @@ impl StacksHttp {
         self.chunk_size = size;
     }
 
+    pub fn num_pending(&self) -> usize {
+        if self.reply.is_some() { 1 } else { 0 }
+    }
+
+    pub fn has_pending_reply(&self) -> bool {
+        self.reply.is_some()
+    }
+
+    pub fn set_pending(&mut self, preamble: &HttpResponsePreamble) -> bool {
+        if self.reply.is_some() {
+            // already pending
+            return false;
+        }
+        self.reply = Some(HttpReplyData {
+            request_id: preamble.request_id, 
+            stream: HttpRecvStream::new(MAX_MESSAGE_LEN as u64)
+        });
+        true
+    }
+
+    pub fn reset(&mut self) -> () {
+        self.request_path = None;
+        self.reply = None;
+    }
+
     /// Used for processing chunk-encoded streams.
     /// Given the preamble and a Read, stream the bytes into a chunk-decoder.  Return the decoded
     /// bytes if we decode an entire stream.  Always return the number of bytes consumed.
-    pub fn consume_data<R: Read>(&mut self, preamble: &HttpResponsePreamble, fd: &mut R) -> Result<(Option<(Vec<u8>, usize)>, usize), net_error> {
+    /// Returns Ok((Some(request path, decoded bytes we got, total number of encoded bytes), number of bytes gotten in this call))
+    pub fn consume_data<R: Read>(&mut self, preamble: &HttpResponsePreamble, fd: &mut R) -> Result<(Option<(String, Vec<u8>, usize)>, usize), net_error> {
         assert!(preamble.is_chunked());
-        let key = (preamble.request_id, preamble.request_path.clone());
-        if !self.pending.contains_key(&key) {
-            self.pending.insert(key.clone(), HttpMessageStream::new(MAX_MESSAGE_LEN as u64));
-        }
+        assert!(self.reply.is_some());
+        assert!(self.request_path.is_some());
 
-        match self.pending.get_mut(&key) {
-            Some(ref mut stream) => stream.consume_data(fd),
+        let mut finished = false;
+        let res = match self.reply {
+            Some(ref mut reply) => {
+                assert_eq!(reply.request_id, preamble.request_id);
+                match reply.stream.consume_data(fd) {
+                    Ok(res) => {
+                        match res {
+                            (None, sz) => Ok((None, sz)),
+                            (Some((byte_vec, bytes_total)), sz) => {
+                                // done receiving
+                                finished = true;
+                                Ok((Some((self.request_path.clone().unwrap(), byte_vec, bytes_total)), sz))
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        // broken stream
+                        finished = true;
+                        Err(e)
+                    }
+                }
+            },
             None => {
-                unreachable!()
+                unreachable!();
             }
+        };
+
+        if finished {
+            // if we fetch the whole message, or encounter an error, then we're done -- we can free
+            // up this stream.
+            self.reset();
+        }
+        res
+    }
+
+    /// Given a HTTP request, serialize it out
+    pub fn serialize_request(req: &HttpRequestType) -> Result<Vec<u8>, net_error> {
+        let mut http = StacksHttp::new();
+        let mut ret = vec![];
+        req.send(&mut http, &mut ret)?;
+        Ok(ret)
+    }
+
+    /// Given a fully-formed single HTTP response, parse it (used mainly by clients).
+    /// The StacksHttp object
+    pub fn parse_response(request_path: &str, response_buf: &[u8]) -> Result<StacksHttpMessage, net_error> {
+        let mut http = StacksHttp::new();
+        http.reset();
+        http.request_path = Some(request_path.to_string());
+        
+        let (preamble, message_offset) = http.read_preamble(response_buf)?;
+        let is_chunked = match preamble {
+            StacksHttpPreamble::Response(ref resp) => resp.is_chunked(),
+            _ => {
+                return Err(net_error::DeserializeError("Invalid HTTP message: did not get a Response preamble".to_string()));
+            }
+        };
+            
+        let mut message_bytes = &response_buf[message_offset..];
+
+        if is_chunked {
+            match http.stream_payload(&preamble, &mut message_bytes) {
+                Ok((Some((message, _)), _)) => Ok(message),
+                Ok((None,  _)) => Err(net_error::UnderflowError("Not enough bytes to form a streamed HTTP response".to_string())),
+                Err(e) => Err(e)
+            }
+        }
+        else {
+            let (message, _) = http.read_payload(&preamble, &mut message_bytes)?;
+            Ok(message)
         }
     }
 }
@@ -1670,6 +1952,33 @@ impl ProtocolFamily for StacksHttp {
         };
 
         let preamble_len = cursor.position() as usize;
+
+        // if we already have a pending message, then this preamble cannot be processed (indicates an un-compliant client)
+        match preamble {
+            StacksHttpPreamble::Response(ref http_response_preamble) => {
+                // request path must have been set
+                if self.request_path.is_none() {
+                    return Err(net_error::DeserializeError("Possible bug: did not set the request path".to_string()));
+                }
+
+                if http_response_preamble.is_chunked() {
+                    // will stream this.  Make sure we're not doing so already (no collisions
+                    // allowed on in-flight request IDs!)
+                    if self.has_pending_reply() {
+                        test_debug!("Have pending reply already");
+                        return Err(net_error::InProgress);
+                    }
+
+                    // mark as pending -- we can stream this
+                    if !self.set_pending(http_response_preamble) {
+                        test_debug!("Have pending reply already");
+                        return Err(net_error::InProgress);
+                    }
+                }
+            },
+            _ => {}
+        }
+
         Ok((preamble, preamble_len))
     }
 
@@ -1685,19 +1994,32 @@ impl ProtocolFamily for StacksHttp {
             },
             StacksHttpPreamble::Response(ref http_response_preamble) => {
                 assert!(http_response_preamble.is_chunked());
+                assert!(self.request_path.is_some());
 
                 // message of unknown length.  Buffer up and maybe we can parse it.
-                let (message_bytes_opt, num_read) = self.consume_data(http_response_preamble, fd)?;
+                let (message_bytes_opt, num_read) = self.consume_data(http_response_preamble, fd)
+                    .map_err(|e| {
+                        self.reset();
+                        e
+                    })?;
+
                 match message_bytes_opt {
-                    Some((message_bytes, total_bytes_consumed)) => {
+                    Some((request_path, message_bytes, total_bytes_consumed)) => {
                         // can parse!
-                        trace!("read http response payload of {} bytes (bufferred {})", message_bytes.len(), num_read);
+                        test_debug!("read http response payload of {} bytes (just bufferred {}) for {}", message_bytes.len(), num_read, &request_path);
 
                         // we now know the content-length, so pass it into the parser.
                         let len_hint = message_bytes.len();
-                        match HttpResponseType::parse(self, http_response_preamble, &mut &message_bytes[..], Some(len_hint)) {
+                        let parse_res = HttpResponseType::parse(self, http_response_preamble, request_path, &mut &message_bytes[..], Some(len_hint));
+
+                        // done parsing
+                        self.reset();
+                        match parse_res {
                             Ok(data_response) => Ok((Some((StacksHttpMessage::Response(data_response), total_bytes_consumed)), num_read)),
-                            Err(e) => Err(e)
+                            Err(e) => {
+                                info!("Failed to parse HTTP response: {:?}", &e);
+                                Err(e)
+                            }
                         }
                     },
                     None => {
@@ -1729,11 +2051,15 @@ impl ProtocolFamily for StacksHttp {
             },
             StacksHttpPreamble::Response(ref http_response_preamble) => {
                 assert!(!http_response_preamble.is_chunked());
+                assert!(self.request_path.is_some());
+
+                let request_path = self.request_path.take().unwrap();
+
                 // message of known length
-                trace!("read http response payload of {} bytes", buf.len());
+                test_debug!("read http response payload of {} bytes for {}", buf.len(), &request_path);
                 
                 let mut cursor = io::Cursor::new(buf);
-                match HttpResponseType::parse(self, http_response_preamble, &mut cursor, None) {
+                match HttpResponseType::parse(self, http_response_preamble, request_path, &mut cursor, None) {
                     Ok(data_response) => Ok((StacksHttpMessage::Response(data_response), cursor.position() as usize)),
                     Err(e) => Err(e)
                 }
@@ -1749,7 +2075,17 @@ impl ProtocolFamily for StacksHttp {
     
     fn write_message<W: Write>(&mut self, fd: &mut W, message: &StacksHttpMessage) -> Result<(), net_error> {
         match *message {
-            StacksHttpMessage::Request(ref req) => req.send(self, fd),
+            StacksHttpMessage::Request(ref req) => {
+                if self.request_path.is_some() {
+                    test_debug!("Have pending request already");
+                    return Err(net_error::InProgress);
+                }
+                req.send(self, fd)?;
+
+                self.reset();
+                self.request_path = Some(req.request_path());
+                Ok(())
+            },
             StacksHttpMessage::Response(ref resp) => resp.send(self, fd)
         }
     }
@@ -1879,8 +2215,10 @@ mod test {
         for (chunk_size, input_bytes, encoding) in tests.iter() {
             let mut bytes = vec![];
             {
-                let mut encoder = HttpChunkedTransferWriter::from_writer(&mut bytes, *chunk_size);
+                let mut write_state = HttpChunkedTransferWriterState::new(*chunk_size as usize);
+                let mut encoder = HttpChunkedTransferWriter::from_writer_state(&mut bytes, &mut write_state);
                 encoder.write_all(input_bytes.as_bytes()).unwrap();
+                encoder.flush().unwrap();
             }
 
             assert_eq!(bytes, encoding.as_bytes().to_vec());
@@ -1899,10 +2237,12 @@ mod test {
         for (chunk_size, input_vec, encoding) in tests.iter() {
             let mut bytes = vec![];
             {
-                let mut encoder = HttpChunkedTransferWriter::from_writer(&mut bytes, *chunk_size);
+                let mut write_state = HttpChunkedTransferWriterState::new(*chunk_size as usize);
+                let mut encoder = HttpChunkedTransferWriter::from_writer_state(&mut bytes, &mut write_state);
                 for input in input_vec.iter() {
                     encoder.write_all(input.as_bytes()).unwrap();
                 }
+                encoder.flush().unwrap();
             }
 
             assert_eq!(bytes, encoding.as_bytes().to_vec());
@@ -1999,8 +2339,10 @@ mod test {
 
             let mut encoded_data = vec![];
             {
-                let mut encoder = HttpChunkedTransferWriter::from_writer(&mut encoded_data, i+1);
+                let mut write_state = HttpChunkedTransferWriterState::new(i+1);
+                let mut encoder = HttpChunkedTransferWriter::from_writer_state(&mut encoded_data, &mut write_state);
                 encoder.write_all(&data).unwrap();
+                encoder.flush().unwrap();
             }
 
             let mut decoded_data = vec![0u8; 256];
@@ -2022,7 +2364,6 @@ mod test {
             ("Content-Type", "application/octet-stream", Some(HttpReservedHeader::ContentType(HttpContentType::Bytes))),
             ("Content-Type", "application/json", Some(HttpReservedHeader::ContentType(HttpContentType::JSON))),
             ("X-Request-Id", "123", Some(HttpReservedHeader::XRequestID(123))),
-            ("X-Request-path", "/foo/bar", Some(HttpReservedHeader::XRequestPath("/foo/bar".to_string()))),
             ("Host", "foo:123", Some(HttpReservedHeader::Host(PeerHost::DNS("foo".to_string(), 123)))),
             ("Host", "1.2.3.4:123", Some(HttpReservedHeader::Host(PeerHost::IP(PeerAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x01, 0x02, 0x03, 0x04]), 123)))),
             // errors
@@ -2046,11 +2387,17 @@ mod test {
     fn test_parse_http_request_preamble_ok() {
         let tests = vec![
             ("GET /foo HTTP/1.1\r\nHost: localhost:6270\r\n\r\n",
-             HttpRequestPreamble::from_headers("GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, 0, vec![], vec![])),
+             HttpRequestPreamble::from_headers("GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, true, vec![], vec![])),
             ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\n\r\n",
-             HttpRequestPreamble::from_headers("POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, 0, vec!["foo".to_string()], vec!["Bar".to_string()])),
-            ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\nX-Request-Id: 123\r\n\r\n",
-             HttpRequestPreamble::from_headers("POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, 123, vec!["foo".to_string()], vec!["Bar".to_string()])) 
+             HttpRequestPreamble::from_headers("POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()])),
+            ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\n\r\n",
+             HttpRequestPreamble::from_headers("POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()])),
+            ("GET /foo HTTP/1.1\r\nConnection: close\r\nHost: localhost:6270\r\n\r\n",
+             HttpRequestPreamble::from_headers("GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, false, vec![], vec![])),
+            ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nConnection: close\r\nFoo: Bar\r\n\r\n",
+             HttpRequestPreamble::from_headers("POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()])),
+            ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\nConnection: close\r\n\r\n",
+             HttpRequestPreamble::from_headers("POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()])) 
         ];
 
         for (data, request) in tests.iter() {
@@ -2082,7 +2429,9 @@ mod test {
             ("GET /foo HTTP/1.1\r\nHost: localhost:6270\r\nfoo: \u{2764}\r\n\r\n",
             "header value is not ASCII-US"),
             ("Get /foo HTTP/1.1\r\nHost: localhost:666666\r\n\r\n",
-             "Missing Host header")
+             "Missing Host header"),
+            ("GET /foo HTTP/1.1\r\nHost: localhost:8080\r\nConnection: foo\r\n\r\n",
+             "invalid Connection: header"),
         ];
 
         for (data, errstr) in tests.iter() {
@@ -2113,6 +2462,8 @@ mod test {
              "Failed to decode HTTP request or HTTP response"),
             ("Get /foo HTTP/1.1\r\nHost: localhost:666666\r\n\r\n",
              "Failed to decode HTTP request or HTTP response"),
+            ("GET /foo HTTP/1.1\r\nHost: localhost:8080\r\nConnection: foo\r\n\r\n",
+             "Failed to decode HTTP request or HTTP response"),
         ];
 
         for (data, errstr) in tests.iter() {
@@ -2126,11 +2477,7 @@ mod test {
 
     #[test]
     fn test_http_request_preamble_headers() {
-        let mut req = HttpRequestPreamble::new("GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, 0);
-        assert_eq!(req.request_id, 0);
-
-        req.set_request_id(123);
-        assert_eq!(req.request_id, 123);
+        let mut req = HttpRequestPreamble::new("GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270);
 
         req.add_header("foo".to_string(), "bar".to_string());
 
@@ -2144,24 +2491,35 @@ mod test {
         let mut bytes = vec![];
         req.consensus_serialize(&mut bytes).unwrap();
         let txt = String::from_utf8(bytes).unwrap();
+
+        test_debug!("headers:\n{}", txt);
+
         assert!(txt.find("User-Agent: stacks/2.0\r\n").is_some(), "User-Agnet header is missing");
         assert!(txt.find("Host: localhost:6270\r\n").is_some(), "Host header is missing");
-        assert!(txt.find("X-Request-Id: 123\r\n").is_some(), "X-Request-Id is missing");
         assert!(txt.find("foo: bar\r\n").is_some(), "foo header is missing");
         assert!(txt.find("Content-Type: application/octet-stream\r\n").is_some(), "content-type is missing");
+        assert!(txt.find("Connection: ").is_none());    // not sent if keep_alive is true
     }
 
     #[test]
     fn test_parse_http_response_preamble_ok() {
         let tests = vec![
-            ("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 123\r\nX-Request-ID: 0\r\nX-Request-Path: /foo\r\n\r\n",
-             HttpResponsePreamble::from_headers(200, "OK".to_string(), Some(123), HttpContentType::Bytes, 0, "/foo".to_string(), vec![], vec![])),
-            ("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 456\r\nFoo: Bar\r\nX-Request-ID: 0\r\nX-Request-Path: /foo\r\n\r\n",
-             HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), Some(456), HttpContentType::JSON, 0, "/foo".to_string(), vec!["foo".to_string()], vec!["Bar".to_string()])),
-            ("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 456\r\nX-Request-Id: 123\r\nX-Request-path: /foo\r\nFoo: Bar\r\n\r\n",
-             HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), Some(456), HttpContentType::JSON, 123, "/foo".to_string(), vec!["foo".to_string()], vec!["Bar".to_string()])),
-            ("HTTP/1.1 200 Ok\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\nX-Request-ID: 0\r\nX-Request-Path: /foo\r\n\r\n",
-             HttpResponsePreamble::from_headers(200, "Ok".to_string(), None, HttpContentType::Bytes, 0, "/foo".to_string(), vec![], vec![])),
+            ("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 123\r\nX-Request-ID: 0\r\n\r\n",
+             HttpResponsePreamble::from_headers(200, "OK".to_string(), true, Some(123), HttpContentType::Bytes, 0, vec![], vec![])),
+            ("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 456\r\nFoo: Bar\r\nX-Request-ID: 0\r\n\r\n",
+             HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), true, Some(456), HttpContentType::JSON, 0, vec!["foo".to_string()], vec!["Bar".to_string()])),
+            ("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 456\r\nX-Request-Id: 123\r\nFoo: Bar\r\n\r\n",
+             HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), true, Some(456), HttpContentType::JSON, 123, vec!["foo".to_string()], vec!["Bar".to_string()])),
+            ("HTTP/1.1 200 Ok\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\nX-Request-ID: 0\r\n\r\n",
+             HttpResponsePreamble::from_headers(200, "Ok".to_string(), true, None, HttpContentType::Bytes, 0, vec![], vec![])),
+            ("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 123\r\nConnection: close\r\nX-Request-ID: 0\r\n\r\n",
+             HttpResponsePreamble::from_headers(200, "OK".to_string(), false, Some(123), HttpContentType::Bytes, 0, vec![], vec![])),
+            ("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 456\r\nConnection: close\r\nFoo: Bar\r\nX-Request-ID: 0\r\n\r\n",
+             HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), false, Some(456), HttpContentType::JSON, 0, vec!["foo".to_string()], vec!["Bar".to_string()])),
+            ("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: 456\r\nX-Request-Id: 123\r\nFoo: Bar\r\n\r\n",
+             HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), false, Some(456), HttpContentType::JSON, 123, vec!["foo".to_string()], vec!["Bar".to_string()])),
+            ("HTTP/1.1 200 Ok\r\nConnection: close\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\nX-Request-ID: 0\r\n\r\n",
+             HttpResponsePreamble::from_headers(200, "Ok".to_string(), false, None, HttpContentType::Bytes, 0, vec![], vec![])),
         ];
 
         for (data, response) in tests.iter() {
@@ -2178,15 +2536,11 @@ mod test {
 
     #[test]
     fn test_http_response_preamble_headers() {
-        let mut res = HttpResponsePreamble::new(200, "OK".to_string(), Some(123), HttpContentType::JSON, 123, "/bar".to_string());
+        let mut res = HttpResponsePreamble::new(200, "OK".to_string(), Some(123), HttpContentType::JSON, 123);
         assert_eq!(res.request_id, 123);
-        assert_eq!(res.request_path, "/bar".to_string());
 
         res.set_request_id(456);
         assert_eq!(res.request_id, 456);
-
-        res.set_request_path("/foo".to_string());
-        assert_eq!(res.request_path, "/foo".to_string());
 
         res.add_header("foo".to_string(), "bar".to_string());
         res.add_CORS_headers();
@@ -2200,8 +2554,8 @@ mod test {
         assert!(txt.find("Date: ").is_some(), "Date header is missing");
         assert!(txt.find("foo: bar\r\n").is_some(), "foo header is missing");
         assert!(txt.find("X-Request-Id: 456\r\n").is_some(), "X-Request-Id is missing");
-        assert!(txt.find("X-Request-Path: /foo\r\n").is_some(), "X-Request-Path is missing");
         assert!(txt.find("Access-Control-Allow-Origin: *\r\n").is_some(), "CORS header is missing");
+        assert!(txt.find("Connection: ").is_none());    // not sent if keep_alive is true
     }
 
     #[test]
@@ -2221,18 +2575,10 @@ mod test {
              "missing Content-Type, Content-Length"),
             ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
              "missing Content-Type, Content-Length"),
-            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n",
-             "missing Content-Type, Content-Length"),
-            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nX-Request-Id: 123\r\n\r\n",
-             "missing Content-Type, Content-Length"),
-            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\nX-Request-Id: 123\r\n\r\n",
-             "missing Content-Type, Content-Length"),
-            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nX-Request-Path: /foo\r\n\r\n",
-             "missing Content-Type, Content-Length"),
-            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\nX-Request-Path: /foo\r\n\r\n",
-             "missing Content-Type, Content-Length"),
-            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\nX-Request-Path: /foo\r\n\r\n",
+            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\n\r\n",
              "incompatible transfer-encoding and content-length"),
+            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nConnection: foo\r\n\r\n",
+             "invalid Connection: header"),
         ];
 
         for (data, errstr) in tests.iter() {
@@ -2260,17 +2606,9 @@ mod test {
              "Failed to decode HTTP request or HTTP response"),
             ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
              "Failed to decode HTTP request or HTTP response"),
-            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n",
+            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\n\r\n",
              "Failed to decode HTTP request or HTTP response"),
-            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nX-Request-Id: 123\r\n\r\n",
-             "Failed to decode HTTP request or HTTP response"),
-            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\nX-Request-Id: 123\r\n\r\n",
-             "Failed to decode HTTP request or HTTP response"),
-            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nX-Request-Path: /foo\r\n\r\n",
-             "Failed to decode HTTP request or HTTP response"),
-            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\nX-Request-Path: /foo\r\n\r\n",
-             "Failed to decode HTTP request or HTTP response"),
-            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\nX-Request-Path: /foo\r\n\r\n",
+            ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nConnection: foo\r\n\r\n",
              "Failed to decode HTTP request or HTTP response"),
         ];
 
@@ -2363,11 +2701,11 @@ mod test {
     fn test_http_request_type_codec() {
         let http_request_metadata_ip = HttpRequestMetadata {
             peer: PeerHost::IP(PeerAddress([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]), 12345),
-            request_id: 123
+            keep_alive: true,
         };
         let http_request_metadata_dns = HttpRequestMetadata {
             peer: PeerHost::DNS("www.foo.com".to_string(), 80),
-            request_id: 456
+            keep_alive: true,
         };
 
         let tests = vec![
@@ -2380,15 +2718,15 @@ mod test {
         let mut tx_body = vec![];
         make_test_transaction().consensus_serialize(&mut tx_body).unwrap();
 
-        let mut post_transaction_preamble = HttpRequestPreamble::new("POST".to_string(), "/v2/transactions".to_string(), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port(), http_request_metadata_dns.request_id);
+        let mut post_transaction_preamble = HttpRequestPreamble::new("POST".to_string(), "/v2/transactions".to_string(), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port());
         post_transaction_preamble.set_content_type(HttpContentType::Bytes);
         post_transaction_preamble.set_content_length(tx_body.len() as u32);
 
         // all of these should parse
         let expected_http_preambles = vec![
-            HttpRequestPreamble::new("GET".to_string(), "/v2/neighbors".to_string(), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port(), http_request_metadata_ip.request_id),
-            HttpRequestPreamble::new("GET".to_string(), format!("/v2/blocks/{}", BlockHeaderHash([2u8; 32]).to_hex()), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port(), http_request_metadata_dns.request_id),
-            HttpRequestPreamble::new("GET".to_string(), format!("/v2/microblocks/{}", BlockHeaderHash([3u8; 32]).to_hex()), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port(), http_request_metadata_ip.request_id),
+            HttpRequestPreamble::new("GET".to_string(), "/v2/neighbors".to_string(), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port()),
+            HttpRequestPreamble::new("GET".to_string(), format!("/v2/blocks/{}", BlockHeaderHash([2u8; 32]).to_hex()), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port()),
+            HttpRequestPreamble::new("GET".to_string(), format!("/v2/microblocks/{}", BlockHeaderHash([3u8; 32]).to_hex()), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port()),
             post_transaction_preamble,
         ];
 
@@ -2425,10 +2763,10 @@ mod test {
     #[test]
     fn test_http_request_type_codec_err() {
         let bad_content_lengths = vec![
-            "GET /v2/neighbors HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nX-Request-Id: 123\r\nContent-Length: 1\r\n\r\nb",
-            "GET /v2/blocks/1111111111111111111111111111111111111111111111111111111111111111 HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nX-Request-Id: 123\r\nContent-Length: 1\r\n\r\nb",
-            "GET /v2/microblocks/1111111111111111111111111111111111111111111111111111111111111111 HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nX-Request-Id: 123\r\nContent-Length: 1\r\n\r\nb",
-            "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nX-Request-Id: 123\r\nContent-Length: 0\r\n\r\n",
+            "GET /v2/neighbors HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 1\r\n\r\nb",
+            "GET /v2/blocks/1111111111111111111111111111111111111111111111111111111111111111 HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 1\r\n\r\nb",
+            "GET /v2/microblocks/1111111111111111111111111111111111111111111111111111111111111111 HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 1\r\n\r\nb",
+            "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 0\r\n\r\n",
         ];
         for bad_content_length in bad_content_lengths {
             let mut http = StacksHttp::new();
@@ -2441,8 +2779,8 @@ mod test {
         }
 
         let bad_content_types = vec![
-            "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nX-Request-Id: 123\r\nContent-Length: 1\r\n\r\nb",
-            "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nX-Request-Id: 123\r\nContent-Length: 1\r\nContent-Type: application/json\r\n\r\nb",
+            "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 1\r\n\r\nb",
+            "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 1\r\nContent-Type: application/json\r\n\r\nb",
         ];
         for bad_content_type in bad_content_types {
             let mut http = StacksHttp::new();
@@ -2482,73 +2820,73 @@ mod test {
 
         let tests = vec![
             // length is known
-            HttpResponseType::Neighbors(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32)), test_neighbors_info.clone()),
-            HttpResponseType::Block(HttpResponseMetadata::new(123, format!("/v2/blocks/{}", test_block_info.block_hash().to_hex()), Some(test_block_info_bytes.len() as u32)), test_block_info.clone()),
-            HttpResponseType::Microblocks(HttpResponseMetadata::new(123, format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex()), Some(test_microblock_info_bytes.len() as u32)), test_microblock_info.clone()),
-            HttpResponseType::TransactionID(HttpResponseMetadata::new(123, "/v2/transactions".to_string(), Some(Txid([0x1; 32]).to_hex().len() as u32)), Txid([0x1; 32])),
+            (HttpResponseType::Neighbors(HttpResponseMetadata::new(123, Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32)), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Block(HttpResponseMetadata::new(123, Some(test_block_info_bytes.len() as u32)), test_block_info.clone()), format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
+            (HttpResponseType::Microblocks(HttpResponseMetadata::new(123, Some(test_microblock_info_bytes.len() as u32)), test_microblock_info.clone()), format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
+            (HttpResponseType::TransactionID(HttpResponseMetadata::new(123, Some(Txid([0x1; 32]).to_hex().len() as u32)), Txid([0x1; 32])), "/v2/transactions".to_string()),
             
             // length is unknown
-            HttpResponseType::Neighbors(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), None), test_neighbors_info.clone()),
-            HttpResponseType::Block(HttpResponseMetadata::new(123, format!("/v2/blocks/{}", test_block_info.block_hash().to_hex()), None), test_block_info.clone()),
-            HttpResponseType::Microblocks(HttpResponseMetadata::new(123, format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex()), None), test_microblock_info.clone()),
-            HttpResponseType::TransactionID(HttpResponseMetadata::new(123, "/v2/transactions".to_string(), None), Txid([0x1; 32])),
+            (HttpResponseType::Neighbors(HttpResponseMetadata::new(123, None), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Block(HttpResponseMetadata::new(123, None), test_block_info.clone()), format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
+            (HttpResponseType::Microblocks(HttpResponseMetadata::new(123, None), test_microblock_info.clone()), format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
+            (HttpResponseType::TransactionID(HttpResponseMetadata::new(123, None), Txid([0x1; 32])), "/v2/transactions".to_string()),
 
             // errors without error messages
-            HttpResponseType::BadRequest(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(0)), "".to_string()),
-            HttpResponseType::Unauthorized(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(0)), "".to_string()),
-            HttpResponseType::PaymentRequired(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(0)), "".to_string()),
-            HttpResponseType::Forbidden(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(0)), "".to_string()),
-            HttpResponseType::NotFound(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(0)), "".to_string()),
-            HttpResponseType::ServerError(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(0)), "".to_string()),
-            HttpResponseType::ServiceUnavailable(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(0)), "".to_string()),
-            HttpResponseType::Error(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(0)), 502, "".to_string()),
+            (HttpResponseType::BadRequest(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Unauthorized(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::PaymentRequired(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Forbidden(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::NotFound(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::ServerError(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::ServiceUnavailable(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Error(HttpResponseMetadata::new(123, Some(0)), 502, "".to_string()), "/v2/neighbors".to_string()),
 
             // errors with specific messages
-            HttpResponseType::BadRequest(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(3)), "foo".to_string()),
-            HttpResponseType::Unauthorized(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(3)), "foo".to_string()),
-            HttpResponseType::PaymentRequired(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(3)), "foo".to_string()),
-            HttpResponseType::Forbidden(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(3)), "foo".to_string()),
-            HttpResponseType::NotFound(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(3)), "foo".to_string()),
-            HttpResponseType::ServerError(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(3)), "foo".to_string()),
-            HttpResponseType::ServiceUnavailable(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(3)), "foo".to_string()),
-            HttpResponseType::Error(HttpResponseMetadata::new(123, "/v2/neighbors".to_string(), Some(3)), 502, "foo".to_string()),
+            (HttpResponseType::BadRequest(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Unauthorized(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::PaymentRequired(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Forbidden(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::NotFound(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::ServerError(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::ServiceUnavailable(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Error(HttpResponseMetadata::new(123, Some(3)), 502, "foo".to_string()), "/v2/neighbors".to_string()),
         ];
 
         let expected_http_preambles = vec![
             // length is known
-            HttpResponsePreamble::new(200, "OK".to_string(), Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32), HttpContentType::JSON, 123, "/v2/neighbors".to_string()),
-            HttpResponsePreamble::new(200, "OK".to_string(), Some(test_block_info_bytes.len() as u32), HttpContentType::Bytes, 123, format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
-            HttpResponsePreamble::new(200, "OK".to_string(), Some(test_microblock_info_bytes.len() as u32), HttpContentType::Bytes, 123, format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
-            HttpResponsePreamble::new(200, "OK".to_string(), Some(Txid([0x1; 32]).to_hex().len() as u32), HttpContentType::Text, 123, "/v2/transactions".to_string()),
+            HttpResponsePreamble::new(200, "OK".to_string(), Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32), HttpContentType::JSON, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), Some(test_block_info_bytes.len() as u32), HttpContentType::Bytes, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), Some(test_microblock_info_bytes.len() as u32), HttpContentType::Bytes, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), Some(Txid([0x1; 32]).to_hex().len() as u32), HttpContentType::Text, 123),
             
             // length is unknown
-            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::JSON, 123, "/v2/neighbors".to_string()),
-            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Bytes, 123, format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
-            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Bytes, 123, format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
-            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Text, 123, "/v2/transactions".to_string()),
+            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::JSON, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Bytes, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Bytes, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Text, 123),
 
             // errors
-            HttpResponsePreamble::new_error(400, 123, "/v2/neighbors".to_string(), None),
-            HttpResponsePreamble::new_error(401, 123, "/v2/neighbors".to_string(), None),
-            HttpResponsePreamble::new_error(402, 123, "/v2/neighbors".to_string(), None),
-            HttpResponsePreamble::new_error(403, 123, "/v2/neighbors".to_string(), None),
-            HttpResponsePreamble::new_error(404, 123, "/v2/neighbors".to_string(), None),
-            HttpResponsePreamble::new_error(500, 123, "/v2/neighbors".to_string(), None),
-            HttpResponsePreamble::new_error(503, 123, "/v2/neighbors".to_string(), None),
+            HttpResponsePreamble::new_error(400, 123, None),
+            HttpResponsePreamble::new_error(401, 123, None),
+            HttpResponsePreamble::new_error(402, 123, None),
+            HttpResponsePreamble::new_error(403, 123, None),
+            HttpResponsePreamble::new_error(404, 123, None),
+            HttpResponsePreamble::new_error(500, 123, None),
+            HttpResponsePreamble::new_error(503, 123, None),
 
             // generic error
-            HttpResponsePreamble::new_error(502, 123, "/v2/neighbors".to_string(), None),
+            HttpResponsePreamble::new_error(502, 123, None),
 
             // errors with messages
-            HttpResponsePreamble::new_error(400, 123, "/v2/neighbors".to_string(), Some("foo".to_string())),
-            HttpResponsePreamble::new_error(401, 123, "/v2/neighbors".to_string(), Some("foo".to_string())),
-            HttpResponsePreamble::new_error(402, 123, "/v2/neighbors".to_string(), Some("foo".to_string())),
-            HttpResponsePreamble::new_error(403, 123, "/v2/neighbors".to_string(), Some("foo".to_string())),
-            HttpResponsePreamble::new_error(404, 123, "/v2/neighbors".to_string(), Some("foo".to_string())),
-            HttpResponsePreamble::new_error(500, 123, "/v2/neighbors".to_string(), Some("foo".to_string())),
-            HttpResponsePreamble::new_error(503, 123, "/v2/neighbors".to_string(), Some("foo".to_string())),
+            HttpResponsePreamble::new_error(400, 123, Some("foo".to_string())),
+            HttpResponsePreamble::new_error(401, 123, Some("foo".to_string())),
+            HttpResponsePreamble::new_error(402, 123, Some("foo".to_string())),
+            HttpResponsePreamble::new_error(403, 123, Some("foo".to_string())),
+            HttpResponsePreamble::new_error(404, 123, Some("foo".to_string())),
+            HttpResponsePreamble::new_error(500, 123, Some("foo".to_string())),
+            HttpResponsePreamble::new_error(503, 123, Some("foo".to_string())),
             
-            HttpResponsePreamble::new_error(502, 123, "/v2/neighbors".to_string(), Some("foo".to_string())),
+            HttpResponsePreamble::new_error(502, 123, Some("foo".to_string())),
         ];
 
         let expected_http_bodies = vec![
@@ -2585,16 +2923,18 @@ mod test {
             "foo".as_bytes().to_vec(),
         ];
 
-        for (test, (expected_http_preamble, expected_http_body)) in tests.iter().zip(expected_http_preambles.iter().zip(expected_http_bodies.iter())) {
+        for ((test, request_path), (expected_http_preamble, expected_http_body)) in tests.iter().zip(expected_http_preambles.iter().zip(expected_http_bodies.iter())) {
             let mut http = StacksHttp::new();
             let mut bytes = vec![];
             test_debug!("write body:\n{:?}\n", test);
+
+            http.request_path = Some(request_path.to_string());
             http.write_message(&mut bytes, &StacksHttpMessage::Response((*test).clone())).unwrap();
 
             let (mut preamble, offset) = match http.read_preamble(&bytes) {
                 Ok((p, o)) => (p, o),
                 Err(e) => {
-                    test_debug!("first 4096 bytes:\n{:?}\n", &bytes[0..4096].to_vec());
+                    test_debug!("first 4096 bytes:\n{:?}\n", &bytes[0..].to_vec());
                     test_debug!("error: {:?}", &e);
                     assert!(false);
                     unreachable!();
@@ -2631,17 +2971,25 @@ mod test {
 
             assert_eq!(preamble, StacksHttpPreamble::Response((*expected_http_preamble).clone()));
             assert_eq!(message, StacksHttpMessage::Response((*test).clone()));
+            assert_eq!(http.num_pending(), 0);
         }
     }
     
     #[test]
     fn test_http_response_type_codec_err() {
+        let request_paths = vec![
+            "/v2/blocks/1111111111111111111111111111111111111111111111111111111111111111",
+            "/v2/transactions",
+            "/v2/neighbors",
+            "/v2/neighbors",
+            "/v2/neighbors"
+        ];
         let bad_request_payloads = vec![
-            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Path: /v2/transactions\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\nab",
-            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Path: /v2/transactions\r\nX-Request-Id: 123\r\nContent-Type: text/plain\r\nContent-length: 2\r\n\r\nab",
-            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Path: /v2/neighbors\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\n{",
-            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Path: /v2/neighbors\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\na",
-            "HTTP/1.1 400 Bad Request\r\nServer: stacks/v2.0\r\nX-Request-Path: /v2/neighbors\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\nab",
+            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: text/plain\r\nContent-length: 2\r\n\r\nab",
+            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\n{",
+            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\na",
+            "HTTP/1.1 400 Bad Request\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\n{}",
         ];
         let expected_bad_request_payload_errors = vec![
             "Invalid content-type",
@@ -2650,10 +2998,12 @@ mod test {
             "Failed to parse",
             "expected text/plain",
         ];
-        for (test, expected_error) in bad_request_payloads.iter().zip(expected_bad_request_payload_errors.iter()) {
+        for (test, (expected_error, request_path)) in bad_request_payloads.iter().zip(expected_bad_request_payload_errors.iter().zip(request_paths)) {
             test_debug!("Expect failure:\n{}\nExpected error: '{}'", test, expected_error);
             
             let mut http = StacksHttp::new();
+            http.request_path = Some(request_path.to_string());
+
             let (preamble, offset) = http.read_preamble(test.as_bytes()).unwrap();
             let e = http.read_payload(&preamble, &test.as_bytes()[offset..]);
             let errstr = format!("{:?}", &e);
@@ -2665,8 +3015,8 @@ mod test {
     #[test]
     fn test_http_headers_too_big() {
         let bad_header_value = std::iter::repeat("A").take(HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize).collect::<String>();
-        let bad_request_preamble = format!("GET /v2/neighbors HTTP/1.1\r\nHost: localhost:1234\r\nX-Request-ID: 123\r\nBad-Header: {}\r\n\r\n", &bad_header_value);
-        let bad_response_preamble = format!("HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Path: /v2/transactions\r\nX-Request-ID: 123\r\nContent-Type: text/plain\r\nContent-Length: 64\r\nBad-Header: {}\r\n\r\n", &bad_header_value);
+        let bad_request_preamble = format!("GET /v2/neighbors HTTP/1.1\r\nHost: localhost:1234\r\nBad-Header: {}\r\n\r\n", &bad_header_value);
+        let bad_response_preamble = format!("HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-ID: 123\r\nContent-Type: text/plain\r\nContent-Length: 64\r\nBad-Header: {}\r\n\r\n", &bad_header_value);
 
         let request_err = HttpRequestPreamble::consensus_deserialize(&mut bad_request_preamble.as_bytes()).unwrap_err();
         let response_err = HttpResponsePreamble::consensus_deserialize(&mut bad_response_preamble.as_bytes()).unwrap_err();
@@ -2689,8 +3039,8 @@ mod test {
     #[test]
     fn test_http_headers_too_many() {
         let too_many_headers = "H1: 1\r\nH2: 2\r\nH3: 3\r\nH4: 4\r\nH5: 5\r\nH6: 6\r\nH7: 7\r\nH8: 8\r\nH9: 9\r\nH10: 10\r\nH11: 11\r\nH12: 12\r\nH13: 13\r\nH14: 14\r\nH15: 15\r\nH16: 16\r\n";
-        let bad_request_preamble = format!("GET /v2/neighbors HTTP/1.1\r\nHost: localhost:1234\r\nX-Request-ID: 123\r\n{}\r\n", &too_many_headers);
-        let bad_response_preamble = format!("HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Path: /v2/transactions\r\nX-Request-ID: 123\r\nContent-Type: text/plain\r\nContent-Length: 64\r\n{}\r\n", &too_many_headers);
+        let bad_request_preamble = format!("GET /v2/neighbors HTTP/1.1\r\nHost: localhost:1234\r\n{}\r\n", &too_many_headers);
+        let bad_response_preamble = format!("HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-ID: 123\r\nContent-Type: text/plain\r\nContent-Length: 64\r\n{}\r\n", &too_many_headers);
         
         let request_err = HttpRequestPreamble::consensus_deserialize(&mut bad_request_preamble.as_bytes()).unwrap_err();
         let response_err = HttpResponsePreamble::consensus_deserialize(&mut bad_response_preamble.as_bytes()).unwrap_err();
@@ -2709,4 +3059,62 @@ mod test {
         assert!(protocol_request_err.to_string().find("Failed to decode HTTP request or HTTP response").is_some());
         assert!(protocol_response_err.to_string().find("Failed to decode HTTP request or HTTP response").is_some());
     }
+
+    #[test]
+    fn test_http_duplicate_concurrent_streamed_response_fails() {
+        // do not permit multiple in-flight chunk-encoded HTTP responses with the same request ID.
+        let valid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n10\r\n{\"neighbors\":[]}\r\n0\r\n\r\n";
+        let invalid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n10\r\nxxxxxxxxxxxxxxxx\r\n0\r\n\r\n";
+        let invalid_chunked_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n11\r\n{\"neighbors\":[]}\r\n0\r\n\r\n";
+
+        let mut http = StacksHttp::new();
+
+        http.request_path = Some("/v2/neighbors".to_string());
+        let (preamble, offset) = http.read_preamble(valid_neighbors_response.as_bytes()).unwrap();
+        assert_eq!(http.num_pending(), 1);
+
+        let res = http.read_preamble(valid_neighbors_response.as_bytes());
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().find("in progress").is_some());
+
+        // finish reading the body
+        let msg = http.stream_payload(&preamble, &mut &valid_neighbors_response.as_bytes()[offset..]).unwrap();
+        match msg {
+            (Some((StacksHttpMessage::Response(HttpResponseType::Neighbors(_, neighbors_data)), _)), _) => assert_eq!(neighbors_data, NeighborsData { neighbors: vec![] }),
+            _ => {
+                error!("Got {:?}", &msg);
+                assert!(false);
+            }
+        }
+        assert_eq!(http.num_pending(), 0);
+
+        // can read the preamble again, but only once
+        http.request_path = Some("/v2/neighbors".to_string());
+        let (preamble, offset) = http.read_preamble(invalid_neighbors_response.as_bytes()).unwrap();
+        assert_eq!(http.num_pending(), 1);
+        
+        let res = http.read_preamble(valid_neighbors_response.as_bytes());
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().find("in progress").is_some());
+
+        // reading a corrupt body unlocks the ability to read the preamble again
+        let res = http.stream_payload(&preamble, &mut &invalid_neighbors_response.as_bytes()[offset..]);
+        assert!(res.unwrap_err().to_string().find("JSON").is_some());
+        assert_eq!(http.num_pending(), 0);
+
+        // can read the premable again, but only once
+        http.request_path = Some("/v2/neighbors".to_string());
+        let (preamble, offset) = http.read_preamble(invalid_chunked_response.as_bytes()).unwrap();
+        let res = http.read_preamble(valid_neighbors_response.as_bytes());
+        
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().find("in progress").is_some());
+
+        // reading a corrupt chunk stream unlocks the ability to read the preamble again 
+        let res = http.stream_payload(&preamble, &mut &invalid_chunked_response.as_bytes()[offset..]);
+        assert!(res.unwrap_err().to_string().find("Invalid chunk trailer").is_some());
+        assert_eq!(http.num_pending(), 0);
+    }
+
+    // TODO: test mismatch between request path and reply
 }
