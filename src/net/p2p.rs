@@ -452,7 +452,7 @@ impl PeerNetwork {
         // TODO: register asynchronously after connect completes.
 
         let _sock_str = format!("{:?}", &sock).to_string();
-        self.register(next_event_id, sock, true)
+        self.register_peer(next_event_id, sock, true)
             .map_err(|e| {
                 test_debug!("{:?}: failed to register {:?} ({:?})", &self.local_peer, &_sock_str, &e);
                 e
@@ -882,7 +882,7 @@ impl PeerNetwork {
                             }
                             convo_unhandled
                         },
-                        Err(e) => {
+                        Err(_e) => {
                             to_remove.push(*event_id);
                             continue;
                         }
@@ -1154,7 +1154,7 @@ impl PeerNetwork {
             for mut relay_handle in handles.drain(..) {
                 let res = match relay_handle.try_flush() {
                     Ok(b) => b,
-                    Err(e) => {
+                    Err(_e) => {
                         // broken pipe
                         continue;
                     }
@@ -1182,7 +1182,7 @@ impl PeerNetwork {
         for (event_id, ref mut convo) in self.peers.iter_mut() {
             match convo.try_flush() {
                 Ok(_) => {},
-                Err(e) => {
+                Err(_e) => {
                     info!("Broken connection {:?}", convo);
                     broken.push(*event_id);
                 }
@@ -1198,7 +1198,7 @@ impl PeerNetwork {
     /// -- receive data on ready sockets
     /// -- clear out timed-out requests
     /// Returns the table of unhandled peer messages keyed by the neighbors that sent them.
-    fn dispatch_network(&mut self, burndb: &mut BurnDB, chainstate: &mut StacksChainState, mut poll_state: NetworkPollState) -> Result<HashMap<usize, Vec<StacksMessage>>, net_error> {
+    fn dispatch_network(&mut self, burndb: &mut BurnDB, _chainstate: &mut StacksChainState, mut poll_state: NetworkPollState) -> Result<HashMap<usize, Vec<StacksMessage>>, net_error> {
         if self.network.is_none() {
             return Err(net_error::NotConnected);
         }

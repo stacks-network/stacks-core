@@ -1204,7 +1204,7 @@ impl PeerNetwork {
         PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
             let neighbor_opt = {
                 let mut tx = network.peerdb.tx_begin().map_err(net_error::DBError)?;
-                let res = walk.handshake_try_finish(&mut tx, burn_block_height, burn_stable_block_height)?;
+                let res = walk.handshake_try_finish(&mut tx, burn_stable_block_height)?;
                 tx.commit().map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
                 res
             };

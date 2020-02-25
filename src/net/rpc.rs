@@ -197,7 +197,7 @@ impl ConversationHttp {
 
     /// Handle a GET neighbors
     /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
-    fn handle_getneighbors<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, network_id: u32, burnchain: &Burnchain, chain_view: &BurnchainView, peerdb: &mut PeerDB) -> Result<(), net_error> {
+    fn handle_getneighbors<W: Write>(http: &mut StacksHttp, fd: &mut W, network_id: u32, chain_view: &BurnchainView, peerdb: &mut PeerDB) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::new(HttpResponseMetadata::make_request_id(), None);
         
         // get neighbors at random as long as they're fresh
@@ -315,7 +315,7 @@ impl ConversationHttp {
                 None
             },
             HttpRequestType::GetNeighbors(ref _md) => {
-                ConversationHttp::handle_getneighbors(&mut self.connection.protocol, &mut reply, &req, self.network_id, &self.burnchain, chain_view, peerdb)?;
+                ConversationHttp::handle_getneighbors(&mut self.connection.protocol, &mut reply, self.network_id, chain_view, peerdb)?;
                 None
             },
             HttpRequestType::GetBlock(ref _md, ref index_block_hash) => {
@@ -327,7 +327,7 @@ impl ConversationHttp {
             HttpRequestType::GetMicroblocksUnconfirmed(ref _md, ref index_anchor_block_hash, ref min_seq) => {
                 ConversationHttp::handle_getmicroblocks_unconfirmed(&mut self.connection.protocol, &mut reply, &req, index_anchor_block_hash, *min_seq, chainstate)?
             },
-            HttpRequestType::PostTransaction(_md, tx) => {
+            HttpRequestType::PostTransaction(_md, _tx) => {
                 panic!("Not implemented");
             }
         };
@@ -526,7 +526,7 @@ impl ConversationHttp {
         let num_inbound = self.connection.inbox_len();
         test_debug!("{:?}: {} HTTP requests pending", &self, num_inbound);
 
-        for i in 0..num_inbound {
+        for _i in 0..num_inbound {
             let msg = match self.connection.next_inbox_message() {
                 None => {
                     continue;
@@ -548,7 +548,7 @@ impl ConversationHttp {
                         None => {
                             test_debug!("{:?}: Fulfilled pending HTTP request", &self);
                         },
-                        Some(msg) => {
+                        Some(_msg) => {
                             // unsolicited; discard
                             test_debug!("{:?}: Dropping unsolicited HTTP response", &self);
                         }

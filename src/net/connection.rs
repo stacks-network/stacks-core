@@ -511,8 +511,8 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             .ok_or(net_error::OverflowError("Overflowed payload pointer".to_string()))?;
 
         let ret = match message_opt {
-            Some((message, message_len)) => {
-                test_debug!("Streamed {} bytes to form a message from preamble {:?}", message_len, preamble);
+            Some((message, _message_len)) => {
+                test_debug!("Streamed {} bytes to form a message from preamble {:?}", _message_len, preamble);
 
                 let next_message_ptr = self.payload_ptr;
 

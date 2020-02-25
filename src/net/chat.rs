@@ -582,7 +582,7 @@ impl ConversationP2P {
 
         let old_pubkey_opt = self.connection.get_public_key();
         let updated = self.update_from_handshake_data(&message.preamble, &handshake_data)?;
-        let authentic_msg = if !updated { "same" } else if old_pubkey_opt.is_none() { "new" } else { "upgraded" };
+        let _authentic_msg = if !updated { "same" } else if old_pubkey_opt.is_none() { "new" } else { "upgraded" };
 
         test_debug!("Handshake from {:?} {} public key {:?} expires at {:?}", &self, _authentic_msg,
                     &to_hex(&handshake_data.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_data.expire_block_height);
@@ -619,7 +619,7 @@ impl ConversationP2P {
     }
 
     /// Handle an inbound GetNeighbors request.
-    fn handle_getneighbors(&mut self, dbconn: &DBConn, burnchain: &Burnchain, local_peer: &LocalPeer, chain_view: &BurnchainView, preamble: &Preamble) -> Result<ReplyHandleP2P, net_error> {
+    fn handle_getneighbors(&mut self, dbconn: &DBConn, local_peer: &LocalPeer, chain_view: &BurnchainView, preamble: &Preamble) -> Result<ReplyHandleP2P, net_error> {
         // get neighbors at random as long as they're fresh
         let neighbors = PeerDB::get_random_neighbors(dbconn, self.network_id, MAX_NEIGHBORS_DATA_LEN, chain_view.burn_block_height, false)
             .map_err(net_error::DBError)?;
@@ -644,12 +644,12 @@ impl ConversationP2P {
     
     /// Handle an inbound p2p data-plane message.
     /// Return true if handled
-    fn handle_data_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burnchain: &Burnchain, chain_view: &BurnchainView, msg: &StacksMessage) -> Result<bool, net_error> {
+    fn handle_data_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, chain_view: &BurnchainView, msg: &StacksMessage) -> Result<bool, net_error> {
         let mut handled = false;
         match msg.payload {
             StacksMessageType::GetNeighbors => {
                 // unsolicited get-neighbors request
-                let res = self.handle_getneighbors(peerdb.conn(), burnchain, local_peer, chain_view, &msg.preamble);
+                let res = self.handle_getneighbors(peerdb.conn(), local_peer, chain_view, &msg.preamble);
                 match res {
                     Ok(handle) => {
                         self.reply_handles.push_back(handle);
@@ -788,7 +788,7 @@ impl ConversationP2P {
 
         // already have public key; match payload
         let reply_opt = match msg.payload {
-            StacksMessageType::Handshake(ref handshake_data) => {
+            StacksMessageType::Handshake(_) => {
                 test_debug!("{:?}: Got Handshake", &self);
                 let (handshake_opt, handled) = self.handle_handshake(local_peer, peerdb, burnchain_view, msg)?;
                 consume = handled;
@@ -856,7 +856,7 @@ impl ConversationP2P {
                 // don't NACK this back just because we were rejected
                 Ok(None)
             },
-            StacksMessageType::Nack(ref data) => {
+            StacksMessageType::Nack(_) => {
                 test_debug!("{:?}: Got unauthenticated Nack", &self);
                 
                 // don't NACK back
@@ -880,12 +880,12 @@ impl ConversationP2P {
     /// Attempts to fulfill requests in other threads as a result of processing a message.
     /// Returns the list of unfulfilled Stacks messages we received -- messages not destined for
     /// any other thread in this program (i.e. "unsolicited messages").
-    pub fn chat(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burnchain: &Burnchain, burnchain_view: &BurnchainView) -> Result<Vec<StacksMessage>, net_error> {
+    pub fn chat(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, _burnchain: &Burnchain, burnchain_view: &BurnchainView) -> Result<Vec<StacksMessage>, net_error> {
         let num_inbound = self.connection.inbox_len();
         test_debug!("{:?}: {} messages pending", &self, num_inbound);
 
         let mut unsolicited = vec![];
-        for i in 0..num_inbound {
+        for _ in 0..num_inbound {
             let mut solicited = true;
             let mut msg = match self.connection.next_inbox_message() {
                 None => {
@@ -958,13 +958,13 @@ impl ConversationP2P {
                 },
                 Some(msg) => {
                     if consumed {
-                        test_debug!("{:?}: Consumed message (type {})", &self, msgtype);
+                        test_debug!("{:?}: Consumed message (type {})", &self, _msgtype);
                     }
                     else {
-                        test_debug!("{:?}: Try handling message (type {})", &self, msgtype);
-                        let handled = self.handle_data_message(local_peer, peerdb, burnchain, burnchain_view, &msg)?;
+                        test_debug!("{:?}: Try handling message (type {})", &self, _msgtype);
+                        let handled = self.handle_data_message(local_peer, peerdb, burnchain_view, &msg)?;
                         if !handled {
-                            test_debug!("{:?}: Did not handle message (type {}); passing upstream", &self, msgtype);
+                            test_debug!("{:?}: Did not handle message (type {}); passing upstream", &self, _msgtype);
                             unsolicited.push(msg);
                         }
                     }

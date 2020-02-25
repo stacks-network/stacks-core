@@ -1080,7 +1080,7 @@ impl HttpRequestType {
         return Err(net_error::DeserializeError("Http request could not be parsed".to_string()));
     }
 
-    fn parse_getinfo<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_getinfo<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetInfo".to_string()));
         }
@@ -1114,7 +1114,7 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetBlock(HttpRequestMetadata::from_preamble(preamble), block_hash))
     }
 
-    fn parse_getmicroblocks<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_getmicroblocks<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicrolocks".to_string()));
         }
@@ -1132,7 +1132,7 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetMicroblocks(HttpRequestMetadata::from_preamble(preamble), block_hash))
     }
     
-    fn parse_getmicroblocks_unconfirmed<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_getmicroblocks_unconfirmed<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicrolocksUnconfirmed".to_string()));
         }
@@ -1221,13 +1221,13 @@ impl HttpRequestType {
             HttpRequestType::GetNeighbors(ref md) => {
                 HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
-            HttpRequestType::GetBlock(ref md, ref block_hash) => {
+            HttpRequestType::GetBlock(ref md, ref _block_hash) => {
                 HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
-            HttpRequestType::GetMicroblocks(ref md, ref block_hash) => {
+            HttpRequestType::GetMicroblocks(ref md, ref _block_hash) => {
                 HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
-            HttpRequestType::GetMicroblocksUnconfirmed(ref md, ref block_hash, ref min_seq) => {
+            HttpRequestType::GetMicroblocksUnconfirmed(ref md, ref _block_hash, ref _min_seq) => {
                 HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
             HttpRequestType::PostTransaction(ref md, ref tx) => {
@@ -1426,12 +1426,12 @@ impl HttpResponseType {
         return Err(net_error::DeserializeError("Http response could not be parsed".to_string()));
     }
 
-    fn parse_peerinfo<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_peerinfo<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let peer_info = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
         Ok(HttpResponseType::PeerInfo(HttpResponseMetadata::from_preamble(preamble), peer_info))
     }
 
-    fn parse_neighbors<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_neighbors<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let neighbors_data = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
         Ok(HttpResponseType::Neighbors(HttpResponseMetadata::from_preamble(preamble), neighbors_data))
     }
@@ -1446,7 +1446,7 @@ impl HttpResponseType {
         Ok(HttpResponseType::Microblocks(HttpResponseMetadata::from_preamble(preamble), microblocks))
     }
 
-    fn parse_microblocks_unconfirmed<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_microblocks_unconfirmed<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         // NOTE: there will be no length prefix on this, but we won't ever get more than
         // MAX_MICROBLOCKS_UNCONFIRMED microblocks
         let mut microblocks = vec![];
@@ -1475,7 +1475,7 @@ impl HttpResponseType {
         Ok(HttpResponseType::Microblocks(HttpResponseMetadata::from_preamble(preamble), microblocks))
     }
 
-    fn parse_txid<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_txid<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let txid_buf = HttpResponseType::parse_text(preamble, fd, len_hint, 64)?;
         if txid_buf.len() != 64 {
             return Err(net_error::DeserializeError("Invalid txid: expected 64 bytes".to_string()));

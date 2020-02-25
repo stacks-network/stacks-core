@@ -198,7 +198,7 @@ impl HttpServer {
 
             let res = self.register_http(event_id, client_sock, false);
             match res {
-                Err(e) => {
+                Err(_e) => {
                     continue;
                 }
                 Ok(_) => {
@@ -288,7 +288,7 @@ impl HttpServer {
                                 to_remove.push(*event_id);
                             }
                         },
-                        Err(e) => {
+                        Err(_e) => {
                             to_remove.push(*event_id);
                             continue;
                         }
@@ -345,7 +345,7 @@ impl HttpServer {
         for (event_id, ref mut convo) in self.peers.iter_mut() {
             match convo.try_flush(chainstate) {
                 Ok(_) => {},
-                Err(e) => {
+                Err(_e) => {
                     info!("Broken connection {:?}", convo);
                     close.push(*event_id);
                 }

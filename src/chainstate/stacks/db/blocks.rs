@@ -1246,8 +1246,7 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Clear out a staging block -- move it to the chunk store (either wholly, or mark it invalid
-    /// by writing an empty file).
+    /// Clear out a staging block -- mark it as processed.
     /// Mark its children as attacheable.
     /// Idempotent.
     fn set_block_processed<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, accept: bool) -> Result<(), Error> {
@@ -1255,7 +1254,7 @@ impl StacksChainState {
         let args: &[&dyn ToSql] = &[&burn_hash, &anchored_block_hash];
       
         let has_stored_block = StacksChainState::has_stored_block(tx, tx.get_blocks_path(), burn_hash, anchored_block_hash)?;
-        let block_path = StacksChainState::make_block_dir(tx.get_blocks_path(), burn_hash, anchored_block_hash)?;
+        let _block_path = StacksChainState::make_block_dir(tx.get_blocks_path(), burn_hash, anchored_block_hash)?;
 
         let rows = query_rows::<StagingBlock, _>(tx, &sql, args).map_err(Error::DBError)?;
         let block = match rows.len() {
