@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python2
 
 import os
 
@@ -1240,6 +1240,11 @@ def bitcoin_regtest_reset(working_dir):
         shutil.rmtree(bitcoin_dir)
 
     os.makedirs(bitcoin_dir)
+    if os.environ.get("BLOCKSTACK_TESTNET_BANLIST", None) is not None:
+        banlist_dir = os.path.join(bitcoin_dir, "regtest")
+        os.makedirs(banlist_dir)
+        shutil.copy(os.environ['BLOCKSTACK_TESTNET_BANLIST'], os.path.join(banlist_dir, "banlist.dat"))
+
     with open(bitcoin_conf, "w") as f:
         f.write("server=1\nregtest=1\nbind=0.0.0.0:18444\nrpcbind=0.0.0.0:18332\nrpcallowip=0.0.0.0/0\nrpcallowip=::/0\nrpcuser=%s\nrpcpassword=%s\ntxindex=1\nlisten=1\ndatadir=%s\ndebug=1\nrpcserialversion=0" % (opts['bitcoind_user'], opts['bitcoind_passwd'], bitcoin_dir))
         if BITCOIND_RPC_ALLOW_IP:
