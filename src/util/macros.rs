@@ -353,6 +353,25 @@ macro_rules! impl_byte_array_newtype {
     }
 }
 
+#[allow(unused_macros)]
+macro_rules! impl_byte_array_serde {
+    ($thing:ident) => {
+        impl serde::Serialize for $thing {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                let inst = self.to_hex();
+                s.serialize_str(inst.as_str())
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $thing {
+            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<$thing, D::Error> {
+                let inst_str = String::deserialize(d)?;
+                $thing::from_hex(&inst_str).map_err(serde::de::Error::custom)
+            }
+        }
+    }
+}
+
 // print debug statements while testing
 #[allow(unused_macros)]
 macro_rules! test_debug {
