@@ -556,7 +556,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "sandbox", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    testlib.blockstack_register_user(SUBDOMAIN_DOMAIN, SUBDOMAIN_PAYMENT_KEY, SUBDOMAIN_OWNER_KEY, gaia_host='{}:{}'.format(TESTNET_PUBLIC_HOST, GAIA_READ_PORT), **kw)
+    testlib.blockstack_register_user(SUBDOMAIN_DOMAIN, SUBDOMAIN_PAYMENT_KEY, SUBDOMAIN_OWNER_KEY, gaia_host='{}:{}'.format(TESTNET_PUBLIC_HOST, GAIA_WRITE_PORT), **kw)
 
     start_subdomain_registrar()
 

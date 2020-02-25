@@ -184,7 +184,7 @@ fund_form = div(
 
 hello_world = div(
                 div(
-                    p('Welcome to the Blockstack blockchain testnet.  To get started, first install the <a href="https://github.com/blockstack/cli-blockstack">Blockstack CLI</a>.') +
+                    p('Welcome to the Blockstack blockchain testnet. <b>This is NOT the Stacks 2.0 testnet</b><br> To get started, first install the <a href="https://github.com/blockstack/cli-blockstack">Blockstack CLI</a>.') +
                     p('<b>Basic Usage</b>' +
                         p('Here\'s how you can get started with registering names and subdomains:') +
                         ul(
@@ -264,7 +264,7 @@ names_namespace_list = div(
 main_body = div(
                 div(
                     div(
-                        div('<b>About</b>', _class='code text-center panel-heading panel-heading-custom') +
+                        div('<b>About Stacks 1.0 Testnet</b>', _class='code text-center panel-heading panel-heading-custom') +
                         div(hello_world, _class='panel-body'),
                     _class='panel panel-default') +
                     div(
