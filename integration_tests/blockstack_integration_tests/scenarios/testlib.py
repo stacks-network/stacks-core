@@ -1218,7 +1218,7 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
     blockstack_name_preorder(name, privkey, addr)
     next_block(**kw)
 
-    hub_config = requests.get('http://{}/hub_info'.format(gaia_host)).json()
+    hub_config = requests.get('http://{}/hub_info'.format(gaia_host), allow_redirects=True).json()
     gaia_read_prefix = hub_config['read_url_prefix']
 
     if gaia_read_prefix[-1] != '/':
@@ -1250,7 +1250,7 @@ def blockstack_import_user(name, privkey, owner_privkey, **kw):
     addr = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()   # make it match the wallet
     owner_privkey = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
 
-    hub_config = requests.get('http://{}/hub_info'.format(gaia_host)).json()
+    hub_config = requests.get('http://{}/hub_info'.format(gaia_host), allow_redirects=True).json()
     gaia_read_prefix = hub_config['read_url_prefix']
 
     if gaia_read_prefix[-1] != '/':
@@ -1284,7 +1284,7 @@ def blockstack_renew_user(name, privkey, owner_privkey, **kw):
     addr = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()   # make it match the wallet
     owner_privkey = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
 
-    hub_config = requests.get('http://{}/hub_info'.format(gaia_host)).json()
+    hub_config = requests.get('http://{}/hub_info'.format(gaia_host), allow_redirects=True).json()
     gaia_read_prefix = hub_config['read_url_prefix']
 
     if gaia_read_prefix[-1] != '/':
