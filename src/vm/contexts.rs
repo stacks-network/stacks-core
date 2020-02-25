@@ -78,6 +78,9 @@ pub struct ContractContext {
     pub functions: HashMap<ClarityName, DefinedFunction>,
     pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
     pub implemented_traits: HashSet<TraitIdentifier>,
+    // tracks the names of NFTs, FTs, Maps, and Data Vars.
+    //  used for ensuring that they never are defined twice.
+    pub persisted_names: HashSet<ClarityName>,
 }
 
 pub struct LocalContext <'a> {
@@ -806,6 +809,7 @@ impl ContractContext {
             functions: HashMap::new(),
             defined_traits: HashMap::new(),
             implemented_traits: HashSet::new(),
+            persisted_names: HashSet::new(),
         }
     }
 

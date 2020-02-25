@@ -40,10 +40,10 @@ pub enum DefineFunctionsParsed <'a> {
 pub enum DefineResult {
     Variable(ClarityName, Value),
     Function(ClarityName, DefinedFunction),
-    Map(String, TupleTypeSignature, TupleTypeSignature),
-    PersistedVariable(String, TypeSignature, Value),
-    FungibleToken(String, Option<u128>),
-    NonFungibleAsset(String, TypeSignature),
+    Map(ClarityName, TupleTypeSignature, TupleTypeSignature),
+    PersistedVariable(ClarityName, TypeSignature, Value),
+    FungibleToken(ClarityName, Option<u128>),
+    NonFungibleAsset(ClarityName, TypeSignature),
     Trait(ClarityName, BTreeMap<ClarityName, FunctionSignature>),
     UseTrait(ClarityName, TraitIdentifier),
     ImplTrait(TraitIdentifier),
@@ -53,7 +53,8 @@ pub enum DefineResult {
 fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<()> {
     use vm::is_reserved;
 
-    if is_reserved(name) || contract_context.variables.contains_key(name) || contract_context.functions.contains_key(name) {
+    if is_reserved(name) || contract_context.variables.contains_key(name) || contract_context.functions.contains_key(name) ||
+        contract_context.persisted_names.contains(name) || contract_context.defined_traits.contains_key(name) {
         Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
     } else {
         Ok(())
@@ -104,7 +105,7 @@ fn handle_define_persisted_variable(variable_str: &ClarityName, value_type: &Sym
     let context = LocalContext::new();
     let value = eval(value, env, &context)?;
 
-    Ok(DefineResult::PersistedVariable(variable_str.to_string(), value_type_signature, value))
+    Ok(DefineResult::PersistedVariable(variable_str.clone(), value_type_signature, value))
 }
 
 fn handle_define_nonfungible_asset(asset_name: &ClarityName, key_type: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
@@ -112,7 +113,7 @@ fn handle_define_nonfungible_asset(asset_name: &ClarityName, key_type: &Symbolic
 
     let key_type_signature = TypeSignature::parse_type_repr(key_type, env)?;
 
-    Ok(DefineResult::NonFungibleAsset(asset_name.to_string(), key_type_signature))
+    Ok(DefineResult::NonFungibleAsset(asset_name.clone(), key_type_signature))
 }
 
 fn handle_define_fungible_token(asset_name: &ClarityName, total_supply: Option<&SymbolicExpression>, env: &mut Environment) -> Result<DefineResult> {
@@ -122,12 +123,12 @@ fn handle_define_fungible_token(asset_name: &ClarityName, total_supply: Option<&
         let context = LocalContext::new();
         let total_supply_value = eval(total_supply_expr, env, &context)?;
         if let Value::UInt(total_supply_int) = total_supply_value {
-            Ok(DefineResult::FungibleToken(asset_name.to_string(), Some(total_supply_int)))
+            Ok(DefineResult::FungibleToken(asset_name.clone(), Some(total_supply_int)))
         } else {
             Err(CheckErrors::TypeValueError(TypeSignature::UIntType, total_supply_value).into())
         }
     } else {
-        Ok(DefineResult::FungibleToken(asset_name.to_string(), None))
+        Ok(DefineResult::FungibleToken(asset_name.clone(), None))
     }
 }
 
@@ -140,7 +141,7 @@ fn handle_define_map(map_str: &ClarityName,
     let key_type_signature = TupleTypeSignature::parse_name_type_pair_list(key_type, env)?;
     let value_type_signature = TupleTypeSignature::parse_name_type_pair_list(value_type, env)?;
 
-    Ok(DefineResult::Map(map_str.to_string(), key_type_signature, value_type_signature))
+    Ok(DefineResult::Map(map_str.clone(), key_type_signature, value_type_signature))
 }
 
 fn handle_define_trait(name: &ClarityName,

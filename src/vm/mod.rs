@@ -197,6 +197,7 @@ fn eval_all (expressions: &[SymbolicExpression],
             },
             DefineResult::PersistedVariable(name, value_type, value) => {
                 runtime_cost!(cost_functions::CREATE_VAR, global_context, value_type.size())?;
+                contract_context.persisted_names.insert(name.clone());
                 global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type);
                 global_context.database.set_variable(&contract_context.contract_identifier, &name, value)?;
             },
@@ -204,15 +205,17 @@ fn eval_all (expressions: &[SymbolicExpression],
                 runtime_cost!(cost_functions::CREATE_MAP, global_context,
                               u64::from(key_type.size()).cost_overflow_add(
                                   u64::from(value_type.size()))?)?;
+                contract_context.persisted_names.insert(name.clone());
                 global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type);
             },
             DefineResult::FungibleToken(name, total_supply) => {
                 runtime_cost!(cost_functions::CREATE_FT, global_context, 0)?;
-
+                contract_context.persisted_names.insert(name.clone());
                 global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply);
             },
             DefineResult::NonFungibleAsset(name, asset_type) => {
                 runtime_cost!(cost_functions::CREATE_NFT, global_context, asset_type.size())?;
+                contract_context.persisted_names.insert(name.clone());
                 global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
             },
             DefineResult::Trait(name, trait_type) => { 

@@ -12,6 +12,18 @@ use std::collections::HashMap;
 use vm::tests::{execute};
 
 #[test]
+fn test_doubly_defined_persisted_vars() {
+    let tests = [
+        "(define-non-fungible-token cursor uint) (define-non-fungible-token cursor uint)",
+        "(define-fungible-token cursor) (define-fungible-token cursor)",
+        "(define-data-var cursor int 0) (define-data-var cursor int 0)",
+        "(define-map cursor ((cursor int)) ((place uint))) (define-map cursor ((cursor int)) ((place uint)))" ];
+    for p in tests.iter() {
+        assert_eq!(vm_execute(p).unwrap_err(), CheckErrors::NameAlreadyUsed("cursor".into()).into());
+    }
+}
+
+#[test]
 fn test_simple_let() {
     /*
       test program:
