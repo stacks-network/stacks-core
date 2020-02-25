@@ -92,7 +92,7 @@ fn read_next_vec<T: StacksMessageCodec + Sized, R: Read>(fd: &mut R, num_items: 
     }
 
     if (mem::size_of::<T>() as u128) * (len as u128) > MAX_MESSAGE_LEN  as u128 {
-        return Err(net_error::DeserializeError("Message occupies too many bytes".to_string()));
+        return Err(net_error::DeserializeError(format!("Message occupies too many bytes (tried to allocate {})", (mem::size_of::<T>() as u128) * (len as u128))));
     }
 
     let mut ret = Vec::with_capacity(len as usize);
