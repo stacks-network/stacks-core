@@ -92,7 +92,7 @@ impl Neighbor {
     /// If there's no DB entry for this peer, then do nothing.
     pub fn save_update<'a>(&self, tx: &mut Transaction<'a>) -> Result<(), net_error> {
         PeerDB::update_peer(tx, &self)
-            .map_err(|_e| net_error::DBError)
+            .map_err(net_error::DBError)
     }
 
     /// Save to the peer DB, inserting it if it isn't already there.
@@ -100,7 +100,7 @@ impl Neighbor {
     /// Return false if not saved -- i.e. the frontier is full and we should try evicting neighbors.
     pub fn save<'a>(&self, tx: &mut Transaction<'a>) -> Result<bool, net_error> {
         PeerDB::try_insert_peer(tx, &self)
-            .map_err(|_e| net_error::DBError)
+            .map_err(net_error::DBError)
     }
 
     /// Attempt to load a neighbor from our peer DB, given its NeighborAddress reported by another
@@ -108,7 +108,7 @@ impl Neighbor {
     /// (where "fresh" means "the public key hash matches the neighbor address")
     pub fn from_neighbor_address(conn: &DBConn, network_id: u32, block_height: u64, neighbor_address: &NeighborAddress) -> Result<Option<Neighbor>, net_error> {
         let peer_opt = PeerDB::get_peer(conn, network_id, &neighbor_address.addrbytes, neighbor_address.port)
-            .map_err(|_e| net_error::DBError)?;
+            .map_err(net_error::DBError)?;
 
         match peer_opt {
             None => {
@@ -475,7 +475,7 @@ impl NeighborWalk {
                     // if we have stale information for it -- the remote node could be trying to trick
                     // us into DDoS'ing this node).
                     let peer_opt = PeerDB::get_peer(dbconn, network_id, &naddr.addrbytes, naddr.port)
-                        .map_err(|_e| net_error::DBError)?;
+                        .map_err(net_error::DBError)?;
 
                     match peer_opt {
                         None => {
@@ -593,7 +593,7 @@ impl NeighborWalk {
     /// neighbors it collided with.  Return its slot in the peer db.
     fn find_replaced_neighbor_slot(conn: &DBConn, nk: &NeighborKey) -> Result<Option<u32>, net_error> {
         let mut slots = PeerDB::peer_slots(conn, nk.network_id, &nk.addrbytes, nk.port)
-            .map_err(|_e| net_error::DBError)?;
+            .map_err(net_error::DBError)?;
 
         if slots.len() == 0 {
             // not present
@@ -605,7 +605,7 @@ impl NeighborWalk {
         
         for slot in slots {
             let peer_opt = PeerDB::get_peer_at(conn, nk.network_id, slot)
-                .map_err(|_e| net_error::DBError)?;
+                .map_err(net_error::DBError)?;
 
             match peer_opt {
                 None => {
@@ -850,8 +850,7 @@ impl NeighborWalk {
 
             // remember this peer's in/out degree estimates
             test_debug!("{:?}: In/Out degree of {:?} is {}/{}", &self.local_peer, &self.cur_neighbor.addr, self.cur_neighbor.in_degree, self.cur_neighbor.out_degree);
-            self.cur_neighbor.save_update(tx)
-                .map_err(|_| net_error::DBError)?;
+            self.cur_neighbor.save_update(tx)?;
 
             // advance state!
             self.set_state(NeighborWalkState::NeighborsPingBegin);
@@ -1067,14 +1066,14 @@ impl NeighborWalk {
                 };
 
                 let replaced_opt = PeerDB::get_peer_at(tx, self.local_peer.network_id, *slot)
-                    .map_err(|_e| net_error::DBError)?;
+                    .map_err(net_error::DBError)?;
 
                 match replaced_opt {
                     Some(replaced) => {
                         debug!("Replace {:?} with {:?}", &replaced.addr, &replacement.addr);
 
                         PeerDB::insert_or_replace_peer(tx, &replacement, *slot)
-                            .map_err(|_e| net_error::DBError)?;
+                            .map_err(net_error::DBError)?;
 
                         self.result.add_replaced(replaced.addr.clone());
                     },
@@ -1098,7 +1097,7 @@ impl PeerNetwork {
     /// Get some initial fresh random neighbor(s) to crawl
     pub fn get_random_neighbors(&self, num_neighbors: u64, block_height: u64) -> Result<Vec<Neighbor>, net_error> {
         let neighbors = PeerDB::get_random_walk_neighbors(&self.peerdb.conn(), self.burnchain.network_id, num_neighbors as u32, block_height)
-            .map_err(|_e| net_error::DBError)?;
+            .map_err(net_error::DBError)?;
 
         if neighbors.len() == 0 {
             debug!("{:?}: No neighbors available!  Will not begin neighbor walk", &self.local_peer);
@@ -1204,13 +1203,9 @@ impl PeerNetwork {
 
         PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
             let neighbor_opt = {
-                let mut tx = network.peerdb.tx_begin()
-                    .map_err(|_e| net_error::DBError)?;
-
-                let res = walk.handshake_try_finish(&mut tx, burn_stable_block_height)?;
-                tx.commit()
-                    .map_err(|_e| net_error::DBError)?;
-
+                let mut tx = network.peerdb.tx_begin().map_err(net_error::DBError)?;
+                let res = walk.handshake_try_finish(&mut tx, burn_block_height, burn_stable_block_height)?;
+                tx.commit().map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
                 res
             };
             Ok(neighbor_opt)
@@ -1309,11 +1304,10 @@ impl PeerNetwork {
         PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
             let neighbor_keys_opt = {
                 let mut tx = network.peerdb.tx_begin()
-                    .map_err(|_e| net_error::DBError)?;
+                    .map_err(net_error::DBError)?;
 
                 let res = walk.neighbor_handshakes_try_finish(&mut tx, burn_block_height, burn_stable_block_height)?;
-                tx.commit()
-                    .map_err(|_e| net_error::DBError)?;
+                tx.commit().map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
                 res
             };
 
@@ -1365,12 +1359,11 @@ impl PeerNetwork {
 
         PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
             let neighbor_opt = {
-                let mut tx = network.peerdb.tx_begin()
-                    .map_err(|_e| net_error::DBError)?;
+                let mut tx = network.peerdb.tx_begin().map_err(net_error::DBError)?;
                 
                 let neighbor_opt = walk.getneighbors_neighbors_try_finish(&mut tx, burn_stable_block_height)?;
                 tx.commit()
-                    .map_err(|_e| net_error::DBError)?;
+                    .map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
 
                 neighbor_opt
             };
@@ -1418,12 +1411,11 @@ impl PeerNetwork {
 
         PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
             let replaced_opt = {
-                let mut tx = network.peerdb.tx_begin()
-                    .map_err(|_e| net_error::DBError)?;
+                let mut tx = network.peerdb.tx_begin().map_err(net_error::DBError)?;
 
                 let res = walk.ping_existing_neighbors_try_finish(&mut tx)?;
                 tx.commit()
-                    .map_err(|_e| net_error::DBError)?;
+                    .map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
 
                 res
             };
