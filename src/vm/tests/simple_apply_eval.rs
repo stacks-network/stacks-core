@@ -240,6 +240,35 @@ fn test_simple_if_functions() {
 }
 
 #[test]
+fn test_concat_append_supertype() {
+    let tests = [
+        "(concat (list) (list 4 5))",
+        "(concat (list (list 2) (list) (list 4 5))
+                 (list (list) (list) (list 7 8 9)))",
+        "(append (list) 1)",
+        "(append (list (list 3 4) (list)) (list 4 5 7))" ];
+
+    let expectations = [
+        Value::list_from(vec![Value::Int(4), Value::Int(5)]).unwrap(),
+        Value::list_from(vec![
+            Value::list_from(vec![Value::Int(2)]).unwrap(),
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![Value::Int(4), Value::Int(5)]).unwrap(),            
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![Value::Int(7), Value::Int(8), Value::Int(9)]).unwrap()]).unwrap(),
+        Value::list_from(vec![Value::Int(1)]).unwrap(),
+        Value::list_from(vec![
+            Value::list_from(vec![Value::Int(3), Value::Int(4)]).unwrap(),            
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![Value::Int(4), Value::Int(5), Value::Int(7)]).unwrap()]).unwrap(),
+    ];
+
+    tests.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+}
+
+#[test]
 fn test_simple_arithmetic_functions() {
     let tests = [
         "(* 52314 414)",

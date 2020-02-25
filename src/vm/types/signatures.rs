@@ -526,6 +526,9 @@ impl TypeSignature {
                 }.clone();
                 Ok(BufferType(buff_len))
             },
+            (NoType, x) | (x, NoType) => {
+                Ok(x.clone())
+            },
             (x, y) => {
                 if x == y {
                     Ok(x.clone())
