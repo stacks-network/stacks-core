@@ -86,7 +86,6 @@ fn test_at_block_good() {
 fn test_at_block_missing_defines() {
     fn initialize_1(owned_env: &mut OwnedEnvironment) {
         let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
-        let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
 
         let contract =
             "(define-map datum ((id bool)) ((value int)))
@@ -101,7 +100,6 @@ fn test_at_block_missing_defines() {
     }
 
     fn initialize_2(owned_env: &mut OwnedEnvironment) -> Error {
-        let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
         let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
 
         let contract =
@@ -117,7 +115,6 @@ fn test_at_block_missing_defines() {
     }
 
     fn initialize_3(owned_env: &mut OwnedEnvironment) -> Error {
-        let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
         let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
 
         let contract =

@@ -931,7 +931,7 @@ mod test {
         let p2 = PrincipalData::Contract(b_contract_id.clone());
 
         let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
-        let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
+        let _t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
@@ -962,10 +962,10 @@ mod test {
         let p1 = PrincipalData::Contract(a_contract_id.clone());
         let p2 = PrincipalData::Contract(b_contract_id.clone());
         let p3 = PrincipalData::Contract(c_contract_id.clone());
-        let p4 = PrincipalData::Contract(d_contract_id.clone());
-        let p5 = PrincipalData::Contract(e_contract_id.clone());
-        let p6 = PrincipalData::Contract(f_contract_id.clone());
-        let p7 = PrincipalData::Contract(g_contract_id.clone());
+        let _p4 = PrincipalData::Contract(d_contract_id.clone());
+        let _p5 = PrincipalData::Contract(e_contract_id.clone());
+        let _p6 = PrincipalData::Contract(f_contract_id.clone());
+        let _p7 = PrincipalData::Contract(g_contract_id.clone());
 
         let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
         let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };

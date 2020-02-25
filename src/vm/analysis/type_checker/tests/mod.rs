@@ -883,8 +883,8 @@ fn test_simple_uints() {
         assert_eq!(expected, &type_sig.to_string());
     }
 
-    for bad_test in bad.iter() {
-        mem_type_check(bad_test).unwrap_err();
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(&mem_type_check(bad_test).unwrap_err().err, expected);
     }
 }
 
