@@ -2107,8 +2107,8 @@ pub mod test {
 
         // compare block status (staging vs confirmed) and contents
         for i in 0..all_blocks_1.len() {
-            let staging_1_opt = StacksChainState::load_staging_block(&ch1.blocks_db, &all_blocks_1[i].0, &all_blocks_1[i].1).unwrap();
-            let staging_2_opt = StacksChainState::load_staging_block(&ch2.blocks_db, &all_blocks_2[i].0, &all_blocks_2[i].1).unwrap();
+            let staging_1_opt = StacksChainState::load_staging_block(&ch1.blocks_db, &ch2.blocks_path, &all_blocks_1[i].0, &all_blocks_1[i].1).unwrap();
+            let staging_2_opt = StacksChainState::load_staging_block(&ch2.blocks_db, &ch2.blocks_path, &all_blocks_2[i].0, &all_blocks_2[i].1).unwrap();
 
             let chunk_1_opt = StacksChainState::load_block(&ch1.blocks_path, &all_blocks_1[i].0, &all_blocks_1[i].1).unwrap();
             let chunk_2_opt = StacksChainState::load_block(&ch2.blocks_path, &all_blocks_2[i].0, &all_blocks_2[i].1).unwrap();
