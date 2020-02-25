@@ -85,6 +85,7 @@ impl FromColumn<PeerAddress> for PeerAddress {
 #[derive(PartialEq, Clone)]
 pub struct LocalPeer {
     pub network_id: u32,
+    pub parent_network_id: u32,
     nonce: [u8; 32],
     pub private_key: Secp256k1PrivateKey,
     pub private_key_expire: u64,
@@ -108,7 +109,7 @@ impl fmt::Debug for LocalPeer {
 }
 
 impl LocalPeer {
-    pub fn new(network_id: u32, key_expire: u64, data_url: UrlString) -> LocalPeer {
+    pub fn new(network_id: u32, parent_network_id: u32, key_expire: u64, data_url: UrlString) -> LocalPeer {
         let mut rng = thread_rng();
         let my_private_key = Secp256k1PrivateKey::new();
         let mut my_nonce = [0u8; 32];
@@ -121,6 +122,7 @@ impl LocalPeer {
 
         LocalPeer {
             network_id: network_id,
+            parent_network_id: parent_network_id,
             nonce: my_nonce,
             private_key: my_private_key,
             private_key_expire: key_expire,
@@ -135,6 +137,7 @@ impl LocalPeer {
 impl FromRow<LocalPeer> for LocalPeer {
     fn from_row<'a>(row: &'a Row) -> Result<LocalPeer, db_error> {
         let network_id : u32 = row.get("network_id");
+        let parent_network_id : u32 = row.get("parent_network_id");
         let nonce_hex : String = row.get("nonce");
         let privkey = Secp256k1PrivateKey::from_column(row, "private_key")?;
         let privkey_expire_i64 : i64 = row.get("private_key_expire");
@@ -165,6 +168,7 @@ impl FromRow<LocalPeer> for LocalPeer {
 
         Ok(LocalPeer {
             network_id: network_id,
+            parent_network_id: parent_network_id,
             private_key: privkey,
             nonce: nonce_buf,
             private_key_expire: privkey_expire_i64 as u64,
@@ -297,6 +301,7 @@ const PEERDB_SETUP : &'static [&'static str]= &[
     r#"
     CREATE TABLE local_peer(
         network_id INT NOT NULL,
+        parent_network_id INT NOT NULL,
         nonce TEXT NOT NULL,
         private_key TEXT NOT NULL,
         private_key_expire INTEGER NOT NULL,
@@ -313,8 +318,8 @@ pub struct PeerDB {
 }
 
 impl PeerDB {
-    fn instantiate(&mut self, network_id: u32, key_expires: u64, data_url: UrlString, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> Result<(), db_error> {
-        let localpeer = LocalPeer::new(network_id, key_expires, data_url);
+    fn instantiate(&mut self, network_id: u32, parent_network_id: u32, key_expires: u64, data_url: UrlString, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> Result<(), db_error> {
+        let localpeer = LocalPeer::new(network_id, parent_network_id, key_expires, data_url);
 
         let mut tx = self.tx_begin()?;
 
@@ -326,8 +331,8 @@ impl PeerDB {
         tx.execute("INSERT INTO db_version (version) VALUES (?1)", &[&PEERDB_VERSION])
             .map_err(db_error::SqliteError)?;
 
-        tx.execute("INSERT INTO local_peer (network_id, nonce, private_key, private_key_expire, addrbytes, port, services, data_url) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", 
-                   &[&network_id as &dyn ToSql, &to_hex(&localpeer.nonce.to_vec()) as &dyn ToSql, &to_hex(&localpeer.private_key.to_bytes()) as &dyn ToSql, &(key_expires as i64) as &dyn ToSql,
+        tx.execute("INSERT INTO local_peer (network_id, parent_network_id, nonce, private_key, private_key_expire, addrbytes, port, services, data_url) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", 
+                   &[&network_id as &dyn ToSql, &parent_network_id as &dyn ToSql, &to_hex(&localpeer.nonce.to_vec()) as &dyn ToSql, &to_hex(&localpeer.private_key.to_bytes()) as &dyn ToSql, &(key_expires as i64) as &dyn ToSql,
                      &to_hex(&localpeer.addrbytes.as_bytes().to_vec()), &localpeer.port as &dyn ToSql, &(localpeer.services as u16) as &dyn ToSql, &localpeer.data_url.as_str() as &dyn ToSql])
             .map_err(db_error::SqliteError)?;
 
@@ -351,7 +356,7 @@ impl PeerDB {
 
     /// Open the burn database at the given path.  Open read-only or read/write.
     /// If opened for read/write and it doesn't exist, instantiate it.
-    pub fn connect(path: &String, readwrite: bool, network_id: u32, key_expires: u64, data_url: UrlString, asn4_path: &Option<String>, initial_neighbors: Option<&Vec<Neighbor>>) -> Result<PeerDB, db_error> {
+    pub fn connect(path: &String, readwrite: bool, network_id: u32, parent_network_id: u32, key_expires: u64, data_url: UrlString, asn4_recs: &Vec<ASEntry4>, initial_neighbors: Option<&Vec<Neighbor>>) -> Result<PeerDB, db_error> {
         let mut create_flag = false;
         let open_flags =
             if fs::metadata(path).is_err() {
@@ -374,15 +379,6 @@ impl PeerDB {
                 }
             };
 
-        let mut asn4_recs = vec![];
-        match asn4_path {
-            Some(path) => {
-                asn4_recs = ASEntry4::from_file(&path)
-                    .map_err(|_e| db_error::ParseError)?;
-            },
-            None => {}
-        }
-
         let conn = Connection::open_with_flags(path, open_flags)
             .map_err(|e| db_error::SqliteError(e))?;
 
@@ -395,10 +391,10 @@ impl PeerDB {
             // instantiate!
             match initial_neighbors {
                 Some(ref neighbors) => {
-                    db.instantiate(network_id, key_expires, data_url, &asn4_recs, neighbors)?;
+                    db.instantiate(network_id, parent_network_id, key_expires, data_url, asn4_recs, neighbors)?;
                 },
                 None => {
-                    db.instantiate(network_id, key_expires, data_url, &asn4_recs, &vec![])?;
+                    db.instantiate(network_id, parent_network_id, key_expires, data_url, asn4_recs, &vec![])?;
                 }
             }
         }
@@ -407,7 +403,7 @@ impl PeerDB {
 
     /// Open a burn database in memory (used for testing)
     #[cfg(test)]
-    pub fn connect_memory(network_id: u32, key_expires: u64, data_url: UrlString, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> Result<PeerDB, db_error> {
+    pub fn connect_memory(network_id: u32, parent_network_id: u32, key_expires: u64, data_url: UrlString, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> Result<PeerDB, db_error> {
         let conn = Connection::open_in_memory()
             .map_err(|e| db_error::SqliteError(e))?;
 
@@ -416,7 +412,7 @@ impl PeerDB {
             readwrite: true,
         };
 
-        db.instantiate(network_id, key_expires, data_url, asn4_entries, initial_neighbors)?;
+        db.instantiate(network_id, parent_network_id, key_expires, data_url, asn4_entries, initial_neighbors)?;
         Ok(db)
     }
 
@@ -815,7 +811,7 @@ mod test {
             out_degree: 1
         };
         
-        let mut db = PeerDB::connect_memory(0x9abcdef0, 12345, "http://foo.com".into(), &vec![], &vec![]).unwrap();
+        let mut db = PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &vec![], &vec![]).unwrap();
         
         let neighbor_before_opt = PeerDB::get_peer(db.conn(), 0x9abcdef0, &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]), 12345).unwrap();
         assert_eq!(neighbor_before_opt, None);
@@ -865,7 +861,7 @@ mod test {
             out_degree: 1
         };
 
-        let mut db = PeerDB::connect_memory(0x9abcdef0, 12345, "http://foo.com".into(), &vec![], &vec![]).unwrap();
+        let mut db = PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &vec![], &vec![]).unwrap();
         
         {
             let mut tx = db.tx_begin().unwrap();
@@ -947,7 +943,7 @@ mod test {
             return true;
         }
         
-        let db = PeerDB::connect_memory(0x9abcdef0, 12345, "http://foo.com".into(), &vec![], &initial_neighbors).unwrap();
+        let db = PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &vec![], &initial_neighbors).unwrap();
 
         let n5 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 5, 23455).unwrap();
         assert!(are_present(&n5, &initial_neighbors));
@@ -995,7 +991,7 @@ mod test {
             },
         ];
 
-        let db = PeerDB::connect_memory(0x9abcdef0, 12345, "http://foo.com".into(), &asn4_table, &vec![]).unwrap();
+        let db = PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &asn4_table, &vec![]).unwrap();
     
         let asn1_addr = PeerAddress([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff,0x01,0x02,0x02,0x04]);
         let asn2_addr = PeerAddress([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff,0x01,0x02,0x03,0x10]);
