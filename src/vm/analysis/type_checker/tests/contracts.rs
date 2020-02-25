@@ -504,6 +504,28 @@ fn test_bad_map_usage() {
     });
 }
 
+#[test]
+fn test_same_function_name() {
+    let ca_id = QualifiedContractIdentifier::local("contract-a").unwrap();
+    let cb_id = QualifiedContractIdentifier::local("contract-b").unwrap();
+
+    let contract_b =
+        "(define-read-only (foo-function (a int)) (+ a 1))";
+
+    let contract_a =
+        "(define-read-only (foo-function (a int))
+           (contract-call? .contract-b foo-function a))";
+
+    let mut ca = parse(&ca_id, contract_a).unwrap();
+    let mut cb = parse(&cb_id, contract_b).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    db.execute(|db| {
+        type_check(&cb_id, &mut cb, db, true)?;
+        type_check(&ca_id, &mut ca, db, true)
+    }).unwrap();
+}
 
 #[test]
 fn test_expects() {

@@ -18,6 +18,14 @@ fn run_scoped_parsing_helper(contract: &str) -> ParseResult<ContractAST> {
 }
 
 #[test]
+fn should_succeed_sorting_contract_call() {
+    let contract =
+        "(define-read-only (foo-function (a int))
+           (contract-call? .contract-b foo-function a))";
+    run_scoped_parsing_helper(contract).unwrap();
+}
+
+#[test]
 fn should_succeed_sorting_contract_case_1() {
     let contract = r#"
         (define-private (wrapped-kv-del (key int))

@@ -166,6 +166,15 @@ impl <'a> DefinitionSorter {
                                     }
                                     return Ok(());
                                 }, 
+                                NativeFunctions::ContractCall => {
+                                    // Args: [contract-name, function-name, ...]: ignore contract-name, function-name, handle rest
+                                    if function_args.len() > 2 {
+                                        for expr in function_args[2..].iter() {
+                                            self.probe_for_dependencies(expr, tle_index)?;
+                                        }
+                                    }
+                                    return Ok(());
+                                },
                                 NativeFunctions::FetchContractEntry => {
                                     // Args: [contract-name, map-name, tuple-predicate]: ignore contract-name, map-name, handle tuple-predicate as tuple
                                     if function_args.len() == 3 {
