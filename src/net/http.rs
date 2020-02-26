@@ -40,6 +40,7 @@ use net::HttpResponsePreamble;
 use net::HttpContentType;
 use net::HttpRequestType;
 use net::HttpResponseType;
+use net::HttpVersion;
 use net::StacksHttpPreamble;
 use net::StacksHttpMessage;
 use net::MessageSequence;
@@ -555,8 +556,9 @@ impl<'a, 'state, W: Write> Write for HttpChunkedTransferWriter<'a, 'state, W> {
 }
 
 impl HttpRequestPreamble {
-    pub fn new(verb: String, path: String, hostname: String, port: u16) -> HttpRequestPreamble {
+    pub fn new(version: HttpVersion, verb: String, path: String, hostname: String, port: u16) -> HttpRequestPreamble {
         HttpRequestPreamble {
+            version: version,
             verb: verb,
             path: path,
             host: PeerHost::from_host_port(hostname, port),
@@ -567,15 +569,23 @@ impl HttpRequestPreamble {
         }
     }
 
-    pub fn new_serialized<W: Write, F>(fd: &mut W, verb: &str, path: &str, host: &PeerHost, keep_alive: bool, content_length: Option<u32>, content_type: Option<&HttpContentType>, mut write_headers: F) -> Result<(), net_error>
+    pub fn new_serialized<W: Write, F>(fd: &mut W, version: &HttpVersion, verb: &str, path: &str, host: &PeerHost, keep_alive: bool, content_length: Option<u32>, content_type: Option<&HttpContentType>, mut write_headers: F) -> Result<(), net_error>
     where
         F: FnMut(&mut W) -> Result<(), net_error>
     {
-        // "$verb $path HTTP/1.1\r\n"
+        // "$verb $path HTTP/1.${version}\r\n"
         fd.write_all(verb.as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all(" ".as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all(path.as_bytes()).map_err(net_error::WriteError)?;
-        fd.write_all(" HTTP/1.1\r\n".as_bytes()).map_err(net_error::WriteError)?;
+
+        match *version {
+            HttpVersion::Http10 => {
+                fd.write_all(" HTTP/1.0\r\n".as_bytes()).map_err(net_error::WriteError)?;
+            },
+            HttpVersion::Http11 => {
+                fd.write_all(" HTTP/1.1\r\n".as_bytes()).map_err(net_error::WriteError)?;
+            }
+        }
 
         // "User-Agent: $agent\r\nHost: $host\r\n"
         fd.write_all("User-Agent: stacks/2.0\r\nHost: ".as_bytes()).map_err(net_error::WriteError)?;
@@ -615,9 +625,9 @@ impl HttpRequestPreamble {
     }
 
     #[cfg(test)]
-    pub fn from_headers(verb: String, path: String, hostname: String, port: u16, keep_alive: bool, mut keys: Vec<String>, values: Vec<String>) -> HttpRequestPreamble {
+    pub fn from_headers(version: HttpVersion, verb: String, path: String, hostname: String, port: u16, keep_alive: bool, mut keys: Vec<String>, values: Vec<String>) -> HttpRequestPreamble {
         assert_eq!(keys.len(), values.len());
-        let mut req = HttpRequestPreamble::new(verb, path, hostname, port);
+        let mut req = HttpRequestPreamble::new(version, verb, path, hostname, port);
         req.keep_alive = keep_alive;
 
         for (k, v) in keys.drain(..).zip(values) {
@@ -672,6 +682,27 @@ fn empty_headers<W: Write>(_fd: &mut W) -> Result<(), net_error> {
     Ok(())
 }
 
+fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result<(), net_error> {
+    match md.client_version {
+        HttpVersion::Http10 => {
+            // client expects explicit keep-alive
+            if md.keep_alive {
+                fd.write_all("Connection: keep-alive\r\n".as_bytes()).map_err(net_error::WriteError)?;
+            }
+            else {
+                fd.write_all("Connection: close\r\n".as_bytes()).map_err(net_error::WriteError)?;
+            }
+        },
+        HttpVersion::Http11 => {
+            // only need "connection: close" if we're explicitly _not_ doing keep-alive
+            if !md.keep_alive {
+                fd.write_all("Connection: close\r\n".as_bytes()).map_err(net_error::WriteError)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn write_headers<W: Write>(fd: &mut W, headers: &HashMap<String, String>) -> Result<(), net_error> {
     for (ref key, ref value) in headers.iter() {
         fd.write_all(key.as_str().as_bytes()).map_err(net_error::WriteError)?;
@@ -710,7 +741,7 @@ fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, net_error> {
 
 impl StacksMessageCodec for HttpRequestPreamble {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        HttpRequestPreamble::new_serialized(fd, &self.verb, &self.path, &self.host, self.keep_alive, self.content_length.clone(), self.content_type.as_ref(), |ref mut fd| write_headers(fd, &self.headers))
+        HttpRequestPreamble::new_serialized(fd, &self.version, &self.verb, &self.path, &self.host, self.keep_alive, self.content_length.clone(), self.content_type.as_ref(), |ref mut fd| write_headers(fd, &self.headers))
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpRequestPreamble, net_error> {
@@ -728,13 +759,28 @@ impl StacksMessageCodec for HttpRequestPreamble {
             },
             httparse::Status::Complete(_) => {
                 // consumed all headers.  body_offset points to the start of the request body
+                let version = match req.version.ok_or(net_error::DeserializeError("No HTTP version".to_string()))? {
+                    0 => HttpVersion::Http10,
+                    1 => HttpVersion::Http11,
+                    _ => {
+                        return Err(net_error::DeserializeError("Invalid HTTP version".to_string()));
+                    }
+                };
+
                 let verb = req.method.ok_or(net_error::DeserializeError("No HTTP method".to_string()))?.to_string();
                 let path = req.path.ok_or(net_error::DeserializeError("No HTTP path".to_string()))?.to_string();
                 
                 let mut peerhost = None;
                 let mut content_type = None;
                 let mut content_length = None;
-                let mut keep_alive = true;
+                let mut keep_alive = match version {
+                    HttpVersion::Http10 => {
+                        false
+                    },
+                    HttpVersion::Http11 => {
+                        true
+                    }
+                };
 
                 let mut headers : HashMap<String, String> = HashMap::new();
                 let mut all_headers : HashSet<String> = HashSet::new();
@@ -762,7 +808,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                     }
                     else if key == "content-type" {
                         // parse
-                        let ctype = value.parse::<HttpContentType>()?;
+                        let ctype = value.to_lowercase().parse::<HttpContentType>()?;
                         content_type = Some(ctype);
                     }
                     else if key == "content-length" {
@@ -774,10 +820,10 @@ impl StacksMessageCodec for HttpRequestPreamble {
                     }
                     else if key == "connection" {
                         // parse
-                        if value == "close" {
+                        if value.to_lowercase() == "close" {
                             keep_alive = false;
                         }
-                        else if value == "keep-alive" {
+                        else if value.to_lowercase() == "keep-alive" {
                             keep_alive = true;
                         }
                         else {
@@ -794,6 +840,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                 };
 
                 Ok(HttpRequestPreamble {
+                    version: version,
                     verb: verb,
                     path: path,
                     host: peerhost.unwrap(),
@@ -808,11 +855,11 @@ impl StacksMessageCodec for HttpRequestPreamble {
 }
 
 impl HttpResponsePreamble {
-    pub fn new(status_code: u16, reason: String, content_length_opt: Option<u32>, content_type: HttpContentType, request_id: u32) -> HttpResponsePreamble {
+    pub fn new(status_code: u16, reason: String, content_length_opt: Option<u32>, content_type: HttpContentType, keep_alive: bool, request_id: u32) -> HttpResponsePreamble {
         HttpResponsePreamble {
             status_code: status_code,
             reason: reason,
-            keep_alive: true,
+            keep_alive: keep_alive,
             content_length: content_length_opt,
             content_type: content_type,
             request_id: request_id,
@@ -820,7 +867,7 @@ impl HttpResponsePreamble {
         }
     }
     
-    pub fn new_serialized<W: Write, F>(fd: &mut W, status_code: u16, reason: &str, keep_alive: bool, content_length: Option<u32>, content_type: &HttpContentType, request_id: u32, mut write_headers: F) -> Result<(), net_error>
+    pub fn new_serialized<W: Write, F>(fd: &mut W, status_code: u16, reason: &str, content_length: Option<u32>, content_type: &HttpContentType, request_id: u32, mut write_headers: F) -> Result<(), net_error>
     where 
         F: FnMut(&mut W) -> Result<(), net_error>
     {
@@ -831,11 +878,7 @@ impl HttpResponsePreamble {
         fd.write_all("\r\nContent-Type: ".as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all(content_type.as_str().as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
-        
-        if !keep_alive {
-            fd.write_all("Connection: close\r\n".as_bytes()).map_err(net_error::WriteError)?;
-        }
-
+       
         match content_length {
             Some(len) => {
                 fd.write_all("Content-Length: ".as_bytes()).map_err(net_error::WriteError)?;
@@ -870,8 +913,7 @@ impl HttpResponsePreamble {
     #[cfg(test)]
     pub fn from_headers(status_code: u16, reason: String, keep_alive: bool, content_length: Option<u32>, content_type: HttpContentType, request_id: u32, mut keys: Vec<String>, values: Vec<String>) -> HttpResponsePreamble {
         assert_eq!(keys.len(), values.len());
-        let mut res = HttpResponsePreamble::new(status_code, reason, content_length, content_type, request_id);
-        res.keep_alive = keep_alive;
+        let mut res = HttpResponsePreamble::new(status_code, reason, content_length, content_type, keep_alive, request_id);
 
         for (k, v) in keys.drain(..).zip(values) {
             res.add_header(k, v);
@@ -930,7 +972,7 @@ fn rfc7231_now() -> String {
 
 impl StacksMessageCodec for HttpResponsePreamble {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        HttpResponsePreamble::new_serialized(fd, self.status_code, &self.reason, self.keep_alive, self.content_length, &self.content_type, self.request_id, |ref mut fd| write_headers(fd, &self.headers))
+        HttpResponsePreamble::new_serialized(fd, self.status_code, &self.reason, self.content_length, &self.content_type, self.request_id, |ref mut fd| write_headers(fd, &self.headers))
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpResponsePreamble, net_error> {
@@ -948,6 +990,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
             },
             httparse::Status::Complete(_) => {
                 // consumed all headers.  body_offset points to the start of the response body
+                let _ = resp.version.ok_or(net_error::DeserializeError("No HTTP version".to_string()))?;
                 let status_code = resp.code.ok_or(net_error::DeserializeError("No HTTP status code".to_string()))?;
                 let reason = resp.reason.ok_or(net_error::DeserializeError("No HTTP status reason".to_string()))?.to_string();
 
@@ -976,7 +1019,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                     all_headers.insert(key.clone());
 
                     if key == "content-type" {
-                        let ctype = value.parse::<HttpContentType>()?;
+                        let ctype = value.to_lowercase().parse::<HttpContentType>()?;
                         content_type = Some(ctype);
                     }
                     else if key == "content-length" {
@@ -993,10 +1036,10 @@ impl StacksMessageCodec for HttpResponsePreamble {
                     }
                     else if key == "connection" {
                         // parse
-                        if value == "close" {
+                        if value.to_lowercase() == "close" {
                             keep_alive = false;
                         }
-                        else if value == "keep-alive" {
+                        else if value.to_lowercase() == "keep-alive" {
                             keep_alive = true;
                         }
                         else {
@@ -1004,7 +1047,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                         }
                     }
                     else if key == "transfer-encoding" {
-                        if value == "chunked" {
+                        if value.to_lowercase() == "chunked" {
                             chunked_encoding = true;
                         }
                         else {
@@ -1216,25 +1259,25 @@ impl HttpRequestType {
     pub fn send<W: Write>(&self, _protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
         match *self {
             HttpRequestType::GetInfo(ref md) => {
-                HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
+                HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
             HttpRequestType::GetNeighbors(ref md) => {
-                HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
+                HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
             HttpRequestType::GetBlock(ref md, ref _block_hash) => {
-                HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
+                HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
             HttpRequestType::GetMicroblocks(ref md, ref _block_hash) => {
-                HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
+                HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
             HttpRequestType::GetMicroblocksUnconfirmed(ref md, ref _block_hash, ref _min_seq) => {
-                HttpRequestPreamble::new_serialized(fd, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
+                HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
             HttpRequestType::PostTransaction(ref md, ref tx) => {
                 let mut tx_bytes = vec![];
                 write_next(&mut tx_bytes, tx)?;
 
-                HttpRequestPreamble::new_serialized(fd, "POST", &self.request_path(), &md.peer, md.keep_alive, Some(tx_bytes.len() as u32), Some(&HttpContentType::Bytes), empty_headers)?;
+                HttpRequestPreamble::new_serialized(fd, &md.version, "POST", &self.request_path(), &md.peer, md.keep_alive, Some(tx_bytes.len() as u32), Some(&HttpContentType::Bytes), empty_headers)?;
                 fd.write_all(&tx_bytes).map_err(net_error::WriteError)?;
             }
         }
@@ -1243,12 +1286,12 @@ impl HttpRequestType {
 }
 
 impl HttpResponseType {
-    fn try_parse<R: Read, F>(protocol: &mut StacksHttp, regex: &Regex, preamble: &HttpResponsePreamble, request_path: &String, fd: &mut R, len_hint: Option<usize>, parser: F) -> Result<Option<HttpResponseType>, net_error>
+    fn try_parse<R: Read, F>(protocol: &mut StacksHttp, regex: &Regex, request_version: HttpVersion, preamble: &HttpResponsePreamble, request_path: &String, fd: &mut R, len_hint: Option<usize>, parser: F) -> Result<Option<HttpResponseType>, net_error>
     where
-        F: Fn(&mut StacksHttp, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>
+        F: Fn(&mut StacksHttp, HttpVersion, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>
     {
         if regex.is_match(request_path) {
-            let payload = parser(protocol, preamble, fd, len_hint)?;
+            let payload = parser(protocol, request_version, preamble, fd, len_hint)?;
             Ok(Some(payload))
         }
         else {
@@ -1256,7 +1299,7 @@ impl HttpResponseType {
         }
     }
 
-    fn parse_error<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R) -> Result<HttpResponseType, net_error> {
+    fn parse_error<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R) -> Result<HttpResponseType, net_error> {
         if preamble.status_code < 400 || preamble.status_code > 599 {
             return Err(net_error::DeserializeError("Inavlid response: not an error".to_string()));
         }
@@ -1268,7 +1311,7 @@ impl HttpResponseType {
         let mut error_text = String::new();
         fd.read_to_string(&mut error_text).map_err(net_error::ReadError)?;
 
-        let md = HttpResponseMetadata::from_preamble(preamble);
+        let md = HttpResponseMetadata::from_preamble(request_version, preamble);
         let resp = match preamble.status_code {
             400 => HttpResponseType::BadRequest(md, error_text),
             401 => HttpResponseType::Unauthorized(md, error_text),
@@ -1392,13 +1435,13 @@ impl HttpResponseType {
     }
 
     // len_hint is given by the StacksHttp protocol implementation
-    pub fn parse<R: Read>(protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, request_path: String, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    pub fn parse<R: Read>(protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, request_path: String, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         if preamble.status_code >= 400 {
-            return HttpResponseType::parse_error(protocol, preamble, fd);
+            return HttpResponseType::parse_error(protocol, request_version, preamble, fd);
         }
 
         // TODO: make this static somehow
-        let RESPONSE_METHODS : [(&Regex, &dyn Fn(&mut StacksHttp, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>); 6] = [
+        let RESPONSE_METHODS : [(&Regex, &dyn Fn(&mut StacksHttp, HttpVersion, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>); 6] = [
             (&PATH_GETINFO, &HttpResponseType::parse_peerinfo),
             (&PATH_GETNEIGHBORS, &HttpResponseType::parse_neighbors),
             (&PATH_GETBLOCK, &HttpResponseType::parse_block),
@@ -1408,7 +1451,7 @@ impl HttpResponseType {
         ];
 
         for (regex, parser) in RESPONSE_METHODS.iter() {
-            match HttpResponseType::try_parse(protocol, regex, preamble, &request_path, fd, len_hint, parser) {
+            match HttpResponseType::try_parse(protocol, regex, request_version, preamble, &request_path, fd, len_hint, parser) {
                 Ok(Some(request)) => {
                     return Ok(request);
                 },
@@ -1426,27 +1469,27 @@ impl HttpResponseType {
         return Err(net_error::DeserializeError("Http response could not be parsed".to_string()));
     }
 
-    fn parse_peerinfo<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_peerinfo<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let peer_info = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
-        Ok(HttpResponseType::PeerInfo(HttpResponseMetadata::from_preamble(preamble), peer_info))
+        Ok(HttpResponseType::PeerInfo(HttpResponseMetadata::from_preamble(request_version, preamble), peer_info))
     }
 
-    fn parse_neighbors<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_neighbors<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let neighbors_data = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
-        Ok(HttpResponseType::Neighbors(HttpResponseMetadata::from_preamble(preamble), neighbors_data))
+        Ok(HttpResponseType::Neighbors(HttpResponseMetadata::from_preamble(request_version, preamble), neighbors_data))
     }
 
-    fn parse_block<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_block<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let block : StacksBlock = HttpResponseType::parse_bytestream(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
-        Ok(HttpResponseType::Block(HttpResponseMetadata::from_preamble(preamble), block))
+        Ok(HttpResponseType::Block(HttpResponseMetadata::from_preamble(request_version, preamble), block))
     }
 
-    fn parse_microblocks<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_microblocks<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let microblocks : Vec<StacksMicroblock> = HttpResponseType::parse_bytestream(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
-        Ok(HttpResponseType::Microblocks(HttpResponseMetadata::from_preamble(preamble), microblocks))
+        Ok(HttpResponseType::Microblocks(HttpResponseMetadata::from_preamble(request_version, preamble), microblocks))
     }
 
-    fn parse_microblocks_unconfirmed<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_microblocks_unconfirmed<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         // NOTE: there will be no length prefix on this, but we won't ever get more than
         // MAX_MICROBLOCKS_UNCONFIRMED microblocks
         let mut microblocks = vec![];
@@ -1472,10 +1515,10 @@ impl HttpResponseType {
                 break;
             }
         }
-        Ok(HttpResponseType::Microblocks(HttpResponseMetadata::from_preamble(preamble), microblocks))
+        Ok(HttpResponseType::Microblocks(HttpResponseMetadata::from_preamble(request_version, preamble), microblocks))
     }
 
-    fn parse_txid<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
+    fn parse_txid<R: Read>(_protocol: &mut StacksHttp, request_version: HttpVersion, preamble: &HttpResponsePreamble, fd: &mut R, len_hint: Option<usize>) -> Result<HttpResponseType, net_error> {
         let txid_buf = HttpResponseType::parse_text(preamble, fd, len_hint, 64)?;
         if txid_buf.len() != 64 {
             return Err(net_error::DeserializeError("Invalid txid: expected 64 bytes".to_string()));
@@ -1486,7 +1529,7 @@ impl HttpResponseType {
 
         let hex_str = str::from_utf8(&bytes).map_err(|_e| net_error::DeserializeError("Failed to decode a txid".to_string()))?;
         let txid_bytes = hex_bytes(hex_str).map_err(|_e| net_error::DeserializeError("Failed to decode txid hex".to_string()))?;
-        Ok(HttpResponseType::TransactionID(HttpResponseMetadata::from_preamble(preamble), Txid::from_bytes(&txid_bytes).unwrap()))
+        Ok(HttpResponseType::TransactionID(HttpResponseMetadata::from_preamble(request_version, preamble), Txid::from_bytes(&txid_bytes).unwrap()))
     }
 
     fn error_reason(code: u16) -> &'static str {
@@ -1504,7 +1547,7 @@ impl HttpResponseType {
 
     fn error_response<W: Write>(&self, fd: &mut W, code: u16, message: &str) -> Result<(), net_error> {
         let md = self.metadata();
-        HttpResponsePreamble::new_serialized(fd, code, HttpResponseType::error_reason(code), md.keep_alive, Some(message.len() as u32), &HttpContentType::Text, md.request_id, empty_headers)?;
+        HttpResponsePreamble::new_serialized(fd, code, HttpResponseType::error_reason(code), Some(message.len() as u32), &HttpContentType::Text, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
         fd.write_all(message.as_bytes()).map_err(net_error::WriteError)?;
         Ok(())
     }
@@ -1578,34 +1621,34 @@ impl HttpResponseType {
     pub fn send<W: Write>(&self, protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
         match *self {
             HttpResponseType::PeerInfo(ref md, ref peer_info) => {
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, md.content_length.clone(), &HttpContentType::JSON, md.request_id, empty_headers)?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
                 HttpResponseType::send_json(protocol, md, fd, peer_info)?;
             },
             HttpResponseType::Neighbors(ref md, ref neighbor_data) => {
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, md.content_length.clone(), &HttpContentType::JSON, md.request_id, empty_headers)?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
                 HttpResponseType::send_json(protocol, md, fd, neighbor_data)?;
             },
             HttpResponseType::Block(ref md, ref block) => {
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, md.content_length.clone(), &HttpContentType::Bytes, md.request_id, empty_headers)?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Bytes, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
                 HttpResponseType::send_bytestream(protocol, md, fd, block)?;
             },
             HttpResponseType::BlockStream(ref md) => {
                 // only send the preamble.  The caller will need to figure out how to send along
                 // the block data itself.
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, None, &HttpContentType::Bytes, md.request_id, empty_headers)?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", None, &HttpContentType::Bytes, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
             },
             HttpResponseType::Microblocks(ref md, ref microblocks) => {
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, md.content_length.clone(), &HttpContentType::Bytes, md.request_id, empty_headers)?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Bytes, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
                 HttpResponseType::send_bytestream(protocol, md, fd, microblocks)?;
             },
             HttpResponseType::MicroblockStream(ref md) => {
                 // only send the preamble.  The caller will need to figure out how to send along
                 // the microblock data itself.
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, None, &HttpContentType::Bytes, md.request_id, empty_headers)?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", None, &HttpContentType::Bytes, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
             },
             HttpResponseType::TransactionID(ref md, ref txid) => {
                 let txid_bytes = txid.to_hex().into_bytes();
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.keep_alive, md.content_length.clone(), &HttpContentType::Text, md.request_id, empty_headers)?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Text, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
                 HttpResponseType::send_text(protocol, md, fd, &txid_bytes)?;
             },
             HttpResponseType::BadRequest(_, ref msg) => self.error_response(fd, 400, msg)?,
@@ -1792,6 +1835,8 @@ struct HttpReplyData {
 /// There can be at most one HTTP request in-flight (i.e. we don't do pipelining)
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksHttp {
+    /// Version of client
+    request_version: Option<HttpVersion>,
     /// Path we requested
     request_path: Option<String>,
     /// Incoming reply
@@ -1804,6 +1849,7 @@ impl StacksHttp {
     pub fn new() -> StacksHttp {
         StacksHttp {
             reply: None,
+            request_version: None,
             request_path: None,
             chunk_size: 8192
         }
@@ -1834,6 +1880,7 @@ impl StacksHttp {
     }
 
     pub fn reset(&mut self) -> () {
+        self.request_version = None;
         self.request_path = None;
         self.reply = None;
     }
@@ -1842,10 +1889,11 @@ impl StacksHttp {
     /// Given the preamble and a Read, stream the bytes into a chunk-decoder.  Return the decoded
     /// bytes if we decode an entire stream.  Always return the number of bytes consumed.
     /// Returns Ok((Some(request path, decoded bytes we got, total number of encoded bytes), number of bytes gotten in this call))
-    pub fn consume_data<R: Read>(&mut self, preamble: &HttpResponsePreamble, fd: &mut R) -> Result<(Option<(String, Vec<u8>, usize)>, usize), net_error> {
+    pub fn consume_data<R: Read>(&mut self, preamble: &HttpResponsePreamble, fd: &mut R) -> Result<(Option<(HttpVersion, String, Vec<u8>, usize)>, usize), net_error> {
         assert!(preamble.is_chunked());
         assert!(self.reply.is_some());
         assert!(self.request_path.is_some());
+        assert!(self.request_version.is_some());
 
         let mut finished = false;
         let res = match self.reply {
@@ -1858,7 +1906,7 @@ impl StacksHttp {
                             (Some((byte_vec, bytes_total)), sz) => {
                                 // done receiving
                                 finished = true;
-                                Ok((Some((self.request_path.clone().unwrap(), byte_vec, bytes_total)), sz))
+                                Ok((Some((self.request_version.clone().unwrap(), self.request_path.clone().unwrap(), byte_vec, bytes_total)), sz))
                             }
                         }
                     },
@@ -2004,13 +2052,13 @@ impl ProtocolFamily for StacksHttp {
                     })?;
 
                 match message_bytes_opt {
-                    Some((request_path, message_bytes, total_bytes_consumed)) => {
+                    Some((request_version, request_path, message_bytes, total_bytes_consumed)) => {
                         // can parse!
                         test_debug!("read http response payload of {} bytes (just bufferred {}) for {}", message_bytes.len(), num_read, &request_path);
 
                         // we now know the content-length, so pass it into the parser.
                         let len_hint = message_bytes.len();
-                        let parse_res = HttpResponseType::parse(self, http_response_preamble, request_path, &mut &message_bytes[..], Some(len_hint));
+                        let parse_res = HttpResponseType::parse(self, request_version, http_response_preamble, request_path, &mut &message_bytes[..], Some(len_hint));
 
                         // done parsing
                         self.reset();
@@ -2052,14 +2100,16 @@ impl ProtocolFamily for StacksHttp {
             StacksHttpPreamble::Response(ref http_response_preamble) => {
                 assert!(!http_response_preamble.is_chunked());
                 assert!(self.request_path.is_some());
+                assert!(self.request_version.is_some());
 
                 let request_path = self.request_path.take().unwrap();
+                let request_version = self.request_version.take().unwrap();
 
                 // message of known length
                 test_debug!("read http response payload of {} bytes for {}", buf.len(), &request_path);
                 
                 let mut cursor = io::Cursor::new(buf);
-                match HttpResponseType::parse(self, http_response_preamble, request_path, &mut cursor, None) {
+                match HttpResponseType::parse(self, request_version, http_response_preamble, request_path, &mut cursor, None) {
                     Ok(data_response) => Ok((StacksHttpMessage::Response(data_response), cursor.position() as usize)),
                     Err(e) => Err(e)
                 }
@@ -2387,17 +2437,17 @@ mod test {
     fn test_parse_http_request_preamble_ok() {
         let tests = vec![
             ("GET /foo HTTP/1.1\r\nHost: localhost:6270\r\n\r\n",
-             HttpRequestPreamble::from_headers("GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, true, vec![], vec![])),
+             HttpRequestPreamble::from_headers(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, true, vec![], vec![])),
             ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\n\r\n",
-             HttpRequestPreamble::from_headers("POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()])),
+             HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()])),
             ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\n\r\n",
-             HttpRequestPreamble::from_headers("POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()])),
+             HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()])),
             ("GET /foo HTTP/1.1\r\nConnection: close\r\nHost: localhost:6270\r\n\r\n",
-             HttpRequestPreamble::from_headers("GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, false, vec![], vec![])),
+             HttpRequestPreamble::from_headers(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, false, vec![], vec![])),
             ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nConnection: close\r\nFoo: Bar\r\n\r\n",
-             HttpRequestPreamble::from_headers("POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()])),
+             HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()])),
             ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\nConnection: close\r\n\r\n",
-             HttpRequestPreamble::from_headers("POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()])) 
+             HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()])) 
         ];
 
         for (data, request) in tests.iter() {
@@ -2477,7 +2527,8 @@ mod test {
 
     #[test]
     fn test_http_request_preamble_headers() {
-        let mut req = HttpRequestPreamble::new("GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270);
+        let mut req = HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270);
+        let req_10 = HttpRequestPreamble::new(HttpVersion::Http10, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270);
 
         req.add_header("foo".to_string(), "bar".to_string());
 
@@ -2494,11 +2545,18 @@ mod test {
 
         test_debug!("headers:\n{}", txt);
 
+        assert!(txt.find("HTTP/1.1").is_some(), "HTTP version is missing");
         assert!(txt.find("User-Agent: stacks/2.0\r\n").is_some(), "User-Agnet header is missing");
         assert!(txt.find("Host: localhost:6270\r\n").is_some(), "Host header is missing");
         assert!(txt.find("foo: bar\r\n").is_some(), "foo header is missing");
         assert!(txt.find("Content-Type: application/octet-stream\r\n").is_some(), "content-type is missing");
         assert!(txt.find("Connection: ").is_none());    // not sent if keep_alive is true
+        
+        let mut bytes_10 = vec![];
+        req_10.consensus_serialize(&mut bytes_10).unwrap();
+        let txt_10 = String::from_utf8(bytes_10).unwrap();
+        
+        assert!(txt_10.find("HTTP/1.0").is_some(), "HTTP version is missing");
     }
 
     #[test]
@@ -2536,7 +2594,7 @@ mod test {
 
     #[test]
     fn test_http_response_preamble_headers() {
-        let mut res = HttpResponsePreamble::new(200, "OK".to_string(), Some(123), HttpContentType::JSON, 123);
+        let mut res = HttpResponsePreamble::new(200, "OK".to_string(), Some(123), HttpContentType::JSON, true, 123);
         assert_eq!(res.request_id, 123);
 
         res.set_request_id(456);
@@ -2700,10 +2758,12 @@ mod test {
     #[test]
     fn test_http_request_type_codec() {
         let http_request_metadata_ip = HttpRequestMetadata {
+            version: HttpVersion::Http11,
             peer: PeerHost::IP(PeerAddress([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]), 12345),
             keep_alive: true,
         };
         let http_request_metadata_dns = HttpRequestMetadata {
+            version: HttpVersion::Http11,
             peer: PeerHost::DNS("www.foo.com".to_string(), 80),
             keep_alive: true,
         };
@@ -2718,15 +2778,15 @@ mod test {
         let mut tx_body = vec![];
         make_test_transaction().consensus_serialize(&mut tx_body).unwrap();
 
-        let mut post_transaction_preamble = HttpRequestPreamble::new("POST".to_string(), "/v2/transactions".to_string(), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port());
+        let mut post_transaction_preamble = HttpRequestPreamble::new(HttpVersion::Http11, "POST".to_string(), "/v2/transactions".to_string(), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port());
         post_transaction_preamble.set_content_type(HttpContentType::Bytes);
         post_transaction_preamble.set_content_length(tx_body.len() as u32);
 
         // all of these should parse
         let expected_http_preambles = vec![
-            HttpRequestPreamble::new("GET".to_string(), "/v2/neighbors".to_string(), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port()),
-            HttpRequestPreamble::new("GET".to_string(), format!("/v2/blocks/{}", BlockHeaderHash([2u8; 32]).to_hex()), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port()),
-            HttpRequestPreamble::new("GET".to_string(), format!("/v2/microblocks/{}", BlockHeaderHash([3u8; 32]).to_hex()), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port()),
+            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), "/v2/neighbors".to_string(), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port()),
+            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/blocks/{}", BlockHeaderHash([2u8; 32]).to_hex()), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port()),
+            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/microblocks/{}", BlockHeaderHash([3u8; 32]).to_hex()), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port()),
             post_transaction_preamble,
         ];
 
@@ -2820,50 +2880,50 @@ mod test {
 
         let tests = vec![
             // length is known
-            (HttpResponseType::Neighbors(HttpResponseMetadata::new(123, Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32)), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Block(HttpResponseMetadata::new(123, Some(test_block_info_bytes.len() as u32)), test_block_info.clone()), format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
-            (HttpResponseType::Microblocks(HttpResponseMetadata::new(123, Some(test_microblock_info_bytes.len() as u32)), test_microblock_info.clone()), format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
-            (HttpResponseType::TransactionID(HttpResponseMetadata::new(123, Some(Txid([0x1; 32]).to_hex().len() as u32)), Txid([0x1; 32])), "/v2/transactions".to_string()),
+            (HttpResponseType::Neighbors(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32)), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Block(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(test_block_info_bytes.len() as u32)), test_block_info.clone()), format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
+            (HttpResponseType::Microblocks(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(test_microblock_info_bytes.len() as u32)), test_microblock_info.clone()), format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
+            (HttpResponseType::TransactionID(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(Txid([0x1; 32]).to_hex().len() as u32)), Txid([0x1; 32])), "/v2/transactions".to_string()),
             
             // length is unknown
-            (HttpResponseType::Neighbors(HttpResponseMetadata::new(123, None), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Block(HttpResponseMetadata::new(123, None), test_block_info.clone()), format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
-            (HttpResponseType::Microblocks(HttpResponseMetadata::new(123, None), test_microblock_info.clone()), format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
-            (HttpResponseType::TransactionID(HttpResponseMetadata::new(123, None), Txid([0x1; 32])), "/v2/transactions".to_string()),
+            (HttpResponseType::Neighbors(HttpResponseMetadata::new(HttpVersion::Http11, 123, None), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Block(HttpResponseMetadata::new(HttpVersion::Http11, 123, None), test_block_info.clone()), format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
+            (HttpResponseType::Microblocks(HttpResponseMetadata::new(HttpVersion::Http11, 123, None), test_microblock_info.clone()), format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
+            (HttpResponseType::TransactionID(HttpResponseMetadata::new(HttpVersion::Http11, 123, None), Txid([0x1; 32])), "/v2/transactions".to_string()),
 
             // errors without error messages
-            (HttpResponseType::BadRequest(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Unauthorized(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::PaymentRequired(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Forbidden(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::NotFound(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::ServerError(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::ServiceUnavailable(HttpResponseMetadata::new(123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Error(HttpResponseMetadata::new(123, Some(0)), 502, "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::BadRequest(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Unauthorized(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::PaymentRequired(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Forbidden(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::NotFound(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::ServerError(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::ServiceUnavailable(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Error(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), 502, "".to_string()), "/v2/neighbors".to_string()),
 
             // errors with specific messages
-            (HttpResponseType::BadRequest(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Unauthorized(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::PaymentRequired(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Forbidden(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::NotFound(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::ServerError(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::ServiceUnavailable(HttpResponseMetadata::new(123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Error(HttpResponseMetadata::new(123, Some(3)), 502, "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::BadRequest(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Unauthorized(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::PaymentRequired(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Forbidden(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::NotFound(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::ServerError(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::ServiceUnavailable(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Error(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), 502, "foo".to_string()), "/v2/neighbors".to_string()),
         ];
 
         let expected_http_preambles = vec![
             // length is known
-            HttpResponsePreamble::new(200, "OK".to_string(), Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32), HttpContentType::JSON, 123),
-            HttpResponsePreamble::new(200, "OK".to_string(), Some(test_block_info_bytes.len() as u32), HttpContentType::Bytes, 123),
-            HttpResponsePreamble::new(200, "OK".to_string(), Some(test_microblock_info_bytes.len() as u32), HttpContentType::Bytes, 123),
-            HttpResponsePreamble::new(200, "OK".to_string(), Some(Txid([0x1; 32]).to_hex().len() as u32), HttpContentType::Text, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32), HttpContentType::JSON, true, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), Some(test_block_info_bytes.len() as u32), HttpContentType::Bytes, true, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), Some(test_microblock_info_bytes.len() as u32), HttpContentType::Bytes, true, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), Some(Txid([0x1; 32]).to_hex().len() as u32), HttpContentType::Text, true, 123),
             
             // length is unknown
-            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::JSON, 123),
-            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Bytes, 123),
-            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Bytes, 123),
-            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Text, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::JSON, true, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Bytes, true, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Bytes, true, 123),
+            HttpResponsePreamble::new(200, "OK".to_string(), None, HttpContentType::Text, true, 123),
 
             // errors
             HttpResponsePreamble::new_error(400, 123, None),
@@ -3117,4 +3177,6 @@ mod test {
     }
 
     // TODO: test mismatch between request path and reply
+    // TODO: test upper/lowercase http header values
+    // TODO: keep-alive headers and version
 }
