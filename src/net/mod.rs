@@ -445,6 +445,7 @@ impl FromStr for HttpContentType {
 /// HTTP request preamble
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpRequestPreamble {
+    pub version: HttpVersion,
     pub verb: String,
     pub path: String,
     pub host: PeerHost,
@@ -598,7 +599,6 @@ pub enum ServiceFlags {
     RPC = 0x02,
 }
 
-// TODO: URL string type
 #[derive(Debug, Clone, PartialEq)]
 pub struct HandshakeAcceptData {
     pub handshake: HandshakeData,       // this peer's handshake information
@@ -738,8 +738,16 @@ pub struct PeerInfoData {
     parent_network_id: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Copy, Hash)]
+#[repr(u8)]
+pub enum HttpVersion {
+    Http10 = 0x10,
+    Http11 = 0x11
+}
+
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct HttpRequestMetadata {
+    pub version: HttpVersion,
     pub peer: PeerHost,
     pub keep_alive: bool
 }
@@ -753,6 +761,7 @@ pub const HTTP_REQUEST_ID_RESERVED : u32 = 0;
 impl HttpRequestMetadata {
     pub fn new(host: String, port: u16) -> HttpRequestMetadata {
         HttpRequestMetadata {
+            version: HttpVersion::Http11,
             peer: PeerHost::from_host_port(host, port),
             keep_alive: true,
         }
@@ -760,6 +769,7 @@ impl HttpRequestMetadata {
 
     pub fn from_host(peer_host: PeerHost) -> HttpRequestMetadata {
         HttpRequestMetadata {
+            version: HttpVersion::Http11,
             peer: peer_host,
             keep_alive: true,
         }
@@ -767,6 +777,7 @@ impl HttpRequestMetadata {
 
     pub fn from_preamble(preamble: &HttpRequestPreamble) -> HttpRequestMetadata {
         HttpRequestMetadata {
+            version: preamble.version,
             peer: preamble.host.clone(),
             keep_alive: preamble.keep_alive,
         }
@@ -787,6 +798,7 @@ pub enum HttpRequestType {
 /// The fields that Actually Matter to http responses
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpResponseMetadata {
+    pub client_version: HttpVersion,
     pub request_id: u32,
     pub content_length: Option<u32>,
     pub keep_alive: bool
@@ -802,16 +814,18 @@ impl HttpResponseMetadata {
         request_id
     }
 
-    pub fn new(request_id: u32, content_length: Option<u32>) -> HttpResponseMetadata {
+    pub fn new(client_version: HttpVersion, request_id: u32, content_length: Option<u32>) -> HttpResponseMetadata {
         HttpResponseMetadata {
+            client_version: client_version,
             request_id: request_id,
             content_length: content_length,
             keep_alive: true,
         }
     }
 
-    pub fn from_preamble(preamble: &HttpResponsePreamble) -> HttpResponseMetadata {
+    pub fn from_preamble(request_version: HttpVersion, preamble: &HttpResponsePreamble) -> HttpResponseMetadata {
         HttpResponseMetadata {
+            client_version: request_version,
             request_id: preamble.request_id,
             content_length: preamble.content_length.clone(),
             keep_alive: preamble.keep_alive
