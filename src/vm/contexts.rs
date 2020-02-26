@@ -12,7 +12,7 @@ use vm::contracts::Contract;
 use vm::ast::ContractAST;
 use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker, cost_functions};
 use vm::ast;
-use vm::eval;
+use vm::{eval, is_reserved};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 
@@ -827,6 +827,12 @@ impl ContractContext {
 
     pub fn is_explicitly_implementing_trait(&self, trait_identifier: &TraitIdentifier) -> bool {
         self.implemented_traits.contains(trait_identifier)
+    }
+
+    pub fn is_name_used(&self, name: &str) -> bool {
+        is_reserved(name) ||
+            self.variables.contains_key(name) || self.functions.contains_key(name) ||
+            self.persisted_names.contains(name) || self.defined_traits.contains_key(name)
     }
 }
 

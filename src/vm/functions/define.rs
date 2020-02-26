@@ -51,10 +51,7 @@ pub enum DefineResult {
 }
 
 fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<()> {
-    use vm::is_reserved;
-
-    if is_reserved(name) || contract_context.variables.contains_key(name) || contract_context.functions.contains_key(name) ||
-        contract_context.persisted_names.contains(name) || contract_context.defined_traits.contains_key(name) {
+    if contract_context.is_name_used(name) {
         Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
     } else {
         Ok(())
