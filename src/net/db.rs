@@ -338,6 +338,7 @@ impl PeerDB {
 
         for neighbor in initial_neighbors {
             // do we have this neighbor already?
+            test_debug!("Add initial neighbor {:?}", &neighbor);
             let res = PeerDB::try_insert_peer(&mut tx, &neighbor)?;
             if !res {
                 warn!("Failed to insert neighbor {:?}", &neighbor);

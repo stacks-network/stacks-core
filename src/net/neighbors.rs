@@ -1096,7 +1096,7 @@ impl NeighborWalk {
 impl PeerNetwork {
     /// Get some initial fresh random neighbor(s) to crawl
     pub fn get_random_neighbors(&self, num_neighbors: u64, block_height: u64) -> Result<Vec<Neighbor>, net_error> {
-        let neighbors = PeerDB::get_random_walk_neighbors(&self.peerdb.conn(), self.burnchain.network_id, num_neighbors as u32, block_height)
+        let neighbors = PeerDB::get_random_walk_neighbors(&self.peerdb.conn(), self.local_peer.network_id, num_neighbors as u32, block_height)
             .map_err(net_error::DBError)?;
 
         if neighbors.len() == 0 {
@@ -1275,7 +1275,7 @@ impl PeerNetwork {
                             continue;
                         }
 
-                        let nk = NeighborKey::from_neighbor_address(network.burnchain.peer_version, network.burnchain.network_id, &na);
+                        let nk = NeighborKey::from_neighbor_address(network.peer_version, network.local_peer.network_id, &na);
                         let handle_res = network.connect_and_handshake(walk, &nk);
                         match handle_res {
                             Ok(handle) => {
@@ -2243,12 +2243,12 @@ mod test {
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
         
         // peer 2 thinks peer 1 has the same network ID that it does
-        peer_1_config.burnchain.network_id = peer_1_config.burnchain.network_id + 1;
+        peer_1_config.network_id = peer_1_config.network_id + 1;
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
-        peer_1_config.burnchain.network_id = peer_1_config.burnchain.network_id - 1;
+        peer_1_config.network_id = peer_1_config.network_id - 1;
         
         // different network IDs
-        peer_2_config.burnchain.network_id = peer_1_config.burnchain.network_id + 1;
+        peer_2_config.network_id = peer_1_config.network_id + 1;
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
