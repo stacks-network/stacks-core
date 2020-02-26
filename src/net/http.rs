@@ -1879,6 +1879,11 @@ impl StacksHttp {
         true
     }
 
+    pub fn begin_request(&mut self, client_version: HttpVersion, request_path: String) -> () {
+        self.request_version = Some(client_version);
+        self.request_path = Some(request_path);
+    }
+
     pub fn reset(&mut self) -> () {
         self.request_version = None;
         self.request_path = None;
@@ -1938,12 +1943,12 @@ impl StacksHttp {
         Ok(ret)
     }
 
-    /// Given a fully-formed single HTTP response, parse it (used mainly by clients).
+    /// Given a fully-formed single HTTP response, parse it (used by clients).
     /// The StacksHttp object
     pub fn parse_response(request_path: &str, response_buf: &[u8]) -> Result<StacksHttpMessage, net_error> {
         let mut http = StacksHttp::new();
         http.reset();
-        http.request_path = Some(request_path.to_string());
+        http.begin_request(HttpVersion::Http11, request_path.to_string());
         
         let (preamble, message_offset) = http.read_preamble(response_buf)?;
         let is_chunked = match preamble {
@@ -2133,8 +2138,7 @@ impl ProtocolFamily for StacksHttp {
                 req.send(self, fd)?;
 
                 self.reset();
-                self.request_path = Some(req.request_path());
-                self.request_version = Some(req.metadata().version);
+                self.begin_request(req.metadata().version, req.request_path());
                 Ok(())
             },
             StacksHttpMessage::Response(ref resp) => resp.send(self, fd)
@@ -2989,8 +2993,7 @@ mod test {
             let mut bytes = vec![];
             test_debug!("write body:\n{:?}\n", test);
 
-            http.request_path = Some(request_path.to_string());
-            http.request_version = Some(HttpVersion::Http11);
+            http.begin_request(HttpVersion::Http11, request_path.to_string());
             http.write_message(&mut bytes, &StacksHttpMessage::Response((*test).clone())).unwrap();
 
             let (mut preamble, offset) = match http.read_preamble(&bytes) {
@@ -3064,8 +3067,7 @@ mod test {
             test_debug!("Expect failure:\n{}\nExpected error: '{}'", test, expected_error);
             
             let mut http = StacksHttp::new();
-            http.request_version = Some(HttpVersion::Http11);
-            http.request_path = Some(request_path.to_string());
+            http.begin_request(HttpVersion::Http11, request_path.to_string());
 
             let (preamble, offset) = http.read_preamble(test.as_bytes()).unwrap();
             let e = http.read_payload(&preamble, &test.as_bytes()[offset..]);
@@ -3132,8 +3134,7 @@ mod test {
 
         let mut http = StacksHttp::new();
 
-        http.request_version = Some(HttpVersion::Http11);
-        http.request_path = Some("/v2/neighbors".to_string());
+        http.begin_request(HttpVersion::Http11, "/v2/neighbors".to_string());
         let (preamble, offset) = http.read_preamble(valid_neighbors_response.as_bytes()).unwrap();
         assert_eq!(http.num_pending(), 1);
 
@@ -3153,8 +3154,7 @@ mod test {
         assert_eq!(http.num_pending(), 0);
 
         // can read the preamble again, but only once
-        http.request_version = Some(HttpVersion::Http11);
-        http.request_path = Some("/v2/neighbors".to_string());
+        http.begin_request(HttpVersion::Http11, "/v2/neighbors".to_string());
         let (preamble, offset) = http.read_preamble(invalid_neighbors_response.as_bytes()).unwrap();
         assert_eq!(http.num_pending(), 1);
         
@@ -3168,8 +3168,7 @@ mod test {
         assert_eq!(http.num_pending(), 0);
 
         // can read the premable again, but only once
-        http.request_version = Some(HttpVersion::Http11);
-        http.request_path = Some("/v2/neighbors".to_string());
+        http.begin_request(HttpVersion::Http11, "/v2/neighbors".to_string());
         let (preamble, offset) = http.read_preamble(invalid_chunked_response.as_bytes()).unwrap();
         let res = http.read_preamble(valid_neighbors_response.as_bytes());
         
