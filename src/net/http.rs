@@ -2134,6 +2134,7 @@ impl ProtocolFamily for StacksHttp {
 
                 self.reset();
                 self.request_path = Some(req.request_path());
+                self.request_version = Some(req.metadata().version);
                 Ok(())
             },
             StacksHttpMessage::Response(ref resp) => resp.send(self, fd)
@@ -2989,6 +2990,7 @@ mod test {
             test_debug!("write body:\n{:?}\n", test);
 
             http.request_path = Some(request_path.to_string());
+            http.request_version = Some(HttpVersion::Http11);
             http.write_message(&mut bytes, &StacksHttpMessage::Response((*test).clone())).unwrap();
 
             let (mut preamble, offset) = match http.read_preamble(&bytes) {
@@ -3062,6 +3064,7 @@ mod test {
             test_debug!("Expect failure:\n{}\nExpected error: '{}'", test, expected_error);
             
             let mut http = StacksHttp::new();
+            http.request_version = Some(HttpVersion::Http11);
             http.request_path = Some(request_path.to_string());
 
             let (preamble, offset) = http.read_preamble(test.as_bytes()).unwrap();
@@ -3129,6 +3132,7 @@ mod test {
 
         let mut http = StacksHttp::new();
 
+        http.request_version = Some(HttpVersion::Http11);
         http.request_path = Some("/v2/neighbors".to_string());
         let (preamble, offset) = http.read_preamble(valid_neighbors_response.as_bytes()).unwrap();
         assert_eq!(http.num_pending(), 1);
@@ -3149,6 +3153,7 @@ mod test {
         assert_eq!(http.num_pending(), 0);
 
         // can read the preamble again, but only once
+        http.request_version = Some(HttpVersion::Http11);
         http.request_path = Some("/v2/neighbors".to_string());
         let (preamble, offset) = http.read_preamble(invalid_neighbors_response.as_bytes()).unwrap();
         assert_eq!(http.num_pending(), 1);
@@ -3163,6 +3168,7 @@ mod test {
         assert_eq!(http.num_pending(), 0);
 
         // can read the premable again, but only once
+        http.request_version = Some(HttpVersion::Http11);
         http.request_path = Some("/v2/neighbors".to_string());
         let (preamble, offset) = http.read_preamble(invalid_chunked_response.as_bytes()).unwrap();
         let res = http.read_preamble(valid_neighbors_response.as_bytes());
