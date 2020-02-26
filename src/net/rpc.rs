@@ -181,7 +181,7 @@ impl ConversationHttp {
     /// Handle a GET peer info.
     /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
     fn handle_getinfo<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burnchain: &Burnchain, burndb: &mut BurnDB, peerdb: &mut PeerDB) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::new(HttpResponseMetadata::make_request_id(), None);
+        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None);
         match PeerInfoData::from_db(burnchain, burndb, peerdb) {
             Ok(pi) => {
                 let response = HttpResponseType::PeerInfo(response_metadata, pi);
@@ -197,8 +197,8 @@ impl ConversationHttp {
 
     /// Handle a GET neighbors
     /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
-    fn handle_getneighbors<W: Write>(http: &mut StacksHttp, fd: &mut W, network_id: u32, chain_view: &BurnchainView, peerdb: &mut PeerDB) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::new(HttpResponseMetadata::make_request_id(), None);
+    fn handle_getneighbors<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, network_id: u32, chain_view: &BurnchainView, peerdb: &mut PeerDB) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None);
         
         // get neighbors at random as long as they're fresh
         let neighbors = PeerDB::get_random_neighbors(peerdb.conn(), network_id, MAX_NEIGHBORS_DATA_LEN, chain_view.burn_block_height, false)
@@ -220,7 +220,7 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getblock<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_block_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
-        let response_metadata = HttpResponseMetadata::new(HttpResponseMetadata::make_request_id(), None);
+        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None);
 
         // do we have this block?
         match StacksChainState::has_block_indexed(&chainstate.blocks_path, index_block_hash) {
@@ -250,7 +250,7 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getmicroblocks<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_microblock_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
-        let response_metadata = HttpResponseMetadata::new(HttpResponseMetadata::make_request_id(), None);
+        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None);
 
         // do we have this confirmed microblock stream?
         match chainstate.has_confirmed_microblocks_indexed(index_microblock_hash) {
@@ -280,7 +280,7 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getmicroblocks_unconfirmed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_anchor_block_hash: &BlockHeaderHash, min_seq: u16, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
-        let response_metadata = HttpResponseMetadata::new(HttpResponseMetadata::make_request_id(), None);
+        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None);
 
         // do we have this unconfirmed microblock stream?
         match chainstate.has_any_staging_microblock_indexed(index_anchor_block_hash, min_seq) {
@@ -315,7 +315,7 @@ impl ConversationHttp {
                 None
             },
             HttpRequestType::GetNeighbors(ref _md) => {
-                ConversationHttp::handle_getneighbors(&mut self.connection.protocol, &mut reply, self.network_id, chain_view, peerdb)?;
+                ConversationHttp::handle_getneighbors(&mut self.connection.protocol, &mut reply, &req, self.network_id, chain_view, peerdb)?;
                 None
             },
             HttpRequestType::GetBlock(ref _md, ref index_block_hash) => {
