@@ -26,7 +26,7 @@ fn generate_contract(func_type: &str, scale: u64, input_size: u64) -> String {
     let body: Vec<String> = (0..scale).map(|_| { func_call.clone() }).collect();
     
     // Envelop the body and return the contract
-    format!("(define-private (test) (begin {}))", body.join(" "))
+    format!("(begin {})", body.join(" "))
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {
@@ -37,23 +37,13 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut marf = MemoryBackingStore::new();    
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
-    global_context.execute(|g| {
-        eval_all(&contract_ast.expressions, &mut contract_context, g)
-    }).unwrap();
 
     let mut group = c.benchmark_group("Native functions");
     group.measurement_time(time::Duration::from_secs(20));
     group.bench_function("+", |b| b.iter(|| {
-        // 
-        let func_call = SymbolicExpression::list(
-            Box::new([SymbolicExpression::atom(
-                ClarityName::try_from("test".to_string()).unwrap())]));
-
-        let context = LocalContext::new();
-        let mut call_stack = CallStack::new();
-        let mut env = Environment::new(
-            &mut global_context, &contract_context, &mut call_stack, None, None);
-        eval(&func_call, &mut env, &context).unwrap();
+        global_context.execute(|g| {
+            eval_all(&contract_ast.expressions, &mut contract_context, g)
+        }).unwrap();    
     }));
     group.finish();
 }
