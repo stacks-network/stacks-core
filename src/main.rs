@@ -63,9 +63,23 @@ use chainstate::stacks::*;
 use util::hash::{hex_bytes, to_hex};
 use util::retry::LogReader;
 
+#[allow(unused_macros)]
+macro_rules! info_blue {
+    ($($arg:tt)*) => ({
+        eprintln!("\x1b[0;96m{}\x1b[0m", format!($($arg)*));
+    })
+}
+
+#[allow(unused_macros)]
+macro_rules! info_yellow {
+    ($($arg:tt)*) => ({
+        eprintln!("\x1b[0;33m{}\x1b[0m", format!($($arg)*));
+    })
+}
+
 fn main() {
 
-    log::set_loglevel(log::LOG_DEBUG).unwrap();
+    log::set_loglevel(log::LOG_WARN).unwrap();
 
     let argv : Vec<String> = env::args().collect();
     if argv.len() < 2 {
@@ -192,14 +206,14 @@ fn main() {
         let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
 
         // {
-        //     secretKey: "f5f94d5c6e99ecb014babfb28341ec215b1f574de993eb55d08bf9d367e2252a01",
-        //     publicKey: "032b882313e24f770374936c5f2998d7b39f1034686108c2644d7db5fb6c7cbd35",
-        //     stacksAddress: "ST1SYJMN6XXQRN4BVF4RV7VXNWNA6EWK934CJ6D9F"
+        //     secretKey: "1de4c1f00c6b55595350001e8bd3d6c5695c1f2df07b8a62df9587f983f3628901",
+        //     publicKey: "03459ac6b0cac412b79c8f05b19566e51a99f5daab8ef0122d72e081030acf17c5",
+        //     stacksAddress: "ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6"
         // }
 
         let genesis_config = testnet::GenesisConfig { initial_balances: vec![
             (PrincipalData::parse_standard_principal("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT").unwrap().into(), 10000),
-            (PrincipalData::parse_standard_principal("ST1SYJMN6XXQRN4BVF4RV7VXNWNA6EWK934CJ6D9F").unwrap().into(), 5000)] };
+            (PrincipalData::parse_standard_principal("ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6").unwrap().into(), 100000)] };
     
         let conf = testnet::Config {
             testnet_name: "testnet".to_string(),
@@ -213,7 +227,9 @@ fn main() {
             }],
             genesis_config,
         };
-        
+
+        // info_blue!("Starting testnet...");
+        // info_yellow!("*** Mempool path: {}", conf.node_config[0].mem_pool_path);
         println!("Starting testnet...");
         println!("*** Mempool path: {}", conf.node_config[0].mem_pool_path);
 

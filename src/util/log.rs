@@ -25,7 +25,7 @@ pub const LOG_WARN : u8 = 3;
 pub const LOG_ERROR : u8 = 4;
 
 // per-thread log level and log format
-thread_local!(static loglevel: RefCell<u8> = RefCell::new(LOG_DEBUG));
+thread_local!(static loglevel: RefCell<u8> = RefCell::new(LOG_WARN));
 
 pub fn set_loglevel(ll: u8) -> Result<(), String> {
     loglevel.with(move |level| {

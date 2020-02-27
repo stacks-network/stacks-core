@@ -16,6 +16,25 @@ pub struct RunLoop {
     new_chain_state_callback: Option<fn(u8, &mut StacksChainState, &BlockHeaderHash)>,
 }
 
+#[allow(unused_macros)]
+macro_rules! info_blue {
+    ($($arg:tt)*) => ({
+        eprintln!("\x1b[0;96m{}\x1b[0m", format!($($arg)*));
+    })
+}
+
+macro_rules! info_yellow {
+    ($($arg:tt)*) => ({
+        eprintln!("\x1b[0;33m{}\x1b[0m", format!($($arg)*));
+    })
+}
+
+macro_rules! info_green {
+    ($($arg:tt)*) => ({
+        eprintln!("\x1b[0;32m{}\x1b[0m", format!($($arg)*));
+    })
+}
+
 impl RunLoop {
 
     /// Sets up a runloop and nodes, given a config.
@@ -219,16 +238,25 @@ impl RunLoop {
 
     fn handle_new_tenure_cb(new_tenure_callback: &Option<fn(u8, &LeaderTenure)>,
                             round_index: u8, tenure: &LeaderTenure) {
+        info_yellow!("Node starting new tenure with VRF {:?}", tenure.vrf_seed);
         new_tenure_callback.map(|cb| cb(round_index, tenure));
     }
 
     fn handle_burnchain_state_cb(burn_callback: &Option<fn(u8, &BurnchainState)>,
                                  round_index: u8, state: &BurnchainState) {
+        info_yellow!("Burnchain block #{} ({}) was produced with sortition #{}", state.chain_tip.block_height, state.chain_tip.burn_header_hash, state.chain_tip.sortition_hash);
         burn_callback.map(|cb| cb(round_index, state));
     }
 
     fn handle_new_chain_state_cb(chain_state_callback: &Option<fn(u8, &mut StacksChainState, &BlockHeaderHash)>,
                                  round_index: u8, state: &mut StacksChainState, id_hash: &BlockHeaderHash) {
+        let blocks = StacksChainState::list_blocks(&state.blocks_db, &state.blocks_path).unwrap();
+        let chain_tip = blocks.last().unwrap();
+        let block = StacksChainState::load_block(&state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
+        info_green!("Stacks block #{} ({}) successfully produced, including {} transactions", blocks.len(), id_hash, block.txs.len());
+        for tx in block.txs.iter() {
+            println!("{:?}", tx);
+        }
         chain_state_callback.map(|cb| cb(round_index, state, &id_hash));
     }
 

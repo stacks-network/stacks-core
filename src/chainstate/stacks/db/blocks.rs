@@ -490,7 +490,6 @@ impl StacksChainState {
     }
 
     /// Get a list of all anchored blocks' hashes, and their burnchain headers
-    #[cfg(test)]
     pub fn list_blocks(blocks_conn: &DBConn, blocks_dir: &String) -> Result<Vec<(BurnchainHeaderHash, BlockHeaderHash)>, Error> {
         let list_block_sql = "SELECT * FROM staging_blocks".to_string();
         let mut blocks = query_rows::<StagingBlock, _>(blocks_conn, &list_block_sql, NO_PARAMS)

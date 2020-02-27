@@ -41,7 +41,7 @@ pub fn new_test_conf() -> testnet::Config {
 fn should_succeed_mining_valid_txs() {
     let conf = new_test_conf();
     
-    let num_rounds = 4;
+    let num_rounds = 6;
     let mut run_loop = testnet::RunLoop::new(conf);
 
     // Use tenure's hook for submitting transactions
@@ -81,6 +81,12 @@ fn should_succeed_mining_valid_txs() {
                 // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 3 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store get-value -e \"foo\"
                 let get_foo = "8000000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000003000000000000000001014b327858d4a83c6cb4fb44021910c1ece6c1caf9cdefa13368ee004bca4558ff6c362ab66b0c416dbb7d54cb7e879debe1b27962e33569a5d8465345ab0a92c3030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010200000003666f6f";
                 tenure.mem_pool.submit(hex_bytes(get_foo).unwrap().to_vec());
+            },
+            5 => {
+                // On round 5, publish a stacks transaction
+                // ./blockstack-cli --testnet token-transfer b1cf9cee5083f421c84d7cb53be5edf2801c3c78d63d53917aee0bdc8bd160ee01 0 0 ST195Q2HPXY576N4CT2A0R94D7DRYSX54A5X3YZTH 1000
+                let transfer_1000_stx = "80000000000400b71a091b4b8b7661a661c620966ab6573bc2dcd300000000000000000000000000000000000052e21c1ae9574987cf1a22e939dba83c6eab4ff4041902f58e7727a8cda53eac6387ef23cf61549b45fe7b5d50cd158265ba586ee35e0cf3234394ea380ffb41030200000000001a525b8a36ef8a73548cd0940c248d3b71ecf4a45100000000000003e800000000000000000000000000000000000000000000000000000000000000000000";
+                tenure.mem_pool.submit(hex_bytes(transfer_1000_stx).unwrap().to_vec());
             },
             _ => {}
         };
@@ -219,6 +225,36 @@ fn should_succeed_mining_valid_txs() {
                 assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match contract_tx.payload {
                     TransactionPayload::ContractCall(_) => true,
+                    _ => false,
+                });
+            },
+            6 => {
+                // Inspecting the chain at round 5.
+                // - Chain length should be 6.
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                blocks.sort();
+                assert!(blocks.len() == 6);
+                
+                // Block #6 should only have 2 txs
+                let chain_tip = blocks.last().unwrap();
+                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
+                assert!(block.txs.len() == 2);
+
+                // Transaction #1 should be the coinbase from the leader
+                let coinbase_tx = &block.txs[0];
+                assert!(coinbase_tx.chain_id == TESTNET_CHAIN_ID);
+                assert!(match coinbase_tx.payload {
+                    TransactionPayload::Coinbase(_) => true,
+                    _ => false,
+                });
+
+                // Transaction #2 should be the STX transfer
+                let contract_tx = &block.txs[1];
+                assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
+
+                println!("=====> {:?}", contract_tx);
+                assert!(match contract_tx.payload {
+                    TransactionPayload::TokenTransfer(_,_,_) => true,
                     _ => false,
                 });
             },

@@ -377,7 +377,7 @@ impl StacksChainState {
                 let asset_map = match clarity_tx.connection().run_contract_call(&origin_account.principal, &contract_id, &contract_call.function_name, &contract_call.function_args,
                                                                                 |asset_map, _| { !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode, origin_account, asset_map) }) {
                     Ok((return_value, asset_map)) => {
-                        debug!("Contract-call to {:?}.{:?} args {:?} returned {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &return_value);
+                        warn!("Contract-call to {:?}.{:?} args {:?} returned {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &return_value);
                         Ok(asset_map)
                     },
                     Err(e) => {

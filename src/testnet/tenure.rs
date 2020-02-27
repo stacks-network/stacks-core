@@ -20,7 +20,7 @@ pub struct LeaderTenure {
     pub mem_pool: MemPoolFS,
     parent_block: StacksHeaderInfo,
     started_at: std::time::Instant,
-    vrf_seed: VRFSeed,
+    pub vrf_seed: VRFSeed,
 }
 
 impl <'a> LeaderTenure {
