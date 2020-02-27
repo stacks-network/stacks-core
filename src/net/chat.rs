@@ -660,23 +660,6 @@ impl ConversationP2P {
                     }
                 };
             },
-            /*
-            StacksMessageType::Handshake(ref data) => {
-                // unsolicited handshake whose signature is valid, which means the remote peer is re-keying.
-                // however, only store the new key if outbound -- we don't trust inbounds to tell us persistent state.
-                if self.stats.outbound {
-                    let new_nk_opt = match peerdb.tx_begin() {
-                        Ok(mut tx) => {
-                            let res = ConversationP2P::handle_handshake_rekey(&mut tx, local_peer, &msg.preamble, data);
-                            let _ = tx.commit();
-                            handled = true;
-                            res
-                        }
-                        Err(_) => None
-                    };
-                }
-            },
-            */
             /* TODO: handle blocks and transactions */
             _ => {}
         }
@@ -688,8 +671,10 @@ impl ConversationP2P {
         let res = self.connection.recv_data(r);
         match res {
             Ok(num_recved) => {
-                self.stats.last_recv_time = get_epoch_time_secs();
-                self.stats.bytes_rx += num_recved as u64;
+                if num_recved > 0 {
+                    self.stats.last_recv_time = get_epoch_time_secs();
+                    self.stats.bytes_rx += num_recved as u64;
+                }
             },
             Err(_) => {}
         };
@@ -701,8 +686,10 @@ impl ConversationP2P {
         let res = self.connection.send_data(w);
         match res {
             Ok(num_sent) => {
-                self.stats.last_send_time = get_epoch_time_secs();
-                self.stats.bytes_tx += num_sent as u64;
+                if num_sent > 0 {
+                    self.stats.last_send_time = get_epoch_time_secs();
+                    self.stats.bytes_tx += num_sent as u64;
+                }
             },
             Err(_) => {}
         };
