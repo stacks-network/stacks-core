@@ -701,15 +701,19 @@ mod test {
 
     #[test]
     fn test_rpc_getinfo() {
+        let peer_server_info = RefCell::new(None);
         test_rpc("test_rpc_getinfo", 40000, 40001, 50000, 50001,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     let peer_info = PeerInfoData::from_db(&peer_server.config.burnchain, peer_server.burndb.as_mut().unwrap(), &mut peer_server.network.peerdb).unwrap();
+                     *peer_server_info.borrow_mut() = Some(peer_info);
+                     
                      convo_client.new_getinfo()
                  },
                  |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                      let req_md = http_request.metadata().clone();
                      match http_response {
                         HttpResponseType::PeerInfo(response_md, peer_data) => {
-                            assert_eq!(peer_data.network_id, peer_server.config.network_id);
+                            assert_eq!(Some((*peer_data).clone()), *peer_server_info.borrow());
                             true
                         },
                         _ => {
