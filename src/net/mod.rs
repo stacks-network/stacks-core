@@ -964,9 +964,6 @@ pub const MICROBLOCKS_INV_DATA_MAX_HASHES : u32 = 4096;
 // maximum value of a blocks's inv data bitlen 
 pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 4096;
 
-// heartbeat threshold -- start trying to ping a node at this many seconds before expiration
-pub const HEARTBEAT_PING_THRESHOLD : u64 = 600;
-
 macro_rules! impl_byte_array_message_codec {
     ($thing:ident, $len:expr) => {
         impl StacksMessageCodec for $thing {
