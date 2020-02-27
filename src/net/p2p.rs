@@ -243,7 +243,7 @@ pub struct PeerNetwork {
 
     // ongoing messages the network is sending via the p2p interface (not bound to a specific
     // conversation).
-    relay_handles: VecDeque<ReplyHandleP2P>,
+    pub relay_handles: VecDeque<ReplyHandleP2P>,
 
     // handles for other threads to send/receive data to peers
     handles: VecDeque<NetworkHandleServer>,
@@ -992,7 +992,7 @@ impl PeerNetwork {
 
     /// Queue up pings to everyone we haven't spoken to in a while to let them know that we're still
     /// alive.
-    fn queue_ping_heartbeats(&mut self) -> () {
+    pub fn queue_ping_heartbeats(&mut self) -> () {
         let now = get_epoch_time_secs();
         for (_, convo) in self.peers.iter_mut() {
             if convo.stats.last_handshake_time > 0 && convo.stats.last_send_time + (convo.peer_heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
