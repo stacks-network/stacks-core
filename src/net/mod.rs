@@ -799,9 +799,9 @@ pub enum HttpRequestType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpResponseMetadata {
     pub client_version: HttpVersion,
+    pub client_keep_alive: bool,
     pub request_id: u32,
     pub content_length: Option<u32>,
-    pub keep_alive: bool
 }
 
 impl HttpResponseMetadata {
@@ -814,21 +814,21 @@ impl HttpResponseMetadata {
         request_id
     }
 
-    pub fn new(client_version: HttpVersion, request_id: u32, content_length: Option<u32>) -> HttpResponseMetadata {
+    pub fn new(client_version: HttpVersion, request_id: u32, content_length: Option<u32>, client_keep_alive: bool) -> HttpResponseMetadata {
         HttpResponseMetadata {
             client_version: client_version,
+            client_keep_alive: client_keep_alive,
             request_id: request_id,
             content_length: content_length,
-            keep_alive: true,
         }
     }
 
     pub fn from_preamble(request_version: HttpVersion, preamble: &HttpResponsePreamble) -> HttpResponseMetadata {
         HttpResponseMetadata {
             client_version: request_version,
+            client_keep_alive: preamble.keep_alive,
             request_id: preamble.request_id,
             content_length: preamble.content_length.clone(),
-            keep_alive: preamble.keep_alive
         }
     }
 }
