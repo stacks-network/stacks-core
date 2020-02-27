@@ -793,6 +793,20 @@ mod test {
     use net::PeerAddress;
 
     #[test]
+    fn test_local_peer() {
+        let db = PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &vec![], &vec![]).unwrap();
+        let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
+
+        assert_eq!(local_peer.network_id, 0x9abcdef0);
+        assert_eq!(local_peer.parent_network_id, 12345);
+        assert_eq!(local_peer.private_key_expire, 0);
+        assert_eq!(local_peer.data_url, UrlString::try_from("http://foo.com".to_string()).unwrap());
+        assert_eq!(local_peer.port, NETWORK_P2P_PORT);
+        assert_eq!(local_peer.addrbytes, PeerAddress::from_ipv4(127, 0, 0, 1));
+        assert_eq!(local_peer.services, ServiceFlags::RELAY as u16);
+    }
+    
+    #[test]
     fn test_peer_insert_and_retrieval() {
         let neighbor = Neighbor {
             addr: NeighborKey {
