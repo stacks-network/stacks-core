@@ -556,7 +556,7 @@ impl<'a, 'state, W: Write> Write for HttpChunkedTransferWriter<'a, 'state, W> {
 }
 
 impl HttpRequestPreamble {
-    pub fn new(version: HttpVersion, verb: String, path: String, hostname: String, port: u16) -> HttpRequestPreamble {
+    pub fn new(version: HttpVersion, verb: String, path: String, hostname: String, port: u16, keep_alive: bool) -> HttpRequestPreamble {
         HttpRequestPreamble {
             version: version,
             verb: verb,
@@ -564,7 +564,7 @@ impl HttpRequestPreamble {
             host: PeerHost::from_host_port(hostname, port),
             content_type: None,
             content_length: None,
-            keep_alive: true,
+            keep_alive: keep_alive,
             headers: HashMap::new()
         }
     }
@@ -612,8 +612,17 @@ impl HttpRequestPreamble {
             None => {}
         }
 
-        if !keep_alive {
-            fd.write_all("Connection: close\r\n".as_bytes()).map_err(net_error::WriteError)?;
+        match *version {
+            HttpVersion::Http10 => {
+                if keep_alive {
+                    fd.write_all("Connection: keep-alive\r\n".as_bytes()).map_err(net_error::WriteError)?;
+                }
+            },
+            HttpVersion::Http11 => {
+                if !keep_alive {
+                    fd.write_all("Connection: close\r\n".as_bytes()).map_err(net_error::WriteError)?;
+                }
+            }
         }
 
         // headers
@@ -627,8 +636,7 @@ impl HttpRequestPreamble {
     #[cfg(test)]
     pub fn from_headers(version: HttpVersion, verb: String, path: String, hostname: String, port: u16, keep_alive: bool, mut keys: Vec<String>, values: Vec<String>) -> HttpRequestPreamble {
         assert_eq!(keys.len(), values.len());
-        let mut req = HttpRequestPreamble::new(version, verb, path, hostname, port);
-        req.keep_alive = keep_alive;
+        let mut req = HttpRequestPreamble::new(version, verb, path, hostname, port, keep_alive);
 
         for (k, v) in keys.drain(..).zip(values) {
             req.add_header(k, v);
@@ -686,7 +694,7 @@ fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result
     match md.client_version {
         HttpVersion::Http10 => {
             // client expects explicit keep-alive
-            if md.keep_alive {
+            if md.client_keep_alive {
                 fd.write_all("Connection: keep-alive\r\n".as_bytes()).map_err(net_error::WriteError)?;
             }
             else {
@@ -695,7 +703,7 @@ fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result
         },
         HttpVersion::Http11 => {
             // only need "connection: close" if we're explicitly _not_ doing keep-alive
-            if !md.keep_alive {
+            if !md.client_keep_alive {
                 fd.write_all("Connection: close\r\n".as_bytes()).map_err(net_error::WriteError)?;
             }
         }
@@ -1144,9 +1152,8 @@ impl HttpRequestType {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetBlock".to_string()));
         }
 
-        let block_hash_str = regex
-            .captures(&preamble.path)
-            .ok_or(net_error::DeserializeError("Failed to match path to block hash".to_string()))?
+        let captures = regex.captures(&preamble.path).ok_or(net_error::DeserializeError("Failed to match path to block hash".to_string()))?;
+        let block_hash_str = captures
             .get(1)
             .ok_or(net_error::DeserializeError("Failed to match path to block hash group".to_string()))?
             .as_str();
@@ -1162,9 +1169,8 @@ impl HttpRequestType {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicrolocks".to_string()));
         }
 
-        let block_hash_str = regex
-            .captures(&preamble.path)
-            .ok_or(net_error::DeserializeError("Failed to match path to microblock hash".to_string()))?
+        let captures = regex.captures(&preamble.path).ok_or(net_error::DeserializeError("Failed to match path to microblock hash".to_string()))?;
+        let block_hash_str = captures
             .get(1)
             .ok_or(net_error::DeserializeError("Failed to match path to microblock hash group".to_string()))?
             .as_str();
@@ -1180,16 +1186,13 @@ impl HttpRequestType {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicrolocksUnconfirmed".to_string()));
         }
 
-        let block_hash_str = regex
-            .captures(&preamble.path)
-            .ok_or(net_error::DeserializeError("Failed to match path to microblock hash".to_string()))?
+        let captures = regex.captures(&preamble.path).ok_or(net_error::DeserializeError("Failed to match path to microblock hash or minimum sequence".to_string()))?;
+        let block_hash_str = captures
             .get(1)
             .ok_or(net_error::DeserializeError("Failed to match path to microblock hash group".to_string()))?
             .as_str();
 
-        let min_seq_str = regex
-            .captures(&preamble.path)
-            .ok_or(net_error::DeserializeError("Failed to match path to microblock minimum sequence".to_string()))?
+        let min_seq_str = captures
             .get(2)
             .ok_or(net_error::DeserializeError("Failed to match path to microblock minimum sequence group".to_string()))?
             .as_str();
@@ -2465,6 +2468,28 @@ mod test {
             assert_eq!(sreq.unwrap(), StacksHttpPreamble::Request((*request).clone()));
         }
     }
+    
+    #[test]
+    fn test_parse_http_request_preamble_case_ok() {
+        let tests = vec![
+            ("GET /foo HTTP/1.1\r\nhOsT: localhost:6270\r\n\r\n",
+             HttpRequestPreamble::from_headers(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, true, vec![], vec![])),
+            ("GET /foo HTTP/1.1\r\ncOnNeCtIoN: cLoSe\r\nhOsT: localhost:6270\r\n\r\n",
+             HttpRequestPreamble::from_headers(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, false, vec![], vec![])),
+            ("POST asdf HTTP/1.1\r\nhOsT: core.blockstack.org\r\nCOnNeCtIoN: kEeP-aLiVE\r\nFoo: Bar\r\n\r\n",
+             HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, true, vec!["foo".to_string()], vec!["Bar".to_string()])),
+        ];
+
+        for (data, request) in tests.iter() {
+            let req = HttpRequestPreamble::consensus_deserialize(&mut data.as_bytes());
+            assert!(req.is_ok(), format!("{:?}", &req));
+            assert_eq!(req.unwrap(), *request);
+
+            let sreq = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
+            assert!(sreq.is_ok(), format!("{:?}", &sreq));
+            assert_eq!(sreq.unwrap(), StacksHttpPreamble::Request((*request).clone()));
+        }
+    }
 
     #[test]
     fn test_parse_http_request_preamble_err() {
@@ -2532,8 +2557,9 @@ mod test {
 
     #[test]
     fn test_http_request_preamble_headers() {
-        let mut req = HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270);
-        let req_10 = HttpRequestPreamble::new(HttpVersion::Http10, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270);
+        let mut req = HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, true);
+        let req_11 = HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, false);
+        let req_10 = HttpRequestPreamble::new(HttpVersion::Http10, "GET".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, false);
 
         req.add_header("foo".to_string(), "bar".to_string());
 
@@ -2555,13 +2581,20 @@ mod test {
         assert!(txt.find("Host: localhost:6270\r\n").is_some(), "Host header is missing");
         assert!(txt.find("foo: bar\r\n").is_some(), "foo header is missing");
         assert!(txt.find("Content-Type: application/octet-stream\r\n").is_some(), "content-type is missing");
-        assert!(txt.find("Connection: ").is_none());    // not sent if keep_alive is true
+        assert!(txt.find("Connection: ").is_none());    // not sent if keep_alive is true (for HTTP/1.1)
         
         let mut bytes_10 = vec![];
         req_10.consensus_serialize(&mut bytes_10).unwrap();
         let txt_10 = String::from_utf8(bytes_10).unwrap();
         
         assert!(txt_10.find("HTTP/1.0").is_some(), "HTTP version is missing");
+
+        let mut bytes_11 = vec![];
+        req_11.consensus_serialize(&mut bytes_11).unwrap();
+        let txt_11 = String::from_utf8(bytes_11).unwrap();
+
+        assert!(txt_11.find("HTTP/1.1").is_some(), "HTTP version is wrong");
+        assert!(txt_11.find("Connection: close").is_some(), "Explicit Connection: close is missing");
     }
 
     #[test]
@@ -2583,6 +2616,31 @@ mod test {
              HttpResponsePreamble::from_headers(400, "Bad Request".to_string(), false, Some(456), HttpContentType::JSON, 123, vec!["foo".to_string()], vec!["Bar".to_string()])),
             ("HTTP/1.1 200 Ok\r\nConnection: close\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\nX-Request-ID: 0\r\n\r\n",
              HttpResponsePreamble::from_headers(200, "Ok".to_string(), false, None, HttpContentType::Bytes, 0, vec![], vec![])),
+        ];
+
+        for (data, response) in tests.iter() {
+            test_debug!("Try parsing:\n{}\n", data);
+            let res = HttpResponsePreamble::consensus_deserialize(&mut data.as_bytes());
+            assert!(res.is_ok(), format!("{:?}", &res));
+            assert_eq!(res.unwrap(), *response);
+            
+            let sres = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
+            assert!(sres.is_ok(), format!("{:?}", &sres));
+            assert_eq!(sres.unwrap(), StacksHttpPreamble::Response((*response).clone()));
+        }
+    }
+    
+    #[test]
+    fn test_parse_http_response_case_ok() {
+        let tests = vec![
+            ("HTTP/1.1 200 OK\r\ncOnTeNt-TyPe: aPpLiCaTiOn/oCtEt-StReAm\r\ncOnTeNt-LeNgTh: 123\r\nx-ReQuEsT-iD: 0\r\n\r\n",
+             HttpResponsePreamble::from_headers(200, "OK".to_string(), true, Some(123), HttpContentType::Bytes, 0, vec![], vec![])),
+            ("HTTP/1.1 200 Ok\r\ncOnTeNt-tYpE: aPpLiCaTiOn/OcTeT-sTrEaM\r\ntRaNsFeR-eNcOdInG: cHuNkEd\r\nX-rEqUeSt-Id: 0\r\n\r\n",
+             HttpResponsePreamble::from_headers(200, "Ok".to_string(), true, None, HttpContentType::Bytes, 0, vec![], vec![])),
+            ("HTTP/1.1 200 Ok\r\ncOnNeCtIoN: cLoSe\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\nX-Request-ID: 0\r\n\r\n",
+             HttpResponsePreamble::from_headers(200, "Ok".to_string(), false, None, HttpContentType::Bytes, 0, vec![], vec![])),
+            ("HTTP/1.1 200 Ok\r\ncOnNeCtIoN: kEeP-AlIvE\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\nX-Request-ID: 0\r\n\r\n",
+             HttpResponsePreamble::from_headers(200, "Ok".to_string(), true, None, HttpContentType::Bytes, 0, vec![], vec![])),
         ];
 
         for (data, response) in tests.iter() {
@@ -2783,15 +2841,15 @@ mod test {
         let mut tx_body = vec![];
         make_test_transaction().consensus_serialize(&mut tx_body).unwrap();
 
-        let mut post_transaction_preamble = HttpRequestPreamble::new(HttpVersion::Http11, "POST".to_string(), "/v2/transactions".to_string(), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port());
+        let mut post_transaction_preamble = HttpRequestPreamble::new(HttpVersion::Http11, "POST".to_string(), "/v2/transactions".to_string(), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port(), http_request_metadata_dns.keep_alive);
         post_transaction_preamble.set_content_type(HttpContentType::Bytes);
         post_transaction_preamble.set_content_length(tx_body.len() as u32);
 
         // all of these should parse
         let expected_http_preambles = vec![
-            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), "/v2/neighbors".to_string(), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port()),
-            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/blocks/{}", BlockHeaderHash([2u8; 32]).to_hex()), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port()),
-            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/microblocks/{}", BlockHeaderHash([3u8; 32]).to_hex()), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port()),
+            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), "/v2/neighbors".to_string(), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port(), http_request_metadata_ip.keep_alive),
+            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/blocks/{}", BlockHeaderHash([2u8; 32]).to_hex()), http_request_metadata_dns.peer.hostname(), http_request_metadata_dns.peer.port(), http_request_metadata_dns.keep_alive),
+            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), format!("/v2/microblocks/{}", BlockHeaderHash([3u8; 32]).to_hex()), http_request_metadata_ip.peer.hostname(), http_request_metadata_ip.peer.port(), http_request_metadata_ip.keep_alive),
             post_transaction_preamble,
         ];
 
@@ -2885,36 +2943,36 @@ mod test {
 
         let tests = vec![
             // length is known
-            (HttpResponseType::Neighbors(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32)), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Block(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(test_block_info_bytes.len() as u32)), test_block_info.clone()), format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
-            (HttpResponseType::Microblocks(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(test_microblock_info_bytes.len() as u32)), test_microblock_info.clone()), format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
-            (HttpResponseType::TransactionID(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(Txid([0x1; 32]).to_hex().len() as u32)), Txid([0x1; 32])), "/v2/transactions".to_string()),
+            (HttpResponseType::Neighbors(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32), true), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Block(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(test_block_info_bytes.len() as u32), true), test_block_info.clone()), format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
+            (HttpResponseType::Microblocks(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(test_microblock_info_bytes.len() as u32), true), test_microblock_info.clone()), format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
+            (HttpResponseType::TransactionID(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(Txid([0x1; 32]).to_hex().len() as u32), true), Txid([0x1; 32])), "/v2/transactions".to_string()),
             
             // length is unknown
-            (HttpResponseType::Neighbors(HttpResponseMetadata::new(HttpVersion::Http11, 123, None), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Block(HttpResponseMetadata::new(HttpVersion::Http11, 123, None), test_block_info.clone()), format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
-            (HttpResponseType::Microblocks(HttpResponseMetadata::new(HttpVersion::Http11, 123, None), test_microblock_info.clone()), format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
-            (HttpResponseType::TransactionID(HttpResponseMetadata::new(HttpVersion::Http11, 123, None), Txid([0x1; 32])), "/v2/transactions".to_string()),
+            (HttpResponseType::Neighbors(HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true), test_neighbors_info.clone()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Block(HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true), test_block_info.clone()), format!("/v2/blocks/{}", test_block_info.block_hash().to_hex())),
+            (HttpResponseType::Microblocks(HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true), test_microblock_info.clone()), format!("/v2/microblocks/{}", test_microblock_info[0].block_hash().to_hex())),
+            (HttpResponseType::TransactionID(HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true), Txid([0x1; 32])), "/v2/transactions".to_string()),
 
             // errors without error messages
-            (HttpResponseType::BadRequest(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Unauthorized(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::PaymentRequired(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Forbidden(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::NotFound(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::ServerError(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::ServiceUnavailable(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), "".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Error(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0)), 502, "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::BadRequest(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Unauthorized(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::PaymentRequired(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Forbidden(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::NotFound(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::ServerError(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::ServiceUnavailable(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true), "".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Error(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true), 502, "".to_string()), "/v2/neighbors".to_string()),
 
             // errors with specific messages
-            (HttpResponseType::BadRequest(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Unauthorized(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::PaymentRequired(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Forbidden(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::NotFound(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::ServerError(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::ServiceUnavailable(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), "foo".to_string()), "/v2/neighbors".to_string()),
-            (HttpResponseType::Error(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3)), 502, "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::BadRequest(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Unauthorized(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::PaymentRequired(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Forbidden(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::NotFound(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::ServerError(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::ServiceUnavailable(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true), "foo".to_string()), "/v2/neighbors".to_string()),
+            (HttpResponseType::Error(HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true), 502, "foo".to_string()), "/v2/neighbors".to_string()),
         ];
 
         let expected_http_preambles = vec![
@@ -3181,7 +3239,86 @@ mod test {
         assert_eq!(http.num_pending(), 0);
     }
 
+    #[test]
+    fn test_http_request_version_keep_alive() {
+        let requests = vec![
+            HttpRequestPreamble::new(HttpVersion::Http10, "GET".to_string(), "/v2/info".to_string(), "localhost".to_string(), 8080, true),
+            HttpRequestPreamble::new(HttpVersion::Http10, "GET".to_string(), "/v2/info".to_string(), "localhost".to_string(), 8080, false),
+            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), "/v2/info".to_string(), "localhost".to_string(), 8080, true),
+            HttpRequestPreamble::new(HttpVersion::Http11, "GET".to_string(), "/v2/info".to_string(), "localhost".to_string(), 8080, false)
+        ];
+
+        // (have 'connection' header?, have 'keep-alive' value?)
+        let requests_connection_expected = vec![
+            (true, true),
+            (false, false),
+            (false, false),
+            (true, false)
+        ];
+        
+        for (r, (has_connection, is_keep_alive)) in requests.iter().zip(requests_connection_expected.iter()) {
+            let mut bytes = vec![];
+            r.consensus_serialize(&mut bytes).unwrap();
+            let txt = String::from_utf8(bytes).unwrap();
+
+            eprintln!("has_connection: {}, is_keep_alive: {}\n{}", *has_connection, *is_keep_alive, &txt);
+            if *has_connection {
+                if *is_keep_alive {
+                    assert!(txt.find("Connection: keep-alive\r\n").is_some());
+                }
+                else {
+                    assert!(txt.find("Connection: close\r\n").is_some());
+                }
+            }
+            else {
+                assert!(txt.find("Connection: ").is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn test_http_response_version_keep_alive() {
+        // (version, explicit keep-alive?)
+        let responses_args = vec![
+            (HttpVersion::Http10, true),
+            (HttpVersion::Http10, false),
+            (HttpVersion::Http11, true),
+            (HttpVersion::Http11, false)
+        ];
+
+        let mut responses = vec![];
+        for res in responses_args.iter() {
+            let mut bytes = vec![];
+            let md = HttpResponseMetadata::new(res.0.clone(), 123, None, res.1);
+            HttpResponsePreamble::new_serialized(&mut bytes, 200, "OK", None, &HttpContentType::JSON, 123, |ref mut fd| keep_alive_headers(fd, &md)).unwrap();
+            responses.push(String::from_utf8(bytes).unwrap());
+        }
+
+        for (response, (version, sent_keep_alive)) in responses.iter().zip(responses_args.iter()) {
+            test_debug!("version: {:?}, sent keep-alive: {}, response:\n{}", version, sent_keep_alive, response);
+            match version {
+                HttpVersion::Http10 => {
+                    // be explicit about Connection: with http/1.0 clients
+                    if *sent_keep_alive {
+                        assert!(response.find("Connection: keep-alive\r\n").is_some());
+                    }
+                    else {
+                        assert!(response.find("Connection: close\r\n").is_some());
+                    }
+                },
+                HttpVersion::Http11 => {
+                    if *sent_keep_alive {
+                        // we don't send connection: keep-alive if the client is 1.1 and it didn't
+                        // send its own connection: <option>
+                        assert!(response.find("Connection:").is_none());
+                    }
+                    else {
+                        assert!(response.find("Connection: close\r\n").is_some());
+                    }
+                }
+            }
+        }
+    }
+
     // TODO: test mismatch between request path and reply
-    // TODO: test upper/lowercase http header values
-    // TODO: keep-alive headers and version
 }
