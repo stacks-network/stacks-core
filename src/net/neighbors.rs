@@ -65,7 +65,7 @@ use rusqlite::Transaction;
 #[cfg(test)] pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL : u64 = 0;
 #[cfg(not(test))] pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL : u64 = 600;      // don't reach out to a frontier neighbor more than once every 10 minutes
 
-pub const NEIGHBOR_REQUEST_TIMEOUT : u64 = 60;
+pub const NEIGHBOR_REQUEST_TIMEOUT : u64 = 10;
 
 pub const NUM_INITIAL_WALKS : u64 = 10;     // how many unthrottled walks should we do when this peer starts up
 #[cfg(test)] pub const PRUNE_FREQUENCY : u64 = 0;             // how often we should consider pruning neighbors
@@ -1135,7 +1135,7 @@ impl PeerNetwork {
         test_debug!("{:?}: send Handshake to {:?}", &self.local_peer, &nk);
 
         let msg = self.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data))?;
-        let req_res = self.send_message(nk, msg, get_epoch_time_secs() + NEIGHBOR_REQUEST_TIMEOUT);
+        let req_res = self.send_message(nk, msg, get_epoch_time_secs() + self.connection_opts.timeout);
         match req_res {
             Ok(handle) => {
                 Ok(handle)
@@ -1226,7 +1226,7 @@ impl PeerNetwork {
                     test_debug!("{:?}: send GetNeighbors to {:?}", &walk.local_peer, &walk.cur_neighbor);
 
                     let msg = network.sign_for_peer(&walk.cur_neighbor.addr, StacksMessageType::GetNeighbors)?;
-                    let req_res = network.send_message(&walk.cur_neighbor.addr, msg, get_epoch_time_secs() + NEIGHBOR_REQUEST_TIMEOUT);
+                    let req_res = network.send_message(&walk.cur_neighbor.addr, msg, get_epoch_time_secs() + network.connection_opts.timeout);
                     match req_res {
                         Ok(handle) => {
                             walk.getneighbors_begin(Some(handle));
@@ -1331,7 +1331,7 @@ impl PeerNetwork {
                         test_debug!("{:?}: send GetNeighbors to {:?}", &walk.local_peer, &nk);
 
                         let msg = network.sign_for_peer(&nk, StacksMessageType::GetNeighbors)?;
-                        let rh_res = network.send_message(&nk, msg, now + NEIGHBOR_REQUEST_TIMEOUT);
+                        let rh_res = network.send_message(&nk, msg, now + network.connection_opts.timeout);
                         match rh_res {
                             Ok(rh) => {
                                 pending_getneighbors.insert(nk, rh);
@@ -1385,7 +1385,7 @@ impl PeerNetwork {
 
                         let handshake_data = HandshakeData::from_local_peer(&walk.local_peer);
                         let msg = network.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data))?;
-                        let req_res = network.send_message(nk, msg, get_epoch_time_secs() + NEIGHBOR_REQUEST_TIMEOUT);
+                        let req_res = network.send_message(nk, msg, get_epoch_time_secs() + network.connection_opts.timeout);
                         match req_res {
                             Ok(handle) => {
                                 ping_handles.insert((*nk).clone(), handle);
@@ -1578,6 +1578,7 @@ mod test {
     use net::db::*;
     use net::test::*;
     use util::hash::*;
+    use util::sleep_ms;
 
     const TEST_IN_OUT_DEGREES : u64 = 0x1;
 
@@ -1652,6 +1653,95 @@ mod test {
                 assert_eq!(p.expire_block, neighbor_2.expire_block);
             }
         }
+    }
+    
+    #[test]
+    fn test_step_walk_1_neighbor_heartbeat_ping() {
+        let mut peer_1_config = TestPeerConfig::from_port(31992);
+        let mut peer_2_config = TestPeerConfig::from_port(31993);
+
+        peer_1_config.connection_opts.heartbeat = 10;
+        peer_2_config.connection_opts.heartbeat = 10;
+
+        // peer 1 crawls peer 2
+        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        let mut i = 0;
+        let mut walk_1_count = 0;
+        let mut walk_2_count = 0;
+        
+        while walk_1_count < 20 && walk_2_count < 20 {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+
+            walk_1_count = peer_1.network.walk_total_step_count;
+            walk_2_count = peer_2.network.walk_total_step_count;
+
+            test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
+
+            match peer_1.network.walk {
+                Some(ref w) => {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                }
+                None => {}
+            };
+
+            match peer_2.network.walk {
+                Some(ref w) => {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                }
+                None => {}
+            };
+
+            i += 1;
+        }
+
+        info!("Completed walk round {} step(s)", i);
+
+        peer_1.dump_frontier();
+        peer_2.dump_frontier();
+
+        // peer 1 contacted peer 2
+        let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
+        assert!(stats_1.last_contact_time > 0);
+        assert!(stats_1.last_handshake_time > 0);
+        assert!(stats_1.last_send_time > 0);
+        assert!(stats_1.last_recv_time > 0);
+        assert!(stats_1.bytes_rx > 0);
+        assert!(stats_1.bytes_tx > 0);
+
+        let neighbor_2 = peer_2.to_neighbor();
+
+        // peer 2 is in peer 1's frontier DB
+        let peer_1_dbconn = peer_1.get_peerdb_conn();
+        match PeerDB::get_peer(peer_1_dbconn, neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap() {
+            None => {
+                test_debug!("no such peer: {:?}", &neighbor_2.addr);
+                assert!(false);
+            },
+            Some(p) => {
+                assert_eq!(p.public_key, neighbor_2.public_key);
+                assert_eq!(p.expire_block, neighbor_2.expire_block);
+            }
+        }
+
+        assert_eq!(peer_1.network.relay_handles.len(), 0);
+        assert_eq!(peer_2.network.relay_handles.len(), 0);
+
+        info!("Wait {} seconds for ping timeout", peer_1.config.connection_opts.timeout);
+        sleep_ms(1000 * peer_1.config.connection_opts.timeout);
+
+        peer_1.network.queue_ping_heartbeats();
+        peer_2.network.queue_ping_heartbeats();
+
+        // pings queued
+        assert_eq!(peer_1.network.relay_handles.len(), 1);
+        assert_eq!(peer_2.network.relay_handles.len(), 0);
     }
     
     #[test]
