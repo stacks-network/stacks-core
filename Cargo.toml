@@ -26,7 +26,8 @@ name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
 [[bench]]
-name = "marf_bench"
+name = "clarity"
+path = "benches/clarity/mod.rs"
 harness = false
 
 [features]

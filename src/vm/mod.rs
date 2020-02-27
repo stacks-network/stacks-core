@@ -169,7 +169,7 @@ pub fn is_reserved(name: &str) -> bool {
 /* This function evaluates a list of expressions, sharing a global context.
  * It returns the final evaluated result.
  */
-fn eval_all (expressions: &[SymbolicExpression],
+pub fn eval_all (expressions: &[SymbolicExpression],
              contract_context: &mut ContractContext,
              global_context: &mut GlobalContext) -> Result<Option<Value>> {
     let mut last_executed = None;
