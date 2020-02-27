@@ -287,8 +287,6 @@ struct ConnectionOutbox<P: ProtocolFamily> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConnectionOptions {
-    pub keepalive: u64,
-    pub nodelay: bool,
     pub inbox_maxlen: usize,
     pub outbox_maxlen: usize,
     pub timeout: u64,
@@ -309,13 +307,11 @@ pub struct ConnectionOptions {
 impl std::default::Default for ConnectionOptions {
     fn default() -> ConnectionOptions {
         ConnectionOptions {
-            keepalive: 60,
-            nodelay: true,
             inbox_maxlen: 5,
             outbox_maxlen: 5,
-            timeout: 30,
-            heartbeat: 2592000,
-            private_key_lifetime: 4302,
+            timeout: 30,                    // how long to wait for a reply (and, how long a socket can be idle in the HTTP server)
+            heartbeat: 3600,                // send a heartbeat once an hour by default
+            private_key_lifetime: 4302,     // key expires after ~1 month
             num_neighbors: 32,              // how many outbound connections we can have, full-stop
             num_clients: 256,               // how many inbound connections we can have, full-stop
             soft_num_neighbors: 20,         // how many outbound connections we can have, before we start pruning them
