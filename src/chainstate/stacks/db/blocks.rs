@@ -1338,7 +1338,7 @@ impl StacksChainState {
         if signed_microblocks.len() == 0 {
             if anchored_block_header.parent_microblock == EMPTY_MICROBLOCK_PARENT_HASH && anchored_block_header.parent_microblock_sequence == 0 {
                 // expected empty
-                warn!("No microblocks between {} and {}", parent_anchored_block_header.block_hash(), anchored_block_header.block_hash());
+                debug!("No microblocks between {} and {}", parent_anchored_block_header.block_hash(), anchored_block_header.block_hash());
                 return Some((0, None));
             }
             else {

@@ -695,7 +695,7 @@ impl Conversation {
             match self.is_preamble_valid(&msg, burnchain_view) {
                 Ok(res) => {
                     if !res {
-                        info!("{:?}: Received message with stale preamble; ignoring", &self);
+                        debug!("{:?}: Received message with stale preamble; ignoring", &self);
                         self.stats.msgs_err += 1;
                         self.stats.add_healthpoint(false);
                         continue;
@@ -708,14 +708,14 @@ impl Conversation {
                             // reconnect on its own.
                             // However, only count this message as error.  Drop all other queued
                             // messages.
-                            info!("{:?}: Received invalid preamble; dropping connection", &self);
+                            debug!("{:?}: Received invalid preamble; dropping connection", &self);
                             self.stats.msgs_err += 1;
                             self.stats.add_healthpoint(false);
                             return Err(e);
                         },
                         _ => {
                             // skip this message 
-                            info!("{:?}: Failed to process message: {:?}", &self, &e);
+                            debug!("{:?}: Failed to process message: {:?}", &self, &e);
                             self.stats.msgs_err += 1;
                             self.stats.add_healthpoint(false);
                             continue;

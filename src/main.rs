@@ -79,7 +79,7 @@ macro_rules! info_yellow {
 
 fn main() {
 
-    log::set_loglevel(log::LOG_WARN).unwrap();
+    log::set_loglevel(log::LOG_INFO).unwrap();
 
     let argv : Vec<String> = env::args().collect();
     if argv.len() < 2 {
