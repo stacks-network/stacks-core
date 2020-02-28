@@ -99,7 +99,7 @@ fn should_succeed_mining_valid_txs() {
             0 => {
                 // Inspecting the chain at round 0.
                 // - Chain length should be 1.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
                 assert!(blocks.len() == 1);
                 
@@ -119,7 +119,7 @@ fn should_succeed_mining_valid_txs() {
             1 => {
                 // Inspecting the chain at round 1.
                 // - Chain length should be 2.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
                 assert!(blocks.len() == 2);
                 
@@ -147,7 +147,7 @@ fn should_succeed_mining_valid_txs() {
             2 => {
                 // Inspecting the chain at round 2.
                 // - Chain length should be 3.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
                 assert!(blocks.len() == 3);
                 
@@ -175,7 +175,7 @@ fn should_succeed_mining_valid_txs() {
             3 => {
                 // Inspecting the chain at round 3.
                 // - Chain length should be 4.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
                 assert!(blocks.len() == 4);
                 
@@ -203,7 +203,7 @@ fn should_succeed_mining_valid_txs() {
             4 => {
                 // Inspecting the chain at round 4.
                 // - Chain length should be 5.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
                 assert!(blocks.len() == 5);
                 
@@ -231,7 +231,7 @@ fn should_succeed_mining_valid_txs() {
             6 => {
                 // Inspecting the chain at round 5.
                 // - Chain length should be 6.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
                 assert!(blocks.len() == 6);
                 
@@ -252,11 +252,14 @@ fn should_succeed_mining_valid_txs() {
                 let contract_tx = &block.txs[1];
                 assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
 
-                println!("=====> {:?}", contract_tx);
                 assert!(match contract_tx.payload {
                     TransactionPayload::TokenTransfer(_,_,_) => true,
                     _ => false,
                 });
+
+                let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+
+                chain_state
             },
             _ => {}
         }
@@ -322,7 +325,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             0 => {
                 // Inspecting the chain at round 0.
                 // - Chain length should be 1.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
                 assert!(blocks.len() == 1);
                 
@@ -342,7 +345,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             1 => {
                 // Inspecting the chain at round 1.
                 // - Chain length should be 2.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
                 assert!(blocks.len() == 2);
                 
@@ -370,7 +373,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             2 => {
                 // Inspecting the chain at round 2.
                 // - Chain length should be 3.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
                 assert!(blocks.len() == 3);
                 
@@ -390,7 +393,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             3 => {
                 // Inspecting the chain at round 3.
                 // - Chain length should be 4.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
                 assert!(blocks.len() == 4);
                 
@@ -410,7 +413,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             4 => {
                 // Inspecting the chain at round 4.
                 // - Chain length should be 5.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
                 assert!(blocks.len() == 5);
                 

@@ -490,7 +490,7 @@ impl StacksChainState {
     }
 
     /// Get a list of all anchored blocks' hashes, and their burnchain headers
-    pub fn list_blocks(blocks_conn: &DBConn, blocks_dir: &String) -> Result<Vec<(BurnchainHeaderHash, BlockHeaderHash)>, Error> {
+    pub fn list_blocks(blocks_conn: &DBConn) -> Result<Vec<(BurnchainHeaderHash, BlockHeaderHash)>, Error> {
         let list_block_sql = "SELECT * FROM staging_blocks".to_string();
         let mut blocks = query_rows::<StagingBlock, _>(blocks_conn, &list_block_sql, NO_PARAMS)
             .map_err(Error::DBError)?;
@@ -501,7 +501,7 @@ impl StacksChainState {
     /// Get a list of all microblocks' hashes, and their anchored blocks' hashes
     #[cfg(test)]
     pub fn list_microblocks(blocks_conn: &DBConn, blocks_dir: &String) -> Result<Vec<(BurnchainHeaderHash, BlockHeaderHash, Vec<BlockHeaderHash>)>, Error> {
-        let mut blocks = StacksChainState::list_blocks(blocks_conn, blocks_dir)?;
+        let mut blocks = StacksChainState::list_blocks(blocks_conn)?;
         let mut ret = vec![];
         
         for (burn_hash, block_hash) in blocks.drain(..) {

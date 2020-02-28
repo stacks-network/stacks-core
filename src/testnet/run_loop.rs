@@ -250,7 +250,7 @@ impl RunLoop {
 
     fn handle_new_chain_state_cb(chain_state_callback: &Option<fn(u8, &mut StacksChainState, &BlockHeaderHash)>,
                                  round_index: u8, state: &mut StacksChainState, id_hash: &BlockHeaderHash) {
-        let blocks = StacksChainState::list_blocks(&state.blocks_db, &state.blocks_path).unwrap();
+        let blocks = StacksChainState::list_blocks(&state.blocks_db).unwrap();
         let chain_tip = blocks.last().unwrap();
         let block = StacksChainState::load_block(&state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
         info_green!("Stacks block #{} ({}) successfully produced, including {} transactions", blocks.len(), id_hash, block.txs.len());

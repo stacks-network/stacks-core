@@ -2076,8 +2076,8 @@ pub mod test {
         let ch2 = open_chainstate(false, 0x80000000, test_name_2);
 
         // check presence of anchored blocks
-        let mut all_blocks_1 = StacksChainState::list_blocks(&ch1.blocks_db, &ch1.blocks_path).unwrap();
-        let mut all_blocks_2 = StacksChainState::list_blocks(&ch2.blocks_db, &ch2.blocks_path).unwrap();
+        let mut all_blocks_1 = StacksChainState::list_blocks(&ch1.blocks_db).unwrap();
+        let mut all_blocks_2 = StacksChainState::list_blocks(&ch2.blocks_db).unwrap();
 
         all_blocks_1.sort();
         all_blocks_2.sort();
