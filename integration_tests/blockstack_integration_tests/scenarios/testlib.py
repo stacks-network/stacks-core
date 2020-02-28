@@ -416,6 +416,9 @@ def nodejs_cli(*args, **kw):
     if magic_bytes:
         base_cmd += ['-m', magic_bytes]
 
+    if os.environ.get("BLOCKSTACK_TESTNET_BITCOIN_RPC_PORT") != "18332":
+        base_cmd += ['-X', 'http://localhost:{}'.format(os.environ['BLOCKSTACK_TESTNET_BITCOIN_RPC_PORT'])]
+
     grace_period = blockstack.lib.config.get_epoch_namespace_lifetime_grace_period(state_engine.get_current_block(), '*')
     fees_period = blockstack.lib.config.get_epoch_namespace_receive_fees_period(state_engine.get_current_block(), '*')
 
