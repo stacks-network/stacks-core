@@ -216,7 +216,7 @@ and to provide greater security for the user(s) that own the account.
 
 A type-0 transaction may only transfer a single asset from one account to
 another.  It may not directly execute Clarity code.  A type-0
-transaction can only send STX.  It cannot be sponsored, and it cannot have post-conditions
+transaction can only send STX.  It cannot have post-conditions
 (see below).
 
 #### Type-1: Instantiating a Smart Contract
@@ -385,8 +385,8 @@ It is encoded as follows:
 
 * A 1-byte **authorization type** field that indicates whether or not the
   transaction has a standard or sponsored authorization.
-   * For standard authorizations, this value MUST be `0x03`.
-   * For sponsored authorizations, this value MUST be `0x04`.
+   * For standard authorizations, this value MUST be `0x04`.
+   * For sponsored authorizations, this value MUST be `0x05`.
 * One or two **spending conditions**, whose encoding is described below.  If the
   transaction's authorization type byte indicates that it is a standard
 authorization, then there is one spending condition.  If it is a sponsored
