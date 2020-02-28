@@ -3,6 +3,7 @@ use super::{Config, Node, BurnchainSimulator, BurnchainState, LeaderTenure};
 use chainstate::burn::{ConsensusHash};
 use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState};
 use chainstate::burn::{BlockHeaderHash};
+use chainstate::stacks::{TransactionAuth, TransactionSpendingCondition, SinglesigSpendingCondition};
 
 use util::sleep_ms;
 
@@ -255,7 +256,11 @@ impl RunLoop {
         let block = StacksChainState::load_block(&state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
         info_green!("Stacks block #{} ({}) successfully produced, including {} transactions", blocks.len(), id_hash, block.txs.len());
         for tx in block.txs.iter() {
-            println!("{:?}", tx);
+            match &tx.auth {            
+                TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(auth)) => println!("-> Tx issued by {:?} (fee: {}, nonce: {})", auth.signer, auth.fee_rate, auth.nonce),
+                _ => println!("-> Tx {:?}", tx.auth)
+            }
+            println!("   {:?}", tx.payload)
         }
         chain_state_callback.map(|cb| cb(round_index, state, &id_hash));
     }

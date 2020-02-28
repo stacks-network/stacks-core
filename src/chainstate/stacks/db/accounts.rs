@@ -183,7 +183,7 @@ impl StacksChainState {
             let cur_balance = db.get_account_stx_balance(principal);
             let final_balance = cur_balance.checked_add(amount as u128).expect("FATAL: account balance overflow");
             db.set_account_stx_balance(principal, final_balance as u128);
-            info!("Account {} credited with {} µSTX", principal, final_balance);
+            info!("{} credited: {} µSTX", principal, final_balance);
             Ok(())
         }).expect("FATAL: failed to credit account")
     }
