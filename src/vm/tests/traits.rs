@@ -56,7 +56,7 @@ fn test_dynamic_dispatch_by_defining_trait(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
             env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap(),
-            Value::okay(Value::UInt(1)));
+            Value::okay(Value::UInt(1)).unwrap());
     }
 }
 
@@ -117,7 +117,7 @@ fn test_dynamic_dispatch_by_implementing_imported_trait(owned_env: &mut OwnedEnv
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
             env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap(),
-            Value::okay(Value::UInt(1)));
+            Value::okay(Value::UInt(1)).unwrap());
     }
 }
 
@@ -149,7 +149,7 @@ fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(owned_env: &mu
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
             env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap(),
-            Value::okay(Value::UInt(1)));
+            Value::okay(Value::UInt(1)).unwrap());
     }
 }
 
@@ -178,7 +178,7 @@ fn test_dynamic_dispatch_by_importing_trait(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
             env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap(),
-            Value::okay(Value::UInt(1)));
+            Value::okay(Value::UInt(1)).unwrap());
     }
 }
 
@@ -219,7 +219,7 @@ fn test_dynamic_dispatch_including_nested_trait(owned_env: &mut OwnedEnvironment
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
             env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract, target_nested_contract])).unwrap(),
-            Value::okay(Value::UInt(99)));
+            Value::okay(Value::UInt(99)).unwrap());
     }
 }
 
@@ -408,7 +408,7 @@ fn test_bad_call_with_trait(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
             env.execute_contract(&QualifiedContractIdentifier::local("call").unwrap(), "foo-bar", &symbols_from_values(vec![])).unwrap(),
-            Value::okay(Value::UInt(99)));
+            Value::okay(Value::UInt(99)).unwrap());
     }
 }
 
@@ -441,7 +441,7 @@ fn test_good_call_with_trait(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
             env.execute_contract(&QualifiedContractIdentifier::local("call").unwrap(), "foo-bar", &symbols_from_values(vec![])).unwrap(),
-            Value::okay(Value::UInt(99)));
+            Value::okay(Value::UInt(99)).unwrap());
     }
 }
 
@@ -478,7 +478,7 @@ fn test_good_call_2_with_trait(owned_env: &mut OwnedEnvironment) {
 
         assert_eq!(
             env.execute_contract(&QualifiedContractIdentifier::local("call").unwrap(), "foo-bar", &symbols_from_values(vec![target_contract])).unwrap(),
-            Value::okay(Value::UInt(99)));
+            Value::okay(Value::UInt(99)).unwrap());
     }
 }
 

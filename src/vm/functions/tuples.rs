@@ -34,7 +34,8 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
                 Some(data) => {
                     if let Value::Tuple(tuple_data) = *data {
                         runtime_cost!(cost_functions::TUPLE_GET, env, tuple_data.len())?;
-                        Ok(Value::some(tuple_data.get_owned(arg_name)?))
+                        Ok(Value::some(tuple_data.get_owned(arg_name)?)
+                           .expect("Tuple contents should *always* fit in a some wrapper"))
                     } else {
                         Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&data)).into())
                     }

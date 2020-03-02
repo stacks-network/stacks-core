@@ -14,6 +14,7 @@ pub enum CheckErrors {
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
 
     ValueTooLarge,
+    TypeSignatureTooDeep,
     ExpectedName,
 
     // match errors
@@ -265,7 +266,8 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             CheckErrors::BadSyntaxExpectedListOfPairs => "bad syntax: function expects a list of pairs to bind names, e.g., ((name-0 a) (name-1 b) ...)".into(),
             CheckErrors::UnknownTypeName(name) => format!("failed to parse type: '{}'", name),
-            CheckErrors::ValueTooLarge => format!("created a type which was great than maximum allowed value size"),
+            CheckErrors::ValueTooLarge => format!("created a type which was greater than maximum allowed value size"),
+            CheckErrors::TypeSignatureTooDeep => "created a type which was deeper than maximum allowed type depth".into(),
             CheckErrors::ExpectedName => format!("expected a name argument to this function"),
             CheckErrors::NoSuperType(a, b) => format!("unable to create a supertype for the two types: '{}' and '{}'", a, b),
             CheckErrors::UnknownListConstructionFailure => format!("invalid syntax for list definition"),

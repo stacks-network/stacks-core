@@ -4,6 +4,7 @@ use vm::types::{Value, ListData, signatures::ListTypeData, TypeSignature::BoolTy
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::{LocalContext, Environment, eval, apply, lookup_function};
 use std::convert::TryInto;
+use std::cmp;
 
 pub fn list_cons(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     let eval_tried: Result<Vec<Value>> =
@@ -134,18 +135,21 @@ pub fn special_append(args: &[SymbolicExpression], env: &mut Environment, contex
             let element =  eval(&args[1], env, context)?;
             let ListData { mut data, type_signature } = list;
             let (entry_type, size) = type_signature.destruct();
-            runtime_cost!(cost_functions::APPEND, env, entry_type.size())?;
+            let element_type = TypeSignature::type_of(&element); 
+            runtime_cost!(cost_functions::APPEND, env,
+                          u64::from(cmp::max(entry_type.size(), element_type.size())))?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
-                Value::list_from(vec![ element ])
-            } else if !entry_type.admits(&element) {
-                Err(CheckErrors::TypeValueError(entry_type, element).into())
-            } else {
-                let next_type_signature = ListTypeData::new_list(entry_type, size + 1)?;
+                return Value::list_from(vec![ element ])
+            }
+            if let Ok(next_entry_type) = TypeSignature::least_supertype(&entry_type, &element_type) {
+                let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
                 data.push(element);
                 Ok(Value::List(ListData {
                     type_signature: next_type_signature,
                     data }))
+            } else {
+                Err(CheckErrors::TypeValueError(entry_type, element).into())
             }
         },
         _ => Err(CheckErrors::ExpectedListApplication.into())
@@ -195,7 +199,7 @@ pub fn special_as_max_len(args: &[SymbolicExpression], env: &mut Environment, co
         if iterable_len as u128 > *expected_len {
             Ok(Value::none())
         } else {
-            Ok(Value::some(iterable))
+            Ok(Value::some(iterable)?)
         }
     } else {
         let actual_len = eval(&args[1], env, context)?;

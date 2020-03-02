@@ -390,7 +390,7 @@ mod tests {
             assert_eq!(
                 conn.run_contract_call(&StandardPrincipalData::transient().into(), &contract_identifier, "foo", &[Value::Int(1)],
                                        |_, _| false).unwrap().0,
-                Value::okay(Value::Int(2)));
+                Value::okay(Value::Int(2)).unwrap());
             
             conn.commit_block();
         }
@@ -456,23 +456,23 @@ mod tests {
             assert_eq!(
                 conn.run_contract_call(&sender, &contract_identifier, "get-bar", &[],
                                        |_, _| false).unwrap().0,
-                Value::okay(Value::Int(0)));
+                Value::okay(Value::Int(0)).unwrap());
 
             assert_eq!(
                 conn.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(1), Value::Int(1)],
                                        |_, _| false).unwrap().0,
-                Value::okay(Value::Int(1)));
+                Value::okay(Value::Int(1)).unwrap());
 
             assert_eq!(
                 conn.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(10), Value::Int(1)],
                                        |_, _| true).unwrap().0,
-                Value::okay(Value::Int(10)));
+                Value::okay(Value::Int(10)).unwrap());
 
             // prior transaction should have rolled back due to abort call back!
             assert_eq!(
                 conn.run_contract_call(&sender, &contract_identifier, "get-bar", &[],
                                        |_, _| false).unwrap().0,
-                Value::okay(Value::Int(1)));
+                Value::okay(Value::Int(1)).unwrap());
 
             assert!(
                 format!("{:?}",
@@ -484,7 +484,7 @@ mod tests {
             assert_eq!(
                 conn.run_contract_call(&StandardPrincipalData::transient().into(), &contract_identifier, "get-bar", &[],
                                        |_, _| false).unwrap().0,
-                Value::okay(Value::Int(1)));
+                Value::okay(Value::Int(1)).unwrap());
 
             
             conn.commit_block();
