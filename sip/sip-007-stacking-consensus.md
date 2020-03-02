@@ -367,6 +367,70 @@ block attack --- not only must the attacker collude amongst a large
 fraction of mining power, but they must also collude amongst a
 majority of the Stacking participants in their block.
 
+# Stacker Delegation
+
+The process of delegation allows a Stacks wallet address (the
+represented address) to designate another address (the delegate
+address) for participating in the Stacking protocol. This delegate
+address, for as long as the delegation is valid, is able to sign and
+broadcast Stacking messages (i.e., messages which lock up Stacks,
+designate the Bitcoin reward address, and signal support for chain
+tips) on behalf of the represented address. This allows the owner of
+the represented address to contribute to the security of the network
+by having the delegate address signal support for chain tips. This
+combats potential attacks on the blockchain stability by miners that
+may attempt to mine hidden forks, hide eventually invalid forks, and
+other forms of miner misbehavior.
+
+Supporting delegation adds two new transaction types to the Stacks
+blockchain:
+
+* **Delegate Funds.** This transaction initiates a
+  represented-delegate relationship. It carries the following data:
+    * Delegate address
+    * End Block: the Bitcoin block height at which this relationship
+      terminates, unless a subsequent delegate funds transaction updates
+      the relationship.
+    * Delegated Amount: the total amount of Stacks from this address
+      that the delegate address will be able to issue Stacking messages
+      on behalf of.
+    * Reward Address (_optional_): a Bitcoin address that must be
+      designated as the funds recipient in the delegate’s Stacking
+      messages. If unspecified, the delegate can choose the address.
+* **Terminate Delegation.** This transaction terminates a
+  represented-delegate relationship. It carries the following data:
+    * Delegate Address
+    
+_Note_: There is only ever one active represented-delegate
+relationship between a given represented address and delegate address
+(i.e., the pair _(represented-address, delegate-address)_ uniquely
+identifies a relationship). If a represented-delegate relationship is
+still active and the represented address signs and broadcasts a new
+"delegate funds" transaction, the information from the new transaction
+replaces the prior relationship.
+
+Both types of delegation transactions must be signed by the
+represented address. These are transactions on the Stacks blockchain,
+and will be implemented via a native smart contract, loaded into the
+blockchain during the Stacks 2.0 genesis block. These transactions,
+therefore, are `contract-call` invocations. The invoked methods are
+guarded by:
+
+```
+    (asserts! (is-eq contract-caller tx-sender) (err u0))
+```
+
+Which insures that the methods can only be invoked by direct
+transaction execution.
+
+**Evaluating Stacking messages in the context of delegation.** In
+order to determine which addresses’ Stacks should be locked by a given
+Stacking message, the message must include the represented address in
+the Stacking message. Therefore, if a single Stacks address is the
+delegate for many represented Stacks addresses, the delegate address
+must broadcast a Stacking message for each of the represented
+addresses.
+
 # Adressing Miner Consolidation in Stacking
 
 PoX when used for Stacking rewards could lead to miner
