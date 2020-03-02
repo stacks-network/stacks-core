@@ -12,7 +12,7 @@ use vm::contracts::Contract;
 use vm::ast::ContractAST;
 use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker, cost_functions};
 use vm::ast;
-use vm::eval;
+use vm::{eval, is_reserved};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 
@@ -78,6 +78,9 @@ pub struct ContractContext {
     pub functions: HashMap<ClarityName, DefinedFunction>,
     pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
     pub implemented_traits: HashSet<TraitIdentifier>,
+    // tracks the names of NFTs, FTs, Maps, and Data Vars.
+    //  used for ensuring that they never are defined twice.
+    pub persisted_names: HashSet<ClarityName>,
 }
 
 pub struct LocalContext <'a> {
@@ -806,6 +809,7 @@ impl ContractContext {
             functions: HashMap::new(),
             defined_traits: HashMap::new(),
             implemented_traits: HashSet::new(),
+            persisted_names: HashSet::new(),
         }
     }
 
@@ -823,6 +827,12 @@ impl ContractContext {
 
     pub fn is_explicitly_implementing_trait(&self, trait_identifier: &TraitIdentifier) -> bool {
         self.implemented_traits.contains(trait_identifier)
+    }
+
+    pub fn is_name_used(&self, name: &str) -> bool {
+        is_reserved(name) ||
+            self.variables.contains_key(name) || self.functions.contains_key(name) ||
+            self.persisted_names.contains(name) || self.defined_traits.contains_key(name)
     }
 }
 
@@ -927,7 +937,7 @@ mod test {
         let p2 = PrincipalData::Contract(b_contract_id.clone());
 
         let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
-        let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
+        let _t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
@@ -958,10 +968,10 @@ mod test {
         let p1 = PrincipalData::Contract(a_contract_id.clone());
         let p2 = PrincipalData::Contract(b_contract_id.clone());
         let p3 = PrincipalData::Contract(c_contract_id.clone());
-        let p4 = PrincipalData::Contract(d_contract_id.clone());
-        let p5 = PrincipalData::Contract(e_contract_id.clone());
-        let p6 = PrincipalData::Contract(f_contract_id.clone());
-        let p7 = PrincipalData::Contract(g_contract_id.clone());
+        let _p4 = PrincipalData::Contract(d_contract_id.clone());
+        let _p5 = PrincipalData::Contract(e_contract_id.clone());
+        let _p6 = PrincipalData::Contract(f_contract_id.clone());
+        let _p7 = PrincipalData::Contract(g_contract_id.clone());
 
         let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
         let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };

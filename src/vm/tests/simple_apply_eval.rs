@@ -12,6 +12,18 @@ use std::collections::HashMap;
 use vm::tests::{execute};
 
 #[test]
+fn test_doubly_defined_persisted_vars() {
+    let tests = [
+        "(define-non-fungible-token cursor uint) (define-non-fungible-token cursor uint)",
+        "(define-fungible-token cursor) (define-fungible-token cursor)",
+        "(define-data-var cursor int 0) (define-data-var cursor int 0)",
+        "(define-map cursor ((cursor int)) ((place uint))) (define-map cursor ((cursor int)) ((place uint)))" ];
+    for p in tests.iter() {
+        assert_eq!(vm_execute(p).unwrap_err(), CheckErrors::NameAlreadyUsed("cursor".into()).into());
+    }
+}
+
+#[test]
 fn test_simple_let() {
     /*
       test program:
@@ -225,6 +237,35 @@ fn test_simple_if_functions() {
     } else {
         assert!(false, "Failed to parse function bodies.");
     }
+}
+
+#[test]
+fn test_concat_append_supertype() {
+    let tests = [
+        "(concat (list) (list 4 5))",
+        "(concat (list (list 2) (list) (list 4 5))
+                 (list (list) (list) (list 7 8 9)))",
+        "(append (list) 1)",
+        "(append (list (list 3 4) (list)) (list 4 5 7))" ];
+
+    let expectations = [
+        Value::list_from(vec![Value::Int(4), Value::Int(5)]).unwrap(),
+        Value::list_from(vec![
+            Value::list_from(vec![Value::Int(2)]).unwrap(),
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![Value::Int(4), Value::Int(5)]).unwrap(),            
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![Value::Int(7), Value::Int(8), Value::Int(9)]).unwrap()]).unwrap(),
+        Value::list_from(vec![Value::Int(1)]).unwrap(),
+        Value::list_from(vec![
+            Value::list_from(vec![Value::Int(3), Value::Int(4)]).unwrap(),            
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![Value::Int(4), Value::Int(5), Value::Int(7)]).unwrap()]).unwrap(),
+    ];
+
+    tests.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
 #[test]

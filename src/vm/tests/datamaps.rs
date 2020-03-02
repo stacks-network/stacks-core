@@ -201,7 +201,7 @@ fn test_fetch_contract_entry() {
     let sender = StandardPrincipalData::transient().into();
     let mut env = owned_env.get_exec_environment(Some(sender));
     let kv_contract_identifier = QualifiedContractIdentifier::local("kv-store-contract").unwrap();
-    let r = env.initialize_contract(kv_contract_identifier, kv_store_contract_src).unwrap();
+    let _r = env.initialize_contract(kv_contract_identifier, kv_store_contract_src).unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("proxy-contract").unwrap();
     env.initialize_contract(contract_identifier.clone(), proxy_src).unwrap();
@@ -302,7 +302,6 @@ fn test_set_response_variable() {
         (unwrap! (var-get keys) 5)
     "#;
     let contract_src = contract_src.to_string();
-    let expected = Value::Int(3);
     assert_eq!(Err(ShortReturnType::ExpectedValue(Value::Int(5)).into()),
                execute(&contract_src));
 

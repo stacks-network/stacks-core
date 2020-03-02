@@ -121,14 +121,11 @@ pub fn check_special_concat(checker: &mut TypeChecker, args: &[SymbolicExpressio
                 let (lhs_entry_type, lhs_max_len) = lhs_list.destruct();
                 let (rhs_entry_type, rhs_max_len) = rhs_list.destruct();
 
-                if lhs_entry_type.admits_type(&rhs_entry_type) {
-                    let new_len = lhs_max_len.checked_add(rhs_max_len)
-                        .ok_or(CheckErrors::MaxLengthOverflow)?;
-                    let return_type = TypeSignature::list_of(lhs_entry_type, new_len)?;
-                    return Ok(return_type);
-                } else {
-                    return Err(CheckErrors::TypeError(lhs_entry_type, rhs_entry_type).into());
-                }
+                let list_entry_type = TypeSignature::least_supertype(&lhs_entry_type, &rhs_entry_type)?;
+                let new_len = lhs_max_len.checked_add(rhs_max_len)
+                    .ok_or(CheckErrors::MaxLengthOverflow)?;
+                let return_type = TypeSignature::list_of(list_entry_type, new_len)?;
+                return Ok(return_type);
             } else {
                 return Err(CheckErrors::TypeError(rhs_type.clone(), TypeSignature::ListType(lhs_list)).into());
             }
@@ -157,14 +154,11 @@ pub fn check_special_append(checker: &mut TypeChecker, args: &[SymbolicExpressio
             let rhs_type = checker.type_check(&args[1], context)?;
             let (lhs_entry_type, lhs_max_len) = lhs_list.destruct();
 
-            if lhs_entry_type.admits_type(&rhs_type) {
-                let new_len = lhs_max_len.checked_add(1)
-                    .ok_or(CheckErrors::MaxLengthOverflow)?;
-                let return_type = TypeSignature::list_of(lhs_entry_type, new_len)?;
-                return Ok(return_type);
-            } else {
-                return Err(CheckErrors::TypeError(lhs_entry_type, rhs_type).into());
-            }
+            let list_entry_type = TypeSignature::least_supertype(&lhs_entry_type, &rhs_type)?;
+            let new_len = lhs_max_len.checked_add(1)
+                .ok_or(CheckErrors::MaxLengthOverflow)?;
+            let return_type = TypeSignature::list_of(list_entry_type, new_len)?;
+            return Ok(return_type);
         },
         _ => Err(CheckErrors::ExpectedListApplication.into())
     }

@@ -730,6 +730,25 @@ fn test_native_concat() {
 }
 
 #[test]
+fn test_concat_append_supertypes() {
+    let good = [
+        "(concat (list) (list 4 5))",
+        "(concat (list (list 2) (list) (list 4 5))
+                 (list (list) (list) (list 7 8 9)))",
+        "(append (list) 1)",
+        "(append (list (list 3 4) (list)) (list 4 5 7))" ];
+    let expected = ["(list 2 int)",
+                    "(list 6 (list 3 int))",
+                    "(list 1 int)",
+                    "(list 3 (list 3 int))"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        eprintln!("{}", good_test);
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+}
+
+#[test]
 fn test_buff_concat() {
     let good = [
         "(concat \"123\" \"58\")"];
@@ -864,8 +883,8 @@ fn test_simple_uints() {
         assert_eq!(expected, &type_sig.to_string());
     }
 
-    for bad_test in bad.iter() {
-        mem_type_check(bad_test).unwrap_err();
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(&mem_type_check(bad_test).unwrap_err().err, expected);
     }
 }
 

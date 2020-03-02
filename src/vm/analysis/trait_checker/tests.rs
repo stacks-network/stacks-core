@@ -405,7 +405,7 @@ fn test_passing_trait_reference_instances() {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    let err = db.execute(|db| {
+    db.execute(|db| {
         type_check(&dispatching_contract_id, &mut dispatching_contract, db, true)
     }).unwrap();
 }

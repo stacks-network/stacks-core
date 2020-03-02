@@ -147,7 +147,7 @@ fn integration_test_get_info() {
     let contract_sk = StacksPrivateKey::new();
 
     let num_rounds = 4;
-    let contract_addr = to_addr(&contract_sk);
+    let _contract_addr = to_addr(&contract_sk);
 
     let mut run_loop = testnet::RunLoop::new(conf);
     run_loop.apply_on_new_tenures(|round, tenure| {
@@ -196,7 +196,7 @@ fn integration_test_get_info() {
                     headers.push(header);
                 }
 
-                let tip_header_info = headers.last().unwrap();
+                let _tip_header_info = headers.last().unwrap();
 
                 // find miner metadata
                 let mut miners = vec![];
@@ -205,7 +205,7 @@ fn integration_test_get_info() {
                     miners.push(miner);
                 }
 
-                let tip_miner = miners.last().unwrap();
+                let _tip_miner = miners.last().unwrap();
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
