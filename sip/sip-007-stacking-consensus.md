@@ -391,7 +391,7 @@ blockchain:
     * End Block: the Bitcoin block height at which this relationship
       terminates, unless a subsequent delegate funds transaction updates
       the relationship.
-    * Delegated Amount: the total amount of Stacks from this address
+    * Delegated Amount: the total amount of STX from this address
       that the delegate address will be able to issue Stacking messages
       on behalf of.
     * Reward Address (_optional_): a Bitcoin address that must be
@@ -420,11 +420,11 @@ guarded by:
     (asserts! (is-eq contract-caller tx-sender) (err u0))
 ```
 
-Which insures that the methods can only be invoked by direct
+This insures that the methods can only be invoked by direct
 transaction execution.
 
 **Evaluating Stacking messages in the context of delegation.** In
-order to determine which addresses’ Stacks should be locked by a given
+order to determine which addresses’ STX should be locked by a given
 Stacking message, the message must include the represented address in
 the Stacking message. Therefore, if a single Stacks address is the
 delegate for many represented Stacks addresses, the delegate address
