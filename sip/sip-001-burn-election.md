@@ -26,9 +26,14 @@ producing the next block, as well as deciding how to resolve
 conflicting transaction histories.  The protocol assigns a score to each leader
 based on the fraction of tokens it burned, which is used to
 (1) probabilistically select the next leader proportional to its normalized score
-and to (2) rank conflicting transaction histories by their aggregate scores in order
-to decide which one is the canonical transaction history.  In doing so, the
-leaders produce a forkable blockchain in an open-membership fashion.
+and to (2) rank conflicting transaction histories by their total number of epochs
+to decide which one is the canonical transaction history.
+Over time, the system adjusts the tunable proof calculation such that the proof-of-work
+component is weighted more and more heavily as more and more
+leaders participate.  This allows the Stacks chain to leverage an established
+blockchain's security to preserve its transaction histories while leader
+participation is low (such as during the chain's infancy), and over time
+transition towards its own leader pool as the chain becomes more popular.
 
 ## Introduction
 
