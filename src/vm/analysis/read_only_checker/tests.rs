@@ -4,6 +4,22 @@ use vm::analysis::{type_check, mem_type_check, CheckError, CheckErrors, Analysis
 use vm::types::QualifiedContractIdentifier;
 
 #[test]
+fn test_argument_count_violations() {
+    let examples = [
+        ("(define-private (foo-bar)
+           (at-block))", CheckErrors::IncorrectArgumentCount(2, 0)),
+        ("(define-private (foo-bar) (map-get?))", CheckErrors::IncorrectArgumentCount(2, 0)),
+        ("(define-private (foo-bar) (contract-map-get?))", CheckErrors::IncorrectArgumentCount(3, 0)),
+    ];
+
+    for (contract, expected) in examples.iter() {
+        let err = mem_type_check(contract).unwrap_err();
+        assert_eq!(&err.err, expected)
+    }
+}
+
+
+#[test]
 fn test_at_block_violations() {
     let examples = [
         "(define-data-var foo int 1)

@@ -168,6 +168,8 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 self.check_all_read_only(args)
             },
             AtBlock => {
+                check_argument_count(2, args)?;
+                
                 let is_block_arg_read_only = self.check_read_only(&args[0])?;
                 let closure_read_only = self.check_read_only(&args[1])?;
                 if !closure_read_only {
@@ -175,7 +177,9 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 }
                 Ok(is_block_arg_read_only)
             },
-            FetchEntry => {                
+            FetchEntry => {
+                check_argument_count(2, args)?;
+
                 let res = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
                     Implicit(ref tuple_expr) => {
                         self.is_implicit_tuple_definition_read_only(tuple_expr)
@@ -186,7 +190,8 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 };
                 res
             },
-            FetchContractEntry => {                
+            FetchContractEntry => {
+                check_argument_count(3, args)?;
                 let res = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
                     Implicit(ref tuple_expr) => {
                         self.is_implicit_tuple_definition_read_only(tuple_expr)

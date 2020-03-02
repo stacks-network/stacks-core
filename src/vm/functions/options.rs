@@ -178,7 +178,7 @@ pub fn special_match(args: &[SymbolicExpression], env: &mut Environment, context
 }
 
 pub fn native_some(input: Value) -> Result<Value> {
-    Ok(Value::some(input))
+    Ok(Value::some(input)?)
 }
 
 fn is_some(input: Value) -> Result<bool> {
@@ -216,11 +216,11 @@ pub fn native_is_err(input: Value) -> Result<Value> {
 }
 
 pub fn native_okay(input: Value) -> Result<Value> {
-    Ok(Value::okay(input))
+    Ok(Value::okay(input)?)
 }
 
 pub fn native_error(input: Value) -> Result<Value> {
-    Ok(Value::error(input))
+    Ok(Value::error(input)?)
 }
 
 pub fn native_default_to(default: Value, input: Value) -> Result<Value> {

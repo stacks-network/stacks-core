@@ -1,6 +1,7 @@
 use vm::representations::PreSymbolicExpression;
 use vm::diagnostic::{Diagnostic, DiagnosableError};
 use vm::types::{TypeSignature, TupleTypeSignature};
+use vm::MAX_CALL_STACK_DEPTH;
 use std::error;
 use std::fmt;
 
@@ -9,6 +10,7 @@ pub type ParseResult <T> = Result<T, ParseError>;
 #[derive(Debug, PartialEq)]
 pub enum ParseErrors {
     TooManyExpressions,
+    ExpressionStackDepthTooDeep,
     FailedCapturingInput,
     SeparatorExpected(String),
     ProgramTooLarge,
@@ -118,6 +120,7 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::ImplTraitBadSignature => format!("(impl-trait ...) expects a trait identifier"),
             ParseErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             ParseErrors::TraitReferenceUnknown(trait_name) => format!("use of undeclared trait <{}>", trait_name),
+            ParseErrors::ExpressionStackDepthTooDeep => format!("AST has too deep of an expression nesting. The maximum stack depth is {}", MAX_CALL_STACK_DEPTH),
         }
     }
 

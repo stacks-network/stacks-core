@@ -12,6 +12,18 @@ use std::collections::HashMap;
 use vm::tests::{execute};
 
 #[test]
+fn test_doubly_defined_persisted_vars() {
+    let tests = [
+        "(define-non-fungible-token cursor uint) (define-non-fungible-token cursor uint)",
+        "(define-fungible-token cursor) (define-fungible-token cursor)",
+        "(define-data-var cursor int 0) (define-data-var cursor int 0)",
+        "(define-map cursor ((cursor int)) ((place uint))) (define-map cursor ((cursor int)) ((place uint)))" ];
+    for p in tests.iter() {
+        assert_eq!(vm_execute(p).unwrap_err(), CheckErrors::NameAlreadyUsed("cursor".into()).into());
+    }
+}
+
+#[test]
 fn test_simple_let() {
     /*
       test program:
@@ -225,6 +237,35 @@ fn test_simple_if_functions() {
     } else {
         assert!(false, "Failed to parse function bodies.");
     }
+}
+
+#[test]
+fn test_concat_append_supertype() {
+    let tests = [
+        "(concat (list) (list 4 5))",
+        "(concat (list (list 2) (list) (list 4 5))
+                 (list (list) (list) (list 7 8 9)))",
+        "(append (list) 1)",
+        "(append (list (list 3 4) (list)) (list 4 5 7))" ];
+
+    let expectations = [
+        Value::list_from(vec![Value::Int(4), Value::Int(5)]).unwrap(),
+        Value::list_from(vec![
+            Value::list_from(vec![Value::Int(2)]).unwrap(),
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![Value::Int(4), Value::Int(5)]).unwrap(),            
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![Value::Int(7), Value::Int(8), Value::Int(9)]).unwrap()]).unwrap(),
+        Value::list_from(vec![Value::Int(1)]).unwrap(),
+        Value::list_from(vec![
+            Value::list_from(vec![Value::Int(3), Value::Int(4)]).unwrap(),            
+            Value::list_from(vec![]).unwrap(),
+            Value::list_from(vec![Value::Int(4), Value::Int(5), Value::Int(7)]).unwrap()]).unwrap(),
+    ];
+
+    tests.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
 #[test]
@@ -475,7 +516,7 @@ fn test_option_destructs() {
     let expectations: &[Result<Value, Error>] = &[
         Ok(Value::Int(1)),
         Ok(Value::Int(1)),
-        Err(CheckErrors::ExpectedResponseValue(Value::some(Value::Int(2))).into()),
+        Err(CheckErrors::ExpectedResponseValue(Value::some(Value::Int(2)).unwrap()).into()),
         Ok(Value::Int(3)),
         Err(ShortReturnType::ExpectedValue(Value::Int(2)).into()),
         Ok(Value::Int(3)),
@@ -601,8 +642,8 @@ fn test_asserts() {
         "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 2) (err 1)) (ok 2))"];
 
     let expectations = [
-        Value::okay(Value::Int(1)),
-        Value::okay(Value::Int(2))];
+        Value::okay(Value::Int(1)).unwrap(),
+        Value::okay(Value::Int(2)).unwrap()];
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
@@ -615,8 +656,8 @@ fn test_asserts_short_circuit() {
         "(begin (asserts! (is-eq 1 1) (err 0)) (asserts! (is-eq 2 1) (err 1)) (ok 2))"];
 
     let expectations: &[Error] = &[
-        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(0)))),
-        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(1))))];
+        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(0)).unwrap())),
+        Error::ShortReturn(ShortReturnType::AssertionFailed(Value::error(Value::Int(1)).unwrap()))];
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!((*expectation), vm_execute(program).unwrap_err()));

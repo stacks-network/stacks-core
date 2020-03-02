@@ -32,7 +32,7 @@ pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpr
     let (expected_key_type, value_type) = checker.contract_context.get_map_type(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
-    let option_type = TypeSignature::new_option(value_type.clone());
+    let option_type = TypeSignature::new_option(value_type.clone())?;
 
     if !expected_key_type.admits_type(&key_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
@@ -59,7 +59,7 @@ pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[Sym
     
     let (expected_key_type, value_type) = checker.db.get_map_type(&contract_identifier, map_name)?;
 
-    let option_type = TypeSignature::new_option(value_type);
+    let option_type = TypeSignature::new_option(value_type)?;
     
     if !expected_key_type.admits_type(&key_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
