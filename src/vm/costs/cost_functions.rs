@@ -14,6 +14,50 @@ macro_rules! def_runtime_cost {
     }
 }
 
+def_runtime_cost!(ANALYSIS_TYPE_ANNOTATE { Linear(1, 1) });
+def_runtime_cost!(ANALYSIS_TYPE_CHECK { Linear(1, 1) });
+def_runtime_cost!(ANALYSIS_TYPE_LOOKUP { Linear(1, 1) });
+def_runtime_cost!(ANALYSIS_VISIT { Constant(1) });
+def_runtime_cost!(ANALYSIS_ITERABLE_FUNC { Constant(1) });
+def_runtime_cost!(ANALYSIS_OPTION_CONS { Constant(1) });
+def_runtime_cost!(ANALYSIS_OPTION_CHECK { Constant(1) });
+def_runtime_cost!(ANALYSIS_BIND_NAME { Linear(1, 1) });
+def_runtime_cost!(ANALYSIS_LIST_ITEMS_CHECK { Linear(1, 1) });
+def_runtime_cost!(ANALYSIS_CHECK_TUPLE_GET { NLogN(1, 1) });
+def_runtime_cost!(ANALYSIS_CHECK_TUPLE_CONS { NLogN(1, 1) });
+def_runtime_cost!(ANALYSIS_TUPLE_ITEMS_CHECK { Linear(1, 1) });
+def_runtime_cost!(ANALYSIS_CHECK_LET { Linear(1, 1) });
+
+def_runtime_cost!(ANALYSIS_LOOKUP_FUNCTION { Constant(1) });
+def_runtime_cost!(ANALYSIS_LOOKUP_FUNCTION_TYPES { Linear(1, 1) });
+
+def_runtime_cost!(ANALYSIS_LOOKUP_VARIABLE_CONST { Constant(1) });
+def_runtime_cost!(ANALYSIS_LOOKUP_VARIABLE_DEPTH { NLogN(1, 1) });
+
+pub const ANALYSIS_GET_TRAIT_ENTRY: SimpleCostSpecification = SimpleCostSpecification {
+    write_length: Constant(0),
+    write_count: Constant(0),
+    runtime: Linear(1, 1),
+    read_count: Constant(1),
+    read_length: Linear(1, 1)
+};
+
+pub const ANALYSIS_GET_FUNCTION_ENTRY: SimpleCostSpecification = SimpleCostSpecification {
+    write_length: Constant(0),
+    write_count: Constant(0),
+    runtime: Linear(1, 1),
+    read_count: Constant(1),
+    read_length: Linear(1, 1)
+};
+
+pub const ANALYSIS_FETCH_CONTRACT_ENTRY: SimpleCostSpecification = SimpleCostSpecification {
+    write_length: Constant(0),
+    write_count: Constant(0),
+    runtime: Linear(1, 1),
+    read_count: Constant(1),
+    read_length: Linear(1, 1)
+};
+
 def_runtime_cost!(LOOKUP_VARIABLE_DEPTH { Linear(1, 1) });
 def_runtime_cost!(LOOKUP_VARIABLE_SIZE { Linear(1, 0) });
 def_runtime_cost!(LOOKUP_FUNCTION { Constant(1) });

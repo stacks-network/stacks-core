@@ -1,8 +1,9 @@
 pub mod cost_functions;
 
-use std::fmt;
+use std::{fmt, cmp};
 use vm::errors::CheckErrors;
 use vm::types::TypeSignature;
+use std::convert::TryFrom;
 
 type Result<T> = std::result::Result<T, CheckErrors>;
 
@@ -11,16 +12,24 @@ macro_rules! runtime_cost {
         {
             use vm::costs::CostTracker;
             use std::convert::TryInto;
-            $input.try_into()
+            let input = $input.try_into()
                 .map_err(|_| CheckErrors::CostOverflow)
                 .and_then(|input| {
                     ($cost_spec).compute_cost(input)
-                })
-                .and_then(|cost| {
-                    CostTracker::add_cost($env, cost)
-                })
+                });
+            match input {
+                Ok(cost) => CostTracker::add_cost($env, cost),
+                Err(e) => Err(e)
+            }
         }
     }
+}
+
+pub fn analysis_typecheck_cost<T: CostTracker>(track: &mut T, t1: &TypeSignature, t2: &TypeSignature) -> Result<()> {
+    let t1_size = t1.type_size()?;
+    let t2_size = t2.type_size()?;
+    let cost = cost_functions::ANALYSIS_TYPE_CHECK.compute_cost(cmp::max(t1_size, t2_size) as u64)?;
+    track.add_cost(cost)
 }
 
 pub struct TypeCheckCost {}
@@ -36,6 +45,7 @@ impl CostTracker for () {
     }
 }
 
+#[derive(Debug)]
 pub struct LimitedCostTracker {
     total: ExecutionCost,
     limit: ExecutionCost
@@ -196,7 +206,8 @@ impl CostFunctions {
                                              .cost_overflow_add(*b) }
             CostFunctions::NLogN(a, b) => {
                 // a*input*log(input)) + b
-                int_log2(input)
+                //  and don't do log(0).
+                int_log2(cmp::max(input, 1))
                     .ok_or_else(|| CheckErrors::CostOverflow)?
                     .cost_overflow_mul(input)?
                     .cost_overflow_mul(*a)?
@@ -255,7 +266,7 @@ mod unit_tests {
             u64::max_value().cost_overflow_mul(2),
             Err(CheckErrors::CostOverflow));
         assert_eq!(
-            CostFunctions::NLogN(1, 1).compute_cost(0),
+            CostFunctions::NLogN(1, 1).compute_cost(u64::max_value()),
             Err(CheckErrors::CostOverflow));
     }
 

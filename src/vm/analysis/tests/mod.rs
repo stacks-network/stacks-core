@@ -234,6 +234,7 @@ fn test_bad_syntax_binding() {
 fn test_unbound_variable() {
     let snippet = "(+ 1 unicorn)";
     let err = mem_type_check(snippet).unwrap_err();
+    eprintln!("{}", err.diagnostic);
     assert!(format!("{}", err.diagnostic).contains("use of unresolved variable 'unicorn'"));
 }
 

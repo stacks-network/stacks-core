@@ -88,6 +88,10 @@ impl <'a> AnalysisDatabase <'a> {
     }
 
     pub fn get_public_function_type(&mut self, contract_identifier: &QualifiedContractIdentifier, function_name: &str) -> CheckResult<Option<FunctionType>> {
+        // TODO: this function loads the whole contract to obtain the function type.
+        //         but it doesn't need to -- rather this information can just be 
+        //         stored as its own entry. the analysis cost tracking currently only
+        //         charges based on the function type size.
         let contract = self.load_contract(contract_identifier)
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract.get_public_function_type(function_name)
@@ -95,6 +99,10 @@ impl <'a> AnalysisDatabase <'a> {
     }
 
     pub fn get_read_only_function_type(&mut self, contract_identifier: &QualifiedContractIdentifier, function_name: &str) -> CheckResult<Option<FunctionType>> {
+        // TODO: this function loads the whole contract to obtain the function type.
+        //         but it doesn't need to -- rather this information can just be 
+        //         stored as its own entry. the analysis cost tracking currently only
+        //         charges based on the function type size.
         let contract = self.load_contract(contract_identifier)
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract.get_read_only_function_type(function_name)
@@ -102,6 +110,10 @@ impl <'a> AnalysisDatabase <'a> {
     }
 
     pub fn get_defined_trait(&mut self, contract_identifier: &QualifiedContractIdentifier, trait_name: &str) -> CheckResult<Option<BTreeMap<ClarityName, FunctionSignature>>> {
+        // TODO: this function loads the whole contract to obtain the function type.
+        //         but it doesn't need to -- rather this information can just be 
+        //         stored as its own entry. the analysis cost tracking currently only
+        //         charges based on the function type size.
         let contract = self.load_contract(contract_identifier)
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract.get_defined_trait(trait_name)

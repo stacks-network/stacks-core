@@ -4,10 +4,13 @@ use vm::types::{TypeSignature};
 use vm::analysis::type_checker::{TypeResult, TypingContext, check_argument_count, check_arguments_at_least,
                                  CheckError, CheckErrors, no_type, TypeChecker};
 
+use vm::costs::{cost_functions, analysis_typecheck_cost};
 
 pub fn check_special_okay(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
-    
+
+    runtime_cost!(cost_functions::ANALYSIS_OPTION_CONS, checker, 1);
+
     let inner_type = checker.type_check(&args[0], context)?;
     let resp_type = TypeSignature::new_response(inner_type, no_type())?;
     Ok(resp_type)
@@ -15,6 +18,8 @@ pub fn check_special_okay(checker: &mut TypeChecker, args: &[SymbolicExpression]
 
 pub fn check_special_some(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
+
+    runtime_cost!(cost_functions::ANALYSIS_OPTION_CONS, checker, 1);
     
     let inner_type = checker.type_check(&args[0], context)?;
     let resp_type = TypeSignature::new_option(inner_type)?;
@@ -23,6 +28,8 @@ pub fn check_special_some(checker: &mut TypeChecker, args: &[SymbolicExpression]
 
 pub fn check_special_error(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
+
+    runtime_cost!(cost_functions::ANALYSIS_OPTION_CONS, checker, 1);
     
     let inner_type = checker.type_check(&args[0], context)?;
     let resp_type = TypeSignature::new_response(no_type(), inner_type)?;
@@ -33,6 +40,8 @@ pub fn check_special_is_response(checker: &mut TypeChecker, args: &[SymbolicExpr
     check_argument_count(1, args)?;
     
     let input = checker.type_check(&args[0], context)?;
+
+    runtime_cost!(cost_functions::ANALYSIS_OPTION_CHECK, checker, 1);
 
     if let TypeSignature::ResponseType(_types) = input {
         return Ok(TypeSignature::BoolType)
@@ -46,6 +55,8 @@ pub fn check_special_is_optional(checker: &mut TypeChecker, args: &[SymbolicExpr
     
     let input = checker.type_check(&args[0], context)?;
 
+    runtime_cost!(cost_functions::ANALYSIS_OPTION_CHECK, checker, 1);
+
     if let TypeSignature::OptionalType(_type) = input {
         return Ok(TypeSignature::BoolType)
     } else {
@@ -58,6 +69,8 @@ pub fn check_special_default_to(checker: &mut TypeChecker, args: &[SymbolicExpre
     
     let default = checker.type_check(&args[0], context)?;
     let input = checker.type_check(&args[1], context)?;
+
+    analysis_typecheck_cost(checker, &default, &input)?;
 
     if let TypeSignature::OptionalType(input_type) = input {
         let contained_type = *input_type;
@@ -79,7 +92,9 @@ pub fn check_special_asserts(checker: &mut TypeChecker, args: &[SymbolicExpressi
     Ok(TypeSignature::BoolType)
 }
 
-fn inner_unwrap(input: TypeSignature) -> TypeResult {
+fn inner_unwrap(input: TypeSignature, checker: &mut TypeChecker) -> TypeResult {
+    runtime_cost!(cost_functions::ANALYSIS_OPTION_CHECK, checker, 1);
+
     match input {
         TypeSignature::OptionalType(input_type) => {
             if input_type.is_no_type() {
@@ -100,7 +115,9 @@ fn inner_unwrap(input: TypeSignature) -> TypeResult {
     }
 }
 
-fn inner_unwrap_err(input: TypeSignature) -> TypeResult {
+fn inner_unwrap_err(input: TypeSignature, checker: &mut TypeChecker) -> TypeResult {
+    runtime_cost!(cost_functions::ANALYSIS_OPTION_CHECK, checker, 1);
+
     if let TypeSignature::ResponseType(response_type) = input {
         let err_type = response_type.1;
         if err_type.is_no_type() {
@@ -121,7 +138,7 @@ pub fn check_special_unwrap_or_ret(checker: &mut TypeChecker, args: &[SymbolicEx
 
     checker.track_return_type(on_error)?;
 
-    inner_unwrap(input)
+    inner_unwrap(input, checker)
 }
 
 pub fn check_special_unwrap_err_or_ret(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -132,13 +149,15 @@ pub fn check_special_unwrap_err_or_ret(checker: &mut TypeChecker, args: &[Symbol
 
     checker.track_return_type(on_error)?;
 
-    inner_unwrap_err(input)
+    inner_unwrap_err(input, checker)
 }
 
 pub fn check_special_try_ret(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
     
     let input = checker.type_check(&args[0], context)?;
+
+    runtime_cost!(cost_functions::ANALYSIS_OPTION_CHECK, checker, 1);
 
     match input {
         TypeSignature::OptionalType(input_type) => {
@@ -170,7 +189,7 @@ pub fn check_special_unwrap(checker: &mut TypeChecker, args: &[SymbolicExpressio
     
     let input = checker.type_check(&args[0], context)?;
 
-    inner_unwrap(input)
+    inner_unwrap(input, checker)
 }
 
 pub fn check_special_unwrap_err(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -178,12 +197,14 @@ pub fn check_special_unwrap_err(checker: &mut TypeChecker, args: &[SymbolicExpre
     
     let input = checker.type_check(&args[0], context)?;
 
-    inner_unwrap_err(input)
+    inner_unwrap_err(input, checker)
 }
 
 fn eval_with_new_binding(body: &SymbolicExpression, bind_name: ClarityName, bind_type: TypeSignature, 
                          checker: &mut TypeChecker, context: &TypingContext) -> TypeResult {
     let mut inner_context = context.extend()?;
+
+    runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, checker, bind_type.type_size()?)?;
 
     checker.contract_context.check_name_used(&bind_name)?;
 
@@ -218,6 +239,8 @@ fn check_special_match_opt(option_type: TypeSignature, checker: &mut TypeChecker
                                                  checker, context)?;
     let none_branch_type = checker.type_check(none_branch, context)?;
 
+    analysis_typecheck_cost(checker, &some_branch_type, &none_branch_type)?;
+
     TypeSignature::least_supertype(&some_branch_type, &none_branch_type)
         .map_err(|_| CheckErrors::MatchArmsMustMatch(some_branch_type, none_branch_type).into())
 }
@@ -248,6 +271,8 @@ fn check_special_match_resp(resp_type: (TypeSignature, TypeSignature), checker: 
 
     let ok_branch_type = eval_with_new_binding(ok_branch, ok_bind_name, ok_type, checker, context)?;
     let err_branch_type = eval_with_new_binding(err_branch, err_bind_name, err_type, checker, context)?;
+
+    analysis_typecheck_cost(checker, &ok_branch_type, &err_branch_type)?;
 
     TypeSignature::least_supertype(&ok_branch_type, &err_branch_type)
         .map_err(|_| CheckErrors::MatchArmsMustMatch(ok_branch_type, err_branch_type).into())

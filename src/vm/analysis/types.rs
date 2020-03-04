@@ -5,6 +5,7 @@ use vm::types::signatures::FunctionSignature;
 use vm::analysis::analysis_db::{AnalysisDatabase};
 use vm::analysis::errors::{CheckResult, CheckErrors};
 use vm::analysis::type_checker::contexts::TypeMap;
+use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
 const SERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
@@ -13,7 +14,7 @@ pub trait AnalysisPass {
     fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()>;
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ContractAnalysis {
     pub contract_identifier: QualifiedContractIdentifier,
     pub private_function_types: BTreeMap<ClarityName, FunctionType>,
@@ -30,6 +31,8 @@ pub struct ContractAnalysis {
     pub expressions: Vec<SymbolicExpression>,
     #[serde(skip)]
     pub type_map: Option<TypeMap>,
+    #[serde(skip)]
+    pub cost_track: Option<LimitedCostTracker>
 }
 
 impl ContractAnalysis {
@@ -48,7 +51,18 @@ impl ContractAnalysis {
             implemented_traits: BTreeSet::new(),
             fungible_tokens: BTreeSet::new(),
             non_fungible_tokens: BTreeMap::new(),
+            cost_track: Some(LimitedCostTracker::new_max_limit())
         }
+    }
+
+    pub fn take_contract_cost_tracker(&mut self) -> LimitedCostTracker {
+        self.cost_track.take()
+            .expect("BUG: contract analysis attempted to take a cost tracker already claimed.")
+    }
+
+    pub fn replace_contract_cost_tracker(&mut self, cost_track: LimitedCostTracker) {
+        assert!(self.cost_track.is_none());
+        self.cost_track.replace(cost_track);
     }
 
     pub fn add_map_type(&mut self, name: ClarityName, key_type: TypeSignature, map_type: TypeSignature) {
