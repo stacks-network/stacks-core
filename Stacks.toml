@@ -1,0 +1,25 @@
+[burnchain]
+chain = "bitcoin"
+mode = "regtest" # simtest | regtest | testnet
+average_block_time = 12
+wif = ""
+rpc_address = "127.0.0.1"
+rpc_port = "18443"
+rpc_auth = ""
+
+[node]
+name = "L1"
+path = ""
+mem_pool_path = "/tmp/"
+wif = ""
+
+[sidecar]
+port = "9090"
+
+[[initial_balance]]
+address = "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
+amount = 10000
+
+[[initial_balance]]
+address = "ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6"
+amount = 100000

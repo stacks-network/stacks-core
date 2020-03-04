@@ -38,6 +38,7 @@ extern crate regex;
 extern crate time;
 extern crate byteorder;
 extern crate mio;
+extern crate bitcoincore_rpc;
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;
@@ -205,16 +206,21 @@ fn main() {
         rng.fill_bytes(&mut buf);
         let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
 
-        // {
-        //     secretKey: "1de4c1f00c6b55595350001e8bd3d6c5695c1f2df07b8a62df9587f983f3628901",
-        //     publicKey: "03459ac6b0cac412b79c8f05b19566e51a99f5daab8ef0122d72e081030acf17c5",
-        //     stacksAddress: "ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6"
-        // }
+        // secretKey: "1de4c1f00c6b55595350001e8bd3d6c5695c1f2df07b8a62df9587f983f3628901",
+        // publicKey: "03459ac6b0cac412b79c8f05b19566e51a99f5daab8ef0122d72e081030acf17c5",
+        // stacksAddress: "ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6"
 
         let genesis_config = testnet::GenesisConfig { initial_balances: vec![
             (PrincipalData::parse_standard_principal("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT").unwrap().into(), 10000),
             (PrincipalData::parse_standard_principal("ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6").unwrap().into(), 100000)] };
-    
+
+        use bitcoincore_rpc::{Auth, Client, RpcApi};
+        let rpc = Client::new(
+            "http://localhost:18443".to_string(), 
+            Auth::UserPass("user".to_string(), "password".to_string())).unwrap();
+        let best_block_hash = rpc.get_best_block_hash().unwrap();
+        println!("{:?}", best_block_hash);
+
         let conf = testnet::Config {
             testnet_name: "testnet".to_string(),
             chain: "bitcoin".to_string(),

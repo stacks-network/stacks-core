@@ -3,14 +3,15 @@ use super::{Config, Node, BurnchainSimulator, BurnchainState, LeaderTenure};
 use chainstate::burn::{ConsensusHash};
 use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState};
 use chainstate::burn::{BlockHeaderHash};
-use chainstate::stacks::{TransactionAuth, TransactionSpendingCondition, SinglesigSpendingCondition};
+use chainstate::stacks::{TransactionAuth, TransactionSpendingCondition, SinglesigSpendingCondition, TransactionPayload};
+use burnchains::Address;
 
 use util::sleep_ms;
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
 pub struct RunLoop {
-    config: Config,
+    config: Vec<Config>,
     nodes: Vec<Node>,
     new_burnchain_state_callback: Option<fn(u8, &BurnchainState)>,
     new_tenure_callback: Option<fn(u8, &LeaderTenure)>,
@@ -39,17 +40,15 @@ macro_rules! info_green {
 impl RunLoop {
 
     /// Sets up a runloop and nodes, given a config.
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Vec<Config>) -> Self {
         // Build a vec of nodes based on config
         let mut nodes = vec![]; 
-        let mut nodes_confs = config.node_config.clone();
-        for conf in nodes_confs.drain(..) {
-            let node = Node::new(conf, config.genesis_config.clone(), config.burnchain_block_time);
+        for conf in config.drain(..) {
+            let node = Node::new(conf);
             nodes.push(node);
         }
 
         Self {
-
             config,
             nodes,
             new_burnchain_state_callback: None,
@@ -260,7 +259,12 @@ impl RunLoop {
                 TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(auth)) => println!("-> Tx issued by {:?} (fee: {}, nonce: {})", auth.signer, auth.fee_rate, auth.nonce),
                 _ => println!("-> Tx {:?}", tx.auth)
             }
-            println!("   {:?}", tx.payload)
+            match &tx.payload { 
+                TransactionPayload::Coinbase(_) => println!("   Coinbase"),
+                TransactionPayload::SmartContract(contract) => println!("   Publish smart contract\n**************************\n{:?}\n**************************", contract.code_body),
+                TransactionPayload::TokenTransfer(recipent, amount, _) => println!("   Transfering {} µSTX to {}", amount, recipent.to_string()),
+                _ => println!("   {:?}", tx.payload)
+            }
         }
         chain_state_callback.map(|cb| cb(round_index, state, &id_hash));
     }

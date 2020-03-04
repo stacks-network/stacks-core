@@ -1,4 +1,4 @@
-use super::{Keychain, MemPool, MemPoolFS, GenesisConfig, NodeConfig, LeaderTenure, BurnchainState};
+use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainState};
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -61,7 +61,7 @@ pub struct Node {
     burnchain_tip: Option<BlockSnapshot>,
     pub chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
-    config: NodeConfig,
+    config: Config,
     keychain: Keychain,
     last_sortitioned_block: Option<SortitionedBlock>,
     mem_pool: MemPoolFS,
@@ -71,17 +71,20 @@ pub struct Node {
 impl Node {
 
     /// Instantiate and initialize a new node, given a config
-    pub fn new(config: NodeConfig, genesis_config: GenesisConfig, average_block_time: u64) -> Self {
+    pub fn new(config: Config) -> Self {
         
-        let seed = Sha256Sum::from_data(format!("{}", config.name).as_bytes());
+        let seed = Sha256Sum::from_data(format!("{}", config.node.name).as_bytes());
         let keychain = Keychain::default(seed.as_bytes().to_vec());
 
-        let chain_state = match StacksChainState::open_testnet(TESTNET_CHAIN_ID, &config.path, &genesis_config.initial_balances) {
+        let chain_state = match StacksChainState::open_testnet(
+            TESTNET_CHAIN_ID, 
+            &config.node.db_path, 
+            config.initial_balances) {
             Ok(res) => res,
-            Err(_) => panic!("Error while opening chain state at path {:?}", config.path)
+            Err(_) => panic!("Error while opening chain state at path {:?}", config.node.db_path)
         };
 
-        let mem_pool = MemPoolFS::new(&config.mem_pool_path);
+        let mem_pool = MemPoolFS::new(&config.node.mempool_path);
 
         Self {
             active_registered_key: None,
@@ -92,7 +95,7 @@ impl Node {
             keychain,
             last_sortitioned_block: None,
             mem_pool,
-            average_block_time,
+            average_block_time: config.burnchain.block_time,
             burnchain_tip: None,
             nonce: 0,
         }

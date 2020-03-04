@@ -4,6 +4,8 @@ use util::hash::{to_hex, hex_bytes};
 use testnet::mem_pool::MemPool;
 use chainstate::stacks::db::{StacksChainState};
 use super::node::{TESTNET_CHAIN_ID};
+use super::config::{InitialBalance};
+
 use chainstate::stacks::{TransactionPayload, CoinbasePayload};
 use vm::types::PrincipalData;
 
@@ -18,22 +20,11 @@ pub fn new_test_conf() -> testnet::Config {
     // publicKey: "03e2ed46873d0db820e8c6001aabc082d72b5b900b53b7a1b9714fe7bde3037b81",
     // stacksAddress: "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
     let initial_balances = vec![
-        (PrincipalData::parse_standard_principal("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT").unwrap().into(), 10000),
+        InitialBalance { address: PrincipalData::parse_standard_principal("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT").unwrap().into(), amount: 10000 },
     ];
-    let genesis_config = testnet::GenesisConfig { initial_balances };
-
-    let conf = testnet::Config {
-        testnet_name: "testnet".to_string(),
-        chain: "bitcoin".to_string(),
-        burnchain_path: format!("/tmp/{}/burnchain", testnet_id),
-        burnchain_block_time: 500,
-        node_config: vec![testnet::NodeConfig {
-            name: "L1".to_string(),
-            path: format!("/tmp/{}/L1", testnet_id),
-            mem_pool_path: format!("/tmp/{}/L1/mempool", testnet_id)
-        }],
-        genesis_config,
-    };
+    
+    let mut conf = testnet::Config::default();
+    conf.initial_balances = Some(initial_balances);
     conf
 }
 
