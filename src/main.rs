@@ -195,49 +195,22 @@ fn main() {
 
     if argv[1] == "testnet" {
         use testnet;
-        use rand::RngCore;
-        use util::hash::{to_hex};
-        use blockstack_lib::burnchains::Address;
-        use vm::types::PrincipalData;
-
-        // Testnet's name
-        let mut rng = rand::thread_rng();
-        let mut buf = [0u8; 8];
-        rng.fill_bytes(&mut buf);
-        let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
-
-        // secretKey: "1de4c1f00c6b55595350001e8bd3d6c5695c1f2df07b8a62df9587f983f3628901",
-        // publicKey: "03459ac6b0cac412b79c8f05b19566e51a99f5daab8ef0122d72e081030acf17c5",
-        // stacksAddress: "ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6"
-
-        let genesis_config = testnet::GenesisConfig { initial_balances: vec![
-            (PrincipalData::parse_standard_principal("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT").unwrap().into(), 10000),
-            (PrincipalData::parse_standard_principal("ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6").unwrap().into(), 100000)] };
-
-        use bitcoincore_rpc::{Auth, Client, RpcApi};
-        let rpc = Client::new(
-            "http://localhost:18443".to_string(), 
-            Auth::UserPass("user".to_string(), "password".to_string())).unwrap();
-        let best_block_hash = rpc.get_best_block_hash().unwrap();
-        println!("{:?}", best_block_hash);
-
-        let conf = testnet::Config {
-            testnet_name: "testnet".to_string(),
-            chain: "bitcoin".to_string(),
-            burnchain_path: format!("/tmp/{}/burnchain", testnet_id),
-            burnchain_block_time: 5000,
-            node_config: vec![testnet::NodeConfig {
-                name: "L1".to_string(),
-                path: format!("/tmp/{}/L1", testnet_id),
-                mem_pool_path: format!("/tmp/{}/L1/mempool", testnet_id)
-            }],
-            genesis_config,
-        };
+        
+        // use bitcoincore_rpc::{Auth, Client, RpcApi};
+        // let rpc = Client::new(
+        //     "http://localhost:18443".to_string(), 
+        //     Auth::UserPass("user".to_string(), "password".to_string())).unwrap();
+        // let best_block_hash = rpc.get_best_block_hash().unwrap();
+        // println!("{:?}", best_block_hash);
+        
+        let mut conf = testnet::Config::default();
+        conf.add_initial_balance("ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6".to_string(), 100000);
+        conf.add_initial_balance("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(), 10000);
 
         // info_blue!("Starting testnet...");
         // info_yellow!("*** Mempool path: {}", conf.node_config[0].mem_pool_path);
         println!("Starting testnet...");
-        println!("*** Mempool path: {}", conf.node_config[0].mem_pool_path);
+        println!("*** Mempool path: {}", conf.node.mempool_path);
 
         let mut run_loop = testnet::RunLoop::new(conf);
         let num_round = 0; // Infinite number of rounds

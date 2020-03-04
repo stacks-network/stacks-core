@@ -46,10 +46,22 @@ impl Config {
             sidecar: None,
         }
     }
+
+    pub fn add_initial_balance(&mut self, address: String, amount: u64) {
+        let new_balance = InitialBalance { address: PrincipalData::parse_standard_principal(&address).unwrap().into(), amount };
+        match &mut self.initial_balances {
+            Some(ref mut balances) => {
+                balances.push(new_balance);
+            }
+            None => {
+                self.initial_balances = Some(vec![new_balance]);
+            }
+        }
+    }
 }
 
 #[derive(Clone, Default)]
-struct BurnchainConfig {
+pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
     pub db_path: String,
@@ -76,7 +88,7 @@ impl BurnchainConfig {
 }
 
 #[derive(Clone, Default)]
-struct NodeConfig {
+pub struct NodeConfig {
     pub name: String,
     pub db_path: String,
     pub mempool_path: String,
@@ -84,7 +96,7 @@ struct NodeConfig {
 }
 
 #[derive(Clone, Default)]
-struct SidecarConfig {
+pub struct SidecarConfig {
     pub port: u16,
 }
 

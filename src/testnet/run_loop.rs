@@ -11,8 +11,8 @@ use util::sleep_ms;
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
 pub struct RunLoop {
-    config: Vec<Config>,
-    nodes: Vec<Node>,
+    config: Config,
+    node: Node,
     new_burnchain_state_callback: Option<fn(u8, &BurnchainState)>,
     new_tenure_callback: Option<fn(u8, &LeaderTenure)>,
     new_chain_state_callback: Option<fn(u8, &mut StacksChainState, &BlockHeaderHash)>,
@@ -40,17 +40,13 @@ macro_rules! info_green {
 impl RunLoop {
 
     /// Sets up a runloop and nodes, given a config.
-    pub fn new(config: Vec<Config>) -> Self {
-        // Build a vec of nodes based on config
-        let mut nodes = vec![]; 
-        for conf in config.drain(..) {
-            let node = Node::new(conf);
-            nodes.push(node);
-        }
+    pub fn new(config: Config) -> Self {
+        // Build node based on config
+        let node = Node::new(config.clone());
 
         Self {
             config,
-            nodes,
+            node,
             new_burnchain_state_callback: None,
             new_tenure_callback: None,
             new_chain_state_callback: None,
@@ -71,16 +67,12 @@ impl RunLoop {
         let genesis_state = burnchain.make_genesis_block();
 
         // Update each node with the genesis block.
-        for node in self.nodes.iter_mut() {
-            node.process_burnchain_state(&genesis_state);
-        }
+        self.node.process_burnchain_state(&genesis_state);
 
         // make first non-genesis block, with initial VRF keys
         let mut initial_ops = vec![];
-        for node in self.nodes.iter_mut() {
-            let key_op = node.setup();
-            initial_ops.push(key_op);
-        }
+        let key_op = self.node.setup();
+        initial_ops.push(key_op);
 
         // Waiting on the 1st block (post-genesis) from the burnchain, containing the first key registrations 
         // that will be used for bootstraping the chain.
@@ -89,13 +81,11 @@ impl RunLoop {
         let state_1 = burnchain.make_next_block(initial_ops);
 
         // Update each node with this new block.
-        for node in self.nodes.iter_mut() {
-            node.process_burnchain_state(&state_1);
-        }
+        self.node.process_burnchain_state(&state_1);
 
         // Bootstrap the chain: the first node (could be random) will start a new tenure,
         // using the sortition hash from block #1 for generating a VRF.
-        let leader = &mut self.nodes[0];
+        let leader = &mut self.node;
         let mut first_tenure = match leader.initiate_genesis_tenure(&state_1.chain_tip) {
             Some(res) => res,
             None => panic!("Error while initiating genesis tenure")
@@ -122,31 +112,29 @@ impl RunLoop {
 
         let mut leader_tenure = None;
 
-        for node in self.nodes.iter_mut() {
-            // Have each node process the new block, that should include a sortition thanks to the
-            // 1st tenure.
-            let (last_sortitioned_block, won_sortition) = match node.process_burnchain_state(&burnchain_state) {
-                (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
-                (None, _) => panic!("Node should have a sortitioned block")
-            };
-            
-            // Have each node process the previous tenure.
-            // We should have some additional checks here, and ensure that the previous artifacts are legit.
+        // Have each node process the new block, that should include a sortition thanks to the
+        // 1st tenure.
+        let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(&burnchain_state) {
+            (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
+            (None, _) => panic!("Node should have a sortitioned block")
+        };
+        
+        // Have each node process the previous tenure.
+        // We should have some additional checks here, and ensure that the previous artifacts are legit.
 
-            node.process_tenure(
-                &anchored_block_1, 
-                &last_sortitioned_block.burn_header_hash, 
-                &last_sortitioned_block.parent_burn_header_hash, 
-                microblocks.clone(),
-                burnchain.burndb_mut());
+        self.node.process_tenure(
+            &anchored_block_1, 
+            &last_sortitioned_block.burn_header_hash, 
+            &last_sortitioned_block.parent_burn_header_hash, 
+            microblocks.clone(),
+            burnchain.burndb_mut());
 
-            let index_bhh = anchored_block_1.header.index_block_hash(&last_sortitioned_block.burn_header_hash);
-            RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index, &mut node.chain_state, &index_bhh);
+        let index_bhh = anchored_block_1.header.index_block_hash(&last_sortitioned_block.burn_header_hash);
+        RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index, &mut self.node.chain_state, &index_bhh);
 
-            // If the node we're looping on won the sortition, initialize and configure the next tenure
-            if won_sortition {
-                leader_tenure = node.initiate_new_tenure(&last_sortitioned_block);
-            }
+        // If the node we're looping on won the sortition, initialize and configure the next tenure
+        if won_sortition {
+            leader_tenure = self.node.initiate_new_tenure(&last_sortitioned_block);
         }
 
         // Start the runloop
@@ -170,10 +158,8 @@ impl RunLoop {
                 Some(ref artifacts) => {
                     // Have each node receive artifacts from the current tenure
                     let (anchored_block, _, parent_block) = artifacts;
-                    for node in self.nodes.iter_mut() {
-                        let mut ops = node.receive_tenure_artifacts(&anchored_block, &parent_block);
-                        next_burn_ops.append(&mut ops);
-                    }    
+                    let mut ops = self.node.receive_tenure_artifacts(&anchored_block, &parent_block);
+                    next_burn_ops.append(&mut ops);
                 },
                 None => {}
             }
@@ -183,44 +169,42 @@ impl RunLoop {
     
             leader_tenure = None;
 
-            for node in self.nodes.iter_mut() {
-                // Have each node process the new block, that can include, or not, a sortition.
-                let (last_sortitioned_block, won_sortition) = match node.process_burnchain_state(&burnchain_state) {
-                    (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
-                    (None, _) => panic!("Node should have a sortitioned block")
-                };
+            // Have each node process the new block, that can include, or not, a sortition.
+            let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(&burnchain_state) {
+                (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
+                (None, _) => panic!("Node should have a sortitioned block")
+            };
 
-                match artifacts_from_tenure {
-                    // Pass if we're missing the artifacts from the current tenure.
-                    None => continue,
-                    Some(ref artifacts) => {
-                        // Have each node process the previous tenure.
-                        // We should have some additional checks here, and ensure that the previous artifacts are legit.
-                        let (anchored_block, microblocks, _) = artifacts;
+            match artifacts_from_tenure {
+                // Pass if we're missing the artifacts from the current tenure.
+                None => continue,
+                Some(ref artifacts) => {
+                    // Have each node process the previous tenure.
+                    // We should have some additional checks here, and ensure that the previous artifacts are legit.
+                    let (anchored_block, microblocks, _) = artifacts;
 
-                        node.process_tenure(
-                            &anchored_block, 
-                            &burnchain_state.chain_tip.burn_header_hash, 
-                            &burnchain_state.chain_tip.parent_burn_header_hash,             
-                            microblocks.to_vec(),
-                            burnchain.burndb_mut());
+                    self.node.process_tenure(
+                        &anchored_block, 
+                        &burnchain_state.chain_tip.burn_header_hash, 
+                        &burnchain_state.chain_tip.parent_burn_header_hash,             
+                        microblocks.to_vec(),
+                        burnchain.burndb_mut());
 
-                        let index_bhh = anchored_block.header.index_block_hash(
-                            &burnchain_state.chain_tip.burn_header_hash);
-                        RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index,
-                                                           &mut node.chain_state, &index_bhh);
-                    },
-                };
-                
-                // If the node we're looping on won the sortition, initialize and configure the next tenure
-                if won_sortition {
-                    leader_tenure = node.initiate_new_tenure(&last_sortitioned_block);
-                } 
-            }
+                    let index_bhh = anchored_block.header.index_block_hash(
+                        &burnchain_state.chain_tip.burn_header_hash);
+                    RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index,
+                                                        &mut self.node.chain_state, &index_bhh);
+                },
+            };
+            
+            // If the node we're looping on won the sortition, initialize and configure the next tenure
+            if won_sortition {
+                leader_tenure = self.node.initiate_new_tenure(&last_sortitioned_block);
+            } 
             
             round_index += 1;
 
-            sleep_ms(self.config.burnchain_block_time);
+            sleep_ms(self.config.burnchain.block_time);
         }
     }
 

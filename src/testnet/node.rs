@@ -15,6 +15,7 @@ use net::StacksMessageType;
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
 use util::get_epoch_time_secs;
+use vm::types::PrincipalData;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
 
@@ -76,10 +77,18 @@ impl Node {
         let seed = Sha256Sum::from_data(format!("{}", config.node.name).as_bytes());
         let keychain = Keychain::default(seed.as_bytes().to_vec());
 
+        let initial_balances = match &config.initial_balances {
+            Some(initial_balances) =>  {
+                let mapped_balances: Vec<(PrincipalData, u64)> = initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
+                Some(mapped_balances)
+            },
+            None => None
+        };
+
         let chain_state = match StacksChainState::open_testnet(
             TESTNET_CHAIN_ID, 
             &config.node.db_path, 
-            config.initial_balances) {
+            initial_balances) {
             Ok(res) => res,
             Err(_) => panic!("Error while opening chain state at path {:?}", config.node.db_path)
         };
@@ -91,11 +100,11 @@ impl Node {
             bootstraping_chain: false,
             chain_state,
             chain_tip: None,
-            config,
             keychain,
             last_sortitioned_block: None,
             mem_pool,
             average_block_time: config.burnchain.block_time,
+            config,
             burnchain_tip: None,
             nonce: 0,
         }
