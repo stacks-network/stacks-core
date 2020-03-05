@@ -104,6 +104,7 @@ pub enum CostFunctions {
     Constant(u64),
     Linear(u64, u64),
     NLogN(u64, u64),
+    LogN(u64, u64),
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
@@ -222,6 +223,14 @@ impl CostFunctions {
             CostFunctions::Constant(val) => Ok(*val),
             CostFunctions::Linear(a, b) => { a.cost_overflow_mul(input)?
                                              .cost_overflow_add(*b) }
+            CostFunctions::LogN(a, b) => {
+                // a*input*log(input)) + b
+                //  and don't do log(0).
+                int_log2(cmp::max(input, 1))
+                    .ok_or_else(|| CostErrors::CostOverflow)?
+                    .cost_overflow_mul(*a)?
+                    .cost_overflow_add(*b)
+            }
             CostFunctions::NLogN(a, b) => {
                 // a*input*log(input)) + b
                 //  and don't do log(0).

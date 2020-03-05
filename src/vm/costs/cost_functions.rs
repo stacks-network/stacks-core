@@ -1,5 +1,5 @@
 use super::{SimpleCostSpecification, TypeCheckCost};
-use super::CostFunctions::{Linear, Constant, NLogN};
+use super::CostFunctions::{Linear, Constant, NLogN, LogN};
 
 macro_rules! def_runtime_cost {
     ($Name:ident { $runtime:expr }) => {
@@ -23,7 +23,7 @@ def_runtime_cost!(ANALYSIS_OPTION_CONS { Constant(1) });
 def_runtime_cost!(ANALYSIS_OPTION_CHECK { Constant(1) });
 def_runtime_cost!(ANALYSIS_BIND_NAME { Linear(1, 1) });
 def_runtime_cost!(ANALYSIS_LIST_ITEMS_CHECK { Linear(1, 1) });
-def_runtime_cost!(ANALYSIS_CHECK_TUPLE_GET { NLogN(1, 1) });
+def_runtime_cost!(ANALYSIS_CHECK_TUPLE_GET { LogN(1, 1) });
 def_runtime_cost!(ANALYSIS_CHECK_TUPLE_CONS { NLogN(1, 1) });
 def_runtime_cost!(ANALYSIS_TUPLE_ITEMS_CHECK { Linear(1, 1) });
 def_runtime_cost!(ANALYSIS_CHECK_LET { Linear(1, 1) });

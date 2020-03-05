@@ -1,8 +1,8 @@
-# SIP 006 Clarity Execution Cost Assessment
+# SIP 009 Clarity Parsing and Analysis Cost Assessment
 
 ## Preamble
 
-Title: Clarity Execution Cost Assessment
+Title: Clarity Parsing and Analysis Cost Assessment
 
 Author: Aaron Blankstein <aaron@blockstack.com>
 
@@ -10,17 +10,19 @@ Status: Draft
 
 Type: Standard
 
-Created: 10/19/2019
+Created: 03/05/2020
 
 License: BSD 2-Clause
 
 # Abstract
 
 This document describes the measured costs and asymptotic costs
-assessed for the analysis of Clarity code. This will not specify the
-_constants_ associated with those asymptotic cost functions. Those
-constants will necessarily be measured via benchmark harnesses and
-regression analyses.
+assessed for parsing Clarity code into an abstract syntax tree (AST)
+and the static analysis of that Clarity code (type-checking and
+read-only enforcement). This will not specify the _constants_
+associated with those asymptotic cost functions. Those constants will
+necessarily be measured via benchmark harnesses and regression
+analyses.
 
 # Measurements for Execution Cost
 
@@ -49,7 +51,42 @@ the block is considered invalid by the network --- none of the block's
 transactions will be materialized and the leader forfeits all rewards
 from the block.
 
+Costs for static analysis are assessed during the _type check_ pass.
+The read-only and trait-checking passes perform work which is strictly
+less than the work performed during type checking, and therefore, the
+cost assessment can safely fold any costs that would be incurred during
+those passes into the type checking pass.
+
 # Common Analysis Metrics and Costs
+
+## AST Parsing
+
+The Clarity parser has a runtime that is linear with respect to the Clarity
+program length.
+
+```
+a*X+b
+```
+
+where a and b are constants, and
+
+X := the program length in bytes
+
+## Dependency cycle detection
+
+Clarity performs cycle detection for intra-contract dependencies (e.g.,
+functions that depend on one another). This detection is linear in the
+number of dependency edges in the smart contract:
+
+```
+a*X+b
+```
+
+where a and b are constants, and
+X := the total number of dependency edges in the smart contract
+
+Dependency edges are created anytime a top-level definition refers 
+to another top-level definition.
 
 ## Type signature size
 
@@ -106,11 +143,12 @@ checked for in each context on the stack.
 Cost Function:
 
 ```
-a*X+b
+a*X+b*Y+c
 ```
 
-where a and b are constants,
+where a, b, and c are constants,
 X := stack depth
+Y := the type size of the looked up variable
 
 ## Function Lookup
 
@@ -122,21 +160,25 @@ context, stack depth does not affect function lookup.
 Cost Function:
 
 ```
-a
+a*X + b
 ```
 
-where a is a constant.
+where a and b are constants,
+X := the sum of the type sizes for the function signature (each argument's type size, as well
+    as the function's return type)
 
 ## Name Binding
 
 The cost of binding a name in Clarity -- in either a local or the contract
-context is _constant_ with respect to the length of the name:
+context is _constant_ with respect to the length of the name, but linear in
+the size of the type signature.
 
 ```
-binding_cost = a
+binding_cost = a + b*X
 ```
 
-where a is a constant
+where a and b are constants, and
+X := the size of the bound type signature
 
 ## Type check cost
 
@@ -168,3 +210,95 @@ where a is a constant.
 
 This is also the _entire_ cost of type analysis for most function calls
 (e.g., intra-contract function calls, most simple native functions). 
+
+## Iterating the AST
+
+Static analysis iterates over the entire program's AST in the type checker,
+the trait checker, and in the read-only checker. This cost is assed
+as a constant cost for each node visited in the AST during the type
+checking pass.
+
+# Special Function Costs
+
+Some functions require additional work from the static analysis system.
+
+
+## get
+
+Checking a tuple _get_ requires accessing the tuple's signature
+for the specific field. This has runtime cost:
+
+```
+a*log(N) + b
+```
+where a and b are constants, and
+
+N := the number of fields in the tuple type
+
+## tuple
+
+Constructing a tuple requires building the tuple's BTree for
+accessing fields. This has runtime cost:
+
+
+```
+a*N*log(N) + b
+```
+where a and b are constants, and
+
+N := the number of fields in the tuple type
+
+## use-trait
+
+Importing a trait imposes two kinds of costs on the analysis.
+First, the import requires a database read. Second, the imported
+trait is included in the static analysis output -- this increases
+the total storage usage and write length of the static analysis.
+
+The costs are defined as:
+
+```
+read_count = 1
+write_count = 0
+runtime = a*X+b
+write_length = c*X+d
+read_length = c*X+d
+```
+
+where a, b, c, and d are constants, and
+
+X := the total type size of the trait (i.e., the sum of the
+    type sizes of each function signature).
+
+## contract-call?
+
+Checking a contract call requires a database lookup to inspect
+the function signature of a prior smart contract.
+
+The costs are defined as:
+
+```
+read_count = 1
+read_length = a*X+b
+runtime = c*X+d
+```
+
+where a, b, c, and d are constants, and
+
+X := the total type size of the function signature
+
+## let
+
+Let bindings require the static analysis sytem to iterate over
+each let binding and ensure that they are syntactically correct.
+
+This imposes a runtime cost:
+
+```
+a*X + b
+```
+where a and b are constants, and
+
+X := the number of entries in the let binding.
+
+
