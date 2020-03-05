@@ -222,6 +222,35 @@ checking pass.
 
 Some functions require additional work from the static analysis system.
 
+## Functions on iterables (e.g., map, filter, fold)
+
+Functions on iterables need to perform an additional check that the
+supplied type is a list or buffer before performing the normal
+argument type checking. This cost is assessed as:
+
+```
+a
+```
+
+where a is a constant.
+
+## Functions on options/responses
+
+Similarly to the functions on iterables, option/response functions
+must perform a simple check to see if the supplied input is an option or
+response before performing additional argument type checking. This cost is
+assessed as:
+
+```
+a
+```
+
+## Data functions (ft balance checks, nft lookups, map-get?, ...)
+
+Static checks on intra-contract data functions do not require database lookups
+(unlike the runtime costs of these functions). Rather, these functions
+incur normal type lookup (i.e., fetching the type of an NFT, data map, or data var)
+and type checking costs.
 
 ## get
 
