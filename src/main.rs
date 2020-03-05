@@ -203,7 +203,7 @@ fn main() {
         // let best_block_hash = rpc.get_best_block_hash().unwrap();
         // println!("{:?}", best_block_hash);
         
-        let mut conf = testnet::Config::default();
+        let mut conf = testnet::helium::Config::default();
         conf.add_initial_balance("ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6".to_string(), 100000);
         conf.add_initial_balance("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(), 10000);
 
@@ -212,7 +212,7 @@ fn main() {
         println!("Starting testnet...");
         println!("*** Mempool path: {}", conf.node.mempool_path);
 
-        let mut run_loop = testnet::RunLoop::new(conf);
+        let mut run_loop = testnet::helium::RunLoop::new(conf);
         let num_round = 0; // Infinite number of rounds
         run_loop.start(num_round);
         return

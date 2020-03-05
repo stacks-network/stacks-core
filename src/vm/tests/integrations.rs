@@ -16,7 +16,7 @@ use util::{log, strings::StacksString, hash::hex_bytes, hash::to_hex};
 use util::db::{DBConn, FromRow};
 
 use testnet;
-use testnet::mem_pool::MemPool;
+use testnet::helium::mem_pool::MemPool;
 
 fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
                                          sender: &StacksPrivateKey, nonce: u64) -> Vec<u8> {
@@ -140,16 +140,16 @@ const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334b
 
 #[test]
 fn integration_test_get_info() {
-    let mut conf = testnet::tests::new_test_conf();
+    let mut conf = testnet::helium::tests::new_test_conf();
 
-    conf.burnchain_block_time = 1500;
+    conf.burnchain.block_time = 1500;
 
     let contract_sk = StacksPrivateKey::new();
 
     let num_rounds = 4;
     let contract_addr = to_addr(&contract_sk);
 
-    let mut run_loop = testnet::RunLoop::new(conf);
+    let mut run_loop = testnet::helium::RunLoop::new(conf);
     run_loop.apply_on_new_tenures(|round, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
@@ -176,7 +176,7 @@ fn integration_test_get_info() {
         match round {
             1 => {
                 // - Chain length should be 2.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db, &chain_state.blocks_path).unwrap();
+                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
                 assert!(blocks.len() == 2);
                 

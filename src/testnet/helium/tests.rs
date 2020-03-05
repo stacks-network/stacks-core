@@ -1,7 +1,7 @@
 use testnet;
 use rand::RngCore;
 use util::hash::{to_hex, hex_bytes};
-use testnet::mem_pool::MemPool;
+use testnet::helium::mem_pool::MemPool;
 use chainstate::stacks::db::{StacksChainState};
 use super::node::{TESTNET_CHAIN_ID};
 use super::config::{InitialBalance};
@@ -9,7 +9,7 @@ use super::config::{InitialBalance};
 use chainstate::stacks::{TransactionPayload, CoinbasePayload};
 use vm::types::PrincipalData;
 
-pub fn new_test_conf() -> testnet::Config {
+pub fn new_test_conf() -> testnet::helium::Config {
     // Testnet's name
     let mut rng = rand::thread_rng();
     let mut buf = [0u8; 8];
@@ -23,7 +23,7 @@ pub fn new_test_conf() -> testnet::Config {
         InitialBalance { address: PrincipalData::parse_standard_principal("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT").unwrap().into(), amount: 10000 },
     ];
     
-    let mut conf = testnet::Config::default();
+    let mut conf = testnet::helium::Config::default();
     conf.initial_balances = Some(initial_balances);
     conf
 }
@@ -33,7 +33,7 @@ fn should_succeed_mining_valid_txs() {
     let conf = new_test_conf();
     
     let num_rounds = 6;
-    let mut run_loop = testnet::RunLoop::new(conf);
+    let mut run_loop = testnet::helium::RunLoop::new(conf);
 
     // Use tenure's hook for submitting transactions
     run_loop.apply_on_new_tenures(|round, tenure| {
@@ -248,9 +248,9 @@ fn should_succeed_mining_valid_txs() {
                     _ => false,
                 });
 
-                let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
+                // let mut conn = chain_state.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
 
-                chain_state
+                // chain_state
             },
             _ => {}
         }
@@ -263,7 +263,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     let conf = new_test_conf();
     
     let num_rounds = 4;
-    let mut run_loop = testnet::RunLoop::new(conf);
+    let mut run_loop = testnet::helium::RunLoop::new(conf);
 
     // Use tenure's hook for submitting transactions
     run_loop.apply_on_new_tenures(|round, tenure| {
