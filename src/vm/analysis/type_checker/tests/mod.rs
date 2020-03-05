@@ -92,7 +92,7 @@ fn test_define_trait(){
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -112,7 +112,7 @@ fn test_use_trait(){
     
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -128,7 +128,7 @@ fn test_impl_trait(){
     
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -317,7 +317,7 @@ fn test_trait_reference_unknown(){
     
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter() {
-        let res = build_ast(&contract_identifier, bad_test).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }

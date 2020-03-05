@@ -6,6 +6,7 @@ use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::ast::types::{ContractAST, BuildASTPass};
 use vm::ast::errors::{ParseResult, ParseError, ParseErrors};
+use vm::costs::{CostTracker, cost_functions};
 use vm::types::{Value};
 
 #[cfg(test)]
@@ -14,15 +15,6 @@ mod tests;
 pub struct DefinitionSorter {
     graph: Graph,
     top_level_expressions_map: HashMap<ClarityName, TopLevelExpressionIndex>   
-}
-
-impl BuildASTPass for DefinitionSorter {
-    
-    fn run_pass(contract_ast: &mut ContractAST) -> ParseResult<()> {
-        let mut pass = DefinitionSorter::new();
-        pass.run(contract_ast)?;
-        Ok(())
-    }
 }
 
 impl <'a> DefinitionSorter {
@@ -34,8 +26,13 @@ impl <'a> DefinitionSorter {
         }
     }
 
-    pub fn run(&mut self, contract_ast: &mut ContractAST) -> ParseResult<()> {
+    pub fn run_pass<T: CostTracker>(contract_ast: &mut ContractAST, accounting: &mut T) -> ParseResult<()> {
+        let mut pass = DefinitionSorter::new();
+        pass.run(contract_ast, accounting)?;
+        Ok(())
+    }
 
+    pub fn run<T: CostTracker>(&mut self, contract_ast: &mut ContractAST, accounting: &mut T) -> ParseResult<()> {
         let exprs = contract_ast.pre_expressions[..].to_vec();
         for (expr_index, expr) in exprs.iter().enumerate() {
             self.graph.add_node(expr_index);
@@ -52,6 +49,8 @@ impl <'a> DefinitionSorter {
         for (expr_index, expr) in exprs.iter().enumerate() {
             self.probe_for_dependencies(&expr, expr_index)?;
         }
+
+        runtime_cost!(cost_functions::AST_CYCLE_DETECTION, accounting, self.graph.edges_count()?)?;
 
         let mut walker = GraphWalker::new();
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
@@ -312,7 +311,18 @@ impl Graph {
         self.adjacency_list[expr_index].len() > 0
     }
 
-    fn nodes_count(&self) -> usize { self.adjacency_list.len() }
+    fn nodes_count(&self) -> usize {
+        self.adjacency_list.len()
+    }
+
+    fn edges_count(&self) -> ParseResult<u64> {
+        let mut total: u64 = 0;
+        for node in self.adjacency_list.iter() {
+            total = total.checked_add(node.len() as u64)
+                .ok_or_else(|| ParseErrors::CostOverflow)?;
+        }
+        Ok(total)
+    }
 }
 
 struct GraphWalker {

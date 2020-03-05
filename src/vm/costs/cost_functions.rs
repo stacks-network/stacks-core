@@ -34,8 +34,22 @@ def_runtime_cost!(ANALYSIS_LOOKUP_FUNCTION_TYPES { Linear(1, 1) });
 def_runtime_cost!(ANALYSIS_LOOKUP_VARIABLE_CONST { Constant(1) });
 def_runtime_cost!(ANALYSIS_LOOKUP_VARIABLE_DEPTH { NLogN(1, 1) });
 
-pub const ANALYSIS_GET_TRAIT_ENTRY: SimpleCostSpecification = SimpleCostSpecification {
-    write_length: Constant(0),
+def_runtime_cost!(AST_PARSE { Linear(1, 1) });
+def_runtime_cost!(AST_CYCLE_DETECTION { Linear(1, 1) });
+
+pub const ANALYSIS_STORAGE: SimpleCostSpecification = SimpleCostSpecification {
+    write_length: Linear(1, 1),
+    write_count: Constant(1),
+    runtime: Linear(1, 1),
+    read_count: Constant(1),
+    read_length: Constant(1),
+};
+
+pub const ANALYSIS_USE_TRAIT_ENTRY: SimpleCostSpecification = SimpleCostSpecification {
+    // increases the total storage consumed by the contract!
+    //  so we count the additional write_length, but since it does _not_ require
+    //  an additional _write_, we don't charge for that.
+    write_length: Linear(1, 1),
     write_count: Constant(0),
     runtime: Linear(1, 1),
     read_count: Constant(1),

@@ -4,7 +4,7 @@ pub mod natives;
 
 use std::convert::TryInto;
 use std::collections::{HashMap, BTreeMap};
-use vm::representations::{SymbolicExpression, ClarityName};
+use vm::representations::{SymbolicExpression, ClarityName, depth_traverse};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 use vm::types::{TypeSignature, TupleTypeSignature, FunctionArg,
                 FunctionType, FixedFunction, parse_name_type_pairs, Value, PrincipalData};
@@ -12,7 +12,7 @@ use vm::types::signatures::{FunctionSignature};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctionsParsed;
 use vm::variables::NativeVariables;
-use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker,
+use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker, CostErrors,
                 cost_functions, analysis_typecheck_cost, CostOverflowingMath};
 
 use super::AnalysisDatabase;
@@ -54,16 +54,15 @@ pub struct TypeChecker <'a, 'b> {
 }
 
 impl CostTracker for TypeChecker<'_, '_> {
-    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CheckErrors> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.cost_track.add_cost(cost)
     }
 }
 
-impl <'a, 'b> AnalysisPass for TypeChecker <'a, 'b> {
+impl AnalysisPass for TypeChecker <'_, '_> {
     fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
         let mut command = TypeChecker::new(analysis_db, cost_track);
-
         // run the analysis, and replace the cost tracker whether or not the
         //   analysis succeeded.
         match command.run(contract_analysis) {
@@ -232,6 +231,23 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
+        // charge for the eventual storage cost of the analysis --
+        //  it is linear in the size of the AST.
+        let mut size: u64 = 0;
+        for exp in contract_analysis.expressions.iter() {
+            depth_traverse(exp, |_x| {
+                match size.cost_overflow_add(1) {
+                    Ok(new_size) => {
+                        size = new_size;
+                        Ok(())
+                    },
+                    Err(e) => Err(e)
+                }
+            })?;
+        }
+
+        runtime_cost!(cost_functions::ANALYSIS_STORAGE, self, size)?;
+
         let mut local_context = TypingContext::new();
 
         for exp in contract_analysis.expressions.iter() {
@@ -561,13 +577,13 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                     match result {
                         Some(trait_sig) => {
                             let type_size = trait_type_size(&trait_sig)?;
-                            runtime_cost!(cost_functions::ANALYSIS_GET_TRAIT_ENTRY, self, type_size)?;
+                            runtime_cost!(cost_functions::ANALYSIS_USE_TRAIT_ENTRY, self, type_size)?;
                             runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, type_size)?;
                             self.contract_context.add_trait(trait_identifier.name.clone(), trait_sig)?
                         },
                         None => {
                             // still had to do a db read, even if it didn't exist!
-                            runtime_cost!(cost_functions::ANALYSIS_GET_TRAIT_ENTRY, self, 1)?;
+                            runtime_cost!(cost_functions::ANALYSIS_USE_TRAIT_ENTRY, self, 1)?;
                             return Err(CheckErrors::TraitReferenceUnknown(name.to_string()).into())
                         }
                     }

@@ -13,7 +13,7 @@ use super::{TypedNativeFunction, SimpleNativeFunction};
 use vm::costs::{cost_functions, analysis_typecheck_cost};
 
 fn get_simple_native_or_user_define(function_name: &str, checker: &mut TypeChecker) -> CheckResult<FunctionType> {
-    runtime_cost!(cost_functions::ANALYSIS_LOOKUP_FUNCTION, checker, 1);
+    runtime_cost!(cost_functions::ANALYSIS_LOOKUP_FUNCTION, checker, 1)?;
     if let Some(ref native_function) = NativeFunctions::lookup_by_name(function_name) {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) = TypedNativeFunction::type_native_function(native_function) {
             Ok(function_type)
@@ -35,7 +35,7 @@ pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression],
     //   you _cannot_ map a special function.
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1);
+    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
     let argument_type = checker.type_check(&args[1], context)?;
     
     match argument_type {
@@ -63,7 +63,7 @@ pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpressio
     //   you _cannot_ map a special function.
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1);
+    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
     let argument_type = checker.type_check(&args[1], context)?;
 
     {
@@ -92,7 +92,7 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     //   you _cannot_ fold a special function.
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
     
-    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1);
+    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
     let argument_type = checker.type_check(&args[1], context)?;
 
     let input_type = match argument_type {
@@ -122,7 +122,7 @@ pub fn check_special_concat(checker: &mut TypeChecker, args: &[SymbolicExpressio
     let lhs_type = checker.type_check(&args[0], context)?;
     let rhs_type = checker.type_check(&args[1], context)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1);
+    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
 
     analysis_typecheck_cost(checker, &lhs_type, &rhs_type)?;
     
@@ -158,7 +158,7 @@ pub fn check_special_concat(checker: &mut TypeChecker, args: &[SymbolicExpressio
 pub fn check_special_append(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
 
-    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1);
+    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
 
     let lhs_type = checker.type_check(&args[0], context)?;
     match lhs_type {
@@ -214,7 +214,7 @@ pub fn check_special_len(checker: &mut TypeChecker, args: &[SymbolicExpression],
     check_argument_count(1, args)?;
 
     let collection_type = checker.type_check(&args[0], context)?;
-    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1);
+    runtime_cost!(cost_functions::ANALYSIS_ITERABLE_FUNC, checker, 1)?;
 
     match collection_type {
         TypeSignature::ListType(_) | TypeSignature::BufferType(_) => Ok(()),

@@ -258,16 +258,16 @@ impl<'a> ClarityTx<'a> {
 
     #[cfg(test)]
     pub fn commit_block(self) -> () {
-        self.block.commit_block()
+        self.block.commit_block();
     }
 
     pub fn commit_block_will_move(self, will_move: &str) -> () {
-        self.block.commit_block_will_move(will_move)
+        self.block.commit_block_will_move(will_move);
     }
 
     pub fn commit_to_block(self, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> () {
         let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_hash, block_hash);
-        self.block.commit_to_block(&index_block_hash)
+        self.block.commit_to_block(&index_block_hash);
     }
 
     pub fn rollback_block(self) -> () {

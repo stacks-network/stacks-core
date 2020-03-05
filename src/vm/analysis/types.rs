@@ -36,7 +36,7 @@ pub struct ContractAnalysis {
 }
 
 impl ContractAnalysis {
-    pub fn new(contract_identifier: QualifiedContractIdentifier, expressions: Vec<SymbolicExpression>) -> ContractAnalysis {
+    pub fn new(contract_identifier: QualifiedContractIdentifier, expressions: Vec<SymbolicExpression>, cost_track: LimitedCostTracker) -> ContractAnalysis {
         ContractAnalysis {
             contract_identifier,
             expressions,
@@ -51,7 +51,7 @@ impl ContractAnalysis {
             implemented_traits: BTreeSet::new(),
             fungible_tokens: BTreeSet::new(),
             non_fungible_tokens: BTreeMap::new(),
-            cost_track: Some(LimitedCostTracker::new_max_limit())
+            cost_track: Some(cost_track)
         }
     }
 

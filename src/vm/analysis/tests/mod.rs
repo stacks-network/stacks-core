@@ -3,6 +3,8 @@ use vm::analysis::{AnalysisDatabase, mem_type_check};
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{ContractAnalysis, type_check};
 
+mod costs;
+
 #[test]
 fn test_list_types_must_match() {
     let snippet = "(list 1 'true)";

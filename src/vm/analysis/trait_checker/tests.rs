@@ -269,7 +269,7 @@ fn test_define_map_storing_trait_references() {
 
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
 
-    let err = build_ast(&dispatching_contract_id, dispatching_contract_src).unwrap_err();
+    let err = build_ast(&dispatching_contract_id, dispatching_contract_src, &mut ()).unwrap_err();
 
     match err.err {
         ParseErrors::TraitReferenceNotAllowed => {},
@@ -289,7 +289,7 @@ fn test_cycle_in_traits_1_contract() {
 
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
 
-    let err = build_ast(&dispatching_contract_id, dispatching_contract_src).unwrap_err();
+    let err = build_ast(&dispatching_contract_id, dispatching_contract_src, &mut ()).unwrap_err();
     match err.err {
         ParseErrors::CircularReference(_) => {},
         _ => {
@@ -426,7 +426,7 @@ fn test_dynamic_dispatch_collision_trait() {
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
 
     let _contract_defining_trait = parse(&contract_defining_trait_id, contract_defining_trait_src).unwrap();
-    let err = build_ast(&dispatching_contract_id, dispatching_contract_src).unwrap_err();
+    let err = build_ast(&dispatching_contract_id, dispatching_contract_src, &mut ()).unwrap_err();
     match err.err {
         ParseErrors::NameAlreadyUsed(_) => {},
         _ => {
@@ -447,7 +447,7 @@ fn test_dynamic_dispatch_collision_defined_trait() {
 
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
 
-    let err = build_ast(&dispatching_contract_id, dispatching_contract_src).unwrap_err();
+    let err = build_ast(&dispatching_contract_id, dispatching_contract_src, &mut ()).unwrap_err();
     match err.err {
         ParseErrors::NameAlreadyUsed(_) => {},
         _ => {
@@ -473,7 +473,7 @@ fn test_dynamic_dispatch_collision_imported_trait() {
     let dispatching_contract_id = QualifiedContractIdentifier::local("dispatching-contract").unwrap();
 
     let _contract_defining_trait = parse(&contract_defining_trait_id, contract_defining_trait_src).unwrap();
-    let err = build_ast(&dispatching_contract_id, dispatching_contract_src).unwrap_err();
+    let err = build_ast(&dispatching_contract_id, dispatching_contract_src, &mut ()).unwrap_err();
     match err.err {
         ParseErrors::NameAlreadyUsed(_) => {},
         _ => {
