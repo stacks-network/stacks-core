@@ -463,11 +463,21 @@ impl StacksChainState {
                 Ok(asset_map.get_stx_burned_total())
             },
             TransactionPayload::PoisonMicroblock(ref _mblock_header_1, ref _mblock_header_2) => {
+                // post-conditions are not allowed for this variant, since they're non-sensical.
+                // Their presence in this variant makes the transaction invalid.
+                if tx.post_conditions.len() > 0 {
+                    let msg = format!("Invalid Stacks transaction: PoisonMicroblock transactions do not support post-conditions");
+                    warn!("{}", &msg);
+
+                    return Err(Error::InvalidStacksTransaction(msg));
+                }
+
                 // TODO: actually implement this, but not necessarily for this PR
                 panic!("Not implemented yet");
             },
             TransactionPayload::Coinbase(_) => {
                 // no-op; not handled here
+                // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
                 Ok(0)
             }
         }

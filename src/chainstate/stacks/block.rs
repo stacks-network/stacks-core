@@ -1044,12 +1044,12 @@ mod test {
     #[test]
     fn codec_stacks_microblock() { 
         // make a block with each and every kind of transaction
-        let mut all_txs = codec_all_transactions(&TransactionVersion::Testnet, 0x80000000, &TransactionAnchorMode::OffChainOnly, &TransactionPostConditionMode::Allow);
+        let all_txs = codec_all_transactions(&TransactionVersion::Testnet, 0x80000000, &TransactionAnchorMode::OffChainOnly, &TransactionPostConditionMode::Allow);
 
         // remove all coinbases
         let mut txs_anchored = vec![];
 
-        for tx in all_txs.drain(..) {
+        for tx in all_txs.iter() {
             match tx.payload {
                 TransactionPayload::Coinbase(_) => {
                     continue;

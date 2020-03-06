@@ -33,13 +33,7 @@ use net::connection::ConnectionP2P;
 use net::connection::ReplyHandleP2P;
 use net::connection::ConnectionOptions;
 
-use net::poll::NetworkState;
-use net::poll::NetworkPollState;
-
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-
-use net::p2p::PeerNetwork;
-use net::p2p::NetworkHandle;
 
 use net::db::*;
 
@@ -67,10 +61,6 @@ use std::convert::TryFrom;
 use util::log;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
-
-use mio::net as mio_net;
-
-use rusqlite::Transaction;
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
@@ -167,7 +157,9 @@ impl NeighborStats {
 }
 
 /// P2P ongoing conversation with another Stacks peer
-pub struct Conversation {
+pub struct ConversationP2P {
+    pub network_id: u32,
+    pub version: u32,
     pub connection: ConnectionP2P,
     pub conn_id: usize,
 
@@ -189,16 +181,19 @@ pub struct Conversation {
     pub burnchain_tip_height: u64,
     pub burnchain_tip_consensus_hash: ConsensusHash,
 
-    pub stats: NeighborStats
+    pub stats: NeighborStats,
+
+    // outbound replies
+    pub reply_handles: VecDeque<ReplyHandleP2P>
 }
 
-impl fmt::Display for Conversation {
+impl fmt::Display for ConversationP2P {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "convo:id={},outbound={},peer={:?}", self.conn_id, self.stats.outbound, &self.to_neighbor_key())
     }
 }
 
-impl fmt::Debug for Conversation {
+impl fmt::Debug for ConversationP2P {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "convo:id={},outbound={},peer={:?}", self.conn_id, self.stats.outbound, &self.to_neighbor_key())
     }
@@ -230,7 +225,7 @@ impl Neighbor {
     pub fn handshake_update(&mut self, conn: &DBConn, handshake_data: &HandshakeData) -> Result<(), net_error> {
         let pubk = handshake_data.node_public_key.to_public_key()?;
         let asn_opt = PeerDB::asn_lookup(conn, &handshake_data.addrbytes)
-            .map_err(|_e| net_error::DBError)?;
+            .map_err(net_error::DBError)?;
 
         let asn = match asn_opt {
             Some(a) => a,
@@ -254,7 +249,7 @@ impl Neighbor {
         let pubk = handshake_data.node_public_key.to_public_key()?;
 
         let peer_opt = PeerDB::get_peer(conn, network_id, &addr.addrbytes, addr.port)
-            .map_err(|_e| net_error::DBError)?;
+            .map_err(net_error::DBError)?;
 
         let mut neighbor = match peer_opt {
             Some(neighbor) => {
@@ -287,10 +282,10 @@ impl Neighbor {
         Ok(neighbor)
     }
 
-    pub fn from_conversation(conn: &DBConn, convo: &Conversation) -> Result<Option<Neighbor>, net_error> {
+    pub fn from_conversation(conn: &DBConn, convo: &ConversationP2P) -> Result<Option<Neighbor>, net_error> {
         let addr = convo.to_neighbor_key();
         let peer_opt = PeerDB::get_peer(conn, addr.network_id, &addr.addrbytes, addr.port)
-            .map_err(|_e| net_error::DBError)?;
+            .map_err(net_error::DBError)?;
 
         match peer_opt {
             None => {
@@ -299,7 +294,7 @@ impl Neighbor {
             Some(mut peer) => {
                 if peer.asn == 0 {
                     let asn_opt = PeerDB::asn_lookup(conn, &addr.addrbytes)
-                        .map_err(|_e| net_error::DBError)?;
+                        .map_err(net_error::DBError)?;
 
                     match asn_opt {
                         Some(a) => {
@@ -316,10 +311,12 @@ impl Neighbor {
     }
 }
 
-impl Conversation {
+impl ConversationP2P {
     /// Create an unconnected conversation
-    pub fn new(burnchain: &Burnchain, peer_addr: &SocketAddr, conn_opts: &ConnectionOptions, outbound: bool, conn_id: usize) -> Conversation {
-        Conversation {
+    pub fn new(network_id: u32, version: u32, burnchain: &Burnchain, peer_addr: &SocketAddr, conn_opts: &ConnectionOptions, outbound: bool, conn_id: usize) -> ConversationP2P {
+        ConversationP2P {
+            network_id: network_id,
+            version: version,
             connection: ConnectionP2P::new(StacksP2P::new(), conn_opts, None),
             conn_id: conn_id,
             seq: 0,
@@ -339,39 +336,8 @@ impl Conversation {
             burnchain_tip_height: 0,
             burnchain_tip_consensus_hash: ConsensusHash([0x00; 20]),
 
-            stats: NeighborStats::new(outbound)
-        }
-    }
-
-    /// Create a conversation from an existing conversation whose underlying network connection had to be
-    /// reset.
-    pub fn from_peer_reset(convo: &Conversation, conn_opts: &ConnectionOptions) -> Conversation {
-        let stats = convo.stats.clone();
-        Conversation {
-            connection: ConnectionP2P::new(StacksP2P::new(), conn_opts, None),
-            conn_id: convo.conn_id,
-            seq: 0,
-            heartbeat: conn_opts.heartbeat,
-            burnchain: convo.burnchain.clone(),
-
-            peer_network_id: convo.peer_network_id,
-            peer_version: convo.peer_version,
-            peer_addrbytes: convo.peer_addrbytes.clone(),
-            peer_port: convo.peer_port,
-            peer_heartbeat: convo.peer_heartbeat,
-            peer_services: convo.peer_services,
-            peer_expire_block_height: convo.peer_expire_block_height,
-
-            data_url: convo.data_url.clone(),
-
-            burnchain_tip_height: convo.burnchain_tip_height,
-            burnchain_tip_consensus_hash: convo.burnchain_tip_consensus_hash.clone(),
-            
-            stats: NeighborStats {
-                peer_resets: convo.stats.peer_resets + 1,
-                last_reset_time: get_epoch_time_secs(),
-                ..stats
-            }
+            stats: NeighborStats::new(outbound),
+            reply_handles: VecDeque::new(),
         }
     }
 
@@ -410,14 +376,14 @@ impl Conversation {
     /// Return Err(net_error::InvalidMessage) if the remote peer returns an invalid message in
     ///     violation of the protocol
     pub fn is_preamble_valid(&self, msg: &StacksMessage, chain_view: &BurnchainView) -> Result<bool, net_error> {
-        if msg.preamble.network_id != self.burnchain.network_id {
+        if msg.preamble.network_id != self.network_id {
             // not on our network -- potentially blacklist this peer
-            test_debug!("wrong network ID: {:x} != {:x}", msg.preamble.network_id, self.burnchain.network_id);
+            test_debug!("wrong network ID: {:x} != {:x}", msg.preamble.network_id, self.network_id);
             return Err(net_error::InvalidMessage);
         }
-        if (msg.preamble.peer_version & 0xff000000) != (self.burnchain.peer_version & 0xff000000) {
+        if (msg.preamble.peer_version & 0xff000000) != (self.version & 0xff000000) {
             // major version mismatch -- potentially blacklist this peer
-            test_debug!("wrong peer version: {:x} != {:x}", msg.preamble.peer_version, self.burnchain.peer_version);
+            test_debug!("wrong peer version: {:x} != {:x}", msg.preamble.peer_version, self.version);
             return Err(net_error::InvalidMessage);
         }
         if msg.preamble.burn_stable_block_height.checked_add(self.burnchain.stable_confirmations as u64) != Some(msg.preamble.burn_block_height) {
@@ -434,7 +400,7 @@ impl Conversation {
         else {
             // remote node's unstable burn block height is at or behind ours.
             // if their view is sufficiently fresh, make sure their consensus hash matches our view.
-            let res = Conversation::check_consensus_hash_disagreement(msg.preamble.burn_block_height, &msg.preamble.burn_consensus_hash, chain_view);
+            let res = ConversationP2P::check_consensus_hash_disagreement(msg.preamble.burn_block_height, &msg.preamble.burn_consensus_hash, chain_view);
             if res {
                 // our chain tip disagrees with their chain tip -- don't engage
                 return Ok(false);
@@ -442,7 +408,7 @@ impl Conversation {
         }
 
         // must agree on stable consensus hash
-        let rules_disagree = Conversation::check_consensus_hash_disagreement(msg.preamble.burn_stable_block_height, &msg.preamble.burn_stable_consensus_hash, chain_view);
+        let rules_disagree = ConversationP2P::check_consensus_hash_disagreement(msg.preamble.burn_stable_block_height, &msg.preamble.burn_stable_consensus_hash, chain_view);
         if rules_disagree {
             // remote peer disagrees on stable consensus hash -- follows different rules than us
             test_debug!("Consensus hash mismatch in preamble");
@@ -464,14 +430,14 @@ impl Conversation {
 
     /// Generate a signed message for this conversation 
     pub fn sign_message(&mut self, chain_view: &BurnchainView, private_key: &Secp256k1PrivateKey, payload: StacksMessageType) -> Result<StacksMessage, net_error> {
-        let mut msg = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, chain_view, payload);
+        let mut msg = StacksMessage::from_chain_view(self.version, self.network_id, chain_view, payload);
         msg.sign(self.next_seq(), private_key)?;
         Ok(msg)
     }
     
     /// Generate a signed reply for this conversation 
     pub fn sign_reply(&mut self, chain_view: &BurnchainView, private_key: &Secp256k1PrivateKey, payload: StacksMessageType, seq: u32) -> Result<StacksMessage, net_error> {
-        let mut msg = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, chain_view, payload);
+        let mut msg = StacksMessage::from_chain_view(self.version, self.network_id, chain_view, payload);
         msg.sign(seq, private_key)?;
         Ok(msg)
     }
@@ -500,18 +466,18 @@ impl Conversation {
 
     /// Reply to a ping with a pong.
     /// Called from the p2p network thread.
-    pub fn handle_ping(&mut self, chain_view: &BurnchainView, message: &mut StacksMessage) -> Result<Option<StacksMessage>, net_error> {
+    fn handle_ping(&mut self, chain_view: &BurnchainView, message: &mut StacksMessage) -> Result<Option<StacksMessage>, net_error> {
         let ping_data = match message.payload {
             StacksMessageType::Ping(ref data) => data,
             _ => panic!("Message is not a ping")
         };
         let pong_data = PongData::from_ping(&ping_data);
-        Ok(Some(StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, chain_view, StacksMessageType::Pong(pong_data))))
+        Ok(Some(StacksMessage::from_chain_view(self.version, self.network_id, chain_view, StacksMessageType::Pong(pong_data))))
     }
 
     /// Validate a handshake request.
     /// Return Err(...) if the handshake request was invalid.
-    pub fn validate_handshake(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, message: &mut StacksMessage) -> Result<(), net_error> {
+    fn validate_handshake(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, message: &mut StacksMessage) -> Result<(), net_error> {
         let handshake_data = match message.payload {
             StacksMessageType::Handshake(ref mut data) => data.clone(),
             _ => panic!("Message is not a handshake")
@@ -564,8 +530,9 @@ impl Conversation {
         Ok(())
     }
 
-    /// Update connection state from handshake data
-    pub fn update_from_handshake_data(&mut self, preamble: &Preamble, handshake_data: &HandshakeData) -> Result<(), net_error> {
+    /// Update connection state from handshake data.
+    /// Returns true if we learned a new public key; false if not
+    pub fn update_from_handshake_data(&mut self, preamble: &Preamble, handshake_data: &HandshakeData) -> Result<bool, net_error> {
         let pubk = handshake_data.node_public_key.to_public_key()?;
 
         self.peer_version = preamble.peer_version;
@@ -574,32 +541,34 @@ impl Conversation {
         self.peer_expire_block_height = handshake_data.expire_block_height;
         self.data_url = handshake_data.data_url.clone();
 
+        let mut updated = false;
         let cur_pubk_opt = self.connection.get_public_key();
         if let Some(cur_pubk) = cur_pubk_opt {
             if pubk != cur_pubk {
                 test_debug!("{:?}: Upgrade key {:?} to {:?} expires {:?}", &self, &to_hex(&cur_pubk.to_bytes_compressed()), &to_hex(&pubk.to_bytes_compressed()), self.peer_expire_block_height);
+                updated = true;
             }
         }
         
         self.connection.set_public_key(Some(pubk.clone()));
 
-        Ok(())
+        Ok(updated)
     }
 
-    /// Handle a handshake request, and generate either a HandshakeAccept or a HandshakeReject
+    /// Handle an inbound handshake request, and generate either a HandshakeAccept or a HandshakeReject
     /// payload to send back.
     /// A handshake will only be accepted if we do not yet know the public key of this remote peer,
     /// or if it is signed by the current public key.
-    /// Called from the p2p network thread.
+    /// Returns a reply (either an accept or reject) if appropriate
     /// Panics if this message is not a handshake (caller should check)
-    pub fn handle_handshake(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, message: &mut StacksMessage) -> Result<Option<StacksMessage>, net_error> {
+    fn handle_handshake(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, chain_view: &BurnchainView, message: &mut StacksMessage) -> Result<(Option<StacksMessage>, bool), net_error> {
         let res = self.validate_handshake(local_peer, chain_view, message);
         match res {
             Ok(_) => {},
             Err(net_error::InvalidHandshake) => {
-                let reject = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, chain_view, StacksMessageType::HandshakeReject);
+                let reject = StacksMessage::from_chain_view(self.version, self.network_id, chain_view, StacksMessageType::HandshakeReject);
                 debug!("{:?}: invalid handshake", &self);
-                return Ok(Some(reject));
+                return Ok((Some(reject), true));
             },
             Err(e) => {
                 return Err(e);
@@ -612,30 +581,89 @@ impl Conversation {
         };
 
         let old_pubkey_opt = self.connection.get_public_key();
-        self.update_from_handshake_data(&message.preamble, &handshake_data)?;
-       
-        let new_pubkey_opt = self.connection.get_public_key();
-
-        let _authentic_msg = if old_pubkey_opt == new_pubkey_opt { "same" } else if old_pubkey_opt.is_none() { "new" } else { "upgraded" };
+        let updated = self.update_from_handshake_data(&message.preamble, &handshake_data)?;
+        let _authentic_msg = if !updated { "same" } else if old_pubkey_opt.is_none() { "new" } else { "upgraded" };
 
         test_debug!("Handshake from {:?} {} public key {:?} expires at {:?}", &self, _authentic_msg,
                     &to_hex(&handshake_data.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_data.expire_block_height);
 
+        if updated {
+            // save the new key
+            let mut tx = peerdb.tx_begin().map_err(net_error::DBError)?;
+            let neighbor = Neighbor::from_handshake(&mut tx, message.preamble.peer_version, message.preamble.network_id, &handshake_data)?;
+            neighbor.save_update(&mut tx)?;
+            tx.commit().map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
+            
+            test_debug!("{:?}: Re-key {:?} to {:?} expires {}", local_peer, &neighbor.addr, &to_hex(&neighbor.public_key.to_bytes_compressed()), neighbor.expire_block);
+        }
+
         let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat);
-        let accept = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, chain_view, StacksMessageType::HandshakeAccept(accept_data));
-        Ok(Some(accept))
+        let accept = StacksMessage::from_chain_view(self.version, self.network_id, chain_view, StacksMessageType::HandshakeAccept(accept_data));
+
+        // always pass back handshakes, even though we "handled" them (since other processes --
+        // in particular, the neighbor-walk logic -- need to receive them)
+        Ok((Some(accept), false))
     }
 
+    /// Handle an inbound handshake-accept
     /// Update conversation state based on a HandshakeAccept
     /// Called from the p2p network thread.
-    pub fn handle_handshake_accept(&mut self, preamble: &Preamble, handshake_accept: &HandshakeAcceptData) -> Result<Option<StacksMessage>, net_error> {
+    fn handle_handshake_accept(&mut self, preamble: &Preamble, handshake_accept: &HandshakeAcceptData) -> Result<(), net_error> {
         self.update_from_handshake_data(preamble, &handshake_accept.handshake)?;
         self.peer_heartbeat = handshake_accept.heartbeat_interval;
         self.stats.last_handshake_time = get_epoch_time_secs();
 
         test_debug!("HandshakeAccept from {:?}: set public key to {:?} expiring at {:?} heartbeat {}s", &self,
                     &to_hex(&handshake_accept.handshake.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_accept.handshake.expire_block_height, self.peer_heartbeat);
-        Ok(None)
+        Ok(())
+    }
+
+    /// Handle an inbound GetNeighbors request.
+    fn handle_getneighbors(&mut self, dbconn: &DBConn, local_peer: &LocalPeer, chain_view: &BurnchainView, preamble: &Preamble) -> Result<ReplyHandleP2P, net_error> {
+        // get neighbors at random as long as they're fresh
+        let neighbors = PeerDB::get_random_neighbors(dbconn, self.network_id, MAX_NEIGHBORS_DATA_LEN, chain_view.burn_block_height, false)
+            .map_err(net_error::DBError)?;
+
+        let neighbor_addrs : Vec<NeighborAddress> = neighbors
+            .iter()
+            .map(|n| NeighborAddress::from_neighbor(n))
+            .collect();
+        
+        test_debug!("{:?}: handle GetNeighbors from {:?}. Reply with {} neighbors", &local_peer, &self, neighbor_addrs.len());
+
+        let payload = StacksMessageType::Neighbors( NeighborsData { neighbors: neighbor_addrs } );
+        let reply = self.sign_reply(chain_view, &local_peer.private_key, payload, preamble.seq)?;
+        let reply_handle = self.relay_signed_message(reply)
+            .map_err(|e| {
+                debug!("Outbox to {:?} is full; cannot reply to GetNeighbors", &self);
+                e
+            })?;
+
+        Ok(reply_handle)
+    }
+    
+    /// Handle an inbound p2p data-plane message.
+    /// Return true if handled
+    fn handle_data_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, chain_view: &BurnchainView, msg: &StacksMessage) -> Result<bool, net_error> {
+        let mut handled = false;
+        match msg.payload {
+            StacksMessageType::GetNeighbors => {
+                // unsolicited get-neighbors request
+                let res = self.handle_getneighbors(peerdb.conn(), local_peer, chain_view, &msg.preamble);
+                match res {
+                    Ok(handle) => {
+                        self.reply_handles.push_back(handle);
+                        handled = true;
+                    }
+                    Err(e) => {
+                        debug!("Failed to handle GetNeighbors from {:?}: {:?}", self, &e);
+                    }
+                };
+            },
+            /* TODO: handle blocks and transactions */
+            _ => {}
+        }
+        Ok(handled)
     }
 
     /// Load data into our connection 
@@ -643,8 +671,10 @@ impl Conversation {
         let res = self.connection.recv_data(r);
         match res {
             Ok(num_recved) => {
-                self.stats.last_recv_time = get_epoch_time_secs();
-                self.stats.bytes_rx += num_recved as u64;
+                if num_recved > 0 {
+                    self.stats.last_recv_time = get_epoch_time_secs();
+                    self.stats.bytes_rx += num_recved as u64;
+                }
             },
             Err(_) => {}
         };
@@ -656,34 +686,194 @@ impl Conversation {
         let res = self.connection.send_data(w);
         match res {
             Ok(num_sent) => {
-                self.stats.last_send_time = get_epoch_time_secs();
-                self.stats.bytes_tx += num_sent as u64;
+                if num_sent > 0 {
+                    self.stats.last_send_time = get_epoch_time_secs();
+                    self.stats.bytes_tx += num_sent as u64;
+                }
             },
             Err(_) => {}
         };
         res
     }
 
+    /// Make progress on in-flight messages.
+    pub fn try_flush(&mut self) -> Result<(), net_error> {
+        // send out responses in the order they were requested 
+        let mut drained = false;
+        let mut broken = false;
+        match self.reply_handles.front_mut() {
+            Some(ref mut reply) => {
+                // try moving some data to the connection
+                match reply.try_flush() {
+                    Ok(res) => {
+                        drained = res;
+                    },
+                    Err(e) => {
+                        // dead
+                        warn!("Broken P2P connection: {:?}", &e);
+                        broken = true;
+                    }
+                }
+            },
+            None => {}
+        }
+
+        if broken || drained {
+            // done with this stream
+            self.reply_handles.pop_front();
+        }
+        Ok(())
+    }
+
+    /// How many pending outgoing messages are there
+    pub fn num_pending_outbound(&self) -> usize {
+        self.reply_handles.len()
+    }
+
+    /// Validate an inbound p2p message
+    /// Return Ok(true) if valid, Ok(false) if invalid, and Err if we should disconnect.
+    fn validate_inbound_message(&mut self, msg: &StacksMessage, burnchain_view: &BurnchainView) -> Result<bool, net_error> {
+        // validate message preamble
+        match self.is_preamble_valid(&msg, burnchain_view) {
+            Ok(res) => {
+                if !res {
+                    info!("{:?}: Received message with stale preamble; ignoring", &self);
+                    self.stats.msgs_err += 1;
+                    self.stats.add_healthpoint(false);
+                    return Ok(false);
+                }
+            },
+            Err(e) => {
+                match e {
+                    net_error::InvalidMessage => {
+                        // Disconnect from this peer.  If it thinks nothing's wrong, it'll
+                        // reconnect on its own.
+                        // However, only count this message as error.  Drop all other queued
+                        // messages.
+                        info!("{:?}: Received invalid preamble; dropping connection", &self);
+                        self.stats.msgs_err += 1;
+                        self.stats.add_healthpoint(false);
+                        return Err(e);
+                    },
+                    _ => {
+                        // skip this message 
+                        info!("{:?}: Failed to process message: {:?}", &self, &e);
+                        self.stats.msgs_err += 1;
+                        self.stats.add_healthpoint(false);
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+        return Ok(true);
+    }
+
+    /// Handle an inbound authenticated p2p control-plane message
+    /// Return true if we should consume it, as well as the message we'll send as a reply (if any)
+    fn handle_authenticated_control_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burnchain_view: &BurnchainView, msg: &mut StacksMessage) -> Result<(Option<StacksMessage>, bool), net_error> {
+        let mut consume = false;
+
+        // already have public key; match payload
+        let reply_opt = match msg.payload {
+            StacksMessageType::Handshake(_) => {
+                test_debug!("{:?}: Got Handshake", &self);
+                let (handshake_opt, handled) = self.handle_handshake(local_peer, peerdb, burnchain_view, msg)?;
+                consume = handled;
+                Ok(handshake_opt)
+            },
+            StacksMessageType::HandshakeAccept(ref data) => {
+                test_debug!("{:?}: Got HandshakeAccept", &self);
+                self.handle_handshake_accept(&msg.preamble, data).and_then(|_| Ok(None))
+            },
+            StacksMessageType::Ping(_) => {
+                test_debug!("{:?}: Got Ping", &self);
+
+                // consume here if unsolicited
+                consume = true;
+                self.handle_ping(burnchain_view, msg)
+            },
+            StacksMessageType::Pong(_) => {
+                test_debug!("{:?}: Got Pong", &self);
+
+                // consume here if unsolicited
+                consume = true;
+                Ok(None)
+            },
+            _ => {
+                test_debug!("{:?}: Got a message (type {})", &self, msg.payload.get_message_name());
+                Ok(None)       // nothing to reply to at this time
+            }
+        }?;
+        Ok((reply_opt, consume))
+    }
+
+    /// Handle an inbound unauthenticated p2p control-plane message.
+    /// Return true if the message was also solicited, as well as the reply we generate to
+    /// deal with it (if we do deal with it)
+    fn handle_unauthenticated_control_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burnchain_view: &BurnchainView, msg: &mut StacksMessage) -> Result<(Option<StacksMessage>, bool), net_error> {
+        // only thing we'll take right now is a handshake, as well as handshake
+        // accept/rejects and nacks.
+        //
+        // Anything else will be nack'ed -- the peer will first need to handshake.
+        let mut consume = false;
+        let solicited = self.connection.is_solicited(&msg);
+        let reply_opt = match msg.payload {
+            StacksMessageType::Handshake(_) => {
+                test_debug!("{:?}: Got unauthenticated Handshake", &self);
+                let (reply_opt, handled) = self.handle_handshake(local_peer, peerdb, burnchain_view, msg)?;
+                consume = handled;
+                Ok(reply_opt)
+            },
+            StacksMessageType::HandshakeAccept(ref data) => {
+                if solicited {
+                    test_debug!("{:?}: Got unauthenticated HandshakeAccept", &self);
+                    self.handle_handshake_accept(&msg.preamble, data).and_then(|_| Ok(None))
+                }
+                else {
+                    test_debug!("{:?}: Unsolicited unauthenticated HandshakeAccept", &self);
+
+                    // don't update stats or state, and don't pass back 
+                    consume = true;
+                    Ok(None)
+                }
+            },
+            StacksMessageType::HandshakeReject => {
+                test_debug!("{:?}: Got unauthenticated HandshakeReject", &self);
+
+                // don't NACK this back just because we were rejected
+                Ok(None)
+            },
+            StacksMessageType::Nack(_) => {
+                test_debug!("{:?}: Got unauthenticated Nack", &self);
+                
+                // don't NACK back
+                Ok(None)
+            }
+            _ => {
+                test_debug!("{:?}: Got unauthenticated message (type {}), will NACK", &self, msg.payload.get_message_name());
+                let nack_payload = StacksMessageType::Nack(NackData::new(NackErrorCodes::HandshakeRequired));
+                let nack = StacksMessage::from_chain_view(self.version, self.network_id, burnchain_view, nack_payload);
+
+                // unauthenticated, so don't forward 
+                consume = true;
+                Ok(Some(nack))
+            }
+        }?;
+        Ok((reply_opt, consume))
+    }
+
     /// Carry on a conversation with the remote peer.
     /// Called from the p2p network thread, so no need for a network handle.
     /// Attempts to fulfill requests in other threads as a result of processing a message.
     /// Returns the list of unfulfilled Stacks messages we received -- messages not destined for
-    /// any other thread in this program (i.e. "unsolicited messages"), but originating from this
-    /// peer.
-    /// Also returns reply handles for each message sent.  The caller will need to call
-    /// .try_flush() or .flush() on the handles to make sure their data is sent along.
-    /// If the peer violates the protocol, returns net_error::InvalidMessage. The caller should
-    /// cease talking to this peer.
-    pub fn chat(&mut self, local_peer: &LocalPeer, burnchain_view: &BurnchainView) -> Result<(Vec<StacksMessage>, Vec<ReplyHandleP2P>), net_error> {
+    /// any other thread in this program (i.e. "unsolicited messages").
+    pub fn chat(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, _burnchain: &Burnchain, burnchain_view: &BurnchainView) -> Result<Vec<StacksMessage>, net_error> {
         let num_inbound = self.connection.inbox_len();
         test_debug!("{:?}: {} messages pending", &self, num_inbound);
 
         let mut unsolicited = vec![];
-        let mut responses = vec![];
         for _ in 0..num_inbound {
             let mut solicited = true;
-            let mut consume_unsolicited = false;
-
             let mut msg = match self.connection.next_inbox_message() {
                 None => {
                     continue;
@@ -691,159 +881,36 @@ impl Conversation {
                 Some(m) => m
             };
 
-            // validate message preamble
-            match self.is_preamble_valid(&msg, burnchain_view) {
-                Ok(res) => {
-                    if !res {
-                        info!("{:?}: Received message with stale preamble; ignoring", &self);
-                        self.stats.msgs_err += 1;
-                        self.stats.add_healthpoint(false);
-                        continue;
-                    }
-                },
-                Err(e) => {
-                    match e {
-                        net_error::InvalidMessage => {
-                            // Disconnect from this peer.  If it thinks nothing's wrong, it'll
-                            // reconnect on its own.
-                            // However, only count this message as error.  Drop all other queued
-                            // messages.
-                            info!("{:?}: Received invalid preamble; dropping connection", &self);
-                            self.stats.msgs_err += 1;
-                            self.stats.add_healthpoint(false);
-                            return Err(e);
-                        },
-                        _ => {
-                            // skip this message 
-                            info!("{:?}: Failed to process message: {:?}", &self, &e);
-                            self.stats.msgs_err += 1;
-                            self.stats.add_healthpoint(false);
-                            continue;
-                        }
-                    }
-                }
-            };
-            
-            let reply_opt_res = 
+            if !self.validate_inbound_message(&msg, burnchain_view)? {
+                continue;
+            }
+ 
+            let (reply_opt, consumed) = 
                 if self.connection.has_public_key() {
-                    // already have public key; match payload
-                    match msg.payload {
-                        StacksMessageType::Handshake(_) => {
-                            test_debug!("{:?}: Got Handshake", &self);
-
-                            let cur_public_key_opt = self.connection.get_public_key();
-                            let handshake_res = self.handle_handshake(local_peer, burnchain_view, &mut msg);
-                            if handshake_res.is_ok() {
-                                // did we re-key?
-                                consume_unsolicited = match (cur_public_key_opt, self.connection.get_public_key()) {
-                                    (Some(old_public_key), Some(new_public_key)) => {
-                                        if old_public_key.to_bytes_compressed() != new_public_key.to_bytes_compressed() {
-                                            // remote peer re-keyed. 
-                                            // pass along this message to the peer network, even if unsolicited, so we can
-                                            // store the new key data.
-                                            false       // do not consume
-                                        }
-                                        else {
-                                            // no need to forward along if not solicited, since we
-                                            // learned nothing new.
-                                            true        // consume if unsolicited
-                                        }
-                                    },
-                                    (None, Some(_)) => {
-                                        // learned the initial key, so forward back if not solicited 
-                                        false
-                                    },
-                                    (_, _) => false     // not a re-key -- do not consume if not solicited
-                                }
-                            }
-                            handshake_res
-                        },
-                        StacksMessageType::HandshakeAccept(ref data) => {
-                            test_debug!("{:?}: Got HandshakeAccept", &self);
-                            self.handle_handshake_accept(&msg.preamble, data)
-                        },
-                        StacksMessageType::Ping(_) => {
-                            test_debug!("{:?}: Got Ping", &self);
-
-                            // consume here if unsolicited
-                            consume_unsolicited = true;
-                            self.handle_ping(burnchain_view, &mut msg)
-                        },
-                        StacksMessageType::Pong(_) => {
-                            test_debug!("{:?}: Got Pong", &self);
-
-                            // consume here if unsolicited
-                            consume_unsolicited = true;
-                            Ok(None)
-                        },
-                        _ => {
-                            test_debug!("{:?}: Got a message (type {})", &self, msg.payload.get_message_name());
-                            Ok(None)       // nothing to reply to at this time
-                        }
-                    }
+                    // we already have this remote peer's public key, so the message signature will
+                    // have been verified by the underlying ConnectionP2P.
+                    self.handle_authenticated_control_message(local_peer, peerdb, burnchain_view, &mut msg)?
                 }
                 else {
-                    // don't count unauthenticated messages we didn't ask for
+                    // the underlying ConnectionP2P does not yet have a public key installed (i.e.
+                    // we don't know it yet), so treat this message with a little bit more
+                    // suspicion.
                     solicited = self.connection.is_solicited(&msg);
-
-                    // only thing we'll take right now is a handshake, as well as handshake
-                    // accept/rejects and nacks.
-                    //
-                    // Anything else will be nack'ed -- the peer will first need to handshake.
-                    match msg.payload {
-                        StacksMessageType::Handshake(_) => {
-                            test_debug!("{:?}: Got unauthenticated Handshake", &self);
-                            self.handle_handshake(local_peer, burnchain_view, &mut msg)
-                        },
-                        StacksMessageType::HandshakeAccept(ref data) => {
-                            if solicited {
-                                test_debug!("{:?}: Got unauthenticated HandshakeAccept", &self);
-                                self.handle_handshake_accept(&msg.preamble, data)
-                            }
-                            else {
-                                test_debug!("{:?}: Unsolicited unauthenticated HandshakeAccept", &self);
-
-                                // don't update state and don't pass back 
-                                consume_unsolicited = true;
-                                Ok(None)
-                            }
-                        },
-                        StacksMessageType::HandshakeReject => {
-                            test_debug!("{:?}: Got unauthenticated HandshakeReject", &self);
-
-                            // don't NACK this back just because we were rejected
-                            Ok(None)
-                        },
-                        StacksMessageType::Nack(_) => {
-                            test_debug!("{:?}: Got unauthenticated Nack", &self);
-                            
-                            // don't NACK back
-                            Ok(None)
-                        }
-                        _ => {
-                            test_debug!("{:?}: Got unauthenticated message (type {})", &self, msg.payload.get_message_name());
-                            let nack_payload = StacksMessageType::Nack(NackData::new(NackErrorCodes::HandshakeRequired));
-                            let nack = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, burnchain_view, nack_payload);
-
-                            // unauthenticated, so don't forward 
-                            consume_unsolicited = true;
-                            Ok(Some(nack))
-                        }
-                    }
+                    self.handle_unauthenticated_control_message(local_peer, peerdb, burnchain_view, &mut msg)?
                 };
-
-            let now = get_epoch_time_secs();
-            let reply_opt = reply_opt_res?;
+            
             match reply_opt {
                 None => {}
                 Some(mut reply) => {
                     // send back this message to the remote peer
-                    test_debug!("{:?}: Send automatic reply type {}", &self, reply.payload.get_message_name());
+                    test_debug!("{:?}: Send control-plane reply type {}", &self, reply.payload.get_message_name());
                     reply.sign(msg.preamble.seq, &local_peer.private_key)?;
                     let reply_handle = self.relay_signed_message(reply)?;
-                    responses.push(reply_handle);
+                    self.reply_handles.push_back(reply_handle);
                 }
             }
+            
+            let now = get_epoch_time_secs();
 
             if solicited {
                 // successfully got a message -- update stats
@@ -876,19 +943,23 @@ impl Conversation {
                 None => {
                     test_debug!("{:?}: Fulfilled pending message request (type {})", &self, _msgtype);
                 },
-                Some(m) => {
-                    if consume_unsolicited {
-                        test_debug!("{:?}: Consuming unsolicited message (type {})", &self, _msgtype);
+                Some(msg) => {
+                    if consumed {
+                        test_debug!("{:?}: Consumed message (type {})", &self, _msgtype);
                     }
                     else {
-                        test_debug!("{:?}: Forwarding along unsolicited message (type {})", &self, _msgtype);
-                        unsolicited.push(m);
+                        test_debug!("{:?}: Try handling message (type {})", &self, _msgtype);
+                        let handled = self.handle_data_message(local_peer, peerdb, burnchain_view, &msg)?;
+                        if !handled {
+                            test_debug!("{:?}: Did not handle message (type {}); passing upstream", &self, _msgtype);
+                            unsolicited.push(msg);
+                        }
                     }
                 }
-            };
+            }
         }
 
-        Ok((unsolicited, responses))
+        Ok(unsolicited)
     }
 
     /// Remove all timed-out messages, and ding the remote peer as unhealthy
@@ -930,7 +1001,7 @@ mod test {
 
     use core::PEER_VERSION;
 
-    fn convo_send_recv(sender: &mut Conversation, mut sender_handles: Vec<&mut ReplyHandleP2P>, receiver: &mut Conversation, mut relay_handles: Vec<ReplyHandleP2P>) -> () {
+    fn convo_send_recv(sender: &mut ConversationP2P, mut sender_handles: Vec<&mut ReplyHandleP2P>, receiver: &mut ConversationP2P) -> () {
         let (mut pipe_read, mut pipe_write) = Pipe::new();
         pipe_read.set_nonblocking(true);
 
@@ -940,12 +1011,10 @@ mod test {
                 let r = sender_handles[i].try_flush().unwrap();
                 res = r && res;
             }
-            
-            let mut all_relays_flushed = true;
-            for h in relay_handles.iter_mut() {
-                let f = h.try_flush().unwrap();
-                all_relays_flushed = f && all_relays_flushed;
-            }
+           
+            sender.try_flush().unwrap();
+            receiver.try_flush().unwrap();
+            let all_relays_flushed = receiver.num_pending_outbound() == 0 && sender.num_pending_outbound() == 0;
             
             let nw = sender.send(&mut pipe_write).unwrap();
             let nr = receiver.recv(&mut pipe_read).unwrap();
@@ -1028,8 +1097,8 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1040,8 +1109,8 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
        
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -1055,13 +1124,13 @@ mod test {
         // convo_2 receives it and processes it, and since no one is waiting for it, will forward
         // it along to the chat caller (us)
         test_debug!("send handshake");
-        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2, vec![]);
-        let (unhandled_2, handles_2) = convo_2.chat(&local_peer_2, &chain_view).unwrap();
+        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burnchain, &chain_view).unwrap();
 
         // convo_1 has a handshakeaccept 
         test_debug!("send handshake-accept");
-        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1, handles_2);
-        let (unhandled_1, handles_1) = convo_1.chat(&local_peer_1, &chain_view).unwrap();
+        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burnchain, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -1134,8 +1203,8 @@ mod test {
         };
         chain_view.make_test_data();
         
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1146,8 +1215,8 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
        
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -1160,29 +1229,18 @@ mod test {
 
         let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
 
-        // convo_2 receives it and processes it, and since no one is waiting for it, will forward
-        // it along to the chat caller (us)
-        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2, vec![]);
-        let (unhandled_2, handles_2) = convo_2.chat(&local_peer_2, &chain_view).unwrap();
+        // convo_2 receives it and automatically rejects it.
+        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burnchain, &chain_view).unwrap();
 
         // convo_1 has a handshakreject
-        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1, handles_2);
-        let (unhandled_1, handles_1) = convo_1.chat(&local_peer_1, &chain_view).unwrap();
+        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burnchain, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
         assert_eq!(unhandled_1.len(), 0);
-        assert_eq!(unhandled_2.len(), 1);
-
-        // convo 2 returns the handshake from convo 1
-        match unhandled_2[0].payload {
-            StacksMessageType::Handshake(ref data) => {
-                assert_eq!(handshake_data_1, *data);
-            },
-            _ => {
-                assert!(false);
-            }
-        };
+        assert_eq!(unhandled_2.len(), 0);
 
         // received a valid HandshakeReject from peer 2 
         match reply_1.payload {
@@ -1228,8 +1286,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1240,8 +1298,8 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
        
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -1260,12 +1318,12 @@ mod test {
         let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
 
         // convo_2 receives it and processes it, and barfs
-        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2, vec![]);
-        let unhandled_2_err = convo_2.chat(&local_peer_2, &chain_view);
+        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+        let unhandled_2_err = convo_2.chat(&local_peer_2, &mut peerdb_2, &burnchain, &chain_view);
 
         // convo_1 gets a nack and consumes it
-        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1, vec![]);
-        let (unhandled_1, handles_1) = convo_1.chat(&local_peer_1, &chain_view).unwrap();
+        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burnchain, &chain_view).unwrap();
 
         // the waiting reply aborts on disconnect
         let reply_1_err = rh_1.recv(0);
@@ -1311,8 +1369,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1323,8 +1381,8 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
        
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -1335,30 +1393,20 @@ mod test {
         let handshake_1 = convo_1.sign_message(&chain_view, &local_peer_2.private_key, StacksMessageType::Handshake(handshake_data_1.clone())).unwrap();
         let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
 
-        // convo_2 receives it and processes it, and give back a handshake reject
-        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2, vec![]);
-        let (unhandled_2, handles_2) = convo_2.chat(&local_peer_2, &chain_view).unwrap();
+        // convo_2 receives it and processes it automatically (consuming it), and give back a handshake reject
+        convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_1, &burnchain, &chain_view).unwrap();
 
         // convo_1 gets a handshake reject and consumes it
-        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1, handles_2);
-        let (unhandled_1, handles_1) = convo_1.chat(&local_peer_1, &chain_view).unwrap();
+        convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_2, &burnchain, &chain_view).unwrap();
 
         // get back handshake reject
         let reply_1 = rh_1.recv(0).unwrap();
 
         assert_eq!(unhandled_1.len(), 0);
-        assert_eq!(unhandled_2.len(), 1);
-
-        // convo 2 returns the handshake from convo 1
-        match unhandled_2[0].payload {
-            StacksMessageType::Handshake(ref data) => {
-                assert_eq!(handshake_data_1, *data);
-            },
-            _ => {
-                assert!(false);
-            }
-        };
-
+        assert_eq!(unhandled_2.len(), 0);
+        
         // received a valid HandshakeReject from peer 2 
         match reply_1.payload {
             StacksMessageType::HandshakeReject => {},
@@ -1403,8 +1451,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1415,8 +1463,8 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
 
         // convo_1 sends a handshake to convo_2
         let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
@@ -1432,14 +1480,14 @@ mod test {
         // it along to the chat caller (us)
         test_debug!("send handshake {:?}", &handshake_1);
         test_debug!("send ping {:?}", &ping_1);
-        convo_send_recv(&mut convo_1, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_2, vec![]);
-        let (unhandled_2, handles_2) = convo_2.chat(&local_peer_2, &chain_view).unwrap();
+        convo_send_recv(&mut convo_1, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_2);
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burnchain, &chain_view).unwrap();
 
         // convo_1 has a handshakeaccept 
         test_debug!("reply handshake-accept");
         test_debug!("send pong");
-        convo_send_recv(&mut convo_2, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_1, handles_2);
-        let (unhandled_1, handles_1) = convo_1.chat(&local_peer_1, &chain_view).unwrap();
+        convo_send_recv(&mut convo_2, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_1);
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burnchain, &chain_view).unwrap();
 
         let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
         let reply_ping_1 = rh_ping_1.recv(0).unwrap();
@@ -1499,8 +1547,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1511,8 +1559,8 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
 
         for i in 0..5 {
             // do handshake/ping over and over, with different keys.
@@ -1530,36 +1578,28 @@ mod test {
 
             // convo_2 receives the handshake and ping and processes both, and since no one is waiting for the handshake, will forward
             // it along to the chat caller (us)
-            convo_send_recv(&mut convo_1, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_2, vec![]);
-            let (unhandled_2, handles_2) = convo_2.chat(&local_peer_2, &chain_view).unwrap();
+            convo_send_recv(&mut convo_1, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_2);
+            let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burnchain, &chain_view).unwrap();
 
             // convo_1 has a handshakeaccept 
-            convo_send_recv(&mut convo_2, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_1, handles_2);
-            let (unhandled_1, handles_1) = convo_1.chat(&local_peer_1, &chain_view).unwrap();
+            convo_send_recv(&mut convo_2, vec![&mut rh_handshake_1, &mut rh_ping_1], &mut convo_1);
+            let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burnchain, &chain_view).unwrap();
 
             let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
             let reply_ping_1 = rh_ping_1.recv(0).unwrap();
 
             assert_eq!(unhandled_1.len(), 0);
+            assert_eq!(unhandled_2.len(), 1);   // only the handshake is given back.  the ping is consumed
 
-            if i == 0 {
-                // initial key -- will get back the handshake
-                assert_eq!(unhandled_2.len(), 1);   // only the handshake is given back.  the ping is consumed
-
-                // convo 2 returns the handshake from convo 1
-                match unhandled_2[0].payload {
-                    StacksMessageType::Handshake(ref data) => {
-                        assert_eq!(handshake_data_1, *data);
-                    },
-                    _ => {
-                        assert!(false);
-                    }
-                };
-            }
-            else {
-                // same key -- will NOT get back the handshake
-                assert_eq!(unhandled_2.len(), 0);
-            }
+            // convo 2 returns the handshake from convo 1
+            match unhandled_2[0].payload {
+                StacksMessageType::Handshake(ref data) => {
+                    assert_eq!(handshake_data_1, *data);
+                },
+                _ => {
+                    assert!(false);
+                }
+            };
 
             // convo 2 replied to convo 1 with a matching pong
             match reply_ping_1.payload {
@@ -1641,8 +1681,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 0, 12351, "http://peer2.com".into(), &vec![], &vec![]).unwrap();
         
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1653,8 +1693,8 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
        
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -1666,12 +1706,12 @@ mod test {
         let mut rh_ping_1 = convo_1.send_signed_request(ping_1, 1000000).unwrap();
 
         // convo_2 will reply with a nack since peer_1 hasn't authenticated yet
-        convo_send_recv(&mut convo_1, vec![&mut rh_ping_1], &mut convo_2, vec![]);
-        let (unhandled_2, handles_2) = convo_2.chat(&local_peer_2, &chain_view).unwrap();
+        convo_send_recv(&mut convo_1, vec![&mut rh_ping_1], &mut convo_2);
+        let unhandled_2 = convo_2.chat(&local_peer_2, &mut peerdb_2, &burnchain, &chain_view).unwrap();
 
         // convo_1 has a nack 
-        convo_send_recv(&mut convo_2, vec![&mut rh_ping_1], &mut convo_1, handles_2);
-        let (unhandled_1, handles_1) = convo_1.chat(&local_peer_1, &chain_view).unwrap();
+        convo_send_recv(&mut convo_2, vec![&mut rh_ping_1], &mut convo_1);
+        let unhandled_1 = convo_1.chat(&local_peer_1, &mut peerdb_1, &burnchain, &chain_view).unwrap();
 
         let reply_1 = rh_ping_1.recv(0).unwrap();
        
@@ -1727,7 +1767,7 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 0, 12350, "http://peer1.com".into(), &vec![], &vec![]).unwrap();
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         
@@ -1737,19 +1777,19 @@ mod test {
         
         // network ID check
         {
-            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
+            let mut convo_bad = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
 
             let ping_data = PingData::new();
-            convo_bad.burnchain.network_id += 1;
+            convo_bad.network_id += 1;
             let ping_bad = convo_bad.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::Ping(ping_data.clone())).unwrap();
-            convo_bad.burnchain.network_id -= 1;
+            convo_bad.network_id -= 1;
 
             assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Err(net_error::InvalidMessage));
         }
 
         // stable block height check
         {
-            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
+            let mut convo_bad = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
 
             let ping_data = PingData::new();
             
@@ -1763,7 +1803,7 @@ mod test {
 
         // node is too far ahead of us
         {
-            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
+            let mut convo_bad = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
 
             let ping_data = PingData::new();
             
@@ -1783,7 +1823,7 @@ mod test {
 
         // unstable consensus hash mismatch
         {
-            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
+            let mut convo_bad = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
 
             let ping_data = PingData::new();
             
@@ -1799,7 +1839,7 @@ mod test {
 
         // stable consensus hash mismatch 
         {
-            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
+            let mut convo_bad = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
 
             let ping_data = PingData::new();
             

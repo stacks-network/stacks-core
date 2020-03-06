@@ -28,7 +28,7 @@ producing the next block, as well as deciding how to resolve
 conflicting transaction histories.  The protocol assigns a tunable proof an
 aggregate score from its proofs-of-burn and proofs-of-work, which is used to
 (1) probabilistically select the next leader proportional to its normalized score
-and to (2) rank conflicting transaction histories by their aggregate scores in order
+and to (2) rank conflicting transaction histories by their total number of epochs
 to decide which one is the canonical transaction history.
 Over time, the system adjusts the tunable proof calculation such that the proof-of-work
 component is weighted more and more heavily as more and more
