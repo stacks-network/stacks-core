@@ -5,6 +5,7 @@ pub mod burnchain;
 pub mod node;
 pub mod tenure;
 pub mod config;
+mod event_dispatcher;
 
 pub use self::run_loop::{RunLoop};
 pub use self::mem_pool::{MemPool, MemPoolFS};

@@ -1,13 +1,13 @@
 use util::hash::{to_hex};
 use burnchains::Address;
-use vm::types::PrincipalData;
+use vm::types::{PrincipalData, QualifiedContractIdentifier} ;
 use rand::RngCore;
 
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfig>,
     pub node: Option<NodeConfig>,
     pub initial_balances: Option<Vec<InitialBalance>>,
-    pub sidecar: Option<SidecarConfig>,
+    pub sidecars: Option<Vec<EventObserverConfig>>,
 }
 
 #[derive(Clone, Default)]
@@ -15,7 +15,7 @@ pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
     pub initial_balances: Option<Vec<InitialBalance>>,
-    pub sidecar: Option<SidecarConfig>,
+    pub event_observers: Option<Vec<EventObserverConfig>>,
 }
 
 impl Config {
@@ -43,7 +43,7 @@ impl Config {
             burnchain: burnchain,
             node: node,
             initial_balances: None,
-            sidecar: None,
+            event_observers: None,
         }
     }
 
@@ -96,8 +96,10 @@ pub struct NodeConfig {
 }
 
 #[derive(Clone, Default)]
-pub struct SidecarConfig {
+pub struct EventObserverConfig {
     pub port: u16,
+    pub address: String,
+    pub watched_event_keys: Vec<(QualifiedContractIdentifier, String)>,
 }
 
 #[derive(Clone)]
