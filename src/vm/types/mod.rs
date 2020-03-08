@@ -17,6 +17,9 @@ pub use vm::types::signatures::{
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
+pub const MAX_TYPE_DEPTH: u8 = 32;
+// this is the charged size for wrapped values, i.e., response or optionals
+pub const WRAPPER_VALUE_SIZE: u32 = 1;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
@@ -35,7 +38,7 @@ pub struct ListData {
     pub type_signature: ListTypeData
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
 impl StandardPrincipalData {
@@ -45,7 +48,7 @@ impl StandardPrincipalData {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct QualifiedContractIdentifier {
     pub issuer: StandardPrincipalData,
     pub name: ContractName
@@ -114,6 +117,53 @@ pub struct ResponseData {
     pub data: Box<Value>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+pub struct TraitIdentifier {
+    pub name: ClarityName,
+    pub contract_identifier: QualifiedContractIdentifier,
+}
+
+impl TraitIdentifier {
+
+    pub fn new(issuer: StandardPrincipalData, contract_name: ContractName, name: ClarityName) -> TraitIdentifier {
+        Self { 
+            name, 
+            contract_identifier: QualifiedContractIdentifier {
+                issuer,
+                name: contract_name
+            }
+        }
+    }
+
+    pub fn parse_fully_qualified(literal: &str) -> Result<TraitIdentifier> {
+        let (issuer, contract_name, name) = Self::parse(literal)?;
+        let issuer = issuer.ok_or(RuntimeErrorType::BadTypeConstruction)?;
+        Ok(TraitIdentifier::new(issuer, contract_name, name))
+    }
+
+    pub fn parse_sugared_syntax(literal: &str) -> Result<(ContractName, ClarityName)> {
+        let (_ , contract_name, name) = Self::parse(literal)?;
+        Ok((contract_name, name))
+    }
+
+    pub fn parse(literal: &str) -> Result<(Option<StandardPrincipalData>, ContractName, ClarityName)> {
+        let split: Vec<_> = literal.splitn(3, ".").collect();
+        if split.len() != 3 {
+            return Err(RuntimeErrorType::ParseError(
+                "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
+        }
+
+        let issuer = match split[0].len() {
+            0 => None,
+            _ => Some(PrincipalData::parse_standard_principal(split[0])?),
+        };
+        let contract_name = split[1].to_string().try_into()?;
+        let name = split[2].to_string().try_into()?;
+
+        Ok((issuer, contract_name, name))
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     Int(i128),
@@ -124,7 +174,7 @@ pub enum Value {
     Principal(PrincipalData),
     Tuple(TupleData),
     Optional(OptionalData),
-    Response(ResponseData)
+    Response(ResponseData),
 }
 
 define_named_enum!(BlockInfoProperty {
@@ -138,21 +188,23 @@ define_named_enum!(BlockInfoProperty {
 
 impl OptionalData {
     pub fn type_signature(&self) -> TypeSignature {
-        match self.data {
+        let type_result = match self.data {
             Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(&v)),
             None => TypeSignature::new_option(TypeSignature::NoType)
-        }
+        };
+        type_result.expect("Should not have constructed too large of a type.")
     }
 }
 
 impl ResponseData {
     pub fn type_signature(&self) -> TypeSignature {
-        match self.committed {
+        let type_result = match self.committed {
             true => TypeSignature::new_response(
                 TypeSignature::type_of(&self.data), TypeSignature::NoType),
             false => TypeSignature::new_response(
                 TypeSignature::NoType, TypeSignature::type_of(&self.data))
-        }
+        };
+        type_result.expect("Should not have constructed too large of a type.")        
     }
 }
 
@@ -182,29 +234,59 @@ impl PartialEq for TupleData {
 pub const NONE: Value = Value::Optional(OptionalData { data: None });
 
 impl Value {
-    pub fn some(data: Value) -> Value {
-        Value::Optional(OptionalData {
-            data: Some(Box::new(data)) })
+    pub fn some(data: Value) -> Result<Value> {
+        if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge.into())
+        } else if data.depth() + 1 > MAX_TYPE_DEPTH {
+            Err(CheckErrors::TypeSignatureTooDeep.into())
+        } else {
+            Ok(Value::Optional(OptionalData {
+                data: Some(Box::new(data)) }))
+        }
     }
 
     pub fn none() -> Value {
         NONE.clone()
     }
 
-    pub fn okay(data: Value) -> Value {
-        Value::Response(ResponseData { 
-            committed: true,
-            data: Box::new(data) })
+    pub fn okay_true() -> Value {
+        Value::Response(ResponseData { committed: true, data: Box::new(Value::Bool(true)) })
     }
 
-    pub fn error(data: Value) -> Value {
-        Value::Response(ResponseData { 
-            committed: false,
-            data: Box::new(data) })
+    pub fn err_uint(ecode: u128) -> Value {
+        Value::Response(ResponseData { committed: false, data: Box::new(Value::UInt(ecode)) })
+    }
+
+    pub fn okay(data: Value) -> Result<Value> {
+        if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge.into())
+        } else if data.depth() + 1 > MAX_TYPE_DEPTH {
+            Err(CheckErrors::TypeSignatureTooDeep.into())
+        } else {
+            Ok(Value::Response(ResponseData { 
+                committed: true,
+                data: Box::new(data) }))
+        }
+    }
+
+    pub fn error(data: Value) -> Result<Value> {
+        if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge.into())
+        } else if data.depth() + 1 > MAX_TYPE_DEPTH {
+            Err(CheckErrors::TypeSignatureTooDeep.into())
+        } else {
+            Ok(Value::Response(ResponseData { 
+                committed: false,
+                data: Box::new(data) }))
+        }
     }
 
     pub fn size(&self) -> u32 {
         TypeSignature::type_of(self).size()
+    }
+
+    pub fn depth(&self) -> u8 {
+        TypeSignature::type_of(self).depth()
     }
 
     /// Invariant: the supplied Values have already been "checked", i.e., it's a valid Value object
@@ -367,6 +449,12 @@ impl fmt::Display for PrincipalData {
     }
 }
 
+impl fmt::Display for TraitIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}.{}", self.contract_identifier, self.name.to_string())
+    }
+}
+
 impl From<StandardPrincipalData> for Value {
     fn from(principal: StandardPrincipalData) -> Self {
         Value::Principal(PrincipalData::from(principal))
@@ -407,6 +495,10 @@ impl TupleData {
     fn new(type_signature: TupleTypeSignature, data_map: BTreeMap<ClarityName, Value>) -> Result<TupleData> {
         let t = TupleData { type_signature, data_map };
         Ok(t)
+    }
+
+    pub fn len(&self) -> u64 {
+        self.data_map.len() as u64
     }
 
     pub fn from_data(mut data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
@@ -479,6 +571,50 @@ mod test {
                 vec![0; (MAX_VALUE_SIZE+1) as usize]),
             Err(CheckErrors::ValueTooLarge.into()));
 
+        // Test that wrappers (okay, error, some)
+        //   correctly error when _they_ cause the value size
+        //   to exceed the max value size (note, the buffer constructor
+        //   isn't causing the error).
+        assert_eq!(
+            Value::okay(
+                Value::buff_from(
+                    vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
+            Err(CheckErrors::ValueTooLarge.into()));
+
+        assert_eq!(
+            Value::error(
+                Value::buff_from(
+                    vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
+            Err(CheckErrors::ValueTooLarge.into()));
+
+        assert_eq!(
+            Value::some(
+                Value::buff_from(
+                    vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
+            Err(CheckErrors::ValueTooLarge.into()));
+
+        // Test that the depth limit is correctly enforced:
+        //   for tuples, lists, somes, okays, errors.
+
+        let cons = || {
+            Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(
+                Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(
+                    Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(
+                        Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(Value::some(
+                            Value::Int(1))?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?)?) };
+        let inner_value = cons().unwrap();
+        assert_eq!(TupleData::from_data(vec![("a".into(), inner_value.clone())]),
+                   Err(CheckErrors::TypeSignatureTooDeep.into()));
+
+        assert_eq!(Value::list_from(vec![inner_value.clone()]),
+                   Err(CheckErrors::TypeSignatureTooDeep.into()));
+        assert_eq!(Value::okay(inner_value.clone()),
+                   Err(CheckErrors::TypeSignatureTooDeep.into()));
+        assert_eq!(Value::error(inner_value.clone()),
+                   Err(CheckErrors::TypeSignatureTooDeep.into()));
+        assert_eq!(Value::some(inner_value.clone()),
+                   Err(CheckErrors::TypeSignatureTooDeep.into()));
+
         if std::env::var("CIRCLE_TESTING") == Ok("1".to_string()) {
             println!("Skipping allocation test on Circle");
             return;
@@ -510,11 +646,11 @@ mod test {
     fn test_some_displays() {
         assert_eq!(&format!("{}", Value::list_from(vec![Value::Int(10), Value::Int(5)]).unwrap()),
                    "(10 5)");
-        assert_eq!(&format!("{}", Value::some(Value::Int(10))),
+        assert_eq!(&format!("{}", Value::some(Value::Int(10)).unwrap()),
                    "(some 10)");
-        assert_eq!(&format!("{}", Value::okay(Value::Int(10))),
+        assert_eq!(&format!("{}", Value::okay(Value::Int(10)).unwrap()),
                    "(ok 10)");
-        assert_eq!(&format!("{}", Value::error(Value::Int(10))),
+        assert_eq!(&format!("{}", Value::error(Value::Int(10)).unwrap()),
                    "(err 10)");
         assert_eq!(&format!("{}", Value::none()),
                    "none");

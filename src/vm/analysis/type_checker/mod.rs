@@ -2,10 +2,13 @@ pub mod contexts;
 //mod maps;
 pub mod natives;
 
+use std::convert::TryInto;
+use std::collections::{HashMap, BTreeMap};
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 use vm::types::{TypeSignature, TupleTypeSignature, FunctionArg,
-                FunctionType, FixedFunction, parse_name_type_pairs};
+                FunctionType, FixedFunction, parse_name_type_pairs, Value, PrincipalData};
+use vm::types::signatures::{FunctionSignature};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctionsParsed;
 use vm::variables::NativeVariables;
@@ -136,7 +139,7 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
             ContractCaller => TypeSignature::PrincipalType,
             BlockHeight => TypeSignature::UIntType,
             BurnBlockHeight => TypeSignature::UIntType,
-            NativeNone => TypeSignature::new_option(no_type()),
+            NativeNone => TypeSignature::new_option(no_type()).unwrap(),
         };
         Some(var_type)
     } else {
@@ -188,7 +191,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
         let mut local_context = TypingContext::new();
 
-        for exp in contract_analysis.expressions_iter() {
+        for exp in contract_analysis.expressions.iter() {
             let mut result_res = self.try_type_check_define(&exp, &mut local_context);
             if let Err(ref mut error) = result_res {
                 if !error.has_expression() {
@@ -201,12 +204,29 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 self.type_check(&exp, &local_context)?;
             }
         }
-
         Ok(())
     }
 
     // Type check an expression, with an expected_type that should _admit_ the expression.
     pub fn type_check_expects(&mut self, expr: &SymbolicExpression, context: &TypingContext, expected_type: &TypeSignature) -> TypeResult {
+        
+        match (&expr.expr, expected_type) {
+            (LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))), TypeSignature::TraitReferenceType(trait_identifier)) => {
+                let contract_to_check = self.db.load_contract(&contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+                let contract_defining_trait = self.db.load_contract(&trait_identifier.contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+                let trait_definition = contract_defining_trait.get_defined_trait(&trait_identifier.name)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+                contract_to_check.check_trait_compliance(trait_identifier, trait_definition)?;
+                return Ok(expected_type.clone());
+            }
+            (_, _) => {}
+        }
+
         let actual_type = self.type_check(expr, context)?;
         if !expected_type.admits_type(&actual_type) {
             let mut err: CheckError = CheckErrors::TypeError(expected_type.clone(), actual_type).into();
@@ -216,6 +236,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             Ok(actual_type)
         }
     }
+
     // Type checks an expression, recursively type checking its subexpressions
     pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
         let mut result = self.inner_type_check(expr, context);
@@ -255,7 +276,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             .ok_or(CheckErrors::RequiresAtLeastArguments(1, 0))?;
         let function_name = function_name.match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
-        let mut args = parse_name_type_pairs(args)
+        let mut args = parse_name_type_pairs::<()>(args, &mut ())
             .map_err(|_| { CheckErrors::BadSyntaxBinding })?;
 
         if self.function_return_tracker.is_some() {
@@ -266,9 +287,13 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         let mut function_context = context.extend()?;
         for (arg_name, arg_type) in args.iter() {
             self.contract_context.check_name_used(arg_name)?;
-
-            function_context.variable_types.insert(arg_name.clone(),
-                                                   arg_type.clone());
+            
+            match arg_type {
+                TypeSignature::TraitReferenceType(trait_id) => {
+                    function_context.add_trait_reference(&arg_name, &trait_id);
+                },
+                _ => { function_context.variable_types.insert(arg_name.clone(), arg_type.clone()); }
+            }
         }
 
         self.function_return_tracker = Some(None);
@@ -309,10 +334,10 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         // should we set the type of the subexpressions of the signature to no-type as well?
 
         let key_type = TypeSignature::from(
-            TupleTypeSignature::parse_name_type_pair_list(key_type)
+            TupleTypeSignature::parse_name_type_pair_list::<()>(key_type, &mut ())
                 .map_err(|_| { CheckErrors::BadMapTypeDefinition })?);
         let value_type = TypeSignature::from(
-            TupleTypeSignature::parse_name_type_pair_list(value_type)
+            TupleTypeSignature::parse_name_type_pair_list::<()>(value_type, &mut ())
                 .map_err(|_| { CheckErrors::BadMapTypeDefinition })?);
 
         Ok((map_name.clone(), (key_type, value_type)))
@@ -352,6 +377,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             Ok(type_result.clone())
         } else if let Some(type_result) = context.lookup_variable_type(name) {
             Ok(type_result.clone())
+        } else if let Some(type_result) = context.lookup_trait_reference_type(name) {
+            Ok(TypeSignature::TraitReferenceType(type_result.clone()))
         } else {
             Err(CheckErrors::UndefinedVariable(name.to_string()).into())
         }
@@ -367,6 +394,9 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             },
             List(ref expression) => {
                 self.type_check_function_application(expression, context)?
+            },
+            TraitReference(_, _) | Field(_) => {
+                return Err(CheckErrors::UnexpectedTraitOrFieldReference.into());
             }
         };
 
@@ -380,7 +410,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     fn type_check_define_persisted_variable(&mut self, var_name: &ClarityName, var_type: &SymbolicExpression, initial: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
-        let expected_type = TypeSignature::parse_type_repr(var_type)
+        let expected_type = TypeSignature::parse_type_repr::<()>(var_type, &mut ())
             .map_err(|_e| CheckErrors::DefineVariableBadSignature)?;
 
         self.type_check_expects(initial, context, &expected_type)?;
@@ -397,11 +427,18 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     fn type_check_define_nft(&mut self, asset_name: &ClarityName, nft_type: &SymbolicExpression, _context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
-        let asset_type = TypeSignature::parse_type_repr(&nft_type)
+        let asset_type = TypeSignature::parse_type_repr::<()>(&nft_type, &mut ())
             .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?;
 
         Ok((asset_name.clone(), asset_type))
     }
+
+    fn type_check_define_trait(&mut self, trait_name: &ClarityName, function_types: &[SymbolicExpression], _context: &mut TypingContext) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
+        
+        let trait_signature = TypeSignature::parse_trait_type_repr(&function_types, &mut ())?;
+
+        Ok((trait_name.clone(), trait_signature))
+    } 
     
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
     fn try_type_check_define(&mut self, expression: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
@@ -448,11 +485,25 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 DefineFunctionsParsed::NonFungibleToken { name, nft_type } => {
                     let (token_name, token_type) = self.type_check_define_nft(name, nft_type, context)?;
                     self.contract_context.add_nft(token_name, token_type)?;
-                }
+                },
+                DefineFunctionsParsed::Trait { name, functions } => {
+                    let (trait_name, trait_signature) = self.type_check_define_trait(name, functions, context)?;
+                    self.contract_context.add_trait(trait_name, trait_signature)?;
+                },
+                DefineFunctionsParsed::UseTrait { name, trait_identifier } => {
+                    let result = self.db.get_defined_trait(&trait_identifier.contract_identifier, &trait_identifier.name)?;
+                    match result {
+                        Some(trait_sig) => self.contract_context.add_trait(trait_identifier.name.clone(), trait_sig)?,
+                        None => return Err(CheckErrors::TraitReferenceUnknown(name.to_string()).into())
+                    }
+                },
+                DefineFunctionsParsed::ImplTrait { trait_identifier } => {
+                    self.contract_context.add_implemented_trait(trait_identifier.clone())?;
+                },
             };
             Ok(Some(()))
         } else {
-        // not a define.
+            // not a define.
             Ok(None)
         }
     }

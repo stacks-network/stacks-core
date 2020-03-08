@@ -5,9 +5,10 @@ use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection, HeadersDB};
 use vm::analysis::{AnalysisDatabase};
 use vm::errors::{Error as InterpreterError};
 use vm::ast::{ContractAST, errors::ParseError};
-use vm::analysis::{ContractAnalysis, errors::CheckError};
+use vm::analysis::{ContractAnalysis, errors::CheckError, errors::CheckErrors};
 use vm::ast;
 use vm::analysis;
+use vm::costs::{LimitedCostTracker, ExecutionCost};
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::marf::MARF;
@@ -40,6 +41,7 @@ pub struct ClarityBlockConnection<'a> {
     datastore: MarfedKV,
     parent: &'a mut ClarityInstance,
     header_db: &'a dyn HeadersDB,
+    cost_track: Option<LimitedCostTracker>
 }
 
 #[derive(Debug)]
@@ -47,7 +49,8 @@ pub enum Error {
     Analysis(CheckError),
     Parse(ParseError),
     Interpreter(InterpreterError),
-    BadTransaction(String)
+    BadTransaction(String),
+    CostError(ExecutionCost, ExecutionCost),
 }
 
 impl From<CheckError> for Error {
@@ -58,7 +61,11 @@ impl From<CheckError> for Error {
 
 impl From<InterpreterError> for Error {
     fn from(e: InterpreterError) -> Self {
-        Error::Interpreter(e)
+        match &e {
+            InterpreterError::Unchecked(CheckErrors::CostBalanceExceeded(a, b)) => Error::CostError(a.clone(), b.clone()),
+            InterpreterError::Unchecked(CheckErrors::CostOverflow) => Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value()),
+            _ => Error::Interpreter(e)
+        }
     }
 }
 
@@ -71,6 +78,7 @@ impl From<ParseError> for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            Error::CostError(ref a, ref b) => write!(f, "Cost Error: {} cost exceeded budget of {} cost", a, b),
             Error::Analysis(ref e) => fmt::Display::fmt(e, f),
             Error::Parse(ref e) => fmt::Display::fmt(e, f),
             Error::Interpreter(ref e) => fmt::Display::fmt(e, f),
@@ -82,6 +90,7 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
+            Error::CostError(ref _a, ref _b) => None,
             Error::Analysis(ref e) => Some(e),
             Error::Parse(ref e) => Some(e),
             Error::Interpreter(ref e) => Some(e),
@@ -107,7 +116,25 @@ impl ClarityInstance {
         ClarityBlockConnection {
             datastore,
             header_db,
-            parent: self
+            parent: self,
+            cost_track: Some(LimitedCostTracker::new_max_limit())
+        }
+    }
+
+    pub fn begin_block_with_limit<'a> (&'a mut self, current: &BlockHeaderHash, next: &BlockHeaderHash,
+                                       header_db: &'a dyn HeadersDB, limit: ExecutionCost) -> ClarityBlockConnection<'a> {
+        let mut datastore = self.datastore.take()
+            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
+            //   doesn't restore it's parent's datastore
+            .expect("FAIL: use of begin_block while prior block neither committed nor rolled back.");
+
+        datastore.begin(current, next);
+
+        ClarityBlockConnection {
+            datastore,
+            header_db,
+            parent: self,
+            cost_track: Some(LimitedCostTracker::new(limit))
         }
     }
 
@@ -238,10 +265,13 @@ impl <'a> ClarityBlockConnection <'a> {
         // wrap the whole contract-call in a claritydb transaction,
         //   so we can abort on call_back's boolean retun
         db.begin();
-        let mut vm_env = OwnedEnvironment::new(db);
+        let cost_track = self.cost_track.take()
+            .expect("Failed to get ownership of cost tracker in ClarityBlockConnection");
+        let mut vm_env = OwnedEnvironment::new_cost_limited(db, cost_track);
         let result = to_do(&mut vm_env);
-        let mut db = vm_env.destruct()
+        let (mut db, cost_track) = vm_env.destruct()
             .expect("Failed to recover database reference after executing transaction");
+        self.cost_track.replace(cost_track);
 
         match result {
             Ok((value, asset_map)) => {
@@ -360,7 +390,7 @@ mod tests {
             assert_eq!(
                 conn.run_contract_call(&StandardPrincipalData::transient().into(), &contract_identifier, "foo", &[Value::Int(1)],
                                        |_, _| false).unwrap().0,
-                Value::okay(Value::Int(2)));
+                Value::okay(Value::Int(2)).unwrap());
             
             conn.commit_block();
         }
@@ -426,23 +456,23 @@ mod tests {
             assert_eq!(
                 conn.run_contract_call(&sender, &contract_identifier, "get-bar", &[],
                                        |_, _| false).unwrap().0,
-                Value::okay(Value::Int(0)));
+                Value::okay(Value::Int(0)).unwrap());
 
             assert_eq!(
                 conn.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(1), Value::Int(1)],
                                        |_, _| false).unwrap().0,
-                Value::okay(Value::Int(1)));
+                Value::okay(Value::Int(1)).unwrap());
 
             assert_eq!(
                 conn.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(10), Value::Int(1)],
                                        |_, _| true).unwrap().0,
-                Value::okay(Value::Int(10)));
+                Value::okay(Value::Int(10)).unwrap());
 
             // prior transaction should have rolled back due to abort call back!
             assert_eq!(
                 conn.run_contract_call(&sender, &contract_identifier, "get-bar", &[],
                                        |_, _| false).unwrap().0,
-                Value::okay(Value::Int(1)));
+                Value::okay(Value::Int(1)).unwrap());
 
             assert!(
                 format!("{:?}",
@@ -454,11 +484,68 @@ mod tests {
             assert_eq!(
                 conn.run_contract_call(&StandardPrincipalData::transient().into(), &contract_identifier, "get-bar", &[],
                                        |_, _| false).unwrap().0,
-                Value::okay(Value::Int(1)));
+                Value::okay(Value::Int(1)).unwrap());
 
             
             conn.commit_block();
         }
     }
 
+    #[test]
+    pub fn test_block_limit() {
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(marf);
+        let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+        let sender = StandardPrincipalData::transient().into();
+
+        {
+            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
+
+            let contract = "
+            (define-public (do-expand)
+              (let ((list1 (list 1 2 3 4 5 6 7 8 9 10)))
+                (let ((list2 (concat list1 list1)))
+                  (let ((list3 (concat list2 list2)))
+                    (let ((list4 (concat list3 list3)))
+                      (ok (concat list4 list4)))))))
+            ";
+
+            let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+            conn.initialize_smart_contract(
+                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
+            conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+
+            conn.commit_block();
+        }
+
+        {
+            let mut conn = clarity_instance.begin_block_with_limit(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                                   &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
+                                                                   &NULL_HEADER_DB,
+                                                                   ExecutionCost {
+                                                                       write_length: u64::max_value(),
+                                                                       write_count: u64::max_value(),
+                                                                       read_count: u64::max_value(),
+                                                                       read_length: u64::max_value(),
+                                                                       runtime: 100
+                                                                   });
+            assert!(
+                match conn.run_contract_call(&sender, &contract_identifier, "do-expand", &[],
+                                       |_, _| false).unwrap_err() {
+                    Error::CostError(total, limit) => {
+                        eprintln!("{}, {}", total, limit);
+                        (limit.runtime == 100 && total.runtime > 100)
+                    },
+                    x => {
+                        eprintln!("{}", x);
+                        false
+                    }
+                }
+            );
+
+            conn.commit_block();
+        }
+    }
 }

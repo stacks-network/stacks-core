@@ -2,6 +2,10 @@ extern crate regex;
 
 pub mod errors;
 pub mod diagnostic;
+
+#[macro_use]
+pub mod costs;
+
 pub mod types;
 
 pub mod contracts;
@@ -29,13 +33,15 @@ use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result};
 use vm::database::MemoryBackingStore;
-use vm::types::QualifiedContractIdentifier;
+use vm::types::{QualifiedContractIdentifier, TraitIdentifier, PrincipalData};
+use vm::costs::{cost_functions, CostOverflowingMath, LimitedCostTracker};
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
 pub use vm::contexts::MAX_CONTEXT_DEPTH;
+use std::convert::TryInto;
 
-const MAX_CALL_STACK_DEPTH: usize = 128;
+const MAX_CALL_STACK_DEPTH: usize = 64;
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
@@ -43,17 +49,25 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
     } else {
         if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
             Ok(value)
-        } else if let Some(value) = context.lookup_variable(name) {
-            Ok(value)
-        } else if let Some(value) = env.contract_context.lookup_variable(name) {
-            Ok(value)
         } else {
-            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
+            runtime_cost!(cost_functions::LOOKUP_VARIABLE_DEPTH, env, context.depth())?;
+            if let Some(value) = context.lookup_variable(name).or_else(
+                || env.contract_context.lookup_variable(name)) {
+                runtime_cost!(cost_functions::LOOKUP_VARIABLE_SIZE, env, value.size())?;
+                Ok(value.clone())
+            }  else if let Some(value) = context.callable_contracts.get(name) {
+                let contract_identifier = &value.0;
+                Ok(Value::Principal(PrincipalData::Contract(contract_identifier.clone())))
+            } else {
+                Err(CheckErrors::UndefinedVariable(name.to_string()).into())
+            }
         }
     }
 }
 
-pub fn lookup_function(name: &str, env: &Environment)-> Result<CallableType> {
+pub fn lookup_function(name: &str, env: &mut Environment)-> Result<CallableType> {
+    runtime_cost!(cost_functions::LOOKUP_FUNCTION, env, 0)?;
+
     if let Some(result) = functions::lookup_reserved_functions(name) {
         Ok(result)
     } else {
@@ -98,12 +112,22 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
         env.call_stack.remove(&identifier, track_recursion)?;
         resp
     } else {
+        env.call_stack.insert(&identifier, track_recursion);
         let eval_tried: Result<Vec<Value>> =
             args.iter().map(|x| eval(x, env, context)).collect();
-        let evaluated_args = eval_tried?;
-        env.call_stack.insert(&identifier, track_recursion);
+        let evaluated_args = match eval_tried {
+            Ok(x) => x,
+            Err(e) => {
+                env.call_stack.remove(&identifier, track_recursion)?;
+                return Err(e)
+            }
+        };
         let mut resp = match function {
-            CallableType::NativeFunction(_, function) => function(&evaluated_args),
+            CallableType::NativeFunction(_, function, cost_function) => {
+                let arg_size = evaluated_args.len();
+                runtime_cost!(cost_function, env, arg_size)?;
+                function.apply(evaluated_args)
+            },
             CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
             _ => panic!("Should be unreachable.")
         };
@@ -114,7 +138,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
 }
 
 pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &LocalContext) -> Result<Value> {
-    use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
+    use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 
     match exp.expr {
         AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
@@ -126,7 +150,8 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
                 .ok_or(CheckErrors::BadFunctionName)?;
             let f = lookup_function(&function_name, env)?;
             apply(&f, &rest, env, context)
-        }
+        },
+        TraitReference(_, _) | Field(_) => unreachable!("can't be evaluated"),
     }
 }
 
@@ -161,23 +186,44 @@ fn eval_all (expressions: &[SymbolicExpression],
         };
         match try_define {
             DefineResult::Variable(name, value) => {
+                runtime_cost!(cost_functions::BIND_NAME, global_context, 0)?;
+
                 contract_context.variables.insert(name, value);
             },
             DefineResult::Function(name, value) => {
+                runtime_cost!(cost_functions::BIND_NAME, global_context, 0)?;
+
                 contract_context.functions.insert(name, value);
             },
             DefineResult::PersistedVariable(name, value_type, value) => {
+                runtime_cost!(cost_functions::CREATE_VAR, global_context, value_type.size())?;
+                contract_context.persisted_names.insert(name.clone());
                 global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type);
                 global_context.database.set_variable(&contract_context.contract_identifier, &name, value)?;
             },
             DefineResult::Map(name, key_type, value_type) => {
+                runtime_cost!(cost_functions::CREATE_MAP, global_context,
+                              u64::from(key_type.size()).cost_overflow_add(
+                                  u64::from(value_type.size()))?)?;
+                contract_context.persisted_names.insert(name.clone());
                 global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type);
             },
             DefineResult::FungibleToken(name, total_supply) => {
+                runtime_cost!(cost_functions::CREATE_FT, global_context, 0)?;
+                contract_context.persisted_names.insert(name.clone());
                 global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply);
             },
             DefineResult::NonFungibleAsset(name, asset_type) => {
+                runtime_cost!(cost_functions::CREATE_NFT, global_context, asset_type.size())?;
+                contract_context.persisted_names.insert(name.clone());
                 global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
+            },
+            DefineResult::Trait(name, trait_type) => { 
+                contract_context.defined_traits.insert(name, trait_type);
+            },
+            DefineResult::UseTrait(_name, _trait_identifier) => {},
+            DefineResult::ImplTrait(trait_identifier) => {
+                contract_context.implemented_traits.insert(trait_identifier);
             },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
@@ -185,7 +231,7 @@ fn eval_all (expressions: &[SymbolicExpression],
                     let mut call_stack = CallStack::new();
                     let mut env = Environment::new(
                         global_context, contract_context, &mut call_stack, None, None);
-
+                    
                     let result = eval(exp, &mut env, &context)?;
                     last_executed = Some(result);
                     Ok(())
@@ -199,13 +245,15 @@ fn eval_all (expressions: &[SymbolicExpression],
 
 /* Run provided program in a brand new environment, with a transient, empty
  *  database.
+ *
+ *  Only used by CLI.
  */
 pub fn execute(program: &str) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone());
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(conn);
+    let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
     global_context.execute(|g| {
         let parsed = ast::parse(&contract_id, program)?;
         eval_all(&parsed, &mut contract_context, g)
@@ -215,11 +263,15 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
     use vm::database::{MemoryBackingStore};
     use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression, CallStack};
     use vm::types::{TypeSignature, QualifiedContractIdentifier};
     use vm::callables::{DefinedFunction, DefineType};
     use vm::eval;
+    use vm::costs::LimitedCostTracker;
+    use vm::execute;
+    use vm::errors::RuntimeErrorType;
 
     #[test]
     fn test_simple_user_function() {
@@ -239,14 +291,17 @@ mod test {
                        SymbolicExpression::atom("x".into())]));
 
         let func_args = vec![("x".into(), TypeSignature::IntType)];
-        let user_function = DefinedFunction::new(func_args, func_body, DefineType::Private,
-                                                 &"do_work".into(), &"");
+        let user_function = DefinedFunction::new(func_args, 
+                                                 func_body, 
+                                                 DefineType::Private,
+                                                 &"do_work".into(), 
+                                                 &"");
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
 
         let mut marf = MemoryBackingStore::new();
-        let mut global_context = GlobalContext::new(marf.as_clarity_db());
+        let mut global_context = GlobalContext::new(marf.as_clarity_db(), LimitedCostTracker::new_max_limit());
 
         contract_context.variables.insert("a".into(), Value::Int(59));
         contract_context.functions.insert("do_work".into(), user_function);

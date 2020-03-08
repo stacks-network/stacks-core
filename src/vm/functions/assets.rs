@@ -5,6 +5,8 @@ use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty,
 use vm::representations::{SymbolicExpression};
 use vm::errors::{Error, InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
 use vm::{eval, LocalContext, Environment};
+use vm::costs::cost_functions;
+use std::convert::{TryFrom};
 
 enum MintAssetErrorCodes { ALREADY_EXIST = 1 }
 enum MintTokenErrorCodes { NON_POSITIVE_AMOUNT = 1 }
@@ -14,7 +16,7 @@ enum StxErrorCodes { NOT_ENOUGH_BALANCE = 1, SENDER_IS_RECIPIENT = 2, NON_POSITI
 
 macro_rules! clarity_ecode {
     ($thing:expr) => {
-        Ok(Value::error(Value::UInt($thing as u128)))
+        Ok(Value::err_uint($thing as u128))
     }
 }
 
@@ -22,6 +24,8 @@ pub fn special_stx_transfer(args: &[SymbolicExpression],
                             env: &mut Environment,
                             context: &LocalContext) -> Result<Value> {
     check_argument_count(3, args)?;
+
+    runtime_cost!(cost_functions::STX_TRANSFER, env, 0)?;
 
     let amount_val = eval(&args[0], env, context)?;
     let from_val   = eval(&args[1], env, context)?;
@@ -56,8 +60,7 @@ pub fn special_stx_transfer(args: &[SymbolicExpression],
 
         env.global_context.log_stx_transfer(&from, amount)?;
 
-        Ok(Value::okay(Value::Bool(true)))
-
+        Ok(Value::okay_true())
     } else {
         Err(CheckErrors::BadTransferSTXArguments.into())
     }
@@ -67,6 +70,8 @@ pub fn special_stx_burn(args: &[SymbolicExpression],
                         env: &mut Environment,
                         context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
+
+    runtime_cost!(cost_functions::STX_TRANSFER, env, 0)?;
 
     let amount_val = eval(&args[0], env, context)?;
     let from_val   = eval(&args[1], env, context)?;
@@ -92,7 +97,7 @@ pub fn special_stx_burn(args: &[SymbolicExpression],
 
         env.global_context.log_stx_burn(&from, amount)?;
 
-        Ok(Value::okay(Value::Bool(true)))
+        Ok(Value::okay_true())
 
     } else {
         Err(CheckErrors::BadTransferSTXArguments.into())
@@ -103,6 +108,8 @@ pub fn special_mint_token(args: &[SymbolicExpression],
                           env: &mut Environment,
                           context: &LocalContext) -> Result<Value> {
     check_argument_count(3, args)?;
+
+    runtime_cost!(cost_functions::FT_MINT, env, 0)?;
 
     let token_name = args[0].match_atom()
         .ok_or(CheckErrors::BadTokenName)?;
@@ -126,7 +133,7 @@ pub fn special_mint_token(args: &[SymbolicExpression],
 
         env.global_context.database.set_ft_balance(&env.contract_context.contract_identifier, token_name, to_principal, final_to_bal)?;
 
-        Ok(Value::okay(Value::Bool(true)))
+        Ok(Value::okay_true())
     } else {
         Err(CheckErrors::BadMintFTArguments.into())
     }
@@ -145,6 +152,8 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
 
     let expected_asset_type = env.global_context.database.get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
 
+    runtime_cost!(cost_functions::NFT_MINT, env, expected_asset_type.size())?;
+
     if !expected_asset_type.admits(&asset) {
         return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into())
     }
@@ -158,7 +167,7 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
 
         env.global_context.database.set_nft_owner(&env.contract_context.contract_identifier, asset_name, &asset, to_principal)?;
 
-        Ok(Value::okay(Value::Bool(true)))
+        Ok(Value::okay_true())
     } else {
         Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, to).into())
     }
@@ -177,6 +186,8 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
     let to    =  eval(&args[3], env, context)?;
 
     let expected_asset_type = env.global_context.database.get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
+
+    runtime_cost!(cost_functions::NFT_TRANSFER, env, expected_asset_type.size())?;
 
     if !expected_asset_type.admits(&asset) {
         return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into())
@@ -206,7 +217,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
 
         env.global_context.log_asset_transfer(from_principal, &env.contract_context.contract_identifier, asset_name, asset);
 
-        Ok(Value::okay(Value::Bool(true)))
+        Ok(Value::okay_true())
     } else {
         Err(CheckErrors::BadTransferNFTArguments.into())
     }
@@ -216,6 +227,8 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
                               env: &mut Environment,
                               context: &LocalContext) -> Result<Value> {
     check_argument_count(4, args)?;
+
+    runtime_cost!(cost_functions::FT_TRANSFER, env, 0)?;
 
     let token_name = args[0].match_atom()
         .ok_or(CheckErrors::BadTokenName)?;
@@ -253,7 +266,7 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
 
         env.global_context.log_token_transfer(from_principal, &env.contract_context.contract_identifier, token_name, amount)?;
 
-        Ok(Value::okay(Value::Bool(true)))
+        Ok(Value::okay_true())
     } else {
         Err(CheckErrors::BadTransferFTArguments.into())
     }
@@ -263,6 +276,8 @@ pub fn special_get_balance(args: &[SymbolicExpression],
                            env: &mut Environment,
                            context: &LocalContext) -> Result<Value> {
     check_argument_count(2, args)?;
+
+    runtime_cost!(cost_functions::FT_BALANCE, env, 0)?;
 
     let token_name = args[0].match_atom()
         .ok_or(CheckErrors::BadTokenName)?;
@@ -289,12 +304,15 @@ pub fn special_get_owner(args: &[SymbolicExpression],
     let asset = eval(&args[1], env, context)?;
     let expected_asset_type = env.global_context.database.get_nft_key_type(&env.contract_context.contract_identifier, asset_name)?;
 
+    runtime_cost!(cost_functions::NFT_OWNER, env, expected_asset_type.size())?;
+
     if !expected_asset_type.admits(&asset) {
         return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into())
     }
 
     match env.global_context.database.get_nft_owner(&env.contract_context.contract_identifier, asset_name, &asset) {
-        Ok(owner) => Ok(Value::some(Value::Principal(owner))),
+        Ok(owner) => Ok(Value::some(Value::Principal(owner))
+                        .expect("Principal should always fit in optional.")),
         Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(Value::none()),
         Err(e) => Err(e)
     }

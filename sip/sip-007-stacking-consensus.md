@@ -144,7 +144,8 @@ To qualify for a reward cycle, an STX holder must:
 
 * Control a Stacks wallet with >= 0.02% of the total share of unlocked
   Stacks tokens (currently, there are ~470m unlocked Stacks tokens,
-  meaning this would require ~94k Stacks).
+  meaning this would require ~94k Stacks). This threshold level
+  adjusts based on the participation levels in the Stacking protocol.
 * Broadcast a signed message before the reward cycle begins that:
     * Locks the associated Stacks tokens for a protocol-specified
       lockup period.
@@ -208,8 +209,62 @@ can deduce that the transfer addresses are invalid).
 
 To reduce the complexity of the consensus algorithm, Stacking reward
 cycles are fixed length --- if fewer addresses participate in the
-Stacking rewards than there are slots in the cycle, then for the
-remaining blocks, all miners must send funds to burn addresses.
+Stacking rewards than there are slots in the cycle, then the remaining
+slots are filled with *burn* addresses. Burn addresses are included
+in miner commitments at fixed intervals (e.g, if there are 1000 burn
+addresses for a reward cycle, then each miner commitment would have
+1 burn address as an output).
+
+## Adjusting Reward Threshold Based on Participation
+
+Each reward cycle may transfer miner funds to up to 5000 Bitcoin
+addresses. To ensure that this number of addresses is sufficient to
+cover the pool of participants (given 100% participation of liquid
+STX), the threshold for participation must be 0.02% (1/5000th) of the
+liquid supply of STX. However, if participation is _lower_ than 100%,
+the reward pool could admit lower STX holders. The Stacking protocol
+specifies **2 operating levels**:
+
+* **25%** If fewer than `0.25 * STX_LIQUID_SUPPLY` STX participate in
+  a reward cycle, participant wallets controlling `x` STX may include
+  `floor(x / (0.00005*STX_LIQUID_SUPPLY))` addresses in the reward set.
+  That is, the minimum participation threshold is 1/20,000th of the liquid
+  supply.
+* **25%-100%** If between `0.25 * STX_LIQUID_SUPPLY` and `1.0 *
+  STX_LIQUID_SUPPLY` STX participate in a reward cycle, the reward
+  threshold is optimized in order to maximize the number of slots that
+  are filled. That is, the minimum threshold `T` for participation will be
+  roughly 1/5,000th of the participating STX (adjusted in increments
+  of 10,000 STX). Participant wallets controlling `x` STX may
+  include `floor(x / T)` addresses in the
+  reward set.
+
+In the event that a Stacker signals and locks up enough STX to submit
+multiple reward addresses, but only submits one reward address, that
+reward address will be included in the reward set multiple times.
+
+## Submitting Reward Address and Chain Tip Signaling
+
+Stacking participants must broadcast signed messages for three purposes:
+
+1. Indicating to the network how many STX should be locked up, and for
+   how many reward cycles.
+2. Indicate support for a particular chain tip.
+3. Specifying the Bitcoin address for receiving Stacking rewards.
+
+These messages may be broadcast either on the Stacks chain or the
+Bitcoin chain. If broadcast on the Stacks chain, these messages must
+be confirmed on the Stacks chain _before_ the anchor block for the
+reward period. If broadcast on the Bitcoin chain, they may be
+broadcast during the prepare phase, but must be included before
+the prepare phase finishes.
+
+These signed messages are valid for at most 12000 Bitcoin blocks (12
+reward cycles, or ~3 month). If the signed message specifies a lockup
+period `x` less than 12000 blocks, then the signed message is only valid for
+Stacking participation for `floor(x / 1000)` reward cycles (the minimum 
+participation length is one cycle: 1000 blocks).
+
 
 # Anchor Blocks and Reward Consensus
 
@@ -270,17 +325,18 @@ valid block commitments. A high threshold for `F` ensures that a large
 fraction of the Stacks mining power has confirmed the receipt of the
 data associated with the anchor block.
 
-**Recovery from Missing Data**. In the extreme event that a malicious
-miner *is* able to get a hidden or invalid block accepted as an anchor
-block, Stacks nodes must be able to continue operation. To do so,
-Stacks nodes treat missing anchor block data as if no anchor block was
-chosen for the reward cycle — the only valid election commitments will
-therefore be *burns* (this is essentially a fallback to PoB). If
-anchor block data which was previously missing is revealed to the
-Stacks node, it must reprocess all of the leader elections for that
-anchor block's associated reward cycle, because there may now be many
-commitments which were previously invalid that are now
-valid.
+## Recovery from Missing Data
+
+In the extreme event that a malicious miner *is* able to get a hidden
+or invalid block accepted as an anchor block, Stacks nodes must be
+able to continue operation. To do so, Stacks nodes treat missing
+anchor block data as if no anchor block was chosen for the reward
+cycle — the only valid election commitments will therefore be *burns*
+(this is essentially a fallback to PoB). If anchor block data which
+was previously missing is revealed to the Stacks node, it must
+reprocess all of the leader elections for that anchor block's
+associated reward cycle, because there may now be many commitments
+which were previously invalid that are now valid.
 
 Reprocessing leader elections is computationally expensive, and
 would likely result in a large reorganization of the Stacks
@@ -294,11 +350,14 @@ amongst such a large fraction of the Stacks mining power is possible,
 we contend that the security of the Stacks chain would be compromised
 through other means beyond attacking anchor blocks.
 
-**Anchoring with Stacker Support.** The security of anchor block
-selection is further increased through Stacker support
-transactions. In this protocol, when Stacking participants broadcast
-their signed participation messages, they signal support of anchor
-blocks.
+## Anchoring with Stacker Support.
+
+The security of anchor block selection is further increased through
+Stacker support transactions. In this protocol, when Stacking
+participants broadcast their signed participation messages, they
+signal support of anchor blocks. This is specified by the chain tip's
+hash, and the support signal is valid as long as the message itself is
+valid.
 
 This places an additional requirement on anchor block selection. In
 addition to an anchor block needing to reach a certain number of miner
@@ -307,3 +366,44 @@ support message signals. This places an additional burden on an anchor
 block attack --- not only must the attacker collude amongst a large
 fraction of mining power, but they must also collude amongst a
 majority of the Stacking participants in their block.
+
+# Adressing Miner Consolidation in Stacking
+
+PoX when used for Stacking rewards could lead to miner
+consolidation. Because miners that _also_ participate as Stackers
+could gain an advantage over miners who do not participate as
+Stackers, miners would be strongly incentivized to buy Stacks and use
+it to crowd out other miners. In the extreme case, this consolidation
+could lead to centralization of mining, which would undermine the
+decentralization goals of the Stacks blockchain. While we are actively
+investigating additional mechanisms to address this potential
+consolidation, we propose a time-bounded PoX mechanism here.
+
+**Time-Bounded PoX.** Stacking rewards incentivize miner consolidation
+if miners obtain _permanent_ advantages for obtaining the new
+cryptocurrency. However, by limiting the time period of PoX, this
+advantage declines over time. To do this, we define two time periods for Pox:
+
+1. **Initial Phase.** In this phase, Stacking rewards proceed as
+   described above -- commitment funds are sent to Stacking rewards
+   addresses, except if a miner is not mining a descendant of the
+   anchor block, or if the registered reward addresses for a given
+   reward cycle have all been exhausted. This phase will last for
+   approximately 2 years (100,000 Bitcoin blocks).
+
+2. **Sunset Phase.** After the initial phase, a _sunset_ block is
+   determined. This sunset block will be ~8 years (400,000 Bitcoin
+   blocks) after the sunset phase begins. After the sunset block,
+   _all_ miner commitments must be burned, rather than transfered to
+   reward addresses. During the sunset phase, the reward / burn ratio
+   linearly decreases by `0.25%` (100/400) on each reward cycle, such
+   that in the 200th reward cycle, the ratio of funds that are
+   transfered to reward addresses versus burnt must be equal to
+   `0.5`. For example, if a miner commits 10 BTC, the miner must send
+   5 BTC to reward addresses and 5 BTC to the burn address.
+
+By time-bounding the PoX mechanism, we allow the Stacking protocol to
+use PoX to help bootstrap support for the new blockchain, providing
+miners and holders with incentives for participating in the network
+early on. Then, as natural use cases for the blockchain develop and
+gain steam, the PoX system could gradually scale down.

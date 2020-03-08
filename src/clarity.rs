@@ -29,6 +29,7 @@ use vm::analysis::{AnalysisDatabase, run_analysis};
 use vm::analysis::contract_interface_builder::build_contract_interface;
 use vm::analysis::types::ContractAnalysis;
 use vm::types::{QualifiedContractIdentifier, PrincipalData};
+use vm::costs::LimitedCostTracker;
 
 use address::c32::c32_address;
 
@@ -125,9 +126,9 @@ fn advance_cli_chain_tip(path: &String) -> (BlockHeaderHash, BlockHeaderHash) {
 
     friendly_expect(tx.execute("CREATE TABLE IF NOT EXISTS cli_chain_tips(id INTEGER PRIMARY KEY AUTOINCREMENT, block_hash TEXT UNIQUE NOT NULL);", NO_PARAMS),
                     &format!("FATAL: failed to create 'cli_chain_tips' table"));
-   
+
     let parent_block_hash = get_cli_chain_tip(&tx);
-    
+
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
     let next_block_hash  = friendly_expect_opt(BlockHeaderHash::from_bytes(&random_bytes),
                                               "Failed to generate random block header.");
@@ -258,7 +259,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         },
         "repl" => {
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env = OwnedEnvironment::new(marf.as_clarity_db());
+            let mut vm_env = OwnedEnvironment::new_cost_limited(marf.as_clarity_db(), LimitedCostTracker::new_max_limit());
             let mut exec_env = vm_env.get_exec_environment(None);
 
             let mut analysis_marf = MemoryBackingStore::new();
@@ -324,7 +325,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let mut analysis_db = analysis_marf.as_analysis_db();
 
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env = OwnedEnvironment::new(marf.as_clarity_db());
+            let mut vm_env = OwnedEnvironment::new_cost_limited(marf.as_clarity_db(), LimitedCostTracker::new_max_limit());
  
             
             let contract_id = QualifiedContractIdentifier::transient(); 
@@ -382,7 +383,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&NULL_HEADER_DB);
-                    let mut vm_env = OwnedEnvironment::new(db);
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                     vm_env.get_exec_environment(None)
                         .eval_read_only(&contract_identifier, &content)
                 };
@@ -428,7 +429,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         Ok(analysis) => {
                             let result = {
                                 let db = marf.as_clarity_db(&NULL_HEADER_DB);
-                                let mut vm_env = OwnedEnvironment::new(db);
+                                let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                                 vm_env.initialize_contract(contract_identifier, &contract_content)
                             };
                             (marf, Ok((analysis, result)))
@@ -498,7 +499,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&NULL_HEADER_DB);
-                    let mut vm_env = OwnedEnvironment::new(db);
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                     vm_env.execute_transaction(Value::Principal(sender), contract_identifier, &tx_name, &arguments) };
                 (marf, result)
             });

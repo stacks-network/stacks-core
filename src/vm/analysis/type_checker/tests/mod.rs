@@ -1,4 +1,5 @@
-use vm::ast::parse;
+use vm::ast::{parse, build_ast};
+use vm::ast::errors::ParseErrors;
 use vm::representations::SymbolicExpression;
 use vm::analysis::type_checker::{TypeResult, TypeChecker, TypingContext};
 use vm::analysis::{AnalysisDatabase};
@@ -51,6 +52,84 @@ fn test_get_block_info(){
     
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_define_trait(){
+    let good = [
+        "(define-trait trait-1 ((get-1 (uint) (response uint uint))))",
+        "(define-trait trait-1 ((get-1 () (response uint (buff 32)))))",
+        "(define-trait trait-1 ((get-1 () (response (buff 32) (buff 32)))))"];
+
+    for good_test in good.iter() {
+        mem_type_check(&good_test).unwrap();
+    }
+            
+    let bad = [
+        "(define-trait trait-1 ((get-1 uint)))",
+        "(define-trait trait-1 ((get-1 uint uint)))",
+        "(define-trait trait-1 ((get-1 (uint) (uint))))",
+        "(define-trait trait-1 ((get-1 (response uint uint))))",
+        "(define-trait trait-1)",
+        "(define-trait)"];
+    let bad_expected = [
+        CheckErrors::InvalidTypeDescription,
+        CheckErrors::DefineTraitBadSignature,
+        CheckErrors::DefineTraitBadSignature,
+        CheckErrors::InvalidTypeDescription];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+
+    let bad = [
+        "(define-trait trait-1)",
+        "(define-trait)"];
+    let bad_expected = [
+        ParseErrors::DefineTraitBadSignature,
+        ParseErrors::DefineTraitBadSignature];
+
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        let res = build_ast(&contract_identifier, bad_test).unwrap_err();
+        assert_eq!(expected, &res.err);
+    }
+}
+
+#[test]
+fn test_use_trait(){
+    let bad = [
+        "(use-trait trait-1 ((get-1 (uint) (response uint uint))))",
+        "(use-trait trait-1 ((get-1 uint)))",
+        "(use-trait trait-1)",
+        "(use-trait)"];
+    let bad_expected = [
+        ParseErrors::ImportTraitBadSignature,
+        ParseErrors::ImportTraitBadSignature,
+        ParseErrors::ImportTraitBadSignature,
+        ParseErrors::ImportTraitBadSignature];
+    
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        let res = build_ast(&contract_identifier, bad_test).unwrap_err();
+        assert_eq!(expected, &res.err);
+    }
+}
+
+#[test]
+fn test_impl_trait(){
+    let bad = [
+        "(impl-trait trait-1)",
+        "(impl-trait)"];
+    let bad_expected = [
+        ParseErrors::ImplTraitBadSignature,
+        ParseErrors::ImplTraitBadSignature];
+    
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        let res = build_ast(&contract_identifier, bad_test).unwrap_err();
+        assert_eq!(expected, &res.err);
     }
 }
 
@@ -186,13 +265,13 @@ fn test_destructuring_opts(){
                (err u3)
                (ok (+ u2 (try! (t1 x))))))",
          CheckErrors::ReturnTypesMustMatch(
-             TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType),
-             TypeSignature::new_response(TypeSignature::UIntType, TypeSignature::UIntType))),
+             TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType).unwrap(),
+             TypeSignature::new_response(TypeSignature::UIntType, TypeSignature::UIntType).unwrap())),
         ("(define-private (t1 (x uint)) (if (> x u1) (ok x) (err 'false)))
          (define-private (t2 (x uint))
            (> u2 (try! (t1 x))))",
          CheckErrors::ReturnTypesMustMatch(
-             TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType),
+             TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType).unwrap(),
              TypeSignature::BoolType)),
         ("(try! (ok 3))",
          CheckErrors::CouldNotDetermineResponseErrType),
@@ -231,6 +310,27 @@ fn test_at_block(){
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
     }
 }
+
+#[test]
+fn test_trait_reference_unknown(){
+    let bad = [("(+ 1 <kvstore>)", ParseErrors::TraitReferenceUnknown("kvstore".to_string()))];
+    
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    for (bad_test, expected) in bad.iter() {
+        let res = build_ast(&contract_identifier, bad_test).unwrap_err();
+        assert_eq!(expected, &res.err);
+    }
+}
+
+#[test]
+fn test_unexpected_use_of_field_or_trait_reference(){
+    let bad = [("(+ 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract.field)", CheckErrors::UnexpectedTraitOrFieldReference)];
+    
+    for (bad_test, expected) in bad.iter() {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
 
 #[test]
 fn test_simple_arithmetic_checks() {
@@ -366,7 +466,7 @@ fn test_eqs() {
 
     let bad_expected = [ CheckErrors::TypeError(BoolType, IntType),
                          CheckErrors::TypeError(TypeSignature::list_of(IntType, 1).unwrap(), IntType),
-                         CheckErrors::TypeError(TypeSignature::new_option(BoolType), TypeSignature::new_option(IntType)) ];
+                         CheckErrors::TypeError("(optional bool)".into(), "(optional int)".into()) ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
@@ -630,6 +730,25 @@ fn test_native_concat() {
 }
 
 #[test]
+fn test_concat_append_supertypes() {
+    let good = [
+        "(concat (list) (list 4 5))",
+        "(concat (list (list 2) (list) (list 4 5))
+                 (list (list) (list) (list 7 8 9)))",
+        "(append (list) 1)",
+        "(append (list (list 3 4) (list)) (list 4 5 7))" ];
+    let expected = ["(list 2 int)",
+                    "(list 6 (list 3 int))",
+                    "(list 1 int)",
+                    "(list 3 (list 3 int))"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        eprintln!("{}", good_test);
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
+    }
+}
+
+#[test]
 fn test_buff_concat() {
     let good = [
         "(concat \"123\" \"58\")"];
@@ -764,8 +883,8 @@ fn test_simple_uints() {
         assert_eq!(expected, &type_sig.to_string());
     }
 
-    for bad_test in bad.iter() {
-        mem_type_check(bad_test).unwrap_err();
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(&mem_type_check(bad_test).unwrap_err().err, expected);
     }
 }
 
@@ -809,7 +928,7 @@ fn test_response_inference() {
                "(unwrap! (err 2) 'true)"
     ];
 
-    let bad_expected = [ CheckErrors::TypeError(TypeSignature::new_response(BoolType, IntType),
+    let bad_expected = [ CheckErrors::TypeError("(response bool int)".into(),
                                                 BoolType),
                          CheckErrors::ReturnTypesMustMatch(IntType, BoolType),
                          CheckErrors::CouldNotDetermineResponseOkType ];
@@ -929,8 +1048,8 @@ fn test_options() {
     assert!(
         match mem_type_check(contract).unwrap_err().err {
             CheckErrors::TypeError(t1, t2) => {
-                t1 == TypeSignature::new_option(BoolType) &&
-                t2 == TypeSignature::new_option(IntType)
+                t1 == "(optional bool)".into() &&
+                t2 == "(optional int)".into()
             },
             _ => false
         });

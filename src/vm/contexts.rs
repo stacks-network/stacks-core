@@ -1,16 +1,18 @@
-use std::collections::{HashMap, HashSet, BTreeMap};
+use std::collections::{HashMap, HashSet, BTreeMap, BTreeSet};
 use std::fmt;
 use std::convert::TryInto;
 
 use vm::errors::{InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result};
-use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
+use vm::types::{Value, AssetIdentifier, PrincipalData, TraitIdentifier, QualifiedContractIdentifier, TypeSignature};
+use vm::types::signatures::{FunctionSignature};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase};
 use vm::representations::{SymbolicExpression, ClarityName, ContractName};
 use vm::contracts::Contract;
 use vm::ast::ContractAST;
+use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker, cost_functions};
 use vm::ast;
-use vm::eval;
+use vm::{eval, is_reserved};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 
@@ -53,6 +55,7 @@ pub struct AssetMap {
     burn_map: HashMap<PrincipalData, u128>,
     token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, u128>>,
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>
+        
 }
 
 /** GlobalContext represents the outermost context for a single transaction's
@@ -65,32 +68,25 @@ pub struct GlobalContext<'a> {
     asset_maps: Vec<AssetMap>,
     pub database: ClarityDatabase<'a>,
     read_only: Vec<bool>,
+    pub cost_track: LimitedCostTracker,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
-    
-    #[serde(serialize_with = "ordered_map_variables")]
     pub variables: HashMap<ClarityName, Value>,
-    
-    #[serde(serialize_with = "ordered_map_functions")]
     pub functions: HashMap<ClarityName, DefinedFunction>,
-}
-
-fn ordered_map_variables<S: serde::Serializer>(value: &HashMap<ClarityName, Value>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
-    let ordered: BTreeMap<_, _> = value.iter().collect();
-    ordered.serialize(serializer)
-}
-
-fn ordered_map_functions<S: serde::Serializer>(value: &HashMap<ClarityName, DefinedFunction>, serializer: S) -> core::result::Result<S::Ok, S::Error> {
-    let ordered: BTreeMap<_, _> = value.iter().collect();
-    ordered.serialize(serializer)
+    pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    pub implemented_traits: HashSet<TraitIdentifier>,
+    // tracks the names of NFTs, FTs, Maps, and Data Vars.
+    //  used for ensuring that they never are defined twice.
+    pub persisted_names: HashSet<ClarityName>,
 }
 
 pub struct LocalContext <'a> {
     pub parent: Option< &'a LocalContext<'a>>,
     pub variables: HashMap<ClarityName, Value>,
+    pub callable_contracts: HashMap<ClarityName, (QualifiedContractIdentifier, TraitIdentifier)>,
     depth: u16
 }
 
@@ -363,9 +359,18 @@ impl fmt::Display for AssetMap {
 
 
 impl <'a> OwnedEnvironment <'a> {
+    #[cfg(test)]
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment <'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(database),
+            context: GlobalContext::new(database, LimitedCostTracker::new_max_limit()),
+            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            call_stack: CallStack::new()
+        }
+    }
+
+    pub fn new_cost_limited(database: ClarityDatabase<'a>, cost_tracker: LimitedCostTracker) -> OwnedEnvironment <'a> {
+        OwnedEnvironment {
+            context: GlobalContext::new(database, cost_tracker),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new()
         }
@@ -453,8 +458,20 @@ impl <'a> OwnedEnvironment <'a> {
     /// Destroys this environment, returning ownership of its database reference.
     ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
     ///   because the database is not guaranteed to be in a sane state.
-    pub fn destruct(self) -> Option<ClarityDatabase<'a>> {
+    pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
         self.context.destruct()
+    }
+}
+
+impl CostTracker for Environment<'_,'_> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CheckErrors> {
+        self.global_context.cost_track.add_cost(cost)
+    }
+}
+
+impl CostTracker for GlobalContext<'_> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CheckErrors> {
+        self.cost_track.add_cost(cost)
     }
 }
 
@@ -540,6 +557,9 @@ impl <'a,'b> Environment <'a,'b> {
 
     pub fn execute_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, 
                             tx_name: &str, args: &[SymbolicExpression]) -> Result<Value> {
+        let contract_size = self.global_context.database.get_contract_size(contract_identifier)?;
+        runtime_cost!(cost_functions::LOAD_CONTRACT, self, contract_size)?;
+
         let contract = self.global_context.database.get_contract(contract_identifier)?;
 
         let func = contract.contract_context.lookup_function(tx_name)
@@ -559,7 +579,14 @@ impl <'a,'b> Environment <'a,'b> {
 
         let args = args?;
 
-        self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context)) 
+        let func_identifier = func.get_identifier();
+        if self.call_stack.contains(&func_identifier) {
+            return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
+        }
+        self.call_stack.insert(&func_identifier, true);
+        let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
+        self.call_stack.remove(&func_identifier, true)?;
+        res
     }
 
     pub fn execute_function_as_transaction(&mut self, function: &DefinedFunction, args: &[Value],
@@ -615,10 +642,11 @@ impl <'a,'b> Environment <'a,'b> {
                                         contract_content: &ContractAST, contract_string: &str) -> Result<()> {
         self.global_context.begin();
 
+        runtime_cost!(cost_functions::CONTRACT_STORAGE, self, contract_string.len())?;
+
         // first, store the contract _content hash_ in the data store.
         //    this is necessary before creating and accessing metadata fields in the data store,
         //      --or-- storing any analysis metadata in the data store.
-        // TODO: pass the actual string data in.
         self.global_context.database.insert_contract_hash(&contract_identifier, contract_string)?;
 
         let result = Contract::initialize_from_ast(contract_identifier.clone(), 
@@ -642,9 +670,9 @@ impl <'a,'b> Environment <'a,'b> {
 impl <'a> GlobalContext<'a> {
 
     // Instantiate a new Global Context
-    pub fn new(database: ClarityDatabase) -> GlobalContext {
+    pub fn new(database: ClarityDatabase, cost_track: LimitedCostTracker) -> GlobalContext {
         GlobalContext {
-            database: database,
+            database, cost_track,
             read_only: Vec::new(),
             asset_maps: Vec::new()
         }
@@ -764,9 +792,9 @@ impl <'a> GlobalContext<'a> {
     /// Destroys this context, returning ownership of its database reference.
     ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
     ///   because the database is not guaranteed to be in a sane state.
-    pub fn destruct(self) -> Option<ClarityDatabase<'a>> {
+    pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
         if self.is_top_level() {
-            Some(self.database)
+            Some((self.database, self.cost_track))
         } else {
             None
         }
@@ -778,26 +806,48 @@ impl ContractContext {
         Self {
             contract_identifier,
             variables: HashMap::new(),
-            functions: HashMap::new()
+            functions: HashMap::new(),
+            defined_traits: HashMap::new(),
+            implemented_traits: HashSet::new(),
+            persisted_names: HashSet::new(),
         }
     }
 
-    pub fn lookup_variable(&self, name: &str) -> Option<Value> {
-        self.variables.get(name).cloned()
+    pub fn lookup_variable(&self, name: &str) -> Option<&Value> {
+        self.variables.get(name)
     }
 
     pub fn lookup_function(&self, name: &str) -> Option<DefinedFunction> {
         self.functions.get(name).cloned()
+    }
+
+    pub fn lookup_trait_definition(&self, name: &str) -> Option<BTreeMap<ClarityName, FunctionSignature>> {
+        self.defined_traits.get(name).cloned()
+    }
+
+    pub fn is_explicitly_implementing_trait(&self, trait_identifier: &TraitIdentifier) -> bool {
+        self.implemented_traits.contains(trait_identifier)
+    }
+
+    pub fn is_name_used(&self, name: &str) -> bool {
+        is_reserved(name) ||
+            self.variables.contains_key(name) || self.functions.contains_key(name) ||
+            self.persisted_names.contains(name) || self.defined_traits.contains_key(name)
     }
 }
 
 impl <'a> LocalContext <'a> {
     pub fn new() -> LocalContext<'a> {
         LocalContext {
-            depth: 0,
             parent: Option::None,
+            callable_contracts: HashMap::new(),
             variables: HashMap::new(),
+            depth: 0,
         }
+    }
+
+    pub fn depth(&self) -> u16 {
+        self.depth
     }
     
     pub fn extend(&'a self) -> Result<LocalContext<'a>> {
@@ -806,19 +856,20 @@ impl <'a> LocalContext <'a> {
         } else {
             Ok(LocalContext {
                 parent: Some(self),
+                callable_contracts: HashMap::new(),
                 variables: HashMap::new(),
-                depth: self.depth + 1
+                depth: self.depth + 1,
             })
         }
     }
 
-    pub fn lookup_variable(&self, name: &str) -> Option<Value> {
+    pub fn lookup_variable(&self, name: &str) -> Option<&Value> {
         match self.variables.get(name) {
-            Some(value) => Option::Some(value.clone()),
+            Some(value) => Some(value),
             None => {
                 match self.parent {
                     Some(parent) => parent.lookup_variable(name),
-                    None => Option::None
+                    None => None
                 }
             }
         }
@@ -886,7 +937,7 @@ mod test {
         let p2 = PrincipalData::Contract(b_contract_id.clone());
 
         let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
-        let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
+        let _t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
@@ -917,10 +968,10 @@ mod test {
         let p1 = PrincipalData::Contract(a_contract_id.clone());
         let p2 = PrincipalData::Contract(b_contract_id.clone());
         let p3 = PrincipalData::Contract(c_contract_id.clone());
-        let p4 = PrincipalData::Contract(d_contract_id.clone());
-        let p5 = PrincipalData::Contract(e_contract_id.clone());
-        let p6 = PrincipalData::Contract(f_contract_id.clone());
-        let p7 = PrincipalData::Contract(g_contract_id.clone());
+        let _p4 = PrincipalData::Contract(d_contract_id.clone());
+        let _p5 = PrincipalData::Contract(e_contract_id.clone());
+        let _p6 = PrincipalData::Contract(f_contract_id.clone());
+        let _p7 = PrincipalData::Contract(g_contract_id.clone());
 
         let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
         let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };

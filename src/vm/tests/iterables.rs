@@ -85,7 +85,7 @@ fn test_simple_map_append() {
 
     assert_eq!(
         execute("(append (append (list) 1) u2)").unwrap_err(),
-        CheckErrors::TypeError(IntType, UIntType).into());
+        CheckErrors::TypeValueError(IntType, Value::UInt(2)).into());
 }
 
 #[test]
@@ -170,9 +170,9 @@ fn test_simple_buff_assert_max_len() {
         "(as-max-len? \"123\" u5)"];
 
     let expected = [
-        Value::some(Value::buff_from(vec![49, 50, 51]).unwrap()),
+        Value::some(Value::buff_from(vec![49, 50, 51]).unwrap()).unwrap(),
         Value::none(),
-        Value::some(Value::buff_from(vec![49, 50, 51]).unwrap())];
+        Value::some(Value::buff_from(vec![49, 50, 51]).unwrap()).unwrap()];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
         assert_eq!(expected.clone(), execute(test).unwrap().unwrap());
@@ -203,9 +203,9 @@ fn test_simple_list_assert_max_len() {
     "(as-max-len? (list 1 2 3) u5)"];
 
     let expected = [
-        Value::some(Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap()),
+        Value::some(Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap()).unwrap(),
         Value::none(),
-        Value::some(Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap())];
+        Value::some(Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap()).unwrap()];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
         assert_eq!(expected.clone(), execute(test).unwrap().unwrap());

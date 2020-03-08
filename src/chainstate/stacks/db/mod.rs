@@ -301,6 +301,20 @@ impl<'a> ChainstateTx<'a> {
     }
 }
 
+/// Opaque structure for streaming block and microblock data from disk
+#[derive(Debug, PartialEq, Clone)]
+pub struct BlockStreamData {
+    block_hash: BlockHeaderHash,        // index block hash of the block or microblock stream head
+    rowid: Option<i64>,                 // used when reading a blob out of staging
+    offset: u64,                        // offset into whatever is being read (the blob, or the file in the chunk store)
+    total_bytes: u64,                   // total number of bytes read.
+
+    // used only for microblocks
+    is_microblock: bool,
+    seq: u16,
+    in_staging: bool
+}
+
 // TODO: write code to populate the microblock_headers table too!
 // TODO: keep track of when microblock equivocations occur (maybe in the MARF?), so that once we
 // process a PoisonMicroblock transaction, no further blocks may build off of any descendent fork.

@@ -98,48 +98,85 @@ any type.
 ## Inter-Contract Calls
 
 A smart contract may call functions from other smart contracts using a
-`(contract-call!)` function. This function accepts a function name and
-the smart contract's _identifier_ as input.  A smart contract's
-identifier is a hash of the smart contract's definition, represented
-as a Stacks address with a specific "smart contract" version byte. The
-smart contract identifier is a _principal_.
+`(contract-call?)` function.
 
-For example, to call the function `register-name` in a smart contract,
-you would use:
-
-```scheme
-(contract-call!
-    'SC3H92H297DX3YDPFHZGH90G8Z4NPH4VE8E83YWAQ
-    'register-name
-    name-to-register)
-```
-
-This function returns a boolean-- the return value of the called smart
+This function returns a Response type result-- the return value of the called smart
 contract function. Note that if a called smart contract returns an
 `err` type, it is guaranteed to not alter any smart contract state
 whatsoever. Of course, any transaction fees paid for the execution
 of that function will not be returned.
 
+We distinguish 2 different types of `contract-call?`:
+
+* Static dispatch: the callee is a known, invariant contract available
+on-chain when the caller contract is being deployed. In this case, the
+callee's principal is provided as first argument, followed by the name
+of the method and its arguments:
+
+```scheme
+(contract-call?
+    'SC3H92H297DX3YDPFHZGH90G8Z4NPH4VE8E83YWAQ.registrar
+    register-name
+    name-to-register)
+```
+
+This approach must always be preferred, when adequate.
+It makes static analysis easier, and eliminates the
+potential for reentrancy bugs when the contracts are
+being published (versus when being used).
+
+* Dynamic dispatch: the callee is passed as an argument, and typed
+as a trait reference (<A>).
+
+```scheme
+(define-public (swap (token-a <can-transfer-tokens>)
+                     (amount-a uint)
+                     (owner-a principal)
+                     (token-b <can-transfer-tokens>)
+                     (amount-b uint)
+                     (owner-b principal)))
+     (begin
+         (unwrap! (contract-call? token-a transfer-from? owner-a owner-b amount-a))
+         (unwrap! (contract-call? token-b transfer-from? owner-b owner-a amount-b))))
+```
+
+Traits can either be locally defined:
+
+```scheme
+(define-trait can-transfer-tokens (
+    (transfer-from? (principal principal uint) (response uint)))
+```
+
+Or imported from an existing contract:
+
+```scheme
+(use-trait can-transfer-tokens
+    'SC3H92H297DX3YDPFHZGH90G8Z4NPH4VE8E83YWAQ.contract-defining-trait.can-transfer-tokens)
+```
+
+Looking at trait conformance, callee contracts have two different paths.
+They can either be "compatible" with a trait by defining methods
+matching some of the methods defined in a trait, or explicitely declare
+conformance using the `impl-trait` statement:
+
+```scheme
+(impl-trait 'SC3H92H297DX3YDPFHZGH90G8Z4NPH4VE8E83YWAQ.contract-defining-trait.can-transfer-tokens)
+```
+
+Explicit conformance should be prefered when adequate.
+It acts as a safeguard by helping the static analysis system to detect
+deviations in method signatures before contract deployment.
+
 The following limitations are imposed on contract calls:
 
-1. No dynamic dispatch. At the time of the smart contract creation,
-   any contracts being called must be specified. Future designs may
-   enable this by allowing contract principals to be supplied as
-   function arguments, however, on initial release, we believe
-   dynamic invocation to be too dangerous to support.
-2. Called smart contracts _must_ exist at the time of creation.
-3. No cycles may exist in the call graph of a smart contract. This
+1. On static dispatches, callee smart contracts _must_ exist at the time of creation.
+2. No cycles may exist in the call graph of a smart contract. This
    prevents recursion (and re-entrancy bugs). Such structures can
    be detected with static analysis of the call graph, and will be
    rejected by the network.
-
-The language described here only allows for eager binding of smart
-contract function calls-- this makes static analysis easier, and
-eliminates the potential for reentrancy bugs. A key benefit of the
-static analyzability of this smart contracting language is that _all_
-functions that can possibly be called from a given transaction can be
-known _a priori_ so that a user can be warned about all side effects
-before signing a transaction.
+3. `contract-call?` are for inter-contract calls only. Situations
+   where the caller is also the callee will result in abortion of
+   the ongoing transaction.
 
 ## Principals and Owner Verification
 
@@ -166,7 +203,7 @@ priori which functions a given smart contract will ever call.
 
 Another global variable, `contract-caller`, _does_ change during
 inter-contract calls. In particular, `contract-caller` is the contract
-principal corresponding to the most recent invocation of `contract-call!`.
+principal corresponding to the most recent invocation of `contract-call?`.
 In the case of a "top-level" invocation, this variable is equal to `tx-sender`.
 
 Assets in the smart contracting language and blockchain are
@@ -322,7 +359,7 @@ Example:
  12234) -> returns owner principal of name represent by integer 12234
 ```
 
-Just as with the `(contract-call!)` function, the map name and contract
+Just as with the `(contract-call?)` function, the map name and contract
 principal arguments must be constants, specified at the time of
 publishing.
 

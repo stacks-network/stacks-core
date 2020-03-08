@@ -193,6 +193,10 @@ impl <'a> ClarityDatabase <'a> {
     pub fn insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
         let hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
         self.store.prepare_for_contract_metadata(contract_identifier, hash);
+        // insert contract-size
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+        self.insert_metadata(contract_identifier, &key,
+                             &(contract_content.len() as u64));
         Ok(())
     }
 
@@ -210,9 +214,16 @@ impl <'a> ClarityDatabase <'a> {
             .map(|x_opt| x_opt.map(|x| T::deserialize(&x)))
     }
 
+    pub fn get_contract_size(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<u64> {
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+        let data = self.fetch_metadata(contract_identifier, &key)?
+            .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
+        Ok(data)
+    }
+
     pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: Contract) {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
-       self.insert_metadata(contract_identifier, &key, &contract);
+        self.insert_metadata(contract_identifier, &key, &contract);
     }
 
     pub fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Contract> {
@@ -220,7 +231,6 @@ impl <'a> ClarityDatabase <'a> {
         let data = self.fetch_metadata(contract_identifier, &key)?
             .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
         Ok(data)
-
     }
 }
 
@@ -288,7 +298,7 @@ impl <'a> ClarityDatabase <'a> {
         self.insert_metadata(contract_identifier, &key, &variable_data)
     }
 
-    fn load_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str) -> Result<DataVariableMetadata> {
+    pub fn load_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str) -> Result<DataVariableMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
         map_no_contract_as_none(
@@ -335,7 +345,7 @@ impl <'a> ClarityDatabase <'a> {
         self.insert_metadata(contract_identifier, &key, &data)
     }
 
-    fn load_map(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str) -> Result<DataMapMetadata> {
+    pub fn load_map(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str) -> Result<DataMapMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
 
         map_no_contract_as_none(
@@ -351,7 +361,7 @@ impl <'a> ClarityDatabase <'a> {
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
 
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type);
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type)?;
         let result = self.get_value(&key, &stored_type);
 
         match result {
@@ -386,13 +396,14 @@ impl <'a> ClarityDatabase <'a> {
         }
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type);
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type)?;
 
         if return_if_exists && self.data_map_entry_exists(&key, &stored_type)? {
             return Ok(Value::Bool(false))
         }
 
-        self.put(&key, &Value::some(value));
+        let placed_value = Value::some(value)?;
+        self.put(&key, &placed_value);
 
         return Ok(Value::Bool(true))
     }
@@ -404,7 +415,7 @@ impl <'a> ClarityDatabase <'a> {
         }
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type);
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type)?;
         if !self.data_map_entry_exists(&key, &stored_type)? {
             return Ok(Value::Bool(false))
         }
