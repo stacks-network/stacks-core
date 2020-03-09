@@ -668,7 +668,7 @@ impl StacksTransaction {
     }
 
     /// Verify this transaction's signatures
-    pub fn verify(&self) -> Result<bool, net_error> {
+    pub fn verify(&self) -> Result<(), net_error> {
         self.auth.verify(&self.verify_begin())
     }
 
@@ -1051,7 +1051,7 @@ mod test {
     // serialized data changes.
     fn test_signature_and_corruption(signed_tx: &StacksTransaction, corrupt_origin: bool, corrupt_sponsor: bool) -> () {
         // signature is well-formed otherwise
-        assert!(signed_tx.verify().unwrap());
+        signed_tx.verify().unwrap();
 
         // mess with the auth hash code
         let mut corrupt_tx_hash_mode = signed_tx.clone();

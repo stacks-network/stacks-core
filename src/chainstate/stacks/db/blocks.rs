@@ -54,7 +54,10 @@ use util::strings::StacksString;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 
-use util::retry::BoundReader;
+use util::retry::{
+    BoundReader,
+    ReadCounter
+};
 
 use chainstate::burn::db::burndb::*;
 
@@ -68,7 +71,8 @@ use vm::types::{
     TupleData,
     PrincipalData,
     StandardPrincipalData,
-    QualifiedContractIdentifier
+    QualifiedContractIdentifier,
+    TypeSignature
 };
 
 use vm::contexts::{
@@ -83,7 +87,7 @@ use vm::clarity::{
     ClarityInstance
 };
 
-pub use vm::analysis::errors::CheckErrors;
+pub use vm::analysis::errors::{CheckErrors, CheckError};
 
 use vm::database::ClarityDatabase;
 
@@ -131,6 +135,24 @@ pub struct StagingUserBurnSupport {
     pub burn_amount: u64,
     pub vtxindex: u32,
 }
+
+pub enum MemPoolRejection {
+    DeserializationFailure(net_error),
+    FailedToValidate(Error),
+    FeeTooLow(u64),
+    BadNonces(Error),
+    NotEnoughFunds(u128, u128),
+    NoSuchContract,
+    NoSuchPublicFunction,
+    BadFunctionArgument(CheckError)
+}
+
+// These constants are mempool acceptance heuristics, but
+//  not part of the protocol consensus (i.e., a block
+//  that includes a transaction that violates these won't
+//  be invalid)
+pub const MINIMUM_TX_FEE: u64 = 1;
+pub const MINIMUM_TX_FEE_RATE_PER_BYTE: u64 = 1;
 
 impl StagingBlock {
     pub fn is_genesis(&self) -> bool {
@@ -2701,6 +2723,69 @@ impl StacksChainState {
         }
 
         Ok(ret)
+    }
+
+    pub fn will_admit_mempool_tx<R: Read>(clarity_conn: &mut ClarityTx, fd: &mut R) -> Result<StacksTransaction, MemPoolRejection> {
+        // 1: it should parse as a tx.
+        let mut fd_counter = ReadCounter::from_reader(fd);
+        let tx = StacksTransaction::consensus_deserialize(&mut fd_counter)
+            .map_err(|e| MemPoolRejection::DeserializationFailure(e))?;
+
+        // 2: it must be validly signed.
+        StacksChainState::process_transaction_precheck(clarity_conn, &tx)
+            .map_err(|e| MemPoolRejection::FailedToValidate(e))?;
+
+        // 3: it must pay a tx fee
+        let fee = tx.get_fee_rate();
+        let tx_size = fd_counter.read_count();
+
+        if fee < MINIMUM_TX_FEE || 
+           fee / tx_size < MINIMUM_TX_FEE_RATE_PER_BYTE {
+            return Err(MemPoolRejection::FeeTooLow(fee))
+        }
+
+        // 4: the account nonces must be correct
+        let (origin, payer) = StacksChainState::check_transaction_nonces(clarity_conn, &tx)
+            .map_err(|e| MemPoolRejection::BadNonces(e))?;
+
+        // 5: the paying account must have enough funds
+        if fee as u128 > payer.stx_balance {
+            return Err(MemPoolRejection::NotEnoughFunds(fee as u128, payer.stx_balance))
+        }
+
+        // 6: payload-specific checks
+        match &tx.payload {
+            TransactionPayload::TokenTransfer(_addr, amount, _memo) => {
+                // got the funds?
+                let total_spent = (*amount as u128) +
+                    if origin == payer {
+                        fee as u128
+                    } else {
+                        0
+                    };
+                if total_spent > origin.stx_balance {
+                    return Err(MemPoolRejection::NotEnoughFunds(total_spent, origin.stx_balance))
+                }
+            },
+            TransactionPayload::ContractCall(TransactionContractCall {
+                address, contract_name, function_name, function_args }) => {
+                let contract_identifier = QualifiedContractIdentifier::new(address.clone().into(), contract_name.clone());
+
+                let function_type = clarity_conn.connection()
+                    .with_analysis_db_readonly(|db| {
+                        db.get_public_function_type(&contract_identifier, &function_name)
+                    })
+                    .map_err(|_e| MemPoolRejection::NoSuchContract)?
+                    .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
+
+                let arg_types: Vec<_> = function_args.iter().map(|x| TypeSignature::type_of(x)).collect();
+                function_type.check_args(&arg_types)
+                    .map_err(|e| MemPoolRejection::BadFunctionArgument(e))?;
+            },
+            _ => panic!("Unimplemented")
+        };
+
+        Ok(tx)
     }
 }
 

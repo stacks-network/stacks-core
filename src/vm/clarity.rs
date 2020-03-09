@@ -247,6 +247,16 @@ impl <'a> ClarityBlockConnection <'a> {
         result
     }
 
+    /// Do something to the underlying DB that involves only reading.
+    pub fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R {
+        let mut db = AnalysisDatabase::new(&mut self.datastore);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+
     /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
     pub fn analyze_smart_contract(&mut self, identifier: &QualifiedContractIdentifier, contract_content: &str)
                                   -> Result<(ContractAST, ContractAnalysis), Error> {

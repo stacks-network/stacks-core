@@ -102,6 +102,37 @@ impl StacksChainState {
         StacksChainState::get_account(clarity_tx, &principal_data)
     }
 
+    /// Check the account nonces for the supplied stacks transaction,
+    ///   returning the origin and payer accounts if valid.
+    pub fn check_transaction_nonces(clarity_tx: &mut ClarityTx, tx: &StacksTransaction) -> Result<(StacksAccount, StacksAccount), Error> {
+        // who's sending it?
+        let origin = tx.get_origin();
+        let origin_account = StacksChainState::get_spending_account(clarity_tx, &origin);
+
+        // who's paying the fee?
+        let payer = tx.get_payer();
+        let payer_account = if payer == origin {
+            origin_account.clone()
+        } else {
+            StacksChainState::get_spending_account(clarity_tx, &payer)
+        };
+
+        // check nonces
+        if origin.nonce() != origin_account.nonce {
+            let msg = format!("Bad nonce: origin account nonce of tx {} is {} (expected {})", tx.txid(), origin.nonce(), origin_account.nonce);
+            warn!("{}", &msg);
+            return Err(Error::InvalidStacksTransaction(msg));
+        }
+
+        if payer.nonce() != payer_account.nonce {
+            let msg = format!("Bad nonce: payer account nonce of tx {} is {} (expected {})", tx.txid(), payer.nonce(), payer_account.nonce);
+            warn!("{}", &msg);
+            return Err(Error::InvalidStacksTransaction(msg));
+        }
+
+        Ok((origin_account, payer_account))
+    }
+
     /// Pay the transaction fee (but don't credit it to the miner yet).
     /// Does not touch the account nonce
     /// TODO: the fee paid here isn't the bare fee in the transaction, but is instead the
@@ -115,14 +146,9 @@ impl StacksChainState {
     }
 
     /// Pre-check a transaction -- make sure it's well-formed
-    fn process_transaction_precheck<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(), Error> {
+    pub fn process_transaction_precheck<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(), Error> {
         // valid auth?
-        if !tx.verify().map_err(Error::NetError)? {
-            let msg = format!("Invalid tx {}: invalid signature(s)", tx.txid());
-            warn!("{}", &msg);
-
-            return Err(Error::InvalidStacksTransaction(msg));
-        }
+        tx.verify().map_err(Error::NetError)?;
 
         // destined for us?
         if clarity_tx.config.chain_id != tx.chain_id {
@@ -489,26 +515,7 @@ impl StacksChainState {
 
         StacksChainState::process_transaction_precheck(clarity_tx, tx)?;
 
-        // who's sending it?
-        let origin = tx.get_origin();
-        let origin_account = StacksChainState::get_spending_account(clarity_tx, &origin);
-
-        // who's paying the fee?
-        let payer = tx.get_payer();
-        let payer_account = StacksChainState::get_spending_account(clarity_tx, &payer);
-
-        // check nonces
-        if origin.nonce() != origin_account.nonce {
-            let msg = format!("Bad nonce: origin account nonce of tx {} is {} (expected {})", tx.txid(), origin.nonce(), origin_account.nonce);
-            warn!("{}", &msg);
-            return Err(Error::InvalidStacksTransaction(msg));
-        }
-
-        if payer.nonce() != payer_account.nonce {
-            let msg = format!("Bad nonce: payer account nonce of tx {} is {} (expected {})", tx.txid(), payer.nonce(), payer_account.nonce);
-            warn!("{}", &msg);
-            return Err(Error::InvalidStacksTransaction(msg));
-        }
+        let (payer_account, origin_account) = StacksChainState::check_transaction_nonces(clarity_tx, tx)?;
 
         // pay fee
         // TODO: don't do this here; do it when we know what the STX/compute rate will be, and then
@@ -519,7 +526,7 @@ impl StacksChainState {
 
         // update the account nonces
         StacksChainState::update_account_nonce(clarity_tx, &origin_account);
-        if origin != payer {
+        if origin_account != payer_account {
             StacksChainState::update_account_nonce(clarity_tx, &payer_account);
         }
 

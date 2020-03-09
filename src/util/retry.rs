@@ -81,6 +81,36 @@ impl<'a, R: Read> Read for RetryReader<'a, R> {
 }
 
 /// A Read that will only read up to a given number of bytes before EOF'ing.
+pub struct ReadCounter<'a, R: Read> {
+    fd: &'a mut R,
+    read_so_far: u64
+}
+
+impl<'a, R: Read> ReadCounter<'a, R> {
+    pub fn from_reader(reader: &'a mut R) -> ReadCounter<'a, R> {
+        ReadCounter {
+            fd: reader,
+            read_so_far: 0
+        }
+    }
+
+    pub fn read_count(&self) -> u64 {
+        self.read_so_far
+    }
+}
+
+impl <'a, R: Read> Read for ReadCounter<'a, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.read_so_far.checked_add(buf.len() as u64)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Read would overflow u64".to_string()))?;
+
+        let nr = self.fd.read(buf)?;
+        self.read_so_far += nr as u64;
+        Ok(nr)
+    }
+}
+
+/// A Read that will only read up to a given number of bytes before EOF'ing.
 pub struct BoundReader<'a, R: Read> {
     fd: &'a mut R,
     max_len: u64,
