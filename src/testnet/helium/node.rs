@@ -1,4 +1,4 @@
-use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainState};
+use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainState, EventDispatcher};
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -66,6 +66,7 @@ pub struct Node {
     keychain: Keychain,
     last_sortitioned_block: Option<SortitionedBlock>,
     mem_pool: MemPoolFS,
+    event_dispatcher: EventDispatcher,
     nonce: u64,
 }
 
@@ -95,6 +96,14 @@ impl Node {
 
         let mem_pool = MemPoolFS::new(&config.node.mempool_path);
 
+        let mut event_dispatcher = EventDispatcher::new();
+
+        if let Some(observers) = &config.event_observers {
+            for observer in observers {
+                event_dispatcher.register_observer(observer);
+            }
+        }
+
         Self {
             active_registered_key: None,
             bootstraping_chain: false,
@@ -107,6 +116,7 @@ impl Node {
             config,
             burnchain_tip: None,
             nonce: 0,
+            event_dispatcher,
         }
     }
     
@@ -314,24 +324,31 @@ impl Node {
             }
         }
 
-        self.chain_tip = {
-            // We are intentionally scoping this snippet, in order to limit the scope of the lock.
-            // let db = burn_db.lock().unwrap();
-            let mut res = None;
-            loop {
-                match self.chain_state.process_blocks(1) {
-                    Err(e) => panic!("Error while processing block - {:?}", e),
-                    Ok(blocks) => {
-                        if blocks.len() == 0 {
-                            break;
-                        } else {
-                            res = Some(blocks[0].clone());
-                        }
+        let mut processed_blocks = vec![];
+        loop {
+            match self.chain_state.process_blocks(1) {
+                Err(e) => panic!("Error while processing block - {:?}", e),
+                Ok(ref mut blocks) => {
+                    if blocks.len() == 0 {
+                        break;
+                    } else {
+                        processed_blocks.append(blocks);
                     }
                 }
             }
-            res.unwrap().0
-        };
+        }
+
+        // todo(ludo): yikes but good enough in the context of helium:
+        // we only expect 1 block.
+        let processed_block = processed_blocks[0].clone().0.unwrap();
+        
+        // Handle events
+        let chain_tip = processed_block.0;
+        let events = processed_block.1;
+
+        self.event_dispatcher.dispatch_events(events, &chain_tip);
+
+        self.chain_tip = Some(chain_tip);
 
         // Unset the `bootstraping_chain` flag.
         if self.bootstraping_chain {

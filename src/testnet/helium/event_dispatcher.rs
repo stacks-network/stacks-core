@@ -1,31 +1,71 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::net::TcpListener;
 use std::thread::spawn;
+use std::net::{SocketAddr};
+use mio::tcp::TcpStream;
+use serde_json::json;
+use serde::Serialize;
 
 use vm::types::{Value, QualifiedContractIdentifier};
+use chainstate::stacks::StacksTransactionEvent;
+use chainstate::stacks::db::StacksHeaderInfo;
 use super::config::{EventObserverConfig};
 
 #[derive(Debug)]
-struct ContractEvent {
-    key: (QualifiedContractIdentifier, String),
-    value: Value,
-}
-
-#[derive(Debug)]
 struct EventObserver {
-    pub address: String,
-    pub port: u16,
+    stream: TcpStream
 }
 
 impl EventObserver {
 
-    pub fn write(&mut self, events: Vec<&ContractEvent>) {
-        // serialize events in JSON, write to socket
+    pub fn new(address: &str, port: u16) -> EventObserver {
+        let sock_addr = SocketAddr::new(address.parse().unwrap(), port);
+        let stream = TcpStream::connect(&sock_addr).unwrap();
+        EventObserver { stream }
+    }
+
+    pub fn send(&mut self, events: Vec<&StacksTransactionEvent>, header_info: &StacksHeaderInfo) {
+        // Serialize events to JSON
+        let events_payload: Vec<serde_json::Value> = events.iter().map(|event| 
+            match event {
+                StacksTransactionEvent::SmartContractEvent(event_data) => json!({
+                    "type": "contract_event",
+                    "contract_event_data": {
+                        "contract_identifier": event_data.key.0.to_string(),
+                        "topic": event_data.key.1,
+                        "value": event_data.value,
+                    }
+                }),
+                StacksTransactionEvent::StacksTransfer(event_data) => json!({
+                    "type": "transfer_event",
+                    "transfer_event_data": {
+                        "sender": event_data.sender.to_string(),
+                        "recipient": event_data.recipient,
+                        "amount": event_data.amount,
+                        "asset_id": "STX",
+                    }
+                }),
+            }).collect();
+
+        // Wrap events
+        let payload = json!({
+            "index_block_hash": format!("{:?}", header_info.index_block_hash()),
+            "parent_block_hash": format!("{:?}", header_info.anchored_header.parent_block),
+            "burn_header_hash": format!("{:?}", header_info.burn_header_hash),
+            "burn_header_timestamp": header_info.burn_header_timestamp,
+            "block_height": header_info.block_height,
+            "events": events_payload
+        }).to_string();
+
+
+        // Send payload
+        let _res = self.stream.write_bufs(&vec![payload.as_bytes().into()]);
+
+        // todo(ludo): if res = error, we should probably discard the observer
     }
 }
 
-struct EventDispatcher {
+pub struct EventDispatcher {
     registered_observers: Vec<EventObserver>,
     watched_events_lookup: HashMap<(QualifiedContractIdentifier, String), HashSet<u16>>,
 }
@@ -39,32 +79,41 @@ impl EventDispatcher {
         }
     }
 
-    pub fn dispatch_events(&mut self, events: Vec<ContractEvent>) {
-        let mut dispatch_grid: Vec<Vec<u16>> = self.registered_observers.iter().map(|_| vec![]).collect();
-        for (i, ContractEvent { key, value: _ }) in events.iter().enumerate() {
-            match self.watched_events_lookup.get(key) {
-                Some(observer_indexes) => {
-                    for o_i in observer_indexes {
-                        // todo(ludo): should we move the interior vector to hashset?
-                        dispatch_grid[*o_i as usize].push(i as u16);
-                    }
-                 },
-                None => {},
-            };
+    pub fn dispatch_events(&mut self, events: Vec<StacksTransactionEvent>, header_info: &StacksHeaderInfo) {
+        let mut dispatch_matrix: Vec<Vec<usize>> = self.registered_observers.iter().map(|_| vec![]).collect();
+        for (i, event) in events.iter().enumerate() {
+            match event {
+                StacksTransactionEvent::SmartContractEvent(event_data) => {
+                    match self.watched_events_lookup.get(&event_data.key) {
+                        Some(observer_indexes) => {
+                            for o_i in observer_indexes {
+                                dispatch_matrix[*o_i as usize].push(i);
+                            }
+                         },
+                        None => {},
+                    };
+                },
+                StacksTransactionEvent::StacksTransfer(event_data) => {
+                    // todo(ludo): to implement
+                }
+            }
         }
 
-        for (observer_id, filtered_events) in dispatch_grid.iter().enumerate() {
-            // let events: Vec<&ContractEvent> = events.iter().enumerate().filter(|&(i, _)| i == 3 )
-            // self.registered_observers[observer_id].write()
-            println!("Dispatching {:?} to {:?}", self.registered_observers[observer_id], filtered_events);
+        for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {
+            if filtered_events_ids.len() == 0 {
+                continue;
+            }
+
+            let mut filtered_events: Vec<&StacksTransactionEvent> = vec![];
+            for event_id in filtered_events_ids {
+                filtered_events.push(&events[*event_id]);
+            }
+            self.registered_observers[observer_id].send(filtered_events, header_info);
         }
     }
 
     pub fn register_observer(&mut self, conf: &EventObserverConfig) {
-        let event_observer = EventObserver {
-            address: conf.address.clone(),
-            port: conf.port,
-        };
+        let event_observer = EventObserver::new(&conf.address, conf.port);
         
         let observer_index = self.registered_observers.len() as u16;
 
