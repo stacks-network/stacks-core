@@ -295,46 +295,56 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
             LexItem::LeftParen => {
                 // start new list.
                 let new_list = Vec::new();
-                parse_stack.push((new_list, line_pos, column_pos));
+                parse_stack.push((new_list, line_pos, column_pos, LexItem::RightParen));
             },
             LexItem::RightParen => {
                 // end current list.
-                if let Some((value, start_line, start_column)) = parse_stack.pop() {
-                    let mut pre_expr = PreSymbolicExpression::list(value.into_boxed_slice());
-                    pre_expr.set_span(start_line, start_column, line_pos, column_pos);
-                    match parse_stack.last_mut() {
-                        None => {
-                            // no open lists on stack, add current to result.
-                            output_list.push(pre_expr)
-                        },
-                        Some((ref mut list, _, _)) => {
-                            list.push(pre_expr);
-                        }
-                    };
+                if let Some((value, start_line, start_column, expected_token)) = parse_stack.pop() {
+                    if let LexItem::RightParen = expected_token {
+                        let mut pre_expr = PreSymbolicExpression::list(value.into_boxed_slice());
+                        pre_expr.set_span(start_line, start_column, line_pos, column_pos);
+                        match parse_stack.last_mut() {
+                            None => {
+                                // no open lists on stack, add current to result.
+                                output_list.push(pre_expr)
+                            },
+                            Some((ref mut list, _, _, _)) => {
+                                list.push(pre_expr);
+                            }
+                        };
+                    } else {
+                        return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+                    }
                 } else {
                     return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected))
                 }
             },
             LexItem::LeftCurly => {
                 let new_list = Vec::new();
-                parse_stack.push((new_list, line_pos, column_pos));
+                parse_stack.push((new_list, line_pos, column_pos, LexItem::RightCurly));
             },
             LexItem::RightCurly => {
-                if let Some((value, start_line, start_column)) = parse_stack.pop() {
-                    let pairs = value.chunks(2)
-                                     .map(|pair| PreSymbolicExpression::list(pair.to_vec().into_boxed_slice()))
-                                     .collect::<Vec<_>>();
-                    let mut pre_expr = PreSymbolicExpression::list(pairs.into_boxed_slice());
-                    pre_expr.set_span(start_line, start_column, line_pos, column_pos);
-                    match parse_stack.last_mut() {
-                        None => {
-                            // no open lists on stack, add current to result.
-                            output_list.push(pre_expr)
-                        },
-                        Some((ref mut list, _, _)) => {
-                            list.push(pre_expr);
-                        }
-                    };
+                if let Some((value, start_line, start_column, expected_token)) = parse_stack.pop() {
+                    if let LexItem::RightCurly = expected_token {
+                        let pairs = value.chunks(2)
+                                         .map(|pair| pair.to_vec().into_boxed_slice())
+                                         .map(PreSymbolicExpression::list)
+                                         .collect::<Vec<_>>();
+                        let mut pre_expr = PreSymbolicExpression::list(pairs.into_boxed_slice());
+                        pre_expr.set_span(start_line, start_column, line_pos, column_pos);
+                        match parse_stack.last_mut() {
+                            None => {
+                                // no open lists on stack, add current to result.
+                                output_list.push(pre_expr)
+                            },
+                            Some((ref mut list, _, _, _)) => {
+                                list.push(pre_expr);
+                            }
+                        };
+                    } else {
+                        // FIX: Use ParseErrors::ClosingTupleLiteralExpected
+                        return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+                    }
                 } else {
                     return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected))
                 }
@@ -348,7 +358,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
 
                 match parse_stack.last_mut() {
                     None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
                 };
             },
             LexItem::LiteralValue(length, value) => {
@@ -362,7 +372,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
 
                 match parse_stack.last_mut() {
                     None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
                 };
             },
             LexItem::SugaredContractIdentifier(length, value) => {
@@ -376,7 +386,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
 
                 match parse_stack.last_mut() {
                     None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
                 };
             },
             LexItem::SugaredFieldIdentifier(length, contract_name, name) => {
@@ -390,7 +400,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
 
                 match parse_stack.last_mut() {
                     None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
                 };
             },
             LexItem::FieldIdentifier(length, trait_identifier) => {
@@ -404,7 +414,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
 
                 match parse_stack.last_mut() {
                     None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
                 };
             },
             LexItem::TraitReference(_length, value) => {
@@ -416,7 +426,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
 
                 match parse_stack.last_mut() {
                     None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
                 };
             }
             LexItem::Whitespace => ()
@@ -600,6 +610,8 @@ r#"z (let ((x 1) (y 2))
         let unicode = "(let ((x🎶 1)) (eq x🎶 1))";
         let split_tokens = "(let ((023ab13 1)))";
         let name_with_dot = "(let ((ab.de 1)))";
+        let wrong_tuple_literal_close = "{id 1337)";
+        let wrong_list_close = "(13 37}";
 
         let function_with_CR = "(define (foo (x y)) \n (+ 1 2 3) \r (- 1 2 3))";
         let function_with_CRLF = "(define (foo (x y)) \n (+ 1 2 3) \n\r (- 1 2 3))";
@@ -626,6 +638,12 @@ r#"z (let ((x 1) (y 2))
 
         assert!(match ast::parser::parse(&name_with_dot).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
+
+        assert!(match ast::parser::parse(&wrong_tuple_literal_close).unwrap_err().err {
+            ParseErrors::ClosingParenthesisExpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&wrong_list_close).unwrap_err().err {
+            ParseErrors::ClosingParenthesisExpected => true, _ => false });
 
         assert!(match ast::parser::parse(&function_with_CR).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
