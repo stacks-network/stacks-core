@@ -599,6 +599,25 @@ pub struct StacksTransaction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum StacksTransactionEvent {
+    SmartContractEvent(SmartContractEventData),
+    StacksTransfer(StacksTransferEventData),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StacksTransferEventData {
+    pub sender: PrincipalData,
+    pub recipient: StacksAddress,
+    pub amount: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SmartContractEventData {
+    pub key: (QualifiedContractIdentifier, String),
+    pub value: Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct StacksTransactionSigner {
     pub tx: StacksTransaction,
     pub sighash: Txid,
