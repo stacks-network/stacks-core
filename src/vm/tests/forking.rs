@@ -58,7 +58,7 @@ fn test_at_block_good() {
         }
         
         owned_env.execute_transaction(p1, c, to_exec, &vec![])
-            .map(|(x, _)| x)
+            .map(|(x, _, _)| x)
     }
 
     with_separate_forks_environment(
@@ -270,7 +270,7 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
         assert_eq!(balance, Value::UInt(expected));
     }
 
-    let (result, _) = owned_env.execute_transaction(Value::Principal(PrincipalData::Standard(p1_address)),
+    let (result, _, _) = owned_env.execute_transaction(Value::Principal(PrincipalData::Standard(p1_address)),
                                                     contract_identifier, 
                                                     "destroy",
                                                     &symbols_from_values(vec![Value::UInt(10)])).unwrap();

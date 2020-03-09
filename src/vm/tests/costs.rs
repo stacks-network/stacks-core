@@ -13,7 +13,7 @@ use vm::contexts::{Environment};
 use vm::costs::{ExecutionCost};
 use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
                    NULL_HEADER_DB};
-
+use chainstate::stacks::StacksTransactionEvent;
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
 
@@ -94,7 +94,7 @@ fn get_simple_test(function: &NativeFunctions) -> &'static str {
 }
 
 fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_identifier: &QualifiedContractIdentifier,
-                       tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap), Error> {
+                       tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
     env.execute_transaction(issuer, contract_identifier.clone(), tx, args)
 }
 

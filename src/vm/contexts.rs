@@ -15,6 +15,7 @@ use vm::ast;
 use vm::eval;
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
+use chainstate::stacks::{StacksTransactionEvent, SmartContractEventData};
 
 use serde::Serialize;
 
@@ -66,6 +67,7 @@ pub struct AssetMap {
  */
 pub struct GlobalContext<'a> {
     asset_maps: Vec<AssetMap>,
+    pub events: Vec<StacksTransactionEvent>,
     pub database: ClarityDatabase<'a>,
     read_only: Vec<bool>,
     pub cost_track: LimitedCostTracker,
@@ -408,7 +410,7 @@ impl <'a> OwnedEnvironment <'a> {
                          sender.clone(), sender)
     }
 
-    fn execute_in_env <F, A> (&mut self, sender: Value, f: F) -> Result<(A, AssetMap)>
+    fn execute_in_env <F, A> (&mut self, sender: Value, f: F) -> Result<(A, AssetMap, Vec<StacksTransactionEvent>)>
     where F: FnOnce(&mut Environment) -> Result<A> {
         assert!(self.context.is_top_level());
         self.begin();
@@ -420,8 +422,8 @@ impl <'a> OwnedEnvironment <'a> {
 
         match result {
             Ok(return_value) => {
-                let asset_map = self.commit()?;
-                Ok((return_value, asset_map))
+                let (asset_map, events) = self.commit()?;
+                Ok((return_value, asset_map, events))
             },
             Err(e) => {
                 self.context.roll_back();
@@ -430,7 +432,7 @@ impl <'a> OwnedEnvironment <'a> {
         }
     }
 
-    pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<((), AssetMap)> {
+    pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(Value::from(contract_identifier.issuer.clone()),
                             |exec_env| exec_env.initialize_contract(contract_identifier, contract_content))
     }
@@ -438,13 +440,13 @@ impl <'a> OwnedEnvironment <'a> {
     pub fn initialize_contract_from_ast(&mut self,
                                         contract_identifier: QualifiedContractIdentifier,
                                         contract_content: &ContractAST,
-                                        contract_string: &str) -> Result<((), AssetMap)> {
+                                        contract_string: &str) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(Value::from(contract_identifier.issuer.clone()),
                             |exec_env| exec_env.initialize_contract_from_ast(contract_identifier, contract_content, contract_string))
     }
 
     pub fn execute_transaction(&mut self, sender: Value, contract_identifier: QualifiedContractIdentifier, 
-                               tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap)> {
+                               tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(sender, 
                             |exec_env| exec_env.execute_contract(&contract_identifier, tx_name, args))
     }
@@ -460,13 +462,13 @@ impl <'a> OwnedEnvironment <'a> {
     }
 
     #[cfg(test)]
-    pub fn eval_raw(&mut self, program: &str) -> Result<(Value, AssetMap)> {
+    pub fn eval_raw(&mut self, program: &str) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
                             |exec_env| exec_env.eval_raw(program))
     }
 
     #[cfg(test)]
-    pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, program: &str) -> Result<(Value, AssetMap)>  {
+    pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, program: &str) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)>  {
         self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
                             |exec_env| exec_env.eval_read_only(contract, program))
     }
@@ -475,9 +477,10 @@ impl <'a> OwnedEnvironment <'a> {
         self.context.begin();
     }
 
-    pub fn commit(&mut self) -> Result<AssetMap> {
-        self.context.commit()?
-            .ok_or(InterpreterError::FailedToConstructAssetTable.into())
+    pub fn commit(&mut self) -> Result<(AssetMap, Vec<StacksTransactionEvent>)> {
+        let (asset_map, events) = self.context.commit()?;
+        let asset_map = asset_map.ok_or(InterpreterError::FailedToConstructAssetTable)?;
+        Ok((asset_map, events))
     }
 
     /// Destroys this environment, returning ownership of its database reference.
@@ -690,6 +693,15 @@ impl <'a,'b> Environment <'a,'b> {
         }
     }
 
+    pub fn register_print_event(&mut self, value: Value) -> Result<()> {
+        let print_event = SmartContractEventData {
+            key: (self.contract_context.contract_identifier.clone(), "print".to_string()),
+            value,
+        };
+        
+        self.global_context.events.push(StacksTransactionEvent::SmartContractEvent(print_event));
+        Ok(())
+    }
 }
 
 impl <'a> GlobalContext<'a> {
@@ -699,7 +711,8 @@ impl <'a> GlobalContext<'a> {
         GlobalContext {
             database, cost_track,
             read_only: Vec::new(),
-            asset_maps: Vec::new()
+            asset_maps: Vec::new(),
+            events: Vec::new(),
         }
     }
 
@@ -765,7 +778,7 @@ impl <'a> GlobalContext<'a> {
         self.read_only.push(true);
     }
 
-    pub fn commit(&mut self) -> Result<Option<AssetMap>> {
+    pub fn commit(&mut self) -> Result<(Option<AssetMap>, Vec<StacksTransactionEvent>)> {
         self.read_only.pop();
         let asset_map = self.asset_maps.pop()
             .expect("ERROR: Committed non-nested context.");
@@ -783,8 +796,10 @@ impl <'a> GlobalContext<'a> {
             }
         };
 
+        let events = self.events.drain(..).collect();
+
         self.database.commit();
-        Ok(out_map)
+        Ok((out_map, events))
     }
 
     pub fn roll_back(&mut self) {
