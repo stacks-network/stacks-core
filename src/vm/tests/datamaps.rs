@@ -16,7 +16,7 @@ fn test_simple_tea_shop() {
          (define-private (stock (tea int) (amount int))
            (map-set proper-tea (tuple (tea-type tea)) (tuple (amount amount))))
          (define-private (consume (tea int))
-           (let ((current (unwrap! 
+           (let ((current (unwrap!
                             (get amount (map-get? proper-tea (tuple (tea-type tea)))) 3)))
               (if (and (>= current 1))
                   (begin
@@ -90,12 +90,12 @@ fn test_bound_tuple() {
         Value::Int(2),
         Value::Int(1),
         Value::Int(1)],
-    );    
+    );
     assert_executes(expected, &test_add_set_del);
 
     let mut test_get = test.to_string();
     test_get.push_str("(list (kv-get 1))");
-    let expected = Value::list_from(vec![Value::Int(0)]);    
+    let expected = Value::list_from(vec![Value::Int(0)]);
     assert_executes(expected, &test_get);
 }
 
@@ -128,34 +128,34 @@ fn test_explicit_syntax_tuple() {
         Value::Int(2),
         Value::Int(1),
         Value::Int(1)],
-    );    
+    );
     assert_executes(expected, &test_add_set_del);
 
     let mut test_get = test.to_string();
     test_get.push_str("(list (kv-get 1))");
-    let expected = Value::list_from(vec![Value::Int(0)]);    
+    let expected = Value::list_from(vec![Value::Int(0)]);
     assert_executes(expected, &test_get);
 }
 
 #[test]
 fn test_implicit_syntax_tuple() {
     let test =
-        "(define-map kv-store ((key int)) ((value int)))
+        "(define-map kv-store {key int} {value int})
          (define-private (kv-add (key int) (value int))
             (begin
-                (map-insert kv-store ((key key))
-                                    ((value value)))
-            value))
+                (map-insert kv-store {key key}
+                                     {value value})
+                value))
          (define-private (kv-get (key int))
-            (unwrap! (get value (map-get? kv-store ((key key)))) 0))
+            (unwrap! (get value (map-get? kv-store {key key})) 0))
          (define-private (kv-set (key int) (value int))
             (begin
-                (map-set kv-store ((key key))
-                                   ((value value)))
+                (map-set kv-store {key key}
+                                  {value value})
                 value))
          (define-private (kv-del (key int))
             (begin
-                (map-delete kv-store ((key key)))
+                (map-delete kv-store {key key})
                 key))
         ";
 
@@ -166,12 +166,12 @@ fn test_implicit_syntax_tuple() {
         Value::Int(2),
         Value::Int(1),
         Value::Int(1)],
-    );    
+    );
     assert_executes(expected, &test_add_set_del);
 
     let mut test_get = test.to_string();
     test_get.push_str("(list (kv-get 1))");
-    let expected = Value::list_from(vec![Value::Int(0)]);    
+    let expected = Value::list_from(vec![Value::Int(0)]);
     assert_executes(expected, &test_get);
 }
 
@@ -237,7 +237,7 @@ fn test_set_int_variable() {
         Value::Int(255),
         Value::Int(255),
         Value::Int(256),
-    ]);    
+    ]);
     assert_executes(expected, &contract_src);
 }
 
@@ -259,7 +259,7 @@ fn test_set_bool_variable() {
         Value::Bool(true),
         Value::Bool(false),
         Value::Bool(false)
-    ]);    
+    ]);
     assert_executes(expected, &contract_src);
 }
 
@@ -280,7 +280,7 @@ fn test_set_tuple_variable() {
         Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(1)), ("v1".into(), Value::Int(1))]).unwrap()),
         Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(2)), ("v1".into(), Value::Int(0))]).unwrap()),
         Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(2)), ("v1".into(), Value::Int(0))]).unwrap()),
-    ]);    
+    ]);
     assert_executes(expected, &contract_src);
 }
 
@@ -371,26 +371,26 @@ fn test_set_buffer_variable() {
         Value::buff_from("alice".to_string().into_bytes()).unwrap(),
         Value::buff_from("celia".to_string().into_bytes()).unwrap(),
         Value::buff_from("celia".to_string().into_bytes()).unwrap(),
-    ]);    
+    ]);
     assert_executes(expected, &contract_src);
 }
 
 #[test]
 fn test_factorial_contract() {
     let test1 =
-        "(define-map factorials ((id int)) ((current int) (index int)))
+        "(define-map factorials {id int} {current int index int})
          (define-private (init-factorial (id int) (factorial int))
-           (map-insert factorials (tuple (id id)) (tuple (current 1) (index factorial))))
+           (map-insert factorials {id id} {current 1 index factorial}))
          (define-private (compute (id int))
-           (let ((entry (unwrap! (map-get? factorials (tuple (id id))) 0)))
+           (let ((entry (unwrap! (map-get? factorials {id id}) 0)))
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)
                              current
                              (begin
-                               (map-set factorials (tuple (id id))
-                                                      (tuple (current (* current index))
-                                                             (index (- index 1))))
+                               (map-set factorials {id id}
+                                                   {current (* current index)
+                                                    index (- index 1)})
                                0)))))
         (init-factorial 1337 3)
         (init-factorial 8008 5)
@@ -420,7 +420,7 @@ fn test_factorial_contract() {
         Value::Int(120),
         Value::Int(120),
     ]);
-        
+
     assert_executes(expected, test1);
 }
 
@@ -482,7 +482,7 @@ fn datamap_errors() {
 
 #[test]
 fn lists_system_2() {
-    let test = 
+    let test =
         "(define-map lists ((name int)) ((contents (list 5 1 int))))
          (define-private (add-list (name int) (content (list 5 1 int)))
            (map-insert lists (tuple (name name))
@@ -544,7 +544,7 @@ fn lists_system() {
             Value::Int(3)])?;
         Value::list_from(vec![list1, list2])
     };
-    
+
     assert_executes(expected(), test1);
 
     for test in [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2,
@@ -564,7 +564,7 @@ fn lists_system() {
 #[test]
 fn tuples_system() {
     let test1 =
-        "(define-map tuples ((name int)) 
+        "(define-map tuples ((name int))
                             ((contents (tuple (name (buff 5))
                                               (owner (buff 5))))))
 

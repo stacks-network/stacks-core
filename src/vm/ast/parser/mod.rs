@@ -14,6 +14,8 @@ pub const CONTRACT_MAX_NAME_LENGTH : usize = 40;
 pub enum LexItem {
     LeftParen,
     RightParen,
+    LeftCurly,
+    RightCurly,
     LiteralValue(usize, Value),
     SugaredContractIdentifier(usize, ContractName),
     SugaredFieldIdentifier(usize, ContractName, ClarityName),
@@ -26,6 +28,7 @@ pub enum LexItem {
 #[derive(Debug)]
 enum TokenType {
     LParens, RParens, Whitespace,
+    LCurly, RCurly,
     StringLiteral, HexStringLiteral,
     UIntLiteral, IntLiteral, QuoteLiteral,
     Variable, TraitReferenceLiteral, PrincipalLiteral,
@@ -80,19 +83,21 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
+        LexMatcher::new("[{]", TokenType::LCurly),
+        LexMatcher::new("[}]", TokenType::RCurly),
         LexMatcher::new("<(?P<value>([[:word:]]|[-])+)>", TokenType::TraitReferenceLiteral),
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
-        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}}(\.)([[:alnum:]]|[-]){{1,{}}})"#, 
-            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH, MAX_STRING_LEN), 
+        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
+            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH, MAX_STRING_LEN),
             TokenType::FullyQualifiedFieldIdentifierLiteral),
-        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}}(\.)([[:alnum:]]|[-]){{1,{}}})"#, 
+        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
             CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH, MAX_STRING_LEN), TokenType::SugaredFieldIdentifierLiteral),
-        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}})"#, 
+        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}})"#,
             CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::FullyQualifiedContractIdentifierLiteral),
-        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}})"#, 
+        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}})"#,
             CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::SugaredContractIdentifierLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("(?P<value>([[:word:]]|[-!?+<>=/*])+)", TokenType::Variable),
@@ -134,6 +139,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         // this prevents an atom like 1234abc from getting split into "1234" and "abc"
                         match matcher.handler {
                             TokenType::RParens => Ok(()),
+                            TokenType::RCurly => Ok(()),
                             TokenType::Whitespace => Ok(()),
                             _ => Err(ParseError::new(ParseErrors::SeparatorExpected(current_slice[..whole_match.end()].to_string())))
                         }
@@ -144,7 +150,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                 context = LexContext::ExpectClosing;
 
                 let token = match matcher.handler {
-                    TokenType::LParens => { 
+                    TokenType::LParens => {
                         context = LexContext::ExpectNothing;
                         Ok(LexItem::LeftParen)
                     },
@@ -154,6 +160,13 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                     TokenType::Whitespace => {
                         context = LexContext::ExpectNothing;
                         Ok(LexItem::Whitespace)
+                    },
+                    TokenType::LCurly => {
+                        context = LexContext::ExpectNothing;
+                        Ok(LexItem::LeftCurly)
+                    },
+                    TokenType::RCurly => {
+                        Ok(LexItem::RightCurly)
                     },
                     TokenType::Variable => {
                         let value = get_value_or_err(current_slice, captures)?;
@@ -302,6 +315,30 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected))
                 }
             },
+            LexItem::LeftCurly => {
+                let new_list = Vec::new();
+                parse_stack.push((new_list, line_pos, column_pos));
+            },
+            LexItem::RightCurly => {
+                if let Some((value, start_line, start_column)) = parse_stack.pop() {
+                    let pairs = value.chunks(2)
+                                     .map(|pair| PreSymbolicExpression::list(pair.to_vec().into_boxed_slice()))
+                                     .collect::<Vec<_>>();
+                    let mut pre_expr = PreSymbolicExpression::list(pairs.into_boxed_slice());
+                    pre_expr.set_span(start_line, start_column, line_pos, column_pos);
+                    match parse_stack.last_mut() {
+                        None => {
+                            // no open lists on stack, add current to result.
+                            output_list.push(pre_expr)
+                        },
+                        Some((ref mut list, _, _)) => {
+                            list.push(pre_expr);
+                        }
+                    };
+                } else {
+                    return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected))
+                }
+            },
             LexItem::Variable(value) => {
                 let end_column = column_pos + (value.len() as u32) - 1;
                 let value = value.clone().try_into()
@@ -430,12 +467,12 @@ mod test {
     fn test_parse_let_expression() {
 
         // This test includes some assertions ont the spans of each atom / atom_value / list, which makes indentation important.
-        let input = 
+        let input =
 r#"z (let ((x 1) (y 2))
     (+ x ;; "comments section?"
         ;; this is also a comment!
         (let ((x 3)) ;; more commentary
-        (+ x y))     
+        (+ x y))
         x)) x y
         ;; this is 'quoted comment!"#;
         let program = vec![
@@ -480,7 +517,18 @@ r#"z (let ((x 1) (y 2))
 
         let parsed = ast::parser::parse(&input);
         assert_eq!(Ok(program), parsed, "Should match expected symbolic expression");
-        
+
+    }
+
+    #[test]
+    fn test_parse_tuple_literal () {
+      let input = "{id 1337}";
+      let program = vec![ make_list(1, 1, 1, 9, Box::new([
+                            make_list(0, 0, 0, 0, Box::new([
+                              make_atom("id", 1, 2, 1, 3),
+                              make_atom_value(Value::Int(1337), 1, 5, 1, 8)]))]))];
+      let parsed = ast::parser::parse(&input);
+      assert_eq!(Ok(program), parsed, "Should match expected tuple literal");
     }
 
     #[test]
@@ -491,7 +539,7 @@ r#"z (let ((x 1) (y 2))
         let x1 = &parsed[0];
         assert!( match x1.match_atom_value() {
             Some(Value::Principal(PrincipalData::Contract(identifier))) => {
-                format!("{}", 
+                format!("{}",
                     PrincipalData::Standard(identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
                     identifier.name == "contract-a".into()
             },
@@ -561,33 +609,33 @@ r#"z (let ((x 1) (y 2))
         // good case
         let function_with_LF = "(define (foo (x y)) \n (+ 1 2 3) \n (- 1 2 3))";
 
-        assert!(match ast::parser::parse(&split_tokens).unwrap_err().err { 
+        assert!(match ast::parser::parse(&split_tokens).unwrap_err().err {
             ParseErrors::SeparatorExpected(_) => true, _ => false });
 
-        assert!(match ast::parser::parse(&too_much_closure).unwrap_err().err { 
+        assert!(match ast::parser::parse(&too_much_closure).unwrap_err().err {
             ParseErrors::ClosingParenthesisUnexpected => true, _ => false });
 
-        assert!(match ast::parser::parse(&not_enough_closure).unwrap_err().err { 
+        assert!(match ast::parser::parse(&not_enough_closure).unwrap_err().err {
             ParseErrors::ClosingParenthesisExpected => true, _ => false });
 
-        assert!(match ast::parser::parse(&middle_hash).unwrap_err().err { 
+        assert!(match ast::parser::parse(&middle_hash).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
-        assert!(match ast::parser::parse(&unicode).unwrap_err().err { 
+        assert!(match ast::parser::parse(&unicode).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
-        assert!(match ast::parser::parse(&name_with_dot).unwrap_err().err { 
+        assert!(match ast::parser::parse(&name_with_dot).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
-        assert!(match ast::parser::parse(&function_with_CR).unwrap_err().err { 
+        assert!(match ast::parser::parse(&function_with_CR).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
-        assert!(match ast::parser::parse(&function_with_CRLF).unwrap_err().err { 
+        assert!(match ast::parser::parse(&function_with_CRLF).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
-        assert!(match ast::parser::parse(&function_with_NEL).unwrap_err().err { 
+        assert!(match ast::parser::parse(&function_with_NEL).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
-        assert!(match ast::parser::parse(&function_with_LS).unwrap_err().err { 
+        assert!(match ast::parser::parse(&function_with_LS).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
-        assert!(match ast::parser::parse(&function_with_PS).unwrap_err().err { 
+        assert!(match ast::parser::parse(&function_with_PS).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
         ast::parser::parse(&function_with_LF).unwrap();
