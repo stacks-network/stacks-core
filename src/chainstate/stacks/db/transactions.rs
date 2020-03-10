@@ -66,6 +66,7 @@ use vm::types::{
 
 use vm::clarity::{
     ClarityBlockConnection,
+    ClarityConnection,
     ClarityInstance
 };
 
@@ -88,44 +89,33 @@ impl std::hash::Hash for Value {
 }
 
 impl StacksChainState {
-    /// Look up an account given the spending condition
-    fn get_spending_account<'a>(clarity_tx: &mut ClarityTx<'a>, spending_condition: &TransactionSpendingCondition) -> StacksAccount {
-        let addr = 
-            if clarity_tx.config.mainnet {
-                spending_condition.address_mainnet()
-            }
-            else {
-                spending_condition.address_testnet()
-            };
-        
-        let principal_data = PrincipalData::Standard(StandardPrincipalData::from(addr));
-        StacksChainState::get_account(clarity_tx, &principal_data)
-    }
-
     /// Check the account nonces for the supplied stacks transaction,
     ///   returning the origin and payer accounts if valid.
-    pub fn check_transaction_nonces(clarity_tx: &mut ClarityTx, tx: &StacksTransaction) -> Result<(StacksAccount, StacksAccount), Error> {
+    pub fn check_transaction_nonces<T: ClarityConnection>(clarity_tx: &mut T, tx: &StacksTransaction) -> Result<(StacksAccount, StacksAccount), Error> {
         // who's sending it?
         let origin = tx.get_origin();
-        let origin_account = StacksChainState::get_spending_account(clarity_tx, &origin);
+        let origin_account = StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
 
         // who's paying the fee?
-        let payer = tx.get_payer();
-        let payer_account = if payer == origin {
-            origin_account.clone()
-        } else {
-            StacksChainState::get_spending_account(clarity_tx, &payer)
-        };
+        let payer_account =
+            if let Some(sponsor_address) = tx.sponsor_address() {
+                let payer = tx.get_payer();
+                let payer_account = StacksChainState::get_account(clarity_tx, &sponsor_address.into());
+
+                if payer.nonce() != payer_account.nonce {
+                    let msg = format!("Bad nonce: payer account nonce of tx {} is {} (expected {})", tx.txid(), payer.nonce(), payer_account.nonce);
+                    warn!("{}", &msg);
+                    return Err(Error::InvalidStacksTransaction(msg));
+                }
+
+                payer_account
+            } else {
+                origin_account.clone()
+            };
 
         // check nonces
         if origin.nonce() != origin_account.nonce {
             let msg = format!("Bad nonce: origin account nonce of tx {} is {} (expected {})", tx.txid(), origin.nonce(), origin_account.nonce);
-            warn!("{}", &msg);
-            return Err(Error::InvalidStacksTransaction(msg));
-        }
-
-        if payer.nonce() != payer_account.nonce {
-            let msg = format!("Bad nonce: payer account nonce of tx {} is {} (expected {})", tx.txid(), payer.nonce(), payer_account.nonce);
             warn!("{}", &msg);
             return Err(Error::InvalidStacksTransaction(msg));
         }
@@ -146,13 +136,13 @@ impl StacksChainState {
     }
 
     /// Pre-check a transaction -- make sure it's well-formed
-    pub fn process_transaction_precheck<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(), Error> {
+    pub fn process_transaction_precheck(config: &DBConfig, tx: &StacksTransaction) -> Result<(), Error> {
         // valid auth?
         tx.verify().map_err(Error::NetError)?;
 
         // destined for us?
-        if clarity_tx.config.chain_id != tx.chain_id {
-            let msg = format!("Invalid tx {}: invalid chain ID {} (expected {})", tx.txid(), tx.chain_id, clarity_tx.config.chain_id);
+        if config.chain_id != tx.chain_id {
+            let msg = format!("Invalid tx {}: invalid chain ID {} (expected {})", tx.txid(), tx.chain_id, config.chain_id);
             warn!("{}", &msg);
 
             return Err(Error::InvalidStacksTransaction(msg));
@@ -160,7 +150,7 @@ impl StacksChainState {
 
         match tx.version {
             TransactionVersion::Mainnet => {
-                if !clarity_tx.config.mainnet {
+                if !config.mainnet {
                     let msg = format!("Invalid tx {}: on testnet; got mainnet", tx.txid());
                     warn!("{}", &msg);
 
@@ -168,7 +158,7 @@ impl StacksChainState {
                 }
             },
             TransactionVersion::Testnet => {
-                if clarity_tx.config.mainnet {
+                if config.mainnet {
                     let msg = format!("Invalid tx {}: on mainnet; got testnet", tx.txid());
                     warn!("{}", &msg);
 
@@ -513,7 +503,7 @@ impl StacksChainState {
     pub fn process_transaction<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(u64, u128), Error> {
         debug!("Process transaction {}", tx.txid());
 
-        StacksChainState::process_transaction_precheck(clarity_tx, tx)?;
+        StacksChainState::process_transaction_precheck(&clarity_tx.config, tx)?;
 
         let (payer_account, origin_account) = StacksChainState::check_transaction_nonces(clarity_tx, tx)?;
 

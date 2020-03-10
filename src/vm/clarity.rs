@@ -44,6 +44,12 @@ pub struct ClarityBlockConnection<'a> {
     cost_track: Option<LimitedCostTracker>
 }
 
+pub struct ClarityReadOnlyConnection<'a> {
+    datastore: MarfedKV,
+    parent: &'a mut ClarityInstance,
+    header_db: &'a dyn HeadersDB,
+}
+
 #[derive(Debug)]
 pub enum Error {
     Analysis(CheckError),
@@ -138,6 +144,22 @@ impl ClarityInstance {
         }
     }
 
+    pub fn read_only_connection<'a>(&'a mut self, at_block: &BlockHeaderHash, header_db: &'a dyn HeadersDB) -> ClarityReadOnlyConnection<'a> {
+        let mut datastore = self.datastore.take()
+            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
+            //   doesn't restore it's parent's datastore
+            .expect("FAIL: use of begin_block while prior block neither committed nor rolled back.");
+
+        datastore
+            .set_chain_tip(at_block);
+
+        ClarityReadOnlyConnection {
+            datastore,
+            header_db,
+            parent: self
+        }
+    }
+
     #[cfg(test)]
     pub fn eval_read_only(&mut self, at_block: &BlockHeaderHash, header_db: &dyn HeadersDB,
                           contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
@@ -156,6 +178,62 @@ impl ClarityInstance {
             .expect("FAIL: attempt to recover database connection from clarity instance which is still open");
 
         datastore
+    }
+}
+
+pub trait ClarityConnection {
+    /// Do something to the underlying DB that involves only reading.
+    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut ClarityDatabase) -> R;
+    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R;
+}
+
+impl ClarityConnection for ClarityBlockConnection <'_> {
+    /// Do something to the underlying DB that involves only reading.
+    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut ClarityDatabase) -> R {
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+
+    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R {
+        let mut db = AnalysisDatabase::new(&mut self.datastore);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+}
+
+impl ClarityConnection for ClarityReadOnlyConnection <'_> {
+    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut ClarityDatabase) -> R {
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+
+    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R {
+        let mut db = AnalysisDatabase::new(&mut self.datastore);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+}
+
+impl <'a> ClarityReadOnlyConnection <'a> {
+    pub fn done(mut self) {
+        self.datastore.rollback();
+        self.parent.datastore.replace(self.datastore);
     }
 }
 
@@ -241,16 +319,6 @@ impl <'a> ClarityBlockConnection <'a> {
     pub fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
         let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
-        db.begin();
-        let result = to_do(&mut db);
-        db.roll_back();
-        result
-    }
-
-    /// Do something to the underlying DB that involves only reading.
-    pub fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where F: FnOnce(&mut AnalysisDatabase) -> R {
-        let mut db = AnalysisDatabase::new(&mut self.datastore);
         db.begin();
         let result = to_do(&mut db);
         db.roll_back();

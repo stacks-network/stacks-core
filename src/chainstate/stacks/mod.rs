@@ -87,7 +87,14 @@ pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 
 impl From<StacksAddress> for StandardPrincipalData {
     fn from(addr: StacksAddress) -> StandardPrincipalData {
-        StandardPrincipalData(addr.version, addr.bytes.as_bytes().clone())
+        StandardPrincipalData(addr.version, addr.bytes.0)
+    }
+}
+
+impl From<StacksAddress> for PrincipalData {
+    fn from(addr: StacksAddress) -> PrincipalData {
+        PrincipalData::from(
+            StandardPrincipalData::from(addr))
     }
 }
 
