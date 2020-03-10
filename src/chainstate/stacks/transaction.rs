@@ -911,7 +911,7 @@ mod test {
                         },
                         TransactionSpendingCondition::Multisig(ref mut data) => {
                             let corrupt_field = match data.fields[i] {
-                                TransactionAuthField::PublicKey(ref pubkey) => {
+                                TransactionAuthField::PublicKey(_) => {
                                     TransactionAuthField::PublicKey(StacksPublicKey::from_hex("0270790e675116a63a75008832d82ad93e4332882ab0797b0f156de9d739160a0b").unwrap())
                                 },
                                 TransactionAuthField::Signature(ref key_encoding, ref sig) => {
