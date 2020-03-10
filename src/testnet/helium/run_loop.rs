@@ -3,7 +3,7 @@ use super::{Config, Node, BurnchainSimulator, BurnchainState, LeaderTenure};
 use chainstate::burn::{ConsensusHash};
 use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState};
 use chainstate::burn::{BlockHeaderHash};
-use chainstate::stacks::{TransactionAuth, TransactionSpendingCondition, SinglesigSpendingCondition, TransactionPayload};
+use chainstate::stacks::{TransactionAuth, TransactionSpendingCondition, SinglesigSpendingCondition, TransactionPayload, StacksTransactionEvent};
 use burnchains::Address;
 
 use util::sleep_ms;
@@ -15,7 +15,7 @@ pub struct RunLoop {
     node: Node,
     new_burnchain_state_callback: Option<fn(u8, &BurnchainState)>,
     new_tenure_callback: Option<fn(u8, &LeaderTenure)>,
-    new_chain_state_callback: Option<fn(u8, &mut StacksChainState, &BlockHeaderHash)>,
+    new_chain_state_callback: Option<fn(u8, &mut StacksChainState, &BlockHeaderHash, Vec<StacksTransactionEvent>)>,
 }
 
 #[allow(unused_macros)]
@@ -122,15 +122,15 @@ impl RunLoop {
         // Have each node process the previous tenure.
         // We should have some additional checks here, and ensure that the previous artifacts are legit.
 
-        self.node.process_tenure(
+        let (chain_tip, events) = self.node.process_tenure(
             &anchored_block_1, 
             &last_sortitioned_block.burn_header_hash, 
             &last_sortitioned_block.parent_burn_header_hash, 
             microblocks.clone(),
             burnchain.burndb_mut());
 
-        let index_bhh = anchored_block_1.header.index_block_hash(&last_sortitioned_block.burn_header_hash);
-        RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index, &mut self.node.chain_state, &index_bhh);
+        let index_bhh = chain_tip.index_block_hash();
+        RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index, &mut self.node.chain_state, &index_bhh, events);
 
         // If the node we're looping on won the sortition, initialize and configure the next tenure
         if won_sortition {
@@ -183,17 +183,21 @@ impl RunLoop {
                     // We should have some additional checks here, and ensure that the previous artifacts are legit.
                     let (anchored_block, microblocks, _) = artifacts;
 
-                    self.node.process_tenure(
+                    let (chain_tip, events) = self.node.process_tenure(
                         &anchored_block, 
                         &burnchain_state.chain_tip.burn_header_hash, 
                         &burnchain_state.chain_tip.parent_burn_header_hash,             
                         microblocks.to_vec(),
                         burnchain.burndb_mut());
 
-                    let index_bhh = anchored_block.header.index_block_hash(
-                        &burnchain_state.chain_tip.burn_header_hash);
-                    RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index,
-                                                        &mut self.node.chain_state, &index_bhh);
+                    let index_bhh = chain_tip.index_block_hash();
+                    RunLoop::handle_new_chain_state_cb(
+                        &self.new_chain_state_callback, 
+                        round_index,
+                        &mut self.node.chain_state,
+                        &index_bhh,
+                        events
+                    );
                 },
             };
             
@@ -216,7 +220,7 @@ impl RunLoop {
         self.new_tenure_callback = Some(f);
     }
     
-    pub fn apply_on_new_chain_states(&mut self, f: fn(u8, &mut StacksChainState, &BlockHeaderHash)) {
+    pub fn apply_on_new_chain_states(&mut self, f: fn(u8, &mut StacksChainState, &BlockHeaderHash, Vec<StacksTransactionEvent>)) {
         self.new_chain_state_callback = Some(f);
     }
 
@@ -232,8 +236,8 @@ impl RunLoop {
         burn_callback.map(|cb| cb(round_index, state));
     }
 
-    fn handle_new_chain_state_cb(chain_state_callback: &Option<fn(u8, &mut StacksChainState, &BlockHeaderHash)>,
-                                 round_index: u8, state: &mut StacksChainState, id_hash: &BlockHeaderHash) {
+    fn handle_new_chain_state_cb(chain_state_callback: &Option<fn(u8, &mut StacksChainState, &BlockHeaderHash, Vec<StacksTransactionEvent>)>,
+                                 round_index: u8, state: &mut StacksChainState, id_hash: &BlockHeaderHash, events: Vec<StacksTransactionEvent>) {
         let blocks = StacksChainState::list_blocks(&state.blocks_db).unwrap();
         let chain_tip = blocks.last().unwrap();
         let block = StacksChainState::load_block(&state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
@@ -250,7 +254,7 @@ impl RunLoop {
                 _ => println!("   {:?}", tx.payload)
             }
         }
-        chain_state_callback.map(|cb| cb(round_index, state, &id_hash));
+        chain_state_callback.map(|cb| cb(round_index, state, &id_hash, events));
     }
 
 }

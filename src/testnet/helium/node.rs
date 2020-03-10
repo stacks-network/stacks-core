@@ -8,7 +8,7 @@ use address::AddressHashMode;
 use burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use chainstate::burn::db::burndb::{BurnDB};
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
-use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
+use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, StacksTransactionEvent, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
 use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
 use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, BlockHeaderHash};
 use net::StacksMessageType;
@@ -298,7 +298,13 @@ impl Node {
 
     /// Process artifacts from the tenure.
     /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
-    pub fn process_tenure(&mut self, anchored_block: &StacksBlock, burn_header_hash: &BurnchainHeaderHash, parent_burn_header_hash: &BurnchainHeaderHash, microblocks: Vec<StacksMicroblock>, db: &mut BurnDB) {
+    pub fn process_tenure(
+        &mut self, 
+        anchored_block: &StacksBlock, 
+        burn_header_hash: &BurnchainHeaderHash, 
+        parent_burn_header_hash: &BurnchainHeaderHash, 
+        microblocks: Vec<StacksMicroblock>, 
+        db: &mut BurnDB) -> (StacksHeaderInfo, Vec<StacksTransactionEvent>) {
 
         {
             // let mut db = burn_db.lock().unwrap();
@@ -346,14 +352,16 @@ impl Node {
         let chain_tip = processed_block.0;
         let events = processed_block.1;
 
-        self.event_dispatcher.dispatch_events(events, &chain_tip);
+        self.event_dispatcher.dispatch_events(&events, &chain_tip);
 
-        self.chain_tip = Some(chain_tip);
+        self.chain_tip = Some(chain_tip.clone());
 
         // Unset the `bootstraping_chain` flag.
         if self.bootstraping_chain {
             self.bootstraping_chain = false;
         }
+
+        (chain_tip, events)
     }
 
     /// Returns the Stacks address of the node

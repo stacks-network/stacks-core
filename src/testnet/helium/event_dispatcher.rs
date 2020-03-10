@@ -79,7 +79,7 @@ impl EventDispatcher {
         }
     }
 
-    pub fn dispatch_events(&mut self, events: Vec<StacksTransactionEvent>, header_info: &StacksHeaderInfo) {
+    pub fn dispatch_events(&mut self, events: &Vec<StacksTransactionEvent>, header_info: &StacksHeaderInfo) {
         let mut dispatch_matrix: Vec<Vec<usize>> = self.registered_observers.iter().map(|_| vec![]).collect();
         for (i, event) in events.iter().enumerate() {
             match event {
