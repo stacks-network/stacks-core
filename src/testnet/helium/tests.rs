@@ -43,14 +43,16 @@ fn should_succeed_mining_valid_txs() {
                 // $ cat /tmp/out.clar 
                 // (define-map store ((key (buff 32))) ((value (buff 32))))
                 // (define-public (get-value (key (buff 32)))
-                //    (match (map-get? store ((key key)))
-                //        entry (ok (get value entry))
-                //        (ok "")))
-                //
+                //     (begin
+                //         (print (concat "Getting key " key))
+                //         (match (map-get? store ((key key)))
+                //             entry (ok (get value entry))
+                //             (err 0))))
                 // (define-public (set-value (key (buff 32)) (value (buff 32)))
-                //    (begin
-                //        (map-set store ((key key)) ((value value)))
-                //        (ok 'true))
+                //     (begin
+                //         (print (concat "Setting key " key))
+                //         (map-set store ((key key)) ((value value)))
+                //         (ok 'true)))
                 // ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
                 let publish_contract = "8000000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000000000000000000000100cdb7ba3165e8f05b043592837b3bceb96acb3a8c5d945620964a63d08c9e9f714cd628a91ad950c4a4885c0a63ae722049cf7bb9de110faec8a0b37531aef422030200000000010573746f7265000001c528646566696e652d6d61702073746f72652028286b657920286275666620333229292920282876616c7565202862756666203332292929290a0a28646566696e652d7075626c696320286765742d76616c756520286b65792028627566662033322929290a2020202028626567696e0a2020202020202020287072696e742028636f6e636174202247657474696e67206b65792022206b657929290a2020202020202020286d6174636820286d61702d6765743f2073746f72652028286b6579206b65792929290a202020202020202020202020656e74727920286f6b20286765742076616c756520656e74727929290a202020202020202020202020286572722030292929290a0a28646566696e652d7075626c696320287365742d76616c756520286b65792028627566662033322929202876616c75652028627566662033322929290a2020202028626567696e0a2020202020202020287072696e742028636f6e636174202253657474696e67206b65792022206b657929290a2020202020202020286d61702d7365742073746f72652028286b6579206b6579292920282876616c75652076616c75652929290a2020202020202020286f6b202774727565292929";
                 tenure.mem_pool.submit(hex_bytes(publish_contract).unwrap().to_vec());
@@ -85,7 +87,7 @@ fn should_succeed_mining_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, chain_state, _| {
+    run_loop.apply_on_new_chain_states(|round, chain_state, _, events| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.
@@ -106,6 +108,9 @@ fn should_succeed_mining_valid_txs() {
                     TransactionPayload::Coinbase(_) => true,
                     _ => false,
                 });
+
+                // 0 event should have been produced
+                assert!(events.len() == 0);
             },
             1 => {
                 // Inspecting the chain at round 1.
@@ -134,6 +139,9 @@ fn should_succeed_mining_valid_txs() {
                     TransactionPayload::SmartContract(_) => true,
                     _ => false,
                 });
+
+                // 0 event should have been produced
+                assert!(events.len() == 0);
             },
             2 => {
                 // Inspecting the chain at round 2.
@@ -155,13 +163,16 @@ fn should_succeed_mining_valid_txs() {
                     _ => false,
                 });
 
-                // Transaction #2 should be the smart contract published
+                // Transaction #2 should be the get-value contract-call
                 let contract_tx = &block.txs[1];
                 assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match contract_tx.payload {
                     TransactionPayload::ContractCall(_) => true,
                     _ => false,
                 });
+
+                // 0 event should have been produced
+                assert!(events.len() == 0);
             },
             3 => {
                 // Inspecting the chain at round 3.
@@ -183,13 +194,16 @@ fn should_succeed_mining_valid_txs() {
                     _ => false,
                 });
 
-                // Transaction #2 should be the smart contract published
+                // Transaction #2 should be the set-value contract-call
                 let contract_tx = &block.txs[1];
                 assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match contract_tx.payload {
                     TransactionPayload::ContractCall(_) => true,
                     _ => false,
                 });
+                
+                // 1 event should have been produced
+                assert!(events.len() == 1);
             },
             4 => {
                 // Inspecting the chain at round 4.
@@ -211,13 +225,16 @@ fn should_succeed_mining_valid_txs() {
                     _ => false,
                 });
 
-                // Transaction #2 should be the smart contract published
+                // Transaction #2 should be the get-value contract-call
                 let contract_tx = &block.txs[1];
                 assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match contract_tx.payload {
                     TransactionPayload::ContractCall(_) => true,
                     _ => false,
                 });
+
+                // 1 event should have been produced
+                assert!(events.len() == 1);
             },
             6 => {
                 // Inspecting the chain at round 5.
@@ -251,6 +268,9 @@ fn should_succeed_mining_valid_txs() {
                 // let mut conn = chain_state.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
 
                 // chain_state
+
+                // 1 event should have been produced
+                assert!(events.len() == 1);
             },
             _ => {}
         }
@@ -273,19 +293,18 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                 // $ cat /tmp/out.clar 
                 // (define-map store ((key (buff 32))) ((value (buff 32))))
                 // (define-public (get-value (key (buff 32)))
-                //    (begin
-                //      (print "Getting value")
-                //      (match (map-get? store ((key key)))
-                //        entry (ok (get value entry))
-                //        (ok "")))
-                //
+                //     (begin
+                //         (print (concat "Getting key " key))
+                //         (match (map-get? store ((key key)))
+                //             entry (ok (get value entry))
+                //             (err 0))))
                 // (define-public (set-value (key (buff 32)) (value (buff 32)))
-                //    (begin
-
-                //        (map-set store ((key key)) ((value value)))
-                //        (ok 'true))
+                //     (begin
+                //         (print (concat "Setting key " key))
+                //         (map-set store ((key key)) ((value value)))
+                //         (ok 'true)))
                 // ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
-                let publish_contract = "80000000000400bf8e82623c380cd870931d48b525d5e12a4d6782000000000000000000000000000000000000dc0e1c8156a08e9482e0ef5cfd43622fe76f8d4ba8841ac1393ab5d230c873447d8869cc7246b23c900cec1c66fb92aac86643d68e34fd6731accf4af898136803020000000001086b762d73746f7265000001c528646566696e652d6d61702073746f72652028286b657920286275666620333229292920282876616c7565202862756666203332292929290a0a28646566696e652d7075626c696320286765742d76616c756520286b65792028627566662033322929290a2020202028626567696e0a2020202020202020287072696e742028636f6e636174202247657474696e67206b65792022206b657929290a2020202020202020286d6174636820286d61702d6765743f2073746f72652028286b6579206b65792929290a202020202020202020202020656e74727920286f6b20286765742076616c756520656e74727929290a202020202020202020202020286572722030292929290a0a28646566696e652d7075626c696320287365742d76616c756520286b65792028627566662033322929202876616c75652028627566662033322929290a2020202028626567696e0a2020202020202020287072696e742028636f6e636174202253657474696e67206b65792022206b657929290a2020202020202020286d61702d7365742073746f72652028286b6579206b6579292920282876616c75652076616c75652929290a2020202020202020286f6b202774727565292929%";
+                let publish_contract = "8000000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000000000000000000000100cdb7ba3165e8f05b043592837b3bceb96acb3a8c5d945620964a63d08c9e9f714cd628a91ad950c4a4885c0a63ae722049cf7bb9de110faec8a0b37531aef422030200000000010573746f7265000001c528646566696e652d6d61702073746f72652028286b657920286275666620333229292920282876616c7565202862756666203332292929290a0a28646566696e652d7075626c696320286765742d76616c756520286b65792028627566662033322929290a2020202028626567696e0a2020202020202020287072696e742028636f6e636174202247657474696e67206b65792022206b657929290a2020202020202020286d6174636820286d61702d6765743f2073746f72652028286b6579206b65792929290a202020202020202020202020656e74727920286f6b20286765742076616c756520656e74727929290a202020202020202020202020286572722030292929290a0a28646566696e652d7075626c696320287365742d76616c756520286b65792028627566662033322929202876616c75652028627566662033322929290a2020202028626567696e0a2020202020202020287072696e742028636f6e636174202253657474696e67206b65792022206b657929290a2020202020202020286d61702d7365742073746f72652028286b6579206b6579292920282876616c75652076616c75652929290a2020202020202020286f6b202774727565292929";
                 tenure.mem_pool.submit(hex_bytes(publish_contract).unwrap().to_vec());
             },
             2 => {
@@ -314,7 +333,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, chain_state, _| {
+    run_loop.apply_on_new_chain_states(|round, chain_state, _, events| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.
