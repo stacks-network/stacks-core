@@ -59,6 +59,11 @@ pub struct AssetMap {
         
 }
 
+#[derive(Debug, Clone)]
+pub struct EventBatch {
+    events: Vec<StacksTransactionEvent>,        
+}
+
 /** GlobalContext represents the outermost context for a single transaction's
       execution. It tracks an asset changes that occurred during the
       processing of the transaction, whether or not the current context is read_only,
@@ -67,7 +72,7 @@ pub struct AssetMap {
  */
 pub struct GlobalContext<'a> {
     asset_maps: Vec<AssetMap>,
-    pub events: Vec<StacksTransactionEvent>,
+    pub event_batches: Vec<EventBatch>,
     pub database: ClarityDatabase<'a>,
     read_only: Vec<bool>,
     pub cost_track: LimitedCostTracker,
@@ -384,6 +389,13 @@ impl fmt::Display for AssetMap {
     }
 }
 
+impl EventBatch {
+    pub fn new() -> EventBatch {
+        EventBatch {
+            events: vec![]
+        }
+    }
+}
 
 impl <'a> OwnedEnvironment <'a> {
     #[cfg(test)]
@@ -422,8 +434,8 @@ impl <'a> OwnedEnvironment <'a> {
 
         match result {
             Ok(return_value) => {
-                let (asset_map, events) = self.commit()?;
-                Ok((return_value, asset_map, events))
+                let (asset_map, event_batch) = self.commit()?;
+                Ok((return_value, asset_map, event_batch.events))
             },
             Err(e) => {
                 self.context.roll_back();
@@ -477,10 +489,12 @@ impl <'a> OwnedEnvironment <'a> {
         self.context.begin();
     }
 
-    pub fn commit(&mut self) -> Result<(AssetMap, Vec<StacksTransactionEvent>)> {
-        let (asset_map, events) = self.context.commit()?;
+    pub fn commit(&mut self) -> Result<(AssetMap, EventBatch)> {
+        let (asset_map, event_batch) = self.context.commit()?;
         let asset_map = asset_map.ok_or(InterpreterError::FailedToConstructAssetTable)?;
-        Ok((asset_map, events))
+        let event_batch = event_batch.ok_or(InterpreterError::FailedToConstructAssetTable)?; /// todo(ludo): introduce new error type
+
+        Ok((asset_map, event_batch))
     }
 
     /// Destroys this environment, returning ownership of its database reference.
@@ -640,6 +654,7 @@ impl <'a,'b> Environment <'a,'b> {
             self.global_context.roll_back();
             result
         } else {
+            println!("1");
             self.global_context.handle_tx_result(result)
         }
     }
@@ -699,7 +714,10 @@ impl <'a,'b> Environment <'a,'b> {
             value,
         };
         
-        self.global_context.events.push(StacksTransactionEvent::SmartContractEvent(print_event));
+        // todo(ludo): refactor / abstract
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::SmartContractEvent(print_event));
+        }
         Ok(())
     }
 }
@@ -712,7 +730,7 @@ impl <'a> GlobalContext<'a> {
             database, cost_track,
             read_only: Vec::new(),
             asset_maps: Vec::new(),
-            events: Vec::new(),
+            event_batches: Vec::new(),
         }
     }
 
@@ -767,6 +785,7 @@ impl <'a> GlobalContext<'a> {
 
     pub fn begin(&mut self) {
         self.asset_maps.push(AssetMap::new());
+        self.event_batches.push(EventBatch::new());
         self.database.begin();
         let read_only = self.is_read_only();
         self.read_only.push(read_only);
@@ -774,13 +793,17 @@ impl <'a> GlobalContext<'a> {
 
     pub fn begin_read_only(&mut self) {
         self.asset_maps.push(AssetMap::new());
+        self.event_batches.push(EventBatch::new());
         self.database.begin();
         self.read_only.push(true);
     }
 
-    pub fn commit(&mut self) -> Result<(Option<AssetMap>, Vec<StacksTransactionEvent>)> {
+    pub fn commit(&mut self) -> Result<(Option<AssetMap>, Option<EventBatch>)> {
+        trace!("Calling commit");
         self.read_only.pop();
         let asset_map = self.asset_maps.pop()
+            .expect("ERROR: Committed non-nested context.");
+        let mut event_batch = self.event_batches.pop()
             .expect("ERROR: Committed non-nested context.");
 
         let out_map = match self.asset_maps.last_mut() {
@@ -796,16 +819,26 @@ impl <'a> GlobalContext<'a> {
             }
         };
 
-        let events = self.events.drain(..).collect();
+        let out_batch = match self.event_batches.last_mut() {
+            Some(tail_back) => {
+                tail_back.events.append(&mut event_batch.events);
+                None
+            },
+            None => {
+                Some(event_batch)
+            }
+        };
 
         self.database.commit();
-        Ok((out_map, events))
+        Ok((out_map, out_batch))
     }
 
     pub fn roll_back(&mut self) {
         let popped = self.asset_maps.pop();
         assert!(popped.is_some());
         let popped = self.read_only.pop();
+        assert!(popped.is_some());
+        let popped = self.event_batches.pop();
         assert!(popped.is_some());
 
         self.database.roll_back();
