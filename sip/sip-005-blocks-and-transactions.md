@@ -618,7 +618,7 @@ as follows:
 * A variable-length **payload**, of which there are five varieties.
 
 The _payload type ID_ can take any of the following values:
-* `0x00`:  the payload that follows is a **stx-token-transfer payload**
+* `0x00`:  the payload that follows is a **token-transfer payload**
 * `0x01`:  the payload that follows is a **contract-call payload**
 * `0x02`:  the payload that follows is a **smart-contract payload**
 * `0x03`:  the payload that follows is a **poison-microblock payload**
