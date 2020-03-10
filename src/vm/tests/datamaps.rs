@@ -63,10 +63,9 @@ fn test_bound_tuple() {
     let test =
         "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))
-            (begin
-                (let ((my-tuple (tuple (key key))))
-                (map-insert kv-store my-tuple (tuple (value value))))
-            value))
+            (let ((key-tuple {key key}))
+              (map-insert kv-store key-tuple (tuple (value value)))
+              value))
          (define-private (kv-get (key int))
             (let ((my-tuple (tuple (key key))))
             (unwrap! (get value (map-get? kv-store my-tuple)) 0)))
@@ -140,7 +139,7 @@ fn test_explicit_syntax_tuple() {
 #[test]
 fn test_implicit_syntax_tuple() {
     let test =
-        "(define-map kv-store {key int} {value int})
+        "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))
             (begin
                 (map-insert kv-store {key key}
@@ -378,7 +377,7 @@ fn test_set_buffer_variable() {
 #[test]
 fn test_factorial_contract() {
     let test1 =
-        "(define-map factorials {id int} {current int index int})
+        "(define-map factorials ((id int)) ((current int) (index int)))
          (define-private (init-factorial (id int) (factorial int))
            (map-insert factorials {id id} {current 1 index factorial}))
          (define-private (compute (id int))
@@ -624,6 +623,20 @@ fn tuples_system() {
         assert!(expected_type_error);
     }
 
+}
+
+#[test]
+fn misplaced_tuple_literal() {
+    let tests = [
+        "(let {id 1337} id)"
+    ];
+    let mut expected: Vec<Error> = vec![
+        CheckErrors::BadLetSyntax.into(),
+    ];
+    for (test, expected_err) in tests.iter().zip(expected.drain(..)) {
+        let outcome = execute(test).unwrap_err();
+        assert_eq!(outcome, expected_err);
+    }
 }
 
 #[test]

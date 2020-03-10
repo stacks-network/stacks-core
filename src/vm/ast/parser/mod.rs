@@ -330,7 +330,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                                          .map(|pair| pair.to_vec().into_boxed_slice())
                                          .map(PreSymbolicExpression::list)
                                          .collect::<Vec<_>>();
-                        let mut pre_expr = PreSymbolicExpression::list(pairs.into_boxed_slice());
+                        let mut pre_expr = PreSymbolicExpression::tuple(pairs.into_boxed_slice());
                         pre_expr.set_span(start_line, start_column, line_pos, column_pos);
                         match parse_stack.last_mut() {
                             None => {

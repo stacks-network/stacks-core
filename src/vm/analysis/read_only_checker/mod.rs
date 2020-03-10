@@ -1,5 +1,5 @@
 use vm::representations::{SymbolicExpressionType, SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, Tuple, LiteralValue, TraitReference, Field};
 use vm::types::{TypeSignature, TupleTypeSignature, Value, PrincipalData, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctionsParsed;
@@ -116,6 +116,9 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             },
             List(ref expression) => {
                 self.check_function_application_read_only(expression)
+            },
+            Tuple(ref _expression) => {
+                unreachable!("Tuple can't be read only checked")
             }
         }
     }

@@ -138,7 +138,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
 }
 
 pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &LocalContext) -> Result<Value> {
-    use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
+    use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, Tuple, LiteralValue, TraitReference, Field};
 
     match exp.expr {
         AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
@@ -150,6 +150,10 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
                 .ok_or(CheckErrors::BadFunctionName)?;
             let f = lookup_function(&function_name, env)?;
             apply(&f, &rest, env, context)
+        },
+        Tuple(ref expr) => {
+            use vm::functions::tuples;
+            tuples::tuple_cons(expr, env, context)
         },
         TraitReference(_, _) | Field(_) => unreachable!("can't be evaluated"),
     }

@@ -1,7 +1,7 @@
 use vm::errors::{CheckErrors, check_arguments_at_least, InterpreterResult as Result, check_argument_count};
 use vm::types::{Value, TupleData, TypeSignature};
 use vm::representations::{SymbolicExpression,SymbolicExpressionType};
-use vm::representations::SymbolicExpressionType::{List};
+use vm::representations::SymbolicExpressionType::{List, Tuple};
 use vm::{LocalContext, Environment, eval};
 use vm::costs::cost_functions;
 
@@ -56,18 +56,19 @@ pub enum TupleDefinitionType {
     Explicit,
 }
 
-/// Identify whether a symbolic expression is an implicit tuple structure ((key2 k1) (key2 k2)), 
-/// or other - (tuple (key2 k1) (key2 k2)) / bound variable / function call. 
+/// Identify whether a symbolic expression is an implicit tuple structure ((key2 k1) (key2 k2)),
+/// eventually an implicit literal tuple {key2 k1 key2 k2},
+/// or other - (tuple (key2 k1) (key2 k2)) / bound variable / function call.
 /// The caller is responsible for any eventual type checks or actual execution.
 /// Used in:
 /// - the type checker: doesn't eval the resulting structure, it only type checks it,
 /// - the interpreter: want to eval the result, and then do type enforcement on the value, not the type signature.
 pub fn get_definition_type_of_tuple_argument(args: &SymbolicExpression) -> TupleDefinitionType {
-    if let List(ref outer_expr) = args.expr {
+    // FIX: Only allow Tuple for outer expression
+    if let List(ref outer_expr) | Tuple(ref outer_expr) = args.expr {
         if let List(_) = (&outer_expr[0]).expr {
             return TupleDefinitionType::Implicit(outer_expr.clone());
         }
     }
     TupleDefinitionType::Explicit
 }
-

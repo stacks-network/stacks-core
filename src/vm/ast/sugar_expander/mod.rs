@@ -54,6 +54,11 @@ impl SugarExpander {
                     let expression = self.transform(drain, contract_ast)?;
                     SymbolicExpression::list(expression.into_boxed_slice())
                 }
+                PreSymbolicExpressionType::Tuple(pre_exprs) => {
+                    let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
+                    let expression = self.transform(drain, contract_ast)?;
+                    SymbolicExpression::tuple(expression.into_boxed_slice())
+                }
                 PreSymbolicExpressionType::SugaredContractIdentifier(contract_name) => {
                     let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name);
                     SymbolicExpression::literal_value(Value::Principal(PrincipalData::Contract(contract_identifier)))

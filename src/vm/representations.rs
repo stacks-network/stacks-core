@@ -76,6 +76,7 @@ pub enum PreSymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
     List(Box<[PreSymbolicExpression]>),
+    Tuple(Box<[PreSymbolicExpression]>),
     SugaredContractIdentifier(ContractName),
     SugaredFieldIdentifier(ContractName, ClarityName),
     FieldIdentifier(TraitIdentifier),
@@ -171,6 +172,13 @@ impl PreSymbolicExpression {
         }
     }
 
+    pub fn tuple(val: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
+        PreSymbolicExpression {
+            pre_expr: PreSymbolicExpressionType::Tuple(val),
+            .. PreSymbolicExpression::cons()
+        }
+    }
+
     pub fn match_trait_reference(&self) -> Option<&ClarityName> {
         if let PreSymbolicExpressionType::TraitReference(ref value) = self.pre_expr {
             Some(value)
@@ -217,6 +225,7 @@ pub enum SymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
     List(Box<[SymbolicExpression]>),
+    Tuple(Box<[SymbolicExpression]>),
     LiteralValue(Value),
     Field(TraitIdentifier),
     TraitReference(ClarityName, TraitDefinition),
@@ -319,6 +328,13 @@ impl SymbolicExpression {
         }
     }
 
+    pub fn tuple(val: Box<[SymbolicExpression]>) -> SymbolicExpression {
+        SymbolicExpression {
+            expr: SymbolicExpressionType::Tuple(val),
+            .. SymbolicExpression::cons()
+        }
+    }
+
     pub fn trait_reference(val: ClarityName, trait_definition: TraitDefinition) -> SymbolicExpression {
         SymbolicExpression {
             expr: SymbolicExpressionType::TraitReference(val, trait_definition),
@@ -396,6 +412,13 @@ impl fmt::Display for SymbolicExpression {
                     write!(f, " {}", item)?;
                 }
                 write!(f, " )")?;
+            },
+            SymbolicExpressionType::Tuple(ref content) => {
+                write!(f, "{{")?;
+                for item in content.iter() {
+                    write!(f, " {}", item)?;
+                }
+                write!(f, " }}")?;
             },
             SymbolicExpressionType::Atom(ref value) => {
                 write!(f, "{}", &**value)?;
