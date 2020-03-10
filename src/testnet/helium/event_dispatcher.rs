@@ -58,10 +58,6 @@ impl EventObserver {
                     "type": "nft_mint_event",
                     "nft_mint_event": event_data
                 }),
-                StacksTransactionEvent::NFTEvent(NFTEventType::NFTBurnEvent(event_data)) => json!({
-                    "type": "nft_burn_event",
-                    "nft_burn_event": event_data
-                }),
                 StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => json!({
                     "type": "ft_transfer_event",
                     "ft_transfer_event": event_data
@@ -69,10 +65,6 @@ impl EventObserver {
                 StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => json!({
                     "type": "ft_mint_event",
                     "ft_mint_event": event_data
-                }),
-                StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data)) => json!({
-                    "type": "ft_burn_event",
-                    "ft_burn_event": event_data
                 }),
             }).collect();
 
@@ -126,10 +118,8 @@ impl EventDispatcher {
                 StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data)) => {},
                 StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => {},
                 StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => {},
-                StacksTransactionEvent::NFTEvent(NFTEventType::NFTBurnEvent(event_data)) => {},
                 StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => {},
                 StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => {},
-                StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data)) => {}
             }
         }
 

@@ -777,20 +777,6 @@ impl <'a,'b> Environment <'a,'b> {
         Ok(())
     }
 
-    pub fn register_ntf_burn_event(&mut self, sender: PrincipalData, value: Value, asset_identifier: AssetIdentifier) -> Result<()> {
-        let event_data = NFTBurnEventData {
-            sender,
-            asset_identifier,
-            value
-        };
-
-        // todo(ludo): refactor / abstract
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
-            batch.events.push(StacksTransactionEvent::NFTEvent(NFTEventType::NFTBurnEvent(event_data)));
-        }
-        Ok(())
-    }
-
     pub fn register_ft_transfer_event(&mut self, sender: PrincipalData, recipient: PrincipalData, amount: u128, asset_identifier: AssetIdentifier) -> Result<()> {
         let event_data = FTTransferEventData {
             sender,
@@ -816,20 +802,6 @@ impl <'a,'b> Environment <'a,'b> {
         // todo(ludo): refactor / abstract
         if let Some(batch) = self.global_context.event_batches.last_mut() {
             batch.events.push(StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)));
-        }
-        Ok(())
-    }
-
-    pub fn register_ft_burn_event(&mut self, sender: PrincipalData, amount: u128, asset_identifier: AssetIdentifier) -> Result<()> {
-        let event_data = FTBurnEventData {
-            sender,
-            asset_identifier,
-            amount
-        };
-
-        // todo(ludo): refactor / abstract
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
-            batch.events.push(StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data)));
         }
         Ok(())
     }

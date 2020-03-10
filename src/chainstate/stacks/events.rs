@@ -26,14 +26,12 @@ pub enum STXEventType {
 pub enum NFTEventType {
     NFTTransferEvent(NFTTransferEventData),
     NFTMintEvent(NFTMintEventData),
-    NFTBurnEvent(NFTBurnEventData)
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FTEventType {
     FTTransferEvent(FTTransferEventData),
     FTMintEvent(FTMintEventData),
-    FTBurnEvent(FTBurnEventData)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -71,13 +69,6 @@ pub struct NFTMintEventData {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NFTBurnEventData {
-    pub asset_identifier: AssetIdentifier,
-    pub sender: PrincipalData,
-    pub value: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FTTransferEventData {
     pub asset_identifier: AssetIdentifier,
     pub sender: PrincipalData,
@@ -89,13 +80,6 @@ pub struct FTTransferEventData {
 pub struct FTMintEventData {
     pub asset_identifier: AssetIdentifier,
     pub recipient: PrincipalData,
-    pub amount: u128,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FTBurnEventData {
-    pub asset_identifier: AssetIdentifier,
-    pub sender: PrincipalData,
     pub amount: u128,
 }
 
