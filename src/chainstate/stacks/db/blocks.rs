@@ -335,7 +335,7 @@ impl StacksChainState {
     }
     
     /// Get the path to a block in the chunk store
-    fn get_block_path(blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<String, Error> {
+    pub fn get_block_path(blocks_dir: &String, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<String, Error> {
         let block_hash_bytes = block_hash.as_bytes();
         let mut block_path = PathBuf::from(blocks_dir);
 

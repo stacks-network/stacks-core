@@ -147,7 +147,6 @@ fn integration_test_get_info() {
     let contract_sk = StacksPrivateKey::new();
 
     let num_rounds = 4;
-    let contract_addr = to_addr(&contract_sk);
 
     let mut run_loop = testnet::helium::RunLoop::new(conf);
     run_loop.apply_on_new_tenures(|round, tenure| {
@@ -166,7 +165,7 @@ fn integration_test_get_info() {
         return
     });
 
-    run_loop.apply_on_new_chain_states(|round, ref mut chain_state, bhh, _| {
+    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _events| {
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}",
                                                         to_addr(
@@ -178,14 +177,13 @@ fn integration_test_get_info() {
                 // - Chain length should be 2.
                 let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
-                assert!(blocks.len() == 2);
+                assert!(chain_tip_info.block_height == 2);
                 
                 // Block #1 should only have 2 txs
-                let chain_tip = blocks.last().unwrap();
-                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
                 assert!(block.txs.len() == 2);
 
                 let parent = block.header.parent_block;
+                let bhh = &chain_tip_info.index_block_hash();
                 eprintln!("Current Block: {}       Parent Block: {}", bhh, parent);
                 let parent_val = Value::buff_from(parent.as_bytes().to_vec()).unwrap();
 
@@ -196,7 +194,7 @@ fn integration_test_get_info() {
                     headers.push(header);
                 }
 
-                let tip_header_info = headers.last().unwrap();
+                let _tip_header_info = headers.last().unwrap();
 
                 // find miner metadata
                 let mut miners = vec![];
@@ -205,7 +203,7 @@ fn integration_test_get_info() {
                     miners.push(miner);
                 }
 
-                let tip_miner = miners.last().unwrap();
+                let _tip_miner = miners.last().unwrap();
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
@@ -274,6 +272,8 @@ fn integration_test_get_info() {
                     
             },
             3 => {
+                let bhh = &chain_tip_info.index_block_hash();
+
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
                     bhh, &contract_identifier, "(exotic-block-height u1)"));
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(

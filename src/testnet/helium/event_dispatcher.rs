@@ -7,6 +7,7 @@ use serde_json::json;
 use serde::Serialize;
 
 use vm::types::{Value, QualifiedContractIdentifier};
+use chainstate::stacks::{StacksBlock};
 use chainstate::stacks::events::{StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
 use chainstate::stacks::db::StacksHeaderInfo;
 use super::config::{EventObserverConfig};
@@ -23,7 +24,7 @@ impl EventObserver {
         EventObserver { sock_addr }
     }
 
-    pub fn send(&mut self, events: Vec<&StacksTransactionEvent>, header_info: &StacksHeaderInfo) {
+    pub fn send(&mut self, events: Vec<&StacksTransactionEvent>, chain_tip: &StacksBlock, chain_tip_info: &StacksHeaderInfo) {
         // Initiate a tcp socket
         let stream = TcpStream::connect(&self.sock_addr).unwrap();
         
@@ -70,12 +71,12 @@ impl EventObserver {
 
         // Wrap events
         let payload = json!({
-            "index_block_hash": format!("{:?}", header_info.index_block_hash()),
-            "parent_block_hash": format!("{:?}", header_info.anchored_header.parent_block),
-            "burn_header_hash": format!("{:?}", header_info.burn_header_hash),
-            "burn_header_timestamp": header_info.burn_header_timestamp,
-            "block_height": header_info.block_height,
-            "events": events_payload
+            "block_hash": format!("0x{:?}", chain_tip.block_hash()),
+            "index_block_hash": format!("0x{:?}", chain_tip_info.index_block_hash()),
+            "parent_block_hash": format!("0x{:?}", chain_tip.header.parent_block),
+            "parent_microblock": format!("0x{:?}", chain_tip.header.parent_microblock),
+            "events": events_payload,
+            "transactions": "",
         }).to_string();
 
         // Send payload
@@ -99,7 +100,7 @@ impl EventDispatcher {
         }
     }
 
-    pub fn dispatch_events(&mut self, events: &Vec<StacksTransactionEvent>, header_info: &StacksHeaderInfo) {
+    pub fn dispatch_events(&mut self, events: &Vec<StacksTransactionEvent>, chain_tip: &StacksBlock, chain_tip_info: &StacksHeaderInfo) {
         let mut dispatch_matrix: Vec<Vec<usize>> = self.registered_observers.iter().map(|_| vec![]).collect();
         for (i, event) in events.iter().enumerate() {
             match event {
@@ -132,7 +133,7 @@ impl EventDispatcher {
             for event_id in filtered_events_ids {
                 filtered_events.push(&events[*event_id]);
             }
-            self.registered_observers[observer_id].send(filtered_events, header_info);
+            self.registered_observers[observer_id].send(filtered_events, chain_tip, chain_tip_info);
         }
     }
 

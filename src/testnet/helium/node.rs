@@ -12,7 +12,8 @@ use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
 use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
 use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, BlockHeaderHash};
-use net::StacksMessageType;
+use net::{StacksMessageType, StacksMessageCodec};
+
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
 use util::get_epoch_time_secs;
@@ -305,7 +306,7 @@ impl Node {
         burn_header_hash: &BurnchainHeaderHash, 
         parent_burn_header_hash: &BurnchainHeaderHash, 
         microblocks: Vec<StacksMicroblock>, 
-        db: &mut BurnDB) -> (StacksHeaderInfo, Vec<StacksTransactionEvent>) {
+        db: &mut BurnDB) -> (StacksBlock, StacksHeaderInfo, Vec<StacksTransactionEvent>) {
 
         {
             // let mut db = burn_db.lock().unwrap();
@@ -350,19 +351,27 @@ impl Node {
         let processed_block = processed_blocks[0].clone().0.unwrap();
         
         // Handle events
-        let chain_tip = processed_block.0;
         let events = processed_block.1;
+        let chain_tip_info = processed_block.0;
+        let chain_tip = {
+            let block_path = StacksChainState::get_block_path(
+                &self.chain_state.blocks_path, 
+                &chain_tip_info.burn_header_hash, 
+                &chain_tip_info.anchored_header.block_hash()).unwrap();
+            let block_bytes = StacksChainState::file_load(&block_path).unwrap();
+            StacksBlock::consensus_deserialize(&mut &block_bytes[..]).unwrap()
+        };
 
-        self.event_dispatcher.dispatch_events(&events, &chain_tip);
+        self.event_dispatcher.dispatch_events(&events, &chain_tip, &chain_tip_info);
 
-        self.chain_tip = Some(chain_tip.clone());
+        self.chain_tip = Some(chain_tip_info.clone());
 
         // Unset the `bootstraping_chain` flag.
         if self.bootstraping_chain {
             self.bootstraping_chain = false;
         }
 
-        (chain_tip, events)
+        (chain_tip, chain_tip_info, events)
     }
 
     /// Returns the Stacks address of the node

@@ -87,27 +87,15 @@ fn should_succeed_mining_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, chain_state, _, events| {
+    run_loop.apply_on_new_chain_states(|round, _chain_state, block, chain_tip_info, events| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.
                 // - Chain length should be 1.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
-                blocks.sort();
-                assert!(blocks.len() == 1);
+                assert!(chain_tip_info.block_height == 1);
                 
-                // Block #1 should only have 1 txs
-                let chain_tip = blocks.last().unwrap();
-                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
+                // Block #1 should only have 0 txs
                 assert!(block.txs.len() == 1);
-
-                // Transaction #1 should be the coinbase from the leader
-                let coinbase_tx = &block.txs[0];
-                assert!(coinbase_tx.chain_id == TESTNET_CHAIN_ID);
-                assert!(match coinbase_tx.payload {
-                    TransactionPayload::Coinbase(_) => true,
-                    _ => false,
-                });
 
                 // 0 event should have been produced
                 assert!(events.len() == 0);
@@ -115,13 +103,9 @@ fn should_succeed_mining_valid_txs() {
             1 => {
                 // Inspecting the chain at round 1.
                 // - Chain length should be 2.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
-                blocks.sort();
-                assert!(blocks.len() == 2);
+                assert!(chain_tip_info.block_height == 2);
                 
                 // Block #2 should only have 2 txs
-                let chain_tip = blocks.last().unwrap();
-                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
                 assert!(block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
@@ -146,13 +130,9 @@ fn should_succeed_mining_valid_txs() {
             2 => {
                 // Inspecting the chain at round 2.
                 // - Chain length should be 3.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
-                blocks.sort();
-                assert!(blocks.len() == 3);
+                assert!(chain_tip_info.block_height == 3);
                 
                 // Block #3 should only have 2 txs
-                let chain_tip = blocks.last().unwrap();
-                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
                 assert!(block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
@@ -177,13 +157,9 @@ fn should_succeed_mining_valid_txs() {
             3 => {
                 // Inspecting the chain at round 3.
                 // - Chain length should be 4.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
-                blocks.sort();
-                assert!(blocks.len() == 4);
+                assert!(chain_tip_info.block_height == 4);
                 
                 // Block #4 should only have 2 txs
-                let chain_tip = blocks.last().unwrap();
-                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
                 assert!(block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
@@ -208,13 +184,9 @@ fn should_succeed_mining_valid_txs() {
             4 => {
                 // Inspecting the chain at round 4.
                 // - Chain length should be 5.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
-                blocks.sort();
-                assert!(blocks.len() == 5);
+                assert!(chain_tip_info.block_height == 5);
                 
                 // Block #5 should only have 2 txs
-                let chain_tip = blocks.last().unwrap();
-                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
                 assert!(block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
@@ -239,13 +211,9 @@ fn should_succeed_mining_valid_txs() {
             6 => {
                 // Inspecting the chain at round 5.
                 // - Chain length should be 6.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
-                blocks.sort();
-                assert!(blocks.len() == 6);
+                assert!(chain_tip_info.block_height == 6);
                 
                 // Block #6 should only have 2 txs
-                let chain_tip = blocks.last().unwrap();
-                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
                 assert!(block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
@@ -333,18 +301,14 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, chain_state, _, events| {
+    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, events| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.
                 // - Chain length should be 1.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
-                blocks.sort();
-                assert!(blocks.len() == 1);
+                assert!(chain_tip_info.block_height == 1);
                 
                 // Block #1 should only have 1 txs
-                let chain_tip = blocks.last().unwrap();
-                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
                 assert!(block.txs.len() == 1);
 
                 // Transaction #1 should be the coinbase from the leader
@@ -358,13 +322,9 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             1 => {
                 // Inspecting the chain at round 1.
                 // - Chain length should be 2.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
-                blocks.sort();
-                assert!(blocks.len() == 2);
+                assert!(chain_tip_info.block_height == 2);
                 
                 // Block #2 should only have 2 txs
-                let chain_tip = blocks.last().unwrap();
-                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
                 assert!(block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
@@ -386,13 +346,9 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             2 => {
                 // Inspecting the chain at round 2.
                 // - Chain length should be 3.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
-                blocks.sort();
-                assert!(blocks.len() == 3);
+                assert!(chain_tip_info.block_height == 3);
                 
                 // Block #3 should only have 1 tx (the other being invalid)
-                let chain_tip = blocks.last().unwrap();
-                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
                 assert!(block.txs.len() == 1);
 
                 // Transaction #1 should be the coinbase from the leader
@@ -406,13 +362,9 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             3 => {
                 // Inspecting the chain at round 3.
                 // - Chain length should be 4.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
-                blocks.sort();
-                assert!(blocks.len() == 4);
+                assert!(chain_tip_info.block_height == 4);
                 
                 // Block #4 should only have 1 tx (the other being invalid)
-                let chain_tip = blocks.last().unwrap();
-                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
                 assert!(block.txs.len() == 1);
 
                 // Transaction #1 should be the coinbase from the leader
@@ -426,13 +378,9 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             4 => {
                 // Inspecting the chain at round 4.
                 // - Chain length should be 5.
-                let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
-                blocks.sort();
-                assert!(blocks.len() == 5);
+                assert!(chain_tip_info.block_height == 5);
                 
                 // Block #5 should only have 2 txs
-                let chain_tip = blocks.last().unwrap();
-                let block = StacksChainState::load_block(&chain_state.blocks_path, &chain_tip.0, &chain_tip.1).unwrap().unwrap();
                 assert!(block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
