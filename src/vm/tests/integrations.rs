@@ -166,7 +166,7 @@ fn integration_test_get_info() {
         return
     });
 
-    run_loop.apply_on_new_chain_states(|round, ref mut chain_state, bhh| {
+    run_loop.apply_on_new_chain_states(|round, ref mut chain_state, bhh, _| {
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}",
                                                         to_addr(

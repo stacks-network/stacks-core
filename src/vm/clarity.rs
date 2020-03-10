@@ -339,7 +339,7 @@ impl <'a> ClarityBlockConnection <'a> {
     pub fn initialize_smart_contract <F> (&mut self, identifier: &QualifiedContractIdentifier, contract_ast: &ContractAST,
                                           contract_str: &str, abort_call_back: F) -> Result<AssetMap, Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
-        let (_, asset_map, events) = self.with_abort_callback(
+        let (_, asset_map, _events) = self.with_abort_callback(
             |vm_env| { vm_env.initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str)
                        .map_err(Error::from) },
             abort_call_back)?;

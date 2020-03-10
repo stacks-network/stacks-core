@@ -505,7 +505,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             });
 
             match result {
-                Ok((x, _)) => {
+                Ok((x, _, events)) => {
                     if let Value::Response(data) = x {
                         if data.committed {
                             println!("Transaction executed and committed. Returned: {}", data.data);
