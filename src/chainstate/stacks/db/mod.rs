@@ -42,6 +42,7 @@ use burnchains::Address;
 
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
+use chainstate::stacks::events::*;
 use chainstate::stacks::db::blocks::*;
 use chainstate::stacks::index::{
     TrieHash,

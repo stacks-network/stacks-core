@@ -1,7 +1,7 @@
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
-use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, TypeSignature};
+use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, TypeSignature, AssetIdentifier};
 use vm::representations::{SymbolicExpression};
 use vm::errors::{Error, InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
 use vm::{eval, LocalContext, Environment};
@@ -59,6 +59,7 @@ pub fn special_stx_transfer(args: &[SymbolicExpression],
         env.global_context.database.set_account_stx_balance(&to,   final_to_bal);
 
         env.global_context.log_stx_transfer(&from, amount)?;
+        env.register_stx_transfer_event(from.clone(), to.clone(), amount)?;
 
         Ok(Value::okay(Value::Bool(true)))
 
@@ -97,6 +98,7 @@ pub fn special_stx_burn(args: &[SymbolicExpression],
         env.global_context.database.set_account_stx_balance(&from, final_from_bal);
 
         env.global_context.log_stx_burn(&from, amount)?;
+        env.register_stx_burn_event(from.clone(), amount)?;
 
         Ok(Value::okay(Value::Bool(true)))
 
@@ -134,6 +136,12 @@ pub fn special_mint_token(args: &[SymbolicExpression],
 
         env.global_context.database.set_ft_balance(&env.contract_context.contract_identifier, token_name, to_principal, final_to_bal)?;
 
+        let asset_identifier = AssetIdentifier {
+            contract_identifier: env.contract_context.contract_identifier.clone(),
+            asset_name: token_name.clone()
+        };
+        env.register_ft_mint_event(to_principal.clone(), amount, asset_identifier)?;
+
         Ok(Value::okay(Value::Bool(true)))
     } else {
         Err(CheckErrors::BadMintFTArguments.into())
@@ -167,6 +175,12 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
         }?;
 
         env.global_context.database.set_nft_owner(&env.contract_context.contract_identifier, asset_name, &asset, to_principal)?;
+
+        let asset_identifier = AssetIdentifier {
+            contract_identifier: env.contract_context.contract_identifier.clone(),
+            asset_name: asset_name.clone()
+        };
+        env.register_nft_mint_event(to_principal.clone(), asset, asset_identifier)?;
 
         Ok(Value::okay(Value::Bool(true)))
     } else {
@@ -216,7 +230,13 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
 
         env.global_context.database.set_nft_owner(&env.contract_context.contract_identifier, asset_name, &asset, to_principal)?;
 
-        env.global_context.log_asset_transfer(from_principal, &env.contract_context.contract_identifier, asset_name, asset);
+        env.global_context.log_asset_transfer(from_principal, &env.contract_context.contract_identifier, asset_name, asset.clone());
+
+        let asset_identifier = AssetIdentifier {
+            contract_identifier: env.contract_context.contract_identifier.clone(),
+            asset_name: asset_name.clone()
+        };
+        env.register_nft_transfer_event(from_principal.clone(), to_principal.clone(), asset, asset_identifier)?;
 
         Ok(Value::okay(Value::Bool(true)))
     } else {
@@ -266,6 +286,12 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
         env.global_context.database.set_ft_balance(&env.contract_context.contract_identifier, token_name, to_principal, final_to_bal)?;
 
         env.global_context.log_token_transfer(from_principal, &env.contract_context.contract_identifier, token_name, amount)?;
+
+        let asset_identifier = AssetIdentifier {
+            contract_identifier: env.contract_context.contract_identifier.clone(),
+            asset_name: token_name.clone()
+        };
+        env.register_ft_transfer_event(from_principal.clone(), to_principal.clone(), amount, asset_identifier)?;
 
         Ok(Value::okay(Value::Bool(true)))
     } else {

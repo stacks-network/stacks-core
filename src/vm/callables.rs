@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use std::collections::{HashMap};
 use std::iter::FromIterator;
 
-use chainstate::stacks::StacksTransactionEvent;
+use chainstate::stacks::events::StacksTransactionEvent;
 
 use vm::costs::{cost_functions, SimpleCostSpecification};
 

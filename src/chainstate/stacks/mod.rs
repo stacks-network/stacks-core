@@ -21,6 +21,7 @@ pub mod address;
 pub mod auth;
 pub mod block;
 pub mod db;
+pub mod events;
 pub mod index;
 pub mod miner;
 pub mod transaction;
@@ -596,25 +597,6 @@ pub struct StacksTransaction {
     pub post_condition_mode: TransactionPostConditionMode,
     pub post_conditions: Vec<TransactionPostCondition>,
     pub payload: TransactionPayload
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum StacksTransactionEvent {
-    SmartContractEvent(SmartContractEventData),
-    StacksTransfer(StacksTransferEventData),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct StacksTransferEventData {
-    pub sender: PrincipalData,
-    pub recipient: StacksAddress,
-    pub amount: u64,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SmartContractEventData {
-    pub key: (QualifiedContractIdentifier, String),
-    pub value: Value,
 }
 
 #[derive(Debug, Clone, PartialEq)]

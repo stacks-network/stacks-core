@@ -7,43 +7,72 @@ use serde_json::json;
 use serde::Serialize;
 
 use vm::types::{Value, QualifiedContractIdentifier};
-use chainstate::stacks::StacksTransactionEvent;
+use chainstate::stacks::events::{StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
 use chainstate::stacks::db::StacksHeaderInfo;
 use super::config::{EventObserverConfig};
 
 #[derive(Debug)]
 struct EventObserver {
-    stream: TcpStream
+    sock_addr: SocketAddr
 }
 
 impl EventObserver {
 
     pub fn new(address: &str, port: u16) -> EventObserver {
         let sock_addr = SocketAddr::new(address.parse().unwrap(), port);
-        let stream = TcpStream::connect(&sock_addr).unwrap();
-        EventObserver { stream }
+        EventObserver { sock_addr }
     }
 
     pub fn send(&mut self, events: Vec<&StacksTransactionEvent>, header_info: &StacksHeaderInfo) {
+        // Initiate a tcp socket
+        let stream = TcpStream::connect(&self.sock_addr).unwrap();
+        
         // Serialize events to JSON
         let events_payload: Vec<serde_json::Value> = events.iter().map(|event| 
             match event {
                 StacksTransactionEvent::SmartContractEvent(event_data) => json!({
                     "type": "contract_event",
-                    "contract_event_data": {
+                    "contract_event": {
                         "contract_identifier": event_data.key.0.to_string(),
                         "topic": event_data.key.1,
                         "value": event_data.value,
                     }
                 }),
-                StacksTransactionEvent::StacksTransfer(event_data) => json!({
-                    "type": "transfer_event",
-                    "transfer_event_data": {
-                        "sender": event_data.sender.to_string(),
-                        "recipient": event_data.recipient,
-                        "amount": event_data.amount,
-                        "asset_id": "STX",
-                    }
+                StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data)) => json!({
+                    "type": "stx_transfer_event",
+                    "stx_transfer_event": event_data
+                }),
+                StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(event_data)) => json!({
+                    "type": "stx_mint_event",
+                    "stx_mint_event": event_data
+                }),
+                StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data)) => json!({
+                    "type": "stx_burn_event",
+                    "stx_burn_event": event_data
+                }),
+                StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => json!({
+                    "type": "nft_transfer_event",
+                    "nft_transfer_event": event_data
+                }),
+                StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => json!({
+                    "type": "nft_mint_event",
+                    "nft_mint_event": event_data
+                }),
+                StacksTransactionEvent::NFTEvent(NFTEventType::NFTBurnEvent(event_data)) => json!({
+                    "type": "nft_burn_event",
+                    "nft_burn_event": event_data
+                }),
+                StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => json!({
+                    "type": "ft_transfer_event",
+                    "ft_transfer_event": event_data
+                }),
+                StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => json!({
+                    "type": "ft_mint_event",
+                    "ft_mint_event": event_data
+                }),
+                StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data)) => json!({
+                    "type": "ft_burn_event",
+                    "ft_burn_event": event_data
                 }),
             }).collect();
 
@@ -57,9 +86,8 @@ impl EventObserver {
             "events": events_payload
         }).to_string();
 
-
         // Send payload
-        let _res = self.stream.write_bufs(&vec![payload.as_bytes().into()]);
+        let _res = stream.write_bufs(&vec![payload.as_bytes().into()]);
 
         // todo(ludo): if res = error, we should probably discard the observer
     }
@@ -93,9 +121,15 @@ impl EventDispatcher {
                         None => {},
                     };
                 },
-                StacksTransactionEvent::StacksTransfer(event_data) => {
-                    // todo(ludo): to implement
-                }
+                StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data)) => {},
+                StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(event_data)) => {},
+                StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data)) => {},
+                StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => {},
+                StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => {},
+                StacksTransactionEvent::NFTEvent(NFTEventType::NFTBurnEvent(event_data)) => {},
+                StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => {},
+                StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => {},
+                StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data)) => {}
             }
         }
 

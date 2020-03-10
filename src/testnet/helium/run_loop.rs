@@ -3,7 +3,8 @@ use super::{Config, Node, BurnchainSimulator, BurnchainState, LeaderTenure};
 use chainstate::burn::{ConsensusHash};
 use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState};
 use chainstate::burn::{BlockHeaderHash};
-use chainstate::stacks::{TransactionAuth, TransactionSpendingCondition, SinglesigSpendingCondition, TransactionPayload, StacksTransactionEvent};
+use chainstate::stacks::{TransactionAuth, TransactionSpendingCondition, SinglesigSpendingCondition, TransactionPayload};
+use chainstate::stacks::events::StacksTransactionEvent;
 use burnchains::Address;
 
 use util::sleep_ms;

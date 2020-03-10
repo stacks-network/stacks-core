@@ -13,7 +13,7 @@ use vm::costs::{LimitedCostTracker, ExecutionCost};
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::TrieHash;
-use chainstate::stacks::StacksTransactionEvent;
+use chainstate::stacks::events::StacksTransactionEvent;
 
 use std::error;
 use std::fmt;

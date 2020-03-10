@@ -364,16 +364,13 @@ impl StacksChainState {
 
                 StacksChainState::process_transaction_token_transfer(clarity_tx, &tx.txid(), addr, *amount, origin_account)?;
 
-                // todo(ludo): I think we should be able to send some STX to contracts.
-                // it does not look like an option right now.
-                let event_data = StacksTransferEventData {
-                    sender: origin_account.principal.clone(),
-                    recipient: addr.clone(),
-                    amount: *amount,
-                };
+                let sender = origin_account.principal.clone();
+                let recipient = addr.to_account_principal();
+                let amount = u128::try_from(*amount).unwrap();
+                let event_data = STXTransferEventData { sender, recipient, amount };
 
                 // no burns
-                Ok((0, vec![StacksTransactionEvent::StacksTransfer(event_data)]))
+                Ok((0, vec![StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data))]))
             },
             TransactionPayload::ContractCall(ref contract_call) => {
                 // if this calls a function that doesn't exist or is syntactically invalid, then the

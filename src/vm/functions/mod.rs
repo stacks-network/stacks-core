@@ -227,7 +227,7 @@ fn special_print(args: &[SymbolicExpression], env: &mut Environment, context: &L
         eprintln!("{}", &input);
     }
 
-    env.register_print_event(input.clone());
+    env.register_print_event(input.clone())?;
     Ok(input)
 }
 

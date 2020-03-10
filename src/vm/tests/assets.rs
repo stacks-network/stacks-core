@@ -2,7 +2,7 @@ use vm::execute as vm_execute;
 use vm::errors::{Error, CheckErrors, RuntimeErrorType};
 use vm::types::{Value, PrincipalData, ResponseData, QualifiedContractIdentifier, AssetIdentifier};
 use vm::contexts::{OwnedEnvironment, GlobalContext, AssetMap, AssetMapEntry};
-use chainstate::stacks::{StacksTransactionEvent};
+use chainstate::stacks::events::{StacksTransactionEvent};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;

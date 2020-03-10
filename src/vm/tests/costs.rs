@@ -13,7 +13,7 @@ use vm::contexts::{Environment};
 use vm::costs::{ExecutionCost};
 use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
                    NULL_HEADER_DB};
-use chainstate::stacks::StacksTransactionEvent;
+use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
 
