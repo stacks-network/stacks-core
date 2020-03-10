@@ -89,10 +89,10 @@ fn test_at_block_missing_defines() {
 
         let contract =
             "(define-map datum ((id bool)) ((value int)))
-             
+
              (define-public (flip)
                (let ((current (default-to (get value (map-get?! datum ((id 'true)))) 0)))
-                 (map-set datum ((id 'true)) (if (is-eq 1 current) 0 1))
+                 (map-set datum {id 'true} (if (is-eq 1 current) 0 1))
                  (ok current)))";
 
         eprintln!("Initializing contract...");
@@ -120,7 +120,7 @@ fn test_at_block_missing_defines() {
         let contract =
             "(define-private (problematic-fetch-entry)
                (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
-                 (contract-map-get? .contract-a datum ((id 'true)))))
+                 (contract-map-get? .contract-a datum {id 'true})))
              (problematic-fetch-entry)
             ";
 
