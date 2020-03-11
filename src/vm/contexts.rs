@@ -654,7 +654,6 @@ impl <'a,'b> Environment <'a,'b> {
             self.global_context.roll_back();
             result
         } else {
-            println!("1");
             self.global_context.handle_tx_result(result)
         }
     }

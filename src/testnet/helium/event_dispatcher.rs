@@ -7,6 +7,7 @@ use serde_json::json;
 use serde::Serialize;
 
 use vm::types::{Value, QualifiedContractIdentifier};
+use net::StacksMessageCodec;
 use chainstate::stacks::{StacksBlock};
 use chainstate::stacks::events::{StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
 use chainstate::stacks::db::StacksHeaderInfo;
@@ -69,6 +70,13 @@ impl EventObserver {
                 }),
             }).collect();
 
+        let serialized_txs: Vec<String> = chain_tip.txs.iter().map(|t| {
+            let mut unsigned_tx_bytes = vec![];
+            t.consensus_serialize(&mut unsigned_tx_bytes).unwrap();
+            let formatted_bytes: Vec<String> = unsigned_tx_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            format!("0x{}", formatted_bytes.join(""))
+        }).collect();
+        
         // Wrap events
         let payload = json!({
             "block_hash": format!("0x{:?}", chain_tip.block_hash()),
@@ -76,7 +84,7 @@ impl EventObserver {
             "parent_block_hash": format!("0x{:?}", chain_tip.header.parent_block),
             "parent_microblock": format!("0x{:?}", chain_tip.header.parent_microblock),
             "events": events_payload,
-            "transactions": "",
+            "transactions": serialized_txs,
         }).to_string();
 
         // Send payload
