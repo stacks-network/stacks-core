@@ -13,7 +13,7 @@ pub use self::keychain::{Keychain};
 pub use self::node::{Node, SortitionedBlock};
 pub use self::burnchain::{BurnchainSimulator, BurnchainState};
 pub use self::tenure::{LeaderTenure};
-pub use self::config::{Config};
+pub use self::config::{Config, ConfigFile};
 pub use self::event_dispatcher::{EventDispatcher};
 
 use vm::types::PrincipalData;

@@ -10,21 +10,13 @@ use chainstate::stacks::{TransactionPayload, CoinbasePayload};
 use vm::types::PrincipalData;
 
 pub fn new_test_conf() -> testnet::helium::Config {
-    // Testnet's name
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 8];
-    rng.fill_bytes(&mut buf);
-    let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
     
     // secretKey: "b1cf9cee5083f421c84d7cb53be5edf2801c3c78d63d53917aee0bdc8bd160ee01",
     // publicKey: "03e2ed46873d0db820e8c6001aabc082d72b5b900b53b7a1b9714fe7bde3037b81",
     // stacksAddress: "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
-    let initial_balances = vec![
-        InitialBalance { address: PrincipalData::parse_standard_principal("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT").unwrap().into(), amount: 10000 },
-    ];
-    
+
     let mut conf = testnet::helium::Config::default();
-    conf.initial_balances = Some(initial_balances);
+    conf.add_initial_balance("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT", 10000);
     conf
 }
 

@@ -195,25 +195,22 @@ fn main() {
 
     if argv[1] == "testnet" {
         use testnet;
-        
-        // use bitcoincore_rpc::{Auth, Client, RpcApi};
-        // let rpc = Client::new(
-        //     "http://localhost:18443".to_string(), 
-        //     Auth::UserPass("user".to_string(), "password".to_string())).unwrap();
-        // let best_block_hash = rpc.get_best_block_hash().unwrap();
-        // println!("{:?}", best_block_hash);
-        
-        let mut conf = testnet::helium::Config::default();
-        conf.add_initial_balance("ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6".to_string(), 100000);
-        conf.add_initial_balance("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(), 10000);
 
-        // info_blue!("Starting testnet...");
-        // info_yellow!("*** Mempool path: {}", conf.node_config[0].mem_pool_path);
-        println!("Starting testnet...");
-        println!("*** Mempool path: {}", conf.node.mempool_path);
+        let conf = match argv.len() {
+            n if n >= 3 => {
+                println!("Starting testnet with config {}...", argv[2]);
+                testnet::helium::Config::from_config_file_path(&argv[2])
+            },
+            _ => {
+                println!("Starting testnet with default config...");
+                testnet::helium::Config::default()
+            }
+        };
+
+        println!("*** Mempool path: {}", conf.mempool.path);
 
         let mut run_loop = testnet::helium::RunLoop::new(conf);
-        let num_round = 0; // Infinite number of rounds
+        let num_round: u64 = 0; // Infinite number of rounds
         run_loop.start(num_round);
         return
     }

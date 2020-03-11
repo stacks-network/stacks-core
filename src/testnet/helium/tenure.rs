@@ -74,7 +74,7 @@ impl <'a> LeaderTenure {
         let mut chain_state = StacksChainState::open(
             false, 
             TESTNET_CHAIN_ID, 
-            &self.config.node.db_path).unwrap();
+            &self.config.get_chainstate_path()).unwrap();
 
         let mut clarity_tx = self.block_builder.epoch_begin(&mut chain_state).unwrap();
 

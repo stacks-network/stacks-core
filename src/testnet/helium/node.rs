@@ -80,30 +80,22 @@ impl Node {
         let seed = Sha256Sum::from_data(format!("{}", config.node.name).as_bytes());
         let keychain = Keychain::default(seed.as_bytes().to_vec());
 
-        let initial_balances = match &config.initial_balances {
-            Some(initial_balances) =>  {
-                let mapped_balances: Vec<(PrincipalData, u64)> = initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
-                Some(mapped_balances)
-            },
-            None => None
-        };
+        let initial_balances = config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
 
         let chain_state = match StacksChainState::open_testnet(
             TESTNET_CHAIN_ID, 
-            &config.node.db_path, 
-            initial_balances) {
+            &config.get_chainstate_path(), 
+            Some(initial_balances)) {
             Ok(res) => res,
-            Err(_) => panic!("Error while opening chain state at path {:?}", config.node.db_path)
+            Err(_) => panic!("Error while opening chain state at path {:?}", config.get_chainstate_path())
         };
 
-        let mem_pool = MemPoolFS::new(&config.node.mempool_path);
+        let mem_pool = MemPoolFS::new(&config.mempool.path);
 
         let mut event_dispatcher = EventDispatcher::new();
 
-        if let Some(observers) = &config.event_observers {
-            for observer in observers {
-                event_dispatcher.register_observer(observer);
-            }
+        for observer in &config.events_observers {
+            event_dispatcher.register_observer(observer);
         }
 
         Self {

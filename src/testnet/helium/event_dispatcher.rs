@@ -6,12 +6,12 @@ use mio::tcp::TcpStream;
 use serde_json::json;
 use serde::Serialize;
 
-use vm::types::{Value, QualifiedContractIdentifier};
+use vm::types::{Value, QualifiedContractIdentifier, AssetIdentifier};
 use net::StacksMessageCodec;
 use chainstate::stacks::{StacksBlock};
 use chainstate::stacks::events::{StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
 use chainstate::stacks::db::StacksHeaderInfo;
-use super::config::{EventObserverConfig};
+use super::config::{EventObserverConfig, EventKeyType};
 
 #[derive(Debug)]
 struct EventObserver {
@@ -96,7 +96,9 @@ impl EventObserver {
 
 pub struct EventDispatcher {
     registered_observers: Vec<EventObserver>,
-    watched_events_lookup: HashMap<(QualifiedContractIdentifier, String), HashSet<u16>>,
+    contract_events_observers_lookup: HashMap<(QualifiedContractIdentifier, String), HashSet<u16>>,
+    assets_observers_lookup: HashMap<AssetIdentifier, HashSet<u16>>,
+    stx_observers_lookup: HashSet<u16>,
 }
 
 impl EventDispatcher {
@@ -104,7 +106,9 @@ impl EventDispatcher {
     pub fn new() -> EventDispatcher {
         EventDispatcher {
             registered_observers: vec![],
-            watched_events_lookup: HashMap::new(),
+            contract_events_observers_lookup: HashMap::new(),
+            assets_observers_lookup: HashMap::new(),
+            stx_observers_lookup: HashSet::new(),
         }
     }
 
@@ -113,7 +117,7 @@ impl EventDispatcher {
         for (i, event) in events.iter().enumerate() {
             match event {
                 StacksTransactionEvent::SmartContractEvent(event_data) => {
-                    match self.watched_events_lookup.get(&event_data.key) {
+                    match self.contract_events_observers_lookup.get(&event_data.key) {
                         Some(observer_indexes) => {
                             for o_i in observer_indexes {
                                 dispatch_matrix[*o_i as usize].push(i);
@@ -150,17 +154,37 @@ impl EventDispatcher {
         
         let observer_index = self.registered_observers.len() as u16;
 
-        for event_key in conf.watched_event_keys.iter() {
-            match self.watched_events_lookup.entry(event_key.clone()) {
-                Entry::Occupied(observer_indexes) => {
-                    observer_indexes.into_mut().insert(observer_index);
+        for event_key_type in conf.events_keys.iter() {
+            match event_key_type {
+                EventKeyType::SmartContractEvent(event_key) => {
+                    match self.contract_events_observers_lookup.entry(event_key.clone()) {
+                        Entry::Occupied(observer_indexes) => {
+                            observer_indexes.into_mut().insert(observer_index);
+                        },
+                        Entry::Vacant(v) => {
+                            let mut observer_indexes = HashSet::new();
+                            observer_indexes.insert(observer_index);
+                            v.insert(observer_indexes);
+                        }
+                    };
                 },
-                Entry::Vacant(v) => {
-                    let mut observer_indexes = HashSet::new();
-                    observer_indexes.insert(observer_index);
-                    v.insert(observer_indexes);
+                EventKeyType::STXEvent => {
+                    self.stx_observers_lookup.insert(observer_index);
+                },
+                EventKeyType::AssetEvent(event_key) => {
+                    match self.assets_observers_lookup.entry(event_key.clone()) {
+                        Entry::Occupied(observer_indexes) => {
+                            observer_indexes.into_mut().insert(observer_index);
+                        },
+                        Entry::Vacant(v) => {
+                            let mut observer_indexes = HashSet::new();
+                            observer_indexes.insert(observer_index);
+                            v.insert(observer_indexes);
+                        }
+                    };
                 }
-            };
+            }
+
         }
 
         self.registered_observers.push(event_observer);

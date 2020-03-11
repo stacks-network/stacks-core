@@ -14,9 +14,9 @@ use util::sleep_ms;
 pub struct RunLoop {
     config: Config,
     node: Node,
-    new_burnchain_state_callback: Option<fn(u8, &BurnchainState)>,
-    new_tenure_callback: Option<fn(u8, &LeaderTenure)>,
-    new_chain_state_callback: Option<fn(u8, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionEvent>)>,
+    new_burnchain_state_callback: Option<fn(u64, &BurnchainState)>,
+    new_tenure_callback: Option<fn(u64, &LeaderTenure)>,
+    new_chain_state_callback: Option<fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionEvent>)>,
 }
 
 #[allow(unused_macros)]
@@ -60,7 +60,7 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and 
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, expected_num_rounds: u8) {
+    pub fn start(&mut self, expected_num_rounds: u64) {
 
         // Initialize and start the burnchain.
         let mut burnchain = BurnchainSimulator::new(self.config.clone());
@@ -77,7 +77,7 @@ impl RunLoop {
 
         // Waiting on the 1st block (post-genesis) from the burnchain, containing the first key registrations 
         // that will be used for bootstraping the chain.
-        let mut round_index = 0;
+        let mut round_index: u64 = 0;
 
         let state_1 = burnchain.make_next_block(initial_ops);
 
@@ -212,32 +212,32 @@ impl RunLoop {
         }
     }
 
-    pub fn apply_on_new_burnchain_states(&mut self, f: fn(u8, &BurnchainState)) {
+    pub fn apply_on_new_burnchain_states(&mut self, f: fn(u64, &BurnchainState)) {
         self.new_burnchain_state_callback = Some(f);
     }
 
-    pub fn apply_on_new_tenures(&mut self, f: fn(u8, &LeaderTenure)) {
+    pub fn apply_on_new_tenures(&mut self, f: fn(u64, &LeaderTenure)) {
         self.new_tenure_callback = Some(f);
     }
     
-    pub fn apply_on_new_chain_states(&mut self, f: fn(u8, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionEvent>)) {
+    pub fn apply_on_new_chain_states(&mut self, f: fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionEvent>)) {
         self.new_chain_state_callback = Some(f);
     }
 
-    fn handle_new_tenure_cb(new_tenure_callback: &Option<fn(u8, &LeaderTenure)>,
-                            round_index: u8, tenure: &LeaderTenure) {
+    fn handle_new_tenure_cb(new_tenure_callback: &Option<fn(u64, &LeaderTenure)>,
+                            round_index: u64, tenure: &LeaderTenure) {
         info_yellow!("Node starting new tenure with VRF {:?}", tenure.vrf_seed);
         new_tenure_callback.map(|cb| cb(round_index, tenure));
     }
 
-    fn handle_burnchain_state_cb(burn_callback: &Option<fn(u8, &BurnchainState)>,
-                                 round_index: u8, state: &BurnchainState) {
+    fn handle_burnchain_state_cb(burn_callback: &Option<fn(u64, &BurnchainState)>,
+                                 round_index: u64, state: &BurnchainState) {
         info_yellow!("Burnchain block #{} ({}) was produced with sortition #{}", state.chain_tip.block_height, state.chain_tip.burn_header_hash, state.chain_tip.sortition_hash);
         burn_callback.map(|cb| cb(round_index, state));
     }
 
-    fn handle_new_chain_state_cb(chain_state_callback: &Option<fn(u8, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionEvent>)>,
-                                 round_index: u8, state: &mut StacksChainState, chain_tip: StacksBlock, chain_tip_info: StacksHeaderInfo, events: Vec<StacksTransactionEvent>) {
+    fn handle_new_chain_state_cb(chain_state_callback: &Option<fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionEvent>)>,
+                                 round_index: u64, state: &mut StacksChainState, chain_tip: StacksBlock, chain_tip_info: StacksHeaderInfo, events: Vec<StacksTransactionEvent>) {
         info_green!("Stacks block #{} ({}) successfully produced, including {} transactions", chain_tip_info.block_height, chain_tip_info.index_block_hash(), chain_tip.txs.len());
         for tx in chain_tip.txs.iter() {
             match &tx.auth {            
