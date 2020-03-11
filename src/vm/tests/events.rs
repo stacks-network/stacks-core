@@ -37,7 +37,7 @@ fn test_emit_print_ok() {
                 (ok u1)))";
                 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
-    assert_eq!(value, Value::okay(Value::UInt(1)));
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 1);
     match events.pop() {
         Some(StacksTransactionEvent::SmartContractEvent(data)) => {
@@ -58,7 +58,7 @@ fn test_emit_print_nok() {
                 (err u1)))";
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
-    assert_eq!(value, Value::error(Value::UInt(1)));
+    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 0);
 }
 
@@ -74,7 +74,7 @@ fn test_emit_stx_transfer_ok() {
                 (ok u1)))";                
                 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
-    assert_eq!(value, Value::okay(Value::UInt(1)));
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 1);
     match events.pop() {
         Some(StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(data))) => {
@@ -98,7 +98,7 @@ fn test_emit_stx_transfer_nok() {
                 (err u1)))";                
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
-    assert_eq!(value, Value::error(Value::UInt(1)));
+    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 0);
 }
 
@@ -113,7 +113,7 @@ fn test_emit_stx_burn_ok() {
                 (ok u1)))";                
                 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
-    assert_eq!(value, Value::okay(Value::UInt(1)));
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 1);
     match events.pop() {
         Some(StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(data))) => {
@@ -135,7 +135,7 @@ fn test_emit_stx_burn_nok() {
                 (err u1)))";                
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
-    assert_eq!(value, Value::error(Value::UInt(1)));
+    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 0);
 }
 
@@ -152,7 +152,7 @@ fn test_emit_ft_transfer_ok() {
         (begin (ft-mint? token u10 sender))";
         
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
-    assert_eq!(value, Value::okay(Value::UInt(1)));
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 1);
     match events.pop() {
         Some(StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(data))) => {
@@ -180,7 +180,7 @@ fn test_emit_ft_transfer_nok() {
         (begin (ft-mint? token u10 sender))";
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
-    assert_eq!(value, Value::error(Value::UInt(1)));
+    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 0);
 }
 
@@ -195,7 +195,7 @@ fn test_emit_ft_mint_ok() {
                 (ok u1)))";                
 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
-    assert_eq!(value, Value::okay(Value::UInt(1)));
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 1);
     match events.pop() {
         Some(StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(data))) => {
@@ -220,7 +220,7 @@ fn test_emit_ft_mint_nok() {
                 (err u1)))";
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
-    assert_eq!(value, Value::error(Value::UInt(1)));
+    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 0);
 }
 
@@ -237,7 +237,7 @@ fn test_emit_nft_transfer_ok() {
         (begin (nft-mint? token u1 sender))";
         
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
-    assert_eq!(value, Value::okay(Value::UInt(1)));
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 1);
     match events.pop() {
         Some(StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(data))) => {
@@ -265,7 +265,7 @@ fn test_emit_nft_transfer_nok() {
         (begin (nft-mint? token u1 sender))";
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
-    assert_eq!(value, Value::error(Value::UInt(1)));
+    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 0);
 }
 
@@ -280,7 +280,7 @@ fn test_emit_nft_mint_ok() {
                 (ok u1)))";
 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
-    assert_eq!(value, Value::okay(Value::UInt(1)));
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 1);
     match events.pop() {
         Some(StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(data))) => {
@@ -305,6 +305,6 @@ fn test_emit_nft_mint_nok() {
                 (err u1)))";
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
-    assert_eq!(value, Value::error(Value::UInt(1)));
+    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 0);
 }

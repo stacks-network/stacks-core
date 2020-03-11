@@ -361,7 +361,7 @@ impl <'a> ClarityDatabase <'a> {
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
 
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type);
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type)?;
         let result = self.get_value(&key, &stored_type);
 
         match result {
@@ -396,13 +396,14 @@ impl <'a> ClarityDatabase <'a> {
         }
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type);
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type)?;
 
         if return_if_exists && self.data_map_entry_exists(&key, &stored_type)? {
             return Ok(Value::Bool(false))
         }
 
-        self.put(&key, &Value::some(value));
+        let placed_value = Value::some(value)?;
+        self.put(&key, &placed_value);
 
         return Ok(Value::Bool(true))
     }
@@ -414,7 +415,7 @@ impl <'a> ClarityDatabase <'a> {
         }
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type);
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type)?;
         if !self.data_map_entry_exists(&key, &stored_type)? {
             return Ok(Value::Bool(false))
         }

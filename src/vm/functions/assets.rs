@@ -16,7 +16,7 @@ enum StxErrorCodes { NOT_ENOUGH_BALANCE = 1, SENDER_IS_RECIPIENT = 2, NON_POSITI
 
 macro_rules! clarity_ecode {
     ($thing:expr) => {
-        Ok(Value::error(Value::UInt($thing as u128)))
+        Ok(Value::err_uint($thing as u128))
     }
 }
 
@@ -61,8 +61,7 @@ pub fn special_stx_transfer(args: &[SymbolicExpression],
         env.global_context.log_stx_transfer(&from, amount)?;
         env.register_stx_transfer_event(from.clone(), to.clone(), amount)?;
 
-        Ok(Value::okay(Value::Bool(true)))
-
+        Ok(Value::okay_true())
     } else {
         Err(CheckErrors::BadTransferSTXArguments.into())
     }
@@ -100,7 +99,7 @@ pub fn special_stx_burn(args: &[SymbolicExpression],
         env.global_context.log_stx_burn(&from, amount)?;
         env.register_stx_burn_event(from.clone(), amount)?;
 
-        Ok(Value::okay(Value::Bool(true)))
+        Ok(Value::okay_true())
 
     } else {
         Err(CheckErrors::BadTransferSTXArguments.into())
@@ -142,7 +141,7 @@ pub fn special_mint_token(args: &[SymbolicExpression],
         };
         env.register_ft_mint_event(to_principal.clone(), amount, asset_identifier)?;
 
-        Ok(Value::okay(Value::Bool(true)))
+        Ok(Value::okay_true())
     } else {
         Err(CheckErrors::BadMintFTArguments.into())
     }
@@ -182,7 +181,7 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
         };
         env.register_nft_mint_event(to_principal.clone(), asset, asset_identifier)?;
 
-        Ok(Value::okay(Value::Bool(true)))
+        Ok(Value::okay_true())
     } else {
         Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, to).into())
     }
@@ -238,7 +237,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
         };
         env.register_nft_transfer_event(from_principal.clone(), to_principal.clone(), asset, asset_identifier)?;
 
-        Ok(Value::okay(Value::Bool(true)))
+        Ok(Value::okay_true())
     } else {
         Err(CheckErrors::BadTransferNFTArguments.into())
     }
@@ -293,7 +292,7 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
         };
         env.register_ft_transfer_event(from_principal.clone(), to_principal.clone(), amount, asset_identifier)?;
 
-        Ok(Value::okay(Value::Bool(true)))
+        Ok(Value::okay_true())
     } else {
         Err(CheckErrors::BadTransferFTArguments.into())
     }
@@ -338,7 +337,8 @@ pub fn special_get_owner(args: &[SymbolicExpression],
     }
 
     match env.global_context.database.get_nft_owner(&env.contract_context.contract_identifier, asset_name, &asset) {
-        Ok(owner) => Ok(Value::some(Value::Principal(owner))),
+        Ok(owner) => Ok(Value::some(Value::Principal(owner))
+                        .expect("Principal should always fit in optional.")),
         Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(Value::none()),
         Err(e) => Err(e)
     }

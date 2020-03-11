@@ -36,17 +36,17 @@ fn get_simple_test(function: &NativeFunctions) -> &'static str {
         And => "(and 'true 'false)",
         Or => "(or 'true 'false)",
         Not => "(not 'true)",
-        Equals => "(eq 1 2)",
+        Equals => "(is-eq 1 2)",
         If => "(if 'true (+ 1 2) 'false)",
         Let => "(let ((x 1)) x)",
         FetchVar => "(var-get var-foo)",
         SetVar => "(var-set var-foo 1)",
         Map => "(map not list-foo)",
         Filter => "(filter not list-foo)",
-        Fold => "(fold + list-bar)",
+        Fold => "(fold + list-bar 0)",
         Append => "(append list-bar 1)",
         Concat => "(concat list-bar list-bar)",
-        AsMaxLen => "(as-max-len? list-bar 3)",
+        AsMaxLen => "(as-max-len? list-bar u3)",
         Len => "(len list-bar)",
         ListCons => "(list 1 2 3 4)",
         FetchEntry => "(map-get? map-foo ((a 1)))",
@@ -55,7 +55,7 @@ fn get_simple_test(function: &NativeFunctions) -> &'static str {
         InsertEntry => "(map-insert map-foo ((a 2)) ((b 2)))",
         DeleteEntry => "(map-delete map-foo ((a 1)))",
         TupleCons => "(tuple (a 1))",
-        TupleGet => "(get tuple-foo)",
+        TupleGet => "(get a tuple-foo)",
         Begin => "(begin 1)",
         Hash160 => "(hash160 1)",
         Sha256 => "(sha256 1)",
@@ -65,14 +65,14 @@ fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Print => "(print 1)",
         ContractCall => "(contract-call? .contract-other foo-exec 1)",
         AsContract => "(as-contract 1)",
-        GetBlockInfo => "(get-block-info? time)",
+        GetBlockInfo => "(get-block-info? time u1)",
         ConsOkay => "(ok 1)",
         ConsError => "(err 1)",
         ConsSome => "(some 1)",
         DefaultTo => "(default-to 1 none)",
-        Asserts => "(asserts 'true)",
-        UnwrapRet => "(unwrap! (ok 1))",
-        UnwrapErrRet => "(unwrap-err! (err 1))",
+        Asserts => "(asserts! 'true (err 1))",
+        UnwrapRet => "(unwrap! (ok 1) (err 1))",
+        UnwrapErrRet => "(unwrap-err! (err 1) (ok 1))",
         Unwrap => "(unwrap-panic (ok 1))",
         UnwrapErr => "(unwrap-err-panic (err 1))",
         Match => "(match (some 1) x (+ x 1) 1)",
@@ -85,11 +85,11 @@ fn get_simple_test(function: &NativeFunctions) -> &'static str {
         MintToken => "(nft-mint? nft-foo 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         GetTokenBalance => "(ft-get-balance ft-foo 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         GetAssetOwner => "(nft-get-owner? nft-foo 1)",
-        TransferToken => "(ft-transfer? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        TransferAsset => "(nft-transfer? 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        AtBlock => "(at-block 0x0202020202020202020202020202020202020202020202020202020202020202 1)",
-        StxTransfer => "(stx-transfer 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        StxBurn => "(stx-burn 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        TransferToken => "(ft-transfer? ft-foo u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        TransferAsset => "(nft-transfer? nft-foo 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        AtBlock => "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 1)",
+        StxTransfer => "(stx-transfer? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        StxBurn => "(stx-burn? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
     }
 }
 
@@ -100,15 +100,16 @@ fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_ident
 
 fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let contract_other = "(define-map map-foo ((a int)) ((b int)))
-                          (define-public (foo-exec (a int)) 1)";
+                          (define-public (foo-exec (a int)) (ok 1))";
 
     let contract_self = format!("(define-map map-foo ((a int)) ((b int)))
                          (define-non-fungible-token nft-foo int)
                          (define-fungible-token ft-foo)
                          (define-data-var var-foo int 0)
+                         (define-constant tuple-foo (tuple (a 1)))
                          (define-constant list-foo (list 'true))
                          (define-constant list-bar (list 1))
-                         (define-public (execute) {})", prog);
+                         (define-public (execute) (ok {}))", prog);
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
@@ -137,10 +138,11 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(&NULL_HEADER_DB));
 
 
-    owned_env.initialize_contract(self_contract_id.clone(), contract_other).unwrap();
-    owned_env.initialize_contract(other_contract_id.clone(), &contract_self).unwrap();
+    owned_env.initialize_contract(other_contract_id.clone(), contract_other).unwrap();
+    owned_env.initialize_contract(self_contract_id.clone(), &contract_self).unwrap();
 
-    execute_transaction(&mut owned_env, p2, &self_contract_id, "execute", &[]);
+    eprintln!("{}", &contract_self);
+    execute_transaction(&mut owned_env, p2, &self_contract_id, "execute", &[]).unwrap();
 
     let (_db, tracker) = owned_env.destruct().unwrap();
     tracker.get_total()

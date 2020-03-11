@@ -203,7 +203,7 @@ mod test {
         let contract_id = QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.contract-a").unwrap();
         let mut contract_ast = ContractAST::new(contract_id.clone(), pre_ast);
         let expander = SugarExpander::new(contract_id.issuer);
-        expander.run(&mut contract_ast);
+        expander.run(&mut contract_ast).unwrap();
         assert_eq!(contract_ast.expressions, ast, "Should match expected symbolic expression");
     }
 
@@ -217,7 +217,7 @@ mod test {
         let contract_id = QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.contract-a").unwrap();
         let mut contract_ast = ContractAST::new(contract_id.clone(), pre_ast);
         let expander = SugarExpander::new(contract_id.issuer);
-        expander.run(&mut contract_ast);
+        expander.run(&mut contract_ast).unwrap();
         assert_eq!(contract_ast.expressions, ast, "Should match expected symbolic expression");
     }
 }

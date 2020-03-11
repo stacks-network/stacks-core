@@ -350,8 +350,7 @@ impl Node {
                 &self.chain_state.blocks_path, 
                 &chain_tip_info.burn_header_hash, 
                 &chain_tip_info.anchored_header.block_hash()).unwrap();
-            let block_bytes = StacksChainState::file_load(&block_path).unwrap();
-            StacksBlock::consensus_deserialize(&mut &block_bytes[..]).unwrap()
+            StacksChainState::consensus_load(&block_path).unwrap()
         };
 
         self.event_dispatcher.dispatch_events(&events, &chain_tip, &chain_tip_info);

@@ -38,7 +38,6 @@ extern crate regex;
 extern crate time;
 extern crate byteorder;
 extern crate mio;
-extern crate bitcoincore_rpc;
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;
@@ -153,8 +152,14 @@ fn main() {
         let mblock_path = &argv[2];
         let mblock_data = fs::read(mblock_path).expect(&format!("Failed to open {}", mblock_path));
 
-        let mblocks : Vec<StacksMicroblock> = Vec::consensus_deserialize(&mut io::Cursor::new(&mblock_data)).map_err(|_e| {
-            eprintln!("Failed to decode microblocks");
+        let mut cursor = io::Cursor::new(&mblock_data);
+        let mut debug_cursor = LogReader::from_reader(&mut cursor);
+        let mblocks : Vec<StacksMicroblock> = Vec::consensus_deserialize(&mut debug_cursor).map_err(|e| {
+            eprintln!("Failed to decode microblocks: {:?}", &e);
+            eprintln!("Bytes consumed:");
+            for buf in debug_cursor.log().iter() {
+                eprintln!("  {}", to_hex(buf));
+            }
             process::exit(1);
         }).unwrap();
 

@@ -216,7 +216,7 @@ and to provide greater security for the user(s) that own the account.
 
 A type-0 transaction may only transfer a single asset from one account to
 another.  It may not directly execute Clarity code.  A type-0
-transaction can only send STX.  It cannot be sponsored, and it cannot have post-conditions
+transaction can only send STX.  It cannot have post-conditions
 (see below).
 
 #### Type-1: Instantiating a Smart Contract
@@ -385,8 +385,8 @@ It is encoded as follows:
 
 * A 1-byte **authorization type** field that indicates whether or not the
   transaction has a standard or sponsored authorization.
-   * For standard authorizations, this value MUST be `0x03`.
-   * For sponsored authorizations, this value MUST be `0x04`.
+   * For standard authorizations, this value MUST be `0x04`.
+   * For sponsored authorizations, this value MUST be `0x05`.
 * One or two **spending conditions**, whose encoding is described below.  If the
   transaction's authorization type byte indicates that it is a standard
 authorization, then there is one spending condition.  If it is a sponsored
@@ -708,6 +708,94 @@ A _coinbase payload_ is encoded as follows:
 
 Note that this must be the first transaction in an anchored block in order for the
 anchored block to be considered well-formed (see below).
+
+#### Transaction Signing and Verifying
+
+A transaction may have one or two spending conditions.  The act of signing
+a transaction is the act of generating the signatures for its authorization
+structure's spending conditions, and the act of verifying a transaction is the act of (1) verifying
+the signatures in each spending condition and (2) verifying that the public key(s) 
+of each spending condition hash to its address.
+
+Signing a transaction is performed after all other fields in the transaction are
+filled in.  The high-level algorithm for filling in the signatures in a spending
+condition structure is as follows:
+
+0. Set the spending condition address, and optionally, its signature count.
+1. Clear the other spending condition fields, using the appropriate algorithm below.
+   If this is a sponsored transaction, and the signer is the origin, then set the sponsor spending condition
+   to the "signing sentinal" value (see below).
+2. Serialize the transaction into a byte sequence, and hash it to form an
+   initial `sighash`.
+3. Calculate the `presign-sighash` over the `sighash` by hashing the 
+   `sighash` with the authorization type byte (0x04 or 0x05), fee rate (as an 8-byte big-endian value),
+   and nonce (as an 8-byte big-endian value).
+4. Calculate the ECDSA signature over the `presign-sighash` by treating this
+   hash as the message digest.  Note that the signature must be a `libsecp256k1`
+   recoverable signature.
+5. Calculate the `postsign-sighash` over the resulting signature and public key
+   by hashing the `presign-sighash` hash, the signing key's public key encoding byte, and the
+   signature from step 4 to form the next `sighash`.  Store the message
+   signature and public key encoding byte as a signature auth field.
+6. Repeat steps 3-5 for each private key that must sign, using the new `sighash`
+   from step 5.
+
+The algorithms for clearing an authorization structure are as follows:
+* If this is a single-signature spending condition, then set the fee rate and
+  nonce to 0, set the public key encoding byte to `Compressed`, and set the
+  signature bytes to 0 (note that the address is _preserved_).
+* If this is a multi-signature spending condition, then set the fee rate and
+  nonce to 0, and set the vector of authorization fields to the empty vector
+  (note that the address and the 2-byte signature count are _preserved_).
+
+While signing a transaction, the implementation keeps a running list of public
+keys, public key encoding bytes, and signatures to use to fill in the spending condition once signing
+is complete.  For single-signature spending conditions, the only data the
+signing algorithm needs to return is the public key encoding byte and message signature.  For multi-signature
+spending conditions, the implementation returns the sequence of public keys and
+(public key encoding byte, ECDSA recoverable signature) pairs that make up the condition's authorization fields.
+The implementation must take care to preserve the order of public keys and
+(encoding-byte, signature) pairs in the multisig spending condition, so that
+the verifying algorith will hash them all in the right order when verifying the
+address.
+
+When signing a sponsored transaction, the origin spending condition signatures
+are calculated first, and the sponsor spending conditions are calculated second.
+When the origin key(s) sign, the set the sponsor spending condition to a
+specially-crafted "signing sentinel" structure.  This structure is a
+single-signature spending condition, with a hash mode equal to 0x00, an
+address and signature of all 0's, a fee rate and a nonce equal to 0, and a
+public key encoding byte equal to 0x00.  This way, the origin commits to the
+fact that the transaction is sponsored without having to know anything about the
+sponsor's spending conditions.
+
+When sponsoring a transaction, the sponsor uses the same algorithm as above to
+calculate its signatures.  This way, the sponsor commits to the signature(s) of
+the origin when calculating its signatures.
+
+When verifying a transaction, the implementation verifies the sponsor spending
+condition (if present), and then the origin spending condition.  It effectively
+performs the signing algorithm again, but this time, it verifies signatures and
+recovers public keys.
+
+0. Extract the public key(s) and signature(s) from the spending condition.
+1. Clear the spending condition.
+2. Serialize the transaction into a byte sequence, and hash it to form an
+   initial `sighash`.
+3. Calculate the `presign-sighash` from the `sighash`, authorization type byte,
+   fee rate, and nonce.
+4. Use the `presign-sighash` and the next (public key encoding byte,
+   ECDSA recoverable signature) pair to recover the public key that generated it.
+5. Calculate the `postsign-sighash` from `presign-sighash`, the signature, public key encoding
+   byte, 
+6. Repeat steps 3-5 for each signature, so that all of the public keys are
+   recovered.
+7. Verify that the sequence of public keys hash to the address, using
+   the address's indicated public key hashing algorithm.
+
+When verifying a sponsored transaction, the sponsor's signatures are verified
+first.  Once verified, the sponsor spending condition is set to the "signing
+sentinal" value in order to verify the origin spending condition.
 
 ## Blocks
 

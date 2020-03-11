@@ -26,7 +26,6 @@ use net::Error as net_error;
 
 use net::connection::ConnectionOptions;
 
-use net::chat::Conversation;
 use net::chat::NeighborStats;
 
 use net::poll::NetworkState;
@@ -76,7 +75,7 @@ impl PeerNetwork {
 
                     let nk = convo.to_neighbor_key();
                     let peer_opt = PeerDB::get_peer(peer_dbconn, nk.network_id, &nk.addrbytes, nk.port)
-                        .map_err(|_e| net_error::DBError)?;
+                        .map_err(net_error::DBError)?;
 
                     match peer_opt {
                         None => {

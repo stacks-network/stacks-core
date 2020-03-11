@@ -230,8 +230,6 @@ You can learn more by visiting [the Blockstack Website](https://blockstack.org) 
 
 - [How Blockstack Works (white paper)](https://blockstack.org/docs/how-blockstack-works)
 - [Blockstack General FAQ](https://blockstack.org/faq)
-- [Blockstack Technical FAQ](docs/faq_technical.md)
-- [Blockstack In-depth Documentation Repository](docs/README.md)
 
 You can also read peer-reviewed Blockstack papers:
 

@@ -124,6 +124,8 @@ pub enum Error {
     DBError(db_error),
     NetError(net_error),
     MARFError(marf_error),
+    ReadError(io::Error),
+    WriteError(io::Error)
 }
 
 impl fmt::Display for Error {
@@ -143,6 +145,8 @@ impl fmt::Display for Error {
             Error::DBError(ref e) => fmt::Display::fmt(e, f),
             Error::NetError(ref e) => fmt::Display::fmt(e, f),
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
+            Error::ReadError(ref e) => fmt::Display::fmt(e, f),
+            Error::WriteError(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
@@ -164,6 +168,8 @@ impl error::Error for Error {
             Error::DBError(ref e) => Some(e),
             Error::NetError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
+            Error::ReadError(ref e) => Some(e),
+            Error::WriteError(ref e) => Some(e),
         }
     }
 }

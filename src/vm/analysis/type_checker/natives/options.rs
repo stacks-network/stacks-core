@@ -9,7 +9,7 @@ pub fn check_special_okay(checker: &mut TypeChecker, args: &[SymbolicExpression]
     check_argument_count(1, args)?;
     
     let inner_type = checker.type_check(&args[0], context)?;
-    let resp_type = TypeSignature::new_response(inner_type, no_type());
+    let resp_type = TypeSignature::new_response(inner_type, no_type())?;
     Ok(resp_type)
 }
 
@@ -17,7 +17,7 @@ pub fn check_special_some(checker: &mut TypeChecker, args: &[SymbolicExpression]
     check_argument_count(1, args)?;
     
     let inner_type = checker.type_check(&args[0], context)?;
-    let resp_type = TypeSignature::new_option(inner_type);
+    let resp_type = TypeSignature::new_option(inner_type)?;
     Ok(resp_type)
 }
 
@@ -25,7 +25,7 @@ pub fn check_special_error(checker: &mut TypeChecker, args: &[SymbolicExpression
     check_argument_count(1, args)?;
     
     let inner_type = checker.type_check(&args[0], context)?;
-    let resp_type = TypeSignature::new_response(no_type(), inner_type);
+    let resp_type = TypeSignature::new_response(no_type(), inner_type)?;
     Ok(resp_type)
 }
 
@@ -145,7 +145,7 @@ pub fn check_special_try_ret(checker: &mut TypeChecker, args: &[SymbolicExpressi
             if input_type.is_no_type() {
                 Err(CheckErrors::CouldNotDetermineResponseOkType.into())
             } else {
-                checker.track_return_type(TypeSignature::new_option(TypeSignature::NoType))?;
+                checker.track_return_type(TypeSignature::new_option(TypeSignature::NoType)?)?;
                 Ok(*input_type)
             }
         }
@@ -157,7 +157,7 @@ pub fn check_special_try_ret(checker: &mut TypeChecker, args: &[SymbolicExpressi
                 Err(CheckErrors::CouldNotDetermineResponseErrType.into())
             } else {
                 checker.track_return_type(TypeSignature::new_response(TypeSignature::NoType,
-                                                                      err_type))?;
+                                                                      err_type)?)?;
                 Ok(ok_type)
             }
         },

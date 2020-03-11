@@ -101,6 +101,7 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
 pub struct NetworkReplyHandle<P: ProtocolFamily> {
     receiver_output: Option<Receiver<P::Message>>,
     request_pipe_write: Option<PipeWrite>,        // caller feeds in the message via this pipe endpoint.  Set to None on flush
+    deadline: u64
 }
 
 impl<P: ProtocolFamily> NetworkReplyHandle<P> {
@@ -108,42 +109,62 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
         NetworkReplyHandle {
             receiver_output: Some(output),
             request_pipe_write: Some(write),
+            deadline: 0
         }
     }
 
     pub fn new_relay(write: PipeWrite) -> NetworkReplyHandle<P> {
         NetworkReplyHandle {
             receiver_output: None,
-            request_pipe_write: Some(write)
+            request_pipe_write: Some(write),
+            deadline: 0
         }
     }
 
+    /// deadline is in seconds
+    pub fn set_deadline(&mut self, dl: u64) -> () {
+        self.deadline = dl;
+    }
+
     /// Try to flush and receive.
+    /// Only call this once all sender data is bufferred up.
     /// Consumed the handle if it succeeds in both emptying the message buffer and getting a message.
     /// Returns itself if it still has data to flush, or if it's still waiting for a reply.
     pub fn try_send_recv(mut self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
-        match self.try_flush() {
-            Ok(b) => {
-                if b {
-                    // flushed!
-                    self.try_recv()
+        if self.request_pipe_write.is_some() {
+            match self.try_flush() {
+                Ok(b) => {
+                    if b {
+                        // flushed all data; try to receive a reply.
+                        self.try_recv()
+                    }
+                    else {
+                        // still have bufferred data
+                        Err(Ok(self))
+                    }
+                },
+                Err(e) => {
+                    // broken pipe
+                    Err(Err(e))
                 }
-                else {
-                    // still sending
-                    Err(Ok(self))
-                }
-            },
-            Err(e) => {
-                // broken pipe
-                Err(Err(e))
             }
+        }
+        else {
+            // done sending, so just try to receive
+            self.try_recv()
         }
     }
 
     /// Poll on this handle.
     /// Consumes this handle if it succeeds in getting a message.
     /// Returns itself if there is no pending message.
+    /// If a deadline is set to something non-zero, then fail if the deadline passed (this handle
+    /// is destroyed in the process).
     pub fn try_recv(mut self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
+        if self.deadline > 0 && self.deadline < get_epoch_time_secs() {
+            test_debug!("Deadline {} exceeded (now = {})", self.deadline, get_epoch_time_secs());
+            return Err(Err(net_error::RecvTimeout));
+        }
         match self.receiver_output {
             Some(ref mut output) => {
                 let res = output.try_recv();
@@ -188,14 +209,15 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
         }
     }
 
-    /// Try to flush the inner pipe writer.  If we succeed, drop it.
+    /// Try to flush the inner pipe writer.  If we succeed, drop the inner pipe.
+    /// Only call this once you're done sending -- this is just to move the data along.
     /// Return true if we're done sending; false if we need to call this again.
     pub fn try_flush(&mut self) -> Result<bool, net_error> {
         let fd_opt = match self.request_pipe_write.take() {
             Some(mut fd) => {
                 let res = fd.try_flush().map_err(net_error::WriteError)?;
                 if res {
-                    // flushed!
+                    // all data flushed!
                     None
                 }
                 else {
@@ -214,7 +236,10 @@ impl<P: ProtocolFamily> Write for NetworkReplyHandle<P> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         match self.request_pipe_write {
             Some(ref mut pipe) => pipe.write(bytes),
-            None => Err(io::Error::from(io::ErrorKind::BrokenPipe))
+            None => {
+                test_debug!("NetworkReplyHandle pipe write is defunct");
+                Err(io::Error::from(io::ErrorKind::BrokenPipe))
+            }
         }
     }
 
@@ -262,8 +287,6 @@ struct ConnectionOutbox<P: ProtocolFamily> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConnectionOptions {
-    pub keepalive: u64,
-    pub nodelay: bool,
     pub inbox_maxlen: usize,
     pub outbox_maxlen: usize,
     pub timeout: u64,
@@ -284,13 +307,11 @@ pub struct ConnectionOptions {
 impl std::default::Default for ConnectionOptions {
     fn default() -> ConnectionOptions {
         ConnectionOptions {
-            keepalive: 60,
-            nodelay: true,
             inbox_maxlen: 5,
             outbox_maxlen: 5,
-            timeout: 30,
-            heartbeat: 2592000,
-            private_key_lifetime: 4302,
+            timeout: 30,                    // how long to wait for a reply (and, how long a socket can be idle in the HTTP server)
+            heartbeat: 3600,                // send a heartbeat once an hour by default
+            private_key_lifetime: 4302,     // key expires after ~1 month
             num_neighbors: 32,              // how many outbound connections we can have, full-stop
             num_clients: 256,               // how many inbound connections we can have, full-stop
             soft_num_neighbors: 20,         // how many outbound connections we can have, before we start pruning them
@@ -308,7 +329,7 @@ impl std::default::Default for ConnectionOptions {
 #[derive(Debug)]
 pub struct NetworkConnection<P: ProtocolFamily> {
     pub options: ConnectionOptions,
-    protocol: P,
+    pub protocol: P,
     inbox: ConnectionInbox<P>,
     outbox: ConnectionOutbox<P>
 }
@@ -440,7 +461,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             // consume the message
             let message_opt = match protocol.read_payload(preamble, &self.buf[self.message_ptr..]) {
                 Ok((message, message_len)) => {
-                    test_debug!("Got preamble {:?}, message of {} bytes", preamble, message_len);
+                    test_debug!("Got message of {} bytes with {:?}", message_len, preamble);
                     let next_message_ptr = self.message_ptr.checked_add(message_len)
                         .ok_or(net_error::OverflowError("Overflowed buffer pointer".to_string()))?;
 
@@ -487,7 +508,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
 
         let ret = match message_opt {
             Some((message, _message_len)) => {
-                test_debug!("Got preamble {:?}, streamed {} bytes to form a message", preamble, _message_len);
+                test_debug!("Streamed {} bytes to form a message from preamble {:?}", _message_len, preamble);
 
                 let next_message_ptr = self.payload_ptr;
 
@@ -505,7 +526,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             },
             None => {
                 // not enough data
-                trace!("Got preamble {:?}, but no streamed message (bufferred {} bytes)", &preamble, bytes_consumed);
+                test_debug!("Got preamble {:?}, but no streamed message (bufferred {} bytes)", &preamble, bytes_consumed);
                 None
             }
         };
@@ -679,6 +700,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                     }
                     else if e.kind() == io::ErrorKind::BrokenPipe || e.kind() == io::ErrorKind::ConnectionReset {
                         // write endpoint is dead
+                        test_debug!("reader was reset: {:?}", &e);
                         socket_closed = true;
                         blocked = true;
                         Ok(0)
@@ -800,7 +822,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
                     let nr_input = match message_fd.read(&mut buf) {
                         Ok(0) => {
                             // no more data from writer
-                            trace!("Connection message pipe returned 0 bytes; assuming EOF");
+                            test_debug!("Connection message pipe returned 0 bytes; assuming EOF");
                             message_eof = true;
                             0
                         },
@@ -983,7 +1005,6 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     }
 
     /// Clear out timed-out requests.
-    /// Called from the p2p main loop.
     /// Returns number of messages drained.
     pub fn drain_timeouts(&mut self) -> usize {
         let now = get_epoch_time_secs();
@@ -1018,12 +1039,14 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     /// Send a message and expect a reply.
     /// Caller will need to write the message bytes into the resulting NetworkReplyHandle, and call
     /// flush() on it to make sure the data gets written out to the socket.
+    /// ttl is in seconds
     pub fn make_request_handle(&mut self, request_id: u32, ttl: u64) -> Result<NetworkReplyHandle<P>, net_error> {
         let (send_ch, recv_ch) = sync_channel(1);
         let recv_notify = ReceiverNotify::new(request_id, send_ch, ttl);
         
         let (pipe_read, pipe_write) = Pipe::new();
-        let recv_handle = NetworkReplyHandle::new(recv_ch, pipe_write);
+        let mut recv_handle = NetworkReplyHandle::new(recv_ch, pipe_write);
+        recv_handle.set_deadline(ttl + get_epoch_time_secs());
 
         self.outbox.queue_message(pipe_read, Some(recv_notify))?;
         Ok(recv_handle)
@@ -1080,6 +1103,11 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     /// do we have a public key 
     pub fn has_public_key(&self) -> bool {
         self.inbox.public_key.is_some()
+    }
+
+    /// send a protocol message
+    pub fn send_message<W: Write>(&mut self, fd: &mut W, msg: &P::Message) -> Result<(), net_error> {
+        self.protocol.write_message(fd, msg)
     }
 }
 
@@ -1431,31 +1459,6 @@ mod test {
         ping
     }
 
-    fn block_content_length_factory(request_id: u32) -> StacksHttpMessage {
-        let test_block_info = make_codec_test_block(5);
-        
-        let mut test_block_info_bytes = vec![];
-        test_block_info.consensus_serialize(&mut test_block_info_bytes).unwrap();
-
-        StacksHttpMessage::Response(
-            HttpResponseType::Block(
-                HttpResponseMetadata::new(request_id, format!("/v2/blocks/{}", test_block_info.block_hash().to_hex()), Some(test_block_info_bytes.len() as u32)), 
-                test_block_info.clone()
-            )
-        )
-    }
-    
-    fn block_chunked_factory(request_id: u32) -> StacksHttpMessage {
-        let test_block_info = make_codec_test_block(5);
-
-        StacksHttpMessage::Response(
-            HttpResponseType::Block(
-                HttpResponseMetadata::new(request_id, format!("/v2/blocks/{}", test_block_info.block_hash().to_hex()), None),
-                test_block_info.clone()
-            )
-        )
-    }
-
     #[test]
     fn test_connection_ping_relay_producer_consumer() {
         let mut conn_opts = ConnectionOptions::default();
@@ -1478,86 +1481,6 @@ mod test {
         test_connection_request_producer_consumer(StacksP2P::new(), conn, ping_factory);
     }
     
-    #[test]
-    fn test_connection_block_content_length_relay_producer_consumer() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5000;
-        conn_opts.outbox_maxlen = 5000;
-        
-        // stress-test different chunk sizes
-        let mut rng = rand::thread_rng();
-        let chunk_size = ((rng.next_u32() % (8192 - 128)) + 128) as usize;
-        
-        let mut conn_http = StacksHttp::new();
-        conn_http.set_chunk_size(chunk_size);
-        let test_http = conn_http.clone();
-        
-        let conn = ConnectionHttp::new(conn_http, &conn_opts, None);
-
-        test_debug!("chunk size: {}", chunk_size);
-        test_connection_relay_producer_consumer(StacksHttp::new(), conn, block_content_length_factory);
-    }
-    
-    #[test]
-    fn test_connection_block_content_length_request_producer_consumer() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5000;
-        conn_opts.outbox_maxlen = 5000;
-        
-        // stress-test different chunk sizes
-        let mut rng = rand::thread_rng();
-        let chunk_size = ((rng.next_u32() % (8192 - 128)) + 128) as usize;
-        
-        let mut conn_http = StacksHttp::new();
-        conn_http.set_chunk_size(chunk_size);
-        let test_http = conn_http.clone();
-        
-        let conn = ConnectionHttp::new(conn_http, &conn_opts, None);
-
-        test_debug!("chunk size: {}", chunk_size);
-        test_connection_request_producer_consumer(StacksHttp::new(), conn, block_content_length_factory);
-    }
-    
-    #[test]
-    fn test_connection_block_chunked_relay_producer_consumer() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5000;
-        conn_opts.outbox_maxlen = 5000;
-        
-        // stress-test different chunk sizes
-        let mut rng = rand::thread_rng();
-        let chunk_size = ((rng.next_u32() % (8192 - 128)) + 128) as usize;
-
-        let mut conn_http = StacksHttp::new();
-        conn_http.set_chunk_size(chunk_size);
-        let test_http = conn_http.clone();
-        
-        let conn = ConnectionHttp::new(conn_http, &conn_opts, None);
-
-        test_debug!("chunk size: {}", chunk_size);
-        test_connection_relay_producer_consumer(test_http, conn, block_chunked_factory);
-    }
-    
-    #[test]
-    fn test_connection_block_chunked_request_producer_consumer() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.inbox_maxlen = 5000;
-        conn_opts.outbox_maxlen = 5000;
-      
-        // stress-test different chunk sizes
-        let mut rng = rand::thread_rng();
-        let chunk_size = ((rng.next_u32() % (8192 - 128)) + 128) as usize;
-
-        let mut conn_http = StacksHttp::new();
-        conn_http.set_chunk_size(chunk_size);
-        let test_http = conn_http.clone();
-
-        let conn = ConnectionHttp::new(conn_http, &conn_opts, None);
-
-        test_debug!("chunk size: {}", chunk_size);
-        test_connection_request_producer_consumer(test_http, conn, block_chunked_factory);
-    }
-
     #[test]
     fn connection_relay_send() {
         let mut conn_opts = ConnectionOptions::default();
