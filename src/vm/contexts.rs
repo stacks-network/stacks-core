@@ -492,7 +492,7 @@ impl <'a> OwnedEnvironment <'a> {
     pub fn commit(&mut self) -> Result<(AssetMap, EventBatch)> {
         let (asset_map, event_batch) = self.context.commit()?;
         let asset_map = asset_map.ok_or(InterpreterError::FailedToConstructAssetTable)?;
-        let event_batch = event_batch.ok_or(InterpreterError::FailedToConstructAssetTable)?; /// todo(ludo): introduce new error type
+        let event_batch = event_batch.ok_or(InterpreterError::FailedToConstructEventBatch)?;
 
         Ok((asset_map, event_batch))
     }
@@ -713,7 +713,6 @@ impl <'a,'b> Environment <'a,'b> {
             value,
         };
         
-        // todo(ludo): refactor / abstract
         if let Some(batch) = self.global_context.event_batches.last_mut() {
             batch.events.push(StacksTransactionEvent::SmartContractEvent(print_event));
         }
@@ -727,7 +726,6 @@ impl <'a,'b> Environment <'a,'b> {
             amount
         };
 
-        // todo(ludo): refactor / abstract
         if let Some(batch) = self.global_context.event_batches.last_mut() {
             batch.events.push(StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data)));
         }
@@ -740,7 +738,6 @@ impl <'a,'b> Environment <'a,'b> {
             amount
         };
 
-        // todo(ludo): refactor / abstract
         if let Some(batch) = self.global_context.event_batches.last_mut() {
             batch.events.push(StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data)));
         }
@@ -755,7 +752,6 @@ impl <'a,'b> Environment <'a,'b> {
             value
         };
 
-        // todo(ludo): refactor / abstract
         if let Some(batch) = self.global_context.event_batches.last_mut() {
             batch.events.push(StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)));
         }
@@ -769,7 +765,6 @@ impl <'a,'b> Environment <'a,'b> {
             value
         };
 
-        // todo(ludo): refactor / abstract
         if let Some(batch) = self.global_context.event_batches.last_mut() {
             batch.events.push(StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)));
         }
@@ -784,7 +779,6 @@ impl <'a,'b> Environment <'a,'b> {
             amount
         };
 
-        // todo(ludo): refactor / abstract
         if let Some(batch) = self.global_context.event_batches.last_mut() {
             batch.events.push(StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)));
         }
@@ -798,7 +792,6 @@ impl <'a,'b> Environment <'a,'b> {
             amount
         };
 
-        // todo(ludo): refactor / abstract
         if let Some(batch) = self.global_context.event_batches.last_mut() {
             batch.events.push(StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)));
         }

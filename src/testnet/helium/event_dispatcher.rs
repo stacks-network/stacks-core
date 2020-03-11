@@ -89,8 +89,6 @@ impl EventObserver {
 
         // Send payload
         let _res = stream.write_bufs(&vec![payload.as_bytes().into()]);
-
-        // todo(ludo): if res = error, we should probably discard the observer
     }
 }
 
@@ -117,22 +115,31 @@ impl EventDispatcher {
         for (i, event) in events.iter().enumerate() {
             match event {
                 StacksTransactionEvent::SmartContractEvent(event_data) => {
-                    match self.contract_events_observers_lookup.get(&event_data.key) {
-                        Some(observer_indexes) => {
-                            for o_i in observer_indexes {
-                                dispatch_matrix[*o_i as usize].push(i);
-                            }
-                         },
-                        None => {},
-                    };
+                    if let Some(observer_indexes) = self.contract_events_observers_lookup.get(&event_data.key) {
+                        for o_i in observer_indexes {
+                            dispatch_matrix[*o_i as usize].push(i);
+                        }
+                    }
                 },
-                StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data)) => {},
-                StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(event_data)) => {},
-                StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data)) => {},
-                StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => {},
-                StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => {},
-                StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => {},
-                StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => {},
+                StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(_)) |
+                StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(_)) |
+                StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(_)) => {
+                    for o_i in &self.stx_observers_lookup {
+                        dispatch_matrix[*o_i as usize].push(i);
+                    }
+                },
+                StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => {
+                    self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
+                },
+                StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => {
+                    self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
+                },
+                StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => {
+                    self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
+                },
+                StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => {
+                    self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
+                },
             }
         }
 
@@ -146,6 +153,14 @@ impl EventDispatcher {
                 filtered_events.push(&events[*event_id]);
             }
             self.registered_observers[observer_id].send(filtered_events, chain_tip, chain_tip_info);
+        }
+    }
+
+    fn update_dispatch_matrix_if_observer_subscribed(&self, asset_identifier: &AssetIdentifier, event_index: usize, dispatch_matrix: &mut Vec<Vec<usize>>) {
+        if let Some(observer_indexes) = self.assets_observers_lookup.get(asset_identifier) {
+            for o_i in observer_indexes {
+                dispatch_matrix[*o_i as usize].push(event_index);
+            }
         }
     }
 
