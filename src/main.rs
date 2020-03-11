@@ -64,20 +64,6 @@ use chainstate::stacks::*;
 use util::hash::{hex_bytes, to_hex};
 use util::retry::LogReader;
 
-#[allow(unused_macros)]
-macro_rules! info_blue {
-    ($($arg:tt)*) => ({
-        eprintln!("\x1b[0;96m{}\x1b[0m", format!($($arg)*));
-    })
-}
-
-#[allow(unused_macros)]
-macro_rules! info_yellow {
-    ($($arg:tt)*) => ({
-        eprintln!("\x1b[0;33m{}\x1b[0m", format!($($arg)*));
-    })
-}
-
 fn main() {
 
     log::set_loglevel(log::LOG_INFO).unwrap();
