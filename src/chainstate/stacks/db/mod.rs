@@ -605,7 +605,8 @@ impl StacksChainState {
 
     /// Install the boot code into the chain history.
     /// TODO: instantiate all account balances as well.
-    fn install_boot_code(chainstate: &mut StacksChainState, mainnet: bool, additional_boot_code_contract_names: &Vec<String>, additional_boot_code: &Vec<String>) -> Result<(), Error> {
+    fn install_boot_code<F>(chainstate: &mut StacksChainState, mainnet: bool, additional_boot_code_contract_names: &Vec<String>, additional_boot_code: &Vec<String>, f: F) -> Result<(), Error>
+    where F: FnOnce(&mut ClarityTx) -> () {
         assert_eq!(STACKS_BOOT_CODE.len(), STACKS_BOOT_CODE_CONTRACT_NAMES.len());
         assert_eq!(additional_boot_code_contract_names.len(), additional_boot_code.len());
         
@@ -663,6 +664,8 @@ impl StacksChainState {
                 boot_code_account.nonce += 1;
             }
 
+            f(&mut clarity_tx);
+
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
         
@@ -708,8 +711,13 @@ impl StacksChainState {
 
         Ok(())
     }
-    
+
     pub fn open(mainnet: bool, chain_id: u32, path_str: &str) -> Result<StacksChainState, Error> {
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, |_| {})
+    }
+
+    pub fn open_and_exec<F>(mainnet: bool, chain_id: u32, path_str: &str, in_boot_block: F) -> Result<StacksChainState, Error> 
+    where F: FnOnce(&mut ClarityTx) -> () {
         let mut path = PathBuf::from(path_str);
 
         let chain_id_str = 
@@ -781,7 +789,7 @@ impl StacksChainState {
         };
 
         if !index_exists {
-            StacksChainState::install_boot_code(&mut chainstate, mainnet, &vec![], &vec![])?;
+            StacksChainState::install_boot_code(&mut chainstate, mainnet, &vec![], &vec![], in_boot_block)?;
         }
 
         Ok(chainstate)

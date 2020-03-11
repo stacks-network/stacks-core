@@ -22,6 +22,7 @@ use std::io::prelude::*;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::fmt;
 use std::fs;
+use std::cmp;
 use std::collections::{HashMap, HashSet};
 
 use rusqlite::Connection;
@@ -137,10 +138,11 @@ pub struct StagingUserBurnSupport {
     pub vtxindex: u32,
 }
 
+#[derive(Debug)]
 pub enum MemPoolRejection {
     DeserializationFailure(net_error),
     FailedToValidate(Error),
-    FeeTooLow(u64),
+    FeeTooLow(u64, u64),
     BadNonces(Error),
     NotEnoughFunds(u128, u128),
     NoSuchContract,
@@ -2752,7 +2754,7 @@ impl StacksChainState {
 
         if fee < MINIMUM_TX_FEE || 
            fee / tx_size < MINIMUM_TX_FEE_RATE_PER_BYTE {
-            return Err(MemPoolRejection::FeeTooLow(fee))
+            return Err(MemPoolRejection::FeeTooLow(fee, cmp::max(MINIMUM_TX_FEE, tx_size * MINIMUM_TX_FEE_RATE_PER_BYTE)))
         }
 
         // 4: the account nonces must be correct

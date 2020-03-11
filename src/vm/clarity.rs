@@ -231,8 +231,7 @@ impl ClarityConnection for ClarityReadOnlyConnection <'_> {
 }
 
 impl <'a> ClarityReadOnlyConnection <'a> {
-    pub fn done(mut self) {
-        self.datastore.rollback();
+    pub fn done(self) {
         self.parent.datastore.replace(self.datastore);
     }
 }

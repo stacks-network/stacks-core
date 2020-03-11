@@ -103,7 +103,7 @@ impl StacksChainState {
                 let payer_account = StacksChainState::get_account(clarity_tx, &sponsor_address.into());
 
                 if payer.nonce() != payer_account.nonce {
-                    let msg = format!("Bad nonce: payer account nonce of tx {} is {} (expected {})", tx.txid(), payer.nonce(), payer_account.nonce);
+                    let msg = format!("Bad nonce: payer account {} nonce of tx {} is {} (expected {})", &payer_account.principal, tx.txid(), payer.nonce(), payer_account.nonce);
                     warn!("{}", &msg);
                     return Err(Error::InvalidStacksTransaction(msg));
                 }
@@ -115,7 +115,7 @@ impl StacksChainState {
 
         // check nonces
         if origin.nonce() != origin_account.nonce {
-            let msg = format!("Bad nonce: origin account nonce of tx {} is {} (expected {})", tx.txid(), origin.nonce(), origin_account.nonce);
+            let msg = format!("Bad nonce: origin account {} nonce of tx {} is {} (expected {})", &origin_account.principal, tx.txid(), origin.nonce(), origin_account.nonce);
             warn!("{}", &msg);
             return Err(Error::InvalidStacksTransaction(msg));
         }
@@ -338,10 +338,10 @@ impl StacksChainState {
             let recipient_balance = db.get_account_stx_balance(&recipient_principal);
 
             let new_balance = cur_balance.checked_sub(amount as u128)
-                .ok_or(clarity_error::BadTransaction(format!("Address {:?} has {} microSTX; needed at least {}", &origin_account.principal, cur_balance, amount)))?;
+                .ok_or(clarity_error::BadTransaction(format!("Address {} has {} microSTX; needed at least {}", &origin_account.principal, cur_balance, amount)))?;
 
             let new_recipient_balance = recipient_balance.checked_add(amount as u128)
-                .ok_or(clarity_error::BadTransaction(format!("Address {:?} has {} microSTX; cannot add {}", &recipient_principal, recipient_balance, amount)))?;
+                .ok_or(clarity_error::BadTransaction(format!("Address {} has {} microSTX; cannot add {}", &recipient_principal, recipient_balance, amount)))?;
 
             db.set_account_stx_balance(&origin_account.principal, new_balance);
             db.set_account_stx_balance(&recipient_principal, new_recipient_balance);
@@ -505,7 +505,7 @@ impl StacksChainState {
 
         StacksChainState::process_transaction_precheck(&clarity_tx.config, tx)?;
 
-        let (payer_account, origin_account) = StacksChainState::check_transaction_nonces(clarity_tx, tx)?;
+        let (origin_account, payer_account) = StacksChainState::check_transaction_nonces(clarity_tx, tx)?;
 
         // pay fee
         // TODO: don't do this here; do it when we know what the STX/compute rate will be, and then
