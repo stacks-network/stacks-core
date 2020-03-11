@@ -1,25 +1,32 @@
+[node]
+name = "helium-node"
+
 [burnchain]
 chain = "bitcoin"
-mode = "regtest" # simtest | regtest | testnet
+mode = "regtest"
 average_block_time = 12
-wif = ""
-rpc_address = "127.0.0.1"
-rpc_port = "18443"
-rpc_auth = ""
 
-[node]
-name = "L1"
-path = ""
-mem_pool_path = "/tmp/"
-wif = ""
+[mempool]
+path = "/home/ludovic/mempool"
 
-[sidecar]
-port = "9090"
+[[events_observer]]
+port = 8080
+address = "127.0.0.1"
+events_keys = [
+    "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store::print",
+    "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.ft-token",
+    "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.nft-token",
+    "stx"
+]
 
-[[initial_balance]]
-address = "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
+[[mstx_balance]]
+address = "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A"
 amount = 10000
 
-[[initial_balance]]
+[[mstx_balance]]
 address = "ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6"
 amount = 100000
+
+[[mstx_balance]]
+address = "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
+amount = 10000
