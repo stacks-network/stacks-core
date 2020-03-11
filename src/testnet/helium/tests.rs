@@ -16,7 +16,7 @@ pub fn new_test_conf() -> testnet::helium::Config {
     // stacksAddress: "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
 
     let mut conf = testnet::helium::Config::default();
-    conf.add_initial_balance("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT", 10000);
+    conf.add_initial_balance("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(), 10000);
     conf
 }
 
