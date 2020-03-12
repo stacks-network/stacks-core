@@ -169,7 +169,6 @@ impl StacksBlockBuilder {
 
         self.prev_microblock_header = StacksMicroblockHeader::first_unsigned(&block.block_hash(), &Sha512Trunc256Sum([0u8; 32]));
 
-        // this should actually be the index-block-hash.
         self.prev_microblock_header.prev_block = block.block_hash();
         self.anchored_done = true;
 
