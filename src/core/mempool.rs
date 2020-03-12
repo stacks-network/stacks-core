@@ -40,13 +40,19 @@ mod tests {
         database::HeadersDB,
         types::QualifiedContractIdentifier,
         Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
-    use chainstate::stacks::{
-        StacksPrivateKey, db::StacksChainState };
-    use chainstate::burn::VRFSeed;
+    use chainstate::burn::{VRFSeed, BlockHeaderHash};
     use burnchains::Address;
     use address::AddressHashMode;
     use net::{Error as NetError, StacksMessageCodec};
-    use util::{log, strings::StacksString, hash::hex_bytes, hash::to_hex};
+    use util::{log, secp256k1::MessageSignature, strings::StacksString, hash::hex_bytes, hash::to_hex, hash::Sha512Trunc256Sum};
+
+    use chainstate::stacks::{
+        Error as ChainstateError,
+        db::blocks::MemPoolRejection, db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        StacksMicroblockHeader, StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
+        StacksPublicKey, TransactionPayload, StacksTransactionSigner,
+        TokenTransferMemo, CoinbasePayload,
+        StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress };
 
     use util::db::{DBConn, FromRow};
     use testnet;
@@ -57,6 +63,26 @@ mod tests {
     const SK_1: &'static str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
     const SK_2: &'static str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
     const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
+
+    pub fn make_bad_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+                                    recipient: &StacksAddress, amount: u64) -> Vec<u8> {
+        let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+
+        let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
+            .expect("Failed to create p2pkh spending condition from public key.");
+        spending_condition.set_nonce(nonce);
+        spending_condition.set_fee_rate(fee_rate);
+        let auth = TransactionAuth::Standard(spending_condition);
+        let unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+
+        tx_signer.sign_origin(&StacksPrivateKey::new()).unwrap();
+
+        let mut buf = vec![];
+        tx_signer.get_tx().unwrap().consensus_serialize(&mut buf).unwrap();
+        buf
+    }
+
 
     #[test]
     fn mempool_setup_chainstate() {
@@ -90,6 +116,9 @@ mod tests {
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let contract_addr = to_addr(&contract_sk);
 
+            let other_sk =  StacksPrivateKey::from_hex(SK_2).unwrap();
+            let other_addr = to_addr(&other_sk);
+
             if round == 3 {
                 let block_header = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
                     &mut chainstate.headers_db, bhh)
@@ -105,8 +134,133 @@ mod tests {
                 let tx = make_contract_call(&contract_sk, 1, 200, &contract_addr, "foo_contract", "bar", &[Value::UInt(1)]);
                 chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap();
 
-                // now an invalid one.
-                chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut vec![0u8, 0u8, 0u8, 0u8].as_slice()).unwrap_err();
+                let tx = make_stacks_transfer(&contract_sk, 1, 200, &other_addr, 1000);
+                chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap();
+
+                // now invalid ones.
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut vec![0u8, 0u8, 0u8, 0u8].as_slice()).unwrap_err();
+                assert!(if let MemPoolRejection::DeserializationFailure(_) = e { true } else { false });
+
+                // bad signature
+                let tx = make_bad_stacks_transfer(&contract_sk, 1, 200, &other_addr, 1000);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err();
+                eprintln!("Err: {:?}", e);
+                assert!(if let
+                        MemPoolRejection::FailedToValidate(
+                            ChainstateError::NetError(NetError::VerifyingError(_))) = e { true } else { false });
+
+                // bad fees
+                let tx = make_stacks_transfer(&contract_sk, 1, 0, &other_addr, 1000);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::FeeTooLow(0, _) = e { true } else { false });
+
+                // bad nonce
+                let tx = make_stacks_transfer(&contract_sk, 0, 200, &other_addr, 1000);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::BadNonces(_) = e { true } else { false });
+
+                // not enough funds
+                let tx = make_stacks_transfer(&contract_sk, 1, 110000, &other_addr, 1000);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::NotEnoughFunds(110000, 99900) = e { true } else { false });
+
+                let tx = make_stacks_transfer(&contract_sk, 1, 99900, &other_addr, 1000);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::NotEnoughFunds(100900, 99900) = e { true } else { false });
+
+                let tx = make_contract_call(&contract_sk, 1, 200, &contract_addr, "bar_contract", "bar", &[Value::UInt(1)]);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::NoSuchContract = e { true } else { false });
+
+                let tx = make_contract_call(&contract_sk, 1, 200, &contract_addr, "foo_contract", "foobar", &[Value::UInt(1)]);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::NoSuchPublicFunction = e { true } else { false });
+
+                let tx = make_contract_call(&contract_sk, 1, 200, &contract_addr, "foo_contract", "bar", &[Value::UInt(1), Value::Int(2)]);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::BadFunctionArgument(_) = e { true } else { false });
+
+                let tx = make_contract_publish(&contract_sk, 1, 1000, "foo_contract", FOO_CONTRACT);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::ContractAlreadyExists(_) = e { true } else { false });
+
+                let microblock_1 = StacksMicroblockHeader {
+                    version: 0,
+                    sequence: 0,
+                    prev_block: BlockHeaderHash([0; 32]),
+                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
+                    signature: MessageSignature([0; 65])
+                };
+
+                let microblock_2 = StacksMicroblockHeader {
+                    version: 0,
+                    sequence: 1,
+                    prev_block: BlockHeaderHash([0; 32]),
+                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
+                    signature: MessageSignature([0; 65])
+                };
+
+                let tx = make_poison(&contract_sk, 1, 1000, microblock_1, microblock_2);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::PoisonMicroblocksDoNotConflict = e { true } else { false });
+
+                let microblock_1 = StacksMicroblockHeader {
+                    version: 0,
+                    sequence: 0,
+                    prev_block: BlockHeaderHash([0; 32]),
+                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
+                    signature: MessageSignature([0; 65])
+                };
+
+                let microblock_2 = StacksMicroblockHeader {
+                    version: 0,
+                    sequence: 0,
+                    prev_block: BlockHeaderHash([0; 32]),
+                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[1,2,3]),
+                    signature: MessageSignature([0; 65])
+                };
+
+                let tx = make_poison(&contract_sk, 1, 1000, microblock_1, microblock_2);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::NoSuchAnchoredBlock(_) = e { true } else { false });
+
+                let microblock_1 = StacksMicroblockHeader {
+                    version: 0,
+                    sequence: 0,
+                    prev_block: block_hash.clone(),
+                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
+                    signature: MessageSignature([0; 65])
+                };
+
+                let microblock_2 = StacksMicroblockHeader {
+                    version: 0,
+                    sequence: 0,
+                    prev_block: block_hash.clone(),
+                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[1,2,3]),
+                    signature: MessageSignature([0; 65])
+                };
+
+                let tx = make_poison(&contract_sk, 1, 1000, microblock_1, microblock_2);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::InvalidMicroblocks = e { true } else { false });
+
+
+                let tx = make_coinbase(&contract_sk, 1, 1000);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::NoCoinbaseViaMempool = e { true } else { false });
+
             }
         });
 
