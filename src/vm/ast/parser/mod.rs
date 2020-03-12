@@ -326,10 +326,11 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
             LexItem::RightCurly => {
                 if let Some((value, start_line, start_column, expected_token)) = parse_stack.pop() {
                     if let LexItem::RightCurly = expected_token {
-                        let pairs = value.chunks(2)
+                        let mut pairs = value.chunks(2)
                                          .map(|pair| pair.to_vec().into_boxed_slice())
                                          .map(PreSymbolicExpression::list)
                                          .collect::<Vec<_>>();
+                        pairs.insert(0, PreSymbolicExpression::atom("tuple".to_string().try_into().unwrap()));
                         let mut pre_expr = PreSymbolicExpression::list(pairs.into_boxed_slice());
                         pre_expr.set_span(start_line, start_column, line_pos, column_pos);
                         match parse_stack.last_mut() {
@@ -534,6 +535,7 @@ r#"z (let ((x 1) (y 2))
     fn test_parse_tuple_literal () {
       let input = "{id 1337}";
       let program = vec![ make_list(1, 1, 1, 9, Box::new([
+                            make_atom("tuple", 0, 0, 0, 0),
                             make_list(0, 0, 0, 0, Box::new([
                               make_atom("id", 1, 2, 1, 3),
                               make_atom_value(Value::Int(1337), 1, 5, 1, 8)]))]))];
