@@ -144,10 +144,6 @@ impl EventDispatcher {
         }
 
         for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {
-            if filtered_events_ids.len() == 0 {
-                continue;
-            }
-
             let mut filtered_events: Vec<&StacksTransactionEvent> = vec![];
             for event_id in filtered_events_ids {
                 filtered_events.push(&events[*event_id]);
