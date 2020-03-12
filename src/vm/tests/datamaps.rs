@@ -140,7 +140,7 @@ fn test_explicit_syntax_tuple() {
 #[test]
 fn test_implicit_syntax_tuple() {
     let test =
-        "(define-map kv-store {key int} {value int})
+        "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))
             (begin
                 (map-insert kv-store {key key}
@@ -378,7 +378,7 @@ fn test_set_buffer_variable() {
 #[test]
 fn test_factorial_contract() {
     let test1 =
-        "(define-map factorials {id int} {current int index int})
+        "(define-map factorials ((id int)) ((current int) (index int)))
          (define-private (init-factorial (id int) (factorial int))
            (map-insert factorials {id id} {current 1 index factorial}))
          (define-private (compute (id int))
