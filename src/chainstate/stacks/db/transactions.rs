@@ -440,18 +440,18 @@ impl StacksChainState {
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).
-                let asset_map = match clarity_tx.connection().initialize_smart_contract(
+                let (asset_map, events) = match clarity_tx.connection().initialize_smart_contract(
                     &contract_id, &contract_ast, &contract_code_str,
                     |asset_map, _| { !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode, origin_account, asset_map) }) {
-                    Ok(asset_map) => {
-                        Ok(asset_map)
+                    Ok((asset_map, events)) => {
+                        Ok((asset_map, events))
                     },
                     Err(e) => {
                         match e {
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
                                 debug!("Runtime error {:?} on instantiating {:?}, code {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_code_str, stack);
-                                Ok(AssetMap::new())
+                                Ok((AssetMap::new(), vec![]))
                             },
                             _ => Err(e)
                         }
@@ -465,7 +465,7 @@ impl StacksChainState {
                 clarity_tx.connection().save_analysis(&contract_id, &contract_analysis)
                     .expect("FATAL: failed to store contract analysis");
                 
-                Ok((asset_map.get_stx_burned_total(), vec![]))
+                Ok((asset_map.get_stx_burned_total(), events))
             },
             TransactionPayload::PoisonMicroblock(ref _mblock_header_1, ref _mblock_header_2) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.

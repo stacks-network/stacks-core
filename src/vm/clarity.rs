@@ -337,13 +337,13 @@ impl <'a> ClarityBlockConnection <'a> {
     ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     pub fn initialize_smart_contract <F> (&mut self, identifier: &QualifiedContractIdentifier, contract_ast: &ContractAST,
-                                          contract_str: &str, abort_call_back: F) -> Result<AssetMap, Error>
+                                          contract_str: &str, abort_call_back: F) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
-        let (_, asset_map, _events) = self.with_abort_callback(
+        let (_, asset_map, events) = self.with_abort_callback(
             |vm_env| { vm_env.initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str)
                        .map_err(Error::from) },
             abort_call_back)?;
-        Ok(asset_map)
+        Ok((asset_map, events))
     }
 
     /// Evaluate a raw Clarity snippit
