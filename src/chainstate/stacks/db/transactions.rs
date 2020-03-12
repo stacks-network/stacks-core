@@ -382,14 +382,14 @@ impl StacksChainState {
                 let (asset_map, events) = match clarity_tx.connection().run_contract_call(&origin_account.principal, &contract_id, &contract_call.function_name, &contract_call.function_args,
                                                                                 |asset_map, _| { !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode, origin_account, asset_map) }) {
                     Ok((return_value, asset_map, events)) => {
-                        warn!("Contract-call to {:?}.{:?} args {:?} returned {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &return_value);
+                        info!("Contract-call to {}.{:?} args {:?} returned {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &return_value);
                         Ok((asset_map, events))
                     },
                     Err(e) => {
                         match e {
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
-                                debug!("Runtime error {:?} on contract-call {:?}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
+                                error!("Runtime error {:?} on contract-call {}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
                                 Ok((AssetMap::new(), vec![]))
                             },
                             _ => Err(e)
@@ -431,7 +431,7 @@ impl StacksChainState {
                     Ok((ast, analysis)) => (ast, analysis),
                     Err(e) => {
                         // this analysis isn't free -- convert to runtime error
-                        debug!("Runtime error in contract analysis for {:?}: {:?}", &contract_id, &e);
+                        error!("Runtime error in contract analysis for {}: {}", &contract_id, &e);
 
                         // abort now -- no burns
                         return Ok((0, vec![]));
@@ -450,14 +450,14 @@ impl StacksChainState {
                         match e {
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
-                                debug!("Runtime error {:?} on instantiating {:?}, code {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_code_str, stack);
+                                error!("Runtime error {:?} on instantiating {}, code {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_code_str, stack);
                                 Ok((AssetMap::new(), vec![]))
                             },
                             _ => Err(e)
                         }
                     }
                 }.map_err(|e| {
-                    warn!("Invalid smart-contract transaction {}: {:?}", &tx.txid(), &e);
+                    error!("Invalid smart-contract transaction {}: {}", &tx.txid(), &e);
                     Error::ClarityError(e)
                 })?;
                 
