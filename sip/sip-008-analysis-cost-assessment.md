@@ -1,4 +1,4 @@
-# SIP 009 Clarity Parsing and Analysis Cost Assessment
+# SIP 008 Clarity Parsing and Analysis Cost Assessment
 
 ## Preamble
 
