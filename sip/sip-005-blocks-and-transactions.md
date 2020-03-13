@@ -619,8 +619,8 @@ as follows:
 
 The _payload type ID_ can take any of the following values:
 * `0x00`:  the payload that follows is a **token-transfer payload**
-* `0x01`:  the payload that follows is a **contract-call payload**
-* `0x02`:  the payload that follows is a **smart-contract payload**
+* `0x01`:  the payload that follows is a **smart-contract payload**
+* `0x02`:  the payload that follows is a **contract-call payload**
 * `0x03`:  the payload that follows is a **poison-microblock payload**
 * `0x04`:  the payload that follows is a **coinbase payload**.
 
@@ -633,6 +633,21 @@ account to recieve the tokens,
 
 Note that if a transaction contains a token-transfer payload, it MUST have only
 a standard authorization field.  It cannot be sponsored.
+
+A _smart-contract payload_ is encoded as follows:
+* A **contract name** string, described above, that encodes the human-readable
+  part of the contract's fully-qualified name.
+* A **code body** string that encodes the Clarity smart contract itself.  This
+  string is encoded as:
+   * A 4-byte length prefix
+   * Zero or more human-readable ASCII characters -- specifically, those between `0x20` and
+     `0x7e` (inclusive), and the whitespace characters `\n` and `\t`.
+
+Note that when the smart contract is instantiated, its fully-qualified name will
+be computed from the transaction's origin account address and the given contract
+name.  The fully-qualified name must be globally unique -- the transaction will
+not be accepted if its fully-qualified name matches an already-accepted smart
+contract.
 
 A _contract-call payload_ is encoded as follows:
 * A **contract address**, comprised of a 1-byte address version number and a
@@ -651,21 +666,6 @@ to call.  The characters must match the regex `^[a-zA-Z]([a-zA-Z0-9]|[-_!?])`<co
 
 Note that together, the _contract address_ and _contract name_ fields uniquely identify
 the smart contract within the Clarity VM.
-
-A _smart-contract payload_ is encoded as follows:
-* A **contract name** string, described above, that encodes the human-readable
-  part of the contract's fully-qualified name.
-* A **code body** string that encodes the Clarity smart contract itself.  This
-  string is encoded as:
-   * A 4-byte length prefix
-   * Zero or more human-readable ASCII characters -- specifically, those between `0x20` and
-     `0x7e` (inclusive), and the whitespace characters `\n` and `\t`.
-
-Note that when the smart contract is instantiated, its fully-qualified name will
-be computed from the transaction's origin account address and the given contract
-name.  The fully-qualified name must be globally unique -- the transaction will
-not be accepted if its fully-qualified name matches an already-accepted smart
-contract.
 
 A _poison microblock payload_ is encoded as follows:
 * Two Stacks microblock headers, such that either the `prev_block` or `sequence`
