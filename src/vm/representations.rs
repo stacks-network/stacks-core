@@ -76,6 +76,7 @@ pub enum PreSymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
     List(Box<[PreSymbolicExpression]>),
+    Tuple(Box<[PreSymbolicExpression]>),
     SugaredContractIdentifier(ContractName),
     SugaredFieldIdentifier(ContractName, ClarityName),
     FieldIdentifier(TraitIdentifier),
@@ -167,6 +168,13 @@ impl PreSymbolicExpression {
     pub fn list(val: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::List(val),
+            .. PreSymbolicExpression::cons()
+        }
+    }
+
+    pub fn tuple(val: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
+        PreSymbolicExpression {
+            pre_expr: PreSymbolicExpressionType::Tuple(val),
             .. PreSymbolicExpression::cons()
         }
     }
