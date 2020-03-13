@@ -255,7 +255,8 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(conn, LimitedCostTracker::new_max_limit());
     global_context.execute(|g| {
-        let parsed = ast::parse(&contract_id, program)?;
+        let parsed = ast::build_ast(&contract_id, program, &mut ())?
+            .expressions;
         eval_all(&parsed, &mut contract_context, g)
     })
 }

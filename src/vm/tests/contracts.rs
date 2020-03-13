@@ -172,7 +172,7 @@ fn test_simple_token_system() {
 
         let tokens_contract = SIMPLE_TOKENS;
 
-        let contract_ast = ast::build_ast(&contract_identifier, tokens_contract).unwrap();
+        let contract_ast = ast::build_ast(&contract_identifier, tokens_contract, &mut ()).unwrap();
 
         block.initialize_smart_contract(&contract_identifier, &contract_ast, tokens_contract, |_, _| false)
             .unwrap();

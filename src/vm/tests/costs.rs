@@ -17,7 +17,7 @@ use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
 
-fn get_simple_test(function: &NativeFunctions) -> &'static str {
+pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
     use vm::functions::NativeFunctions::*;
     match function {
         Add => "(+ 1 1)",
@@ -37,7 +37,7 @@ fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Or => "(or 'true 'false)",
         Not => "(not 'true)",
         Equals => "(is-eq 1 2)",
-        If => "(if 'true (+ 1 2) 'false)",
+        If => "(if 'true (+ 1 2) 2)",
         Let => "(let ((x 1)) x)",
         FetchVar => "(var-get var-foo)",
         SetVar => "(var-set var-foo 1)",
@@ -76,7 +76,7 @@ fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Unwrap => "(unwrap-panic (ok 1))",
         UnwrapErr => "(unwrap-err-panic (err 1))",
         Match => "(match (some 1) x (+ x 1) 1)",
-        TryRet => "(try! (some 1))",
+        TryRet => "(try! (if 'true (ok 1) (err 1)))",
         IsOkay => "(is-ok (ok 1))",
         IsNone => "(is-none none)",
         IsErr => "(is-err (err 1))",

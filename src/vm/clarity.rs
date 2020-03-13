@@ -176,11 +176,13 @@ impl <'a> ClarityBlockConnection <'a> {
     /// (1) committing the current MARF tip to storage,
     /// (2) committing side-storage.
     #[cfg(test)]
-    pub fn commit_block(mut self) {
+    pub fn commit_block(mut self) -> LimitedCostTracker {
         debug!("Commit Clarity datastore");
         self.datastore.test_commit();
 
         self.parent.datastore.replace(self.datastore);
+
+        self.cost_track.unwrap()
     }
     
     /// Commits all changes in the current block by
@@ -189,11 +191,13 @@ impl <'a> ClarityBlockConnection <'a> {
     /// block hash than the one opened (i.e. since the caller
     /// may not have known the "real" block hash at the 
     /// time of opening).
-    pub fn commit_to_block(mut self, final_bhh: &BlockHeaderHash) {
+    pub fn commit_to_block(mut self, final_bhh: &BlockHeaderHash) -> LimitedCostTracker {
         debug!("Commit Clarity datastore to {}", final_bhh);
         self.datastore.commit_to(final_bhh);
 
         self.parent.datastore.replace(self.datastore);
+
+        self.cost_track.unwrap()
     }
 
     /// Commits all changes in the current block by
@@ -202,11 +206,13 @@ impl <'a> ClarityBlockConnection <'a> {
     ///    before this saves, it updates the metadata headers in
     ///    the sidestore so that they don't get stepped on after
     ///    a miner re-executes a constructed block.
-    pub fn commit_block_will_move(mut self, will_move: &str) {
+    pub fn commit_block_will_move(mut self, will_move: &str) -> LimitedCostTracker {
         debug!("Commit Clarity datastore to {}", will_move);
         self.datastore.commit_for_move(will_move);
 
         self.parent.datastore.replace(self.datastore);
+
+        self.cost_track.unwrap()
     }
 
     /// Get the MARF root hash
@@ -252,9 +258,19 @@ impl <'a> ClarityBlockConnection <'a> {
                                   -> Result<(ContractAST, ContractAnalysis), Error> {
         let mut db = AnalysisDatabase::new(&mut self.datastore);
 
-        let mut contract_ast = ast::build_ast(identifier, contract_content)?;
-        let contract_analysis = analysis::run_analysis(identifier, &mut contract_ast.expressions,
-                                                       &mut db, false)?;
+        let mut contract_ast = ast::build_ast(identifier, contract_content,
+                                              self.cost_track.as_mut()
+                                              .expect("Failed to get ownership of cost tracker"))?;
+
+        let cost_track = self.cost_track.take()
+            .expect("Failed to get ownership of cost tracker in ClarityBlockConnection");
+
+        let mut contract_analysis = analysis::run_analysis(identifier, &mut contract_ast.expressions,
+                                                       &mut db, false, cost_track)?;
+
+        let cost_track = contract_analysis.take_contract_cost_tracker();
+        self.cost_track.replace(cost_track);
+
         Ok((contract_ast, contract_analysis))
     }
 

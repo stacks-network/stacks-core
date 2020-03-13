@@ -153,7 +153,7 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn get_trait(&mut self, trait_name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+    pub fn get_trait(&self, trait_name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
         self.traits.get(trait_name)
     }
 

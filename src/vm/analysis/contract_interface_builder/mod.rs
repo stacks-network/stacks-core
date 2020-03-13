@@ -20,6 +20,7 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         expressions: _,
         contract_identifier: _,
         type_map: _,
+        cost_track: _,
     } = contract_analysis;
 
     contract_interface.functions.append(
