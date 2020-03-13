@@ -300,20 +300,24 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
             LexItem::RightParen => {
                 // end current list.
                 if let Some((value, start_line, start_column, expected_token)) = parse_stack.pop() {
-                    if let LexItem::RightParen = expected_token {
-                        let mut pre_expr = PreSymbolicExpression::list(value.into_boxed_slice());
-                        pre_expr.set_span(start_line, start_column, line_pos, column_pos);
-                        match parse_stack.last_mut() {
-                            None => {
-                                // no open lists on stack, add current to result.
-                                output_list.push(pre_expr)
-                            },
-                            Some((ref mut list, _, _, _)) => {
-                                list.push(pre_expr);
-                            }
-                        };
-                    } else {
-                        return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+                    match expected_token {
+                        LexItem::RightParen => {
+                            let mut pre_expr = PreSymbolicExpression::list(value.into_boxed_slice());
+                            pre_expr.set_span(start_line, start_column, line_pos, column_pos);
+                            match parse_stack.last_mut() {
+                                None => {
+                                    // no open lists on stack, add current to result.
+                                    output_list.push(pre_expr)
+                                },
+                                Some((ref mut list, _, _, _)) => {
+                                    list.push(pre_expr);
+                                }
+                            };
+                        },
+                        LexItem::RightCurly => {
+                            return Err(ParseError::new(ParseErrors::ClosingTupleLiteralExpected))
+                        },
+                        _ => return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
                     }
                 } else {
                     return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected))
@@ -325,24 +329,27 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
             },
             LexItem::RightCurly => {
                 if let Some((value, start_line, start_column, expected_token)) = parse_stack.pop() {
-                    if let LexItem::RightCurly = expected_token {
-                        let mut pre_expr = PreSymbolicExpression::tuple(value.into_boxed_slice());
-                        pre_expr.set_span(start_line, start_column, line_pos, column_pos);
-                        match parse_stack.last_mut() {
-                            None => {
-                                // no open lists on stack, add current to result.
-                                output_list.push(pre_expr)
-                            },
-                            Some((ref mut list, _, _, _)) => {
-                                list.push(pre_expr);
-                            }
-                        };
-                    } else {
-                        // FIX: Use ParseErrors::ClosingTupleLiteralExpected
-                        return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+                    match expected_token {
+                        LexItem::RightCurly => {
+                            let mut pre_expr = PreSymbolicExpression::tuple(value.into_boxed_slice());
+                            pre_expr.set_span(start_line, start_column, line_pos, column_pos);
+                            match parse_stack.last_mut() {
+                                None => {
+                                    // no open lists on stack, add current to result.
+                                    output_list.push(pre_expr)
+                                },
+                                Some((ref mut list, _, _, _)) => {
+                                    list.push(pre_expr);
+                                }
+                            };
+                        },
+                        LexItem::RightParen => {
+                            return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+                        },
+                        _ => return Err(ParseError::new(ParseErrors::ClosingTupleLiteralExpected))
                     }
                 } else {
-                    return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected))
+                    return Err(ParseError::new(ParseErrors::ClosingTupleLiteralUnexpected))
                 }
             },
             LexItem::Variable(value) => {
@@ -613,6 +620,7 @@ r#"z (let ((x 1) (y 2))
         let name_with_dot = "(let ((ab.de 1)))";
         let wrong_tuple_literal_close = "{id 1337)";
         let wrong_list_close = "(13 37}";
+        let extra_tuple_literal_close = "{37}}";
 
         let function_with_CR = "(define (foo (x y)) \n (+ 1 2 3) \r (- 1 2 3))";
         let function_with_CRLF = "(define (foo (x y)) \n (+ 1 2 3) \n\r (- 1 2 3))";
@@ -641,10 +649,13 @@ r#"z (let ((x 1) (y 2))
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
         assert!(match ast::parser::parse(&wrong_tuple_literal_close).unwrap_err().err {
-            ParseErrors::ClosingParenthesisExpected => true, _ => false });
+            ParseErrors::ClosingTupleLiteralExpected => true, _ => false });
 
         assert!(match ast::parser::parse(&wrong_list_close).unwrap_err().err {
             ParseErrors::ClosingParenthesisExpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&extra_tuple_literal_close).unwrap_err().err {
+            ParseErrors::ClosingTupleLiteralUnexpected => true, _ => false });
 
         assert!(match ast::parser::parse(&function_with_CR).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
