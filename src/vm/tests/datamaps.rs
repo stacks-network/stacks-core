@@ -181,8 +181,8 @@ fn test_fetch_contract_entry() {
     let kv_store_contract_src = r#"
         (define-map kv-store ((key int)) ((value int)))
         (define-read-only (kv-get (key int))
-            (unwrap! (get value (map-get? kv-store ((key key)))) 0))
-        (begin (map-insert kv-store ((key 42)) ((value 42))))"#;
+            (unwrap! (get value (map-get? kv-store {key key})) 0))
+        (begin (map-insert kv-store {key 42} {value 42}))"#;
 
     let proxy_src = r#"
         (define-private (fetch-via-conntract-call)
@@ -190,7 +190,7 @@ fn test_fetch_contract_entry() {
         (define-private (fetch-via-contract-map-get?-using-explicit-tuple)
             (unwrap! (get value (contract-map-get? .kv-store-contract kv-store (tuple (key 42)))) 0))
         (define-private (fetch-via-contract-map-get?-using-implicit-tuple)
-            (unwrap! (get value (contract-map-get? .kv-store-contract kv-store ((key 42)))) 0))
+            (unwrap! (get value (contract-map-get? .kv-store-contract kv-store {key 42})) 0))
         (define-private (fetch-via-contract-map-get?-using-bound-tuple)
             (let ((t (tuple (key 42))))
             (unwrap! (get value (contract-map-get? .kv-store-contract kv-store t)) 0)))"#;
