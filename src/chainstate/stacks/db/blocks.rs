@@ -98,7 +98,10 @@ use vm::contracts::Contract;
 use rand::RngCore;
 use rand::thread_rng;
 
-use rusqlite::Error as sqlite_error;
+use rusqlite::{
+    Error as sqlite_error,
+    OptionalExtension
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -150,7 +153,7 @@ pub enum MemPoolRejection {
     BadFunctionArgument(CheckError),
     ContractAlreadyExists(QualifiedContractIdentifier),
     PoisonMicroblocksDoNotConflict,
-    NoSuchAnchoredBlock(BlockHeaderHash),
+    NoAnchorBlockWithPubkeyHash(Hash160),
     InvalidMicroblocks,
     NoCoinbaseViaMempool
 }
@@ -831,9 +834,16 @@ impl StacksChainState {
         StacksChainState::inner_load_staging_block_bytes(block_conn, "staging_microblocks_data", block_hash)
     }
 
-    fn load_all_staging_block_headers_for_bhh(&self, block_hash: &BlockHeaderHash) -> Result<Vec<StagingBlock>, Error> {
-        let sql = "SELECT * FROM staging_blocks WHERE burn_header_hash = ?1 AND orphaned = 0 AND processed = 0";
-        query_rows(&self.blocks_db, sql, &[block_hash]).map_err(Error::DBError)
+    fn have_any_blocks_with_microblock_pubkh(&self, block_hash: &Hash160, minimum_block_height: i64) -> bool {
+        let staging_sql = "SELECT 1 FROM staging_blocks WHERE microblock_pubkey_hash = ?1";
+        let processed_sql = "SELECT 1 FROM block_headers WHERE microblock_pubkey_hash = ?1 AND block_height >= ?2";
+        let has_staging_blocks = self.blocks_db.query_row(staging_sql, &[block_hash], |_r| ()).optional()
+            .expect("block header db corrupted!").is_some();
+
+        let args: &[&dyn ToSql] = &[block_hash, &minimum_block_height];
+        has_staging_blocks ||
+            self.headers_db.query_row(processed_sql, args, |_r| ()).optional()
+            .expect("block header db corrupted!").is_some()
     }
 
     /// Load up a preprocessed (queued) but still unprocessed block.
@@ -2814,22 +2824,18 @@ impl StacksChainState {
                     return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict)
                 }
 
-                let anchor_block = &microblock_header_1.prev_block;
+                let microblock_pkh_1 = microblock_header_1.check_recover_pubkey()
+                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
+                let microblock_pkh_2 = microblock_header_2.check_recover_pubkey()
+                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
 
-                let microblock_pubkey_hash =
-                    if let Some(processed_block_info) = self.get_all_anchored_block_header_info(anchor_block)
-                    .expect("SQLite error: header db corrupt").pop() {
-                        processed_block_info.anchored_header.microblock_pubkey_hash
-                    } else if let Some(staging_block_info) = self.load_all_staging_block_headers_for_bhh(anchor_block)
-                    .expect("SQLite error: header db corrupt").pop() {
-                        staging_block_info.microblock_pubkey_hash
-                    } else {
-                        return Err(MemPoolRejection::NoSuchAnchoredBlock(anchor_block.clone()))
-                    };
+                if microblock_pkh_1 != microblock_pkh_2 {
+                    return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict)
+                }
 
-                microblock_header_1.verify(&microblock_pubkey_hash)
-                    .and_then(|_| microblock_header_2.verify(&microblock_pubkey_hash))
-                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?
+                if !self.have_any_blocks_with_microblock_pubkh(&microblock_pkh_1, 0) {
+                    return Err(MemPoolRejection::NoAnchorBlockWithPubkeyHash(microblock_pkh_1))
+                }
             },
             TransactionPayload::Coinbase(_) => {
                 return Err(MemPoolRejection::NoCoinbaseViaMempool)

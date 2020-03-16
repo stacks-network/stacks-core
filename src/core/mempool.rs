@@ -44,9 +44,10 @@ mod tests {
     use burnchains::Address;
     use address::AddressHashMode;
     use net::{Error as NetError, StacksMessageCodec};
-    use util::{log, secp256k1::MessageSignature, strings::StacksString, hash::hex_bytes, hash::to_hex, hash::Sha512Trunc256Sum};
+    use util::{log, secp256k1::*, strings::StacksString, hash::hex_bytes, hash::to_hex, hash::*};
 
     use chainstate::stacks::{
+        StacksBlockHeader,
         Error as ChainstateError,
         db::blocks::MemPoolRejection, db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         StacksMicroblockHeader, StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
@@ -56,6 +57,7 @@ mod tests {
 
     use util::db::{DBConn, FromRow};
     use testnet;
+    use testnet::Keychain;
     use testnet::mem_pool::MemPool;
 
     const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
@@ -125,6 +127,8 @@ mod tests {
                     .unwrap().unwrap();
                 let burn_hash = &block_header.burn_header_hash;
                 let block_hash = &block_header.anchored_header.block_hash();
+
+                let micro_pubkh = &block_header.anchored_header.microblock_pubkey_hash;
 
                 // let's throw some transactions at it.
                 // first a couple valid ones:
@@ -216,27 +220,6 @@ mod tests {
                 let microblock_1 = StacksMicroblockHeader {
                     version: 0,
                     sequence: 0,
-                    prev_block: BlockHeaderHash([0; 32]),
-                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
-                    signature: MessageSignature([0; 65])
-                };
-
-                let microblock_2 = StacksMicroblockHeader {
-                    version: 0,
-                    sequence: 0,
-                    prev_block: BlockHeaderHash([0; 32]),
-                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[1,2,3]),
-                    signature: MessageSignature([0; 65])
-                };
-
-                let tx = make_poison(&contract_sk, 1, 1000, microblock_1, microblock_2);
-                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NoSuchAnchoredBlock(_) = e { true } else { false });
-
-                let microblock_1 = StacksMicroblockHeader {
-                    version: 0,
-                    sequence: 0,
                     prev_block: block_hash.clone(),
                     tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
                     signature: MessageSignature([0; 65])
@@ -256,11 +239,81 @@ mod tests {
                 assert!(if let MemPoolRejection::InvalidMicroblocks = e { true } else { false });
 
 
+                let mut microblock_1 = StacksMicroblockHeader {
+                    version: 0,
+                    sequence: 0,
+                    prev_block: BlockHeaderHash([0; 32]),
+                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
+                    signature: MessageSignature([0; 65])
+                };
+
+                let mut microblock_2 = StacksMicroblockHeader {
+                    version: 0,
+                    sequence: 0,
+                    prev_block: BlockHeaderHash([0; 32]),
+                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[1,2,3]),
+                    signature: MessageSignature([0; 65])
+                };
+
+                microblock_1.sign(&other_sk).unwrap();
+                microblock_2.sign(&other_sk).unwrap();
+
+                let tx = make_poison(&contract_sk, 1, 1000, microblock_1, microblock_2);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
+                eprintln!("Err: {:?}", e);
+                assert!(if let MemPoolRejection::NoAnchorBlockWithPubkeyHash(_) = e { true } else { false });
+
                 let tx = make_coinbase(&contract_sk, 1, 1000);
                 let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
                 eprintln!("Err: {:?}", e);
                 assert!(if let MemPoolRejection::NoCoinbaseViaMempool = e { true } else { false });
 
+
+                // find the correct priv-key
+                let mut secret_key = None;
+                let conf = testnet::tests::new_test_conf();
+
+                for nc in conf.node_config.iter() {
+                    let seed = Sha256Sum::from_data(format!("{}", nc.name).as_bytes());
+                    let mut keychain = Keychain::default(seed.as_bytes().to_vec());
+                    for i in 0..4 {
+                        let microblock_secret_key = keychain.rotate_microblock_keypair();
+                        let mut microblock_pubkey = Secp256k1PublicKey::from_private(&microblock_secret_key);
+                        microblock_pubkey.set_compressed(true);
+                        let pubkey_hash = StacksBlockHeader::pubkey_hash(&microblock_pubkey);
+                        if pubkey_hash == *micro_pubkh {
+                            secret_key = Some(microblock_secret_key);
+                            break;
+                        }
+                    }
+                    if secret_key.is_some() {
+                        break;
+                    }
+                }
+
+                let secret_key = secret_key.expect("Failed to find the microblock secret key");
+
+                let mut microblock_1 = StacksMicroblockHeader {
+                    version: 0,
+                    sequence: 0,
+                    prev_block: BlockHeaderHash([0; 32]),
+                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
+                    signature: MessageSignature([0; 65])
+                };
+
+                let mut microblock_2 = StacksMicroblockHeader {
+                    version: 0,
+                    sequence: 0,
+                    prev_block: BlockHeaderHash([0; 32]),
+                    tx_merkle_root: Sha512Trunc256Sum::from_data(&[1,2,3]),
+                    signature: MessageSignature([0; 65])
+                };
+
+                microblock_1.sign(&secret_key).unwrap();
+                microblock_2.sign(&secret_key).unwrap();
+
+                let tx = make_poison(&contract_sk, 1, 1000, microblock_1, microblock_2);
+                chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap(); 
             }
         });
 

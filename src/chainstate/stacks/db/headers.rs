@@ -156,13 +156,6 @@ impl StacksChainState {
 
     /// Get a stacks header info by burn block and block hash (i.e. by primary key).
     /// Does not get back data about the parent microblock stream.
-    pub fn get_all_anchored_block_header_info(&self, block_hash: &BlockHeaderHash) -> Result<Vec<StacksHeaderInfo>, Error> {
-        let sql = "SELECT * FROM block_headers WHERE block_hash = ?1";
-        query_rows(&self.headers_db, sql, &[block_hash]).map_err(Error::DBError)
-    }
-
-    /// Get a stacks header info by burn block and block hash (i.e. by primary key).
-    /// Does not get back data about the parent microblock stream.
     pub fn get_anchored_block_header_info(conn: &Connection, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<StacksHeaderInfo>, Error> {
         let sql = "SELECT * FROM block_headers WHERE burn_header_hash = ?1 AND block_hash = ?2".to_string();
         let args: &[&dyn ToSql] = &[&burn_header_hash, &block_hash];
