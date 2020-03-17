@@ -7,13 +7,13 @@ mod database;
 mod options;
 mod assets;
 
-use vm::errors::{CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
+use vm::errors::{Error, CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::{CallableType, NativeHandle};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
-use vm::costs::{cost_functions, MemoryConsumer, CostTracker};
+use vm::costs::{cost_functions, MemoryConsumer, CostTracker, constants as cost_constants};
 use util::hash;
 
 define_named_enum!(NativeFunctions {
@@ -307,32 +307,31 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     let bindings = args[0].match_list()
         .ok_or(CheckErrors::BadLetSyntax)?;
 
-    let binding_results = parse_eval_bindings(bindings, env, context)?;
-
-    runtime_cost!(cost_functions::LET, env, binding_results.len())?;
+    runtime_cost!(cost_functions::LET, env, bindings.len())?;
 
     // create a new context.
     let mut inner_context = context.extend()?;
 
     let mut memory_use = 0;
 
-    for (binding_name, binding_value) in binding_results.into_iter() {
-        if is_reserved(&binding_name) ||
-           env.contract_context.lookup_function(&binding_name).is_some() ||
-           inner_context.lookup_variable(&binding_name).is_some() {
-            return Err(CheckErrors::NameAlreadyUsed(binding_name.into()).into())
-        }
+    finally_drop_memory!( env, memory_use; {
+        handle_binding_list::<_, Error>(bindings, |binding_name, var_sexp| {
+            if is_reserved(binding_name) ||
+                env.contract_context.lookup_function(binding_name).is_some() ||
+                inner_context.lookup_variable(binding_name).is_some() {
+                    return Err(CheckErrors::NameAlreadyUsed(binding_name.clone().into()).into())
+                }
 
-        let bind_mem_use = binding_value.get_memory_use();
-        env.add_memory(bind_mem_use)?;
-        memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
-        inner_context.variables.insert(binding_name, binding_value);
-    }
+            let binding_value = eval(var_sexp, env, context)?;
 
-    // evaluate the let-bodies
-    // wrap in a closure to catch the fail-fast behavior
-    //  of ?
-    let result = (|| {
+            let bind_mem_use = binding_value.get_memory_use();
+            env.add_memory(bind_mem_use)?;
+            memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
+            inner_context.variables.insert(binding_name.clone(), binding_value);
+            Ok(())
+        })?;
+
+        // evaluate the let-bodies
         let mut last_result = None;
         for body in args[1..].iter() {
             let body_result = eval(&body, env, &inner_context)?;
@@ -340,12 +339,7 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
         }
         // last_result should always be Some(...), because of the arg len check above.
         Ok(last_result.unwrap())
-    })();
-
-    // always drop memory
-    env.drop_memory(memory_use);
-
-    result
+    })
 }
 
 fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
@@ -354,8 +348,14 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     check_argument_count(1, args)?;
 
     // nest an environment.
+    env.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
+
     let contract_principal = Value::Principal(PrincipalData::Contract(env.contract_context.contract_identifier.clone()));
     let mut nested_env = env.nest_as_principal(contract_principal);
 
-    eval(&args[0], &mut nested_env, context)
+    let result = eval(&args[0], &mut nested_env, context);
+
+    env.drop_memory(cost_constants::AS_CONTRACT_MEMORY);
+
+    result
 }

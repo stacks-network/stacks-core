@@ -1,4 +1,5 @@
 pub mod cost_functions;
+pub mod constants;
 
 use std::{fmt, cmp};
 use vm::types::TypeSignature;
@@ -25,24 +26,15 @@ macro_rules! runtime_cost {
     }
 }
 
-/*
-macro_rules! uses_memory {
-    { $env: expr, $used_mem:expr; $exec:expr } => {
+macro_rules! finally_drop_memory {
+    ( $env: expr, $used_mem:expr; $exec:expr ) => {
         {
-            use vm::costs::{MemoryConsumer};
-            let memory_use = $expr.get_memory_use();
-            match env.add_memory(memory_use) {
-                Ok(()) => {
-                    let result = |_| { exec }();
-                    env.drop_memory(memory_use);
-                    result
-                },
-                Err(e) => Err(e.into())
-            }
+            let result = (|| { $exec })();
+            $env.drop_memory($used_mem);
+            result
         }
     }
 }
-*/
 
 pub fn analysis_typecheck_cost<T: CostTracker>(track: &mut T, t1: &TypeSignature, t2: &TypeSignature) -> Result<()> {
     let t1_size = t1.type_size()

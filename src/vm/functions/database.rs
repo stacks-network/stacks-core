@@ -8,7 +8,7 @@ use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty,
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{CheckErrors, InterpreterError, RuntimeErrorType, InterpreterResult as Result,
                  check_argument_count, check_arguments_at_least};
-use vm::costs::cost_functions;
+use vm::costs::{cost_functions, constants as cost_constants, CostTracker};
 use vm::{eval, LocalContext, Environment};
 use vm::callables::{DefineType};
 use chainstate::burn::{BlockHeaderHash};
@@ -199,7 +199,11 @@ pub fn special_at_block(args: &[SymbolicExpression],
         x => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), x).into())
     };
 
-    env.evaluate_at_block(bhh, &args[1], context)
+    env.add_memory(cost_constants::AT_BLOCK_MEMORY)?;
+    let result = env.evaluate_at_block(bhh, &args[1], context);
+    env.drop_memory(cost_constants::AT_BLOCK_MEMORY);
+
+    result
 }
 
 pub fn special_set_entry(args: &[SymbolicExpression],

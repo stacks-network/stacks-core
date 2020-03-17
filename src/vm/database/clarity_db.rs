@@ -20,6 +20,7 @@ use vm::database::structures::{
 use vm::database::RollbackWrapper;
 use util::db::{DBConn, FromRow};
 use chainstate::stacks::StacksAddress;
+use vm::costs::CostOverflowingMath;
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
 
@@ -216,9 +217,26 @@ impl <'a> ClarityDatabase <'a> {
 
     pub fn get_contract_size(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<u64> {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
-        let data = self.fetch_metadata(contract_identifier, &key)?
+        let contract_size: u64 = self.fetch_metadata(contract_identifier, &key)?
             .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
-        Ok(data)
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
+        let data_size: u64 = self.fetch_metadata(contract_identifier, &key)?
+            .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
+
+        // u64 overflow is _checked_ on insert into contract-data-size
+        Ok(data_size + contract_size)
+    }
+
+    /// used for adding the memory usage of `define-constant` variables.
+    pub fn set_contract_data_size(&mut self, contract_identifier: &QualifiedContractIdentifier, data_size: u64) -> Result<()> {
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+        let contract_size: u64 = self.fetch_metadata(contract_identifier, &key)?
+            .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
+        contract_size.cost_overflow_add(data_size)?;
+
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
+        self.insert_metadata(contract_identifier, &key, &data_size);
+        Ok(())
     }
 
     pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: Contract) {
