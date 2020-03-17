@@ -13,7 +13,7 @@ use vm::callables::{CallableType, NativeHandle};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
-use vm::costs::cost_functions;
+use vm::costs::{cost_functions, MemoryConsumer, CostTracker};
 use util::hash;
 
 define_named_enum!(NativeFunctions {
@@ -307,32 +307,45 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     let bindings = args[0].match_list()
         .ok_or(CheckErrors::BadLetSyntax)?;
 
-    let mut binding_results = parse_eval_bindings(bindings, env, context)?;
+    let binding_results = parse_eval_bindings(bindings, env, context)?;
 
     runtime_cost!(cost_functions::LET, env, binding_results.len())?;
 
     // create a new context.
     let mut inner_context = context.extend()?;
 
-    for (binding_name, binding_value) in binding_results.drain(..) {
+    let mut memory_use = 0;
+
+    for (binding_name, binding_value) in binding_results.into_iter() {
         if is_reserved(&binding_name) ||
            env.contract_context.lookup_function(&binding_name).is_some() ||
            inner_context.lookup_variable(&binding_name).is_some() {
             return Err(CheckErrors::NameAlreadyUsed(binding_name.into()).into())
         }
+
+        let bind_mem_use = binding_value.get_memory_use();
+        env.add_memory(bind_mem_use)?;
+        memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
         inner_context.variables.insert(binding_name, binding_value);
     }
 
     // evaluate the let-bodies
+    // wrap in a closure to catch the fail-fast behavior
+    //  of ?
+    let result = (|| {
+        let mut last_result = None;
+        for body in args[1..].iter() {
+            let body_result = eval(&body, env, &inner_context)?;
+            last_result.replace(body_result);
+        }
+        // last_result should always be Some(...), because of the arg len check above.
+        Ok(last_result.unwrap())
+    })();
 
-    let mut last_result = None;
-    for body in args[1..].iter() {
-        let body_result = eval(&body, env, &inner_context)?;
-        last_result.replace(body_result);
-    }
+    // always drop memory
+    env.drop_memory(memory_use);
 
-    // last_result should always be Some(...), because of the arg len check above.
-    Ok(last_result.unwrap())
+    result
 }
 
 fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {

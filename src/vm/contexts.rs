@@ -467,11 +467,23 @@ impl CostTracker for Environment<'_,'_> {
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.global_context.cost_track.add_cost(cost)
     }
+    fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+        self.global_context.cost_track.add_memory(memory)
+    }
+    fn drop_memory(&mut self, memory: u64) {
+        self.global_context.cost_track.drop_memory(memory)
+    }
 }
 
 impl CostTracker for GlobalContext<'_> {
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.cost_track.add_cost(cost)
+    }
+    fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+        self.cost_track.add_memory(memory)
+    }
+    fn drop_memory(&mut self, memory: u64) {
+        self.cost_track.drop_memory(memory)
     }
 }
 
