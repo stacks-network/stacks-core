@@ -175,43 +175,6 @@ fn test_implicit_syntax_tuple() {
     assert_executes(expected, &test_get);
 }
 
-
-#[test]
-fn test_fetch_contract_entry() {
-    let kv_store_contract_src = r#"
-        (define-map kv-store ((key int)) ((value int)))
-        (define-read-only (kv-get (key int))
-            (unwrap! (get value (map-get? kv-store ((key key)))) 0))
-        (begin (map-insert kv-store ((key 42)) ((value 42))))"#;
-
-    let proxy_src = r#"
-        (define-private (fetch-via-conntract-call)
-            (contract-call? .kv-store-contract kv-get 42))
-        (define-private (fetch-via-contract-map-get?-using-explicit-tuple)
-            (unwrap! (get value (contract-map-get? .kv-store-contract kv-store (tuple (key 42)))) 0))
-        (define-private (fetch-via-contract-map-get?-using-implicit-tuple)
-            (unwrap! (get value (contract-map-get? .kv-store-contract kv-store ((key 42)))) 0))
-        (define-private (fetch-via-contract-map-get?-using-bound-tuple)
-            (let ((t (tuple (key 42))))
-            (unwrap! (get value (contract-map-get? .kv-store-contract kv-store t)) 0)))"#;
-
-    let mut marf = MemoryBackingStore::new();
-    let mut owned_env = OwnedEnvironment::new(marf.as_clarity_db());
-
-    let sender = StandardPrincipalData::transient().into();
-    let mut env = owned_env.get_exec_environment(Some(sender));
-    let kv_contract_identifier = QualifiedContractIdentifier::local("kv-store-contract").unwrap();
-    let _r = env.initialize_contract(kv_contract_identifier, kv_store_contract_src).unwrap();
-
-    let contract_identifier = QualifiedContractIdentifier::local("proxy-contract").unwrap();
-    env.initialize_contract(contract_identifier.clone(), proxy_src).unwrap();
-
-    assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-conntract-call)").unwrap());
-    assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-contract-map-get?-using-implicit-tuple)").unwrap());
-    assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-contract-map-get?-using-explicit-tuple)").unwrap());
-    assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-contract-map-get?-using-bound-tuple)").unwrap());
-}
-
 #[test]
 fn test_set_int_variable() {
         let contract_src = r#"

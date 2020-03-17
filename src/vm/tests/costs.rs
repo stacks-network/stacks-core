@@ -50,7 +50,6 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Len => "(len list-bar)",
         ListCons => "(list 1 2 3 4)",
         FetchEntry => "(map-get? map-foo ((a 1)))",
-        FetchContractEntry => "(contract-map-get? .contract-other map-foo ((a 1)))",
         SetEntry => "(map-set map-foo ((a 1)) ((b 2)))",
         InsertEntry => "(map-insert map-foo ((a 2)) ((b 2)))",
         DeleteEntry => "(map-delete map-foo ((a 1)))",

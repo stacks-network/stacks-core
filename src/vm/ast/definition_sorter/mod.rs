@@ -174,13 +174,6 @@ impl <'a> DefinitionSorter {
                                     }
                                     return Ok(());
                                 },
-                                NativeFunctions::FetchContractEntry => {
-                                    // Args: [contract-name, map-name, tuple-predicate]: ignore contract-name, map-name, handle tuple-predicate as tuple
-                                    if function_args.len() == 3 {
-                                        self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
-                                    }
-                                    return Ok(());
-                                }, 
                                 NativeFunctions::Let => {
                                     // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
                                     if function_args.len() > 1 {

@@ -202,34 +202,6 @@ pub fn special_at_block(args: &[SymbolicExpression],
     env.evaluate_at_block(bhh, &args[1], context)
 }
 
-pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
-                                    env: &mut Environment,
-                                    context: &LocalContext) -> Result<Value> {
-    check_argument_count(3, args)?;
-
-    let contract_identifier = match args[0].expr {
-        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
-        _ => return Err(CheckErrors::ContractCallExpectName.into())
-    };
-
-    let map_name = args[1].match_atom()
-        .ok_or(CheckErrors::ExpectedName)?;
-
-    let key = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[2], env, &context)?
-    };
-
-    // optimization todo: db metadata like this should just get stored
-    //   in the contract object, so that it gets loaded in when the contract
-    //   is loaded from the db.
-    let data_types = env.global_context.database.load_map(&contract_identifier, map_name)?;
-    runtime_cost!(cost_functions::FETCH_ENTRY, env,
-                  data_types.value_type.size() + data_types.key_type.size())?;
-
-    env.global_context.database.fetch_entry(&contract_identifier, map_name, &key)
-}
-
 pub fn special_set_entry(args: &[SymbolicExpression],
                          env: &mut Environment,
                          context: &LocalContext) -> Result<Value> {
