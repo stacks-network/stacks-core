@@ -1,6 +1,6 @@
 # Stacks 2.0
 
-Reference implementation of https://blockstack.org/whitepaper.pdf is in Rust.
+Reference implementation of the [Blockstack Technical Whitepaper](https://blockstack.org/whitepaper.pdf) in Rust.
 
 [![CircleCI](https://circleci.com/gh/blockstack/stacks-blockchain/tree/master.svg?style=svg)](https://circleci.com/gh/blockstack/stacks-blockchain/tree/master)
 
