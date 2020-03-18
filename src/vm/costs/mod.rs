@@ -8,6 +8,8 @@ use std::convert::TryFrom;
 
 type Result<T> = std::result::Result<T, CostErrors>;
 
+pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
+
 macro_rules! runtime_cost {
     ( $cost_spec:expr, $env:expr, $input:expr ) => {
         {
@@ -99,12 +101,12 @@ pub enum CostErrors {
 
 impl LimitedCostTracker {
     pub fn new(limit: ExecutionCost) -> LimitedCostTracker {
-        LimitedCostTracker { limit, total: ExecutionCost::zero(),
-                             memory: 0, memory_limit: u64::max_value() }
+        LimitedCostTracker { limit, memory_limit: CLARITY_MEMORY_LIMIT,
+                             total: ExecutionCost::zero(), memory: 0 }
     }
     pub fn new_max_limit() -> LimitedCostTracker {
         LimitedCostTracker { limit: ExecutionCost::max_value(), total: ExecutionCost::zero(),
-                             memory: 0, memory_limit: u64::max_value() }
+                             memory: 0, memory_limit: CLARITY_MEMORY_LIMIT }
     }
     pub fn get_total(&self) -> ExecutionCost {
         self.total.clone()
