@@ -66,7 +66,7 @@ pub fn simple_test() {
 
 /*
  */
-#[test] #[ignore]
+#[test]
 pub fn let_memory_test() {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(marf);
@@ -100,10 +100,9 @@ pub fn let_memory_test() {
         contract.push_str(") 1)");
 
         let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-        conn.initialize_smart_contract(
-            &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
-        conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
-            
-        conn.commit_block();
+        assert!(format!("{:?}",
+                        conn.initialize_smart_contract(
+                            &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
+                .contains("MemoryBalanceExceeded"));
     }
 }
