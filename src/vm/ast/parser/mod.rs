@@ -22,12 +22,14 @@ pub enum LexItem {
     FieldIdentifier(usize, TraitIdentifier),
     TraitReference(usize, ClarityName),
     Variable(String),
+    CommaSeparator,
     Whitespace
 }
 
 #[derive(Debug)]
 enum TokenType {
-    LParens, RParens, Whitespace,
+    Whitespace, Comma,
+    LParens, RParens,
     LCurly, RCurly,
     StringLiteral, HexStringLiteral,
     UIntLiteral, IntLiteral, QuoteLiteral,
@@ -46,6 +48,11 @@ struct LexMatcher {
 enum LexContext {
     ExpectNothing,
     ExpectClosing
+}
+
+enum ParseContext {
+    CollectList,
+    CollectTuple,
 }
 
 impl LexMatcher {
@@ -81,6 +88,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new(";;[ -~]*", TokenType::Whitespace), // ;; comments.
         LexMatcher::new("[\n]+", TokenType::Whitespace),
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
+        LexMatcher::new("[,]", TokenType::Comma),
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
         LexMatcher::new("[{]", TokenType::LCurly),
@@ -141,6 +149,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                             TokenType::RParens => Ok(()),
                             TokenType::RCurly => Ok(()),
                             TokenType::Whitespace => Ok(()),
+                            TokenType::Comma => Ok(()),
                             _ => Err(ParseError::new(ParseErrors::SeparatorExpected(current_slice[..whole_match.end()].to_string())))
                         }
                     }
@@ -160,6 +169,10 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                     TokenType::Whitespace => {
                         context = LexContext::ExpectNothing;
                         Ok(LexItem::Whitespace)
+                    },
+                    TokenType::Comma => {
+                        context = LexContext::ExpectNothing;
+                        Ok(LexItem::CommaSeparator)
                     },
                     TokenType::LCurly => {
                         context = LexContext::ExpectNothing;
@@ -295,13 +308,13 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
             LexItem::LeftParen => {
                 // start new list.
                 let new_list = Vec::new();
-                parse_stack.push((new_list, line_pos, column_pos, LexItem::RightParen));
+                parse_stack.push((new_list, line_pos, column_pos, ParseContext::CollectList));
             },
             LexItem::RightParen => {
                 // end current list.
-                if let Some((value, start_line, start_column, expected_token)) = parse_stack.pop() {
-                    match expected_token {
-                        LexItem::RightParen => {
+                if let Some((value, start_line, start_column, parse_context)) = parse_stack.pop() {
+                    match parse_context {
+                        ParseContext::CollectList => {
                             let mut pre_expr = PreSymbolicExpression::list(value.into_boxed_slice());
                             pre_expr.set_span(start_line, start_column, line_pos, column_pos);
                             match parse_stack.last_mut() {
@@ -314,10 +327,9 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                                 }
                             };
                         },
-                        LexItem::RightCurly => {
+                        ParseContext::CollectTuple => {
                             return Err(ParseError::new(ParseErrors::ClosingTupleLiteralExpected))
-                        },
-                        _ => return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+                        }
                     }
                 } else {
                     return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected))
@@ -325,17 +337,16 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
             },
             LexItem::LeftCurly => {
                 let new_list = Vec::new();
-                parse_stack.push((new_list, line_pos, column_pos, LexItem::RightCurly));
+                parse_stack.push((new_list, line_pos, column_pos, ParseContext::CollectTuple));
             },
             LexItem::RightCurly => {
-                if let Some((value, start_line, start_column, expected_token)) = parse_stack.pop() {
-                    match expected_token {
-                        LexItem::RightCurly => {
+                if let Some((value, start_line, start_column, parse_context)) = parse_stack.pop() {
+                    match parse_context {
+                        ParseContext::CollectTuple => {
                             let mut pre_expr = PreSymbolicExpression::tuple(value.into_boxed_slice());
                             pre_expr.set_span(start_line, start_column, line_pos, column_pos);
                             match parse_stack.last_mut() {
                                 None => {
-                                    // no open lists on stack, add current to result.
                                     output_list.push(pre_expr)
                                 },
                                 Some((ref mut list, _, _, _)) => {
@@ -343,10 +354,9 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                                 }
                             };
                         },
-                        LexItem::RightParen => {
+                        ParseContext::CollectList => {
                             return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
-                        },
-                        _ => return Err(ParseError::new(ParseErrors::ClosingTupleLiteralExpected))
+                        }
                     }
                 } else {
                     return Err(ParseError::new(ParseErrors::ClosingTupleLiteralUnexpected))
@@ -432,6 +442,20 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     Some((ref mut list, _, _, _)) => list.push(pre_expr)
                 };
             }
+            LexItem::CommaSeparator => {
+                match parse_stack.last_mut() {
+                    None => return Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected)),
+                    Some((ref mut list, _, _, parse_context)) => {
+                        if let ParseContext::CollectTuple = parse_context {
+                            if list.len() % 2 == 1 {
+                                return Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected))
+                            }
+                        } else {
+                            return Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected))
+                        }
+                    }
+                };
+            },
             LexItem::Whitespace => ()
         };
     }
@@ -621,6 +645,7 @@ r#"z (let ((x 1) (y 2))
         let wrong_tuple_literal_close = "{id 1337)";
         let wrong_list_close = "(13 37}";
         let extra_tuple_literal_close = "{37}}";
+        let unexpected_comma = "(let ((a 1),(b 2)) b)";
 
         let function_with_CR = "(define (foo (x y)) \n (+ 1 2 3) \r (- 1 2 3))";
         let function_with_CRLF = "(define (foo (x y)) \n (+ 1 2 3) \n\r (- 1 2 3))";
@@ -656,6 +681,9 @@ r#"z (let ((x 1) (y 2))
 
         assert!(match ast::parser::parse(&extra_tuple_literal_close).unwrap_err().err {
             ParseErrors::ClosingTupleLiteralUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&unexpected_comma).unwrap_err().err {
+            ParseErrors::CommaSeparatorUnexpected => true, _ => false });
 
         assert!(match ast::parser::parse(&function_with_CR).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
