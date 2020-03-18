@@ -19,11 +19,7 @@ use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbo
 /*
  * This test exhibits memory inflation -- 
  *   `(define-data-var var-x ...)` uses more than 1048576 bytes of memory.
- *      this is because of the rollback wrapper. _however_, that inflation is
- *      fixed -- it's 2x the size of the variable (because it's stored both in
- *      the lookup map and the edit log).
- *   this can be eliminated, by making the rollback wrapper store a pointer in
- *      the lookup map to the edit log.
+ *      this is mainly due to using hex encoding in the sqlite storage.
  */
 #[test]
 pub fn rollback_log_memory_test() {

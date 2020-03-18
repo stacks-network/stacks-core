@@ -23,6 +23,9 @@ constants will necessarily be measured via benchmark harnesses and
 regression analyses. Furthermore, the _analysis_ cost associated with
 this code will not be covered by this proposal.
 
+This document also describes the memory limit imposed during contract
+execution, and the memory model for enforcing that limit.
+
 # Measurements for Execution Cost
 
 Execution cost of a block of Clarity code is broken into 5 categories:
@@ -661,3 +664,79 @@ hashed, the longer the hashing function takes.
 
 where X is the size of the input.
 
+
+# Memory Model and Limits
+
+Clarity contract execution imposes a maximum memory usage limit for applications.
+For any given Clarity value, the memory usage of that value is counted using
+the _size_ of the Clarity value.
+
+Memory is consumed by the following variable bindings:
+
+* `let` - each value bound in the `let` consumes that amount of memory
+    during the execution of the `let` block.
+* `match` - the bound value in a `match` statement consumes memory during
+    the execution of the `match` branch.
+* function arguments - each bound value consumes memory during the execution
+    of the function. this includes user-defined functions _as well as_ native
+    functions.
+
+Additionally, functions that perform _context changes_ also consume memory,
+though the consume a constant amount:
+
+* `as-contract`
+* `as-block`
+
+## Type signature size
+
+Types in Clarity may described using type signatures. For example,
+`(tuple (a int) (b int))` describes a tuple with two keys `a` and `b`
+of type `int`. These type descriptions are used by the Clarity analysis
+passes to check the type correctness of Clarity code. Clarity type signatures
+have varying size, e.g., the signature `int` is smaller than the signature for a
+list of integers.
+
+The size of a Clarity value is defined as follows:
+
+```
+type_size(x) :=
+  if x = 
+     int        => 16
+    uint        => 16
+    bool        => 1
+    principal   => 148
+    (buff y)    => 4 + y
+    (some y)    => 1 + size(y)
+    (ok y)      => 1 + size(y)
+    (err y)     => 1 + size(y)
+    (list ...)  => 4 + sum(size(z) for z in list)
+    (tuple ...) => 1 + 2*(count(entries)) 
+                     + sum(size(z) for each value z in tuple)
+```
+
+## Contract Memory Consumption
+
+Contract execution requires loading the contract's program state in
+memory. That program state counts towards the memory limit when
+executed via a programmatic `contract-call!` or invoked by a
+contract-call transaction.
+
+The memory consumed by a contract is equal to:
+
+```
+a + b*contract_length + sum(size(x) for each constant x defined in the contract)
+```
+
+That is, a contract consumes memory which is linear in the contract's
+length _plus_ the amount of memory consumed by any constants defined
+using `define-constant`.
+
+## Database Writes
+
+While data stored in the database itself does _not_ count against the
+memory limit, supporting public function abort/commit behavior requires
+holding a write log in memory during the processing of a transaction.
+
+Operations that write data to the data store therefore consume memory
+_until the transaction completes_, and the write log is written to the
+database.
