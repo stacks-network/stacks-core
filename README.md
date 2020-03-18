@@ -1,15 +1,15 @@
 # Stacks 2.0
 
-Reference implementation of https://blockstack.org/whitepaper.pdf is in Rust.
+Reference implementation of the [Blockstack Technical Whitepaper](https://blockstack.org/whitepaper.pdf) in Rust.
 
-[![CircleCI](https://circleci.com/gh/blockstack/blockstack-core/tree/master.svg?style=svg)](https://circleci.com/gh/blockstack/blockstack-core/tree/master)
+[![CircleCI](https://circleci.com/gh/blockstack/stacks-blockchain/tree/master.svg?style=svg)](https://circleci.com/gh/blockstack/stacks-blockchain/tree/master)
 
 ## Repository
 
 | Blockstack Topic/Tech | Where to learn more more |
 |---------------------------------|------------------------------------------------------------------------------|
-| Stacks 2.0 | [master branch](https://github.com/blockstack/blockstack-core/tree/master) |
-| Stacks 1.0 | [legacy branch](https://github.com/blockstack/blockstack-core/tree/stacks-1.0) |
+| Stacks 2.0 | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master) |
+| Stacks 1.0 | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0) |
 | Use the package | [our core docs](https://docs.blockstack.org/core/naming/introduction.html) |
 | Develop a Blockstack App | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html) |
 | Use a Blockstack App | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
