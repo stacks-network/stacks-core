@@ -16,7 +16,9 @@ events_keys = [
     "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store::print",
     "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.ft-token",
     "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.nft-token",
-    "stx"
+    "stx",
+    "assets",
+    "smart-contract-events",
 ]
 
 [[mstx_balance]]

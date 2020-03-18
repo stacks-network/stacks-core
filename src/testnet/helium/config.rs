@@ -226,7 +226,9 @@ pub struct EventObserverConfig {
 #[derive(Clone)]
 pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
+    AnySmartContractEvent,
     AssetEvent(AssetIdentifier),
+    AnyAssetEvent,
     STXEvent,
 }
 
@@ -234,7 +236,15 @@ impl EventKeyType {
     fn from_string(raw_key: &str) -> Option<EventKeyType> {
         if raw_key == "stx" {
             return Some(EventKeyType::STXEvent);
-        } 
+        }
+
+        if raw_key == "assets" {
+            return Some(EventKeyType::AnyAssetEvent);
+        }
+
+        if raw_key == "smart-contract-events" {
+            return Some(EventKeyType::AnySmartContractEvent)
+        }
         
         let comps: Vec<_> = raw_key.split("::").collect();
         if comps.len() ==  1 {
