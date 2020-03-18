@@ -3,6 +3,7 @@ use rand::RngCore;
 use util::hash::{to_hex, hex_bytes};
 use testnet::helium::mem_pool::MemPool;
 use chainstate::stacks::db::{StacksChainState};
+use chainstate::stacks::events::{StacksTransactionEvent};
 use super::node::{TESTNET_CHAIN_ID};
 use super::config::{InitialBalance};
 
@@ -79,7 +80,7 @@ fn should_succeed_mining_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, _chain_state, block, chain_tip_info, events| {
+    run_loop.apply_on_new_chain_states(|round, _chain_state, block, chain_tip_info, receipts| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.
@@ -90,6 +91,7 @@ fn should_succeed_mining_valid_txs() {
                 assert!(block.txs.len() == 1);
 
                 // 0 event should have been produced
+                let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 0);
             },
             1 => {
@@ -117,6 +119,7 @@ fn should_succeed_mining_valid_txs() {
                 });
 
                 // 0 event should have been produced
+                let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 0);
             },
             2 => {
@@ -144,6 +147,7 @@ fn should_succeed_mining_valid_txs() {
                 });
 
                 // 0 event should have been produced
+                let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 0);
             },
             3 => {
@@ -171,6 +175,7 @@ fn should_succeed_mining_valid_txs() {
                 });
                 
                 // 1 event should have been produced
+                let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 1);
             },
             4 => {
@@ -198,6 +203,7 @@ fn should_succeed_mining_valid_txs() {
                 });
 
                 // 1 event should have been produced
+                let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 1);
             },
             6 => {
@@ -225,11 +231,8 @@ fn should_succeed_mining_valid_txs() {
                     _ => false,
                 });
 
-                // let mut conn = chain_state.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
-
-                // chain_state
-
                 // 1 event should have been produced
+                let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 1);
             },
             _ => {}
@@ -293,7 +296,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, events| {
+    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _receipts| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.

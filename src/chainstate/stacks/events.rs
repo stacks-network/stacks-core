@@ -1,4 +1,5 @@
 use super::StacksAddress;
+use chainstate::stacks::StacksTransaction;
 use vm::types::{
     Value,
     PrincipalData,
@@ -6,6 +7,14 @@ use vm::types::{
     QualifiedContractIdentifier,
     AssetIdentifier
 };
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StacksTransactionReceipt {
+    pub transaction: StacksTransaction,
+    pub events: Vec<StacksTransactionEvent>,
+    pub result: Value,
+    pub stx_burned: u128,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StacksTransactionEvent {

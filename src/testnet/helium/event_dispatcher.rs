@@ -7,10 +7,12 @@ use serde_json::json;
 use serde::Serialize;
 
 use vm::types::{Value, QualifiedContractIdentifier, AssetIdentifier};
-use net::StacksMessageCodec;
-use chainstate::stacks::{StacksBlock};
-use chainstate::stacks::events::{StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
+use burnchains::Txid;
+use chainstate::stacks::StacksBlock;
+use chainstate::stacks::events::{StacksTransactionReceipt, StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
 use chainstate::stacks::db::StacksHeaderInfo;
+use net::StacksMessageCodec;
+
 use super::config::{EventObserverConfig, EventKeyType};
 
 #[derive(Debug)]
@@ -25,14 +27,15 @@ impl EventObserver {
         EventObserver { sock_addr }
     }
 
-    pub fn send(&mut self, events: Vec<&StacksTransactionEvent>, chain_tip: &StacksBlock, chain_tip_info: &StacksHeaderInfo) {
+    pub fn send(&mut self, filtered_events: Vec<&(Txid, &StacksTransactionEvent)>, chain_tip: &StacksBlock, chain_tip_info: &StacksHeaderInfo, receipts: &Vec<StacksTransactionReceipt>) {
         // Initiate a tcp socket
         let stream = TcpStream::connect(&self.sock_addr).unwrap();
         
         // Serialize events to JSON
-        let events_payload: Vec<serde_json::Value> = events.iter().map(|event| 
+        let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(txid, event)| 
             match event {
                 StacksTransactionEvent::SmartContractEvent(event_data) => json!({
+                    "txid": format!("0x{:?}", txid),
                     "type": "contract_event",
                     "contract_event": {
                         "contract_identifier": event_data.key.0.to_string(),
@@ -41,40 +44,59 @@ impl EventObserver {
                     }
                 }),
                 StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data)) => json!({
+                    "txid": format!("0x{:?}", txid),
                     "type": "stx_transfer_event",
                     "stx_transfer_event": event_data
                 }),
                 StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(event_data)) => json!({
+                    "txid": format!("0x{:?}", txid),
                     "type": "stx_mint_event",
                     "stx_mint_event": event_data
                 }),
                 StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data)) => json!({
+                    "txid": format!("0x{:?}", txid),
                     "type": "stx_burn_event",
                     "stx_burn_event": event_data
                 }),
                 StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => json!({
+                    "txid": format!("0x{:?}", txid),
                     "type": "nft_transfer_event",
                     "nft_transfer_event": event_data
                 }),
                 StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => json!({
+                    "txid": format!("0x{:?}", txid),
                     "type": "nft_mint_event",
                     "nft_mint_event": event_data
                 }),
                 StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => json!({
+                    "txid": format!("0x{:?}", txid),
                     "type": "ft_transfer_event",
                     "ft_transfer_event": event_data
                 }),
                 StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => json!({
+                    "txid": format!("0x{:?}", txid),
                     "type": "ft_mint_event",
                     "ft_mint_event": event_data
                 }),
             }).collect();
 
-        let serialized_txs: Vec<String> = chain_tip.txs.iter().map(|t| {
+        let serialized_txs: Vec<serde_json::Value> = receipts.iter().map(|artifact| {
+            
+            let response_data = match &artifact.result {
+                Value::Response(data) => data,
+                _ => unreachable!(),
+            };
+
+            let tx = &artifact.transaction;
             let mut unsigned_tx_bytes = vec![];
-            t.consensus_serialize(&mut unsigned_tx_bytes).unwrap();
+            tx.consensus_serialize(&mut unsigned_tx_bytes).unwrap();
             let formatted_bytes: Vec<String> = unsigned_tx_bytes.iter().map(|b| format!("{:02x}", b)).collect();
-            format!("0x{}", formatted_bytes.join(""))
+            json!({
+                "txid": format!("0x{}", tx.txid()),
+                "success": response_data.committed,
+                "result": response_data.data,
+                "raw_tx": format!("0x{}", formatted_bytes.join("")),
+            })
         }).collect();
         
         // Wrap events
@@ -83,7 +105,7 @@ impl EventObserver {
             "index_block_hash": format!("0x{:?}", chain_tip_info.index_block_hash()),
             "parent_block_hash": format!("0x{:?}", chain_tip.header.parent_block),
             "parent_microblock": format!("0x{:?}", chain_tip.header.parent_microblock),
-            "events": events_payload,
+            "events": serialized_events,
             "transactions": serialized_txs,
         }).to_string();
 
@@ -110,45 +132,53 @@ impl EventDispatcher {
         }
     }
 
-    pub fn dispatch_events(&mut self, events: &Vec<StacksTransactionEvent>, chain_tip: &StacksBlock, chain_tip_info: &StacksHeaderInfo) {
+    pub fn process_receipts(&mut self, receipts: &Vec<StacksTransactionReceipt>, chain_tip: &StacksBlock, chain_tip_info: &StacksHeaderInfo) {
         let mut dispatch_matrix: Vec<Vec<usize>> = self.registered_observers.iter().map(|_| vec![]).collect();
-        for (i, event) in events.iter().enumerate() {
-            match event {
-                StacksTransactionEvent::SmartContractEvent(event_data) => {
-                    if let Some(observer_indexes) = self.contract_events_observers_lookup.get(&event_data.key) {
-                        for o_i in observer_indexes {
+        let mut events: Vec<(Txid, &StacksTransactionEvent)> = vec![];
+        let mut i: usize = 0;
+        for artifact in receipts.iter() {
+            let tx_hash = artifact.transaction.txid();
+            for event in artifact.events.iter() {
+                match event {
+                    StacksTransactionEvent::SmartContractEvent(event_data) => {
+                        if let Some(observer_indexes) = self.contract_events_observers_lookup.get(&event_data.key) {
+                            for o_i in observer_indexes {
+                                dispatch_matrix[*o_i as usize].push(i);
+                            }
+                        }
+                    },
+                    StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(_)) |
+                    StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(_)) |
+                    StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(_)) => {
+                        for o_i in &self.stx_observers_lookup {
                             dispatch_matrix[*o_i as usize].push(i);
                         }
-                    }
-                },
-                StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(_)) |
-                StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(_)) |
-                StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(_)) => {
-                    for o_i in &self.stx_observers_lookup {
-                        dispatch_matrix[*o_i as usize].push(i);
-                    }
-                },
-                StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => {
-                    self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
-                },
-                StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => {
-                    self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
-                },
-                StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => {
-                    self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
-                },
-                StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => {
-                    self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
-                },
+                    },
+                    StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => {
+                        self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
+                    },
+                    StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => {
+                        self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
+                    },
+                    StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => {
+                        self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
+                    },
+                    StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => {
+                        self.update_dispatch_matrix_if_observer_subscribed(&event_data.asset_identifier, i, &mut dispatch_matrix);
+                    },
+                }
+                events.push((tx_hash, event));
+                i += 1;
             }
         }
 
+
         for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {
-            let mut filtered_events: Vec<&StacksTransactionEvent> = vec![];
+            let mut filtered_events: Vec<&(Txid, &StacksTransactionEvent)> = vec![];
             for event_id in filtered_events_ids {
                 filtered_events.push(&events[*event_id]);
             }
-            self.registered_observers[observer_id].send(filtered_events, chain_tip, chain_tip_info);
+            self.registered_observers[observer_id].send(filtered_events, chain_tip, chain_tip_info, receipts);
         }
     }
 

@@ -2222,37 +2222,37 @@ impl StacksChainState {
     /// Process a stream of microblocks
     /// Return the fees and burns.
     /// TODO: if we find an invalid Stacks microblock, then punish the miner who produced it
-    pub fn process_microblocks_transactions<'a>(clarity_tx: &mut ClarityTx<'a>, microblocks: &Vec<StacksMicroblock>) -> Result<(u128, u128, Vec<StacksTransactionEvent>), (Error, BlockHeaderHash)> {
+    pub fn process_microblocks_transactions<'a>(clarity_tx: &mut ClarityTx<'a>, microblocks: &Vec<StacksMicroblock>) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), (Error, BlockHeaderHash)> {
         let mut fees = 0u128;
         let mut burns = 0u128;
-        let mut events = vec![];
+        let mut receipts = vec![];
         for microblock in microblocks.iter() {
             for tx in microblock.txs.iter() {
-                let (tx_fee, tx_burns, mut tx_events) = StacksChainState::process_transaction(clarity_tx, tx)
+                let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx)
                     .map_err(|e| (e, microblock.block_hash()))?;
 
                 fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
-                burns = burns.checked_add(tx_burns as u128).expect("Burns overflow");
-                events.append(&mut tx_events);
+                burns = burns.checked_add(tx_receipt.stx_burned as u128).expect("Burns overflow");
+                receipts.push(tx_receipt);
             }
         }
-        Ok((fees, burns, events))
+        Ok((fees, burns, receipts))
     }
 
     /// Process a single anchored block.
     /// Return the fees and burns.
-    fn process_block_transactions<'a>(clarity_tx: &mut ClarityTx<'a>, block: &StacksBlock) -> Result<(u128, u128, Vec<StacksTransactionEvent>), Error> {
+    fn process_block_transactions<'a>(clarity_tx: &mut ClarityTx<'a>, block: &StacksBlock) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
-        let mut events = vec![];
+        let mut receipts = vec![];
         for tx in block.txs.iter() {
-            let (tx_fee, tx_burns, mut tx_events) = StacksChainState::process_transaction(clarity_tx, tx)?;
+            let (tx_fee, tx_receipt) = StacksChainState::process_transaction(clarity_tx, tx)?;
             fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
-            burns = burns.checked_add(tx_burns as u128).expect("Burns overflow");
-            events.append(&mut tx_events);
+            burns = burns.checked_add(tx_receipt.stx_burned as u128).expect("Burns overflow");
+            receipts.push(tx_receipt);
         }
-        Ok((fees, burns, events))
-    }
+        Ok((fees, burns, receipts))
+}
 
     /// Process a single matured miner reward.
     /// Grant it STX tokens in the miner trust fund contract from the chain's boot code.
@@ -2350,7 +2350,7 @@ impl StacksChainState {
                         microblocks: &Vec<StacksMicroblock>,  // parent microblocks 
                         burnchain_commit_burn: u64, 
                         burnchain_sortition_burn: u64, 
-                        user_burns: &Vec<StagingUserBurnSupport>) -> Result<(StacksHeaderInfo, Vec<StacksTransactionEvent>), Error>
+                        user_burns: &Vec<StagingUserBurnSupport>) -> Result<(StacksHeaderInfo, Vec<StacksTransactionReceipt>), Error>
     {
 
         debug!("Process block {:?} with {} transactions", &block.block_hash().to_hex(), block.txs.len());
@@ -2363,7 +2363,7 @@ impl StacksChainState {
             StacksChainState::find_mature_miner_rewards(&mut chainstate_tx.headers_tx, parent_chain_tip)?
         };
 
-        let (scheduled_miner_reward, events) = {
+        let (scheduled_miner_reward, txs_receipts) = {
             let (parent_burn_header_hash, parent_block_hash) = 
                 if block.header.is_genesis() {
                     // has to be the sentinal hashes if this block has no parent
@@ -2396,7 +2396,7 @@ impl StacksChainState {
             let mut clarity_tx = StacksChainState::chainstate_block_begin(chainstate_tx, clarity_instance, &parent_burn_header_hash, &parent_block_hash, &MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH);
 
             // process microblock stream
-            let (microblock_fees, _microblock_burns, mut microblock_events) = match StacksChainState::process_microblocks_transactions(&mut clarity_tx, &microblocks) {
+            let (microblock_fees, _microblock_burns, mut microblock_txs_receipts) = match StacksChainState::process_microblocks_transactions(&mut clarity_tx, &microblocks) {
                 Err((e, offending_mblock_header_hash)) => {
                     let msg = format!("Invalid Stacks microblocks {},{} (offender {}): {:?}", block.header.parent_microblock, block.header.parent_microblock_sequence, offending_mblock_header_hash, &e);
                     warn!("{}", &msg);
@@ -2415,7 +2415,7 @@ impl StacksChainState {
                         last_microblock_hash, last_microblock_seq, microblocks.len());
 
             // process anchored block
-            let (block_fees, block_burns, mut block_events) = match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {
+            let (block_fees, block_burns, mut txs_receipts) = match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {
                 Err(e) => {
                     let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash(), &e);
                     warn!("{}", &msg);
@@ -2423,7 +2423,7 @@ impl StacksChainState {
                     clarity_tx.rollback_block();
                     return Err(Error::InvalidStacksBlock(msg));
                 },
-                Ok((block_fees, block_burns, events)) => (block_fees, block_burns, events)
+                Ok((block_fees, block_burns, txs_receipts)) => (block_fees, block_burns, txs_receipts)
             };
 
             // grant matured miner rewards
@@ -2461,9 +2461,9 @@ impl StacksChainState {
                                                                                        0xffffffffffffffff)        // TODO: calculate total compute budget and scale up
                 .expect("FATAL: parsed and processed a block without a coinbase");
 
-            block_events.append(&mut microblock_events);
+            txs_receipts.append(&mut microblock_txs_receipts);
 
-            (scheduled_miner_reward, block_events)
+            (scheduled_miner_reward, txs_receipts)
         };
        
         let microblock_tail_opt = match microblocks.len() {
@@ -2482,7 +2482,7 @@ impl StacksChainState {
                                                     user_burns)
             .expect("FATAL: failed to advance chain tip");
 
-        Ok((new_tip, events))
+        Ok((new_tip, txs_receipts))
     }
 
     /// Find and process the next staging block.
@@ -2492,7 +2492,7 @@ impl StacksChainState {
     ///
     /// Occurs as a single, atomic transaction against the (marf'ed) headers database and
     /// (un-marf'ed) staging block database, as well as against the chunk store.
-    pub fn process_next_staging_block(&mut self) -> Result<(Option<(StacksHeaderInfo, Vec<StacksTransactionEvent>)>, Option<TransactionPayload>), Error> {
+    pub fn process_next_staging_block(&mut self) -> Result<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>), Error> {
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
 
         let blocks_path = chainstate_tx.blocks_tx.get_blocks_path().clone();
@@ -2607,7 +2607,7 @@ impl StacksChainState {
         // attach the block to the chain state and calculate the next chain tip.
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
-        let (next_chain_tip, events) = match StacksChainState::append_block(&mut chainstate_tx, 
+        let (next_chain_tip, receipts) = match StacksChainState::append_block(&mut chainstate_tx, 
                                                                   clarity_instance, 
                                                                   &parent_block_header_info, 
                                                                   &next_staging_block.burn_header_hash, 
@@ -2661,13 +2661,13 @@ impl StacksChainState {
         chainstate_tx.commit()
             .map_err(Error::DBError)?;
 
-        Ok((Some((next_chain_tip, events)), None))
+        Ok((Some((next_chain_tip, receipts)), None))
     }
 
     /// Process some staging blocks, up to max_blocks.
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
     /// found.
-    pub fn process_blocks(&mut self, max_blocks: usize) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionEvent>)>, Option<TransactionPayload>)>, Error> {
+    pub fn process_blocks(&mut self, max_blocks: usize) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, Error> {
         let mut ret = vec![];
 
         if max_blocks == 0 {
