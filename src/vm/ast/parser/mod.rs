@@ -23,12 +23,13 @@ pub enum LexItem {
     TraitReference(usize, ClarityName),
     Variable(String),
     CommaSeparator,
+    ColonSeparator,
     Whitespace
 }
 
 #[derive(Debug)]
 enum TokenType {
-    Whitespace, Comma,
+    Whitespace, Comma, Colon,
     LParens, RParens,
     LCurly, RCurly,
     StringLiteral, HexStringLiteral,
@@ -89,6 +90,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("[\n]+", TokenType::Whitespace),
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
         LexMatcher::new("[,]", TokenType::Comma),
+        LexMatcher::new("[:]", TokenType::Colon),
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
         LexMatcher::new("[{]", TokenType::LCurly),
@@ -150,6 +152,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                             TokenType::RCurly => Ok(()),
                             TokenType::Whitespace => Ok(()),
                             TokenType::Comma => Ok(()),
+                            TokenType::Colon => Ok(()),
                             _ => Err(ParseError::new(ParseErrors::SeparatorExpected(current_slice[..whole_match.end()].to_string())))
                         }
                     }
@@ -173,6 +176,10 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                     TokenType::Comma => {
                         context = LexContext::ExpectNothing;
                         Ok(LexItem::CommaSeparator)
+                    },
+                    TokenType::Colon => {
+                        context = LexContext::ExpectNothing;
+                        Ok(LexItem::ColonSeparator)
                     },
                     TokenType::LCurly => {
                         context = LexContext::ExpectNothing;
@@ -440,6 +447,20 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 match parse_stack.last_mut() {
                     None => output_list.push(pre_expr),
                     Some((ref mut list, _, _, _)) => list.push(pre_expr)
+                };
+            }
+            LexItem::ColonSeparator => {
+                match parse_stack.last_mut() {
+                    None => return Err(ParseError::new(ParseErrors::ColonSeparatorUnexpected)),
+                    Some((ref mut list, _, _, parse_context)) => {
+                        if let ParseContext::CollectTuple = parse_context {
+                            if list.len() % 2 == 0 {
+                                return Err(ParseError::new(ParseErrors::ColonSeparatorUnexpected))
+                            }
+                        } else {
+                            return Err(ParseError::new(ParseErrors::ColonSeparatorUnexpected))
+                        }
+                    }
                 };
             }
             LexItem::CommaSeparator => {
