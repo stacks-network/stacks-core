@@ -468,7 +468,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     None => return Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected)),
                     Some((ref mut list, _, _, parse_context)) => {
                         if let ParseContext::CollectTuple = parse_context {
-                            if list.len() % 2 == 1 {
+                            if list.len() == 0 || list.len() % 2 == 1 {
                                 return Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected))
                             }
                         } else {
@@ -667,7 +667,12 @@ r#"z (let ((x 1) (y 2))
         let wrong_list_close = "(13 37}";
         let extra_tuple_literal_close = "{37}}";
         let unexpected_comma = "(let ((a 1),(b 2)) b)";
-
+        let shorthand_tuple = "{ a, b }";
+        let shorthand_tuple_dangling_comma = "{ a: b, b: ,}";
+        let decorative_colon_on_value = "{ a: b: }";
+        let tuple_literal_colon_after_comma = "{ a: b, :b a}";
+        let empty_tuple_literal_comma = "{,}";
+        let empty_tuple_literal_colon = "{:}";
         let function_with_CR = "(define (foo (x y)) \n (+ 1 2 3) \r (- 1 2 3))";
         let function_with_CRLF = "(define (foo (x y)) \n (+ 1 2 3) \n\r (- 1 2 3))";
         let function_with_NEL = "(define (foo (x y)) \u{0085} (+ 1 2 3) \u{0085} (- 1 2 3))";
@@ -705,6 +710,24 @@ r#"z (let ((x 1) (y 2))
 
         assert!(match ast::parser::parse(&unexpected_comma).unwrap_err().err {
             ParseErrors::CommaSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&shorthand_tuple).unwrap_err().err {
+            ParseErrors::CommaSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&shorthand_tuple_dangling_comma).unwrap_err().err {
+            ParseErrors::CommaSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&decorative_colon_on_value).unwrap_err().err {
+            ParseErrors::ColonSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&tuple_literal_colon_after_comma).unwrap_err().err {
+            ParseErrors::ColonSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&empty_tuple_literal_comma).unwrap_err().err {
+            ParseErrors::CommaSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&empty_tuple_literal_colon).unwrap_err().err {
+            ParseErrors::ColonSeparatorUnexpected => true, _ => false });
 
         assert!(match ast::parser::parse(&function_with_CR).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
