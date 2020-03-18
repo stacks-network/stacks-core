@@ -1,9 +1,10 @@
-use super::{MarfedKV, ClarityBackingStore};
+use super::{MarfedKV, ClarityBackingStore, ClarityDeserializable};
+use vm::Value;
 use vm::errors::{ InterpreterResult as Result };
 use chainstate::burn::BlockHeaderHash;
 use std::collections::{HashMap};
 use util::hash::{Sha512Trunc256Sum};
-use vm::types::QualifiedContractIdentifier;
+use vm::types::{QualifiedContractIdentifier, TypeSignature};
 use std::{cmp::Eq, hash::Hash, clone::Clone};
 
 pub struct RollbackContext {
@@ -144,15 +145,28 @@ impl <'a> RollbackWrapper <'a> {
         self.store.set_block_hash(bhh)
     }
 
-    pub fn get(&mut self, key: &str) -> Option<String> {
+    pub fn get<T>(&mut self, key: &str) -> Option<T> where T: ClarityDeserializable<T> {
         self.stack.last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
         let lookup_result = self.lookup_map.get(key)
-            .and_then(|x| x.last().cloned());
+            .and_then(|x| x.last())
+            .map(|x| T::deserialize(x));
 
         lookup_result
-            .or_else(|| self.store.get(key))
+            .or_else(|| self.store.get(key).map(|x| T::deserialize(&x)))
+    }
+
+    pub fn get_value(&mut self, key: &str, expected: &TypeSignature) -> Option<Value> {
+        self.stack.last()
+            .expect("ERROR: Clarity VM attempted GET on non-nested context.");
+
+        let lookup_result = self.lookup_map.get(key)
+            .and_then(|x| x.last())
+            .map(|x| Value::deserialize(x, expected));
+
+        lookup_result
+            .or_else(|| self.store.get(key).map(|x| Value::deserialize(&x, expected)))
     }
 
     pub fn get_current_block_height(&mut self) -> u32 {

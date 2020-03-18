@@ -170,13 +170,11 @@ impl <'a> ClarityDatabase <'a> {
     }
 
     fn get <T> (&mut self, key: &str) -> Option<T> where T: ClarityDeserializable<T> {
-        self.store.get(&key)
-            .map(|x| T::deserialize(&x))
+        self.store.get::<T>(key)
     }
 
     pub fn get_value (&mut self, key: &str, expected: &TypeSignature) -> Option<Value> {
-        self.store.get(&key)
-            .map(|json| Value::deserialize(&json, expected))
+        self.store.get_value(key, expected)
     }
 
     pub fn make_key_for_trip(contract_identifier: &QualifiedContractIdentifier, data: StoreType, var_name: &str) -> String {
