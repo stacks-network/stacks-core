@@ -5,7 +5,7 @@ use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty,
 use vm::representations::{SymbolicExpression};
 use vm::errors::{Error, InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
 use vm::{eval, LocalContext, Environment};
-use vm::costs::cost_functions;
+use vm::costs::{cost_functions, CostTracker};
 use std::convert::{TryFrom};
 
 enum MintAssetErrorCodes { ALREADY_EXIST = 1 }
@@ -55,6 +55,11 @@ pub fn special_stx_transfer(args: &[SymbolicExpression],
         let final_to_bal = to_bal.checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
 
+        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+        env.add_memory(TypeSignature::UIntType.size() as u64)?;
+        env.add_memory(TypeSignature::UIntType.size() as u64)?;
+
         env.global_context.database.set_account_stx_balance(&from, final_from_bal);
         env.global_context.database.set_account_stx_balance(&to,   final_to_bal);
 
@@ -92,6 +97,9 @@ pub fn special_stx_burn(args: &[SymbolicExpression],
         }
 
         let final_from_bal = from_bal - amount;
+
+        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+        env.add_memory(TypeSignature::UIntType.size() as u64)?;
 
         env.global_context.database.set_account_stx_balance(&from, final_from_bal);
 
@@ -131,6 +139,9 @@ pub fn special_mint_token(args: &[SymbolicExpression],
         let final_to_bal = to_bal.checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
 
+        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+        env.add_memory(TypeSignature::UIntType.size() as u64)?;
+
         env.global_context.database.set_ft_balance(&env.contract_context.contract_identifier, token_name, to_principal, final_to_bal)?;
 
         Ok(Value::okay_true())
@@ -164,6 +175,9 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
             Ok(_owner) => return clarity_ecode!(MintAssetErrorCodes::ALREADY_EXIST),
             Err(e) => Err(e)
         }?;
+
+        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+        env.add_memory(expected_asset_type.size() as u64)?;
 
         env.global_context.database.set_nft_owner(&env.contract_context.contract_identifier, asset_name, &asset, to_principal)?;
 
@@ -213,6 +227,9 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
             return clarity_ecode!(TransferAssetErrorCodes::NOT_OWNED_BY)
         }
 
+        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+        env.add_memory(expected_asset_type.size() as u64)?;
+
         env.global_context.database.set_nft_owner(&env.contract_context.contract_identifier, asset_name, &asset, to_principal)?;
 
         env.global_context.log_asset_transfer(from_principal, &env.contract_context.contract_identifier, asset_name, asset);
@@ -260,6 +277,11 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
 
         let final_to_bal = to_bal.checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+
+        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
+        env.add_memory(TypeSignature::UIntType.size() as u64)?;
+        env.add_memory(TypeSignature::UIntType.size() as u64)?;
 
         env.global_context.database.set_ft_balance(&env.contract_context.contract_identifier, token_name, from_principal, final_from_bal)?;
         env.global_context.database.set_ft_balance(&env.contract_context.contract_identifier, token_name, to_principal, final_to_bal)?;

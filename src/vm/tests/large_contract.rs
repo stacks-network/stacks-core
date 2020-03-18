@@ -25,8 +25,8 @@ use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbo
  *   this can be eliminated, by making the rollback wrapper store a pointer in
  *      the lookup map to the edit log.
  */
-#[test] #[ignore]
-pub fn simple_test() {
+#[test]
+pub fn rollback_log_memory_test() {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(marf);
     let EXPLODE_N = 100;
@@ -56,11 +56,10 @@ pub fn simple_test() {
         }
 
         let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-        conn.initialize_smart_contract(
-            &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
-        conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
-            
-        conn.commit_block();
+        assert!(format!("{:?}",
+                        conn.initialize_smart_contract(
+                            &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
+                .contains("MemoryBalanceExceeded"));
     }
 }
 

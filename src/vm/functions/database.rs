@@ -8,7 +8,7 @@ use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty,
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{CheckErrors, InterpreterError, RuntimeErrorType, InterpreterResult as Result,
                  check_argument_count, check_arguments_at_least};
-use vm::costs::{cost_functions, constants as cost_constants, CostTracker};
+use vm::costs::{cost_functions, constants as cost_constants, CostTracker, MemoryConsumer};
 use vm::{eval, LocalContext, Environment};
 use vm::callables::{DefineType};
 use chainstate::burn::{BlockHeaderHash};
@@ -153,6 +153,8 @@ pub fn special_set_variable(args: &[SymbolicExpression],
     let data_types = env.global_context.database.load_variable(contract, var_name)?;
     runtime_cost!(cost_functions::SET_VAR, env, data_types.value_type.size())?;
 
+    env.add_memory(value.get_memory_use())?;
+
     env.global_context.database.set_variable(contract, var_name, value)
 }
 
@@ -237,6 +239,9 @@ pub fn special_set_entry(args: &[SymbolicExpression],
     runtime_cost!(cost_functions::SET_ENTRY, env,
                   data_types.value_type.size() + data_types.key_type.size())?;
 
+    env.add_memory(key.get_memory_use())?;
+    env.add_memory(value.get_memory_use())?;
+
     env.global_context.database.set_entry(contract, map_name, key, value)
 }
 
@@ -271,6 +276,9 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
     runtime_cost!(cost_functions::SET_ENTRY, env,
                   data_types.value_type.size() + data_types.key_type.size())?;
 
+    env.add_memory(key.get_memory_use())?;
+    env.add_memory(value.get_memory_use())?;
+
     env.global_context.database.insert_entry(contract, map_name, key, value)
 }
 
@@ -298,6 +306,8 @@ pub fn special_delete_entry(args: &[SymbolicExpression],
     //   is loaded from the db.
     let data_types = env.global_context.database.load_map(contract, map_name)?;
     runtime_cost!(cost_functions::SET_ENTRY, env, data_types.key_type.size())?;
+
+    env.add_memory(key.get_memory_use())?;
 
     env.global_context.database.delete_entry(contract, map_name, &key)
 }

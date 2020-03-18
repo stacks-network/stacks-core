@@ -70,6 +70,7 @@ pub trait CostTracker {
 
     fn add_memory(&mut self, memory: u64) -> Result<()>;
     fn drop_memory(&mut self, memory: u64);
+    fn reset_memory(&mut self);
 }
 
 // Don't track!
@@ -82,6 +83,7 @@ impl CostTracker for () {
         Ok(())
     }
     fn drop_memory(&mut self, _memory: u64) {}
+    fn reset_memory(&mut self) {}
 }
 
 #[derive(Debug)]
@@ -146,6 +148,9 @@ impl CostTracker for LimitedCostTracker {
     fn drop_memory(&mut self, memory: u64) {
         drop_memory(self, memory)
     }
+    fn reset_memory(&mut self) {
+        self.memory = 0;
+    }
 }
 
 impl CostTracker for &mut LimitedCostTracker {
@@ -157,6 +162,9 @@ impl CostTracker for &mut LimitedCostTracker {
     }
     fn drop_memory(&mut self, memory: u64) {
         drop_memory(self, memory)
+    }
+    fn reset_memory(&mut self) {
+        self.memory = 0;
     }
 }
 

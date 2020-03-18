@@ -474,6 +474,9 @@ impl CostTracker for Environment<'_,'_> {
     fn drop_memory(&mut self, memory: u64) {
         self.global_context.cost_track.drop_memory(memory)
     }
+    fn reset_memory(&mut self) {
+        self.global_context.cost_track.reset_memory()
+    }
 }
 
 impl CostTracker for GlobalContext<'_> {
@@ -485,6 +488,9 @@ impl CostTracker for GlobalContext<'_> {
     }
     fn drop_memory(&mut self, memory: u64) {
         self.cost_track.drop_memory(memory)
+    }
+    fn reset_memory(&mut self) {
+        self.cost_track.reset_memory()
     }
 }
 

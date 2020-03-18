@@ -884,7 +884,7 @@ impl ListTypeData {
 impl TupleTypeSignature {
     /// Tuple Size:
     ///    size( btreemap<name, type> ) = 2*map.len() + sum(names) + sum(values)
-    fn type_size(&self) -> Option<u32> {
+    pub fn type_size(&self) -> Option<u32> {
         let mut type_map_size = u32::try_from(self.type_map.len())
             .ok()?
             .checked_mul(2)?;
