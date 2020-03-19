@@ -102,6 +102,7 @@ impl EventObserver {
         // Wrap events
         let payload = json!({
             "block_hash": format!("0x{:?}", chain_tip.block_hash()),
+            "block_height": chain_tip_info.block_height,
             "index_block_hash": format!("0x{:?}", chain_tip_info.index_block_hash()),
             "parent_block_hash": format!("0x{:?}", chain_tip.header.parent_block),
             "parent_microblock": format!("0x{:?}", chain_tip.header.parent_microblock),
