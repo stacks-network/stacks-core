@@ -1,15 +1,15 @@
 # Stacks 2.0
 
-Reference implementation of https://blockstack.org/whitepaper.pdf is in Rust.
+Reference implementation of the [Blockstack Technical Whitepaper](https://blockstack.org/whitepaper.pdf) in Rust.
 
-[![CircleCI](https://circleci.com/gh/blockstack/blockstack-core/tree/master.svg?style=svg)](https://circleci.com/gh/blockstack/blockstack-core/tree/master)
+[![CircleCI](https://circleci.com/gh/blockstack/stacks-blockchain/tree/master.svg?style=svg)](https://circleci.com/gh/blockstack/stacks-blockchain/tree/master)
 
 ## Repository
 
 | Blockstack Topic/Tech | Where to learn more more |
 |---------------------------------|------------------------------------------------------------------------------|
-| Stacks 2.0 | [master branch](https://github.com/blockstack/blockstack-core/tree/master) |
-| Stacks 1.0 | [legacy branch](https://github.com/blockstack/blockstack-core/tree/stacks-1.0) |
+| Stacks 2.0 | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master) |
+| Stacks 1.0 | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0) |
 | Use the package | [our core docs](https://docs.blockstack.org/core/naming/introduction.html) |
 | Develop a Blockstack App | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html) |
 | Use a Blockstack App | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
@@ -27,17 +27,17 @@ To unpack this definition:
 
 ## Roadmap
 
-- [x] [SIP 001: Burn Election](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-001-burn-election.md)
-- [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-002-smart-contract-language.md)
-- [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-004-materialized-view.md)
-- [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-005-blocks-and-transactions.md
+- [x] [SIP 001: Burn Election](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-001-burn-election.md)
+- [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-002-smart-contract-language.md)
+- [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-004-materialized-view.md)
+- [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-005-blocks-and-transactions.md
 )
-- [ ] [SIP 003: Peer Network](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-003-peer-network.md) (Q1 2020)
+- [ ] [SIP 003: Peer Network](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-003-peer-network.md) (Q1 2020)
 - [ ] SIP 006: Clarity Execution Cost Assessment (Q1 2020)
 
 Stacks improvement proposals (SIPs) are aimed at describing the implementation of the Stacks blockchain, as well as proposing improvements. They should contain concise technical specifications of features or standards and the rationale behind it. SIPs are intended to be the primary medium for proposing new features, for collecting community input on a system-wide issue, and for documenting design decisions.
 
-See [SIP 000](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-000-stacks-improvement-proposal-process.md) for more details.
+See [SIP 000](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-000-stacks-improvement-proposal-process.md) for more details.
 
 ### Testnet versions
 
@@ -49,7 +49,7 @@ See [SIP 000](https://github.com/blockstack/blockstack-core/blob/master/sip/sip-
 
 ## Getting started
 
-### Download and build blockstack-core
+### Download and build stacks-blockchain
 
 The first step is to ensure that you have Rust and the support software installed.
 
@@ -60,9 +60,9 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 From there, you can clone this repository:
 
 ```bash
-git clone https://github.com/blockstack/blockstack-core.git
+git clone https://github.com/blockstack/stacks-blockchain.git
 
-cd blockstack-core
+cd stacks-blockchain
 ```
 
 Then build the project:
