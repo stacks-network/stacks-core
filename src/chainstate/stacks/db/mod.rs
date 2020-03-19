@@ -424,7 +424,6 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
 #[cfg(test)]
 const STACKS_MINER_AUTH_KEY : &'static str = "a5879925788dcb3fe1f2737453e371ba04c4064e6609552ef59a126ac4fa598001";
 
-#[cfg(test)]
 const STACKS_BOOT_CODE : &'static [&'static str] = &[
     r#"
     (define-constant ERR-NO-PRINCIPAL 1)
@@ -450,11 +449,8 @@ const STACKS_BOOT_CODE : &'static [&'static str] = &[
     "#
 ];
 
-
-#[cfg(test)]
 pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS : &'static str = "ST000000000000000000002AMW42H";
 
-#[cfg(test)]
 const STACKS_BOOT_CODE_CONTRACT_NAMES : &'static [&'static str] = &[
     "miner-rewards"
 ];
@@ -480,19 +476,6 @@ pub const MINER_REWARD_WINDOW : u64 = 1008;
 pub const MINER_FEE_MINIMUM_BLOCK_USAGE : u64 = 80;         // miner must share the first F% of the anchored block tx fees, and gets 100% - F% exclusively
 
 pub const MINER_FEE_WINDOW : u64 = 24;                      // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
-
-#[cfg(not(test))]
-pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS : &'static str = "SP000000000000000000002Q6VF78";
-
-// TODO
-#[cfg(not(test))]
-const STACKS_BOOT_CODE : &'static [&'static str] = &[
-];
-
-// TODO
-#[cfg(not(test))]
-const STACKS_BOOT_CODE_CONTRACT_NAMES : &'static [&'static str] = &[
-];
 
 impl StacksChainState {
     fn instantiate_headers_db(conn: &mut DBConn, mainnet: bool, chain_id: u32, marf_path: &str) -> Result<(), Error> {

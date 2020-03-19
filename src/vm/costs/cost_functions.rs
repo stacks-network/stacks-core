@@ -54,7 +54,7 @@ def_runtime_cost!(SHA256 { Constant(1) });
 def_runtime_cost!(SHA512 { Constant(1) });
 def_runtime_cost!(SHA512T256 { Constant(1) });
 def_runtime_cost!(KECCAK256 { Constant(1) });
-def_runtime_cost!(PRINT { Constant(1) });
+def_runtime_cost!(PRINT { Linear(1, 1) });
 def_runtime_cost!(SOME_CONS { Constant(1) });
 def_runtime_cost!(OK_CONS { Constant(1) });
 def_runtime_cost!(ERR_CONS { Constant(1) });

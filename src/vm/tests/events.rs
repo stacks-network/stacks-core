@@ -140,6 +140,24 @@ fn test_emit_stx_burn_nok() {
 }
 
 #[test]
+fn test_emit_nested_print_nok() {
+    let contract =
+        "(define-public (emit-event-nok)
+            (begin
+                (print \"bar\")
+                (err u1)))
+        (define-public (emit-event-ok)
+            (begin
+                (emit-event-nok)
+                (print \"foo\")
+                (ok u1)))";                
+
+    let (value, events) = helper_execute(contract, "emit-event-ok");
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 1);
+}
+
+#[test]
 fn test_emit_ft_transfer_ok() {
     let contract =
         "(define-constant sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)

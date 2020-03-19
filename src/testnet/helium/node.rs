@@ -8,7 +8,7 @@ use address::AddressHashMode;
 use burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use chainstate::burn::db::burndb::{BurnDB};
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
-use chainstate::stacks::events::StacksTransactionEvent;
+use chainstate::stacks::events::StacksTransactionReceipt;
 use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
 use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
 use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, BlockHeaderHash};
@@ -298,7 +298,7 @@ impl Node {
         burn_header_hash: &BurnchainHeaderHash, 
         parent_burn_header_hash: &BurnchainHeaderHash, 
         microblocks: Vec<StacksMicroblock>, 
-        db: &mut BurnDB) -> (StacksBlock, StacksHeaderInfo, Vec<StacksTransactionEvent>) {
+        db: &mut BurnDB) -> (StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>) {
 
         {
             // let mut db = burn_db.lock().unwrap();
@@ -343,7 +343,7 @@ impl Node {
         let processed_block = processed_blocks[0].clone().0.unwrap();
         
         // Handle events
-        let events = processed_block.1;
+        let receipts = processed_block.1;
         let chain_tip_info = processed_block.0;
         let chain_tip = {
             let block_path = StacksChainState::get_block_path(
@@ -353,7 +353,7 @@ impl Node {
             StacksChainState::consensus_load(&block_path).unwrap()
         };
 
-        self.event_dispatcher.dispatch_events(&events, &chain_tip, &chain_tip_info);
+        self.event_dispatcher.process_receipts(&receipts, &chain_tip, &chain_tip_info);
 
         self.chain_tip = Some(chain_tip_info.clone());
 
@@ -362,7 +362,7 @@ impl Node {
             self.bootstraping_chain = false;
         }
 
-        (chain_tip, chain_tip_info, events)
+        (chain_tip, chain_tip_info, receipts)
     }
 
     /// Returns the Stacks address of the node

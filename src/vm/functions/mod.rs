@@ -223,6 +223,8 @@ fn native_begin(mut args: Vec<Value>) -> Result<Value> {
 fn special_print(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     let input = eval(&args[0], env, context)?;
 
+    runtime_cost!(cost_functions::PRINT, env, input.size())?;
+
     if cfg!(feature = "developer-mode") {
         eprintln!("{}", &input);
     }

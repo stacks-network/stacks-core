@@ -4,7 +4,7 @@ name = "helium-node"
 [burnchain]
 chain = "bitcoin"
 mode = "regtest"
-average_block_time = 12
+block_time = 5000
 
 [mempool]
 path = "/home/ludovic/mempool"
