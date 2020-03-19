@@ -119,6 +119,7 @@ pub struct EventDispatcher {
     contract_events_observers_lookup: HashMap<(QualifiedContractIdentifier, String), HashSet<u16>>,
     assets_observers_lookup: HashMap<AssetIdentifier, HashSet<u16>>,
     stx_observers_lookup: HashSet<u16>,
+    any_event_observers_lookup: HashSet<u16>,
 }
 
 impl EventDispatcher {
@@ -129,11 +130,12 @@ impl EventDispatcher {
             contract_events_observers_lookup: HashMap::new(),
             assets_observers_lookup: HashMap::new(),
             stx_observers_lookup: HashSet::new(),
+            any_event_observers_lookup: HashSet::new(),
         }
     }
 
     pub fn process_receipts(&mut self, receipts: &Vec<StacksTransactionReceipt>, chain_tip: &StacksBlock, chain_tip_info: &StacksHeaderInfo) {
-        let mut dispatch_matrix: Vec<Vec<usize>> = self.registered_observers.iter().map(|_| vec![]).collect();
+        let mut dispatch_matrix: Vec<HashSet<usize>> = self.registered_observers.iter().map(|_| HashSet::new()).collect();
         let mut events: Vec<(Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
         for artifact in receipts.iter() {
@@ -143,7 +145,7 @@ impl EventDispatcher {
                     StacksTransactionEvent::SmartContractEvent(event_data) => {
                         if let Some(observer_indexes) = self.contract_events_observers_lookup.get(&event_data.key) {
                             for o_i in observer_indexes {
-                                dispatch_matrix[*o_i as usize].push(i);
+                                dispatch_matrix[*o_i as usize].insert(i);
                             }
                         }
                     },
@@ -151,7 +153,7 @@ impl EventDispatcher {
                     StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(_)) |
                     StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(_)) => {
                         for o_i in &self.stx_observers_lookup {
-                            dispatch_matrix[*o_i as usize].push(i);
+                            dispatch_matrix[*o_i as usize].insert(i);
                         }
                     },
                     StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => {
@@ -169,6 +171,9 @@ impl EventDispatcher {
                 }
                 events.push((tx_hash, event));
                 i += 1;
+                for o_i in &self.any_event_observers_lookup {
+                    dispatch_matrix[*o_i as usize].insert(i);
+                }
             }
         }
 
@@ -182,10 +187,10 @@ impl EventDispatcher {
         }
     }
 
-    fn update_dispatch_matrix_if_observer_subscribed(&self, asset_identifier: &AssetIdentifier, event_index: usize, dispatch_matrix: &mut Vec<Vec<usize>>) {
+    fn update_dispatch_matrix_if_observer_subscribed(&self, asset_identifier: &AssetIdentifier, event_index: usize, dispatch_matrix: &mut Vec<HashSet<usize>>) {
         if let Some(observer_indexes) = self.assets_observers_lookup.get(asset_identifier) {
             for o_i in observer_indexes {
-                dispatch_matrix[*o_i as usize].push(event_index);
+                dispatch_matrix[*o_i as usize].insert(event_index);
             }
         }
     }
@@ -223,7 +228,10 @@ impl EventDispatcher {
                             v.insert(observer_indexes);
                         }
                     };
-                }
+                },
+                EventKeyType::AnyEvent => {
+                    self.any_event_observers_lookup.insert(observer_index);
+                },
             }
 
         }

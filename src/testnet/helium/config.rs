@@ -228,10 +228,15 @@ pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
     AssetEvent(AssetIdentifier),
     STXEvent,
+    AnyEvent,
 }
 
 impl EventKeyType {
     fn from_string(raw_key: &str) -> Option<EventKeyType> {
+        if raw_key == "*" {
+            return Some(EventKeyType::AnyEvent);
+        } 
+
         if raw_key == "stx" {
             return Some(EventKeyType::STXEvent);
         } 
