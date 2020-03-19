@@ -53,12 +53,6 @@ pub trait MemoryConsumer {
     fn get_memory_use(&self) -> u64; 
 }
 
-impl MemoryConsumer for u64 {
-    fn get_memory_use(&self) -> u64 {
-        *self
-    }
-}
-
 impl MemoryConsumer for Value {
     fn get_memory_use(&self) -> u64 {
         self.size().into()
@@ -321,16 +315,6 @@ impl CostFunctions {
 }
 
 impl SimpleCostSpecification {
-    pub fn new_diskless(runtime: CostFunctions) -> SimpleCostSpecification {
-        SimpleCostSpecification {
-            write_length: CostFunctions::Constant(0),
-            write_count: CostFunctions::Constant(0),
-            read_count: CostFunctions::Constant(0),
-            read_length: CostFunctions::Constant(0),
-            runtime
-        }
-    }
-
     pub fn compute_cost(&self, input: u64) -> Result<ExecutionCost> {
         Ok(ExecutionCost {
             write_length: self.write_length.compute_cost(input)?,

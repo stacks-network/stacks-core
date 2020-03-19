@@ -13,7 +13,7 @@ type RollbackValueCheck = String;
 type RollbackValueCheck = ();
 
 #[cfg(not(rollback_value_check))]
-fn rollback_value_check(value: &String, check: &RollbackValueCheck) {}
+fn rollback_value_check(_value: &String, _check: &RollbackValueCheck) {}
 
 #[cfg(not(rollback_value_check))]
 fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _value: &String) {
