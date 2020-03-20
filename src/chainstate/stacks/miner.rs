@@ -22,10 +22,10 @@ use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use chainstate::stacks::db::{
     ClarityTx,
-    StacksChainState
+    StacksChainState,
+    blocks::MemPoolRejection
 };
 use chainstate::stacks::index::TrieHash;
-
 use chainstate::burn::BlockHeaderHash;
 
 use net::StacksMessageCodec;
@@ -212,6 +212,10 @@ impl StacksBlockBuilder {
         
         test_debug!("\n\nMiner {}: Mined microblock block {} (seq={}): {} transaction(s)\n", self.miner_id, microblock.block_hash(), microblock.header.sequence, microblock.txs.len());
         Ok(microblock)
+    }
+
+    pub fn will_admit_mempool_tx<R: Read>(&self, chainstate: &mut StacksChainState, fd: &mut R) -> Result<StacksTransaction, MemPoolRejection> {
+        chainstate.will_admit_mempool_tx(&self.chain_tip.burn_header_hash, &self.header.parent_block, fd)
     }
     
     /// Begin mining an epoch's transactions.

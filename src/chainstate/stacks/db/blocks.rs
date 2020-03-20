@@ -22,6 +22,7 @@ use std::io::prelude::*;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::fmt;
 use std::fs;
+use std::cmp;
 use std::collections::{HashMap, HashSet};
 
 use rusqlite::Connection;
@@ -54,7 +55,10 @@ use util::strings::StacksString;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 
-use util::retry::BoundReader;
+use util::retry::{
+    BoundReader,
+    ReadCounter
+};
 
 use chainstate::burn::db::burndb::*;
 
@@ -68,7 +72,8 @@ use vm::types::{
     TupleData,
     PrincipalData,
     StandardPrincipalData,
-    QualifiedContractIdentifier
+    QualifiedContractIdentifier,
+    TypeSignature
 };
 
 use vm::contexts::{
@@ -80,10 +85,11 @@ use vm::analysis::run_analysis;
 
 use vm::clarity::{
     ClarityBlockConnection,
+    ClarityConnection,
     ClarityInstance
 };
 
-pub use vm::analysis::errors::CheckErrors;
+pub use vm::analysis::errors::{CheckErrors, CheckError};
 
 use vm::database::ClarityDatabase;
 
@@ -92,7 +98,10 @@ use vm::contracts::Contract;
 use rand::RngCore;
 use rand::thread_rng;
 
-use rusqlite::Error as sqlite_error;
+use rusqlite::{
+    Error as sqlite_error,
+    OptionalExtension
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -131,6 +140,30 @@ pub struct StagingUserBurnSupport {
     pub burn_amount: u64,
     pub vtxindex: u32,
 }
+
+#[derive(Debug)]
+pub enum MemPoolRejection {
+    DeserializationFailure(net_error),
+    FailedToValidate(Error),
+    FeeTooLow(u64, u64),
+    BadNonces(Error),
+    NotEnoughFunds(u128, u128),
+    NoSuchContract,
+    NoSuchPublicFunction,
+    BadFunctionArgument(CheckError),
+    ContractAlreadyExists(QualifiedContractIdentifier),
+    PoisonMicroblocksDoNotConflict,
+    NoAnchorBlockWithPubkeyHash(Hash160),
+    InvalidMicroblocks,
+    NoCoinbaseViaMempool
+}
+
+// These constants are mempool acceptance heuristics, but
+//  not part of the protocol consensus (i.e., a block
+//  that includes a transaction that violates these won't
+//  be invalid)
+pub const MINIMUM_TX_FEE: u64 = 1;
+pub const MINIMUM_TX_FEE_RATE_PER_BYTE: u64 = 1;
 
 impl StagingBlock {
     pub fn is_genesis(&self) -> bool {
@@ -670,7 +703,7 @@ impl StacksChainState {
         let block : StacksBlock = StacksChainState::consensus_load(&block_path)?;
         Ok(Some(block))
     }
-    
+
     /// Load up an anchored block header from the chunk store.
     /// Returns Ok(Some(blockheader)) if found.
     /// Returns Ok(None) if this block was found, but is known to be invalid 
@@ -799,6 +832,18 @@ impl StacksChainState {
     
     fn load_staging_microblock_bytes(block_conn: &DBConn, block_hash: &BlockHeaderHash) -> Result<Option<Vec<u8>>, Error> {
         StacksChainState::inner_load_staging_block_bytes(block_conn, "staging_microblocks_data", block_hash)
+    }
+
+    fn have_any_blocks_with_microblock_pubkh(&self, block_hash: &Hash160, minimum_block_height: i64) -> bool {
+        let staging_sql = "SELECT 1 FROM staging_blocks WHERE microblock_pubkey_hash = ?1";
+        let processed_sql = "SELECT 1 FROM block_headers WHERE microblock_pubkey_hash = ?1 AND block_height >= ?2";
+        let has_staging_blocks = self.blocks_db.query_row(staging_sql, &[block_hash], |_r| ()).optional()
+            .expect("block header db corrupted!").is_some();
+
+        let args: &[&dyn ToSql] = &[block_hash, &minimum_block_height];
+        has_staging_blocks ||
+            self.headers_db.query_row(processed_sql, args, |_r| ()).optional()
+            .expect("block header db corrupted!").is_some()
     }
 
     /// Load up a preprocessed (queued) but still unprocessed block.
@@ -2701,6 +2746,103 @@ impl StacksChainState {
         }
 
         Ok(ret)
+    }
+
+    pub fn will_admit_mempool_tx<R: Read>(&mut self, current_burn: &BurnchainHeaderHash, current_block: &BlockHeaderHash, fd: &mut R) -> Result<StacksTransaction, MemPoolRejection> {
+        // 1: it should parse as a tx.
+        let mut fd_counter = ReadCounter::from_reader(fd);
+        let tx = StacksTransaction::consensus_deserialize(&mut fd_counter)
+            .map_err(|e| MemPoolRejection::DeserializationFailure(e))?;
+
+        // 2: it must be validly signed.
+        StacksChainState::process_transaction_precheck(&self.config(), &tx)
+            .map_err(|e| MemPoolRejection::FailedToValidate(e))?;
+
+        // 3: it must pay a tx fee
+        let fee = tx.get_fee_rate();
+        let tx_size = fd_counter.read_count();
+
+        if fee < MINIMUM_TX_FEE || 
+           fee / tx_size < MINIMUM_TX_FEE_RATE_PER_BYTE {
+            return Err(MemPoolRejection::FeeTooLow(fee, cmp::max(MINIMUM_TX_FEE, tx_size * MINIMUM_TX_FEE_RATE_PER_BYTE)))
+        }
+
+        // 4: the account nonces must be correct
+        let (origin, payer) = self.with_read_only_clarity_tx(current_burn, current_block, |conn| {
+            StacksChainState::check_transaction_nonces(conn, &tx)
+                .map_err(|e| MemPoolRejection::BadNonces(e))
+        })?;
+
+        // 5: the paying account must have enough funds
+        if fee as u128 > payer.stx_balance {
+            return Err(MemPoolRejection::NotEnoughFunds(fee as u128, payer.stx_balance))
+        }
+
+        // 6: payload-specific checks
+        match &tx.payload {
+            TransactionPayload::TokenTransfer(_addr, amount, _memo) => {
+                // got the funds?
+                let total_spent = (*amount as u128) +
+                    if origin == payer {
+                        fee as u128
+                    } else {
+                        0
+                    };
+                if total_spent > origin.stx_balance {
+                    return Err(MemPoolRejection::NotEnoughFunds(total_spent, origin.stx_balance))
+                }
+            },
+            TransactionPayload::ContractCall(TransactionContractCall {
+                address, contract_name, function_name, function_args }) => {
+                let contract_identifier = QualifiedContractIdentifier::new(address.clone().into(), contract_name.clone());
+
+                let function_type = self.with_read_only_clarity_tx(current_burn, current_block, |conn| {
+                    conn.with_analysis_db_readonly(|db| {
+                        db.get_public_function_type(&contract_identifier, &function_name)
+                    }) })
+                    .map_err(|_e| MemPoolRejection::NoSuchContract)?
+                    .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
+
+                let arg_types: Vec<_> = function_args.iter().map(|x| TypeSignature::type_of(x)).collect();
+                function_type.check_args(&arg_types)
+                    .map_err(|e| MemPoolRejection::BadFunctionArgument(e))?;
+            },
+            TransactionPayload::SmartContract(TransactionSmartContract { name, code_body: _ }) => {
+                let contract_identifier = QualifiedContractIdentifier::new(tx.origin_address().into(), name.clone());
+                let exists = self.with_read_only_clarity_tx(current_burn, current_block, |conn| {
+                    conn.with_analysis_db_readonly(|db| {
+                        db.has_contract(&contract_identifier)
+                    }) });
+                if exists {
+                    return Err(MemPoolRejection::ContractAlreadyExists(contract_identifier))
+                }
+            },
+            TransactionPayload::PoisonMicroblock(microblock_header_1, microblock_header_2) => {
+                if microblock_header_1.sequence != microblock_header_2.sequence ||
+                    microblock_header_1.prev_block != microblock_header_2.prev_block ||
+                    microblock_header_1.version != microblock_header_2.version {
+                    return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict)
+                }
+
+                let microblock_pkh_1 = microblock_header_1.check_recover_pubkey()
+                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
+                let microblock_pkh_2 = microblock_header_2.check_recover_pubkey()
+                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
+
+                if microblock_pkh_1 != microblock_pkh_2 {
+                    return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict)
+                }
+
+                if !self.have_any_blocks_with_microblock_pubkh(&microblock_pkh_1, 0) {
+                    return Err(MemPoolRejection::NoAnchorBlockWithPubkeyHash(microblock_pkh_1))
+                }
+            },
+            TransactionPayload::Coinbase(_) => {
+                return Err(MemPoolRejection::NoCoinbaseViaMempool)
+            }
+        };
+
+        Ok(tx)
     }
 }
 

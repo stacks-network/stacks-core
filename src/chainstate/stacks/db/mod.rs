@@ -80,10 +80,17 @@ use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
 use vm::database::marf::MarfedKV;
-use vm::database::SqliteConnection;
-use vm::clarity::ClarityInstance;
-use vm::clarity::ClarityBlockConnection;
-use vm::clarity::Error as clarity_error;
+use vm::database::{
+    SqliteConnection,
+    ClarityDatabase
+};
+use vm::clarity::{
+    ClarityInstance,
+    ClarityConnection,
+    ClarityBlockConnection,
+    ClarityReadOnlyConnection,
+    Error as clarity_error
+};
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
 
@@ -249,6 +256,18 @@ impl<'a> BlocksDBTx<'a> {
 pub struct ClarityTx<'a> {
     block: ClarityBlockConnection<'a>,
     pub config: DBConfig
+}
+
+impl ClarityConnection for ClarityTx<'_> {
+    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut ClarityDatabase) -> R {
+        ClarityConnection::with_clarity_db_readonly(&mut self.block, to_do)
+    }
+
+    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R {
+        self.block.with_analysis_db_readonly(to_do)
+    }
 }
 
 impl<'a> ClarityTx<'a> {
@@ -586,7 +605,8 @@ impl StacksChainState {
 
     /// Install the boot code into the chain history.
     /// TODO: instantiate all account balances as well.
-    fn install_boot_code(chainstate: &mut StacksChainState, mainnet: bool, additional_boot_code_contract_names: &Vec<String>, additional_boot_code: &Vec<String>) -> Result<(), Error> {
+    fn install_boot_code<F>(chainstate: &mut StacksChainState, mainnet: bool, additional_boot_code_contract_names: &Vec<String>, additional_boot_code: &Vec<String>, f: F) -> Result<(), Error>
+    where F: FnOnce(&mut ClarityTx) -> () {
         assert_eq!(STACKS_BOOT_CODE.len(), STACKS_BOOT_CODE_CONTRACT_NAMES.len());
         assert_eq!(additional_boot_code_contract_names.len(), additional_boot_code.len());
         
@@ -644,6 +664,8 @@ impl StacksChainState {
                 boot_code_account.nonce += 1;
             }
 
+            f(&mut clarity_tx);
+
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
         
@@ -689,8 +711,13 @@ impl StacksChainState {
 
         Ok(())
     }
-    
+
     pub fn open(mainnet: bool, chain_id: u32, path_str: &str) -> Result<StacksChainState, Error> {
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, |_| {})
+    }
+
+    pub fn open_and_exec<F>(mainnet: bool, chain_id: u32, path_str: &str, in_boot_block: F) -> Result<StacksChainState, Error> 
+    where F: FnOnce(&mut ClarityTx) -> () {
         let mut path = PathBuf::from(path_str);
 
         let chain_id_str = 
@@ -762,7 +789,7 @@ impl StacksChainState {
         };
 
         if !index_exists {
-            StacksChainState::install_boot_code(&mut chainstate, mainnet, &vec![], &vec![])?;
+            StacksChainState::install_boot_code(&mut chainstate, mainnet, &vec![], &vec![], in_boot_block)?;
         }
 
         Ok(chainstate)
@@ -831,25 +858,41 @@ impl StacksChainState {
                                                  parent_burn_hash, parent_block, new_burn_hash, new_block)
     }
 
+    fn begin_read_only_clarity_tx<'a>(&'a mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> ClarityReadOnlyConnection<'a> {
+        let index_block = StacksChainState::get_parent_index_block(parent_burn_hash, parent_block);
+        self.clarity_state.read_only_connection(&index_block, &self.headers_db)
+    }
+
+    pub fn with_read_only_clarity_tx<F, R>(&mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, to_do: F) -> R
+    where F: FnOnce(&mut ClarityReadOnlyConnection) -> R {
+        let mut conn = self.begin_read_only_clarity_tx(parent_burn_hash, parent_block);
+        let result = to_do(&mut conn);
+        conn.done();
+        result
+    }
+
+    fn get_parent_index_block(parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> BlockHeaderHash {
+        if *parent_block == BOOT_BLOCK_HASH {
+            // begin boot block
+            test_debug!("Begin processing boot block");
+            TrieFileStorage::block_sentinel()
+        }
+        else if *parent_block == FIRST_STACKS_BLOCK_HASH {
+            // begin first-ever block
+            test_debug!("Begin processing first-ever block");
+            StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH)
+        }
+        else {
+            // subsequent block
+            StacksBlockHeader::make_index_block_hash(parent_burn_hash, parent_block)
+        }
+    }
+
     /// Create a Clarity VM database transaction
     fn inner_clarity_tx_begin<'a>(conf: DBConfig, headers_db: &'a Connection, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
         // mix burn header hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the burn header hash _is_).
-        let parent_index_block = 
-            if *parent_block == BOOT_BLOCK_HASH {
-                // begin boot block
-                test_debug!("Begin processing boot block");
-                TrieFileStorage::block_sentinel()
-            }
-            else if *parent_block == FIRST_STACKS_BLOCK_HASH {
-                // begin first-ever block
-                test_debug!("Begin processing first-ever block");
-                StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH)
-            }
-            else {
-                // subsequent block
-                StacksBlockHeader::make_index_block_hash(parent_burn_hash, parent_block)
-            };
+        let parent_index_block = StacksChainState::get_parent_index_block(parent_burn_hash, parent_block);
 
         let new_index_block = StacksBlockHeader::make_index_block_hash(new_burn_hash, new_block);
 

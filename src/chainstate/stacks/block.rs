@@ -545,12 +545,7 @@ impl StacksBlock {
 
 impl StacksMessageCodec for StacksMicroblockHeader {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.version)?;
-        write_next(fd, &self.sequence)?;
-        write_next(fd, &self.prev_block)?;
-        write_next(fd, &self.tx_merkle_root)?;
-        write_next(fd, &self.signature)?;
-        Ok(())
+        self.serialize(fd, false)
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksMicroblockHeader, net_error> {
@@ -593,27 +588,38 @@ impl StacksMicroblockHeader {
         Ok(())
     }
 
-    pub fn verify(&mut self, pubk_hash: &Hash160) -> Result<(), net_error> {
+    fn serialize<W: Write>(&self, fd: &mut W, empty_sig: bool) -> Result<(), net_error> {
+        write_next(fd, &self.version)?;
+        write_next(fd, &self.sequence)?;
+        write_next(fd, &self.prev_block)?;
+        write_next(fd, &self.tx_merkle_root)?;
+        if empty_sig {
+            write_next(fd, &MessageSignature::empty())?;
+        } else {
+            write_next(fd, &self.signature)?;
+        }
+        Ok(())
+    }
+
+    pub fn check_recover_pubkey(&self) -> Result<Hash160, net_error> {
         let mut digest_bits = [0u8; 32];
         let mut sha2 = Sha512Trunc256::new();
 
-        let sig_bits = self.signature.clone();
-        self.signature = MessageSignature::empty();
-
-        let mut bytes = vec![];
-        self.consensus_serialize(&mut bytes).expect("BUG: failed to serialize to a vec");
-        self.signature = sig_bits;
-        
-        sha2.input(&bytes[..]);
+        self.serialize(&mut sha2, true).expect("BUG: failed to serialize to a vec");
         digest_bits.copy_from_slice(sha2.result().as_slice());
 
         let mut pubk = StacksPublicKey::recover_to_pubkey(&digest_bits, &self.signature)
             .map_err(|_ve| net_error::VerifyingError("Failed to verify signature: failed to recover public key".to_string()))?;
        
         pubk.set_compressed(true);
+        Ok(StacksBlockHeader::pubkey_hash(&pubk))
+    }
 
-        if StacksBlockHeader::pubkey_hash(&pubk) != *pubk_hash {
-            return Err(net_error::VerifyingError(format!("Failed to verify signature: public key {} did not recover to expected hash", pubk.to_hex())));
+    pub fn verify(&self, pubk_hash: &Hash160) -> Result<(), net_error> {
+        let pubkh = self.check_recover_pubkey()?;
+
+        if pubkh != *pubk_hash {
+            return Err(net_error::VerifyingError(format!("Failed to verify signature: public key {} did not recover to expected hash", pubkh.to_hex())));
         }
 
         Ok(())
