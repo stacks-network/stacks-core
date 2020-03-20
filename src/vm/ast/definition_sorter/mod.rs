@@ -1,7 +1,7 @@
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 use vm::representations::{PreSymbolicExpression, ClarityName};
-use vm::representations::PreSymbolicExpressionType::{AtomValue, Atom, List, SugaredContractIdentifier, SugaredFieldIdentifier, TraitReference, FieldIdentifier};
+use vm::representations::PreSymbolicExpressionType::{AtomValue, Atom, List, Tuple, SugaredContractIdentifier, SugaredFieldIdentifier, TraitReference, FieldIdentifier};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::ast::types::{ContractAST, BuildASTPass};
@@ -93,6 +93,7 @@ impl <'a> DefinitionSorter {
             },
             List(ref exprs) => {
                 // Avoid looking for dependencies in tuples
+                // TODO: Eliminate special handling of tuples as it is a separate presymbolic expression type
                 if let Some((function_name, function_args)) = exprs.split_first() {
                     if let Some(function_name) = function_name.match_atom() {
                         if let Some(define_function) = DefineFunctions::lookup_by_name(function_name) {
@@ -218,6 +219,10 @@ impl <'a> DefinitionSorter {
                 for expr in exprs.into_iter() {
                     self.probe_for_dependencies(expr, tle_index)?;
                 }
+                Ok(())
+            },
+            Tuple(ref exprs) => {
+                self.probe_for_dependencies_in_tuple_list(exprs, tle_index)?;
                 Ok(())
             },
             AtomValue(_) | FieldIdentifier(_) | SugaredContractIdentifier(_) | SugaredFieldIdentifier(_, _) => Ok(()),

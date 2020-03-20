@@ -28,6 +28,8 @@ pub enum ParseErrors {
     FailedParsingRemainder(String),
     ClosingParenthesisUnexpected,
     ClosingParenthesisExpected,
+    ClosingTupleLiteralUnexpected,
+    ClosingTupleLiteralExpected,
     CircularReference(Vec<String>),
     NameAlreadyUsed(String),
     TraitReferenceNotAllowed,
@@ -35,6 +37,8 @@ pub enum ParseErrors {
     DefineTraitBadSignature,
     ImplTraitBadSignature,
     TraitReferenceUnknown(String),
+    CommaSeparatorUnexpected,
+    ColonSeparatorUnexpected,
 }
 
 #[derive(Debug, PartialEq)]
@@ -128,6 +132,10 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::FailedParsingRemainder(remainder) => format!("Failed to lex input remainder: {}", remainder),
             ParseErrors::ClosingParenthesisUnexpected => format!("Tried to close list which isn't open."),
             ParseErrors::ClosingParenthesisExpected => format!("List expressions (..) left opened."),
+            ParseErrors::ClosingTupleLiteralUnexpected => format!("Tried to close tuple literal which isn't open."),
+            ParseErrors::ClosingTupleLiteralExpected => format!("Tuple literal {{..}} left opened."),
+            ParseErrors::ColonSeparatorUnexpected => format!("Misplaced colon."),
+            ParseErrors::CommaSeparatorUnexpected => format!("Misplaced comma."),
             ParseErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),
             ParseErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             ParseErrors::ImportTraitBadSignature => format!("(use-trait ...) expects a trait name and a trait identifier"),
