@@ -34,16 +34,19 @@ pub fn build_ast<T: CostTracker>(contract_identifier: &QualifiedContractIdentifi
     let pre_expressions = parser::parse(source_code)?;
     let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
     StackDepthChecker::run_pass(&mut contract_ast)?;
-    ExpressionIdentifier::run_pass(&mut contract_ast)?;
+    ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast)?;
     DefinitionSorter::run_pass(&mut contract_ast, cost_track)?;
     TraitsResolver::run_pass(&mut contract_ast)?;
     SugarExpander::run_pass(&mut contract_ast)?;
+    ExpressionIdentifier::run_expression_pass(&mut contract_ast)?;
     Ok(contract_ast)
 }
 
 #[cfg(test)]
 mod tests {
     use vm::costs::LimitedCostTracker;
+    use vm::representations::depth_traverse;
+    use std::collections::HashMap;
     use super::*;
 
     fn dependency_edge_counting_runtime(iters: usize) -> u64 {
@@ -71,5 +74,25 @@ mod tests {
         // this really is just testing for the non-linearity
         //   in the runtime cost assessment (because the edge count in the dependency graph is going up O(n^2)).
         assert!(ratio_8_16 > ratio_4_8);
+    }
+
+    #[test]
+    fn test_expression_identification_tuples() {
+        let progn = "{ a: (+ 1 2 3),
+                       b: 1,
+                       c: 3 }";
+
+        let mut cost_track = LimitedCostTracker::new_max_limit();
+        let ast = build_ast(&QualifiedContractIdentifier::transient(), &progn, &mut cost_track).unwrap().expressions;
+
+        let mut visited = HashMap::new();
+
+        for expr in ast.iter() {
+            depth_traverse::<_,_,()>(expr, |x| {
+                assert!(! visited.contains_key(&x.id));
+                visited.insert(x.id, true);
+                Ok(())
+            });
+        }
     }
 }
