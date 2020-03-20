@@ -1,7 +1,7 @@
 use vm::representations::SymbolicExpression;
 use vm::diagnostic::{Diagnostic, DiagnosableError};
 use vm::types::{TypeSignature, TupleTypeSignature, Value};
-use vm::costs::{ExecutionCost};
+use vm::costs::{ExecutionCost, CostErrors};
 use std::error;
 use std::fmt;
 
@@ -197,6 +197,21 @@ impl fmt::Display for CheckError {
         }
 
         Ok(())
+    }
+}
+
+impl From<CostErrors> for CheckError {
+    fn from(err: CostErrors) -> Self {
+        CheckError::from(CheckErrors::from(err))
+    }
+}
+
+impl From<CostErrors> for CheckErrors {
+    fn from(err: CostErrors) -> Self {
+        match err {
+            CostErrors::CostOverflow => CheckErrors::CostOverflow,
+            CostErrors::CostBalanceExceeded(a, b) => CheckErrors::CostBalanceExceeded(a, b),
+        }
     }
 }
 
