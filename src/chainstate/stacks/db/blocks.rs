@@ -2804,7 +2804,7 @@ impl StacksChainState {
                     .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
 
                 let arg_types: Vec<_> = function_args.iter().map(|x| TypeSignature::type_of(x)).collect();
-                function_type.check_args(&arg_types)
+                function_type.check_args(&mut (), &arg_types)
                     .map_err(|e| MemPoolRejection::BadFunctionArgument(e))?;
             },
             TransactionPayload::SmartContract(TransactionSmartContract { name, code_body: _ }) => {
