@@ -809,7 +809,7 @@ impl TypeSignature {
             UIntType => Some(16),
             BoolType => Some(1),
             PrincipalType => Some(148), // 20+128
-            BufferType(len) => Some(u32::from(len)),
+            BufferType(len) => Some(1 + u32::from(len)),
             TupleType(tuple_sig) => tuple_sig.inner_size(),
             ListType(list_type) => list_type.inner_size(),
             OptionalType(t) => t.size().checked_add(WRAPPER_VALUE_SIZE),
@@ -884,7 +884,7 @@ impl ListTypeData {
 impl TupleTypeSignature {
     /// Tuple Size:
     ///    size( btreemap<name, type> ) = 2*map.len() + sum(names) + sum(values)
-    fn type_size(&self) -> Option<u32> {
+    pub fn type_size(&self) -> Option<u32> {
         let mut type_map_size = u32::try_from(self.type_map.len())
             .ok()?
             .checked_mul(2)?;

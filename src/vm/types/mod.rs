@@ -23,6 +23,7 @@ pub const WRAPPER_VALUE_SIZE: u32 = 1;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
+    // todo: remove type_signature
     pub type_signature: TupleTypeSignature,
     pub data_map: BTreeMap<ClarityName, Value>
 }
@@ -35,6 +36,7 @@ pub struct BuffData {
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct ListData {
     pub data: Vec<Value>,
+    // todo: remove type_signature
     pub type_signature: ListTypeData
 }
 

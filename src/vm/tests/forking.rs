@@ -114,21 +114,6 @@ fn test_at_block_missing_defines() {
         e
     }
 
-    fn initialize_3(owned_env: &mut OwnedEnvironment) -> Error {
-        let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
-
-        let contract =
-            "(define-private (problematic-fetch-entry)
-               (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
-                 (contract-map-get? .contract-a datum ((id 'true)))))
-             (problematic-fetch-entry)
-            ";
-
-        eprintln!("Initializing contract...");
-        let e = owned_env.initialize_contract(c_b.clone(), &contract).unwrap_err();
-        e
-    }
-
     with_separate_forks_environment(
         |_| {},
         initialize_1,
@@ -136,15 +121,6 @@ fn test_at_block_missing_defines() {
         |env| {
             let err = initialize_2(env);
             assert_eq!(err, CheckErrors::NoSuchContract("'S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()).into());
-        });
-
-    with_separate_forks_environment(
-        |_| {},
-        initialize_1,
-        |_| {},
-        |env| {
-            let err = initialize_3(env);
-            assert_eq!(err, CheckErrors::NoSuchMap("datum".into()).into());
         });
 
 }

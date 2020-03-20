@@ -485,19 +485,6 @@ If a value did not exist for this key in the data map, the function returns `fal
 ",
 };
 
-const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
-    input_type: "ContractName, MapName, tuple",
-    output_type: "(optional (tuple))",
-    signature: "(contract-map-get? .contract-name map-name key-tuple)",
-    description: "The `contract-map-get?` function looks up and returns an entry from a
-contract other than the current contract's data map. The value is looked up using `key-tuple`.
-If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
-it returns `(some value)`.",
-    example: "(unwrap-panic (contract-map-get? .names-contract names-map (tuple (name \"blockstack\"))) ;; Returns (tuple (id 1337))
-(unwrap-panic (contract-map-get? .names-contract names-map ((name \"blockstack\"))));; Same command, using a shorthand for constructing the tuple
-",
-};
-
 const TUPLE_CONS_API: SpecialAPI = SpecialAPI {
     input_type: "(key-name A), (key-name-2 B), ...",
     output_type: "(tuple (key-name A) (key-name-2 B) ...)",
@@ -1245,7 +1232,6 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Len => make_for_special(&LEN_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
-        FetchContractEntry => make_for_special(&FETCH_CONTRACT_API, name),
         SetEntry => make_for_special(&SET_ENTRY_API, name),
         InsertEntry => make_for_special(&INSERT_ENTRY_API, name),
         DeleteEntry => make_for_special(&DELETE_ENTRY_API, name),
