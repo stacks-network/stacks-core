@@ -11,7 +11,7 @@ use vm::errors::{RuntimeErrorType, CheckErrors, InterpreterResult as Result, Inc
 use util::hash;
 
 pub use vm::types::signatures::{
-    TupleTypeSignature, AssetIdentifier, FixedFunction,
+    TupleTypeSignature, AssetIdentifier, FixedFunction, FunctionSignature,
     TypeSignature, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
     BUFF_64, BUFF_32, BUFF_20, BufferLength
 };
