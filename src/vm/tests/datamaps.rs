@@ -102,18 +102,18 @@ fn test_bound_tuple() {
 #[test]
 fn test_explicit_syntax_tuple() {
     let test =
-        "(define-map kv-store ((key int)) ((value int)))
+        "(define-map kv-store ((key int)) ((value int) (index int)))
          (define-private (kv-add (key int) (value int))
-            (begin
+            (let ((index 1))
                 (map-insert kv-store (tuple (key key))
-                                    (tuple (value value)))
+                                     (tuple (value value) (index index)))
             value))
          (define-private (kv-get (key int))
             (unwrap! (get value (map-get? kv-store (tuple (key key)))) 0))
          (define-private (kv-set (key int) (value int))
-            (begin
+            (let ((index 1))
                 (map-set kv-store (tuple (key key))
-                                   (tuple (value value)))
+                                  (tuple (index index) (value value)))
                 value))
          (define-private (kv-del (key int))
             (begin
@@ -140,17 +140,17 @@ fn test_explicit_syntax_tuple() {
 #[test]
 fn test_implicit_syntax_tuple() {
     let test =
-        "(define-map kv-store ((key int)) ((value int)))
+        "(define-map kv-store ((key int)) ((value int) (index int)))
          (define-private (kv-add (key int) (value int))
-            (begin
-                (map-insert kv-store {key} {value})
-                value))
+           (let ((index 1))
+             (map-insert kv-store {key} {value, index})
+              value))
          (define-private (kv-get (key int))
             (unwrap! (get value (map-get? kv-store {key})) 0))
          (define-private (kv-set (key int) (value int))
-            (begin
-                (map-set kv-store {key} {value})
-                value))
+           (let ((index 1))
+             (map-set kv-store {key} {index, value})
+              value))
          (define-private (kv-del (key int))
             (begin
                 (map-delete kv-store {key})
