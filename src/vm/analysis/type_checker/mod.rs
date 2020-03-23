@@ -68,12 +68,12 @@ impl AnalysisPass for TypeChecker <'_, '_> {
         match command.run(contract_analysis) {
             Ok(_) => {
                 let cost_track = command.into_contract_analysis(contract_analysis);
-                contract_analysis.replace_contract_cost_tracker(cost_track);                
+                contract_analysis.replace_contract_cost_tracker(cost_track);
                 Ok(())
             },
             err => {
                 let TypeChecker { cost_track, .. } = command;
-                contract_analysis.replace_contract_cost_tracker(cost_track);                
+                contract_analysis.replace_contract_cost_tracker(cost_track);
                 err
             },
         }
@@ -179,6 +179,8 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
             BlockHeight => TypeSignature::UIntType,
             BurnBlockHeight => TypeSignature::UIntType,
             NativeNone => TypeSignature::new_option(no_type()).unwrap(),
+            NativeTrue => TypeSignature::BoolType,
+            NativeFalse => TypeSignature::BoolType,
         };
         Some(var_type)
     } else {

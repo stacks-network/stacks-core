@@ -588,7 +588,9 @@ fn test_bool_functions() {
          "(and 'false (> 1 (/ 10 0)))",
          "(or 'true (> 1 (/ 10 0)))",
          "(or 'false 'false 'false)",
-         "(not 'true)"];
+         "(not 'true)",
+         "(and true false)",
+         "(or false true)"];
 
     let expectations = [
         Value::Bool(true),
@@ -597,7 +599,9 @@ fn test_bool_functions() {
         Value::Bool(false),
         Value::Bool(true),
         Value::Bool(false),
-        Value::Bool(false)];
+        Value::Bool(false),
+        Value::Bool(false),
+        Value::Bool(true)];
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
@@ -609,13 +613,17 @@ fn test_bad_lets() {
         "(let ((tx-sender 1)) (+ tx-sender tx-sender))",
         "(let ((* 1)) (+ * *))",
         "(let ((a 1) (a 2)) (+ a a))",
-        "(let ((a 1) (b 2)) (var-set cursor a) (var-set cursor (+ b (var-get cursor))) (+ a b))"];
+        "(let ((a 1) (b 2)) (var-set cursor a) (var-set cursor (+ b (var-get cursor))) (+ a b))",
+        "(let ((true 0)) true)",
+        "(let ((false 1)) false)"];
 
     let expectations: &[Error] = &[
         CheckErrors::NameAlreadyUsed("tx-sender".to_string()).into(),
         CheckErrors::NameAlreadyUsed("*".to_string()).into(),
         CheckErrors::NameAlreadyUsed("a".to_string()).into(),
-        CheckErrors::NoSuchDataVariable("cursor".to_string()).into()];
+        CheckErrors::NoSuchDataVariable("cursor".to_string()).into(),
+        CheckErrors::NameAlreadyUsed("true".to_string()).into(),
+        CheckErrors::NameAlreadyUsed("false".to_string()).into(),];
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!((*expectation), vm_execute(program).unwrap_err()));
