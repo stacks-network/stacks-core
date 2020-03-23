@@ -92,6 +92,40 @@ pub struct PreSymbolicExpression {
     pub span: Span,
 }
 
+pub trait SymbolicExpressionCommon {
+    type S: SymbolicExpressionCommon;
+    fn set_id(&mut self, id: u64);
+    fn match_list_mut(&mut self) -> Option<&mut [Self::S]>;
+}
+
+impl SymbolicExpressionCommon for PreSymbolicExpression {
+    type S = PreSymbolicExpression;
+    fn set_id(&mut self, id: u64) {
+        self.id = id;
+    }
+    fn match_list_mut(&mut self) -> Option<&mut [PreSymbolicExpression]> {
+        if let PreSymbolicExpressionType::List(ref mut list) = self.pre_expr {
+            Some(list)
+        } else {
+            None
+        }
+    }
+}
+
+impl SymbolicExpressionCommon for SymbolicExpression {
+    type S = SymbolicExpression;
+    fn set_id(&mut self, id: u64) {
+        self.id = id;
+    }
+    fn match_list_mut(&mut self) -> Option<&mut [SymbolicExpression]> {
+        if let SymbolicExpressionType::List(ref mut list) = self.expr {
+            Some(list)
+        } else {
+            None
+        }
+    }
+}
+
 impl PreSymbolicExpression {
     #[cfg(feature = "developer-mode")]
     fn cons() -> PreSymbolicExpression {
