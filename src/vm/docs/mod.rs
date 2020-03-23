@@ -93,7 +93,7 @@ const NONE_KEYWORD: KeywordAPI = KeywordAPI {
 
 const TRUE_KEYWORD: KeywordAPI = KeywordAPI {
     name: "true",
-    output_type: "(optional ?)",
+    output_type: "bool",
     description: "Boolean true constant.",
     example: "
 (and true false) ;; Evaluates to false
@@ -103,7 +103,7 @@ const TRUE_KEYWORD: KeywordAPI = KeywordAPI {
 
 const FALSE_KEYWORD: KeywordAPI = KeywordAPI {
     name: "false",
-    output_type: "(optional ?)",
+    output_type: "bool",
     description: "Boolean false constant.",
     example: "
 (and true false) ;; Evaluates to false
