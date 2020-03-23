@@ -55,10 +55,7 @@ use util::strings::StacksString;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 
-use util::retry::{
-    BoundReader,
-    ReadCounter
-};
+use util::retry::BoundReader;
 
 use chainstate::burn::db::burndb::*;
 
@@ -155,6 +152,7 @@ pub enum MemPoolRejection {
     PoisonMicroblocksDoNotConflict,
     NoAnchorBlockWithPubkeyHash(Hash160),
     InvalidMicroblocks,
+    NonMatchingVersionBytes(u8, u8),
     NoCoinbaseViaMempool
 }
 
@@ -2748,10 +2746,10 @@ impl StacksChainState {
         Ok(ret)
     }
 
+    /// This function bounds the max read on fd to MAX_MESSAGE_LEN, so it does not need to be passed a bounded reader.
     pub fn will_admit_mempool_tx<R: Read>(&mut self, current_burn: &BurnchainHeaderHash, current_block: &BlockHeaderHash, fd: &mut R) -> Result<StacksTransaction, MemPoolRejection> {
         // 1: it should parse as a tx.
-        let mut fd_counter = ReadCounter::from_reader(fd);
-        let tx = StacksTransaction::consensus_deserialize(&mut fd_counter)
+        let (tx, tx_size) = StacksTransaction::consensus_deserialize_with_len(fd)
             .map_err(|e| MemPoolRejection::DeserializationFailure(e))?;
 
         // 2: it must be validly signed.
@@ -2760,7 +2758,6 @@ impl StacksChainState {
 
         // 3: it must pay a tx fee
         let fee = tx.get_fee_rate();
-        let tx_size = fd_counter.read_count();
 
         if fee < MINIMUM_TX_FEE || 
            fee / tx_size < MINIMUM_TX_FEE_RATE_PER_BYTE {
@@ -2773,6 +2770,11 @@ impl StacksChainState {
                 .map_err(|e| MemPoolRejection::BadNonces(e))
         })?;
 
+        let sender_version_byte = origin.principal.version();
+        if sender_version_byte != payer.principal.version() {
+            return Err(MemPoolRejection::NonMatchingVersionBytes(sender_version_byte, payer.principal.version()))
+        }
+
         // 5: the paying account must have enough funds
         if fee as u128 > payer.stx_balance {
             return Err(MemPoolRejection::NotEnoughFunds(fee as u128, payer.stx_balance))
@@ -2780,7 +2782,12 @@ impl StacksChainState {
 
         // 6: payload-specific checks
         match &tx.payload {
-            TransactionPayload::TokenTransfer(_addr, amount, _memo) => {
+            TransactionPayload::TokenTransfer(addr, amount, _memo) => {
+                // version byte matches?
+                if sender_version_byte != addr.version {
+                    return Err(MemPoolRejection::NonMatchingVersionBytes(sender_version_byte, addr.version))
+                }
+
                 // got the funds?
                 let total_spent = (*amount as u128) +
                     if origin == payer {
@@ -2794,6 +2801,11 @@ impl StacksChainState {
             },
             TransactionPayload::ContractCall(TransactionContractCall {
                 address, contract_name, function_name, function_args }) => {
+                // version byte matches?
+                if sender_version_byte != address.version {
+                    return Err(MemPoolRejection::NonMatchingVersionBytes(sender_version_byte, address.version))
+                }
+
                 let contract_identifier = QualifiedContractIdentifier::new(address.clone().into(), contract_name.clone());
 
                 let function_type = self.with_read_only_clarity_tx(current_burn, current_block, |conn| {

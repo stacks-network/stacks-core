@@ -153,6 +153,29 @@ mod tests {
                         MemPoolRejection::FailedToValidate(
                             ChainstateError::NetError(NetError::VerifyingError(_))) = e { true } else { false });
 
+                // mismatched network on transfer
+                let bad_addr = 
+                    StacksAddress::from_public_keys(
+                        88, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&other_sk)])
+                    .unwrap();
+
+                let tx = make_contract_call(&contract_sk, 1, 200, &bad_addr, "foo_contract", "bar", &[Value::UInt(1), Value::Int(2)]);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err();
+
+                assert!(if let MemPoolRejection::NonMatchingVersionBytes(a, b) = e {
+                    a == C32_ADDRESS_VERSION_TESTNET_SINGLESIG && b == 88 } else { false });
+
+                // mismatched network on transfer!
+                let bad_addr = 
+                    StacksAddress::from_public_keys(
+                        88, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&other_sk)])
+                    .unwrap();
+
+                let tx = make_stacks_transfer(&contract_sk, 1, 200, &bad_addr, 1000);
+                let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err();
+                assert!(if let MemPoolRejection::NonMatchingVersionBytes(a, b) = e {
+                    a == C32_ADDRESS_VERSION_TESTNET_SINGLESIG && b == 88 } else { false });
+
                 // bad fees
                 let tx = make_stacks_transfer(&contract_sk, 1, 0, &other_addr, 1000);
                 let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err(); 
@@ -276,7 +299,7 @@ mod tests {
                 for nc in conf.node_config.iter() {
                     let seed = Sha256Sum::from_data(format!("{}", nc.name).as_bytes());
                     let mut keychain = Keychain::default(seed.as_bytes().to_vec());
-                    for i in 0..4 {
+                    for _i in 0..4 {
                         let microblock_secret_key = keychain.rotate_microblock_keypair();
                         let mut microblock_pubkey = Secp256k1PublicKey::from_private(&microblock_secret_key);
                         microblock_pubkey.set_compressed(true);
