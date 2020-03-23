@@ -50,6 +50,7 @@ mod tests {
         StacksBlockHeader,
         Error as ChainstateError,
         db::blocks::MemPoolRejection, db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
         StacksMicroblockHeader, StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
         StacksPublicKey, TransactionPayload, StacksTransactionSigner,
         TokenTransferMemo, CoinbasePayload,
@@ -153,7 +154,7 @@ mod tests {
                         MemPoolRejection::FailedToValidate(
                             ChainstateError::NetError(NetError::VerifyingError(_))) = e { true } else { false });
 
-                // mismatched network on transfer
+                // mismatched network on contract-call!
                 let bad_addr = 
                     StacksAddress::from_public_keys(
                         88, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&other_sk)])
@@ -162,19 +163,17 @@ mod tests {
                 let tx = make_contract_call(&contract_sk, 1, 200, &bad_addr, "foo_contract", "bar", &[Value::UInt(1), Value::Int(2)]);
                 let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err();
 
-                assert!(if let MemPoolRejection::NonMatchingVersionBytes(a, b) = e {
-                    a == C32_ADDRESS_VERSION_TESTNET_SINGLESIG && b == 88 } else { false });
+                assert!(if let MemPoolRejection::BadAddressVersionByte = e { true } else { false });
 
                 // mismatched network on transfer!
                 let bad_addr = 
                     StacksAddress::from_public_keys(
-                        88, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&other_sk)])
+                        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&other_sk)])
                     .unwrap();
 
                 let tx = make_stacks_transfer(&contract_sk, 1, 200, &bad_addr, 1000);
                 let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err();
-                assert!(if let MemPoolRejection::NonMatchingVersionBytes(a, b) = e {
-                    a == C32_ADDRESS_VERSION_TESTNET_SINGLESIG && b == 88 } else { false });
+                assert!(if let MemPoolRejection::BadAddressVersionByte = e { true } else { false });
 
                 // bad fees
                 let tx = make_stacks_transfer(&contract_sk, 1, 0, &other_addr, 1000);

@@ -152,7 +152,7 @@ pub enum MemPoolRejection {
     PoisonMicroblocksDoNotConflict,
     NoAnchorBlockWithPubkeyHash(Hash160),
     InvalidMicroblocks,
-    NonMatchingVersionBytes(u8, u8),
+    BadAddressVersionByte,
     NoCoinbaseViaMempool
 }
 
@@ -2746,6 +2746,16 @@ impl StacksChainState {
         Ok(ret)
     }
 
+    fn is_valid_address_version(&self, version: u8) -> bool {
+        if self.mainnet {
+            version == C32_ADDRESS_VERSION_MAINNET_SINGLESIG ||
+                version == C32_ADDRESS_VERSION_MAINNET_MULTISIG
+        } else {
+            version == C32_ADDRESS_VERSION_TESTNET_SINGLESIG ||
+                version == C32_ADDRESS_VERSION_TESTNET_MULTISIG
+        }
+    }
+
     /// This function bounds the max read on fd to MAX_MESSAGE_LEN, so it does not need to be passed a bounded reader.
     pub fn will_admit_mempool_tx<R: Read>(&mut self, current_burn: &BurnchainHeaderHash, current_block: &BlockHeaderHash, fd: &mut R) -> Result<StacksTransaction, MemPoolRejection> {
         // 1: it should parse as a tx.
@@ -2770,9 +2780,9 @@ impl StacksChainState {
                 .map_err(|e| MemPoolRejection::BadNonces(e))
         })?;
 
-        let sender_version_byte = origin.principal.version();
-        if sender_version_byte != payer.principal.version() {
-            return Err(MemPoolRejection::NonMatchingVersionBytes(sender_version_byte, payer.principal.version()))
+        if !self.is_valid_address_version(origin.principal.version())
+            || !self.is_valid_address_version(payer.principal.version()) {
+                return Err(MemPoolRejection::BadAddressVersionByte)
         }
 
         // 5: the paying account must have enough funds
@@ -2784,8 +2794,8 @@ impl StacksChainState {
         match &tx.payload {
             TransactionPayload::TokenTransfer(addr, amount, _memo) => {
                 // version byte matches?
-                if sender_version_byte != addr.version {
-                    return Err(MemPoolRejection::NonMatchingVersionBytes(sender_version_byte, addr.version))
+                if !self.is_valid_address_version(addr.version) {
+                    return Err(MemPoolRejection::BadAddressVersionByte)
                 }
 
                 // got the funds?
@@ -2802,8 +2812,8 @@ impl StacksChainState {
             TransactionPayload::ContractCall(TransactionContractCall {
                 address, contract_name, function_name, function_args }) => {
                 // version byte matches?
-                if sender_version_byte != address.version {
-                    return Err(MemPoolRejection::NonMatchingVersionBytes(sender_version_byte, address.version))
+                if !self.is_valid_address_version(address.version) {
+                    return Err(MemPoolRejection::BadAddressVersionByte)
                 }
 
                 let contract_identifier = QualifiedContractIdentifier::new(address.clone().into(), contract_name.clone());
