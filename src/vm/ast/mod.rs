@@ -92,7 +92,7 @@ mod tests {
                 assert!(! visited.contains_key(&x.id));
                 visited.insert(x.id, true);
                 Ok(())
-            });
+            }).unwrap();
         }
     }
 }
