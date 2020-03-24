@@ -163,6 +163,8 @@ pub struct NeighborWalkResult {
     pub new_connections: HashSet<NeighborKey>,
     pub broken_connections: HashSet<NeighborKey>,
     pub replaced_neighbors: HashSet<NeighborKey>,
+    pub burn_chain_tips: HashMap<NeighborKey, (u64, ConsensusHash)>,
+    pub stable_burn_chain_tips: HashMap<NeighborKey, (u64, ConsensusHash)>,
     pub do_prune: bool
 }
 
@@ -172,6 +174,8 @@ impl NeighborWalkResult {
             new_connections: HashSet::new(),
             broken_connections: HashSet::new(),
             replaced_neighbors: HashSet::new(),
+            burn_chain_tips: HashMap::new(),
+            stable_burn_chain_tips: HashMap::new(),
             do_prune: false
         }
     }
@@ -188,10 +192,17 @@ impl NeighborWalkResult {
         self.replaced_neighbors.insert(nk);
     }
 
+    pub fn add_chain_tip(&mut self, nk: NeighborKey, tip_height: u64, tip: ConsensusHash, stable_tip_height: u64, stable_tip: ConsensusHash) -> () {
+        self.burn_chain_tips.insert(nk.clone(), (tip_height, tip));
+        self.stable_burn_chain_tips.insert(nk, (stable_tip_height, stable_tip));
+    }
+
     pub fn clear(&mut self) -> () {
         self.new_connections.clear();
         self.broken_connections.clear();
         self.replaced_neighbors.clear();
+        self.burn_chain_tips.clear();
+        self.stable_burn_chain_tips.clear();
         self.do_prune = false;
     }
 }
@@ -405,6 +416,9 @@ impl NeighborWalk {
                                
                                 info!("Connected with {:?}", &self.cur_neighbor.addr);
                                 self.new_frontier.insert(self.cur_neighbor.addr.clone(), self.cur_neighbor.clone());
+
+                                // remember the tip this peer reported
+                                self.result.add_chain_tip(self.cur_neighbor.addr.clone(), message.preamble.burn_block_height, message.preamble.burn_consensus_hash.clone(), message.preamble.burn_stable_block_height, message.preamble.burn_stable_consensus_hash.clone());
 
                                 // advance state!
                                 self.set_state(NeighborWalkState::GetNeighborsBegin);
@@ -652,6 +666,9 @@ impl NeighborWalk {
 
                                         // knew about this neighbor already
                                         self.resolved_handshake_neighbors.insert(naddr, neighbor.clone());
+                                
+                                        // remember the tip this peer saw
+                                        self.result.add_chain_tip(neighbor.addr.clone(), message.preamble.burn_block_height, message.preamble.burn_consensus_hash.clone(), message.preamble.burn_stable_block_height, message.preamble.burn_stable_consensus_hash.clone());
 
                                         // update our frontier as well
                                         self.new_frontier.insert(neighbor.addr.clone(), neighbor);
@@ -1017,6 +1034,9 @@ impl NeighborWalk {
                                 test_debug!("{:?}: will NOT replace {:?}", &self.local_peer, &neighbor_from_handshake.addr);
                                 self.replaced_neighbors.remove(&neighbor_from_handshake.addr);
                             }
+                            
+                            // remember the tip this neighbor saw 
+                            self.result.add_chain_tip(nkey.clone(), message.preamble.burn_block_height, message.preamble.burn_consensus_hash.clone(), message.preamble.burn_stable_block_height, message.preamble.burn_stable_consensus_hash.clone());
                         },
                         StacksMessageType::Nack(ref data) => {
                             // evict
@@ -1134,6 +1154,8 @@ impl PeerNetwork {
         
         test_debug!("{:?}: send Handshake to {:?}", &self.local_peer, &nk);
 
+        // NOTE: the below can fail if the connection is not yet finished (but that's okay --
+        // eventually, the connection will finish, and we can ask this neighbor again).
         let msg = self.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data))?;
         let req_res = self.send_message(nk, msg, get_epoch_time_secs() + self.connection_opts.timeout);
         match req_res {
@@ -1159,13 +1181,16 @@ impl PeerNetwork {
         Ok(())
     }
 
-    fn with_walk_state<F, R>(network: &mut PeerNetwork, handler: F) -> Result<R, net_error>
+    pub fn with_walk_state<F, R>(network: &mut PeerNetwork, handler: F) -> Result<R, net_error>
     where
         F: FnOnce(&mut PeerNetwork, &mut NeighborWalk) -> Result<R, net_error>
     {
         let mut walk = network.walk.take();
         let res = match walk {
-            None => Err(net_error::NotConnected),
+            None => {
+                test_debug!("{:?}: not connected", &network.local_peer);
+                Err(net_error::NotConnected)
+            },
             Some(ref mut walk) => handler(network, walk)
         };
         network.walk = walk;
@@ -1453,13 +1478,15 @@ impl PeerNetwork {
     /// Update the state of our peer graph walk.
     /// If we complete a walk, give back a walk result.
     /// Mask errors by restarting the graph walk.
-    pub fn walk_peer_graph(&mut self) -> Option<NeighborWalkResult> {
+    /// Returns the walk result, and a true/false flag to indicate whether or not the work for the
+    /// walk was finished (i.e. we either completed the walk, or we reset the walk)
+    pub fn walk_peer_graph(&mut self) -> (bool, Option<NeighborWalkResult>) {
         if self.walk.is_none() {
             // time to do a walk yet?
             if self.walk_count > NUM_INITIAL_WALKS && self.walk_deadline > get_epoch_time_secs() {
                 // we've done enough walks for an initial mixing,
                 // so throttle ourselves down until the walk deadline passes.
-                return None;
+                return (true, None);
             }
         }
 
@@ -1514,9 +1541,12 @@ impl PeerNetwork {
 
         match res {
             Ok(mut walk_opt) => {
+                let mut done = false;
+
                 match walk_opt {
                     Some(ref mut walk_result) => {
                         // finished a walk completely
+                        done = true;
                         self.walk_count += 1;
                         self.walk_deadline = self.connection_opts.walk_interval + get_epoch_time_secs();
 
@@ -1557,14 +1587,37 @@ impl PeerNetwork {
                 if reset {
                     test_debug!("{:?}: random walk restart", &self.local_peer);
                     self.walk = None;
+                    done = true;        // move onto the next p2p work item
+                }
+
+                #[cfg(test)]
+                {
+                    if done {
+                        let (mut inbound, mut outbound) = self.dump_peer_table();
+
+                        inbound.sort();
+                        outbound.sort();
+
+                        debug!("Walk finished ===================");
+                        debug!("{:?}: Peers outbound ({}): {}", &self.local_peer, outbound.len(), outbound.join(", "));
+                        debug!("{:?}: Peers inbound ({}):  {}", &self.local_peer, inbound.len(), inbound.join(", "));
+                        debug!("Walk finished ===================");
+
+                        match PeerDB::get_frontier_size(self.peerdb.conn()) {
+                            Ok(count) => {
+                                debug!("{:?}: Frontier size: {}", &self.local_peer, count);
+                            },
+                            Err(_) => {}
+                        };
+                    }
                 }
                 
-                walk_opt
+                (done, walk_opt)
             },
             Err(_e) => {
                 test_debug!("{:?}: Restarting neighbor with new random neighbors: {:?} => {:?}", &self.local_peer, walk_state, &_e);
                 self.walk = None;
-                None
+                (true, None)
             }
         }
     }
@@ -2284,11 +2337,8 @@ mod test {
                 };
             }
 
-            let empty_block_1 = peer_1.empty_burnchain_block(i + first_block_height - 1);
-            let empty_block_2 = peer_2.empty_burnchain_block(i + first_block_height - 1);
-
-            peer_1.next_burnchain_block(&empty_block_1);
-            peer_2.next_burnchain_block(&empty_block_2);
+            peer_1.add_empty_burnchain_block();
+            peer_2.add_empty_burnchain_block();
         }
 
         // peer 1 contacted peer 2
