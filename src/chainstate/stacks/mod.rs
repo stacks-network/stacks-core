@@ -623,14 +623,14 @@ pub struct StacksTransactionSigner {
 }
 
 /// How much work has gone into this chain so far?
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StacksWorkScore {
     pub burn: u64,      // number of burn tokens destroyed
     pub work: u64       // in Stacks, "work" == the length of the fork
 }
 
 /// The header for an on-chain-anchored Stacks block
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StacksBlockHeader {
     pub version: u8,
     pub total_work: StacksWorkScore,            // NOTE: this is the work done on the chain tip this block builds on (i.e. take this from the parent)
