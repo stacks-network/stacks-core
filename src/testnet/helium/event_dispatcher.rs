@@ -37,21 +37,34 @@ impl EventObserver {
         ).collect();
 
         let serialized_txs: Vec<serde_json::Value> = receipts.iter().map(|artifact| {
-            
-            let response_data = match &artifact.result {
-                Value::Response(data) => data,
-                _ => unreachable!(),
+            let tx = &artifact.transaction;
+
+            let (success, result) = match &artifact.result {
+                Value::Response(response_data) => {
+                    (response_data.committed, response_data.data.clone())
+                },
+                _ => unreachable!(), // Transaction results should always be a Value::Response type
             };
 
-            let tx = &artifact.transaction;
-            let mut unsigned_tx_bytes = vec![];
-            tx.consensus_serialize(&mut unsigned_tx_bytes).unwrap();
-            let formatted_bytes: Vec<String> = unsigned_tx_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            let raw_tx = {
+                let mut bytes = vec![];
+                tx.consensus_serialize(&mut bytes).unwrap();
+                let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+                formatted_bytes
+            };
+            
+            let raw_result = {
+                let mut bytes = vec![];
+                result.consensus_serialize(&mut bytes).unwrap();
+                let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+                formatted_bytes
+            };
+
             json!({
                 "txid": format!("0x{}", tx.txid()),
-                "success": response_data.committed,
-                "result": response_data.data,
-                "raw_tx": format!("0x{}", formatted_bytes.join("")),
+                "success": success,
+                "raw_result": format!("0x{}", raw_result.join("")),
+                "raw_tx": format!("0x{}", raw_tx.join("")),
             })
         }).collect();
         
@@ -127,10 +140,10 @@ impl EventDispatcher {
                     },
                 }
                 events.push((tx_hash, event));
-                i += 1;
                 for o_i in &self.any_event_observers_lookup {
                     dispatch_matrix[*o_i as usize].insert(i);
                 }
+                i += 1;
             }
         }
 
