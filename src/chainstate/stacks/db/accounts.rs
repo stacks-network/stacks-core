@@ -28,7 +28,7 @@ use chainstate::stacks::db::*;
 use chainstate::stacks::db::blocks::*;
 use vm::database::*;
 use vm::database::marf::*;
-
+use vm::clarity::ClarityConnection;
 use vm::types::*;
 
 use util::db::*;
@@ -129,16 +129,16 @@ impl MinerReward {
 }
 
 impl StacksChainState {
-    pub fn get_account<'a>(clarity_tx: &mut ClarityTx<'a>, principal: &PrincipalData) -> StacksAccount {
-        clarity_tx.connection().with_clarity_db_readonly(|ref mut db| {
+    pub fn get_account<T: ClarityConnection>(clarity_tx: &mut T, principal: &PrincipalData) -> StacksAccount {
+        clarity_tx.with_clarity_db_readonly(|ref mut db| {
             let stx_balance = db.get_account_stx_balance(principal);
             let nonce = db.get_account_nonce(principal);
-            Ok(StacksAccount {
+            StacksAccount {
                 principal: principal.clone(),
                 stx_balance,
                 nonce
-            })
-        }).expect("FATAL: failed to query account")
+            }
+        })
     }
 
     pub fn get_account_ft<'a>(clarity_tx: &mut ClarityTx<'a>, contract_id: &QualifiedContractIdentifier, token_name: &str, principal: &PrincipalData) -> Result<u128, Error> {
