@@ -85,7 +85,7 @@ impl QualifiedContractIdentifier {
     }
 
     pub fn to_string(&self) -> String {
-        format!("'{}.{}", self.issuer, self.name.to_string())
+        format!("{}.{}", self.issuer, self.name.to_string())
     }
 }
 
