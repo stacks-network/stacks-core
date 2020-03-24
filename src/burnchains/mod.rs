@@ -417,6 +417,19 @@ pub mod test {
         }
     }
 
+    impl BurnchainBlockHeader {
+        pub fn from_parent_snapshot(parent_sn: &BlockSnapshot, block_hash: BurnchainHeaderHash, num_txs: u64) -> BurnchainBlockHeader {
+            BurnchainBlockHeader {
+                block_height: parent_sn.block_height + 1,
+                block_hash: block_hash,
+                parent_block_hash: parent_sn.burn_header_hash.clone(),
+                parent_index_root: parent_sn.index_root.clone(),
+                num_txs: num_txs,
+                timestamp: get_epoch_time_secs()
+            }
+        }
+    }
+
     #[derive(Debug, Clone)]
     pub struct TestBurnchainBlock {
         pub block_height: u64,
@@ -624,6 +637,15 @@ pub mod test {
             }
         }
 
+        pub fn from_u16(seed: u16) -> TestMinerFactory {
+            let mut bytes = [0u8; 32];
+            (&mut bytes[0..2]).copy_from_slice(&seed.to_be_bytes());
+            TestMinerFactory {
+                key_seed: bytes,
+                next_miner_id: seed as usize
+            }
+        }
+
         pub fn next_private_key(&mut self) -> StacksPrivateKey {
             let h = Sha256Sum::from_data(&self.key_seed);
             self.key_seed.copy_from_slice(h.as_bytes());
@@ -719,7 +741,7 @@ pub mod test {
         
             txop.block_height = self.block_height;
             txop.vtxindex = self.txs.len() as u32;
-            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(txop.block_height, &self.parent_snapshot.index_root, self.fork_id);
+            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(txop.block_height, &self.parent_snapshot.index_root, self.fork_id);     // NOTE: override this if you intend to insert into the burndb!
             txop.txid = Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
 
             self.txs.push(BlockstackOperationType::LeaderBlockCommit(txop.clone()));
@@ -761,7 +783,7 @@ pub mod test {
             let (header, parent_snapshot) = Burnchain::get_burnchain_block_attachment_info(tx, &block).expect("FATAL: failed to get burnchain linkage info");
             let mut blockstack_txs = self.txs.clone();
 
-            Burnchain::apply_blockstack_txs_safety_checks(&block, &mut blockstack_txs);
+            Burnchain::apply_blockstack_txs_safety_checks(self.block_height, &mut blockstack_txs);
             
             let new_snapshot = Burnchain::process_block_ops(tx, burnchain, &parent_snapshot, &header, &blockstack_txs).expect("FATAL: failed to generate snapshot");
             new_snapshot
@@ -836,6 +858,14 @@ pub mod test {
                 burndb: db,
                 dirty: false,
                 burnchain: Burnchain::default_unittest(first_block_height, &first_block_hash),
+            }
+        }
+
+        pub fn from_burndb(burndb: BurnDB, burnchain: Burnchain) -> TestBurnchainNode {
+            TestBurnchainNode {
+                burndb: burndb,
+                dirty: false,
+                burnchain: burnchain
             }
         }
 
