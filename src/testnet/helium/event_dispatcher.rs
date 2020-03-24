@@ -32,53 +32,9 @@ impl EventObserver {
         let stream = TcpStream::connect(&self.sock_addr).unwrap();
         
         // Serialize events to JSON
-        let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(txid, event)| 
-            match event {
-                StacksTransactionEvent::SmartContractEvent(event_data) => json!({
-                    "txid": format!("0x{:?}", txid),
-                    "type": "contract_event",
-                    "contract_event": {
-                        "contract_identifier": event_data.key.0.to_string(),
-                        "topic": event_data.key.1,
-                        "value": event_data.value,
-                    }
-                }),
-                StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data)) => json!({
-                    "txid": format!("0x{:?}", txid),
-                    "type": "stx_transfer_event",
-                    "stx_transfer_event": event_data
-                }),
-                StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(event_data)) => json!({
-                    "txid": format!("0x{:?}", txid),
-                    "type": "stx_mint_event",
-                    "stx_mint_event": event_data
-                }),
-                StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data)) => json!({
-                    "txid": format!("0x{:?}", txid),
-                    "type": "stx_burn_event",
-                    "stx_burn_event": event_data
-                }),
-                StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)) => json!({
-                    "txid": format!("0x{:?}", txid),
-                    "type": "nft_transfer_event",
-                    "nft_transfer_event": event_data
-                }),
-                StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => json!({
-                    "txid": format!("0x{:?}", txid),
-                    "type": "nft_mint_event",
-                    "nft_mint_event": event_data
-                }),
-                StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => json!({
-                    "txid": format!("0x{:?}", txid),
-                    "type": "ft_transfer_event",
-                    "ft_transfer_event": event_data
-                }),
-                StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)) => json!({
-                    "txid": format!("0x{:?}", txid),
-                    "type": "ft_mint_event",
-                    "ft_mint_event": event_data
-                }),
-            }).collect();
+        let serialized_events: Vec<serde_json::Value> = filtered_events.iter().map(|(txid, event)|
+            event.json_serialize(txid)
+        ).collect();
 
         let serialized_txs: Vec<serde_json::Value> = receipts.iter().map(|artifact| {
             
