@@ -444,10 +444,10 @@ impl fmt::Display for PrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PrincipalData::Standard(sender) => {
-                write!(f, "'{}", sender)                
+                write!(f, "{}", sender)                
             },
             PrincipalData::Contract(contract_identifier) => {
-                write!(f, "'{}.{}", contract_identifier.issuer, contract_identifier.name.to_string())
+                write!(f, "{}.{}", contract_identifier.issuer, contract_identifier.name.to_string())
             }
         }
     }
@@ -660,7 +660,7 @@ mod test {
                    "none");
         assert_eq!(&format!("{}", Value::from(
             PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap())),
-                   "'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+                   "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
         assert_eq!(&format!("{}", Value::from(TupleData::from_data(
             vec![("a".into(), Value::Int(2))]).unwrap())),
