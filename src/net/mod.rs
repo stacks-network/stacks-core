@@ -564,13 +564,13 @@ pub struct BlocksInvData {
     pub microblocks_bitvec: Vec<u8>,            // bitmap of which confirmed micrblocks the peer has, in sortition order.  microblocks_bitvec[i] & (1 << j) != 0 means that this peer has the microblocks produced by sortition 8*i + j
 }
 
-/// List of blocks returned
+/// List of blocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksData {
     pub blocks: Vec<StacksBlock>
 }
 
-/// Microblocks batch (reply to GetMicroblcoks)
+/// Microblocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct MicroblocksData {
     pub microblocks: Vec<StacksMicroblock>
@@ -678,7 +678,6 @@ pub enum StacksMessageType {
     Neighbors(NeighborsData),
     GetBlocksInv(GetBlocksInv),
     BlocksInv(BlocksInvData),
-    GetBlocks(GetBlocksInv),
     Blocks(BlocksData),
     Microblocks(MicroblocksData),
     Transaction(StacksTransaction),
@@ -929,13 +928,12 @@ pub enum StacksMessageID {
     Neighbors = 4,
     GetBlocksInv = 5,
     BlocksInv = 6,
-    GetBlocks = 7,
-    Blocks = 8,
-    Microblocks = 9,
-    Transaction = 10,
-    Nack = 11,
-    Ping = 12,
-    Pong = 13,
+    Blocks = 7,
+    Microblocks = 8,
+    Transaction = 9,
+    Nack = 10,
+    Ping = 11,
+    Pong = 12,
     Reserved = 255
 }
 

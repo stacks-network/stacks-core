@@ -376,9 +376,7 @@ pub enum StacksMessageType {
     Neighbors(NeighborsData),
     GetBlocksInv(GetBlocksData),
     BlocksInv(BlocksInvData),
-    GetBlocks(GetBlocksData),
     Blocks(BlocksData),
-    GetMicroblocks(GetMicroblocksData),
     Microblocks(MicroblocksData),
     Transaction(StacksTransaction),
     Nack(NackData),
@@ -516,23 +514,15 @@ Notes:
 * `BlocksInvData.block_bitvec` will have length `ceil(BlocksInvData.bitlen / 8)`
 * `BlocksInvData.microblocks_bitvec` will have length `ceil(BlocksInvData.bitlen / 8)`
 
-**GetBlocks**
-
-Type identifier: 7
-
-Structure: Same as **GetBlocksInv**
-
 **Blocks**
 
-Type identifier: 8
+Type identifier: 7
 
 Structure:
 
 ```
 pub struct BlocksData {
-    /// The list of Stacks blocks requested.  At most 32MB of data will
-    /// be sent with this message.  The peer requesting the blocks will
-    /// need to send successive GetBlocksData messages.
+    /// A list of blocks pushed
     pub blocks: Vec<StacksBlock>
 }
 
@@ -543,7 +533,7 @@ pub struct StacksBlock {
 
 **Microblocks**
 
-Type identifier: 9
+Type identifier: 8
 
 Structure:
 
@@ -560,7 +550,7 @@ pub struct StacksMicroblock {
 
 **Transaction**
 
-Type identifier: 10
+Type identifier: 9
 
 Structure:
 
@@ -572,7 +562,7 @@ pub struct StacksTransaction {
 
 **Nack**
 
-Type identifier: 11
+Type identifier: 10
 
 Structure:
 
@@ -585,7 +575,7 @@ pub struct NackData {
 
 **Ping**
 
-Type identifier: 12
+Type identifier: 11
 
 Structure:
 
@@ -598,7 +588,7 @@ pub struct PingData {
 
 **Pong**
 
-Type identifier: 13
+Type identifier: 12
 
 Structure:
 
