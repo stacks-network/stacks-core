@@ -395,7 +395,7 @@ impl StacksChainState {
                         match e {
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
-                                error!("Runtime error {:?} on contract-call {}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
+                                info!("Runtime error {:?} on contract-call {}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
                                 Ok((Value::err_uint(0), AssetMap::new(), vec![]))
                             },
                             _ => Err(e)
@@ -469,14 +469,14 @@ impl StacksChainState {
                         match e {
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
-                                error!("Runtime error {:?} on instantiating {}, code {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_code_str, stack);
+                                info!("Runtime error {:?} on instantiating {}, code {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_code_str, stack);
                                 Ok((AssetMap::new(), vec![]))
                             },
                             _ => Err(e)
                         }
                     }
                 }.map_err(|e| {
-                    error!("Invalid smart-contract transaction {}: {}", &tx.txid(), &e);
+                    info!("Invalid smart-contract transaction {}: {}", &tx.txid(), &e);
                     Error::ClarityError(e)
                 })?;
                 
@@ -484,8 +484,6 @@ impl StacksChainState {
                 clarity_tx.connection().save_analysis(&contract_id, &contract_analysis)
                     .expect("FATAL: failed to store contract analysis");
                 
-                    println!("EVENTS: {:?}", events);
-
                 let receipt = StacksTransactionReceipt {
                     transaction: tx.clone(),
                     events,

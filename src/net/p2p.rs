@@ -643,7 +643,7 @@ impl PeerNetwork {
         let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
         if !outbound && (self.peers.len() as u64) - num_outbound >= self.connection_opts.num_clients {
             // too many inbounds 
-            debug!("{:?}: Too many inbound connections", &self.local_peer);
+            info!("{:?}: Too many inbound connections", &self.local_peer);
             return Err(net_error::TooManyPeers);
         }
 
