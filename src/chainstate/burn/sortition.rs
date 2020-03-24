@@ -169,7 +169,7 @@ impl BlockSnapshot {
         let non_winning_block_hash = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
 
         let ops_hash = OpsHash::from_txids(txids);
-        let ch = ConsensusHash::from_parent_block_data(tx, &ops_hash, block_height - 1, first_block_height, &block_header.parent_block_hash, burn_total)?;
+        let ch = ConsensusHash::from_parent_block_data(tx, &ops_hash, block_height - 1, first_block_height, &block_header.parent_block_hash, &block_hash, burn_total)?;
 
         info!("SORTITION({}): NO BLOCK CHOSEN", block_height);
 
@@ -264,7 +264,7 @@ impl BlockSnapshot {
         // prove on this final sortition hash.
         let final_sortition_hash = next_sortition_hash.mix_VRF_seed(&winning_block.new_seed);
         let next_ops_hash = OpsHash::from_txids(&txids);
-        let next_ch = ConsensusHash::from_parent_block_data(tx, &next_ops_hash, block_height - 1, first_block_height, &block_header.parent_block_hash, next_burn_total)?;
+        let next_ch = ConsensusHash::from_parent_block_data(tx, &next_ops_hash, block_height - 1, first_block_height, &block_header.parent_block_hash, &block_hash, next_burn_total)?;
 
         info!("SORTITION({}): WINNER IS {:?} (from {:?})", block_height, &winning_block.block_header_hash, &winning_block.txid);
 
