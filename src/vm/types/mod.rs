@@ -257,6 +257,10 @@ impl Value {
         Value::Response(ResponseData { committed: false, data: Box::new(Value::UInt(ecode)) })
     }
 
+    pub fn err_none() -> Value {
+        Value::Response(ResponseData { committed: false, data: Box::new(NONE.clone()) })
+    }
+
     pub fn okay(data: Value) -> Result<Value> {
         if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge.into())

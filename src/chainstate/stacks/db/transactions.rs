@@ -396,7 +396,7 @@ impl StacksChainState {
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
                                 info!("Runtime error {:?} on contract-call {}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
-                                Ok((Value::err_uint(0), AssetMap::new(), vec![]))
+                                Ok((Value::err_none(), AssetMap::new(), vec![]))
                             },
                             _ => Err(e)
                         }
@@ -448,7 +448,7 @@ impl StacksChainState {
                         let receipt = StacksTransactionReceipt {
                             transaction: tx.clone(),
                             events: vec![],
-                            result: Value::err_uint(0),
+                            result: Value::err_none(),
                             stx_burned: 0
                         };
                 
