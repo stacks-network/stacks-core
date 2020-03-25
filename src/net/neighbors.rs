@@ -2194,7 +2194,7 @@ mod test {
     #[test]
     fn test_step_walk_2_neighbors_plain() {
         let mut peer_1_config = TestPeerConfig::from_port(32500);
-        let mut peer_2_config = TestPeerConfig::from_port(32501);
+        let mut peer_2_config = TestPeerConfig::from_port(32502);
 
         peer_1_config.whitelisted = -1;
         peer_2_config.whitelisted = -1;
@@ -2290,7 +2290,7 @@ mod test {
     #[test]
     fn test_step_walk_2_neighbors_rekey() {
         let mut peer_1_config = TestPeerConfig::from_port(32600);
-        let mut peer_2_config = TestPeerConfig::from_port(32601);
+        let mut peer_2_config = TestPeerConfig::from_port(32602);
 
         peer_1_config.whitelisted = -1;
         peer_2_config.whitelisted = -1;
@@ -2377,7 +2377,7 @@ mod test {
     fn test_step_walk_2_neighbors_different_networks() {
         // peer 1 and 2 try to handshake but never succeed since they have different network IDs
         let mut peer_1_config = TestPeerConfig::from_port(32700);
-        let mut peer_2_config = TestPeerConfig::from_port(32701);
+        let mut peer_2_config = TestPeerConfig::from_port(32702);
 
         // peer 1 crawls peer 2, and peer 2 crawls peer 1
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
