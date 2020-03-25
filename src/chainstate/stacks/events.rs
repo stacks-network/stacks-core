@@ -74,6 +74,15 @@ impl StacksTransactionEvent {
     }
 }
 
+impl AssetIdentifier {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        json!({
+            "contract_identifier": self.contract_identifier.to_string(),
+            "asset_name": self.asset_name,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum STXEventType {
     STXTransferEvent(STXTransferEventData),
@@ -103,8 +112,8 @@ pub struct STXTransferEventData {
 impl STXTransferEventData {
     pub fn json_serialize(&self) -> serde_json::Value {
         json!({
-            "sender": self.sender,
-            "recipient": self.recipient,
+            "sender": self.sender.to_string(),
+            "recipient": self.recipient.to_string(),
             "amount": format!("{}", self.amount),
         })
     }
@@ -119,7 +128,7 @@ pub struct STXMintEventData {
 impl STXMintEventData {
     pub fn json_serialize(&self) -> serde_json::Value {
         json!({
-            "recipient": self.recipient,
+            "recipient": self.recipient.to_string(),
             "amount": format!("{}", self.amount),
         })
     }
@@ -134,7 +143,7 @@ pub struct STXBurnEventData {
 impl STXBurnEventData {
     pub fn json_serialize(&self) -> serde_json::Value {
         json!({
-            "sender": self.sender,
+            "sender": self.sender.to_string(),
             "amount": format!("{}", self.amount),
         })
     }
@@ -157,9 +166,9 @@ impl NFTTransferEventData {
             formatted_bytes
         };
         json!({
-            "asset_identifier": self.asset_identifier,
-            "sender": self.sender,
-            "recipient": self.recipient,
+            "asset_identifier": self.asset_identifier.json_serialize(),
+            "sender": self.sender.to_string(),
+            "recipient": self.recipient.to_string(),
             "value": self.value,
             "raw_value": format!("0x{}", raw_value.join("")),
         })
@@ -182,9 +191,9 @@ impl NFTMintEventData {
             formatted_bytes
         };
         json!({
-            "asset_identifier": self.asset_identifier,
-            "recipient": self.recipient,
-            "value": self.value,
+            "asset_identifier": self.asset_identifier.json_serialize(),
+            "recipient": self.recipient.to_string(),
+            "value": self.value.to_string(),
             "raw_value": format!("0x{}", raw_value.join("")),
         })
     }
@@ -201,9 +210,9 @@ pub struct FTTransferEventData {
 impl FTTransferEventData {
     pub fn json_serialize(&self) -> serde_json::Value {
         json!({
-            "asset_identifier": self.asset_identifier,
-            "sender": self.sender,
-            "recipient": self.recipient,
+            "asset_identifier": self.asset_identifier.json_serialize(),
+            "sender": self.sender.to_string(),
+            "recipient": self.recipient.to_string(),
             "amount": format!("{}", self.amount),
         })
     }
@@ -219,8 +228,8 @@ pub struct FTMintEventData {
 impl FTMintEventData {
     pub fn json_serialize(&self) -> serde_json::Value {
         json!({
-            "asset_identifier": self.asset_identifier,
-            "recipient": self.recipient,
+            "asset_identifier": self.asset_identifier.json_serialize(),
+            "recipient": self.recipient.to_string(),
             "value": format!("{}", self.amount),
         })
     }
