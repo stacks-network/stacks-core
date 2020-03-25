@@ -18,7 +18,7 @@
 */
 
 use std::io::prelude::*;
-use std::io;
+use std::{io, fmt};
 use std::io::{Read, Write};
 
 use net::StacksMessageCodec;

@@ -212,7 +212,9 @@ impl HttpServer {
 
     /// Process network traffic on a HTTP conversation.
     /// Returns whether or not the convo is still alive.
-    fn process_http_conversation(chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState,  event_id: usize, client_sock: &mut mio_net::TcpStream, convo: &mut ConversationHttp) -> Result<bool, net_error> {
+    fn process_http_conversation(chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+                                 chainstate: &mut StacksChainState, burn_block: &BurnchainHeaderHash, block: &BlockHeaderHash,
+                                 event_id: usize, client_sock: &mut mio_net::TcpStream, convo: &mut ConversationHttp) -> Result<bool, net_error> {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
         let recv_res = convo.recv(client_sock);
@@ -235,7 +237,7 @@ impl HttpServer {
         // react to inbound messages -- do we need to send something out, or fulfill requests
         // to other threads?  Try to chat even if the recv() failed, since we'll want to at
         // least drain the conversation inbox.
-        match convo.chat(chain_view, burndb, peerdb, chainstate) {
+        match convo.chat(chain_view, burndb, peerdb, chainstate, burn_block, block) {
             Ok(_) => {},
             Err(e) => {
                 debug!("Failed to converse on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
@@ -261,7 +263,8 @@ impl HttpServer {
     /// Process sockets that are ready, but specifically inbound or outbound only.
     /// Advance the state of all such conversations with remote peers.
     /// Return the list of events that correspond to failed conversations
-    fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState) -> Vec<usize> {
+    fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+                             chainstate: &mut StacksChainState, burn_block: &BurnchainHeaderHash, block: &BlockHeaderHash) -> Vec<usize> {
         let mut to_remove = vec![];
         for event_id in &poll_state.ready {
             if !self.sockets.contains_key(&event_id) {
@@ -282,7 +285,9 @@ impl HttpServer {
                 Some(ref mut convo) => {
                     // activity on a http socket
                     test_debug!("Process HTTP data from {:?}", convo);
-                    match HttpServer::process_http_conversation(&self.chain_view, burndb, peerdb, chainstate, *event_id, client_sock, convo) {
+                    match HttpServer::process_http_conversation(&self.chain_view, burndb, peerdb,
+                                                                chainstate, burn_block, block,
+                                                                *event_id, client_sock, convo) {
                         Ok(alive) => {
                             if !alive {
                                 to_remove.push(*event_id);
@@ -366,7 +371,8 @@ impl HttpServer {
     /// -- send data on ready sockets
     /// -- receive data on ready sockets
     /// -- clear out timed-out requests
-    fn dispatch_network(&mut self, new_chain_view: BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState, mut poll_state: NetworkPollState) -> Result<(), net_error> {
+    fn dispatch_network(&mut self, new_chain_view: BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+                        chainstate: &mut StacksChainState, burn_block: &BurnchainHeaderHash, block: &BlockHeaderHash, mut poll_state: NetworkPollState) -> Result<(), net_error> {
         if self.network.is_none() {
             return Err(net_error::NotConnected);
         }
@@ -378,7 +384,7 @@ impl HttpServer {
         self.process_new_sockets(&mut poll_state);
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
-        let error_events = self.process_ready_sockets(&mut poll_state, burndb, peerdb, chainstate);
+        let error_events = self.process_ready_sockets(&mut poll_state, burndb, peerdb, chainstate, burn_block, block);
         for error_event in error_events {
             debug!("Failed HTTP connection on event {}", error_event);
             self.deregister_http(error_event);
@@ -416,7 +422,8 @@ impl HttpServer {
     /// -- receives and dispatches requests from other threads
     /// Returns the table of unhandled network messages to be acted upon, keyed by the neighbors
     /// that sent them.
-    pub fn run(&mut self, new_chain_view: BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState, poll_timeout: u64) -> Result<(), net_error> {
+    pub fn run(&mut self, new_chain_view: BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+               chainstate: &mut StacksChainState, burn_block: &BurnchainHeaderHash, block: &BlockHeaderHash, poll_timeout: u64) -> Result<(), net_error> {
         let poll_state = match self.network {
             None => {
                 Err(net_error::NotConnected)
@@ -426,7 +433,7 @@ impl HttpServer {
             }
         }?;
 
-        self.dispatch_network(new_chain_view, burndb, peerdb, chainstate, poll_state)
+        self.dispatch_network(new_chain_view, burndb, peerdb, chainstate, burn_block, block, poll_state)
     }
 }
 

@@ -34,6 +34,7 @@ use net::HttpRequestType;
 use net::HttpResponseType;
 use net::HttpRequestMetadata;
 use net::HttpResponseMetadata;
+use net::{MapEntryResponse, AccountEntryResponse};
 use net::PeerAddress;
 use net::PeerInfoData;
 use net::NeighborAddress;
@@ -52,8 +53,10 @@ use burnchains::BurnchainHeaderHash;
 
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::db::BlockStreamData;
+use chainstate::stacks::db::{
+    StacksChainState,
+    BlockStreamData,
+    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE};
 use chainstate::stacks::Error as chain_error;
 use chainstate::stacks::*;
 use burnchains::*;
@@ -63,6 +66,18 @@ use rusqlite::{DatabaseName, NO_PARAMS};
 use util::db::Error as db_error;
 use util::db::DBConn;
 use util::get_epoch_time_secs;
+use util::hash::to_hex;
+
+use vm::{
+    clarity::ClarityConnection,
+    ClarityName,
+    ContractName,
+    Value,
+    types::{ PrincipalData,
+             QualifiedContractIdentifier },
+    database::{ ClarityDatabase,
+                ClaritySerializable },
+};
 
 use rand::prelude::*;
 use rand::thread_rng;
@@ -181,7 +196,8 @@ impl ConversationHttp {
     /// Handle a GET peer info.
     /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
     fn handle_getinfo<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burnchain: &Burnchain, burndb: &mut BurnDB, peerdb: &mut PeerDB) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None, req.metadata().keep_alive);
+        let response_metadata = HttpResponseMetadata::from(req);
+
         match PeerInfoData::from_db(burnchain, burndb, peerdb) {
             Ok(pi) => {
                 let response = HttpResponseType::PeerInfo(response_metadata, pi);
@@ -198,7 +214,7 @@ impl ConversationHttp {
     /// Handle a GET neighbors
     /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
     fn handle_getneighbors<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, network_id: u32, chain_view: &BurnchainView, peerdb: &mut PeerDB) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None, req.metadata().keep_alive);
+        let response_metadata = HttpResponseMetadata::from(req);
         
         // get neighbors at random as long as they're fresh
         let neighbors = PeerDB::get_random_neighbors(peerdb.conn(), network_id, MAX_NEIGHBORS_DATA_LEN, chain_view.burn_block_height, false)
@@ -220,7 +236,7 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getblock<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_block_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
-        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None, req.metadata().keep_alive);
+        let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this block?
         match StacksChainState::has_block_indexed(&chainstate.blocks_path, index_block_hash) {
@@ -250,7 +266,7 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getmicroblocks<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_microblock_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
-        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None, req.metadata().keep_alive);
+        let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this confirmed microblock stream?
         match chainstate.has_confirmed_microblocks_indexed(index_microblock_hash) {
@@ -273,6 +289,61 @@ impl ConversationHttp {
             }
         }
     }
+
+    fn handle_token_transfer_cost<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+
+        // todo -- need to actually estimate the cost / length for token transfers
+        //   right now, it just uses the minimum.
+        let fee = MINIMUM_TX_FEE_RATE_PER_BYTE;
+        let response = HttpResponseType::TokenTransferCost(response_metadata, fee);
+        response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_get_account_entry<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
+                                          chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
+                                          account: &PrincipalData) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+
+        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+            clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                let key = ClarityDatabase::make_key_for_account_balance(&account);
+                let (balance, bal_proof) = clarity_db.get_with_proof(&key)?;
+                let key = ClarityDatabase::make_key_for_account_nonce(&account);
+                let (nonce, nonce_proof) = clarity_db.get_with_proof(&key)?;
+
+                Some(AccountEntryResponse {
+                    balance, nonce, balance_proof: bal_proof.to_hex(), nonce_proof: nonce_proof.to_hex() })
+            })
+        }).unwrap_or_else(|| AccountEntryResponse { balance: 0, nonce: 0, balance_proof: "".into(), nonce_proof: "".into() });
+
+        let response = HttpResponseType::GetAccount(
+            response_metadata, data);
+
+        response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_get_map_entry<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
+                                      chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
+                                      contract_addr: &StacksAddress, contract_name: &ContractName, map_name: &ClarityName, key: &Value) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+            clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                let key = ClarityDatabase::make_key_for_data_map_entry(&contract_identifier, map_name, key);
+                let (value, proof) = clarity_db.get_with_proof::<Value>(&key)?;
+                let data = value.serialize();
+                Some(MapEntryResponse { data, marf_proof: proof.to_hex() })
+            })
+        });
+
+        let response = HttpResponseType::GetMapEntry(
+            response_metadata, data);
+
+        response.send(http, fd).map(|_| ())
+    }
+
     
     /// Handle a GET unconfirmed microblock stream.  Start streaming the reply.
     /// The response's preamble (but not the block data) will be synchronously written to the fd
@@ -280,7 +351,7 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getmicroblocks_unconfirmed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_anchor_block_hash: &BlockHeaderHash, min_seq: u16, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
-        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None, req.metadata().keep_alive);
+        let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this unconfirmed microblock stream?
         match chainstate.has_any_staging_microblock_indexed(index_anchor_block_hash, min_seq) {
@@ -307,8 +378,10 @@ impl ConversationHttp {
     /// Handle an external HTTP request.
     /// Some requests, such as those for blocks, will create new reply streams.  This method adds
     /// those new streams into the `reply_streams` set.
-    pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState) -> Result<(), net_error> {
+    pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+                          chainstate: &mut StacksChainState, burn_block: &BurnchainHeaderHash, block: &BlockHeaderHash) -> Result<(), net_error> {
         let mut reply = self.connection.make_relay_handle()?;
+        let keep_alive = req.metadata().keep_alive;
         let stream_opt = match req {
             HttpRequestType::GetInfo(ref _md) => {
                 ConversationHttp::handle_getinfo(&mut self.connection.protocol, &mut reply, &req, &self.burnchain, burndb, peerdb)?;
@@ -327,6 +400,19 @@ impl ConversationHttp {
             HttpRequestType::GetMicroblocksUnconfirmed(ref _md, ref index_anchor_block_hash, ref min_seq) => {
                 ConversationHttp::handle_getmicroblocks_unconfirmed(&mut self.connection.protocol, &mut reply, &req, index_anchor_block_hash, *min_seq, chainstate)?
             },
+            HttpRequestType::GetAccount(ref _md, ref principal) => {
+                ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, burn_block, block, principal)?;
+                None
+            },
+            HttpRequestType::GetMapEntry(ref _md, ref contract_addr, ref contract_name, ref map_name, ref key) => {
+                ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, burn_block, block,
+                                                       contract_addr, contract_name, map_name, key)?;
+                None
+            },
+            HttpRequestType::GetTransferCost(ref _md) => {
+                ConversationHttp::handle_token_transfer_cost(&mut self.connection.protocol, &mut reply, &req)?;
+                None
+            },
             HttpRequestType::PostTransaction(_md, _tx) => {
                 panic!("Not implemented");
             }
@@ -334,10 +420,10 @@ impl ConversationHttp {
 
         match stream_opt {
             None => {
-                self.reply_streams.push_back((reply, None, req.metadata().keep_alive));
+                self.reply_streams.push_back((reply, None, keep_alive));
             },
             Some(stream) => {
-                self.reply_streams.push_back((reply, Some((HttpChunkedTransferWriterState::new(STREAM_CHUNK_SIZE as usize), stream)), req.metadata().keep_alive));
+                self.reply_streams.push_back((reply, Some((HttpChunkedTransferWriterState::new(STREAM_CHUNK_SIZE as usize), stream)), keep_alive));
             }
         }
         Ok(())
@@ -521,7 +607,8 @@ impl ConversationHttp {
 
     /// Make progress on in-flight requests and replies.
     /// Returns the list of unhandled inbound requests
-    pub fn chat(&mut self, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState) -> Result<(), net_error> {
+    pub fn chat(&mut self, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+                chainstate: &mut StacksChainState, burn_block: &BurnchainHeaderHash, block: &BlockHeaderHash) -> Result<(), net_error> {
         // handle in-bound HTTP request(s)
         let num_inbound = self.connection.inbox_len();
         test_debug!("{:?}: {} HTTP requests pending", &self, num_inbound);
@@ -539,7 +626,7 @@ impl ConversationHttp {
                     // new request
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
-                    self.handle_request(req, chain_view, burndb, peerdb, chainstate)?;
+                    self.handle_request(req, chain_view, burndb, peerdb, chainstate, burn_block, block)?;
                 },
                 StacksHttpMessage::Response(resp) => {
                     // Is there someone else waiting for this message?  If so, pass it along.

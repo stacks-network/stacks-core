@@ -7,6 +7,7 @@ use vm::analysis::{AnalysisDatabase};
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MARFValue, Error as MarfError, TrieHash};
 use chainstate::stacks::index::storage::{TrieFileStorage};
+use chainstate::stacks::index::proofs::{TrieMerkleProof};
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
 use std::convert::TryInto;
@@ -39,6 +40,7 @@ pub trait ClarityBackingStore {
     fn put_all(&mut self, items: Vec<(String, String)>);
     /// fetch K-V out of the committed datastore
     fn get(&mut self, key: &str) -> Option<String>;
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof)>;
     fn has_entry(&mut self, key: &str) -> bool {
         self.get(key).is_some()
     }
@@ -290,6 +292,24 @@ impl ClarityBackingStore for MarfedKV {
             .expect("Attempted to get the open chain tip from an unopened context.")
     }
 
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof)> {
+        self.marf.get_with_proof(&self.chain_tip, key)
+            .or_else(|e| {
+                match e {
+                    MarfError::NotFoundError => Ok(None),
+                    _ => Err(e)
+                }
+            })
+            .expect("ERROR: Unexpected MARF Failure on GET")
+            .map(|(marf_value, proof)| {
+                let side_key = marf_value.to_hex();
+                let data = self.side_store.get(&side_key)
+                    .expect(&format!("ERROR: MARF contained value_hash not found in side storage: {}",
+                                     side_key));
+                (data, proof)
+            })
+    }
+
     fn get(&mut self, key: &str) -> Option<String> {
         self.marf.get(&self.chain_tip, key)
             .or_else(|e| {
@@ -348,6 +368,13 @@ impl ClarityBackingStore for MemoryBackingStore {
 
     fn get(&mut self, key: &str) -> Option<String> {
         self.side_store.get(key)
+    }
+
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof)> {
+        self.side_store.get(key)
+            .map(|x| {
+                (x, TrieMerkleProof(vec![]))
+            })
     }
 
     fn get_side_store(&mut self) -> &mut SqliteConnection {

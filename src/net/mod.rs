@@ -63,12 +63,22 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::CONSENSUS_HASH_ENCODED_SIZE;
 use chainstate::burn::BlockHeaderHash;
 
-use chainstate::stacks::StacksBlock;
-use chainstate::stacks::StacksMicroblock;
-use chainstate::stacks::StacksTransaction;
-use chainstate::stacks::StacksPublicKey;
+use chainstate::stacks::{
+    StacksAddress,
+    StacksBlock,
+    StacksMicroblock,
+    StacksTransaction,
+    StacksPublicKey
+};
 
 use chainstate::stacks::Error as chainstate_error;
+
+use vm::{
+    ClarityName,
+    ContractName,
+    Value,
+    types::PrincipalData
+};
 
 use util::hash::Hash160;
 use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
@@ -752,6 +762,20 @@ pub struct HttpRequestMetadata {
     pub keep_alive: bool
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MapEntryResponse {
+    pub data: String,
+    pub marf_proof: String
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccountEntryResponse {
+    pub balance: u128,
+    pub nonce: u64,
+    pub balance_proof: String,
+    pub nonce_proof: String
+}
+
 /// Request ID to use or expect from non-Stacks HTTP clients.
 /// In particular, if a HTTP response does not contain the x-request-id header, then it's assumed
 /// to be this value.  This is needed to support fetching immutables like block and microblock data
@@ -792,7 +816,10 @@ pub enum HttpRequestType {
     GetBlock(HttpRequestMetadata, BlockHeaderHash),
     GetMicroblocks(HttpRequestMetadata, BlockHeaderHash),
     GetMicroblocksUnconfirmed(HttpRequestMetadata, BlockHeaderHash, u16),
-    PostTransaction(HttpRequestMetadata, StacksTransaction)
+    PostTransaction(HttpRequestMetadata, StacksTransaction),
+    GetAccount(HttpRequestMetadata, PrincipalData),
+    GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value),
+    GetTransferCost(HttpRequestMetadata),
 }
 
 /// The fields that Actually Matter to http responses
@@ -833,6 +860,13 @@ impl HttpResponseMetadata {
     }
 }
 
+impl From<&HttpRequestType> for HttpResponseMetadata {
+    fn from(req: &HttpRequestType) -> HttpResponseMetadata {
+        let metadata = req.metadata();
+        HttpResponseMetadata::new(metadata.version, HttpResponseMetadata::make_request_id(), None, metadata.keep_alive)
+    }
+}
+
 /// All data-plane message types a peer can reply with.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpResponseType {
@@ -843,7 +877,9 @@ pub enum HttpResponseType {
     Microblocks(HttpResponseMetadata, Vec<StacksMicroblock>),
     MicroblockStream(HttpResponseMetadata),
     TransactionID(HttpResponseMetadata, Txid),
-    
+    TokenTransferCost(HttpResponseMetadata, u64),
+    GetMapEntry(HttpResponseMetadata, Option<MapEntryResponse>),
+    GetAccount(HttpResponseMetadata, AccountEntryResponse),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     Unauthorized(HttpResponseMetadata, String),
@@ -966,11 +1002,11 @@ pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 4096;
 
 macro_rules! impl_byte_array_message_codec {
     ($thing:ident, $len:expr) => {
-        impl StacksMessageCodec for $thing {
-            fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+        impl ::net::StacksMessageCodec for $thing {
+            fn consensus_serialize<W: std::io::Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
                 fd.write_all(self.as_bytes()).map_err(::net::Error::WriteError)
             }
-            fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<$thing, ::net::Error> {
+            fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<$thing, ::net::Error> {
                 let mut buf = [0u8; ($len as usize)];
                 fd.read_exact(&mut buf).map_err(::net::Error::ReadError)?;
                 let ret = $thing::from_bytes(&buf).expect("BUG: buffer is not the right size");

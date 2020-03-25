@@ -494,6 +494,13 @@ impl ClaritySerializable for Value {
     }
 }
 
+impl ClarityDeserializable<Value> for Value {
+    fn deserialize(hex: &str) -> Self {
+        Value::try_deserialize_hex_untyped(hex)
+            .expect("ERROR: Failed to parse Clarity hex string")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
