@@ -36,6 +36,7 @@ impl EventObserver {
             event.json_serialize(txid)
         ).collect();
 
+        let mut tx_index: u32 = 0;
         let serialized_txs: Vec<serde_json::Value> = receipts.iter().map(|artifact| {
             let tx = &artifact.transaction;
 
@@ -60,12 +61,15 @@ impl EventObserver {
                 formatted_bytes
             };
 
-            json!({
+            let val = json!({
                 "txid": format!("0x{}", tx.txid()),
+                "tx_index": tx_index,
                 "success": success,
                 "raw_result": format!("0x{}", raw_result.join("")),
                 "raw_tx": format!("0x{}", raw_tx.join("")),
-            })
+            });
+            tx_index += 1;
+            val
         }).collect();
         
         // Wrap events
