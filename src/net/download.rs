@@ -515,7 +515,7 @@ impl BlockDownloader {
             test_debug!("Load snapshot at {} off of {} ({}).  Sortitions {} - {}", first_block_height, tip.block_height, &tip.burn_header_hash, sortition_height_start, sortition_height_end);
             let last_ancestor = BurnDB::get_block_snapshot_in_fork(&mut tx, first_block_height + sortition_height_end, &tip.burn_header_hash).map_err(net_error::DBError)?.ok_or(net_error::DBError(db_error::NotFoundError))?;
             
-            test_debug!("Load {} headers off of {} ({})", sortition_height_end - sortition_height_start + 1, last_ancestor.block_height, &last_ancestor.consensus_hash);
+            test_debug!("Load {} headers off of {} ({})", sortition_height_end - sortition_height_start, last_ancestor.block_height, &last_ancestor.consensus_hash);
             let local_blocks = BurnDB::get_stacks_header_hashes(&mut tx, sortition_height_end - sortition_height_start, &last_ancestor.consensus_hash).map_err(net_error::DBError)?;
 
             for (_i, (_burn_header, _block_hash_opt)) in local_blocks.iter().enumerate() {
@@ -1523,7 +1523,10 @@ mod test {
 
         info!("Completed walk round {} step(s)", round);
         
-        let availability = BlockDownloader::get_block_availability(peer_1.network.inv_state.as_mut().unwrap(), peer_1.burndb.as_mut().unwrap(), first_stacks_block_height, first_stacks_block_height + num_blocks).unwrap();
+        let availability = BlockDownloader::get_block_availability(peer_1.network.inv_state.as_mut().unwrap(), peer_1.burndb.as_mut().unwrap(), first_stacks_block_height - 1, first_stacks_block_height + num_blocks).unwrap();
+        eprintln!("availability.len() == {}", availability.len());
+        eprintln!("block_data.len() == {}", block_data.len());
+        
         assert_eq!(availability.len() as u64, num_blocks);
         assert_eq!(block_data.len() as u64, num_blocks);
 
