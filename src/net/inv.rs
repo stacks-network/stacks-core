@@ -657,7 +657,11 @@ impl InvState {
 impl PeerNetwork {
     /// Given a sortition height of a block we're interested in, make a GetBlocksInv whose
     /// _lowest_ block will be at the target sortition height.
-    fn make_highest_getblocksdata(&self, nk: &NeighborKey, target_block_height: u64, burndb: &mut BurnDB) -> Result<Option<GetBlocksInv>, net_error> {
+    fn make_highest_getblocksinv(&self, nk: &NeighborKey, target_block_height: u64, burndb: &mut BurnDB) -> Result<Option<GetBlocksInv>, net_error> {
+        if target_block_height > self.chain_view.burn_block_height {
+            return Ok(None);
+        }
+
         let (mut highest_block_height, mut num_blocks) = 
             if target_block_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64) < self.chain_view.burn_block_height {
                 (target_block_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64), BLOCKS_INV_DATA_MAX_BITLEN as u64)
@@ -734,7 +738,7 @@ impl PeerNetwork {
     }
 
     /// Make a GetBlocksInv to send to our neighbors
-    fn make_next_getblocksdata(&self, inv_state: &mut InvState, burndb: &mut BurnDB, nk: &NeighborKey) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
+    fn make_next_getblocksinv(&self, inv_state: &mut InvState, burndb: &mut BurnDB, nk: &NeighborKey) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
         let target_block_height = match inv_state.get_stats(nk) {
             Some(ref stats) => burndb.first_block_height.checked_add(stats.inv.num_sortitions).expect("Blockchain sortition overflow"),
             None => {
@@ -746,7 +750,7 @@ impl PeerNetwork {
             // Still working on an initial sync of the peer's block inventory.
             // We don't yet know about which blocks this node knows about.
             test_debug!("{:?}: not sync'ed with {:?} yet (target {} < tip {}); make GetBlocksInv based at {}", &self.local_peer, nk, target_block_height, self.chain_view.burn_block_height, target_block_height);
-            let request_opt = self.make_highest_getblocksdata(nk, target_block_height, burndb)?;
+            let request_opt = self.make_highest_getblocksinv(nk, target_block_height, burndb)?;
             match request_opt {
                 Some(request) => Ok(Some((target_block_height, request))),
                 None => Ok(None)
@@ -756,7 +760,7 @@ impl PeerNetwork {
             // We know which blocks this node knows about, up to our chain height.
             // We may be in the process of re-scanning this node.  Proceed with the rescan request.
             test_debug!("{:?}: sync'ed up; make GetBlocksInv based at rescan height {}", &self.local_peer, inv_state.rescan_height);
-            let request_opt = self.make_highest_getblocksdata(nk, inv_state.rescan_height, burndb)?;
+            let request_opt = self.make_highest_getblocksinv(nk, inv_state.rescan_height, burndb)?;
             match request_opt {
                 Some(request) => Ok(Some((inv_state.rescan_height, request))),
                 None => Ok(None)
@@ -803,7 +807,7 @@ impl PeerNetwork {
                     inv_state.add_peer(nk.clone());
                 }
 
-                let (target_block_height, inv) = match network.make_next_getblocksdata(inv_state, burndb, &nk)? {
+                let (target_block_height, inv) = match network.make_next_getblocksinv(inv_state, burndb, &nk)? {
                     Some(request) => request,
                     None => {
                         test_debug!("{:?}: skip {:?}, since we could not make a GetBlocksInv for it", &network.local_peer, &nk);
