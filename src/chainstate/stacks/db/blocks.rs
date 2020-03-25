@@ -1617,38 +1617,30 @@ impl StacksChainState {
 
     /// Given an index anchor block hash, get the index microblock hash for a confirmed microblock stream.
     pub fn get_confirmed_microblock_index_hash(&mut self, index_anchor_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
-        let sql = "SELECT microblock_hash,burn_header_hash FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = 0 AND processed = 1 LIMIT 1".to_string();
+        let sql = "SELECT microblock_hash,burn_header_hash FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = 0 AND processed = 1 LIMIT 1";
         let args = [&index_anchor_block_hash as &dyn ToSql];
-        
-        let mut stmt = self.blocks_db.prepare(&sql).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-        let mut rows = stmt.query(&args).map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        // gather 
-        let mut row_data : Vec<(BlockHeaderHash, BurnchainHeaderHash)> = vec![];
-        while let Some(row_res) = rows.next() {
-            match row_res {
-                Ok(row) => {
-                    let microblock_hash = BlockHeaderHash::from_column(&row, "microblock_hash").map_err(Error::DBError)?;
-                    let burn_header_hash = BurnchainHeaderHash::from_column(&row, "burn_header_hash").map_err(Error::DBError)?;
+        let row_data_opt = self.blocks_db.query_row(sql, &args, 
+            |row| {
+                let microblock_hash = BlockHeaderHash::from_column(&row, "microblock_hash").map_err(Error::DBError)?;
+                let burn_header_hash = BurnchainHeaderHash::from_column(&row, "burn_header_hash").map_err(Error::DBError)?;
+                Ok((microblock_hash, burn_header_hash))
+            })
+            .optional()
+            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-                    row_data.push((microblock_hash, burn_header_hash));
-                    break;
-                },
-                Err(e) => {
-                    return Err(Error::DBError(db_error::SqliteError(e)));
-                }
-            };
-        }
-
-        if row_data.len() == 0 {
-            // doesn't exist
-            trace!("No confirmed microblocks off of anchored block {}", index_anchor_block_hash);
-            Ok(None)
-        }
-        else {
-            let index_microblock_hash = StacksBlockHeader::make_index_block_hash(&row_data[0].1, &row_data[0].0);
-            trace!("Index microblock hash of anchored block {} is {}", index_anchor_block_hash, &index_microblock_hash);
-            Ok(Some(index_microblock_hash))
+        match row_data_opt {
+            Some(Ok((microblock_hash, burn_header_hash))) => {
+                let index_microblock_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &microblock_hash);
+                trace!("Index microblock hash of anchored block {} is {}", index_anchor_block_hash, &index_microblock_hash);
+                Ok(Some(index_microblock_hash))
+            },
+            Some(Err(e)) => Err(e),
+            None => {
+                // doesn't exist
+                trace!("No confirmed microblocks off of anchored block {}", index_anchor_block_hash);
+                Ok(None)
+            }
         }
     }
     
@@ -1684,33 +1676,21 @@ impl StacksChainState {
         let sql = "SELECT staging_microblocks_data.rowid FROM \
                    staging_microblocks JOIN staging_microblocks_data \
                    ON staging_microblocks.microblock_hash = staging_microblocks_data.block_hash \
-                   WHERE staging_microblocks.index_block_hash = ?1 AND staging_microblocks.sequence = ?2".to_string();
+                   WHERE staging_microblocks.index_block_hash = ?1 AND staging_microblocks.sequence = ?2";
         let args = [&index_block_hash as &dyn ToSql, &seq as &dyn ToSql];
         
-        let mut stmt = blocks_conn.prepare(&sql)
+        let rowid_opt = blocks_conn.query_row(sql, &args,
+            |row| {
+                let rowid : i64 = row.get(0);
+                Ok(rowid)
+            })
+            .optional()
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        let mut rows = stmt.query(&args)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        // gather 
-        let mut rowids = vec![];
-        while let Some(row_res) = rows.next() {
-            match row_res {
-                Ok(row) => {
-                    let rowid : i64 = row.get(0);
-                    rowids.push(rowid);
-                },
-                Err(e) => {
-                    return Err(Error::DBError(db_error::SqliteError(e)));
-                }
-            };
-        }
-
-        let l = rowids.len();
-        match l {
-            0 => Ok(None),
-            _ => Ok(Some(rowids[0]))
+        match rowid_opt {
+            Some(Ok(rowid)) => Ok(Some(rowid)),
+            Some(Err(e)) => Err(e),
+            None => Ok(None)
         }
     }
 

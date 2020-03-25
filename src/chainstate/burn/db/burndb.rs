@@ -799,7 +799,7 @@ impl BurnDB {
     }
 
     /// Get consensus hash from a particular chain tip's history
-    /// Returns the empty consensus hash if the block height or block hash does not correspond to a
+    /// Returns None if the block height or block hash does not correspond to a
     /// known snapshot.
     pub fn get_consensus_at<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<ConsensusHash>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
@@ -919,13 +919,14 @@ impl BurnDB {
     pub fn get_block_snapshot_consensus(conn: &Connection, consensus_hash: &ConsensusHash) -> Result<Option<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE consensus_hash = ?1".to_string();
         let args = [&consensus_hash];
-        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
-        match rows.len() {
+        let mut rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
+        let len = rows.len();
+        match len {
             0 => {
                 test_debug!("No snapshot with consensus hash {}", consensus_hash);
                 Ok(None)
             },
-            1 => Ok(Some(rows[0].clone())),
+            1 => Ok(Some(rows.pop().expect("BUG: non-empty vec didn't pop Some(...)"))),
             _ => {
                 // should never happen 
                 panic!("FATAL: multiple block snapshots for the same block with consensus hash {}", consensus_hash);
@@ -1257,7 +1258,7 @@ impl BurnDB {
             // all of these values should exist
             let block_hash = burndb_get_ancestor_block_hash(tx, i, tip_block_hash)?.expect(&format!("Discontiguous index: missing block {}", i));
             let ancestor_snapshot = BurnDB::get_block_snapshot(tx, &block_hash)?.expect(&format!("Discontiguous index: missing block {}", block_hash));
-            fresh_chs.push(ancestor_snapshot.consensus_hash.clone());
+            fresh_chs.push(ancestor_snapshot.consensus_hash);
         }
 
         return Ok(fresh_chs);
