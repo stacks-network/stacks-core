@@ -390,14 +390,14 @@ impl PeerNetwork {
     pub fn send_message(&mut self, neighbor_key: &NeighborKey, message: StacksMessage, ttl: u64) -> Result<ReplyHandleP2P, net_error> {
         let event_id_opt = self.events.get(&neighbor_key);
         if event_id_opt.is_none() {
-            warn!("Not connected to {:?}", &neighbor_key);
+            info!("Not connected to {:?}", &neighbor_key);
             return Err(net_error::NoSuchNeighbor);
         }
 
         let event_id = event_id_opt.unwrap();
         let convo_opt = self.peers.get_mut(event_id);
         if convo_opt.is_none() {
-            warn!("No ongoing conversation with {:?}", &neighbor_key);
+            info!("No ongoing conversation with {:?}", &neighbor_key);
             return Err(net_error::PeerNotConnected);
         }
 
@@ -411,14 +411,14 @@ impl PeerNetwork {
     pub fn relay_message(&mut self, neighbor_key: &NeighborKey, message: StacksMessage) -> Result<(), net_error> {
         let event_id_opt = self.events.get(&neighbor_key);
         if event_id_opt.is_none() {
-            warn!("Not connected to {:?}", &neighbor_key);
+            info!("Not connected to {:?}", &neighbor_key);
             return Err(net_error::NoSuchNeighbor);
         }
 
         let event_id = event_id_opt.unwrap();
         let convo_opt = self.peers.get_mut(event_id);
         if convo_opt.is_none() {
-            warn!("No ongoing conversation with {:?}", &neighbor_key);
+            info!("No ongoing conversation with {:?}", &neighbor_key);
             return Err(net_error::PeerNotConnected);
         }
 
@@ -936,6 +936,20 @@ impl PeerNetwork {
         Ok((unhandled, !convo_dead))
     }
 
+    /// Process any newly-connecting sockets
+    fn process_connecting_sockets(&mut self, poll_state: &mut NetworkPollState) -> () {
+        for event_id in poll_state.ready.iter() {
+            if self.connecting.contains_key(event_id) {
+                let (socket, outbound) = self.connecting.remove(event_id).unwrap();
+                debug!("{:?}: Connected event {}: {:?} (outbound={})", &self.local_peer, event_id, &socket, outbound);
+
+                if let Err(_e) = self.register_peer(*event_id, socket, outbound) {
+                    debug!("{:?}: Failed to register connected event {}: {:?}", &self.local_peer, event_id, &_e);
+                }
+            }
+        }
+    }
+
     /// Process sockets that are ready, but specifically inbound or outbound only.
     /// Advance the state of all such conversations with remote peers.
     /// Return the list of events that correspond to failed conversations, as well as the set of
@@ -945,15 +959,6 @@ impl PeerNetwork {
         let mut unhandled : HashMap<usize, Vec<StacksMessage>> = HashMap::new();
 
         for event_id in &poll_state.ready {
-            if self.connecting.contains_key(&event_id) {
-                let (socket, outbound) = self.connecting.remove(&event_id).unwrap();
-                debug!("{:?}: Connected event {}: {:?} (outbound={})", &self.local_peer, event_id, &socket, outbound);
-
-                if let Err(_e) = self.register_peer(*event_id, socket, outbound) {
-                    debug!("{:?}: Failed to register connected event {}", &self.local_peer, event_id);
-                }
-            }
-
             if !self.sockets.contains_key(&event_id) {
                 test_debug!("Rogue socket event {}", event_id);
                 to_remove.push(*event_id);
@@ -1447,6 +1452,9 @@ impl PeerNetwork {
 
         // set up new inbound conversations
         self.process_new_sockets(&mut poll_state)?;
+    
+        // set up sockets that have finished connecting
+        self.process_connecting_sockets(&mut poll_state);
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
         let (error_events, mut unhandled_messages) = self.process_ready_sockets(burndb, chainstate, &mut poll_state);
@@ -1530,16 +1538,14 @@ impl PeerNetwork {
         }?;
 
         let result = self.dispatch_network(burndb, chainstate, dns_client_opt, p2p_poll_state)?;
-        
-        let mut http = self.http.take();
-        match http {
-            None => {},
-            Some(ref mut http_net) => {
-                http_net.run(self.chain_view.clone(), burndb, &mut self.peerdb, chainstate, poll_timeout)?;
-            }
+       
+        match self.http {
+            Some(ref mut http) => {
+                http.run(self.chain_view.clone(), burndb, &mut self.peerdb, chainstate, poll_timeout)?;
+            },
+            None => {}
         }
-        self.http = http;
-
+        
         Ok(result)
     }
 }
@@ -1554,6 +1560,7 @@ mod test {
     use std::thread;
     use std::time;
     use util::log;
+    use util::sleep_ms;
     use burnchains::*;
     use burnchains::burnchain::*;
 
@@ -1640,7 +1647,7 @@ mod test {
         use std::net::TcpListener;
         let listener = TcpListener::bind("127.0.0.1:2100").unwrap();
 
-        // start fake endpoint, which will accept once and wait 5 seconds
+        // start fake neighbor endpoint, which will accept once and wait 5 seconds
         let endpoint_thread = thread::spawn(move || {
             let (sock, addr) = listener.accept().unwrap();
             test_debug!("Accepted {:?}", &addr);
@@ -1651,18 +1658,55 @@ mod test {
 
         // start dispatcher
         let p2p_thread = thread::spawn(move || {
-            for i in 0..3 {
+            for i in 0..5 {
                 test_debug!("dispatch batch {}", i);
+
                 let dispatch_count = p2p.dispatch_requests();
                 if dispatch_count >= 1 {
                     test_debug!("Dispatched {} requests", dispatch_count);
                 }
+
+                let mut poll_state = match p2p.network {
+                    None => {
+                        panic!("network not connected");
+                    },
+                    Some(ref mut network) => {
+                        network.poll(100).unwrap()
+                    }
+                };
+
+                p2p.process_new_sockets(&mut poll_state).unwrap();
+                p2p.process_connecting_sockets(&mut poll_state);
+
                 thread::sleep(time::Duration::from_millis(1000));
             }
         });
 
         h.connect_peer(&neighbor.addr.clone()).unwrap();
-        h.relay_signed_message(&neighbor.addr.clone(), ping.clone()).unwrap();
+
+        // will eventually accept
+        let mut sent = false;
+        for i in 0..10 {
+            match h.relay_signed_message(&neighbor.addr.clone(), ping.clone()) {
+                Ok(_) => {
+                    sent = true;
+                    break;
+                },
+                Err(net_error::NoSuchNeighbor) => {
+                    test_debug!("Failed to relay; try again in {} ms", (i + 1) * 1000);
+                    sleep_ms((i + 1) * 1000);
+                },
+                Err(e) => {
+                    eprintln!("{:?}", &e);
+                    assert!(false);
+                }
+            }
+        }
+
+        if !sent {
+            error!("Failed to relay to neighbor");
+            assert!(false);
+        }
 
         // should be unable to relay to a nonexistent neighbor
         let nonexistent_neighbor = NeighborKey {

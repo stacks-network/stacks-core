@@ -358,23 +358,26 @@ impl HttpPeer {
         Ok(!convo_dead)
     }
 
-    /// Process sockets that are ready, but specifically inbound or outbound only.
-    /// Advance the state of all such conversations with remote peers.
-    /// Return the list of events that correspond to failed conversations
-    fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState) -> Vec<usize> {
-        let mut to_remove = vec![];
-        for event_id in &poll_state.ready {
+    /// Process newly-connected sockets
+    fn process_connecting_sockets(&mut self, poll_state: &mut NetworkPollState) -> () {
+        for event_id in poll_state.ready.iter() {
             if self.connecting.contains_key(event_id) {
                 let (socket, data_url, initial_request_opt) = self.connecting.remove(event_id).unwrap();
                 debug!("Event {} connected ({:?})", event_id, &data_url);
 
                 if let Err(_e) = self.register_http(*event_id, socket, data_url.clone(), initial_request_opt) {
                     debug!("Failed to register HTTP connection ({}, {:?})", event_id, data_url);
-                    to_remove.push(*event_id);
-                    continue;
                 }
             }
+        }
+    }
 
+    /// Process sockets that are ready, but specifically inbound or outbound only.
+    /// Advance the state of all such conversations with remote peers.
+    /// Return the list of events that correspond to failed conversations
+    fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState) -> Vec<usize> {
+        let mut to_remove = vec![];
+        for event_id in &poll_state.ready {
             if !self.sockets.contains_key(&event_id) {
                 test_debug!("Rogue socket event {}", event_id);
                 to_remove.push(*event_id);
@@ -489,6 +492,9 @@ impl HttpPeer {
         // set up new inbound conversations
         self.process_new_sockets(&mut poll_state)?;
 
+        // set up connected sockets
+        self.process_connecting_sockets(&mut poll_state);
+
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
         let error_events = self.process_ready_sockets(&mut poll_state, burndb, peerdb, chainstate);
         for error_event in error_events {
@@ -594,10 +600,6 @@ mod test {
         let peer_config = TestPeerConfig::new(test_name, peer_p2p, peer_http);
         let mut peer = TestPeer::new(peer_config);
         let view = peer.get_burnchain_view().unwrap();
-
-        let mut http_server = HttpPeer::new(0x9abcdef, peer.config.burnchain.clone(), view.clone(), conn_opts);
-        http_server.bind(&format!("0.0.0.0:{}", peer_http).parse::<SocketAddr>().unwrap(), 1000).unwrap();
-
         let (http_sx, http_rx) = sync_channel(1);
 
         let mut client_requests = vec![];
@@ -612,12 +614,8 @@ mod test {
             let view = peer.get_burnchain_view().unwrap();
             loop {
                 test_debug!("http wakeup");
-
-                let mut burndb = peer.burndb.take().unwrap();
-                let mut stacks_node = peer.stacks_node.take().unwrap();
-                http_server.run(view.clone(), &mut burndb, &mut peer.network.peerdb, &mut stacks_node.chainstate, 100).unwrap();
-                peer.burndb = Some(burndb);
-                peer.stacks_node = Some(stacks_node);
+                
+                peer.step().unwrap();
 
                 // asked to yield?
                 match http_rx.try_recv() {
