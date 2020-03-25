@@ -1638,7 +1638,7 @@ mod test {
     #[test]
     fn test_step_walk_1_neighbor_plain() {
         let mut peer_1_config = TestPeerConfig::from_port(31990);
-        let peer_2_config = TestPeerConfig::from_port(31991);
+        let peer_2_config = TestPeerConfig::from_port(31992);
 
         // peer 1 crawls peer 2
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
@@ -1711,7 +1711,7 @@ mod test {
     #[test]
     fn test_step_walk_1_neighbor_heartbeat_ping() {
         let mut peer_1_config = TestPeerConfig::from_port(31992);
-        let mut peer_2_config = TestPeerConfig::from_port(31993);
+        let mut peer_2_config = TestPeerConfig::from_port(31994);
 
         peer_1_config.connection_opts.heartbeat = 10;
         peer_2_config.connection_opts.heartbeat = 10;
@@ -1800,7 +1800,7 @@ mod test {
     #[test]
     fn test_step_walk_1_neighbor_bootstrapping() {
         let mut peer_1_config = TestPeerConfig::from_port(32100);
-        let peer_2_config = TestPeerConfig::from_port(32101);
+        let peer_2_config = TestPeerConfig::from_port(32102);
 
         // peer 1 crawls peer 2, but peer 1 doesn't add peer 2 to its frontier becuase peer 2 is
         // too far behind.
@@ -1866,7 +1866,7 @@ mod test {
     #[test]
     fn test_step_walk_1_neighbor_behind() {
         let mut peer_1_config = TestPeerConfig::from_port(32200);
-        let peer_2_config = TestPeerConfig::from_port(32201);
+        let peer_2_config = TestPeerConfig::from_port(32202);
 
         // peer 1 crawls peer 2, and peer 1 adds peer 2 to its frontier even though peer 2 does
         // not, because peer 2 is too far ahead
@@ -1951,7 +1951,7 @@ mod test {
         // peer 2 has 10 other neighbors.
         // Goal: peer 1 learns about the 10 other neighbors.
         let mut peer_1_config = TestPeerConfig::from_port(32300);
-        let mut peer_2_config = TestPeerConfig::from_port(32301);
+        let mut peer_2_config = TestPeerConfig::from_port(32302);
         let mut peer_2_neighbors = vec![];
         for i in 0..10 {
             let n = TestPeerConfig::from_port(i + 2 + 32300);
@@ -2062,10 +2062,10 @@ mod test {
         // peer 2 has 10 other neighbors, 5 of which are too far behind peer 1.
         // Goal: peer 1 learns about the 5 fresher neighbors.
         let mut peer_1_config = TestPeerConfig::from_port(32400);
-        let mut peer_2_config = TestPeerConfig::from_port(32401);
+        let mut peer_2_config = TestPeerConfig::from_port(32402);
         let mut peer_2_neighbors = vec![];
         for i in 0..10 {
-            let n = TestPeerConfig::from_port(i + 2 + 32400);
+            let n = TestPeerConfig::from_port(2*i + 4 + 32400);
             peer_2_config.add_neighbor(&n.to_neighbor());
 
             let p = TestPeer::new(n);
@@ -2445,7 +2445,7 @@ mod test {
     }
     
     fn setup_peer_config(i: usize, port_base: u16, neighbor_count: usize, peer_count: usize) -> TestPeerConfig {
-        let mut conf = TestPeerConfig::from_port(port_base + (i as u16));
+        let mut conf = TestPeerConfig::from_port(port_base + (2*i as u16));
         conf.connection_opts.num_neighbors = neighbor_count as u64;
         conf.connection_opts.soft_num_neighbors = neighbor_count as u64;
 
