@@ -75,17 +75,20 @@ pub struct Node {
 impl Node {
 
     /// Instantiate and initialize a new node, given a config
-    pub fn new(config: Config) -> Self {
+    pub fn new<F>(config: Config, boot_block_exec: F) -> Self
+    where F: FnOnce(&mut ClarityTx) -> () {
         
         let seed = Sha256Sum::from_data(format!("{}", config.node.name).as_bytes());
         let keychain = Keychain::default(seed.as_bytes().to_vec());
 
         let initial_balances = config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
 
-        let chain_state = match StacksChainState::open_testnet(
+        let chain_state = match StacksChainState::open_and_exec(
+            false, 
             TESTNET_CHAIN_ID, 
             &config.get_chainstate_path(), 
-            Some(initial_balances), |_| {}) {
+            Some(initial_balances), 
+            boot_block_exec) {
             Ok(res) => res,
             Err(_) => panic!("Error while opening chain state at path {:?}", config.get_chainstate_path())
         };

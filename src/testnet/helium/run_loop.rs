@@ -1,7 +1,7 @@
 use super::{Config, Node, BurnchainSimulator, BurnchainState, LeaderTenure};
 
 use chainstate::burn::{ConsensusHash};
-use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState};
+use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState, ClarityTx};
 use chainstate::burn::{BlockHeaderHash};
 use chainstate::stacks::{StacksBlock, TransactionAuth, TransactionSpendingCondition, SinglesigSpendingCondition, TransactionPayload};
 use chainstate::stacks::events::StacksTransactionReceipt;
@@ -39,11 +39,16 @@ macro_rules! info_green {
 }
 
 impl RunLoop {
-
-    /// Sets up a runloop and nodes, given a config.
     pub fn new(config: Config) -> Self {
+        RunLoop::new_with_boot_exec(config, |_| {})
+    }
+
+    /// Sets up a runloop and node, given a config.
+    pub fn new_with_boot_exec<F>(config: Config, boot_exec: F) -> Self
+    where F: Fn(&mut ClarityTx) -> () {
+
         // Build node based on config
-        let node = Node::new(config.clone());
+        let node = Node::new(config.clone(), boot_exec);
 
         Self {
             config,
