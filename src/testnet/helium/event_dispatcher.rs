@@ -87,6 +87,7 @@ impl EventObserver {
         let res = stream.write_bufs(&vec![payload.as_bytes().into()]);
         if let Err(err) = res {
             error!("Event dispatcher failed sending buffer: {:?}", err);
+            panic!();
         }
     }
 }
