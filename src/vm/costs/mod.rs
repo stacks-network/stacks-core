@@ -1,26 +1,36 @@
 pub mod cost_functions;
 
-use std::fmt;
-use vm::errors::CheckErrors;
+use std::{fmt, cmp};
 use vm::types::TypeSignature;
+use std::convert::TryFrom;
 
-type Result<T> = std::result::Result<T, CheckErrors>;
+type Result<T> = std::result::Result<T, CostErrors>;
 
 macro_rules! runtime_cost {
     ( $cost_spec:expr, $env:expr, $input:expr ) => {
         {
-            use vm::costs::CostTracker;
+            use vm::costs::{CostTracker, CostErrors};
             use std::convert::TryInto;
-            $input.try_into()
-                .map_err(|_| CheckErrors::CostOverflow)
+            let input = $input.try_into()
+                .map_err(|_| CostErrors::CostOverflow)
                 .and_then(|input| {
                     ($cost_spec).compute_cost(input)
-                })
-                .and_then(|cost| {
-                    CostTracker::add_cost($env, cost)
-                })
+                });
+            match input {
+                Ok(cost) => CostTracker::add_cost($env, cost),
+                Err(e) => Err(e)
+            }
         }
     }
+}
+
+pub fn analysis_typecheck_cost<T: CostTracker>(track: &mut T, t1: &TypeSignature, t2: &TypeSignature) -> Result<()> {
+    let t1_size = t1.type_size()
+        .map_err(|_| CostErrors::CostOverflow)?;
+    let t2_size = t2.type_size()
+        .map_err(|_| CostErrors::CostOverflow)?;
+    let cost = cost_functions::ANALYSIS_TYPE_CHECK.compute_cost(cmp::max(t1_size, t2_size) as u64)?;
+    track.add_cost(cost)
 }
 
 pub struct TypeCheckCost {}
@@ -31,14 +41,21 @@ pub trait CostTracker {
 
 // Don't track!
 impl CostTracker for () {
-    fn add_cost(&mut self, _cost: ExecutionCost) -> std::result::Result<(), CheckErrors> {
+    fn add_cost(&mut self, _cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         Ok(())
     }
 }
 
+#[derive(Debug)]
 pub struct LimitedCostTracker {
     total: ExecutionCost,
     limit: ExecutionCost
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum CostErrors {
+    CostOverflow,
+    CostBalanceExceeded(ExecutionCost, ExecutionCost),
 }
 
 impl LimitedCostTracker {
@@ -54,10 +71,21 @@ impl LimitedCostTracker {
 }
 
 impl CostTracker for LimitedCostTracker {
-    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CheckErrors> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.total.add(&cost)?;
         if self.total.exceeds(&self.limit) {
-            Err(CheckErrors::CostBalanceExceeded(self.total.clone(), self.limit.clone()))
+            Err(CostErrors::CostBalanceExceeded(self.total.clone(), self.limit.clone()))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl CostTracker for &mut LimitedCostTracker {
+    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
+        self.total.add(&cost)?;
+        if self.total.exceeds(&self.limit) {
+            Err(CostErrors::CostBalanceExceeded(self.total.clone(), self.limit.clone()))
         } else {
             Ok(())
         }
@@ -76,6 +104,7 @@ pub enum CostFunctions {
     Constant(u64),
     Linear(u64, u64),
     NLogN(u64, u64),
+    LogN(u64, u64),
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
@@ -111,11 +140,11 @@ pub trait CostOverflowingMath <T> {
 impl CostOverflowingMath <u64> for u64 {
     fn cost_overflow_mul(self, other: u64) -> Result<u64> {
         self.checked_mul(other)
-            .ok_or_else(|| CheckErrors::CostOverflow)
+            .ok_or_else(|| CostErrors::CostOverflow)
     }
     fn cost_overflow_add(self, other: u64) -> Result<u64> {
         self.checked_add(other)
-            .ok_or_else(|| CheckErrors::CostOverflow)
+            .ok_or_else(|| CostErrors::CostOverflow)
     }
 }
 
@@ -194,10 +223,19 @@ impl CostFunctions {
             CostFunctions::Constant(val) => Ok(*val),
             CostFunctions::Linear(a, b) => { a.cost_overflow_mul(input)?
                                              .cost_overflow_add(*b) }
+            CostFunctions::LogN(a, b) => {
+                // a*input*log(input)) + b
+                //  and don't do log(0).
+                int_log2(cmp::max(input, 1))
+                    .ok_or_else(|| CostErrors::CostOverflow)?
+                    .cost_overflow_mul(*a)?
+                    .cost_overflow_add(*b)
+            }
             CostFunctions::NLogN(a, b) => {
                 // a*input*log(input)) + b
-                int_log2(input)
-                    .ok_or_else(|| CheckErrors::CostOverflow)?
+                //  and don't do log(0).
+                int_log2(cmp::max(input, 1))
+                    .ok_or_else(|| CostErrors::CostOverflow)?
                     .cost_overflow_mul(input)?
                     .cost_overflow_mul(*a)?
                     .cost_overflow_add(*b)
@@ -250,13 +288,13 @@ mod unit_tests {
     fn test_simple_overflows() {
         assert_eq!(
             u64::max_value().cost_overflow_add(1),
-            Err(CheckErrors::CostOverflow));
+            Err(CostErrors::CostOverflow));
         assert_eq!(
             u64::max_value().cost_overflow_mul(2),
-            Err(CheckErrors::CostOverflow));
+            Err(CostErrors::CostOverflow));
         assert_eq!(
-            CostFunctions::NLogN(1, 1).compute_cost(0),
-            Err(CheckErrors::CostOverflow));
+            CostFunctions::NLogN(1, 1).compute_cost(u64::max_value()),
+            Err(CostErrors::CostOverflow));
     }
 
     #[test]

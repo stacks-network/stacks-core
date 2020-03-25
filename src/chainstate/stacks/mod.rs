@@ -58,7 +58,7 @@ use chainstate::stacks::index::Error as marf_error;
 use chainstate::stacks::db::StacksHeaderInfo;
 use chainstate::stacks::db::accounts::MinerReward;
 
-use net::StacksMessageCodec;
+use net::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
 
@@ -86,9 +86,18 @@ pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21;        // N
 pub const STACKS_BLOCK_VERSION: u8 = 0;
 pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 
+pub const MAX_TRANSACTION_LEN: u32 = MAX_MESSAGE_LEN;
+
 impl From<StacksAddress> for StandardPrincipalData {
     fn from(addr: StacksAddress) -> StandardPrincipalData {
-        StandardPrincipalData(addr.version, addr.bytes.as_bytes().clone())
+        StandardPrincipalData(addr.version, addr.bytes.0)
+    }
+}
+
+impl From<StacksAddress> for PrincipalData {
+    fn from(addr: StacksAddress) -> PrincipalData {
+        PrincipalData::from(
+            StandardPrincipalData::from(addr))
     }
 }
 

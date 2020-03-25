@@ -11,7 +11,7 @@ use vm::errors::{RuntimeErrorType, CheckErrors, InterpreterResult as Result, Inc
 use util::hash;
 
 pub use vm::types::signatures::{
-    TupleTypeSignature, AssetIdentifier, FixedFunction,
+    TupleTypeSignature, AssetIdentifier, FixedFunction, FunctionSignature,
     TypeSignature, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
     BUFF_64, BUFF_32, BUFF_20, BufferLength
 };
@@ -408,6 +408,15 @@ impl fmt::Display for Value {
 }
 
 impl PrincipalData {
+    pub fn version(&self) -> u8 {
+        match self {
+            PrincipalData::Standard(StandardPrincipalData(version, _)) => *version,
+            PrincipalData::Contract(QualifiedContractIdentifier { issuer, name: _ }) => {
+                issuer.0
+            }
+        }
+    }
+
     pub fn parse_qualified_contract_principal(literal: &str) -> Result<PrincipalData> {
         let contract_id = QualifiedContractIdentifier::parse(literal)?;
         Ok(PrincipalData::Contract(contract_id))

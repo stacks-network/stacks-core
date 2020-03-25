@@ -4,11 +4,14 @@ use vm::types::{TypeSignature, TupleTypeSignature};
 use vm::MAX_CALL_STACK_DEPTH;
 use std::error;
 use std::fmt;
+use vm::costs::{ExecutionCost, CostErrors};
 
 pub type ParseResult <T> = Result<T, ParseError>;
 
 #[derive(Debug, PartialEq)]
 pub enum ParseErrors {
+    CostOverflow,
+    CostBalanceExceeded(ExecutionCost, ExecutionCost),
     TooManyExpressions,
     ExpressionStackDepthTooDeep,
     FailedCapturingInput,
@@ -25,6 +28,8 @@ pub enum ParseErrors {
     FailedParsingRemainder(String),
     ClosingParenthesisUnexpected,
     ClosingParenthesisExpected,
+    ClosingTupleLiteralUnexpected,
+    ClosingTupleLiteralExpected,
     CircularReference(Vec<String>),
     NameAlreadyUsed(String),
     TraitReferenceNotAllowed,
@@ -32,6 +37,8 @@ pub enum ParseErrors {
     DefineTraitBadSignature,
     ImplTraitBadSignature,
     TraitReferenceUnknown(String),
+    CommaSeparatorUnexpected,
+    ColonSeparatorUnexpected,
 }
 
 #[derive(Debug, PartialEq)]
@@ -94,10 +101,22 @@ impl From<ParseErrors> for ParseError {
     }
 }
 
+
+impl From<CostErrors> for ParseError {
+    fn from(err: CostErrors) -> Self {
+        match err {
+            CostErrors::CostOverflow => ParseError::new(ParseErrors::CostOverflow),
+            CostErrors::CostBalanceExceeded(a,b) => ParseError::new(ParseErrors::CostBalanceExceeded(a,b)),
+        }
+    }
+}
+
 impl DiagnosableError for ParseErrors {
 
     fn message(&self) -> String {
         match &self {
+            ParseErrors::CostOverflow => format!("Used up cost budget during the parse"),
+            ParseErrors::CostBalanceExceeded(bal, used) => format!("Used up cost budget during the parse: {} balance, {} used", bal, used),
             ParseErrors::TooManyExpressions => format!("Too many expressions"),
             ParseErrors::FailedCapturingInput => format!("Failed to capture value from input"),
             ParseErrors::SeparatorExpected(found) => format!("Expected whitespace or a close parens. Found: '{}'", found),
@@ -113,6 +132,10 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::FailedParsingRemainder(remainder) => format!("Failed to lex input remainder: {}", remainder),
             ParseErrors::ClosingParenthesisUnexpected => format!("Tried to close list which isn't open."),
             ParseErrors::ClosingParenthesisExpected => format!("List expressions (..) left opened."),
+            ParseErrors::ClosingTupleLiteralUnexpected => format!("Tried to close tuple literal which isn't open."),
+            ParseErrors::ClosingTupleLiteralExpected => format!("Tuple literal {{..}} left opened."),
+            ParseErrors::ColonSeparatorUnexpected => format!("Misplaced colon."),
+            ParseErrors::CommaSeparatorUnexpected => format!("Misplaced comma."),
             ParseErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),
             ParseErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             ParseErrors::ImportTraitBadSignature => format!("(use-trait ...) expects a trait name and a trait identifier"),

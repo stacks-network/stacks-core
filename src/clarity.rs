@@ -19,15 +19,15 @@ use rusqlite::Transaction;
 
 use util::db::FromColumn;
 
-use vm::ast::parse;
+use vm::ast::{build_ast};
 use vm::contexts::OwnedEnvironment;
 use vm::database::{ClarityDatabase, SqliteConnection,
                    MarfedKV, MemoryBackingStore, NULL_HEADER_DB};
-use vm::errors::{InterpreterResult};
+use vm::errors::{InterpreterResult, RuntimeErrorType, Error};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
-use vm::analysis::{AnalysisDatabase, run_analysis};
+use vm::analysis;
+use vm::analysis::{errors::CheckResult, AnalysisDatabase, ContractAnalysis};
 use vm::analysis::contract_interface_builder::build_contract_interface;
-use vm::analysis::types::ContractAnalysis;
 use vm::types::{QualifiedContractIdentifier, PrincipalData};
 use vm::costs::LimitedCostTracker;
 
@@ -76,6 +76,20 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
         panic_test!();
     })
 }
+
+fn parse(contract_identifier: &QualifiedContractIdentifier, source_code: &str) -> Result<Vec<SymbolicExpression>, Error> {
+    let ast = build_ast(contract_identifier, source_code, &mut ())
+        .map_err(|e| RuntimeErrorType::ASTError(e))?;
+    Ok(ast.expressions)
+}
+
+fn run_analysis(contract_identifier: &QualifiedContractIdentifier, 
+                expressions: &mut [SymbolicExpression],
+                analysis_db: &mut AnalysisDatabase, 
+                save_contract: bool) -> CheckResult<ContractAnalysis> {
+    analysis::run_analysis(contract_identifier, expressions, analysis_db, save_contract, LimitedCostTracker::new_max_limit())
+}
+
 
 fn create_or_open_db(path: &String) -> Connection {
     let open_flags = match fs::metadata(path) {

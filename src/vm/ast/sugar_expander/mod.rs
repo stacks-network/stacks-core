@@ -53,7 +53,17 @@ impl SugarExpander {
                     let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
                     let expression = self.transform(drain, contract_ast)?;
                     SymbolicExpression::list(expression.into_boxed_slice())
-                }
+                },
+                PreSymbolicExpressionType::Tuple(pre_exprs) => {
+                    let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
+                    let expression = self.transform(drain, contract_ast)?;
+                    let mut pairs = expression.chunks(2)
+                                     .map(|pair| pair.to_vec().into_boxed_slice())
+                                     .map(SymbolicExpression::list)
+                                     .collect::<Vec<_>>();
+                    pairs.insert(0, SymbolicExpression::atom("tuple".to_string().try_into().unwrap()));
+                    SymbolicExpression::list(pairs.into_boxed_slice())
+                },
                 PreSymbolicExpressionType::SugaredContractIdentifier(contract_name) => {
                     let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name);
                     SymbolicExpression::literal_value(Value::Principal(PrincipalData::Contract(contract_identifier)))
@@ -73,7 +83,7 @@ impl SugarExpander {
                     }                    
                 },
             };
-            expr.id = pre_expr.id;
+            // expr.id will be set by the subsequent expression identifier pass.
             expr.span = pre_expr.span.clone();
             expressions.push(expr);
         }
@@ -106,6 +116,12 @@ mod test {
 
     fn make_pre_list(start_line: u32, start_column: u32, end_line: u32, end_column: u32, x: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::list(x);
+        e.set_span(start_line, start_column, end_line, end_column);
+        e
+    }
+
+    fn make_pre_tuple(start_line: u32, start_column: u32, end_line: u32, end_column: u32, x: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
+        let mut e = PreSymbolicExpression::tuple(x);
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
@@ -207,6 +223,24 @@ mod test {
         assert_eq!(contract_ast.expressions, ast, "Should match expected symbolic expression");
     }
 
+    #[test]
+    fn test_transform_tuple_literal() {
+       let pre_ast = vec![
+           make_pre_tuple(1, 1, 1, 9, Box::new([
+             make_pre_atom("id", 1, 2, 1, 3),
+             make_pre_atom_value(Value::Int(1337), 1, 5, 1, 8)]))];
+        let ast = vec![
+            make_list(1, 1, 1, 9, Box::new([
+              make_atom("tuple", 0, 0, 0, 0),
+              make_list(0, 0, 0, 0, Box::new([
+                make_atom("id", 1, 2, 1, 3),
+                make_literal_value(Value::Int(1337), 1, 5, 1, 8)]))]))];
+        let contract_id = QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.contract-a").unwrap();
+        let mut contract_ast = ContractAST::new(contract_id.clone(), pre_ast);
+        let expander = SugarExpander::new(contract_id.issuer);
+        expander.run(&mut contract_ast).unwrap();
+        assert_eq!(contract_ast.expressions, ast, "Should match expected tuple symbolic expression");
+    }
     #[test]
     fn test_transform_sugared_contract_identifier() {
         let contract_name = "tokens".into();

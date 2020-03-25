@@ -85,7 +85,7 @@ impl Node {
         let chain_state = match StacksChainState::open_testnet(
             TESTNET_CHAIN_ID, 
             &config.get_chainstate_path(), 
-            Some(initial_balances)) {
+            Some(initial_balances), |_| {}) {
             Ok(res) => res,
             Err(_) => panic!("Error while opening chain state at path {:?}", config.get_chainstate_path())
         };

@@ -367,29 +367,18 @@ impl StacksMessageCodec for TransactionPostCondition {
     }
 }
 
-impl StacksMessageCodec for StacksTransaction {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &(self.version as u8))?;
-        write_next(fd, &self.chain_id)?;
-        write_next(fd, &self.auth)?;
-        write_next(fd, &(self.anchor_mode as u8))?;
-        write_next(fd, &(self.post_condition_mode as u8))?;
-        write_next(fd, &self.post_conditions)?;
-        write_next(fd, &self.payload)?;
-        Ok(())
-    }
+impl StacksTransaction {
+    pub fn consensus_deserialize_with_len<R: Read>(fd: &mut R) -> Result<(StacksTransaction, u64), net_error> {
+        let mut bound_read = BoundReader::from_reader(fd, MAX_TRANSACTION_LEN.into());
+        let fd = &mut bound_read;
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksTransaction, net_error> {
         let version_u8 : u8             = read_next(fd)?;
         let chain_id : u32              = read_next(fd)?;
         let auth : TransactionAuth      = read_next(fd)?;
         let anchor_mode_u8 : u8         = read_next(fd)?;
         let post_condition_mode_u8 : u8 = read_next(fd)?;
-        let post_conditions : Vec<TransactionPostCondition> = {
-            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            read_next(&mut bound_read)
-        }?;
-        
+        let post_conditions : Vec<TransactionPostCondition> = read_next(fd)?;
+
         let payload : TransactionPayload = read_next(fd)?;
 
         let version = 
@@ -448,7 +437,7 @@ impl StacksMessageCodec for StacksTransaction {
             }
         };
 
-        Ok(StacksTransaction {
+        Ok((StacksTransaction {
             version,
             chain_id,
             auth,
@@ -456,7 +445,25 @@ impl StacksMessageCodec for StacksTransaction {
             post_condition_mode,
             post_conditions,
             payload
-        })
+        }, fd.num_read()))
+    }
+}
+
+impl StacksMessageCodec for StacksTransaction {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &(self.version as u8))?;
+        write_next(fd, &self.chain_id)?;
+        write_next(fd, &self.auth)?;
+        write_next(fd, &(self.anchor_mode as u8))?;
+        write_next(fd, &(self.post_condition_mode as u8))?;
+        write_next(fd, &self.post_conditions)?;
+        write_next(fd, &self.payload)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksTransaction, net_error> {
+        StacksTransaction::consensus_deserialize_with_len(fd)
+            .map(|(result, _)| result)
     }
 }
 
@@ -668,7 +675,7 @@ impl StacksTransaction {
     }
 
     /// Verify this transaction's signatures
-    pub fn verify(&self) -> Result<bool, net_error> {
+    pub fn verify(&self) -> Result<(), net_error> {
         self.auth.verify(&self.verify_begin())
     }
 
@@ -1051,7 +1058,7 @@ mod test {
     // serialized data changes.
     fn test_signature_and_corruption(signed_tx: &StacksTransaction, corrupt_origin: bool, corrupt_sponsor: bool) -> () {
         // signature is well-formed otherwise
-        assert!(signed_tx.verify().unwrap());
+        signed_tx.verify().unwrap();
 
         // mess with the auth hash code
         let mut corrupt_tx_hash_mode = signed_tx.clone();

@@ -5,7 +5,7 @@ use std::convert::{TryFrom, TryInto};
 use std::collections::{BTreeMap, HashMap};
 
 use address::c32;
-use vm::costs::cost_functions;
+use vm::costs::{cost_functions, CostOverflowingMath};
 use vm::types::{Value, MAX_VALUE_SIZE, MAX_TYPE_DEPTH, WRAPPER_VALUE_SIZE,
                 QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName, TraitDefinition};
@@ -126,6 +126,14 @@ impl From<&str> for TypeSignature {
     }
 }
 
+impl From<FixedFunction> for FunctionSignature {
+    fn from(data: FixedFunction) -> FunctionSignature {
+        let FixedFunction { args, returns } = data;
+        let args = args.into_iter().map(|x| x.signature).collect();
+        FunctionSignature { args, returns }
+    }
+}
+
 impl From<ListTypeData> for TypeSignature {
     fn from(data: ListTypeData) -> Self {
         ListType(data)
@@ -239,6 +247,14 @@ impl TypeSignature {
             Err(CheckErrors::TypeSignatureTooDeep)
         } else {
             Ok(ResponseType(Box::new((ok_type, err_type))))
+        }
+    }
+
+    pub fn is_response_type(&self) -> bool {
+        if let TypeSignature::ResponseType(_) = self {
+            true
+        } else {
+            false
         }
     }
 
@@ -402,7 +418,26 @@ impl TupleTypeSignature {
     }
 }
 
+impl FixedFunction {
+    pub fn total_type_size(&self) -> Result<u64> {
+        let mut function_type_size = u64::from(self.returns.type_size()?);
+        for arg in self.args.iter() {
+            function_type_size = function_type_size.cost_overflow_add(
+                u64::from(arg.signature.type_size()?))?;
+        }
+        Ok(function_type_size)
+    }
+}
+
 impl FunctionSignature {
+    pub fn total_type_size(&self) -> Result<u64> {
+        let mut function_type_size = u64::from(self.returns.type_size()?);
+        for arg in self.args.iter() {
+            function_type_size = function_type_size.cost_overflow_add(
+                u64::from(arg.type_size()?))?;
+        }
+        Ok(function_type_size)
+    }
 
     pub fn check_args_trait_compliance(&self, args: Vec<TypeSignature>) -> bool {
         if args.len() != self.args.len() {
@@ -791,8 +826,13 @@ impl TypeSignature {
         }
     }
 
+    pub fn type_size(&self) -> Result<u32> {
+        self.inner_type_size()
+            .ok_or_else(|| CheckErrors::ValueTooLarge)
+    }
+
     /// Returns the size of the _type signature_
-    fn type_size(&self) -> Option<u32> {
+    fn inner_type_size(&self) -> Option<u32> {
         match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
@@ -803,13 +843,13 @@ impl TypeSignature {
             TupleType(tuple_sig) => tuple_sig.type_size(),
             ListType(list_type) => list_type.type_size(),
             OptionalType(t) => {
-                t.type_size()?
+                t.inner_type_size()?
                     .checked_add(1)
             },
             ResponseType(v) => {
                 let (t, s) = (&v.0, &v.1);
-                t.type_size()?
-                    .checked_add(s.type_size()?)?
+                t.inner_type_size()?
+                    .checked_add(s.inner_type_size()?)?
                     .checked_add(1)
             },
             TraitReferenceType(_) => Some(1),
@@ -831,7 +871,7 @@ impl ListTypeData {
     }
 
     fn type_size(&self) -> Option<u32> {
-        let total_size = self.entry_type.type_size()?
+        let total_size = self.entry_type.inner_type_size()?
             .checked_add(4 + 1)?; // 1 byte for Type enum, 4 for max_len.
         if total_size > MAX_VALUE_SIZE {
             None
@@ -852,7 +892,7 @@ impl TupleTypeSignature {
         for (name, type_signature) in self.type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
             type_map_size = type_map_size
-                .checked_add(type_signature.type_size()?)?
+                .checked_add(type_signature.inner_type_size()?)?
                 // name.len() is bound to MAX_STRING_LEN (128), so `as u32` won't ever truncate
                 .checked_add(name.len() as u32)?;
         }

@@ -148,7 +148,7 @@ macro_rules! impl_byte_array_from_column {
 }
 
 /// boilerplate code for querying rows 
-pub fn query_rows<T, P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<Vec<T>, Error>
+pub fn query_rows<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Vec<T>, Error>
 where
     P: IntoIterator,
     P::Item: ToSql,

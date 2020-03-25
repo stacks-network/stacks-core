@@ -45,6 +45,12 @@ pub struct ClarityBlockConnection<'a> {
     cost_track: Option<LimitedCostTracker>
 }
 
+pub struct ClarityReadOnlyConnection<'a> {
+    datastore: MarfedKV,
+    parent: &'a mut ClarityInstance,
+    header_db: &'a dyn HeadersDB,
+}
+
 #[derive(Debug)]
 pub enum Error {
     Analysis(CheckError),
@@ -139,6 +145,22 @@ impl ClarityInstance {
         }
     }
 
+    pub fn read_only_connection<'a>(&'a mut self, at_block: &BlockHeaderHash, header_db: &'a dyn HeadersDB) -> ClarityReadOnlyConnection<'a> {
+        let mut datastore = self.datastore.take()
+            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
+            //   doesn't restore it's parent's datastore
+            .expect("FAIL: use of begin_block while prior block neither committed nor rolled back.");
+
+        datastore
+            .set_chain_tip(at_block);
+
+        ClarityReadOnlyConnection {
+            datastore,
+            header_db,
+            parent: self
+        }
+    }
+
     #[cfg(test)]
     pub fn eval_read_only(&mut self, at_block: &BlockHeaderHash, header_db: &dyn HeadersDB,
                           contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
@@ -160,6 +182,61 @@ impl ClarityInstance {
     }
 }
 
+pub trait ClarityConnection {
+    /// Do something to the underlying DB that involves only reading.
+    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut ClarityDatabase) -> R;
+    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R;
+}
+
+impl ClarityConnection for ClarityBlockConnection <'_> {
+    /// Do something to the underlying DB that involves only reading.
+    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut ClarityDatabase) -> R {
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+
+    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R {
+        let mut db = AnalysisDatabase::new(&mut self.datastore);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+}
+
+impl ClarityConnection for ClarityReadOnlyConnection <'_> {
+    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut ClarityDatabase) -> R {
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+
+    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R {
+        let mut db = AnalysisDatabase::new(&mut self.datastore);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+}
+
+impl <'a> ClarityReadOnlyConnection <'a> {
+    pub fn done(self) {
+        self.parent.datastore.replace(self.datastore);
+    }
+}
+
 impl <'a> ClarityBlockConnection <'a> {
     /// Rolls back all changes in the current block by
     /// (1) dropping all writes from the current MARF tip,
@@ -177,11 +254,13 @@ impl <'a> ClarityBlockConnection <'a> {
     /// (1) committing the current MARF tip to storage,
     /// (2) committing side-storage.
     #[cfg(test)]
-    pub fn commit_block(mut self) {
+    pub fn commit_block(mut self) -> LimitedCostTracker {
         debug!("Commit Clarity datastore");
         self.datastore.test_commit();
 
         self.parent.datastore.replace(self.datastore);
+
+        self.cost_track.unwrap()
     }
     
     /// Commits all changes in the current block by
@@ -190,11 +269,13 @@ impl <'a> ClarityBlockConnection <'a> {
     /// block hash than the one opened (i.e. since the caller
     /// may not have known the "real" block hash at the 
     /// time of opening).
-    pub fn commit_to_block(mut self, final_bhh: &BlockHeaderHash) {
+    pub fn commit_to_block(mut self, final_bhh: &BlockHeaderHash) -> LimitedCostTracker {
         debug!("Commit Clarity datastore to {}", final_bhh);
         self.datastore.commit_to(final_bhh);
 
         self.parent.datastore.replace(self.datastore);
+
+        self.cost_track.unwrap()
     }
 
     /// Commits all changes in the current block by
@@ -203,11 +284,13 @@ impl <'a> ClarityBlockConnection <'a> {
     ///    before this saves, it updates the metadata headers in
     ///    the sidestore so that they don't get stepped on after
     ///    a miner re-executes a constructed block.
-    pub fn commit_block_will_move(mut self, will_move: &str) {
+    pub fn commit_block_will_move(mut self, will_move: &str) -> LimitedCostTracker {
         debug!("Commit Clarity datastore to {}", will_move);
         self.datastore.commit_for_move(will_move);
 
         self.parent.datastore.replace(self.datastore);
+
+        self.cost_track.unwrap()
     }
 
     /// Get the MARF root hash
@@ -253,9 +336,19 @@ impl <'a> ClarityBlockConnection <'a> {
                                   -> Result<(ContractAST, ContractAnalysis), Error> {
         let mut db = AnalysisDatabase::new(&mut self.datastore);
 
-        let mut contract_ast = ast::build_ast(identifier, contract_content)?;
-        let contract_analysis = analysis::run_analysis(identifier, &mut contract_ast.expressions,
-                                                       &mut db, false)?;
+        let mut contract_ast = ast::build_ast(identifier, contract_content,
+                                              self.cost_track.as_mut()
+                                              .expect("Failed to get ownership of cost tracker"))?;
+
+        let cost_track = self.cost_track.take()
+            .expect("Failed to get ownership of cost tracker in ClarityBlockConnection");
+
+        let mut contract_analysis = analysis::run_analysis(identifier, &mut contract_ast.expressions,
+                                                       &mut db, false, cost_track)?;
+
+        let cost_track = contract_analysis.take_contract_cost_tracker();
+        self.cost_track.replace(cost_track);
+
         Ok((contract_ast, contract_analysis))
     }
 

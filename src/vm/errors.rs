@@ -7,7 +7,7 @@ use vm::types::{Value, TypeSignature};
 use vm::contexts::StackTrace;
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::{Error as MarfError};
-
+use vm::costs::CostErrors;
 use serde_json::Error as SerdeJSONErr;
 use rusqlite::Error as SqliteError;
 
@@ -140,6 +140,18 @@ impl error::Error for Error {
 impl error::Error for RuntimeErrorType {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
+    }
+}
+
+impl From<CostErrors> for Error {
+    fn from(err: CostErrors) -> Self {
+        Error::from(CheckErrors::from(err))
+    }
+}
+
+impl From<ParseError> for Error {
+    fn from(err: ParseError) -> Self {
+        Error::from(RuntimeErrorType::ASTError(err))
     }
 }
 

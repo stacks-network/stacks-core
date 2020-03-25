@@ -12,8 +12,8 @@ fn run_scoped_parsing_helper(contract: &str) -> ParseResult<ContractAST> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let pre_expressions = parser::parse(contract)?;
     let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
-    ExpressionIdentifier::run_pass(&mut contract_ast)?;
-    DefinitionSorter::run_pass(&mut contract_ast)?;
+    ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast)?;
+    DefinitionSorter::run_pass(&mut contract_ast, &mut ())?;
     Ok(contract_ast)
 }
 

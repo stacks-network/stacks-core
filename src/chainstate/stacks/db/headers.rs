@@ -167,9 +167,10 @@ impl StacksChainState {
         Ok(rows.pop())
     }
 
+
     /// Get a stacks header info by index block hash (i.e. by the hash of the burn block header
     /// hash and the block hash -- the hash of the primary key)
-    fn get_stacks_block_header_info_by_index_block_hash(conn: &Connection, index_block_hash: &BlockHeaderHash) -> Result<Option<StacksHeaderInfo>, Error> {
+    pub fn get_stacks_block_header_info_by_index_block_hash(conn: &Connection, index_block_hash: &BlockHeaderHash) -> Result<Option<StacksHeaderInfo>, Error> {
         let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1".to_string();
         let mut rows = query_rows::<StacksHeaderInfo, _>(conn, &sql, &[&index_block_hash]).map_err(Error::DBError)?;
         let cnt = rows.len();

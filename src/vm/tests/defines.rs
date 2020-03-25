@@ -157,7 +157,7 @@ fn test_recursive_panic() {
               (* a (factorial (- a 1)))))
          (factorial 10)";
 
-    let err = build_ast(&QualifiedContractIdentifier::transient(), tests).unwrap_err();
+    let err = build_ast(&QualifiedContractIdentifier::transient(), tests, &mut ()).unwrap_err();
     match err.err {
         ParseErrors::CircularReference(_) => {},
         _ => {

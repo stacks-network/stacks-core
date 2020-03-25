@@ -10,7 +10,7 @@ use vm::database::{ClarityDatabase};
 use vm::representations::{SymbolicExpression, ClarityName, ContractName};
 use vm::contracts::Contract;
 use vm::ast::ContractAST;
-use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker, cost_functions};
+use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker, cost_functions, CostErrors};
 use vm::ast;
 use vm::{eval, is_reserved};
 
@@ -481,13 +481,13 @@ impl <'a> OwnedEnvironment <'a> {
 }
 
 impl CostTracker for Environment<'_,'_> {
-    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CheckErrors> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.global_context.cost_track.add_cost(cost)
     }
 }
 
 impl CostTracker for GlobalContext<'_> {
-    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CheckErrors> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.cost_track.add_cost(cost)
     }
 }
@@ -537,7 +537,9 @@ impl <'a,'b> Environment <'a,'b> {
     }
 
     pub fn eval_read_only(&mut self, contract_identifier: &QualifiedContractIdentifier, program: &str) -> Result<Value> {
-        let parsed = ast::parse(contract_identifier, program)?;
+        let parsed = ast::build_ast(contract_identifier, program, self)?
+            .expressions;
+
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
         }
@@ -561,7 +563,8 @@ impl <'a,'b> Environment <'a,'b> {
     pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
         let contract_id = QualifiedContractIdentifier::transient();
 
-        let parsed = ast::parse(&contract_id, program)?;
+        let parsed = ast::build_ast(&contract_id, program, self)?
+            .expressions;
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
         }
@@ -650,8 +653,7 @@ impl <'a,'b> Environment <'a,'b> {
     }
 
     pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
-        let contract_ast = ast::build_ast(&contract_identifier, contract_content)
-            .map_err(RuntimeErrorType::ASTError)?;
+        let contract_ast = ast::build_ast(&contract_identifier, contract_content, self)?;
         self.initialize_contract_from_ast(contract_identifier, &contract_ast, &contract_content)
     }
 
