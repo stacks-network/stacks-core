@@ -1954,7 +1954,7 @@ mod test {
         let mut peer_2_config = TestPeerConfig::from_port(32302);
         let mut peer_2_neighbors = vec![];
         for i in 0..10 {
-            let n = TestPeerConfig::from_port(i + 2 + 32300);
+            let n = TestPeerConfig::from_port(2*i + 4 + 32300);
             peer_2_config.add_neighbor(&n.to_neighbor());
 
             let p = TestPeer::new(n);
