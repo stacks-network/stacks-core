@@ -1418,6 +1418,7 @@ mod test {
         pub fn from_port(p: u16) -> TestPeerConfig {
             let mut config = TestPeerConfig {
                 server_port: p,
+                http_port: p + 1,
                 ..TestPeerConfig::default()
             };
             config.data_url = UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str()).unwrap();
