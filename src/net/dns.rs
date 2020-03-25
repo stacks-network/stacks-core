@@ -387,6 +387,10 @@ impl DNSClient {
 
         Ok(Some(resp))
     }
+
+    pub fn clear_all_requests(&mut self) -> () {
+        self.requests.clear()
+    }
 }
 
 #[cfg(test)]
@@ -399,6 +403,7 @@ mod test {
     #[test]
     fn dns_start_stop() {
         let (client, thread_handle) = dns_thread_start(100);
+        drop(client);
         thread_handle.join().unwrap();
     }
 

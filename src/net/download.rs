@@ -317,6 +317,8 @@ impl BlockDownloader {
         }
 
         if inflight == 0 {
+            // done with DNS
+            dns_client.clear_all_requests();
             self.state = BlockDownloaderState::GetBlocksBegin;
         }
 

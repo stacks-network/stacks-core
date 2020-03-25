@@ -1185,14 +1185,14 @@ pub mod test {
     fn codec_GetBlocksInv() {
         let getblocksdata = GetBlocksInv {
             consensus_hash: ConsensusHash([0x55; 20]),
-            num_blocks: BLOCKS_INV_DATA_MAX_BITLEN as u16,
+            num_blocks: 32
         };
 
         let getblocksdata_bytes : Vec<u8> = vec![
             // consensus hash
             0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
             // num blocks
-            0x01, 0x00
+            0x00, 0x20
         ];
 
         check_codec_and_corruption::<GetBlocksInv>(&getblocksdata, &getblocksdata_bytes);
@@ -1481,7 +1481,7 @@ pub mod test {
             }),
             StacksMessageType::GetBlocksInv(GetBlocksInv {
                 consensus_hash: ConsensusHash([0x55; 20]),
-                num_blocks: 1234,
+                num_blocks: 32,
             }),
             StacksMessageType::BlocksInv(BlocksInvData {
                 bitlen: 2,
