@@ -458,11 +458,7 @@ impl InvState {
             set.insert(nk.clone());
         }
 
-        let mut ret = vec![];
-        for nk in set.drain() {
-            ret.push(nk);
-        }
-        ret
+        set.into_iter().collect()
     }
 
     pub fn get_stats(&self, nk: &NeighborKey) -> Option<&NeighborBlockStats> {
