@@ -406,6 +406,15 @@ impl fmt::Display for Value {
 }
 
 impl PrincipalData {
+    pub fn version(&self) -> u8 {
+        match self {
+            PrincipalData::Standard(StandardPrincipalData(version, _)) => *version,
+            PrincipalData::Contract(QualifiedContractIdentifier { issuer, name: _ }) => {
+                issuer.0
+            }
+        }
+    }
+
     pub fn parse_qualified_contract_principal(literal: &str) -> Result<PrincipalData> {
         let contract_id = QualifiedContractIdentifier::parse(literal)?;
         Ok(PrincipalData::Contract(contract_id))
