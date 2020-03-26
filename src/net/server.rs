@@ -847,6 +847,7 @@ mod test {
                         |client_id, http_response_bytes_res| {
                             match http_response_bytes_res {
                                 Ok(bytes) => bytes.len() == 0,      // should not have gotten any data
+                                Err(net_error::PermanentlyDrained) => true,
                                 Err(err) => {
                                     // should have failed
                                     eprintln!("{:?}", &err);
