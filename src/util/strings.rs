@@ -377,14 +377,13 @@ mod test {
 
     #[test]
     fn test_url_parse() {
-        assert!(UrlString::try_from("asdfjkl;").unwrap().parse_to_block_url().unwrap_err().description().find("Invalid URL").is_some());
-        assert!(UrlString::try_from("http://").unwrap().parse_to_block_url().unwrap_err().description().find("Invalid URL").is_some());
-        assert!(UrlString::try_from("ftp://ftp.google.com").unwrap().parse_to_block_url().unwrap_err().description().find("invalid scheme").is_some());
-        assert!(UrlString::try_from("http://jude@google.com").unwrap().parse_to_block_url().unwrap_err().description().find("most not contain a username/password").is_some());
-        assert!(UrlString::try_from("http://jude:pw@google.com").unwrap().parse_to_block_url().unwrap_err().description().find("must not contain a username/password").is_some());
-        assert!(UrlString::try_from("http:///foo/bar").unwrap().parse_to_block_url().unwrap_err().description().find("no host string").is_some());
-        assert!(UrlString::try_from("http://www.google.com/foo/bar?baz=goo").unwrap().parse_to_block_url().unwrap_err().description().find("query strings not supported").is_some());
-        assert!(UrlString::try_from("http://www.google.com/foo/bar#baz").unwrap().parse_to_block_url().unwrap_err().description().find("fragments are not supported").is_some());
+        assert!(UrlString::try_from("asdfjkl;").unwrap().parse_to_block_url().unwrap_err().to_string().find("Invalid URL").is_some());
+        assert!(UrlString::try_from("http://").unwrap().parse_to_block_url().unwrap_err().to_string().find("Invalid URL").is_some());
+        assert!(UrlString::try_from("ftp://ftp.google.com").unwrap().parse_to_block_url().unwrap_err().to_string().find("invalid scheme").is_some());
+        assert!(UrlString::try_from("http://jude@google.com").unwrap().parse_to_block_url().unwrap_err().to_string().find("must not contain a username/password").is_some());
+        assert!(UrlString::try_from("http://jude:pw@google.com").unwrap().parse_to_block_url().unwrap_err().to_string().find("must not contain a username/password").is_some());
+        assert!(UrlString::try_from("http://www.google.com/foo/bar?baz=goo").unwrap().parse_to_block_url().unwrap_err().to_string().find("query strings not supported").is_some());
+        assert!(UrlString::try_from("http://www.google.com/foo/bar#baz").unwrap().parse_to_block_url().unwrap_err().to_string().find("fragments are not supported").is_some());
 
         // don't need to cover the happy path too much, since the rust-url package already tests it.
         let url = UrlString::try_from("http://127.0.0.1:1234/v2/info").unwrap().parse_to_block_url().unwrap();

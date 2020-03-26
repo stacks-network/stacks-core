@@ -597,7 +597,9 @@ mod test {
         F: FnMut(usize, &mut TestPeer) -> Vec<u8>,
         C: Fn(usize, Result<Vec<u8>, net_error>) -> bool
     {
-        let peer_config = TestPeerConfig::new(test_name, peer_p2p, peer_http);
+        let mut peer_config = TestPeerConfig::new(test_name, peer_p2p, peer_http);
+        peer_config.connection_opts = conn_opts;
+
         let mut peer = TestPeer::new(peer_config);
         let view = peer.get_burnchain_view().unwrap();
         let (http_sx, http_rx) = sync_channel(1);
@@ -649,7 +651,13 @@ mod test {
 
                 let mut resp = vec![];
                 match sock.read_to_end(&mut resp) {
-                    Ok(_) => {},
+                    Ok(_) => {
+                        if resp.len() == 0 {
+                            test_debug!("Client {} did not receive any data", i);
+                            client_sx.send(Err(net_error::PermanentlyDrained)).unwrap();
+                            return;
+                        }
+                    },
                     Err(e) => {
                         test_debug!("Client {} failed to read: {:?}", i, &e);
                         client_sx.send(Err(net_error::ReadError(e))).unwrap();
@@ -787,7 +795,7 @@ mod test {
         let have_success = RefCell::new(false);
         let have_error = RefCell::new(false);
 
-        test_http_server("test_http_too_many_clients", 51040, 51041, conn_opts, 2, 0,
+        test_http_server("test_http_too_many_clients", 51040, 51041, conn_opts, 10, 0,
                         |client_id, _| {
                             let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(PeerHost::from_host_port("127.0.0.1".to_string(), 51041)));
                             request.metadata_mut().keep_alive = false;
