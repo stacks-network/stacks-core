@@ -46,10 +46,6 @@ jobs:
           command: |
             curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
       - run:
-          name: Verify grcov links libtcmalloc.so.4
-          command: |
-            ldd ./grconv
-      - run:
           name: Pull Rust Nightly
           command: |
              docker pull rustlang/rust:nightly-stretch
