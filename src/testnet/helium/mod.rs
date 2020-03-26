@@ -1,3 +1,5 @@
+extern crate bitcoincore_rpc;
+
 pub mod run_loop; 
 pub mod mem_pool;
 pub mod keychain;
