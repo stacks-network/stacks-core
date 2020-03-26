@@ -71,7 +71,15 @@ Then build the project:
 cargo build
 ```
 
-And run the tests:
+Building the project on ARM:
+```bash
+cargo build --features "aarch64" --no-default-features
+```
+
+Note that the build will consistently fail on memory-constrained systems like Raspberry Pi 3, and 1GB model Pi 4s.  In order to cross-compile for lower memory target systems, please see the [Cross Compiling](README-CROSS-COMPILE.md) document.
+
+s
+Run the tests:
 
 ```bash
 cargo test testnet  -- --test-threads=1
