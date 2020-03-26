@@ -45,6 +45,8 @@ jobs:
           name: Fetch latest grcov
           command: |
             curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
+      - run:
+          name: Verify grcov links libtcmalloc.so.4
           command: |
             ldd ./grconv
       - run:
