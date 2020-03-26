@@ -816,7 +816,7 @@ impl PeerNetwork {
                 // downloader.max_inflight_requests, or however many blocks remain between the
                 // downloader's sortition height and the chain tip's sortition height (whichever is
                 // smaller).
-                while next_block_sortition_height <= network.chain_view.burn_block_height - burndb.first_block_height && next_microblock_sortition_height <= network.chain_view.burn_block_height - burndb.first_block_height {
+                while next_block_sortition_height <= network.chain_view.burn_block_height - burndb.first_block_height || next_microblock_sortition_height <= network.chain_view.burn_block_height - burndb.first_block_height {
 
                     let mut next_blocks_to_try = network.make_block_requests(burndb, chainstate, next_block_sortition_height)?;
                     let mut next_microblocks_to_try = network.make_confirmed_microblock_requests(burndb, chainstate, next_microblock_sortition_height)?;
@@ -1012,6 +1012,57 @@ impl PeerNetwork {
         }
     }
 
+    /// Start a request, given the list of request keys to consider.  Use the given request_factory to
+    /// create the HTTP request.  Pops requests off the front of request_keys, and returns once it successfully
+    /// sends out a request via the HTTP peer.  Returns the event ID in the http peer that's
+    /// handling the request.
+    fn begin_request<F>(network: &mut PeerNetwork, dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>, request_name: &str, request_keys: &mut VecDeque<BlockRequestKey>, request_factory: F) -> Option<(BlockRequestKey, usize)> 
+    where
+        F: Fn(PeerHost, BlockHeaderHash) -> HttpRequestType
+    {
+        loop {
+            match request_keys.pop_front() {
+                Some(key) => {
+                    if let Some(Some(ref sockaddrs)) = dns_lookups.get(&key.data_url) {
+                        assert!(sockaddrs.len() > 0);
+
+                        let peerhost = match PeerHost::try_from_url(&key.data_url) {
+                            Some(ph) => ph,
+                            None => {
+                                warn!("Unparseable URL {:?}", &key.data_url);
+                                continue;
+                            }
+                        };
+
+                        for addr in sockaddrs.iter() {
+                            let request = request_factory(peerhost.clone(), key.index_block_hash.clone());
+                            match network.connect_or_send_http_request(key.data_url.clone(), addr.clone(), request) {
+                                Ok(handle) => {
+                                    debug!("{:?}: Begin HTTP request for {} {} to {:?} ({:?})", &network.local_peer, request_name, &key.index_block_hash, &key.neighbor, &key.data_url);
+                                    return Some((key, handle));
+                                }
+                                Err(e) => {
+                                    debug!("{:?}: Failed to connect or send HTTP request for {} to {:?} ({:?}, {:?}): {:?}", &network.local_peer, request_name, &key.neighbor, &key.data_url, addr, &e);
+                                }
+                            }
+                        }
+
+                        debug!("{:?}: Failed request for {} {:?} from {:?}", &network.local_peer, request_name, &key.index_block_hash, sockaddrs);
+                    }
+                    else {
+                        debug!("{:?}: Will not request {} {:?}: failed to look up DNS name in {:?}", &network.local_peer, request_name, &key.index_block_hash, &key.data_url);
+                    }
+                },
+                None => {
+                    debug!("{:?}: No more requests keys", &network.local_peer);
+                    break;
+                }
+            }
+        }
+        None
+    }
+
+
     /// Start fetching blocks
     pub fn block_getblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
@@ -1026,51 +1077,11 @@ impl PeerNetwork {
             for sortition_height in priority.drain(..) {
                 match downloader.blocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
-                        match keys.pop_front() {
-                            Some(key) => {
-                                if let Some(Some(ref sockaddrs)) = downloader.dns_lookups.get(&key.data_url) {
-                                    assert!(sockaddrs.len() > 0);
-
-                                    let peerhost = match PeerHost::try_from_url(&key.data_url) {
-                                        Some(ph) => ph,
-                                        None => {
-                                            warn!("Unparseable URL {:?}", &key.data_url);
-                                            continue;
-                                        }
-                                    };
-
-                                    let mut sent = false;
-
-                                    for addr in sockaddrs.iter() {
-                                        let getblock = HttpRequestType::GetBlock(HttpRequestMetadata::from_host(peerhost.clone()), key.index_block_hash.clone());
-                                        match network.connect_or_send_http_request(key.data_url.clone(), addr.clone(), getblock) {
-                                            Ok(handle) => {
-                                                debug!("{:?}: Begin HTTP request for anchored block {} to {:?} ({:?})", &network.local_peer, &key.index_block_hash, &key.neighbor, &key.data_url);
-                                                requests.insert(key.clone(), handle);
-                                                sent = true;
-                                                break;
-                                            }
-                                            Err(e) => {
-                                                debug!("{:?}: Failed to connect or send HTTP request to {:?} ({:?}, {:?}): {:?}", &network.local_peer, &key.neighbor, &key.data_url, addr, &e);
-                                                continue;
-                                            }
-                                        }
-                                    }
-
-                                    if !sent {
-                                        debug!("{:?}: Failed to request block {:?} from {:?}", &network.local_peer, &key.index_block_hash, sockaddrs);
-                                        continue;
-                                    }
-                                }
-                                else {
-                                    debug!("{:?}: Will not fetch block {:?}: failed to look up DNS name in {:?}", &network.local_peer, &key.index_block_hash, &key.data_url);
-                                    continue;
-                                }
+                        match PeerNetwork::begin_request(network, &downloader.dns_lookups, "anchored block", keys, |peerhost, index_block_hash| HttpRequestType::GetBlock(HttpRequestMetadata::from_host(peerhost), index_block_hash)) {
+                            Some((key, handle)) => {
+                                requests.insert(key.clone(), handle);
                             },
-                            None => {
-                                debug!("{:?}: No more requests for block at sortition height {}", &network.local_peer, sortition_height);
-                                continue;
-                            }
+                            None => {}
                         }
                     },
                     None => {
@@ -1114,55 +1125,15 @@ impl PeerNetwork {
             for sortition_height in priority.drain(..) {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
-                        match keys.pop_front() {
-                            Some(ref key) => {
-                                if let Some(Some(ref sockaddrs)) = downloader.dns_lookups.get(&key.data_url) {
-                                    assert!(sockaddrs.len() > 0);
-
-                                    let peerhost = match PeerHost::try_from_url(&key.data_url) {
-                                        Some(ph) => ph,
-                                        None => {
-                                            warn!("Unparseable URL {:?}", &key.data_url);
-                                            continue;
-                                        }
-                                    };
-
-                                    let mut sent = false;
-
-                                    for addr in sockaddrs.iter() {
-                                        let getmicroblocks = HttpRequestType::GetMicroblocksConfirmed(HttpRequestMetadata::from_host(peerhost.clone()), key.index_block_hash.clone());
-                                        match network.connect_or_send_http_request(key.data_url.clone(), addr.clone(), getmicroblocks) {
-                                            Ok(handle) => {
-                                                debug!("{:?}: Begin HTTP request for microblocks produced by {} to {:?} ({:?})", &network.local_peer, &key.index_block_hash, &key.neighbor, &key.data_url);
-                                                requests.insert(key.clone(), handle);
-                                                sent = true;
-                                                break;
-                                            }
-                                            Err(e) => {
-                                                debug!("Failed to connect or send HTTP request to {:?} ({:?}, {:?}): {:?}", &key.neighbor, &key.data_url, addr, &e);
-                                                continue;
-                                            }
-                                        }
-                                    }
-
-                                    if !sent {
-                                        debug!("Failed to request block {:?} from {:?}", &key.index_block_hash, sockaddrs);
-                                        continue;
-                                    }
-                                }
-                                else {
-                                    debug!("Will not fetch block {:?}: failed to look up DNS name in {:?}", &key.index_block_hash, &key.data_url);
-                                    continue;
-                                }
+                        match PeerNetwork::begin_request(network, &downloader.dns_lookups, "microblock stream", keys, |peerhost, index_block_hash| HttpRequestType::GetMicroblocksConfirmed(HttpRequestMetadata::from_host(peerhost), index_block_hash)) {
+                            Some((key, handle)) => {
+                                requests.insert(key.clone(), handle);
                             },
-                            None => {
-                                debug!("No more microblock requests at sortition height {}", sortition_height);
-                                continue;
-                            }
+                            None => {}
                         }
                     },
                     None => {
-                        debug!("No block at sortition height {}", sortition_height);
+                        debug!("{:?}: No microblocks at sortition height {}", &network.local_peer, sortition_height);
                     }
                 }
             }
