@@ -591,15 +591,11 @@ impl NeighborWalk {
 
     /// Begin getting the neighors of cur_neighbor's neighbors.
     /// ReplyHandleP2Ps should be reply handles for Handshake requests.
-    pub fn neighbor_handshakes_begin(&mut self, mut handshake_handles: HashMap<NeighborAddress, ReplyHandleP2P>) -> () {
+    pub fn neighbor_handshakes_begin(&mut self, handshake_handles: HashMap<NeighborAddress, ReplyHandleP2P>) -> () {
         assert!(self.state == NeighborWalkState::GetHandshakesBegin);
 
         // advance state!
-        self.unresolved_handshake_neighbors.clear();
-        for (naddr, nh) in handshake_handles.drain() {
-            self.unresolved_handshake_neighbors.insert(naddr, nh);
-        }
-
+        self.unresolved_handshake_neighbors = handshake_handles;
         self.set_state(NeighborWalkState::GetHandshakesFinish);
     }
 
@@ -779,15 +775,11 @@ impl NeighborWalk {
 
     /// Begin asking remote neighbors for their neighbors in order to estimate cur_neighbor's
     /// in-degree. 
-    pub fn getneighbors_neighbors_begin(&mut self, mut getneighbors_handles: HashMap<NeighborKey, ReplyHandleP2P>) -> () {
+    pub fn getneighbors_neighbors_begin(&mut self, getneighbors_handles: HashMap<NeighborKey, ReplyHandleP2P>) -> () {
         assert!(self.state == NeighborWalkState::GetNeighborsNeighborsBegin);
 
         // advance state!
-        self.unresolved_getneighbors_neighbors.clear();
-        for (naddr, nh) in getneighbors_handles.drain() {
-            self.unresolved_getneighbors_neighbors.insert(naddr, nh);
-        }
-
+        self.unresolved_getneighbors_neighbors = getneighbors_handles;
         self.set_state(NeighborWalkState::GetNeighborsNeighborsFinish);
     }
 
@@ -993,15 +985,11 @@ impl NeighborWalk {
 
     // proceed to ping _existing_ neighbors that would be replaced by the discovery of a new
     // neighbor
-    pub fn ping_existing_neighbors_begin(&mut self, mut network_handles: HashMap<NeighborKey, ReplyHandleP2P>) -> () {
+    pub fn ping_existing_neighbors_begin(&mut self, network_handles: HashMap<NeighborKey, ReplyHandleP2P>) -> () {
         assert!(self.state == NeighborWalkState::NeighborsPingBegin);
 
-        self.unresolved_neighbor_pings.clear();
-
-        for (neighbor_key, ping_handle) in network_handles.drain() {
-            self.unresolved_neighbor_pings.insert(neighbor_key, ping_handle);
-        }
-
+        self.unresolved_neighbor_pings = network_handles;
+        
         // advance state!
         self.set_state(NeighborWalkState::NeighborsPingFinish);
     }

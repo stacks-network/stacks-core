@@ -473,18 +473,13 @@ impl InvState {
         self.block_stats.remove(&nk);
     }
 
-    pub fn getblocksinv_begin(&mut self, mut requests: HashMap<NeighborKey, ReplyHandleP2P>, mut target_heights: HashMap<NeighborKey, u64>) -> () {
+    pub fn getblocksinv_begin(&mut self, requests: HashMap<NeighborKey, ReplyHandleP2P>, target_heights: HashMap<NeighborKey, u64>) -> () {
         assert_eq!(self.state, InvWorkState::GetBlocksInvBegin);
         assert_eq!(requests.len(), target_heights.len());
 
         self.block_invs.clear();
-
-        for (key, handle) in requests.drain() {
-            self.getblocksinv_requests.insert(key, handle);
-        }
-        for (key, height) in target_heights.drain() {
-            self.getblocksinv_target_heights.insert(key, height);
-        }
+        self.getblocksinv_requests = requests;
+        self.getblocksinv_target_heights = target_heights;
         
         self.state = InvWorkState::GetBlocksInvFinish;
     }

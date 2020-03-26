@@ -325,15 +325,11 @@ impl BlockDownloader {
         Ok(inflight == 0)
     }
 
-    pub fn getblocks_begin(&mut self, mut requests: HashMap<BlockRequestKey, usize>) -> () {
+    pub fn getblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
         assert_eq!(self.state, BlockDownloaderState::GetBlocksBegin);
 
         // don't touch blocks-to-try -- that's managed by the peer network directly.
-        self.getblock_requests.clear();
-        for (key, event_id) in requests.drain() {
-            self.getblock_requests.insert(key, event_id);
-        }
-
+        self.getblock_requests = requests;
         self.state = BlockDownloaderState::GetBlocksFinish;
     }
 
@@ -347,7 +343,6 @@ impl BlockDownloader {
         let mut pending_block_requests = HashMap::new();
 
         for (block_key, event_id) in self.getblock_requests.drain() {
-            let rh_block_key = block_key.clone();
             match http.get_conversation(event_id) {
                 None => {
                     debug!("Event {} ({:?}, {:?} for block {}) is not connected", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
@@ -357,7 +352,7 @@ impl BlockDownloader {
                     None => {
                         // still waiting
                         debug!("Event {} ({:?}, {:?} for block {}) is still waiting for a response", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
-                        pending_block_requests.insert(rh_block_key, event_id);
+                        pending_block_requests.insert(block_key, event_id);
                     },
                     Some(http_response) => match http_response {
                         HttpResponseType::Block(_md, block) => {
@@ -407,14 +402,10 @@ impl BlockDownloader {
     }
    
     /// Start fetching microblocks
-    pub fn getmicroblocks_begin(&mut self, mut requests: HashMap<BlockRequestKey, usize>) -> () {
+    pub fn getmicroblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
         assert_eq!(self.state, BlockDownloaderState::GetMicroblocksBegin);
 
-        self.getmicroblocks_requests.clear();
-        for (key, event_id) in requests.drain() {
-            self.getmicroblocks_requests.insert(key, event_id);
-        }
-
+        self.getmicroblocks_requests = requests;
         self.state = BlockDownloaderState::GetMicroblocksFinish;
     }
 
