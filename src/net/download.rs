@@ -708,18 +708,11 @@ impl PeerNetwork {
                     };
 
                     if let Some((parent_header, parent_burn_block_hash)) = parent_header_opt {
-                        if chainstate.get_confirmed_microblock_index_hash(&StacksBlockHeader::make_index_block_hash(&parent_burn_block_hash, &parent_header.block_hash()))?.is_some() {
-                            // we already have this stream, but make sure it connects to _this_ block.  Multiple anchored blocks can descend from the same microblock stream!
+                        if StacksChainState::get_microblock_stream_head_hash(&chainstate.blocks_db, &parent_burn_block_hash, &parent_header.block_hash())?.is_some() {
+                            // we already have the first block in the stream that descends from the parent, which indicates that we have already fetched this stream (but possibly out-of-order).
+                            // Verify this by checking that we also have the tail that connects to this anchored block.
                             if StacksChainState::load_staging_microblock(&chainstate.blocks_db, &parent_burn_block_hash, &parent_header.block_hash(), &block_header.parent_microblock)?.is_some() {
                                 test_debug!("{:?}: Already have microblock stream confirmed by {}/{} (built by {}/{})", &self.local_peer, &burn_header_hash, &block_hash, &parent_burn_block_hash, &parent_header.block_hash());
-                                continue;
-                            }
-                        }
-                        else if StacksChainState::get_microblock_stream_head_hash(&chainstate.blocks_db, &parent_burn_block_hash, &parent_header.block_hash())?.is_some() {
-                            // we already have the first block in the stream that descends from the parent, which indicates that we may have already fetched this stream (but out-of-order).
-                            // Verify this by checking that we also have the tail:
-                            if StacksChainState::load_staging_microblock(&chainstate.blocks_db, &parent_burn_block_hash, &parent_header.block_hash(), &block_header.parent_microblock)?.is_some() {
-                                test_debug!("{:?}: Already have unprocessed microblock stream confirmed by {}/{} (built by {}/{})", &self.local_peer, &burn_header_hash, &block_hash, &parent_burn_block_hash, &parent_header.block_hash());
                                 continue;
                             }
                         }
