@@ -221,7 +221,7 @@ impl FTMintEventData {
         json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "recipient": format!("{}",self.recipient),
-            "value": format!("{}", self.amount),
+            "amount": format!("{}", self.amount),
         })
     }
 }
