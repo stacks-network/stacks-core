@@ -1,4 +1,4 @@
-use super::{Config, Node, BurnchainSimulator, BurnchainState, LeaderTenure};
+use super::{Config, Node, BurnchainEngine, BurnchainSimulatorEngine, BurnchainState, LeaderTenure, };
 
 use chainstate::burn::{ConsensusHash};
 use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState, ClarityTx};
@@ -68,17 +68,15 @@ impl RunLoop {
     pub fn start(&mut self, expected_num_rounds: u64) {
 
         // Initialize and start the burnchain.
-        let mut burnchain = BurnchainSimulator::new(self.config.clone());
+        let mut burnchain = BurnchainSimulatorEngine::new(self.config.clone());
 
-        let genesis_state = burnchain.make_genesis_block();
+        let genesis_state = burnchain.start();
 
         // Update each node with the genesis block.
         self.node.process_burnchain_state(&genesis_state);
 
         // make first non-genesis block, with initial VRF keys
-        let mut initial_ops = vec![];
-        let key_op = self.node.setup();
-        initial_ops.push(key_op);
+        self.node.setup(&mut burnchain);
 
         // Waiting on the 1st block (post-genesis) from the burnchain, containing the first key registrations 
         // that will be used for bootstraping the chain.
@@ -87,9 +85,12 @@ impl RunLoop {
         let state_1 = burnchain.make_next_block(initial_ops);
 
         // Update each node with this new block.
+
+        // Sync and update node with this new block.
+        let state_1 = burnchain.sync();
         self.node.process_burnchain_state(&state_1);
 
-        // Bootstrap the chain: the first node (could be random) will start a new tenure,
+        // Bootstrap the chain: node will start a new tenure,
         // using the sortition hash from block #1 for generating a VRF.
         let leader = &mut self.node;
         let mut first_tenure = match leader.initiate_genesis_tenure(&state_1.chain_tip) {
@@ -107,13 +108,13 @@ impl RunLoop {
 
         let (anchored_block_1, microblocks, parent_block_1) = artifacts_from_1st_tenure;
 
-        // Tenures are instantiating their own chainstate, so that nodes can keep their chainstate clean,
+        // Tenures are instantiating their own chainstate, so that nodes can keep a clean chainstate,
         // while having the option of running multiple tenures concurrently and try different strategies.
         // As a result, once the tenure ran and we have the artifacts (anchored_blocks, microblocks),
-        // we have the 1st node (leading) updating its chainstate with the artifacts from its tenure.
-        let block_ops_2 = leader.receive_tenure_artifacts(&anchored_block_1, &parent_block_1);
-        
-        let mut burnchain_state = burnchain.make_next_block(block_ops_2);
+        // we have the 1st node (leading) updating its chainstate with the artifacts from its own tenure.
+        let mut ops = leader.receive_tenure_artifacts(&anchored_block_1, &parent_block_1, &mut burnchain);
+
+        let mut burnchain_state = burnchain.sync();
         RunLoop::handle_burnchain_state_cb(&self.new_burnchain_state_callback, round_index, &burnchain_state);
 
         let mut leader_tenure = None;
@@ -158,18 +159,16 @@ impl RunLoop {
                 None => None
             };
 
-            let mut next_burn_ops = vec![];
             match artifacts_from_tenure {
                 Some(ref artifacts) => {
                     // Have each node receive artifacts from the current tenure
                     let (anchored_block, _, parent_block) = artifacts;
-                    let mut ops = self.node.receive_tenure_artifacts(&anchored_block, &parent_block);
-                    next_burn_ops.append(&mut ops);
+                    let mut ops = self.node.receive_tenure_artifacts(&anchored_block, &parent_block, &mut burnchain);
                 },
                 None => {}
             }
 
-            burnchain_state = burnchain.make_next_block(next_burn_ops);
+            burnchain_state = burnchain.sync();
             RunLoop::handle_burnchain_state_cb(&self.new_burnchain_state_callback, round_index, &burnchain_state);
     
             leader_tenure = None;

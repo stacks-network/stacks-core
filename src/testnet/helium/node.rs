@@ -1,4 +1,6 @@
-use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainState, EventDispatcher};
+use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainEngine, BurnchainState, EventDispatcher};
+
+use super::operations::{BurnchainOperationType, LeaderBlockCommitPayload, LeaderKeyRegisterPayload};
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -117,12 +119,12 @@ impl Node {
         }
     }
     
-    pub fn setup(&mut self) -> BlockstackOperationType {
+    pub fn setup<T: BurnchainEngine>(&mut self, burnchain_engine: &mut T) {
         // Register a new key
         let vrf_pk = self.keychain.rotate_vrf_keypair();
         let consensus_hash = ConsensusHash::empty();
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
-        key_reg_op
+        burnchain_engine.submit_operation(key_reg_op, &mut self.keychain);
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -264,8 +266,11 @@ impl Node {
         Some(tenure)
     }
 
-    pub fn receive_tenure_artifacts(&mut self, anchored_block_from_ongoing_tenure: &StacksBlock, parent_block: &SortitionedBlock) -> Vec<BlockstackOperationType> {
-        let mut ops = vec![];
+    pub fn receive_tenure_artifacts<T: BurnchainEngine>(
+        &mut self, 
+        anchored_block_from_ongoing_tenure: &StacksBlock, 
+        parent_block: &SortitionedBlock,
+        burchain_engine: &mut T) {
         if self.active_registered_key.is_some() {
             let registered_key = self.active_registered_key.clone().unwrap();
 
@@ -281,7 +286,7 @@ impl Node {
                 &parent_block,
                 VRFSeed::from_proof(&vrf_proof));
 
-            ops.push(op);
+            burchain_engine.submit_operation(op, &mut self.keychain);
         }
         
         // Naive implementation: we keep registering new keys
@@ -289,8 +294,7 @@ impl Node {
         let burnchain_tip_consensus_hash = self.burnchain_tip.as_ref().unwrap().consensus_hash;
         let op = self.generate_leader_key_register_op(vrf_pk, &burnchain_tip_consensus_hash);
 
-        ops.push(op);
-        ops
+        burchain_engine.submit_operation(op, &mut self.keychain);
     }
 
     /// Process artifacts from the tenure.
@@ -374,19 +378,12 @@ impl Node {
     }
 
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
-    fn generate_leader_key_register_op(&mut self, vrf_public_key: VRFPublicKey, consensus_hash: &ConsensusHash) -> BlockstackOperationType {
-
-        BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
+    fn generate_leader_key_register_op(&mut self, vrf_public_key: VRFPublicKey, consensus_hash: &ConsensusHash) -> BurnchainOperationType {
+        BurnchainOperationType::LeaderKeyRegister(LeaderKeyRegisterPayload {
             public_key: vrf_public_key,
             memo: vec![],
             address: self.keychain.get_address(),
             consensus_hash: consensus_hash.clone(),
-
-            // Props that will be set by the burnchain simulator
-            vtxindex: 0,
-            txid: Txid([0u8; 32]),
-            block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
         })
     }
 
@@ -396,14 +393,14 @@ impl Node {
                                 burn_fee: u64, 
                                 key: &RegisteredKey,
                                 parent_block: &SortitionedBlock,
-                                vrf_seed: VRFSeed) -> BlockstackOperationType {
+                                vrf_seed: VRFSeed) -> BurnchainOperationType {
         
         let (parent_block_ptr, parent_vtxindex) = match self.bootstraping_chain {
             true => (0, 0), // Expected references when mocking the initial sortition
             false => (parent_block.block_height as u32, parent_block.op_vtxindex as u16)
         };
 
-        BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+        BurnchainOperationType::LeaderBlockCommit(LeaderBlockCommitPayload {
             block_header_hash,
             burn_fee,
             input: self.keychain.get_burnchain_signer(),
@@ -412,13 +409,7 @@ impl Node {
             memo: vec![],
             new_seed: vrf_seed,
             parent_block_ptr,
-            parent_vtxindex,
-
-            // Props that will be set by the burnchain simulator
-            vtxindex: 0,
-            txid: Txid([0u8; 32]),
-            block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            parent_vtxindex
         })
     }
 
