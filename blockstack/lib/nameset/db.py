@@ -3001,8 +3001,10 @@ def namedb_get_all_blockstack_ops_at(db, block_id, offset=None, count=None):
     # how many preorders at this block?
     offset_count_query, offset_count_args = namedb_offset_count_predicate(offset=offset, count=count)
 
-    preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? ORDER BY vtxindex " + " " + offset_count_query + ";"
-    preorder_count_rows_args = (block_id,) + offset_count_args
+    # preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? ORDER BY vtxindex " + " " + offset_count_query + ";"
+    preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? ORDER BY vtxindex;"
+    # preorder_count_rows_args = (block_id,) + offset_count_args
+    preorder_count_rows_args = (block_id,)
 
     # log.debug(namedb_format_query(preorder_count_rows_query, preorder_count_rows_args))
 
@@ -3026,7 +3028,7 @@ def namedb_get_all_blockstack_ops_at(db, block_id, offset=None, count=None):
         ret.append( preorder_rec )
         cnt += 1
 
-    log.debug("{} preorders created at {}".format(cnt, block_id))
+    log.debug("{} preorders created at {} offset={} count={}".format(cnt, block_id, offset, count))
 
     # don't return too many rows, and slide down the offset window
     if count is not None and offset is not None:
@@ -3060,7 +3062,7 @@ def namedb_get_all_blockstack_ops_at(db, block_id, offset=None, count=None):
         ret.append(history_data)
         cnt += 1
 
-    log.debug("{} non-preorder operations at {}".format(cnt, block_id))
+    log.debug("{} non-preorder operations at {} offset={} count={}".format(cnt, block_id, offset, count))
     return ret
 
 
