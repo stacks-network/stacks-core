@@ -1,10 +1,14 @@
 use std::collections::HashMap;
+use rand::RngCore;
+
+use super::burnchains::{BurnchainOperationSigningDelegate};
 
 use chainstate::stacks::{StacksTransactionSigner, TransactionAuth, StacksPublicKey, StacksPrivateKey, StacksAddress};
 use address::AddressHashMode;
 use burnchains::{BurnchainSigner, BurnchainHeaderHash, PrivateKey};
 use util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
 use util::hash::{Sha256Sum};
+use util::secp256k1::{MessageSignature, Secp256k1PublicKey, Secp256k1PrivateKey};
 
 pub struct Keychain {
     secret_keys: Vec<StacksPrivateKey>, 
@@ -14,6 +18,7 @@ pub struct Keychain {
     microblocks_secret_keys: Vec<StacksPrivateKey>,
     vrf_secret_keys: Vec<VRFPrivateKey>,
     vrf_map: HashMap<VRFPublicKey, VRFPrivateKey>,
+    sessions_ids: HashMap<[u8; 16], bool>
 }
 
 impl Keychain {
@@ -36,6 +41,7 @@ impl Keychain {
             threshold,
             vrf_secret_keys: vec![],
             vrf_map: HashMap::new(),
+            sessions_ids: HashMap::new(),
         }
     }
 
@@ -166,5 +172,61 @@ impl Keychain {
             Some(auth) => Some(auth.origin().address_testnet()),
             None => None
         }
+    }
+}
+
+impl BurnchainOperationSigningDelegate for Keychain {
+
+    fn create_session(&mut self) -> [u8; 16] {
+        let mut rng = rand::thread_rng();
+        let mut session_id = [0u8; 16];
+        rng.fill_bytes(&mut session_id);
+        self.sessions_ids.insert(session_id.clone(), true);
+        session_id
+    }
+
+    // todo(ludo): use Result instead of Options
+    fn get_public_key(&mut self, session_id: &[u8]) -> Option<Secp256k1PublicKey> {
+        let is_session_open = match self.sessions_ids.get(session_id) {
+            Some(entry) => entry,
+            _ => return None
+        };
+
+        if !is_session_open {
+            return None;
+        }
+        
+        // todo(ludo): remove hard code keypair
+        let pub_k = Secp256k1PublicKey::from_hex("032fd788a3571255ff03839a0f859073d96fc34c4e247699ab3cc18cdd892e9540").unwrap();
+        Some(pub_k)
+    }
+
+    fn sign_message(&mut self, session_id: &[u8], hash: &[u8]) -> Option<MessageSignature> {
+        let is_session_open = match self.sessions_ids.get(session_id) {
+            Some(entry) => entry,
+            _ => return None
+        };
+
+        if !is_session_open {
+            return None;
+        }
+
+        let sec_k = Secp256k1PrivateKey::from_hex("2A154248F5BA1927750104FFEF791AEC863E34ED8AF69D5299D23CD07AD38F3601").unwrap();
+
+        let signature = match sec_k.sign(hash) {
+            Ok(r) => r,
+            _ => return None
+        };
+
+        Some(signature)
+    }
+
+    fn close_session(&mut self, session_id: &[u8]) {
+        let is_session_open = match self.sessions_ids.get_mut(session_id) {
+            Some(entry) => entry,
+            _ => return
+        };
+
+        *is_session_open = false;
     }
 }

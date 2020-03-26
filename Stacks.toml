@@ -4,7 +4,14 @@ name = "helium-node"
 [burnchain]
 chain = "bitcoin"
 mode = "regtest"
-block_time = 5000
+peer_host = "127.0.0.1"
+peer_port = 18444
+rpc_port = 18443
+rpc_ssl = false
+username = "helium-node"
+password = "secret"
+timeout = 30
+
 
 [mempool]
 path = "/home/ludovic/mempool"
