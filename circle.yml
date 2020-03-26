@@ -38,9 +38,9 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Fetch libtcmalloc.so.4
+          name: Install perftools
           command: |
-            apt-get update && apt-get install libgoogle-perftools4
+            sudo apt-get update -y && sudo apt-get install libgoogle-perftools4 -y
       - run:
           name: Fetch latest grcov
           command: |
