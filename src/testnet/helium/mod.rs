@@ -8,6 +8,7 @@ pub mod node;
 pub mod tenure;
 pub mod config;
 pub mod event_dispatcher;
+pub mod burnchains;
 
 pub use self::run_loop::{RunLoop};
 pub use self::mem_pool::{MemPool, MemPoolFS};
