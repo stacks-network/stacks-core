@@ -38,9 +38,15 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Fetch libtcmalloc.so.4
+          command: |
+            apt-get update && apt-get install libgoogle-perftools4
+      - run:
           name: Fetch latest grcov
           command: |
             curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
+          command: |
+            ldd ./grconv
       - run:
           name: Pull Rust Nightly
           command: |
