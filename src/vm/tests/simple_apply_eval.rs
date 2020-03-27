@@ -590,9 +590,7 @@ fn test_bool_functions() {
          "(or false false false)",
          "(not true)",
          "(and true false)",
-         "(or false true)",
-         "(or 'false 'true)",
-         "(and 'true 'false)"];
+         "(or false true)"];
 
     let expectations = [
         Value::Bool(true),
@@ -603,9 +601,7 @@ fn test_bool_functions() {
         Value::Bool(false),
         Value::Bool(false),
         Value::Bool(false),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(false)];
+        Value::Bool(true)];
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
