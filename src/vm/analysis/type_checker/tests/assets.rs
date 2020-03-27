@@ -31,25 +31,25 @@ const ASSET_NAMES: &str =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name uint))
            (if (< name u100000) u1000 u100))
-         
+
          (define-non-fungible-token names uint)
          (define-map preorder-map
            ((name-hash (buff 20)))
            ((buyer principal) (paid uint)))
-         
-         (define-public (preorder 
+
+         (define-public (preorder
                         (name-hash (buff 20))
                         (name-price uint))
            (let ((xfer-result (contract-call? .tokens my-token-transfer
                                 burn-address name-price)))
-            (unwrap! xfer-result (err 'false))
+            (unwrap! xfer-result (err false))
             (if (map-insert preorder-map
                   (tuple (name-hash name-hash))
                   (tuple (paid name-price) (buyer tx-sender)))
-                (ok 'true)
-                (err 'false))))
+                (ok true)
+                (err false))))
 
-         (define-public (register 
+         (define-public (register
                         (recipient-principal principal)
                         (name uint)
                         (salt uint))
@@ -57,12 +57,12 @@ const ASSET_NAMES: &str =
                    ;; preorder entry must exist!
                    (unwrap! (map-get? preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err u5)))
-                 (name-entry 
+                 (name-entry
                    (nft-get-owner? names name)))
              (if (and
                   (is-none name-entry)
                   ;; preorder must have paid enough
-                  (<= (price-function name) 
+                  (<= (price-function name)
                       (get paid preorder-entry))
                   ;; preorder must have been the current principal
                   (is-eq tx-sender
@@ -115,7 +115,7 @@ fn test_bad_asset_usage() {
                        "(ft-mint? stackoos u1 tx-sender)",
                        "(ft-mint? u1234 u1 tx-sender)",
                        "(ft-mint? stackaroos u2 u100)",
-                       "(ft-mint? stackaroos 'true tx-sender)",
+                       "(ft-mint? stackaroos true tx-sender)",
                        "(nft-transfer? u1234 \"a\" tx-sender tx-sender)",
                        "(nft-transfer? stackoos    \"a\" tx-sender tx-sender)",
                        "(nft-transfer? stacka-nfts \"a\" u2 tx-sender)",
@@ -124,9 +124,9 @@ fn test_bad_asset_usage() {
                        "(ft-transfer? stackoos u1 tx-sender tx-sender)",
                        "(ft-transfer? u1234 u1 tx-sender tx-sender)",
                        "(ft-transfer? stackaroos u2 u100 tx-sender)",
-                       "(ft-transfer? stackaroos 'true tx-sender tx-sender)",
+                       "(ft-transfer? stackaroos true tx-sender tx-sender)",
                        "(ft-transfer? stackaroos u2 tx-sender u100)",
-                       "(define-fungible-token stackaroos 'true)",
+                       "(define-fungible-token stackaroos true)",
                        "(define-non-fungible-token stackaroos integer)",
                        "(ft-mint? stackaroos 100 tx-sender)",
                        "(ft-transfer? stackaroos 1 tx-sender tx-sender)",

@@ -244,7 +244,7 @@ fn test_set_int_variable() {
 #[test]
 fn test_set_bool_variable() {
     let contract_src = r#"
-        (define-data-var is-okay bool 'true)
+        (define-data-var is-okay bool true)
         (define-private (get-okay)
             (var-get is-okay))
         (define-private (set-okay (new-okay bool))
@@ -254,7 +254,7 @@ fn test_set_bool_variable() {
     "#;
 
     let mut contract_src = contract_src.to_string();
-    contract_src.push_str("(list (get-okay) (set-okay 'false) (get-okay))");
+    contract_src.push_str("(list (get-okay) (set-okay false) (get-okay))");
     let expected = Value::list_from(vec![
         Value::Bool(true),
         Value::Bool(false),
@@ -288,7 +288,7 @@ fn test_set_tuple_variable() {
 fn test_set_response_variable() {
     let contract_src = r#"
         (define-data-var keys (response int bool) (ok 1))
-        (var-set keys (err 'true))
+        (var-set keys (err true))
         (var-set keys (ok 3))
         (unwrap! (var-get keys) 5)
     "#;
@@ -298,7 +298,7 @@ fn test_set_response_variable() {
 
     let contract_src = r#"
         (define-data-var keys (response int bool) (ok 1))
-        (var-set keys (err 'true))
+        (var-set keys (err true))
         (unwrap! (var-get keys) 5)
     "#;
     let contract_src = contract_src.to_string();
@@ -526,7 +526,7 @@ fn lists_system() {
     test_bad_tuple_2.push_str("(map-insert lists (tuple (name 1)) (tuple (contents (list 1 2 6)) (discontents 1)))");
 
     let mut test_bad_tuple_3 = test1.to_string();
-    test_bad_tuple_3.push_str("(map-insert lists (tuple (name 1)) (tuple (contents (list 'false 'true 'false))))");
+    test_bad_tuple_3.push_str("(map-insert lists {name 1} {contents (list false true false)})");
 
     let mut test_bad_tuple_4 = test1.to_string();
     test_bad_tuple_4.push_str("(map-insert lists (tuple (name (list 1))) (tuple (contents (list 1 2 3))))");

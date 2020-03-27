@@ -38,7 +38,7 @@ and any given intermediate in the language has a strict type as well, meaning so
 of the form:
 
 (if x
-   'true
+   true
    -1)
 
 Is illegally typed in our language.
@@ -367,7 +367,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         match return_result {
             Err(e) => {
                 self.function_return_tracker = None;
-                return Err(e)            
+                return Err(e)
             },
             Ok(return_type) => {
                 let return_type = {

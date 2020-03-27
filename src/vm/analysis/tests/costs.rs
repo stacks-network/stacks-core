@@ -40,7 +40,7 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
                          (define-fungible-token ft-foo)
                          (define-data-var var-foo int 0)
                          (define-constant tuple-foo (tuple (a 1)))
-                         (define-constant list-foo (list 'true))
+                         (define-constant list-foo (list true))
                          (define-constant list-bar (list 1))
                          (define-public (execute) (ok {}))", prog);
 

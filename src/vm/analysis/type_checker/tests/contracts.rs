@@ -31,7 +31,7 @@ const SIMPLE_TOKENS: &str =
                  (begin
                    (map-set tokens (tuple (account tx-sender))
                                       (tuple (balance (- balance amount))))
-                   (token-credit! to amount)))))                     
+                   (token-credit! to amount)))))
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u300))";
 
@@ -67,7 +67,7 @@ const SIMPLE_NAMES: &str =
                         2)
                    (err 1) (err 3)))))
 
-         (define-public (register 
+         (define-public (register
                         (recipient-principal principal)
                         (name uint)
                         (salt uint))
@@ -101,10 +101,10 @@ const SIMPLE_NAMES: &str =
 fn test_names_tokens_contracts_interface() {
     const INTERFACE_TEST_CONTRACT: &str = "
         (define-constant var1 'SP000000000000000000002Q6VF78)
-        (define-constant var2 'true)
+        (define-constant var2 true)
         (define-constant var3 45)
 
-        (define-data-var d-var1 bool 'true)
+        (define-data-var d-var1 bool true)
         (define-data-var d-var2 int 2)
         (define-data-var d-var3 (buff 5) 0xdeadbeef)
 
@@ -112,30 +112,30 @@ fn test_names_tokens_contracts_interface() {
         (define-map map2 ((k-name-1 bool)) ((v-name-1 (buff 33))) )
         (define-map map3 ((k-name-2 bool)) ((v-name-2 (tuple (n1 int) (n2 bool)))) )
 
-        (define-private (f00 (a1 int)) 'true)
-        (define-private (f01 (a1 bool)) 'true)
-        (define-private (f02 (a1 principal)) 'true)
-        (define-private (f03 (a1 (buff 54))) 'true)
-        (define-private (f04 (a1 (tuple (t-name1 bool) (t-name2 int)))) 'true)
-        (define-private (f05 (a1 (list 7 (list 3 int)))) 'true)
+        (define-private (f00 (a1 int)) true)
+        (define-private (f01 (a1 bool)) true)
+        (define-private (f02 (a1 principal)) true)
+        (define-private (f03 (a1 (buff 54))) true)
+        (define-private (f04 (a1 (tuple (t-name1 bool) (t-name2 int)))) true)
+        (define-private (f05 (a1 (list 7 (list 3 int)))) true)
 
         (define-private (f06) 1)
-        (define-private (f07) 'true)
-        (define-private (f08) 'SP000000000000000000002Q6VF78) 
+        (define-private (f07) true)
+        (define-private (f08) 'SP000000000000000000002Q6VF78)
         (define-private (f09) 0xdeadbeef)
-        (define-private (f10) (tuple (tn1 'true) (tn2 0) (tn3 0xff) ))
+        (define-private (f10) (tuple (tn1 true) (tn2 0) (tn3 0xff) ))
         (define-private (f11) (map-get? map1 (tuple (name 0))))
         (define-private (f12) (ok 3))
         (define-private (f13) (err 6))
-        (define-private (f14) (if 'true (ok 1) (err 2)))
+        (define-private (f14) (if true (ok 1) (err 2)))
         (define-private (f15) (list 1 2 3))
         (define-private (f16) (list (list (list 5)) (list (list 55))))
 
         (define-public (pub-f01) (ok 1))
-        (define-public (pub-f02) (ok 'true))
-        (define-public (pub-f03) (err 'true))
-        (define-public (pub-f04) (if 'true (ok 1) (err 2)))
-        (define-public (pub-f05 (a1 int)) (ok 'true))
+        (define-public (pub-f02) (ok true))
+        (define-public (pub-f03) (err true))
+        (define-public (pub-f04) (if true (ok 1) (err 2)))
+        (define-public (pub-f05 (a1 int)) (ok true))
 
         (define-read-only (ro-f01) 0)
         (define-read-only (ro-f02 (a1 int)) 0)
@@ -151,22 +151,22 @@ fn test_names_tokens_contracts_interface() {
             { "name": "f00",
                 "access": "private",
                 "args": [{ "name": "a1", "type": "int128" }],
-                "outputs": { "type": "bool" } 
+                "outputs": { "type": "bool" }
             },
             { "name": "f01",
                 "access": "private",
                 "args": [{ "name": "a1", "type": "bool" }],
-                "outputs": { "type": "bool" } 
+                "outputs": { "type": "bool" }
             },
             { "name": "f02",
                 "access": "private",
                 "args": [{ "name": "a1", "type": "principal" }],
-                "outputs": { "type": "bool" } 
+                "outputs": { "type": "bool" }
             },
             { "name": "f03",
                 "access": "private",
                 "args": [{ "name": "a1", "type": { "buffer": { "length": 54 } } }],
-                "outputs": { "type": "bool" } 
+                "outputs": { "type": "bool" }
             },
             { "name": "f04",
                 "access": "private",
@@ -174,32 +174,32 @@ fn test_names_tokens_contracts_interface() {
                     { "name": "t-name1", "type": "bool" },
                     { "name": "t-name2", "type": "int128" }
                 ] } }],
-                "outputs": { "type": "bool" } 
+                "outputs": { "type": "bool" }
             },
             { "name": "f05",
                 "access": "private",
                 "args": [{ "name": "a1", "type": { "list": { "type": { "list": { "type": "int128", "length": 3 } }, "length": 7 } } }],
-                "outputs": { "type": "bool" } 
+                "outputs": { "type": "bool" }
             },
             { "name": "f06",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": "int128" } 
+                "outputs": { "type": "int128" }
             },
             { "name": "f07",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": "bool" } 
+                "outputs": { "type": "bool" }
             },
             { "name": "f08",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": "principal" } 
+                "outputs": { "type": "principal" }
             },
             { "name": "f09",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "buffer": { "length": 4 } } } 
+                "outputs": { "type": { "buffer": { "length": 4 } } }
             },
             { "name": "f10",
                 "access": "private",
@@ -216,7 +216,7 @@ fn test_names_tokens_contracts_interface() {
                 "outputs": { "type": { "optional": { "tuple": [ {
                     "name": "owner",
                     "type": "principal"
-                 } ] } } } 
+                 } ] } } }
             },
             { "name": "f12",
                 "access": "private",
@@ -377,7 +377,7 @@ fn test_names_tokens_contracts_bad() {
     let broken_public = "
          (define-public (broken-cross-contract (name-hash (buff 20)) (name-price uint))
            (if (is-ok (contract-call? .tokens token-transfer
-                 burn-address 'true))
+                 burn-address true))
                (begin (map-insert preorder-map
                  (tuple (name-hash name-hash))
                  (tuple (paid name-price)
@@ -450,29 +450,29 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
 
 #[test]
 fn test_bad_map_usage() {
-    let bad_fetch = 
+    let bad_fetch =
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (my-get-token-balance (account int))
             (let ((balance
                   (get balance (map-get? tokens (tuple (account account))))))
               balance))";
-    let bad_delete = 
+    let bad_delete =
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (del-balance (account principal))
             (map-delete tokens (tuple (balance account))))";
-    let bad_set_1 = 
+    let bad_set_1 =
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (set-balance (account principal))
             (map-set tokens (tuple (account account)) (tuple (balance \"foo\"))))";
-    let bad_set_2 = 
+    let bad_set_2 =
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (set-balance (account principal))
             (map-set tokens (tuple (account \"abc\")) (tuple (balance 0))))";
-    let bad_insert_1 = 
+    let bad_insert_1 =
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (set-balance (account principal))
             (map-insert tokens (tuple (account account)) (tuple (balance \"foo\"))))";
-    let bad_insert_2 = 
+    let bad_insert_2 =
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (set-balance (account principal))
             (map-insert tokens (tuple (account \"abc\")) (tuple (balance 0))))";
@@ -530,22 +530,22 @@ fn test_same_function_name() {
 #[test]
 fn test_expects() {
     use vm::analysis::type_check;
-    let okay = 
+    let okay =
         "(define-map tokens ((id int)) ((balance int)))
          (define-private (my-get-token-balance)
-            (let ((balance (unwrap! 
-                              (get balance (map-get? tokens (tuple (id 0)))) 
+            (let ((balance (unwrap!
+                              (get balance (map-get? tokens (tuple (id 0))))
                               0)))
               (+ 0 balance)))
          (define-private (my-get-token-balance-2)
-            (let ((balance 
-                    (get balance (unwrap! (map-get? tokens (tuple (id 0))) 0)) 
+            (let ((balance
+                    (get balance (unwrap! (map-get? tokens (tuple (id 0))) 0))
                               ))
               (+ 0 balance)))
           (define-private (my-get-token-balance-3)
              (let ((balance
                      (unwrap! (get balance (map-get? tokens (tuple (id 0))))
-                               (err 'false))))
+                              (err false))))
                (ok balance)))
           (define-private (my-get-token-balance-4)
              (unwrap! (my-get-token-balance-3) 0))
@@ -560,19 +560,19 @@ fn test_expects() {
     let bad_return_types_tests = [
         "(define-map tokens ((id int)) ((balance int)))
          (define-private (my-get-token-balance)
-            (let ((balance (unwrap! 
-                              (get balance (map-get? tokens (tuple (id 0)))) 
-                              'false)))
+            (let ((balance (unwrap!
+                              (get balance (map-get? tokens (tuple (id 0))))
+                              false)))
               (+ 0 balance)))",
         "(define-map tokens ((id int)) ((balance int)))
          (define-private (my-get-token-balance)
-            (let ((balance (unwrap! 
-                              (get balance (map-get? tokens (tuple (id 0)))) 
+            (let ((balance (unwrap!
+                              (get balance (map-get? tokens (tuple (id 0))))
                               (err 1))))
-              (err 'false)))"];
+              (err false)))"];
 
     let bad_default_type = "(define-map tokens ((id int)) ((balance int)))
-         (default-to 'false (get balance (map-get? tokens (tuple (id 0)))))";
+         (default-to false (get balance (map-get? tokens (tuple (id 0)))))";
 
     let notype_response_type = "
          (define-private (t1) (ok 3))

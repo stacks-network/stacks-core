@@ -7,19 +7,19 @@ mod costs;
 
 #[test]
 fn test_list_types_must_match() {
-    let snippet = "(list 1 'true)";
+    let snippet = "(list 1 true)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'int', found 'bool'"));
 }
 
 #[test]
 fn test_type_error() {
-    let snippet = "(+ 'true 1)";
+    let snippet = "(+ true 1)";
     let err = mem_type_check(snippet).unwrap_err();
     println!("{}", err.diagnostic);
     assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'int' or 'uint', found 'bool'"));
 
-    let snippet = "(+ 1 'true)";
+    let snippet = "(+ 1 true)";
     let err = mem_type_check(snippet).unwrap_err();
     println!("{}", err.diagnostic);
     assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'int', found 'bool'"));
@@ -27,7 +27,7 @@ fn test_type_error() {
 
 #[test]
 fn test_union_type_error() {
-    let snippet = "(hash160 'true)";
+    let snippet = "(hash160 true)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expecting expression of type '(buff 1048576)', 'uint' or 'int', found 'bool'"));
 }
@@ -164,7 +164,7 @@ fn test_define_variable_bad_signature() {
 
 #[test]
 fn test_return_types_must_match() {
-    let snippet = "(define-private (mismatched) (begin (unwrap! (ok 1) 'false) 1))";
+    let snippet = "(define-private (mismatched) (begin (unwrap! (ok 1) false) 1))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("detected two execution paths, returning two different expression types"));
 }
@@ -199,7 +199,7 @@ fn test_get_block_info_expect_property_name() {
 
 #[test]
 fn test_name_already_used() {
-    let snippet = "(define-constant var1 'true) (define-constant var1 1)";
+    let snippet = "(define-constant var1 true) (define-constant var1 1)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("'var1' conflicts with previous value"));
 }
@@ -220,7 +220,7 @@ fn test_expected_list_or_buff() {
 
 #[test]
 fn test_bad_let_syntax() {
-    let snippet = "(let 1 ('true))";
+    let snippet = "(let 1 (true))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("invalid syntax of 'let'"));
 }
@@ -256,14 +256,14 @@ fn test_incorrect_argument_count() {
 
 #[test]
 fn test_if_arms_must_match() {
-    let snippet = "(if 'true 'true 1)";
+    let snippet = "(if true true 1)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expression types returned by the arms of 'if' must match (got 'bool' and 'int')"));
 }
 
 #[test]
 fn test_default_types_must_match() {
-    let snippet = "(default-to 1 (some 'true))";
+    let snippet = "(default-to 1 (some true))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expression types passed in 'default-to' must match (got 'int' and 'bool')"));
 }

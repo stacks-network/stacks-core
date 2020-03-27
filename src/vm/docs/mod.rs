@@ -195,9 +195,9 @@ const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(and b1 b2 ...)",
     description: "Returns `true` if all boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
-    example: "(and 'true 'false) ;; Returns 'false
-(and (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns 'false
-(and (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns 'true
+    example: "(and true false) ;; Returns false
+(and (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns false
+(and (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns true
 "
 };
 
@@ -205,10 +205,10 @@ const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(or b1 b2 ...)",
     description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
-    example: "(or 'true 'false) ;; Returns 'true
-(or (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns 'true
-(or (is-eq (+ 1 2) 1) (is-eq 3 4)) ;; Returns 'false
-(or (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns 'true
+    example: "(or true false) ;; Returns true
+(or (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns true
+(or (is-eq (+ 1 2) 1) (is-eq 3 4)) ;; Returns false
+(or (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns true
 "
 };
 
@@ -216,8 +216,8 @@ const NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(not b1)",
     description: "Returns the inverse of the boolean input.",
-    example: "(not 'true) ;; Returns 'false
-(not (is-eq 1 2)) ;; Returns 'true
+    example: "(not true) ;; Returns false
+(not (is-eq 1 2)) ;; Returns true
 "
 };
 
@@ -225,8 +225,8 @@ const GEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some(">= (greater than or equal)"),
     signature: "(>= i1 i2)",
     description: "Compares two integers, returning `true` if `i1` is greater than or equal to `i2` and `false` otherwise.",
-    example: "(>= 1 1) ;; Returns 'true
-(>= 5 2) ;; Returns 'true
+    example: "(>= 1 1) ;; Returns true
+(>= 5 2) ;; Returns true
 "
 };
 
@@ -234,8 +234,8 @@ const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("<= (less than or equal)"),
     signature: "(<= i1 i2)",
     description: "Compares two integers, returning true if `i1` is less than or equal to `i2` and `false` otherwise.",
-    example: "(<= 1 1) ;; Returns 'true
-(<= 5 2) ;; Returns 'false
+    example: "(<= 1 1) ;; Returns true
+(<= 5 2) ;; Returns false
 "
 };
 
@@ -243,8 +243,8 @@ const GREATER_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("> (greater than)"),
     signature: "(> i1 i2)",
     description: "Compares two integers, returning `true` if `i1` is greater than `i2` and false otherwise.",
-    example: "(> 1 2) ;; Returns 'false
-(> 5 2) ;; Returns 'true
+    example: "(> 1 2) ;; Returns false
+(> 5 2) ;; Returns true
 "
 };
 
@@ -252,8 +252,8 @@ const LESS_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("< (less than)"),
     signature: "(< i1 i2)",
     description: "Compares two integers, returning `true` if `i1` is less than `i2` and `false` otherwise.",
-    example: "(< 1 2) ;; Returns 'true
-(< 5 2) ;; Returns 'false
+    example: "(< 1 2) ;; Returns true
+(< 5 2) ;; Returns false
 "
 };
 
@@ -303,9 +303,9 @@ const EQUALS_API: SpecialAPI = SpecialAPI {
     output_type: "bool",
     signature: "(is-eq v1 v2...)",
     description: "Compares the inputted values, returning `true` if they are all equal. Note that _unlike_ the `(and ...)` function, `(is-eq ...)` will _not_ short-circuit.",
-    example: "(is-eq 1 1) ;; Returns 'true
-(is-eq 1 'false) ;; Returns 'false
-(is-eq \"abc\" 234 234) ;; Returns 'false
+    example: "(is-eq 1 1) ;; Returns true
+(is-eq 1 false) ;; Returns false
+(is-eq \"abc\" 234 234) ;; Returns false
 "
 };
 
@@ -346,7 +346,7 @@ const SET_VAR_API: SpecialAPI = SpecialAPI {
     signature: "(var-set var-name expr1)",
     description: "The `var-set` function sets the value associated with the input variable to the
 inputted value.",
-    example: "(var-set cursor (+ cursor 1)) ;; Returns 'true"
+    example: "(var-set cursor (+ cursor 1)) ;; Returns true"
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
@@ -355,7 +355,7 @@ const MAP_API: SpecialAPI = SpecialAPI {
     signature: "(map func list)",
     description: "The `map` function applies the input function `func` to each element of the
 input list, and outputs a list containing the _outputs_ from those function applications.",
-    example: "(map not (list true false true false)) ;; Returns 'false true false true"
+    example: "(map not (list true false true false)) ;; Returns false true false true"
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
@@ -471,7 +471,7 @@ with the key, the function overwrites that existing association.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(map-set names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
+    example: "(map-set names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns true
 (map-set names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
@@ -487,8 +487,8 @@ this key in the data map, the function returns `false`.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
-(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'false
+    example: "(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns true
+(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns false
 (map-insert names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
@@ -500,8 +500,8 @@ const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
     description: "The `map-delete` function removes the value associated with the input key for
 the given map. If an item exists and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
-    example: "(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns 'true
-(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns 'false
+    example: "(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns true
+(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns false
 (map-delete names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
@@ -638,9 +638,9 @@ const ASSERTS_API: SpecialAPI = SpecialAPI {
     signature: "(asserts! bool-expr thrown-value)",
     description: "The `asserts!` function admits a boolean argument and asserts its evaluation:
 if bool-expr is `true`, `asserts!` returns `true` and proceeds in the program execution.
-If the supplied argument is returning a 'false value, `asserts!` _returns_ `thrown-value` and exits the current
+If the supplied argument is returning a false value, `asserts!` _returns_ `thrown-value` and exits the current
 control-flow.",
-    example: "(asserts! (is-eq 1 1) (err 1)) ;; Returns 'true",
+    example: "(asserts! (is-eq 1 1) (err 1)) ;; Returns true",
 };
 
 const EXPECTS_API: SpecialAPI = SpecialAPI {
@@ -668,11 +668,11 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
 (define-private (checked-even (x int))
   (if (eq? (mod x 2) 0)
       (ok x)
-      (err 'false)))
+      (err false)))
 (define-private (double-if-even (x int))
   (ok (* 2 (try! (checked-even x)))))
 (double-if-even 10) ;; Returns (ok 20)
-(double-if-even 3) ;; Returns (err 'false)
+(double-if-even 3) ;; Returns (err false)
 ",
 };
 
@@ -707,7 +707,7 @@ const EXPECTS_ERR_API: SpecialAPI = SpecialAPI {
 is an `(err ...)` response, `unwrap-err!` returns the inner value of the `err`.
 If the supplied argument is an `(ok ...)` value,
 `unwrap-err!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
-    example: "(unwrap-err! (err 1) 'false) ;; Returns 1",
+    example: "(unwrap-err! (err 1) false) ;; Returns 1",
 };
 
 const MATCH_API: SpecialAPI = SpecialAPI {
@@ -786,7 +786,7 @@ const CONS_ERR_API: SpecialAPI = SpecialAPI {
     description: "The `err` function constructs a response type from the input value. Use `err` for
 creating return values in public functions. An _err_ value indicates that any database changes during
 the processing of the function should be rolled back.",
-    example: "(err 'true) ;; Returns (err 'true)",
+    example: "(err true) ;; Returns (err true)",
 };
 
 const CONS_SOME_API: SpecialAPI = SpecialAPI {
@@ -795,7 +795,7 @@ const CONS_SOME_API: SpecialAPI = SpecialAPI {
     signature: "(some value)",
     description: "The `some` function constructs a `optional` type from the input value.",
     example: "(some 1) ;; Returns (some 1)
-(is-none (some 2)) ;; Returns 'false",
+(is-none (some 2)) ;; Returns false",
 };
 
 const IS_OK_API: SpecialAPI = SpecialAPI {
@@ -804,8 +804,8 @@ const IS_OK_API: SpecialAPI = SpecialAPI {
     signature: "(is-ok value)",
     description: "`is-ok` tests a supplied response value, returning `true` if the response was `ok`,
 and `false` if it was an `err`.",
-    example: "(is-ok (ok 1)) ;; Returns 'true
-(is-ok (err 1)) ;; Returns 'false",
+    example: "(is-ok (ok 1)) ;; Returns true
+(is-ok (err 1)) ;; Returns false",
 };
 
 const IS_NONE_API: SpecialAPI = SpecialAPI {
@@ -814,8 +814,8 @@ const IS_NONE_API: SpecialAPI = SpecialAPI {
     signature: "(is-none value)",
     description: "`is-none` tests a supplied option value, returning `true` if the option value is `(none)`,
 and `false` if it is a `(some ...)`.",
-    example: "(is-none (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 'false
-(is-none (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 'true"
+    example: "(is-none (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns false
+(is-none (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns true"
 };
 
 const IS_ERR_API: SpecialAPI = SpecialAPI {
@@ -824,8 +824,8 @@ const IS_ERR_API: SpecialAPI = SpecialAPI {
     signature: "(is-err? value)",
     description: "`is-err?` tests a supplied response value, returning `true` if the response was an `err`,
 and `false` if it was an `ok`.",
-    example: "(is-err? (ok 1)) ;; Returns 'false
-(is-err? (err 1)) ;; Returns 'true",
+    example: "(is-err? (ok 1)) ;; Returns false
+(is-err? (err 1)) ;; Returns true",
 };
 
 const IS_SOME_API: SpecialAPI = SpecialAPI {
@@ -834,8 +834,8 @@ const IS_SOME_API: SpecialAPI = SpecialAPI {
     signature: "(is-some? value)",
     description: "`is-some?` tests a supplied option value, returning `true` if the option value is `(some ...)`,
 and `false` if it is a `none`.",
-    example: "(is-some? (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 'true
-(is-some? (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 'false"
+    example: "(is-some? (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns true
+(is-some? (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns false"
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
@@ -1093,7 +1093,7 @@ type defined using `define-fungible-token`. The increased token balance is _not_
 rather minted.
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
-returns `(ok 'true 1)`.
+returns `(ok true 1)`.
 ",
     example: "
 (define-fungible-token stackaroo)
@@ -1113,7 +1113,7 @@ If an asset identified by `asset-identifier` _already exists_, this function wil
 
 `(err 1)`
 
-Otherwise, on successfuly mint, it returns `(ok 'true 1)`.
+Otherwise, on successfuly mint, it returns `(ok true 1)`.
 ",
     example: "
 (define-non-fungible-token stackaroo (buff 40))

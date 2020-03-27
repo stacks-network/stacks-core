@@ -204,16 +204,16 @@ fn test_simple_if_functions() {
     if let Ok(parsed_bodies) = function_bodies {
         let func_args1 = vec![("x".into(), TypeSignature::IntType)];
         let func_args2 = vec![("x".into(), TypeSignature::IntType)];
-        let user_function1 = DefinedFunction::new(func_args1, 
-                                                  parsed_bodies[0].clone(), 
-                                                  Private, 
-                                                  &"with_else".into(), 
+        let user_function1 = DefinedFunction::new(func_args1,
+                                                  parsed_bodies[0].clone(),
+                                                  Private,
+                                                  &"with_else".into(),
                                                   &"");
 
-        let user_function2 = DefinedFunction::new(func_args2, 
-                                                  parsed_bodies[1].clone(), 
-                                                  Private, 
-                                                  &"without_else".into(), 
+        let user_function2 = DefinedFunction::new(func_args2,
+                                                  parsed_bodies[1].clone(),
+                                                  Private,
+                                                  &"without_else".into(),
                                                   &"");
 
         let context = LocalContext::new();
@@ -322,7 +322,7 @@ fn test_simple_arithmetic_functions() {
 fn test_arithmetic_errors() {
     let tests = [
         "(>= 1)",
-        "(+ 1 'true)",
+        "(+ 1 true)",
         "(/ 10 0)",
         "(mod 10 0)",
         "(pow 2 128)",
@@ -336,7 +336,7 @@ fn test_arithmetic_errors() {
         "(xor 1)",
         "(pow 2 (pow 2 32))",
         "(pow 2 (- 1))",
-        "(is-eq (some 1) (some 'true))"];
+        "(is-eq (some 1) (some true))"];
 
     let expectations: &[Error] = &[
         CheckErrors::IncorrectArgumentCount(2,1).into(),
@@ -391,18 +391,18 @@ fn test_unsigned_arithmetic() {
 fn test_options_errors() {
     let tests = [
         "(is-none 2 1)",
-        "(is-none 'true)",
+        "(is-none true)",
         "(is-ok 2 1)",
-        "(is-ok 'true)",
+        "(is-ok true)",
         "(is-err 2 1)",
-        "(is-err 'true)",
+        "(is-err true)",
         "(is-some 2 1)",
-        "(is-some 'true)",
+        "(is-some true)",
         "(ok 2 3)",
         "(some 2 3)",
         "(err 4 5)",
         "(default-to 4 5 7)",
-        "(default-to 4 'true)",
+        "(default-to 4 true)",
         "(get field-0 (some 1))",
         "(get field-0 1)",
         ];
@@ -508,7 +508,7 @@ fn test_option_destructs() {
         "(try! (err u1))",
         "(try! (ok 3))",
         "(try! none)",
-        "(try! (some 'true))",
+        "(try! (some true))",
         "(try! none 1)",
         "(try! 1)",
         ];
@@ -552,12 +552,12 @@ fn test_hash_errors() {
         "(sha256 2 1)",
         "(keccak256 3 1)",
         "(hash160 2 1)",
-        "(sha256 'true)",
-        "(keccak256 'true)",
-        "(hash160 'true)",
-        "(sha512 'true)",
+        "(sha256 true)",
+        "(keccak256 true)",
+        "(hash160 true)",
+        "(sha512 true)",
         "(sha512 1 2)",
-        "(sha512/256 'true)",
+        "(sha512/256 true)",
         "(sha512/256 1 2)",
     ];
 
@@ -582,15 +582,17 @@ fn test_hash_errors() {
 #[test]
 fn test_bool_functions() {
     let tests = [
-        "'true",
-         "(and 'true 'true 'true)",
-         "(and 'false 'true 'true)",
-         "(and 'false (> 1 (/ 10 0)))",
-         "(or 'true (> 1 (/ 10 0)))",
-         "(or 'false 'false 'false)",
-         "(not 'true)",
+        "true",
+         "(and true true true)",
+         "(and false true true)",
+         "(and false (> 1 (/ 10 0)))",
+         "(or true (> 1 (/ 10 0)))",
+         "(or false false false)",
+         "(not true)",
          "(and true false)",
-         "(or false true)"];
+         "(or false true)",
+         "(or 'false 'true)",
+         "(and 'true 'false)"];
 
     let expectations = [
         Value::Bool(true),
@@ -601,7 +603,9 @@ fn test_bool_functions() {
         Value::Bool(false),
         Value::Bool(false),
         Value::Bool(false),
-        Value::Bool(true)];
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(false)];
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));

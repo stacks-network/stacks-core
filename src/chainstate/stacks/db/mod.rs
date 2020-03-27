@@ -436,7 +436,7 @@ const STACKS_BOOT_CODE : &'static [&'static str] = &[
         ((available uint) (authorized bool))
     )
     (define-private (get-participant-info (participant principal))
-        (default-to (tuple (available u0) (authorized 'false)) (map-get? rewards ((participant participant)))))
+        (default-to {available: u0, authorized: false} (map-get? rewards {participant participant})))
 
     (define-public (get-participant-reward (participant principal))
         (ok (get available (get-participant-info participant))))
@@ -731,7 +731,7 @@ impl StacksChainState {
 
         headers_path.pop();
         headers_path.pop();
-        
+
         headers_path.push("index");
         let header_index_root = headers_path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
 
@@ -993,4 +993,3 @@ pub mod test {
         }
     }
 }
-
