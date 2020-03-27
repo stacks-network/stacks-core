@@ -195,7 +195,7 @@ impl Address for BitcoinAddress {
         self.to_b58()
     }
 
-    fn from_string(s: &String) -> Option<BitcoinAddress> {
+    fn from_string(s: &str) -> Option<BitcoinAddress> {
         match BitcoinAddress::from_b58(s) {
             Ok(a) => Some(a),
             Err(_e) => None

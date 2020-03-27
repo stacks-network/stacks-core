@@ -140,8 +140,8 @@ impl Address for StacksAddress {
         c32_address(self.version, self.bytes.as_bytes()).expect("Stacks version is not C32-encodable")
     }
 
-    fn from_string(s: &String) -> Option<StacksAddress> {
-        let (version, bytes) = match c32_address_decode(s.as_str()) {
+    fn from_string(s: &str) -> Option<StacksAddress> {
+        let (version, bytes) = match c32_address_decode(s) {
             Ok((v, b)) => (v, b),
             Err(_) => {
                 return None;

@@ -56,15 +56,24 @@ use net::HTTP_REQUEST_ID_RESERVED;
 
 use chainstate::burn::BlockHeaderHash;
 use burnchains::{ Txid, Address };
-use chainstate::stacks::StacksTransaction;
-use chainstate::stacks::StacksBlock;
-use chainstate::stacks::StacksMicroblock;
-use chainstate::stacks::StacksPublicKey;
+use chainstate::stacks::{
+    StacksAddress, StacksTransaction, StacksBlock, StacksMicroblock, StacksPublicKey
+};
 
 use util::log;
 use util::hash::hex_bytes;
 use util::retry::RetryReader;
 use util::retry::BoundReader;
+
+use vm::{
+    ast::parser::{
+        STANDARD_PRINCIPAL_REGEX, PRINCIPAL_DATA_REGEX, CLARITY_NAME_REGEX, CONTRACT_NAME_REGEX
+    },
+    types::{ PrincipalData, MAX_VALUE_SIZE },
+    ClarityName, ContractName, Value
+};
+
+use std::convert::TryFrom;
 
 use regex::{
     Regex,
@@ -1109,13 +1118,16 @@ impl HttpRequestType {
 
     pub fn parse<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, fd: &mut R) -> Result<HttpRequestType, net_error> {
         // TODO: make this static somehow
-        let REQUEST_METHODS : [(&str, &Regex, &dyn Fn(&mut StacksHttp, &HttpRequestPreamble, &Captures, &mut R) -> Result<HttpRequestType, net_error>); 6] = [
+        let REQUEST_METHODS: &[(&str, &Regex, &dyn Fn(&mut StacksHttp, &HttpRequestPreamble, &Captures, &mut R) -> Result<HttpRequestType, net_error>)] = &[
             ("GET", &PATH_GETINFO, &HttpRequestType::parse_getinfo),
             ("GET", &PATH_GETNEIGHBORS, &HttpRequestType::parse_getneighbors),
             ("GET", &PATH_GETBLOCK, &HttpRequestType::parse_getblock),
             ("GET", &PATH_GETMICROBLOCKS, &HttpRequestType::parse_getmicroblocks),
             ("GET", &PATH_GETMICROBLOCKS_UNCONFIRMED, &HttpRequestType::parse_getmicroblocks_unconfirmed),
-            ("POST", &PATH_POSTTRANSACTION, &HttpRequestType::parse_posttransaction)
+            ("POST", &PATH_POSTTRANSACTION, &HttpRequestType::parse_posttransaction),
+            ("GET", &PATH_GET_ACCOUNT, &HttpRequestType::parse_get_account),
+            ("POST", &PATH_GET_MAP_ENTRY, &HttpRequestType::parse_get_map_entry),
+            ("GET", &PATH_GET_TRANSFER_COST, &HttpRequestType::parse_get_transfer_cost),
         ];
 
         for (verb, regex, parser) in REQUEST_METHODS.iter() {
@@ -1149,6 +1161,50 @@ impl HttpRequestType {
         }
 
         Ok(HttpRequestType::GetNeighbors(HttpRequestMetadata::from_preamble(preamble)))
+    }
+
+    fn parse_get_transfer_cost<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetTransferCost".to_string()));
+        }
+
+        Ok(HttpRequestType::GetTransferCost(HttpRequestMetadata::from_preamble(preamble)))
+    }
+
+    fn parse_get_account<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetAccount".to_string()));
+        }
+
+        let principal = PrincipalData::parse(&captures["principal"])
+            .map_err(|_e| net_error::DeserializeError("Failed to parse account principal".into()))?;
+
+        Ok(HttpRequestType::GetAccount(HttpRequestMetadata::from_preamble(preamble), principal))
+    }
+
+    fn parse_get_map_entry<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, fd: &mut R) -> Result<HttpRequestType, net_error> {
+        let content_len = preamble.get_content_length();
+        if !(content_len > 0 && content_len < (MAX_VALUE_SIZE * 4)) {
+            return Err(net_error::DeserializeError("Invalid Http request: invalid body length for GetMapEntry".to_string()));
+        }
+
+        let contract_addr =  StacksAddress::from_string(&captures["address"])
+            .ok_or_else(|| net_error::DeserializeError("Failed to parse contract address".into()))?;
+        let contract_name = ContractName::try_from(captures["contract"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+        let map_name = ClarityName::try_from(captures["map"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+
+        // deserialize hex bytes from the HTTP request
+        // this _buffers_ the post data, because that's much simpler for now than
+        //   using something like a hex-decoding-stream-wrapper.
+        let mut value_hex = String::new();
+        fd.read_to_string(&mut value_hex).map_err(net_error::ReadError)?;
+
+        let value = Value::try_deserialize_hex_untyped(&value_hex)
+            .map_err(|_e| net_error::DeserializeError("Failed to deserialize key value".into()))?;
+
+        Ok(HttpRequestType::GetMapEntry(HttpRequestMetadata::from_preamble(preamble), contract_addr, contract_name, map_name, value))
     }
 
     fn parse_getblock<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _fd: &mut R) -> Result<HttpRequestType, net_error> {
@@ -1690,6 +1746,11 @@ lazy_static! {
     static ref PATH_GETMICROBLOCKS : Regex = Regex::new(r#"^/v2/microblocks/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_GETMICROBLOCKS_UNCONFIRMED : Regex = Regex::new(r#"^/v2/microblocks/unconfirmed/([0-9a-f]{64})/([0-9]{1,5})$"#).unwrap();
     static ref PATH_POSTTRANSACTION : Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
+    static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!("^/v2/accounts/(?P<principal>{})", *PRINCIPAL_DATA_REGEX)).unwrap();
+    static ref PATH_GET_MAP_ENTRY: Regex = Regex::new(&format!(
+        "^/v2/map-entry/(?P<address>{})/(?P<contract>{})/(?P<map>{})",
+        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX)).unwrap();
+    static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer").unwrap();
 }
 
 impl StacksMessageCodec for StacksHttpPreamble {

@@ -267,6 +267,12 @@ impl error::Error for Error {
     }
 }
 
+impl From<db_error> for Error {
+    fn from(o: db_error) -> Error {
+        Error::DBError(o)
+    }
+}
+
 #[cfg(test)]
 impl PartialEq for Error {
     /// (make I/O errors comparable for testing purposes)

@@ -160,7 +160,7 @@ pub trait PrivateKey : Clone + fmt::Debug + serde::Serialize + serde::de::Deseri
 pub trait Address : Clone + fmt::Debug {
     fn to_bytes(&self) -> Vec<u8>;
     fn to_string(&self) -> String;
-    fn from_string(&String) -> Option<Self>
+    fn from_string(&str) -> Option<Self>
         where Self: Sized;
     fn is_burn(&self) -> bool;
 }

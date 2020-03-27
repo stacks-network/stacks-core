@@ -31,7 +31,7 @@ use std::convert::From;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
-use util::db::{FromRow, FromColumn, query_rows, query_row_columns, query_count, IndexDBTx, db_mkdirs};
+use util::db::{FromRow, FromColumn, query_rows, query_row, query_row_columns, query_count, IndexDBTx, db_mkdirs};
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 
@@ -760,25 +760,22 @@ impl BurnDB {
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
-        let qry = "SELECT * FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1".to_string();
-        let rows = query_rows::<BlockSnapshot, _>(conn, &qry, NO_PARAMS)?;
-        assert!(rows.len() > 0);
-        Ok(rows[0].clone())
+        let qry = "SELECT * FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
+        query_row(conn, qry, NO_PARAMS)
+            .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
     /// Get the canonical stacks chain tip -- the tip of the longest stacks chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_stacks_chain_tip(conn: &Connection) -> Result<Option<BlockSnapshot>, db_error> {
-        let qry = "SELECT * FROM snapshots ORDER BY num_sortitions DESC, burn_header_hash ASC LIMIT 1".to_string();
-        let rows = query_rows::<BlockSnapshot, _>(conn, &qry, NO_PARAMS)?;
-        match rows.len() {
-            0 => {
-                Ok(None)
-            },
-            _ => {
-                Ok(Some(rows[0].clone()))
-            }
-        }
+        let qry = "SELECT * FROM snapshots ORDER BY num_sortitions DESC, burn_header_hash ASC LIMIT 1";
+        query_row(conn, qry, NO_PARAMS)
+    }
+
+    pub fn get_canonical_chain_tip_headers(&self) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, db_error> {
+        let db_tx = self.conn();
+        let chain_tip_snapshot = BurnDB::get_canonical_stacks_chain_tip(db_tx)?;
+        Ok(chain_tip_snapshot.map(|snapshot| (snapshot.burn_header_hash, snapshot.winning_stacks_block_hash)))
     }
 
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last

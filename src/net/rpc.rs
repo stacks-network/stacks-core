@@ -375,11 +375,23 @@ impl ConversationHttp {
         }
     }
 
+    fn handle_load_stacks_chain_tip<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burndb: &mut BurnDB) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
+        match burndb.get_canonical_chain_tip_headers()? {
+            Some(x) => Ok(Some(x)),
+            None => {
+                let response_metadata = HttpResponseMetadata::from(req);
+                warn!("Failed to load Stacks chain tip");
+                let response = HttpResponseType::ServerError(response_metadata, format!("Failed to load Stacks chain tip"));
+                response.send(http, fd).and_then(|_| Ok(None))
+            }
+        }
+    }
+
     /// Handle an external HTTP request.
     /// Some requests, such as those for blocks, will create new reply streams.  This method adds
     /// those new streams into the `reply_streams` set.
     pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
-                          chainstate: &mut StacksChainState, burn_block: &BurnchainHeaderHash, block: &BlockHeaderHash) -> Result<(), net_error> {
+                          chainstate: &mut StacksChainState) -> Result<(), net_error> {
         let mut reply = self.connection.make_relay_handle()?;
         let keep_alive = req.metadata().keep_alive;
         let stream_opt = match req {
@@ -401,12 +413,16 @@ impl ConversationHttp {
                 ConversationHttp::handle_getmicroblocks_unconfirmed(&mut self.connection.protocol, &mut reply, &req, index_anchor_block_hash, *min_seq, chainstate)?
             },
             HttpRequestType::GetAccount(ref _md, ref principal) => {
-                ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, burn_block, block, principal)?;
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
+                    ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block, principal)?;
+                }
                 None
             },
             HttpRequestType::GetMapEntry(ref _md, ref contract_addr, ref contract_name, ref map_name, ref key) => {
-                ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, burn_block, block,
-                                                       contract_addr, contract_name, map_name, key)?;
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
+                    ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
+                                                           contract_addr, contract_name, map_name, key)?;
+                }
                 None
             },
             HttpRequestType::GetTransferCost(ref _md) => {
@@ -608,7 +624,7 @@ impl ConversationHttp {
     /// Make progress on in-flight requests and replies.
     /// Returns the list of unhandled inbound requests
     pub fn chat(&mut self, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
-                chainstate: &mut StacksChainState, burn_block: &BurnchainHeaderHash, block: &BlockHeaderHash) -> Result<(), net_error> {
+                chainstate: &mut StacksChainState) -> Result<(), net_error> {
         // handle in-bound HTTP request(s)
         let num_inbound = self.connection.inbox_len();
         test_debug!("{:?}: {} HTTP requests pending", &self, num_inbound);
@@ -626,7 +642,7 @@ impl ConversationHttp {
                     // new request
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
-                    self.handle_request(req, chain_view, burndb, peerdb, chainstate, burn_block, block)?;
+                    self.handle_request(req, chain_view, burndb, peerdb, chainstate)?;
                 },
                 StacksHttpMessage::Response(resp) => {
                     // Is there someone else waiting for this message?  If so, pass it along.
@@ -766,7 +782,8 @@ mod test {
 
         test_debug!("convo1 sends to convo2");
         convo_send_recv(&mut convo_1, peer_1.chainstate.as_mut().unwrap(), &mut convo_2, peer_2.chainstate.as_mut().unwrap());
-        convo_1.chat(&view_1, peer_1.burndb.as_mut().unwrap(), &mut peer_1.network.peerdb, peer_1.chainstate.as_mut().unwrap()).unwrap();
+        convo_1.chat(&view_1, peer_1.burndb.as_mut().unwrap(), &mut peer_1.network.peerdb,
+                     peer_1.chainstate.as_mut().unwrap()).unwrap();
         
         test_debug!("convo2 sends to convo1");
         convo_2.chat(&view_2, peer_2.burndb.as_mut().unwrap(), &mut peer_2.network.peerdb, peer_2.chainstate.as_mut().unwrap()).unwrap();
