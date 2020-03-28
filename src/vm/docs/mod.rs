@@ -645,7 +645,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
 `try!` _returns_ either `none` or the `(err ...)` value from the current function and exits the current control-flow.",
     example: "(try! (map-get? names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
 (define-private (checked-even (x int))
-  (if (eq? (mod x 2) 0) 
+  (if (is-eq (mod x 2) 0) 
       (ok x)
       (err 'false)))
 (define-private (double-if-even (x int))
