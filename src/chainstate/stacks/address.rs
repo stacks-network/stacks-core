@@ -131,13 +131,17 @@ impl StacksAddress {
     }
 }
 
+impl std::fmt::Display for StacksAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        c32_address(self.version, self.bytes.as_bytes())
+            .expect("Stacks version is not C32-encodable")
+            .fmt(f)
+    }
+}
+
 impl Address for StacksAddress {
     fn to_bytes(&self) -> Vec<u8> {
         self.bytes.as_bytes().to_vec()
-    }
-
-    fn to_string(&self) -> String {
-        c32_address(self.version, self.bytes.as_bytes()).expect("Stacks version is not C32-encodable")
     }
 
     fn from_string(s: &str) -> Option<StacksAddress> {

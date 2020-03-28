@@ -429,6 +429,12 @@ impl ConversationHttp {
                 ConversationHttp::handle_token_transfer_cost(&mut self.connection.protocol, &mut reply, &req)?;
                 None
             },
+            HttpRequestType::GetContractABI(ref _md, ref contract_addr, ref contract_name) => {
+                panic!("Not implemented");
+            },
+            HttpRequestType::GetContractSrc(ref _md, ref contract_addr, ref contract_name) => {
+                panic!("Not implemented");
+            },
             HttpRequestType::PostTransaction(_md, _tx) => {
                 panic!("Not implemented");
             }

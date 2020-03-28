@@ -82,7 +82,7 @@ fn get_lines_at(input: &str) -> Vec<usize> {
 lazy_static! {
     pub static ref STANDARD_PRINCIPAL_REGEX: String = "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into();
     pub static ref CONTRACT_NAME_REGEX: String = format!(r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
-                                                         CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH);
+                                                         CONTRACT_MIN_NAME_LENGTH - 1, CONTRACT_MAX_NAME_LENGTH - 1);
     pub static ref CONTRACT_PRINCIPAL_REGEX: String =
         format!(r#"{}(\.){}"#, *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX);
     pub static ref PRINCIPAL_DATA_REGEX: String = format!("({})|({})", *STANDARD_PRINCIPAL_REGEX, *CONTRACT_PRINCIPAL_REGEX);
@@ -119,8 +119,6 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new(&format!("'(?P<value>{})", *STANDARD_PRINCIPAL_REGEX), TokenType::PrincipalLiteral),
         LexMatcher::new(&format!("(?P<value>{})", *CLARITY_NAME_REGEX), TokenType::Variable),
     ];
-
-    eprintln!("{}", format!(r#"(?P<value>(\.){})"#, *CONTRACT_NAME_REGEX));
 
     let mut context = LexContext::ExpectNothing;
 

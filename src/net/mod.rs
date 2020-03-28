@@ -826,6 +826,8 @@ pub enum HttpRequestType {
     GetAccount(HttpRequestMetadata, PrincipalData),
     GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value),
     GetTransferCost(HttpRequestMetadata),
+    GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName),
+    GetContractABI(HttpRequestMetadata, StacksAddress, ContractName),
 }
 
 /// The fields that Actually Matter to http responses

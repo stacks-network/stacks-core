@@ -1128,6 +1128,8 @@ impl HttpRequestType {
             ("GET", &PATH_GET_ACCOUNT, &HttpRequestType::parse_get_account),
             ("POST", &PATH_GET_MAP_ENTRY, &HttpRequestType::parse_get_map_entry),
             ("GET", &PATH_GET_TRANSFER_COST, &HttpRequestType::parse_get_transfer_cost),
+            ("GET", &PATH_GET_CONTRACT_SRC, &HttpRequestType::parse_get_contract_source),
+            ("GET", &PATH_GET_CONTRACT_ABI, &HttpRequestType::parse_get_contract_abi),
         ];
 
         for (verb, regex, parser) in REQUEST_METHODS.iter() {
@@ -1205,6 +1207,29 @@ impl HttpRequestType {
             .map_err(|_e| net_error::DeserializeError("Failed to deserialize key value".into()))?;
 
         Ok(HttpRequestType::GetMapEntry(HttpRequestMetadata::from_preamble(preamble), contract_addr, contract_name, map_name, value))
+    }
+
+    fn parse_get_contract_arguments(preamble: &HttpRequestPreamble, captures: &Captures) -> Result<(HttpRequestMetadata, StacksAddress, ContractName), net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body".to_string()));
+        }
+
+        let contract_addr =  StacksAddress::from_string(&captures["address"])
+            .ok_or_else(|| net_error::DeserializeError("Failed to parse contract address".into()))?;
+        let contract_name = ContractName::try_from(captures["contract"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+
+        Ok((HttpRequestMetadata::from_preamble(preamble), contract_addr, contract_name))
+    }
+
+    fn parse_get_contract_abi<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        HttpRequestType::parse_get_contract_arguments(preamble, captures)
+            .map(|(preamble, addr, name)| HttpRequestType::GetContractABI(preamble, addr, name))
+    }
+
+    fn parse_get_contract_source<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        HttpRequestType::parse_get_contract_arguments(preamble, captures)
+            .map(|(preamble, addr, name)| HttpRequestType::GetContractSrc(preamble, addr, name))
     }
 
     fn parse_getblock<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _fd: &mut R) -> Result<HttpRequestType, net_error> {
@@ -1293,7 +1318,9 @@ impl HttpRequestType {
             HttpRequestType::PostTransaction(ref md, _) => md,
             HttpRequestType::GetAccount(ref md, _) => md,
             HttpRequestType::GetMapEntry(ref md, _, ..) => md,
-            HttpRequestType::GetTransferCost(ref md) => md
+            HttpRequestType::GetTransferCost(ref md) => md,
+            HttpRequestType::GetContractABI(ref md, _, ..) => md,
+            HttpRequestType::GetContractSrc(ref md, _, ..) => md,
         }
     }
     
@@ -1307,7 +1334,9 @@ impl HttpRequestType {
             HttpRequestType::PostTransaction(ref mut md, _) => md,
             HttpRequestType::GetAccount(ref mut md, _) => md,
             HttpRequestType::GetMapEntry(ref mut md, _, ..) => md,
-            HttpRequestType::GetTransferCost(ref mut md) => md
+            HttpRequestType::GetTransferCost(ref mut md) => md,
+            HttpRequestType::GetContractABI(ref mut md, _, ..) => md,
+            HttpRequestType::GetContractSrc(ref mut md, _, ..) => md,
         }
     }
 
@@ -1319,10 +1348,14 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocks(_md, block_hash) => format!("/v2/microblocks/{}", block_hash.to_hex()),
             HttpRequestType::GetMicroblocksUnconfirmed(_md, block_hash, min_seq) => format!("/v2/microblocks/unconfirmed/{}/{}", block_hash.to_hex(), min_seq),
             HttpRequestType::PostTransaction(_md, _tx) => "/v2/transactions".to_string(),
-            HttpRequestType::GetAccount(_md, principal) => format!("/v2/accounts/{}", principal),
+            HttpRequestType::GetAccount(_md, principal) => format!("/v2/accounts/{}", &principal.to_string()[1..]),
             HttpRequestType::GetMapEntry(_md, contract_addr, contract_name, map_name, _key) =>
-                format!("/v2/map_entry/{}/{}/{}", contract_addr.to_string(), contract_name.as_str(), map_name.as_str()),
-            HttpRequestType::GetTransferCost(_md) => "/v2/fee_rate".into()
+                format!("/v2/map_entry/{}/{}/{}", contract_addr, contract_name.as_str(), map_name.as_str()),
+            HttpRequestType::GetTransferCost(_md) => "/v2/fees/transfer".into(),
+            HttpRequestType::GetContractABI(_, contract_addr, contract_name) =>
+                format!("/v2/contracts/interface/{}/{}", contract_addr, contract_name.as_str()),
+            HttpRequestType::GetContractSrc(_, contract_addr, contract_name) => 
+                format!("/v2/contracts/source/{}/{}", contract_addr, contract_name.as_str()),
         }
     }
 
@@ -1748,8 +1781,14 @@ lazy_static! {
     static ref PATH_POSTTRANSACTION : Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
     static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!("^/v2/accounts/(?P<principal>{})", *PRINCIPAL_DATA_REGEX)).unwrap();
     static ref PATH_GET_MAP_ENTRY: Regex = Regex::new(&format!(
-        "^/v2/map-entry/(?P<address>{})/(?P<contract>{})/(?P<map>{})",
+        "^/v2/map_entry/(?P<address>{})/(?P<contract>{})/(?P<map>{})",
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX)).unwrap();
+    static ref PATH_GET_CONTRACT_SRC: Regex = Regex::new(&format!(
+        "^/v2/contracts/source/(?P<address>{})/(?P<contract>{})",
+        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX)).unwrap();
+    static ref PATH_GET_CONTRACT_ABI: Regex = Regex::new(&format!(
+        "^/v2/contracts/interface/(?P<address>{})/(?P<contract>{})",
+        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX)).unwrap();
     static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer").unwrap();
 }
 
@@ -1809,8 +1848,10 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetMicroblocksUnconfirmed(_, _, _) => "HTTP(GetMicroblocksUnconfirmed)",
                 HttpRequestType::PostTransaction(_, _) => "HTTP(PostTransaction)",
                 HttpRequestType::GetAccount(_,_) => "HTTP(GetAccount)",
-                HttpRequestType::GetMapEntry(_,_,_,_,_) => "HTTP(GetMapEntry)",
+                HttpRequestType::GetMapEntry(..) => "HTTP(GetMapEntry)",
                 HttpRequestType::GetTransferCost(_) => "HTTP(GetTransferCost)",
+                HttpRequestType::GetContractABI(..) => "HTTP(GetContractABI)",
+                HttpRequestType::GetContractSrc(..) => "HTTP(GetContractSrc)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
