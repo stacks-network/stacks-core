@@ -76,8 +76,6 @@ Building the project on ARM:
 cargo build --features "aarch64" --no-default-features
 ```
 
-For help building on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
-
 Run the tests:
 
 ```bash
@@ -230,6 +228,8 @@ The greater Blockstack community regularly hosts in-person
 videos from some of these meetups, as well as video tutorials to help new
 users get started and help developers wrap their heads around the system's
 design.
+
+For help cross-compiling on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
 
 ## Further Reading
 
