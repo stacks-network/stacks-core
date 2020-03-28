@@ -280,7 +280,7 @@ fn test_destructuring_opts(){
         ("(try! (err 3))",
          CheckErrors::CouldNotDetermineResponseOkType),
         ("(try! 3)",
-         CheckErrors::ExpectedOptionalOrResponseType(TypeSignature::IntType)),        
+         CheckErrors::ExpectedOptionalOrResponseType(TypeSignature::IntType)),
         ("(try! (ok 3) 4)",
          CheckErrors::IncorrectArgumentCount(1, 2)),
     ];
@@ -629,7 +629,7 @@ fn test_buff_fold() {
         "(define-private (slice (x (buff 1)) (acc (tuple (limit uint) (cursor uint) (data (buff 10)))))
             (if (< (get cursor acc) (get limit acc))
                 (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
-                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data))) 
+                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data)))
                 acc))
         (fold slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\")))"];
     let expected = ["uint", "(tuple (cursor uint) (data (buff 10)) (limit uint))"];
@@ -837,12 +837,12 @@ fn test_define() {
 #[test]
 fn test_high_order_map() {
     let good = [
-        "(define-private (foo (x int)) (list x x x x x)) 
+        "(define-private (foo (x int)) (list x x x x x))
          (map foo (list 1 2 3))",
-        "(define-private (foo (x int)) (list x x x x x)) 
+        "(define-private (foo (x int)) (list x x x x x))
          (map foo (list 1 2 3 4 5 6))",
     ];
-    
+
     let expected = [
         "(list 3 (list 5 int))",
         "(list 6 (list 5 int))",
@@ -1316,7 +1316,7 @@ fn test_define_constant_shadowed_by_argument_should_fail() {
 
 #[test]
 fn test_tuple_map() {
-    let t = "(define-map tuples ((name int)) 
+    let t = "(define-map tuples ((name int))
                             ((contents (tuple (name (buff 5))
                                               (owner (buff 5))))))
 
@@ -1728,10 +1728,10 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
         db.test_insert_contract_hash(&contract_id);
         type_check(&contract_id, &mut kv_store_contract, db, true)
     }).unwrap();
-    
+
     let cases = [
-        "contract-map-get? .kv-store-contract kv-store ((incomptible-key key))",
-        "contract-map-get? .kv-store-contract kv-store ((key 'true))",
+        "contract-map-get? .kv-store-contract kv-store {incomptible-key key}",
+        "contract-map-get? .kv-store-contract kv-store {key true}",
         "contract-map-get? .kv-store-contract kv-store (incompatible-tuple)",
     ];
 
