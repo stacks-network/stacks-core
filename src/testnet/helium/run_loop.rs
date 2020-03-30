@@ -75,6 +75,8 @@ impl RunLoop {
         // Update each node with the genesis block.
         self.node.process_burnchain_state(&genesis_state);
 
+        self.node.spawn_http_server();
+
         // make first non-genesis block, with initial VRF keys
         let mut initial_ops = vec![];
         let key_op = self.node.setup();

@@ -95,7 +95,8 @@ impl HttpServer {
                     let mut tx = burndb.tx_begin().unwrap();
                     BurnDB::get_burnchain_view(&mut tx, &self.burnchain).unwrap()
                 };
-                self.run(view, &mut burndb, &mut peerdb, &mut chainstate, poll_timeout);
+                self.run(view, &mut burndb, &mut peerdb, &mut chainstate, poll_timeout)
+                    .unwrap();
             }
         });
         Ok(http_thread)

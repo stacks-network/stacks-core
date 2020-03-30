@@ -3,6 +3,7 @@ use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainState, 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
+use std::convert::TryFrom;
 
 use address::AddressHashMode;
 use burnchains::{Burnchain, BurnchainHeaderHash, Txid};
@@ -12,11 +13,12 @@ use chainstate::stacks::events::StacksTransactionReceipt;
 use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
 use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
 use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, BlockHeaderHash};
-use net::{StacksMessageType, StacksMessageCodec};
+use net::{StacksMessageType, StacksMessageCodec, db::PeerDB, server::HttpServer, connection::ConnectionOptions};
 
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
 use util::get_epoch_time_secs;
+use util::strings::UrlString;
 use vm::types::PrincipalData;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
@@ -72,6 +74,24 @@ pub struct Node {
     nonce: u64,
 }
 
+pub const DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
+    inbox_maxlen: 100,
+    outbox_maxlen: 100,
+    timeout: 5000,
+    heartbeat: 60000,
+    private_key_lifetime: 18446744073709551615,
+    num_neighbors: 4,
+    num_clients: 1000,
+    soft_num_neighbors: 4,
+    soft_num_clients: 1000,
+    max_neighbors_per_host: 10,
+    max_clients_per_host: 1000,
+    soft_max_neighbors_per_host: 10,
+    soft_max_neighbors_per_org: 100,
+    soft_max_clients_per_host: 1000,
+    walk_interval: 18446744073709551615,
+};
+
 impl Node {
 
     /// Instantiate and initialize a new node, given a config
@@ -115,6 +135,35 @@ impl Node {
             nonce: 0,
             event_dispatcher,
         }
+    }
+
+    pub fn spawn_http_server(&mut self) {
+        // we can call _open_ here rather than _connect_, since connect is first called in
+        //   make_genesis_block
+        let mut burndb = BurnDB::open(&self.config.get_burn_db_path(), false)
+            .expect("Error while instantiating burnchain db");
+
+        let burnchain = Burnchain::new(&self.config.get_burn_db_path(),
+                                       &self.config.burnchain.chain, &self.config.burnchain.mode)
+            .expect("Error while instantiating burnchain");
+
+        let view = {
+            let mut tx = burndb.tx_begin().unwrap();
+            BurnDB::get_burnchain_view(&mut tx, &burnchain).unwrap()
+        };
+
+        // create a new peerdb
+        let peerdb = PeerDB::connect(
+            &self.config.get_peer_db_path(), true, TESTNET_CHAIN_ID, burnchain.network_id, u64::max_value(),
+            UrlString::try_from(format!("http://{}", self.config.node.rpc_bind)).unwrap(),
+            &vec![], None).unwrap();
+        // use node = 0 for the chain state
+        let chainstate = StacksChainState::open(false, TESTNET_CHAIN_ID, &self.config.get_chainstate_path())
+            .expect("Error while instantiating chainstate db");
+
+        let http_server = HttpServer::new(TESTNET_CHAIN_ID, burnchain, view, DEFAULT_CONNECTION_OPTIONS.clone());
+        let _join_handle = http_server.spawn(&self.config.node.rpc_bind.parse().unwrap(), burndb, peerdb, chainstate, 5000)
+            .unwrap(); 
     }
     
     pub fn setup(&mut self) -> BlockstackOperationType {

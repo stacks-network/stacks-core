@@ -1,5 +1,5 @@
 use util::hash::{to_hex};
-use burnchains::Address;
+use burnchains::{Address, Burnchain};
 use vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier} ;
 use rand::RngCore;
 use std::convert::TryInto;
@@ -51,6 +51,7 @@ impl Config {
                 NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
+                    rpc_bind: node.rpc_bind.unwrap_or(default_node_config.rpc_bind),
                 }
             },
             None => default_node_config
@@ -115,8 +116,12 @@ impl Config {
         format!("{}/burn_db/", self.node.working_dir)
     }
 
-    pub fn get_chainstate_path(&self) -> String{
+    pub fn get_chainstate_path(&self) -> String {
         format!("{}/chainstate/", self.node.working_dir)
+    }
+
+    pub fn get_peer_db_path(&self) -> String {
+        format!("{}/peer_db/", self.node.working_dir)
     }
 
     pub fn default() -> Config {
@@ -176,6 +181,7 @@ pub struct BurnchainConfigFile {
 pub struct NodeConfig {
     pub name: String,
     pub working_dir: String,
+    pub rpc_bind: String,
 }
 
 impl NodeConfig {
@@ -186,10 +192,14 @@ impl NodeConfig {
         rng.fill_bytes(&mut buf);
         let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
 
+        let port = u32::from_be_bytes(buf[0..4].try_into().unwrap())
+            .saturating_add(1024); // use a non-privileged port
+
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
             working_dir: format!("/tmp/{}", testnet_id),
+            rpc_bind: format!("localhost:{}", port)
         }
     }
 
@@ -202,6 +212,7 @@ impl NodeConfig {
 pub struct NodeConfigFile {
     pub name: Option<String>,
     pub working_dir: Option<String>,
+    pub rpc_bind: Option<String>,
 }
 
 #[derive(Clone, Default, Deserialize)]
