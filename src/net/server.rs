@@ -49,6 +49,8 @@ use mio::net as mio_net;
 
 use util::get_epoch_time_secs;
 
+use std::{thread, thread::JoinHandle};
+
 pub struct HttpServer {
     pub network_id: u32,
     pub chain_view: BurnchainView,
@@ -79,6 +81,24 @@ impl HttpServer {
             burnchain: burnchain,
             connection_opts: conn_opts
         }
+    }
+
+    // This function connects to the burndb, peerdb, and stacks chainstate dbs
+    //   _it does not call connect()_
+    pub fn spawn(mut self, my_addr: &SocketAddr, mut burndb: BurnDB, mut peerdb: PeerDB,
+                 mut chainstate: StacksChainState, poll_timeout: u64) -> Result<JoinHandle<()>, net_error> {
+        self.bind(my_addr)?;
+        let http_thread = thread::spawn(move || {
+            loop {
+                test_debug!("http wakeup");
+                let view = {
+                    let mut tx = burndb.tx_begin().unwrap();
+                    BurnDB::get_burnchain_view(&mut tx, &self.burnchain).unwrap()
+                };
+                self.run(view, &mut burndb, &mut peerdb, &mut chainstate, poll_timeout);
+            }
+        });
+        Ok(http_thread)
     }
 
     /// start serving

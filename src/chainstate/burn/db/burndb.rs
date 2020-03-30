@@ -540,7 +540,7 @@ impl BurnDB {
     /// Open the database on disk.  It must already exist and be instantiated.
     /// It's best not to call this if you are able to call connect().  If you must call this, do so
     /// after you call connect() somewhere else, since connect() performs additional validations.
-    pub fn open(path: &String, readwrite: bool) -> Result<BurnDB, db_error> {
+    pub fn open(path: &str, readwrite: bool) -> Result<BurnDB, db_error> {
         let open_flags =
             if readwrite {
                 OpenFlags::SQLITE_OPEN_READ_WRITE
