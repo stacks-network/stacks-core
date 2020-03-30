@@ -121,7 +121,7 @@ impl fmt::Debug for ConversationHttp {
 impl PeerInfoData {
     pub fn from_db(burnchain: &Burnchain, burndb: &mut BurnDB, peerdb: &mut PeerDB) -> Result<PeerInfoData, net_error> {
         let burnchain_tip = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).map_err(net_error::DBError)?;
-        let local_peer = PeerDB::get_local_peer(peerdb.conn()).map_err(net_error::DBError)?;
+        let local_peer = PeerDB::get_local_peer(peerdb.conn()).map_err(net_error::DBError).unwrap();
         let stable_burnchain_tip = {
             let mut tx = burndb.tx_begin().map_err(net_error::DBError)?;
             let stable_height = 
@@ -308,14 +308,17 @@ impl ConversationHttp {
         let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_account_balance(&account);
-                let (balance, bal_proof) = clarity_db.get_with_proof(&key)?;
+                let (balance, balance_proof) = clarity_db.get_with_proof(&key)
+                    .map(|(a, b)| (a, b.to_hex()))
+                    .unwrap_or_else(|| (0, "".into()));
                 let key = ClarityDatabase::make_key_for_account_nonce(&account);
-                let (nonce, nonce_proof) = clarity_db.get_with_proof(&key)?;
+                let (nonce, nonce_proof) = clarity_db.get_with_proof(&key)
+                    .map(|(a, b)| (a, b.to_hex()))
+                    .unwrap_or_else(|| (0, "".into()));
 
-                Some(AccountEntryResponse {
-                    balance, nonce, balance_proof: bal_proof.to_hex(), nonce_proof: nonce_proof.to_hex() })
+                AccountEntryResponse { balance, nonce, balance_proof, nonce_proof }
             })
-        }).unwrap_or_else(|| AccountEntryResponse { balance: 0, nonce: 0, balance_proof: "".into(), nonce_proof: "".into() });
+        });
 
         let response = HttpResponseType::GetAccount(
             response_metadata, data);

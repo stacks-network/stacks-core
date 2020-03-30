@@ -79,7 +79,8 @@ pub const DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
     outbox_maxlen: 100,
     timeout: 5000,
     heartbeat: 60000,
-    private_key_lifetime: 18446744073709551615,
+    // can't use u64::max, because sqlite stores as i64.
+    private_key_lifetime: 9223372036854775807,
     num_neighbors: 4,
     num_clients: 1000,
     soft_num_neighbors: 4,
@@ -89,7 +90,7 @@ pub const DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
     soft_max_neighbors_per_host: 10,
     soft_max_neighbors_per_org: 100,
     soft_max_clients_per_host: 1000,
-    walk_interval: 18446744073709551615,
+    walk_interval: 9223372036854775807,
 };
 
 impl Node {
@@ -140,7 +141,7 @@ impl Node {
     pub fn spawn_http_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        let mut burndb = BurnDB::open(&self.config.get_burn_db_path(), false)
+        let mut burndb = BurnDB::open(&self.config.get_burn_db_path(), true)
             .expect("Error while instantiating burnchain db");
 
         let burnchain = Burnchain::new(&self.config.get_burn_db_path(),
@@ -154,16 +155,19 @@ impl Node {
 
         // create a new peerdb
         let peerdb = PeerDB::connect(
-            &self.config.get_peer_db_path(), true, TESTNET_CHAIN_ID, burnchain.network_id, u64::max_value(),
+            &self.config.get_peer_db_path(), true, TESTNET_CHAIN_ID, burnchain.network_id, i64::max_value() as u64,
             UrlString::try_from(format!("http://{}", self.config.node.rpc_bind)).unwrap(),
             &vec![], None).unwrap();
         // use node = 0 for the chain state
-        let chainstate = StacksChainState::open(false, TESTNET_CHAIN_ID, &self.config.get_chainstate_path())
-            .expect("Error while instantiating chainstate db");
 
         let http_server = HttpServer::new(TESTNET_CHAIN_ID, burnchain, view, DEFAULT_CONNECTION_OPTIONS.clone());
-        let _join_handle = http_server.spawn(&self.config.node.rpc_bind.parse().unwrap(), burndb, peerdb, chainstate, 5000)
-            .unwrap(); 
+        let socket_addr = self.config.node.rpc_bind.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
+        let _join_handle = http_server.spawn(&socket_addr, peerdb, self.config.get_burn_db_path(),
+                                             self.config.get_chainstate_path(), false, TESTNET_CHAIN_ID, 5000)
+            .unwrap();
+
+        info!("Bound P2P/HTTP server on: {}", &self.config.node.rpc_bind);
     }
     
     pub fn setup(&mut self) -> BlockstackOperationType {

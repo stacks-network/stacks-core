@@ -1,5 +1,6 @@
 [node]
 name = "helium-node"
+rpc_bind = "127.0.0.1:9000"
 
 [burnchain]
 chain = "bitcoin"
@@ -7,17 +8,7 @@ mode = "regtest"
 block_time = 5000
 
 [mempool]
-path = "/home/ludovic/mempool"
-
-[[events_observer]]
-port = 8080
-address = "127.0.0.1"
-events_keys = [
-    "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store::print",
-    "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.ft-token",
-    "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.nft-token",
-    "stx"
-]
+path = "/tmp/mempool"
 
 [[mstx_balance]]
 address = "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A"

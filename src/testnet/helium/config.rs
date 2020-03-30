@@ -121,7 +121,7 @@ impl Config {
     }
 
     pub fn get_peer_db_path(&self) -> String {
-        format!("{}/peer_db/", self.node.working_dir)
+        format!("{}/peer_db.sqlite", self.node.working_dir)
     }
 
     pub fn default() -> Config {
@@ -192,14 +192,14 @@ impl NodeConfig {
         rng.fill_bytes(&mut buf);
         let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
 
-        let port = u32::from_be_bytes(buf[0..4].try_into().unwrap())
+        let port = u16::from_be_bytes(buf[0..2].try_into().unwrap())
             .saturating_add(1024); // use a non-privileged port
 
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
             working_dir: format!("/tmp/{}", testnet_id),
-            rpc_bind: format!("localhost:{}", port)
+            rpc_bind: format!("127.0.0.1:{}", port)
         }
     }
 
