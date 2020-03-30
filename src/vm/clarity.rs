@@ -342,13 +342,21 @@ impl <'a> ClarityBlockConnection <'a> {
         let cost_track = self.cost_track.take()
             .expect("Failed to get ownership of cost tracker in ClarityBlockConnection");
 
-        let mut contract_analysis = analysis::run_analysis(identifier, &mut contract_ast.expressions,
-                                                       &mut db, false, cost_track)?;
+        let result = analysis::run_analysis(
+            identifier, &mut contract_ast.expressions,
+            &mut db, false, cost_track);
 
-        let cost_track = contract_analysis.take_contract_cost_tracker();
-        self.cost_track.replace(cost_track);
-
-        Ok((contract_ast, contract_analysis))
+        match result {
+            Ok(mut contract_analysis) => {
+                let cost_track = contract_analysis.take_contract_cost_tracker();
+                self.cost_track.replace(cost_track);
+                Ok((contract_ast, contract_analysis))
+            },
+            Err((e, cost_track)) => {
+                self.cost_track.replace(cost_track);
+                Err(e.into())
+            }
+        }
     }
 
     fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap), Error>
@@ -460,6 +468,32 @@ mod tests {
     use vm::database::{NULL_HEADER_DB, ClarityBackingStore, MarfedKV};
     use chainstate::stacks::index::storage::{TrieFileStorage};
     use rusqlite::NO_PARAMS;
+
+    #[test]
+    pub fn bad_syntax_test() {
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(marf);
+
+        let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+
+        {
+            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
+
+            let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
+
+            let _e = conn.analyze_smart_contract(&contract_identifier, &contract)
+                .unwrap_err();
+
+            // okay, let's try it again:
+
+            let _e = conn.analyze_smart_contract(&contract_identifier, &contract)
+                .unwrap_err();
+
+            conn.commit_block();
+        }
+    }
 
     #[test]
     pub fn simple_test() {
