@@ -19,18 +19,36 @@
 
 use std::cell::RefCell;
 
-pub const LOG_DEBUG : u8 = 1;
-pub const LOG_INFO : u8 = 2;
-pub const LOG_WARN : u8 = 3;
-pub const LOG_ERROR : u8 = 4;
+// Message Priorities/Levels
+// Apache Conventions defined here: https://commons.apache.org/proper/commons-logging/guide.html#Message_PrioritiesLevels
+//
+// Severe errors that cause premature termination. 
+// Expect these to be immediately visible on a status console.
+pub const LOG_FATAL : u8 = 6;
+// Other runtime errors or unexpected conditions. 
+// Expect these to be immediately visible on a status console.
+pub const LOG_ERROR : u8 = 5;
+// Use of deprecated APIs, poor use of API, 'almost' errors, other runtime situations that are undesirable or unexpected, but not necessarily "wrong". 
+// Expect these to be immediately visible on a status console.
+pub const LOG_WARN : u8 = 4;
+// Interesting runtime events (startup/shutdown). 
+// Expect these to be immediately visible on a console, so be conservative and keep to a minimum
+pub const LOG_INFO : u8 = 3;
+// Detailed information on the flow through the system. 
+// Expect these to be written to logs only.
+pub const LOG_DEBUG : u8 = 2;
+// More detailed information. 
+// Expect these to be written to logs only.
+pub const LOG_TRACE : u8 = 1;
+
 
 // per-thread log level and log format
-thread_local!(static loglevel: RefCell<u8> = RefCell::new(LOG_DEBUG));
+thread_local!(static loglevel: RefCell<u8> = RefCell::new(LOG_INFO));
 
 pub fn set_loglevel(ll: u8) -> Result<(), String> {
     loglevel.with(move |level| {
         match ll {
-            LOG_DEBUG..=LOG_ERROR => {
+            LOG_TRACE..=LOG_FATAL => {
                 *level.borrow_mut() = ll;
                 Ok(())
             },
@@ -47,6 +65,20 @@ pub fn get_loglevel() -> u8 {
         res = *lvl.borrow();
     });
     res
+}
+
+#[allow(unused_macros)]
+macro_rules! trace {
+    ($($arg:tt)*) => ({
+        if ::util::log::get_loglevel() <= ::util::log::LOG_TRACE {
+            use std::time::SystemTime;
+            let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
+                Err(_) => (0, 0)
+            };
+            eprintln!("TRACE [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
+        }
+    })
 }
 
 macro_rules! debug {
@@ -97,6 +129,20 @@ macro_rules! error {
                 Err(_) => (0, 0)
             };
             eprintln!("ERROR [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
+        }
+    })
+}
+
+#[allow(unused_macros)]
+macro_rules! fatal {
+    ($($arg:tt)*) => ({
+        if ::util::log::get_loglevel() <= ::util::log::LOG_FATAL {
+            use std::time::SystemTime;
+            let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
+                Err(_) => (0, 0)
+            };
+            eprintln!("FATAL [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
         }
     })
 }

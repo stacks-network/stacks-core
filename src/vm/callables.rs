@@ -3,6 +3,8 @@ use std::convert::TryInto;
 use std::collections::{HashMap};
 use std::iter::FromIterator;
 
+use chainstate::stacks::events::StacksTransactionEvent;
+
 use vm::costs::{cost_functions, SimpleCostSpecification};
 
 use vm::errors::{InterpreterResult as Result, Error, check_argument_count};

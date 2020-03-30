@@ -82,6 +82,7 @@ use regex::{
 
 use deps::httparse;
 use time;
+use std::time::SystemTime;
 
 /// HTTP headers that we really care about
 #[derive(Debug, Clone, PartialEq)]
@@ -986,7 +987,7 @@ impl HttpResponsePreamble {
 
 /// Get an RFC 7231 date that represents the current time
 fn rfc7231_now() -> String {
-    let now = time::PrimitiveDateTime::now();
+    let now = time::PrimitiveDateTime::from(SystemTime::now());
     now.format("%a, %b %-d %-Y %-H:%M:%S GMT")
 }
 

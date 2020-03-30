@@ -1601,9 +1601,9 @@ mod test {
         pub fn dump_frontier(&self) -> () {
             let conn = self.network.peerdb.conn();
             let peers = PeerDB::get_all_peers(conn).unwrap();
-            info!("--- BEGIN ALL PEERS ({}) ---", peers.len());
-            info!("{:#?}", &peers);
-            info!("--- END ALL PEERS ({}) -----", peers.len());
+            debug!("--- BEGIN ALL PEERS ({}) ---", peers.len());
+            debug!("{:#?}", &peers);
+            debug!("--- END ALL PEERS ({}) -----", peers.len());
         }
     }
 }

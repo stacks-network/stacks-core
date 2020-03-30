@@ -15,6 +15,7 @@ use vm::ast;
 use vm::{eval, is_reserved};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
+use chainstate::stacks::events::*;
 
 use serde::Serialize;
 
@@ -58,6 +59,11 @@ pub struct AssetMap {
         
 }
 
+#[derive(Debug, Clone)]
+pub struct EventBatch {
+    events: Vec<StacksTransactionEvent>,        
+}
+
 /** GlobalContext represents the outermost context for a single transaction's
       execution. It tracks an asset changes that occurred during the
       processing of the transaction, whether or not the current context is read_only,
@@ -66,6 +72,7 @@ pub struct AssetMap {
  */
 pub struct GlobalContext<'a> {
     asset_maps: Vec<AssetMap>,
+    pub event_batches: Vec<EventBatch>,
     pub database: ClarityDatabase<'a>,
     read_only: Vec<bool>,
     pub cost_track: LimitedCostTracker,
@@ -358,6 +365,13 @@ impl fmt::Display for AssetMap {
     }
 }
 
+impl EventBatch {
+    pub fn new() -> EventBatch {
+        EventBatch {
+            events: vec![]
+        }
+    }
+}
 
 impl <'a> OwnedEnvironment <'a> {
     #[cfg(test)]
@@ -384,7 +398,7 @@ impl <'a> OwnedEnvironment <'a> {
                          sender.clone(), sender)
     }
 
-    fn execute_in_env <F, A> (&mut self, sender: Value, f: F) -> Result<(A, AssetMap)>
+    fn execute_in_env <F, A> (&mut self, sender: Value, f: F) -> Result<(A, AssetMap, Vec<StacksTransactionEvent>)>
     where F: FnOnce(&mut Environment) -> Result<A> {
         assert!(self.context.is_top_level());
         self.begin();
@@ -396,8 +410,8 @@ impl <'a> OwnedEnvironment <'a> {
 
         match result {
             Ok(return_value) => {
-                let asset_map = self.commit()?;
-                Ok((return_value, asset_map))
+                let (asset_map, event_batch) = self.commit()?;
+                Ok((return_value, asset_map, event_batch.events))
             },
             Err(e) => {
                 self.context.roll_back();
@@ -406,7 +420,7 @@ impl <'a> OwnedEnvironment <'a> {
         }
     }
 
-    pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<((), AssetMap)> {
+    pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(Value::from(contract_identifier.issuer.clone()),
                             |exec_env| exec_env.initialize_contract(contract_identifier, contract_content))
     }
@@ -414,13 +428,13 @@ impl <'a> OwnedEnvironment <'a> {
     pub fn initialize_contract_from_ast(&mut self,
                                         contract_identifier: QualifiedContractIdentifier,
                                         contract_content: &ContractAST,
-                                        contract_string: &str) -> Result<((), AssetMap)> {
+                                        contract_string: &str) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(Value::from(contract_identifier.issuer.clone()),
                             |exec_env| exec_env.initialize_contract_from_ast(contract_identifier, contract_content, contract_string))
     }
 
     pub fn execute_transaction(&mut self, sender: Value, contract_identifier: QualifiedContractIdentifier, 
-                               tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap)> {
+                               tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(sender, 
                             |exec_env| exec_env.execute_contract(&contract_identifier, tx_name, args))
     }
@@ -436,13 +450,13 @@ impl <'a> OwnedEnvironment <'a> {
     }
 
     #[cfg(test)]
-    pub fn eval_raw(&mut self, program: &str) -> Result<(Value, AssetMap)> {
+    pub fn eval_raw(&mut self, program: &str) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
                             |exec_env| exec_env.eval_raw(program))
     }
 
     #[cfg(test)]
-    pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, program: &str) -> Result<(Value, AssetMap)>  {
+    pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, program: &str) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)>  {
         self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
                             |exec_env| exec_env.eval_read_only(contract, program))
     }
@@ -451,9 +465,12 @@ impl <'a> OwnedEnvironment <'a> {
         self.context.begin();
     }
 
-    pub fn commit(&mut self) -> Result<AssetMap> {
-        self.context.commit()?
-            .ok_or(InterpreterError::FailedToConstructAssetTable.into())
+    pub fn commit(&mut self) -> Result<(AssetMap, EventBatch)> {
+        let (asset_map, event_batch) = self.context.commit()?;
+        let asset_map = asset_map.ok_or(InterpreterError::FailedToConstructAssetTable)?;
+        let event_batch = event_batch.ok_or(InterpreterError::FailedToConstructEventBatch)?;
+
+        Ok((asset_map, event_batch))
     }
 
     /// Destroys this environment, returning ownership of its database reference.
@@ -698,6 +715,96 @@ impl <'a,'b> Environment <'a,'b> {
         }
     }
 
+    pub fn register_print_event(&mut self, value: Value) -> Result<()> {
+        let print_event = SmartContractEventData {
+            key: (self.contract_context.contract_identifier.clone(), "print".to_string()),
+            value,
+        };
+        
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::SmartContractEvent(print_event));
+        }
+        Ok(())
+    }
+
+    pub fn register_stx_transfer_event(&mut self, sender: PrincipalData, recipient: PrincipalData, amount: u128) -> Result<()> {
+        let event_data = STXTransferEventData {
+            sender,
+            recipient,
+            amount
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data)));
+        }
+        Ok(())
+    }
+
+    pub fn register_stx_burn_event(&mut self, sender: PrincipalData, amount: u128) -> Result<()> {
+        let event_data = STXBurnEventData {
+            sender,
+            amount
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data)));
+        }
+        Ok(())
+    }
+
+    pub fn register_nft_transfer_event(&mut self, sender: PrincipalData, recipient: PrincipalData, value: Value, asset_identifier: AssetIdentifier) -> Result<()> {
+        let event_data = NFTTransferEventData {
+            sender,
+            recipient,
+            asset_identifier,
+            value
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data)));
+        }
+        Ok(())
+    }
+
+    pub fn register_nft_mint_event(&mut self, recipient: PrincipalData, value: Value, asset_identifier: AssetIdentifier) -> Result<()> {
+        let event_data = NFTMintEventData {
+            recipient,
+            asset_identifier,
+            value
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)));
+        }
+        Ok(())
+    }
+
+    pub fn register_ft_transfer_event(&mut self, sender: PrincipalData, recipient: PrincipalData, amount: u128, asset_identifier: AssetIdentifier) -> Result<()> {
+        let event_data = FTTransferEventData {
+            sender,
+            recipient,
+            asset_identifier,
+            amount
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)));
+        }
+        Ok(())
+    }
+
+    pub fn register_ft_mint_event(&mut self, recipient: PrincipalData, amount: u128, asset_identifier: AssetIdentifier) -> Result<()> {
+        let event_data = FTMintEventData {
+            recipient,
+            asset_identifier,
+            amount
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data)));
+        }
+        Ok(())
+    }
 }
 
 impl <'a> GlobalContext<'a> {
@@ -707,7 +814,8 @@ impl <'a> GlobalContext<'a> {
         GlobalContext {
             database, cost_track,
             read_only: Vec::new(),
-            asset_maps: Vec::new()
+            asset_maps: Vec::new(),
+            event_batches: Vec::new(),
         }
     }
 
@@ -762,6 +870,7 @@ impl <'a> GlobalContext<'a> {
 
     pub fn begin(&mut self) {
         self.asset_maps.push(AssetMap::new());
+        self.event_batches.push(EventBatch::new());
         self.database.begin();
         let read_only = self.is_read_only();
         self.read_only.push(read_only);
@@ -769,13 +878,17 @@ impl <'a> GlobalContext<'a> {
 
     pub fn begin_read_only(&mut self) {
         self.asset_maps.push(AssetMap::new());
+        self.event_batches.push(EventBatch::new());
         self.database.begin();
         self.read_only.push(true);
     }
 
-    pub fn commit(&mut self) -> Result<Option<AssetMap>> {
+    pub fn commit(&mut self) -> Result<(Option<AssetMap>, Option<EventBatch>)> {
+        trace!("Calling commit");
         self.read_only.pop();
         let asset_map = self.asset_maps.pop()
+            .expect("ERROR: Committed non-nested context.");
+        let mut event_batch = self.event_batches.pop()
             .expect("ERROR: Committed non-nested context.");
 
         let out_map = match self.asset_maps.last_mut() {
@@ -791,14 +904,26 @@ impl <'a> GlobalContext<'a> {
             }
         };
 
+        let out_batch = match self.event_batches.last_mut() {
+            Some(tail_back) => {
+                tail_back.events.append(&mut event_batch.events);
+                None
+            },
+            None => {
+                Some(event_batch)
+            }
+        };
+
         self.database.commit();
-        Ok(out_map)
+        Ok((out_map, out_batch))
     }
 
     pub fn roll_back(&mut self) {
         let popped = self.asset_maps.pop();
         assert!(popped.is_some());
         let popped = self.read_only.pop();
+        assert!(popped.is_some());
+        let popped = self.event_batches.pop();
         assert!(popped.is_some());
 
         self.database.roll_back();
