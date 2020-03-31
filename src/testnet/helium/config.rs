@@ -83,6 +83,15 @@ impl Config {
             None => default_burnchain_config
         };
 
+        println!("{}", burnchain.spv_headers_path);
+        // todo(ludo): streamline path management
+        std::fs::create_dir_all(&node.get_burnchain_path());
+        // let path = Path::new(&burnchain.spv_headers_path);
+        // match OpenOptions::new().create(true).write(true).open(&path) {
+        //     Err(e) => panic!(e),
+        //     _ => {}
+        // };
+
         let mempool = match config_file.mempool {
             Some(mempool) => mempool,
             None => MempoolConfig { path: node.get_default_mempool_path() }

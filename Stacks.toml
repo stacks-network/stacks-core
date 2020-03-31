@@ -12,6 +12,7 @@ username = "helium-node"
 password = "secret"
 timeout = 30
 
+
 [mempool]
 path = "/tmp/mempool"
 
