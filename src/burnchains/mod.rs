@@ -92,9 +92,14 @@ pub const BURNCHAIN_HEADER_HASH_ENCODED_SIZE : u32 = 32;
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct MagicBytes([u8; MAGIC_BYTES_LENGTH]);
 impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
+impl MagicBytes {
+    pub fn default() -> MagicBytes {
+        BLOCKSTACK_MAGIC_MAINNET
+    }
+}
 
 pub const BLOCKSTACK_MAGIC_MAINNET : MagicBytes = MagicBytes([105, 100]);  // 'id'
 
@@ -274,6 +279,7 @@ pub struct BurnchainView {
 /// -- the new burn distribution
 /// -- the sequence of valid blockstack operations that went into it
 /// -- the set of previously-accepted leader VRF keys consumed
+#[derive(Debug, Clone)]
 pub struct BurnchainStateTransition {
     pub burn_dist: Vec<BurnSamplePoint>,
     pub accepted_ops: Vec<BlockstackOperationType>,
@@ -763,7 +769,7 @@ pub mod test {
 
             Burnchain::apply_blockstack_txs_safety_checks(&block, &mut blockstack_txs);
             
-            let new_snapshot = Burnchain::process_block_ops(tx, burnchain, &parent_snapshot, &header, &blockstack_txs).expect("FATAL: failed to generate snapshot");
+            let (new_snapshot, _) = Burnchain::process_block_ops(tx, burnchain, &parent_snapshot, &header, &blockstack_txs).expect("FATAL: failed to generate snapshot");
             new_snapshot
         }
     }
