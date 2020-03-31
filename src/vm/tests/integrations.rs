@@ -1,5 +1,5 @@
 use vm::{
-    database::HeadersDB,
+    database::{ HeadersDB, ClaritySerializable },
     types::QualifiedContractIdentifier,
     Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
 use chainstate::stacks::{
@@ -13,11 +13,15 @@ use burnchains::Address;
 use address::AddressHashMode;
 use net::{Error as NetError, StacksMessageCodec};
 use util::{log, strings::StacksString, hash::hex_bytes, hash::to_hex};
-
+use std::collections::HashMap;
 use util::db::{DBConn, FromRow};
+
+use std::{thread, time};
 
 use testnet;
 use testnet::helium::mem_pool::MemPool;
+
+use reqwest;
 
 pub fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
                                          sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> Vec<u8> {
@@ -157,6 +161,8 @@ const SK_1: &'static str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f8235
 const SK_2: &'static str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
 const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
 
+static mut http_binding: Option<String> = None;
+
 #[test]
 fn integration_test_get_info() {
     let mut conf = testnet::helium::tests::new_test_conf();
@@ -168,6 +174,11 @@ fn integration_test_get_info() {
     let num_rounds = 4;
 
     let mut run_loop = testnet::helium::RunLoop::new(conf);
+
+    unsafe {
+        http_binding = Some(format!("http://{}", &run_loop.node.config.node.rpc_bind));
+    };
+
     run_loop.apply_on_new_tenures(|round, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
@@ -185,11 +196,13 @@ fn integration_test_get_info() {
     });
 
     run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _events| {
+        let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
         let contract_identifier =
-            QualifiedContractIdentifier::parse(&format!("{}.{}",
-                                                        to_addr(
-                                                            &StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
-                                                        "get-info")).unwrap();
+            QualifiedContractIdentifier::parse(&format!("{}.{}", &contract_addr, "get-info")).unwrap();
+
+        let http_origin = unsafe {
+            http_binding.clone().unwrap()
+        };
 
         match round {
             1 => {
@@ -305,6 +318,18 @@ fn integration_test_get_info() {
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
                     bhh, &contract_identifier, "(exotic-data-checks u3)"));
 
+                let client = reqwest::blocking::Client::new();
+                let path = format!("{}/v2/map_entry/{}/{}/{}",
+                                   &http_origin, &contract_addr, "get-info", "block-data");
+                eprintln!("POST {}, data = {}", path, Value::UInt(1).serialize());
+                let res = client.post(&path)
+                    .body(Value::UInt(1).serialize())
+                    .send()
+                    .unwrap().text().unwrap();
+                eprintln!("{:#?}", res);
+
+                eprintln!("sleeping...");
+                thread::sleep(time::Duration::from_secs(600));
             },
             _ => {},
         }

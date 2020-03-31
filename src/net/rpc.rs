@@ -332,8 +332,11 @@ impl ConversationHttp {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
+        info!("GET {}.{}.{} :: {}", contract_addr, contract_name.as_str(), map_name.as_str(), key);
+
         let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                info!("RESULT -> {}", clarity_db.fetch_entry(&contract_identifier, map_name, key).unwrap());
                 let key = ClarityDatabase::make_key_for_data_map_entry(&contract_identifier, map_name, key);
                 let (value, proof) = clarity_db.get_with_proof::<Value>(&key)?;
                 let data = value.serialize();

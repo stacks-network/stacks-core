@@ -66,7 +66,7 @@ pub struct Node {
     burnchain_tip: Option<BlockSnapshot>,
     pub chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
-    config: Config,
+    pub config: Config,
     keychain: Keychain,
     last_sortitioned_block: Option<SortitionedBlock>,
     mem_pool: MemPoolFS,
