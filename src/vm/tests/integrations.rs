@@ -4,8 +4,9 @@ use vm::{
     Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
 use chainstate::stacks::{
     db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
+    StacksMicroblockHeader, StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
     StacksPublicKey, TransactionPayload, StacksTransactionSigner,
+    TokenTransferMemo, CoinbasePayload,
     StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress };
 use chainstate::burn::VRFSeed;
 use burnchains::Address;
@@ -18,12 +19,12 @@ use util::db::{DBConn, FromRow};
 use testnet;
 use testnet::mem_pool::MemPool;
 
-fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
-                                         sender: &StacksPrivateKey, nonce: u64) -> Vec<u8> {
+pub fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
+                                         sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> Vec<u8> {
     let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
         .expect("Failed to create p2pkh spending condition from public key.");
     spending_condition.set_nonce(nonce);
-    spending_condition.set_fee_rate(0);
+    spending_condition.set_fee_rate(fee_rate);
     let auth = TransactionAuth::Standard(spending_condition);
     let unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
@@ -34,17 +35,35 @@ fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
     buf
 }
 
-fn make_contract_publish(sender: &StacksPrivateKey, nonce: u64, contract_name: &str, contract_content: &str) -> Vec<u8> {
+pub fn make_contract_publish(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+                             contract_name: &str, contract_content: &str) -> Vec<u8> {
     let name = ContractName::from(contract_name);
     let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
 
     let payload = TransactionSmartContract { name, code_body };
 
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
 }
 
-fn make_contract_call(
-    sender: &StacksPrivateKey, nonce: u64,
+pub fn make_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+                            recipient: &StacksAddress, amount: u64) -> Vec<u8> {
+    let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+}
+
+pub fn make_poison(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+                   header_1: StacksMicroblockHeader, header_2: StacksMicroblockHeader) -> Vec<u8> {
+    let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+}
+
+pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> Vec<u8> {
+    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]));
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+}
+
+pub fn make_contract_call(
+    sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
     contract_addr: &StacksAddress, contract_name: &str,
     function_name: &str, function_args: &[Value]) -> Vec<u8> {
 
@@ -57,10 +76,10 @@ fn make_contract_call(
         function_args: function_args.iter().map(|x| x.clone()).collect()
     };
 
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
 }
 
-fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
+pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
     StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(sk)])
         .unwrap()
@@ -155,11 +174,11 @@ fn integration_test_get_info() {
         let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
 
         if round == 1 { // block-height = 2
-            let publish_tx = make_contract_publish(&contract_sk, 0, "get-info", GET_INFO_CONTRACT);
+            let publish_tx = make_contract_publish(&contract_sk, 0, 0, "get-info", GET_INFO_CONTRACT);
             eprintln!("Tenure in 1 started!");
             tenure.mem_pool.submit(publish_tx);
         } else if round >= 2 { // block-height > 2
-            let tx = make_contract_call(&principal_sk, (round - 2).into(), &to_addr(&contract_sk), "get-info", "update-info", &[]);
+            let tx = make_contract_call(&principal_sk, (round - 2).into(), 0, &to_addr(&contract_sk), "get-info", "update-info", &[]);
             tenure.mem_pool.submit(tx);
         }
 
