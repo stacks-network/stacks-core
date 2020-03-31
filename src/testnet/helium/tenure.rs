@@ -41,8 +41,8 @@ impl <'a> LeaderTenure {
             work: parent_block.anchored_header.total_work.work + 1,
         };
 
-        let block_builder = match last_sortitioned_block.block_height {
-            1 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, parent_block.burn_header_timestamp, &vrf_proof, &microblock_secret_key),
+        let block_builder = match last_sortitioned_block.total_burn {
+            0 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, parent_block.burn_header_timestamp, &vrf_proof, &microblock_secret_key),
             _ => StacksBlockBuilder::from_parent(1, &parent_block, &ratio, &vrf_proof, &microblock_secret_key)
         };
 
