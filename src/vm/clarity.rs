@@ -352,10 +352,9 @@ impl <'a> ClarityBlockConnection <'a> {
                 (cost_track, Ok((contract_ast, contract_analysis)))
             },
             Err((e, cost_track)) => {
-                self.cost_track.replace(cost_track);
                 (cost_track, Err(e.into()))
             }
-        }
+        };
 
         cost_track.reset_memory();
         self.cost_track.replace(cost_track);
