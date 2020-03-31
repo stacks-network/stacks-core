@@ -1,5 +1,4 @@
-use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainEngine, BurnchainState, EventDispatcher};
-
+use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainController, BurnchainTip, EventDispatcher};
 use super::operations::{BurnchainOperationType, LeaderBlockCommitPayload, LeaderKeyRegisterPayload};
 
 use std::collections::HashMap;
@@ -39,7 +38,7 @@ pub struct SortitionedBlock {
     op_txid: Txid,
     pub parent_burn_header_hash: BurnchainHeaderHash,
     sortition_hash: SortitionHash,
-    total_burn: u64,
+    pub total_burn: u64,
 }
 
 impl SortitionedBlock {
@@ -119,23 +118,26 @@ impl Node {
         }
     }
     
-    pub fn setup<T: BurnchainEngine>(&mut self, burnchain_engine: &mut T) {
+    pub fn setup(&mut self, burnchain_controller: &mut Box<dyn BurnchainController>) {
         // Register a new key
-        let vrf_pk = self.keychain.rotate_vrf_keypair();
-        let consensus_hash = ConsensusHash::empty();
+        let burnchain_tip = burnchain_controller.get_chain_tip();
+        let vrf_pk = self.keychain.rotate_vrf_keypair(burnchain_tip.block_snapshot.block_height);
+        let consensus_hash = burnchain_tip.block_snapshot.consensus_hash; 
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
-        burnchain_engine.submit_operation(key_reg_op, &mut self.keychain);
+        let mut op_signer = self.keychain.generate_op_signer();
+        burnchain_controller.submit_operation(key_reg_op, &mut op_signer);
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
     /// and inspecting if a sortition was won.
-    pub fn process_burnchain_state(&mut self, state: &BurnchainState) -> (Option<SortitionedBlock>, bool) {
+    pub fn process_burnchain_state(&mut self, state: &BurnchainTip) -> (Option<SortitionedBlock>, bool) {
         let mut new_key = None;
         let mut last_sortitioned_block = None; 
         let mut won_sortition = false;
-        let chain_tip = state.chain_tip.clone();
+        let chain_tip = state.block_snapshot.clone();
+        let ops = &state.state_transition.accepted_ops;
 
-        for op in state.ops.iter() {
+        for op in ops.iter() {
             match op {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => {
                     if op.address == self.keychain.get_address() {
@@ -248,7 +250,7 @@ impl Node {
             }
         };
 
-        // Constructs the coinbase transaction - 1st txn that should be handled and included in 
+        // Construct the coinbase transaction - 1st txn that should be handled and included in 
         // the upcoming tenure.
         let coinbase_tx = self.generate_coinbase_tx();
 
@@ -266,11 +268,12 @@ impl Node {
         Some(tenure)
     }
 
-    pub fn receive_tenure_artifacts<T: BurnchainEngine>(
+    pub fn receive_tenure_artifacts(
         &mut self, 
         anchored_block_from_ongoing_tenure: &StacksBlock, 
         parent_block: &SortitionedBlock,
-        burchain_engine: &mut T) {
+        burnchain_controller: &mut Box<dyn BurnchainController>) 
+    {
         if self.active_registered_key.is_some() {
             let registered_key = self.active_registered_key.clone().unwrap();
 
@@ -286,15 +289,18 @@ impl Node {
                 &parent_block,
                 VRFSeed::from_proof(&vrf_proof));
 
-            burchain_engine.submit_operation(op, &mut self.keychain);
+                let mut one_off_signer = self.keychain.generate_op_signer();
+                burnchain_controller.submit_operation(op, &mut one_off_signer);
         }
         
         // Naive implementation: we keep registering new keys
-        let vrf_pk = self.keychain.rotate_vrf_keypair();
+        let burnchain_tip = burnchain_controller.get_chain_tip();
+        let vrf_pk = self.keychain.rotate_vrf_keypair(burnchain_tip.block_snapshot.block_height);
         let burnchain_tip_consensus_hash = self.burnchain_tip.as_ref().unwrap().consensus_hash;
         let op = self.generate_leader_key_register_op(vrf_pk, &burnchain_tip_consensus_hash);
 
-        burchain_engine.submit_operation(op, &mut self.keychain);
+        let mut one_off_signer = self.keychain.generate_op_signer();
+        burnchain_controller.submit_operation(op, &mut one_off_signer);
     }
 
     /// Process artifacts from the tenure.
@@ -396,7 +402,7 @@ impl Node {
                                 vrf_seed: VRFSeed) -> BurnchainOperationType {
         
         let (parent_block_ptr, parent_vtxindex) = match self.bootstraping_chain {
-            true => (0, 0), // Expected references when mocking the initial sortition
+            true => (0, 0), // parent_block_ptr and parent_vtxindex should both be 0 on block #1
             false => (parent_block.block_height as u32, parent_block.op_vtxindex as u16)
         };
 
