@@ -91,17 +91,17 @@ impl SqliteConnection {
     ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
 
     pub fn begin(&mut self, key: &BlockHeaderHash) {
-        self.conn.execute(&format!("SAVEPOINT SP{};", key), NO_PARAMS)
+        self.conn.execute(&format!("SAVEPOINT SP{}", key), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }
 
     pub fn rollback(&mut self, key: &BlockHeaderHash) {
-        self.conn.execute(&format!("ROLLBACK TO SAVEPOINT SP{};", key), NO_PARAMS)
+        self.conn.execute_batch(&format!("ROLLBACK TO SAVEPOINT SP{}; RELEASE SAVEPOINT SP{}", key, key))
             .expect(SQL_FAIL_MESSAGE);
     }
 
     pub fn commit(&mut self, key: &BlockHeaderHash) {
-        self.conn.execute(&format!("RELEASE SAVEPOINT SP{};", key), NO_PARAMS)
+        self.conn.execute(&format!("RELEASE SAVEPOINT SP{}", key), NO_PARAMS)
             .expect(SQL_FAIL_MESSAGE);
     }
 }
@@ -153,4 +153,16 @@ impl SqliteConnection {
     pub fn mut_conn(&mut self) -> &mut Connection {
         &mut self.conn
     }
+}
+
+
+#[cfg(test)]
+#[test]
+#[should_panic]
+fn test_rollback() {
+    let mut conn = SqliteConnection::memory().unwrap();
+    let bhh = BlockHeaderHash([1; 32]);
+    conn.begin(&bhh);
+    conn.rollback(&bhh);
+    conn.commit(&bhh); // shouldn't be on the stack!
 }
