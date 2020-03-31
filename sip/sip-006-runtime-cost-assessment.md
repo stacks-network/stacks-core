@@ -682,14 +682,14 @@ Memory is consumed by the following variable bindings:
     functions.
 
 Additionally, functions that perform _context changes_ also consume memory,
-though the consume a constant amount:
+though they consume a constant amount:
 
 * `as-contract`
-* `as-block`
+* `at-block`
 
 ## Type signature size
 
-Types in Clarity may described using type signatures. For example,
+Types in Clarity may be described using type signatures. For example,
 `(tuple (a int) (b int))` describes a tuple with two keys `a` and `b`
 of type `int`. These type descriptions are used by the Clarity analysis
 passes to check the type correctness of Clarity code. Clarity type signatures
@@ -739,4 +739,10 @@ holding a write log in memory during the processing of a transaction.
 
 Operations that write data to the data store therefore consume memory
 _until the transaction completes_, and the write log is written to the
-database.
+database. The amount of memory consumed by operations on persisted data
+types is defined as:
+
+* `data-var`: the size of the stored data var's value.
+* `map`: the size of stored key + the size of the stored value.
+* `nft`: the size of the NFT key
+* `ft`: the size of a Clarity uint value.

@@ -51,7 +51,7 @@ pub fn rollback_log_memory_test() {
             contract.push_str(&exploder);
         }
 
-        let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+        let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
         assert!(format!("{:?}",
                         conn.initialize_smart_contract(
                             &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
@@ -94,10 +94,116 @@ pub fn let_memory_test() {
 
         contract.push_str(") 1)");
 
-        let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+        let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
         assert!(format!("{:?}",
                         conn.initialize_smart_contract(
                             &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
+                .contains("MemoryBalanceExceeded"));
+    }
+}
+
+#[test]
+pub fn argument_memory_test() {
+    let marf = MarfedKV::temporary();
+    let mut clarity_instance = ClarityInstance::new(marf);
+    let EXPLODE_N = 100;
+
+    let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+
+    {
+        let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
+                                                    &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                    &NULL_HEADER_DB);
+
+        let define_data_var = "(define-constant buff-0 \"a\")";
+
+        let mut contract = define_data_var.to_string();
+        for i in 0..20 {
+            contract.push_str("\n");
+            contract.push_str(
+                &format!("(define-constant buff-{} (concat buff-{} buff-{}))",
+                         i+1, i, i));
+        }
+
+        contract.push_str("\n");
+        contract.push_str("(is-eq ");
+
+        for _i in 0..EXPLODE_N {
+            let exploder = "buff-20 ";
+            contract.push_str(exploder);
+        }
+
+        contract.push_str(")");
+
+        let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+        assert!(format!("{:?}",
+                        conn.initialize_smart_contract(
+                            &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
+                .contains("MemoryBalanceExceeded"));
+    }
+}
+
+#[test]
+pub fn fcall_memory_test() {
+    let marf = MarfedKV::temporary();
+    let mut clarity_instance = ClarityInstance::new(marf);
+    let COUNT_PER_FUNC = 10;
+    let FUNCS = 10;
+
+    let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+
+    {
+        let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
+                                                    &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                    &NULL_HEADER_DB);
+
+        let define_data_var = "(define-constant buff-0 \"a\")";
+
+        let mut contract = define_data_var.to_string();
+        for i in 0..20 {
+            contract.push_str("\n");
+            contract.push_str(
+                &format!("(define-constant buff-{} (concat buff-{} buff-{}))",
+                         i+1, i, i));
+        }
+
+        contract.push_str("\n");
+
+        for i in 0..FUNCS {
+            contract.push_str(&format!("(define-private (call-{})\n", i));
+
+            contract.push_str("(let (");
+
+            for j in 0..COUNT_PER_FUNC {
+                let exploder = format!("(var-{} buff-20) ", j);
+                contract.push_str(&exploder);
+            }
+
+            if i == 0 {
+                contract.push_str(") 1) )\n");
+            } else {
+                contract.push_str(&format!(") (call-{})) )\n", i - 1));
+            }
+        }
+
+        let mut contract_ok = contract.clone();
+        let mut contract_err = contract.clone();
+
+        contract_ok.push_str("(call-0)");
+        contract_err.push_str("(call-9)");
+
+        eprintln!("{}", contract_ok);
+        eprintln!("{}", contract_err);
+
+        let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract_ok).unwrap();
+        conn.initialize_smart_contract(
+            // initialize the ok contract without errs, but still abort.
+            &contract_identifier, &ct_ast, &contract_ok, |_,_| true).unwrap();
+
+        let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract_err).unwrap();
+        assert!(format!("{:?}",
+                        conn.initialize_smart_contract(
+                            &contract_identifier, &ct_ast, &contract_err, |_,_| false).unwrap_err())
                 .contains("MemoryBalanceExceeded"));
     }
 }

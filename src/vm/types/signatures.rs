@@ -809,7 +809,7 @@ impl TypeSignature {
             UIntType => Some(16),
             BoolType => Some(1),
             PrincipalType => Some(148), // 20+128
-            BufferType(len) => Some(1 + u32::from(len)),
+            BufferType(len) => Some(4 + u32::from(len)),
             TupleType(tuple_sig) => tuple_sig.inner_size(),
             ListType(list_type) => list_type.inner_size(),
             OptionalType(t) => t.size().checked_add(WRAPPER_VALUE_SIZE),
