@@ -332,8 +332,6 @@ impl ConversationHttp {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        info!("GET {}.{}.{} :: {}", contract_addr, contract_name.as_str(), map_name.as_str(), key);
-
         let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_data_map_entry(&contract_identifier, map_name, key);
@@ -351,6 +349,46 @@ impl ConversationHttp {
         response.send(http, fd).map(|_| ())
     }
 
+    fn handle_get_contract_src<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
+                                         chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
+                                         contract_addr: &StacksAddress, contract_name: &ContractName) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+            clarity_tx.with_clarity_db_readonly(|db| {
+                db.get_contract_src(&contract_identifier)
+            })
+        });
+
+        let response = match data {
+            Some(data) => HttpResponseType::GetContractSrc(response_metadata, data),
+            None => HttpResponseType::NotFound(response_metadata, "{ \"message\": \"No contract source data found\"".into())
+        };
+        
+        response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_get_contract_abi<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
+                                         chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
+                                         contract_addr: &StacksAddress, contract_name: &ContractName) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+            clarity_tx.with_analysis_db_readonly(|db| {
+                let contract = db.load_contract(&contract_identifier)?;
+                contract.contract_interface
+            })
+        });
+
+        let response = match data {
+            Some(data) => HttpResponseType::GetContractABI(response_metadata, data),
+            None => HttpResponseType::NotFound(response_metadata, "{ \"message\": \"No contract interface data found\"".into())
+        };
+        
+        response.send(http, fd).map(|_| ())
+    }
     
     /// Handle a GET unconfirmed microblock stream.  Start streaming the reply.
     /// The response's preamble (but not the block data) will be synchronously written to the fd
@@ -437,10 +475,18 @@ impl ConversationHttp {
                 None
             },
             HttpRequestType::GetContractABI(ref _md, ref contract_addr, ref contract_name) => {
-                panic!("Not implemented");
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
+                    ConversationHttp::handle_get_contract_abi(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
+                                                              contract_addr, contract_name)?;
+                }
+                None
             },
             HttpRequestType::GetContractSrc(ref _md, ref contract_addr, ref contract_name) => {
-                panic!("Not implemented");
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
+                    ConversationHttp::handle_get_contract_src(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
+                                                              contract_addr, contract_name)?;
+                }
+                None
             },
             HttpRequestType::PostTransaction(_md, _tx) => {
                 panic!("Not implemented");

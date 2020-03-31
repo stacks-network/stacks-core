@@ -77,7 +77,8 @@ use vm::{
     ClarityName,
     ContractName,
     Value,
-    types::PrincipalData
+    types::PrincipalData,
+    analysis::contract_interface_builder::ContractInterface,
 };
 
 use util::hash::Hash160;
@@ -888,6 +889,8 @@ pub enum HttpResponseType {
     TokenTransferCost(HttpResponseMetadata, u64),
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
+    GetContractABI(HttpResponseMetadata, ContractInterface),
+    GetContractSrc(HttpResponseMetadata, String),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     Unauthorized(HttpResponseMetadata, String),

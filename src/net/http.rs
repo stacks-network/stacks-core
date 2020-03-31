@@ -1320,8 +1320,8 @@ impl HttpRequestType {
             HttpRequestType::GetAccount(ref md, _) => md,
             HttpRequestType::GetMapEntry(ref md, _, ..) => md,
             HttpRequestType::GetTransferCost(ref md) => md,
-            HttpRequestType::GetContractABI(ref md, _, ..) => md,
-            HttpRequestType::GetContractSrc(ref md, _, ..) => md,
+            HttpRequestType::GetContractABI(ref md, ..) => md,
+            HttpRequestType::GetContractSrc(ref md, ..) => md,
         }
     }
     
@@ -1336,8 +1336,8 @@ impl HttpRequestType {
             HttpRequestType::GetAccount(ref mut md, _) => md,
             HttpRequestType::GetMapEntry(ref mut md, _, ..) => md,
             HttpRequestType::GetTransferCost(ref mut md) => md,
-            HttpRequestType::GetContractABI(ref mut md, _, ..) => md,
-            HttpRequestType::GetContractSrc(ref mut md, _, ..) => md,
+            HttpRequestType::GetContractABI(ref mut md, ..) => md,
+            HttpRequestType::GetContractSrc(ref mut md, ..) => md,
         }
     }
 
@@ -1658,6 +1658,8 @@ impl HttpResponseType {
             HttpResponseType::TokenTransferCost(ref md, _) => md,
             HttpResponseType::GetMapEntry(ref md, _) => md,
             HttpResponseType::GetAccount(ref md, _) => md,
+            HttpResponseType::GetContractABI(ref md, _) => md,
+            HttpResponseType::GetContractSrc(ref md, _) => md,
             // errors
             HttpResponseType::BadRequest(ref md, _) => md,
             HttpResponseType::Unauthorized(ref md, _) => md,
@@ -1720,6 +1722,14 @@ impl HttpResponseType {
             HttpResponseType::GetAccount(ref md, ref account_data) => {
                 HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
                 HttpResponseType::send_json(protocol, md, fd, account_data)?;
+            },
+            HttpResponseType::GetContractABI(ref md, ref data) => {
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
+            },
+            HttpResponseType::GetContractSrc(ref md, ref data) => {
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
             },
             HttpResponseType::TokenTransferCost(ref md, ref cost) => {
                 HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
@@ -1858,6 +1868,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
                 HttpResponseType::GetMapEntry(_, _) => "HTTP(GetMapEntry)",
                 HttpResponseType::GetAccount(_, _) => "HTTP(GetAccount)",
+                HttpResponseType::GetContractABI(..) => "HTTP(GetContractABI)",
+                HttpResponseType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpResponseType::PeerInfo(_, _) => "HTTP(PeerInfo)",
                 HttpResponseType::Neighbors(_, _) => "HTTP(Neighbors)",
                 HttpResponseType::Block(_, _) => "HTTP(Block)",

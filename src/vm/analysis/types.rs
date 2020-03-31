@@ -5,6 +5,7 @@ use vm::types::signatures::FunctionSignature;
 use vm::analysis::analysis_db::{AnalysisDatabase};
 use vm::analysis::errors::{CheckResult, CheckErrors};
 use vm::analysis::type_checker::contexts::TypeMap;
+use vm::analysis::contract_interface_builder::ContractInterface;
 use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
@@ -26,7 +27,8 @@ pub struct ContractAnalysis {
     pub fungible_tokens: BTreeSet<ClarityName>,
     pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
     pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
-    pub implemented_traits: BTreeSet<TraitIdentifier>,
+    pub implemented_traits: BTreeSet<TraitIdentifier>,    
+    pub contract_interface: Option<ContractInterface>,
     #[serde(skip)]
     pub expressions: Vec<SymbolicExpression>,
     #[serde(skip)]
@@ -41,6 +43,7 @@ impl ContractAnalysis {
             contract_identifier,
             expressions,
             type_map: None,
+            contract_interface: None,
             private_function_types: BTreeMap::new(),
             public_function_types: BTreeMap::new(),
             read_only_function_types: BTreeMap::new(),

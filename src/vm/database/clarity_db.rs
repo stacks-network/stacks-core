@@ -25,6 +25,13 @@ use vm::costs::CostOverflowingMath;
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
 
+// not sure if this should actually only happen in developer-mode,
+//   maybe it's more like public API mode?
+#[cfg(feature = "developer-mode")]
+pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
+#[cfg(not(feature = "developer-mode"))]
+pub const STORE_CONTRACT_SRC_INTERFACE: bool = false;
+
 #[repr(u8)]
 pub enum StoreType {
     DataMap = 0x00,
@@ -201,7 +208,18 @@ impl <'a> ClarityDatabase <'a> {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
         self.insert_metadata(contract_identifier, &key,
                              &(contract_content.len() as u64));
+
+        // insert contract-src
+        if STORE_CONTRACT_SRC_INTERFACE {
+            let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
+            self.insert_metadata(contract_identifier, &key, &contract_content.to_string());
+        }
         Ok(())
+    }
+
+    pub fn get_contract_src(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<String> {
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
+        self.fetch_metadata(contract_identifier, &key).ok().flatten()
     }
 
     fn insert_metadata <T: ClaritySerializable> (&mut self, contract_identifier: &QualifiedContractIdentifier, key: &str, data: &T) {
