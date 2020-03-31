@@ -3,28 +3,41 @@ name = "helium-node"
 
 [burnchain]
 chain = "bitcoin"
-mode = "regtest"
-block_time = 5000
+network = "regtest" # "sim", "regtest"
+peer_host = "127.0.0.1"
+peer_port = 18444
+rpc_port = 18443
+rpc_ssl = false
+username = "helium-node"
+password = "secret"
+timeout = 30
 
 [mempool]
-path = "/home/ludovic/mempool"
+path = "/tmp/mempool"
 
-[[events_observer]]
-port = 8080
-address = "127.0.0.1"
-events_keys = [
-    "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store::print",
-    "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.ft-token",
-    "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.nft-token",
-    "stx"
-]
+# [[events_observer]]
+# port = 8080
+# address = "127.0.0.1"
+# events_keys = [
+#     "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store::print",
+#     "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.ft-token",
+#     "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.nft-token",
+#     "stx"
+# ]
+
+# [[events_observer]]
+# port = 8081
+# address = "127.0.0.1"
+# events_keys = [
+#     "*",
+# ]
 
 [[mstx_balance]]
 address = "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A"
 amount = 10000
 
 [[mstx_balance]]
-address = "ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6"
+address = "ST2T9J9B3X0087W3FZKWFVMAJS1KX1PAPWM2PJ8FP"
 amount = 100000
 
 [[mstx_balance]]

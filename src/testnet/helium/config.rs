@@ -1,11 +1,12 @@
-use util::hash::{to_hex};
-use burnchains::Address;
+use std::convert::TryInto;
+use std::io::{BufReader, Read};
+use std::fs::{File};
+
+use burnchains::{Address, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use burnchains::bitcoin::indexer::{FIRST_BLOCK_REGTEST, FIRST_BLOCK_MAINNET};
 use vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier} ;
 use rand::RngCore;
-use std::convert::TryInto;
-use std::io::BufReader;
-use std::io::Read;
-use std::fs::File;
+use util::hash::{to_hex};
 
 #[derive(Clone, Deserialize)]
 pub struct ConfigFile {
@@ -24,6 +25,10 @@ impl ConfigFile {
         let mut config_file = vec![];
         config_file_reader.read_to_end(&mut config_file).unwrap();    
         toml::from_slice(&config_file[..]).unwrap()
+    }
+
+    pub fn from_str(content: &str) -> ConfigFile {
+        toml::from_slice(&content.as_bytes()).unwrap()
     }
 }
 
@@ -55,14 +60,24 @@ impl Config {
             },
             None => default_node_config
         };
-
+    
         let default_burnchain_config = BurnchainConfig::default();
         let burnchain = match config_file.burnchain {
             Some(burnchain) => {
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
-                    mode: burnchain.mode.unwrap_or(default_burnchain_config.mode),
+                    network: burnchain.network.unwrap_or(default_burnchain_config.network),
                     block_time: burnchain.block_time.unwrap_or(default_burnchain_config.block_time),
+                    peer_host: burnchain.peer_host.unwrap_or(default_burnchain_config.peer_host),
+                    peer_port: burnchain.peer_port.unwrap_or(default_burnchain_config.peer_port),
+                    rpc_port: burnchain.rpc_port.unwrap_or(default_burnchain_config.rpc_port),
+                    rpc_ssl: burnchain.rpc_ssl.unwrap_or(default_burnchain_config.rpc_ssl),
+                    username: burnchain.username,
+                    password: burnchain.password,
+                    timeout: burnchain.timeout.unwrap_or(default_burnchain_config.timeout),
+                    spv_headers_path: burnchain.spv_headers_path.unwrap_or(node.get_default_spv_headers_path()),
+                    first_block: burnchain.first_block.unwrap_or(default_burnchain_config.first_block),
+                    magic_bytes: default_burnchain_config.magic_bytes,
                 }
             },
             None => default_burnchain_config
@@ -111,8 +126,12 @@ impl Config {
         }
     }
 
+    pub fn get_burnchain_path(&self) -> String {
+        format!("{}/burnchain/", self.node.working_dir)
+    }
+
     pub fn get_burn_db_path(&self) -> String {
-        format!("{}/burn_db/", self.node.working_dir)
+        format!("{}/burnchain/db/", self.node.working_dir)
     }
 
     pub fn get_chainstate_path(&self) -> String{
@@ -151,16 +170,36 @@ impl Config {
 #[derive(Clone, Default)]
 pub struct BurnchainConfig {
     pub chain: String,
-    pub mode: String,
+    pub network: String,
     pub block_time: u64,
+    pub peer_host: String,
+    pub peer_port: u16,
+    pub rpc_port: u16,
+    pub rpc_ssl: bool,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub timeout: u32,
+    pub spv_headers_path: String,
+    pub first_block: u64,
+    pub magic_bytes: MagicBytes,
 }
 
 impl BurnchainConfig {
     fn default() -> BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
-            mode: "regtest".to_string(),
+            network: "regtest".to_string(),
             block_time: 5000,
+            peer_host: "bitcoin.blockstack.com".to_string(),
+            peer_port: 8333,
+            rpc_port: 8332,
+            rpc_ssl: false,
+            username: None,
+            password: None,
+            timeout: 30,
+            spv_headers_path: "./spv-headers.dat".to_string(),
+            first_block: FIRST_BLOCK_MAINNET,
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone()
         }
     }
 }
@@ -168,8 +207,18 @@ impl BurnchainConfig {
 #[derive(Clone, Deserialize)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
-    pub mode: Option<String>,
+    pub network: Option<String>,
     pub block_time: Option<u64>,
+    pub peer_host: Option<String>,
+    pub peer_port: Option<u16>,
+    pub rpc_port: Option<u16>,
+    pub rpc_ssl: Option<bool>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub timeout: Option<u32>,
+    pub spv_headers_path: Option<String>,
+    pub first_block: Option<u64>,
+    pub magic_bytes: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -195,6 +244,14 @@ impl NodeConfig {
 
     pub fn get_default_mempool_path(&self) -> String {
         format!("{}/mempool/", self.working_dir)
+    }
+
+    pub fn get_burnchain_path(&self) -> String {
+        format!("{}/burnchain", self.working_dir)
+    }
+
+    pub fn get_default_spv_headers_path(&self) -> String {
+        format!("{}/spv-headers.dat", self.get_burnchain_path())
     }
 }
 
