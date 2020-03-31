@@ -88,6 +88,7 @@ fn run_analysis(contract_identifier: &QualifiedContractIdentifier,
                 analysis_db: &mut AnalysisDatabase, 
                 save_contract: bool) -> CheckResult<ContractAnalysis> {
     analysis::run_analysis(contract_identifier, expressions, analysis_db, save_contract, LimitedCostTracker::new_max_limit())
+        .map_err(|(e, _)| e)
 }
 
 

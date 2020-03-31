@@ -71,12 +71,12 @@ pub struct Node {
 impl Node {
 
     /// Instantiate and initialize a new node, given a config
-    pub fn new(config: NodeConfig, average_block_time: u64) -> Self {
-        
+    pub fn new<F>(config: NodeConfig, average_block_time: u64, boot_block_exec: F) -> Self
+    where F: FnOnce(&mut ClarityTx) -> () {
         let seed = Sha256Sum::from_data(format!("{}", config.name).as_bytes());
         let keychain = Keychain::default(seed.as_bytes().to_vec());
 
-        let chain_state = match StacksChainState::open(false, TESTNET_CHAIN_ID, &config.path) {
+        let chain_state = match StacksChainState::open_and_exec(false, TESTNET_CHAIN_ID, &config.path, boot_block_exec) {
             Ok(res) => res,
             Err(_) => panic!("Error while opening chain state at path {:?}", config.path)
         };

@@ -24,7 +24,7 @@ pub mod docs;
 pub mod analysis;
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
 
 pub use vm::types::Value;
 use vm::callables::CallableType;

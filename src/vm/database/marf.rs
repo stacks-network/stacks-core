@@ -219,7 +219,6 @@ impl MarfedKV {
         &self.chain_tip
     }
 
-    #[cfg(test)]
     pub fn set_chain_tip(&mut self, bhh: &BlockHeaderHash) {
         self.chain_tip = bhh.clone();
     }

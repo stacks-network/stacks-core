@@ -1,7 +1,7 @@
 use super::{Config, Node, BurnchainSimulator, BurnchainState, LeaderTenure};
 
 use chainstate::burn::{ConsensusHash};
-use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState};
+use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState, ClarityTx};
 use chainstate::burn::{BlockHeaderHash};
 
 use util::sleep_ms;
@@ -17,19 +17,22 @@ pub struct RunLoop {
 }
 
 impl RunLoop {
+    pub fn new(config: Config) -> Self {
+        RunLoop::new_with_boot_exec(config, |_| {})
+    }
 
     /// Sets up a runloop and nodes, given a config.
-    pub fn new(config: Config) -> Self {
+    pub fn new_with_boot_exec<F>(config: Config, boot_exec: F) -> Self
+    where F: Fn(&mut ClarityTx) -> () {
         // Build a vec of nodes based on config
         let mut nodes = vec![]; 
         let mut nodes_confs = config.node_config.clone();
         for conf in nodes_confs.drain(..) {
-            let node = Node::new(conf, config.burnchain_block_time);
+            let node = Node::new(conf, config.burnchain_block_time, |x| { boot_exec(x) });
             nodes.push(node);
         }
 
         Self {
-
             config,
             nodes,
             new_burnchain_state_callback: None,

@@ -887,15 +887,15 @@ impl TransactionAuth {
         }
     }
 
-    pub fn verify(&self, initial_sighash: &Txid) -> Result<bool, net_error> {
+    pub fn verify(&self, initial_sighash: &Txid) -> Result<(), net_error> {
         let origin_sighash = self.verify_origin(initial_sighash)?;
         match *self {
             TransactionAuth::Standard(_) => {
-                Ok(true)
+                Ok(())
             }
             TransactionAuth::Sponsored(_, ref sponsor_condition) => {
                 sponsor_condition.verify(&origin_sighash, &TransactionAuthFlags::AuthSponsored)
-                    .and_then(|_sigh| Ok(true))
+                    .and_then(|_sigh| Ok(()))
             }
         }
     }
