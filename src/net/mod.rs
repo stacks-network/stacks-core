@@ -886,7 +886,7 @@ pub enum HttpResponseType {
     MicroblockStream(HttpResponseMetadata),
     TransactionID(HttpResponseMetadata, Txid),
     TokenTransferCost(HttpResponseMetadata, u64),
-    GetMapEntry(HttpResponseMetadata, Option<MapEntryResponse>),
+    GetMapEntry(HttpResponseMetadata, MapEntryResponse),
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),

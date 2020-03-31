@@ -1,6 +1,6 @@
 use vm::{
     database::{ HeadersDB, ClaritySerializable },
-    types::QualifiedContractIdentifier,
+    types::{QualifiedContractIdentifier, TupleData},
     Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
 use chainstate::stacks::{
     db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -119,6 +119,8 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-private (exotic-block-height (height uint))
           (is-eq (at-block (get-block-id-hash height) block-height)
                  height))
+        (define-private (get-exotic-data-info (height uint))
+          (unwrap-panic (map-get? block-data { height: height })))
 
         (define-private (exotic-data-checks (height uint))
           (let ((block-to-check (unwrap-panic (get-block-info? id-header-hash height)))
@@ -321,15 +323,22 @@ fn integration_test_get_info() {
                 let client = reqwest::blocking::Client::new();
                 let path = format!("{}/v2/map_entry/{}/{}/{}",
                                    &http_origin, &contract_addr, "get-info", "block-data");
-                eprintln!("POST {}, data = {}", path, Value::UInt(1).serialize());
-                let res = client.post(&path)
-                    .body(Value::UInt(1).serialize())
-                    .send()
-                    .unwrap().text().unwrap();
-                eprintln!("{:#?}", res);
 
-                eprintln!("sleeping...");
-                thread::sleep(time::Duration::from_secs(600));
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(1))])
+                    .unwrap().into();
+
+                eprintln!("POST {}, data = {}", path, key.serialize());
+                let res = client.post(&path)
+                    .body(key.serialize())
+                    .send()
+                    .unwrap().json::<HashMap<String, String>>().unwrap();
+
+                let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
+
+                let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
+                                                                       "(some (get-exotic-data-info u1))");
+
+                assert_eq!(result_data, expected_data);
             },
             _ => {},
         }
