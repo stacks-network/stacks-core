@@ -753,7 +753,7 @@ impl Burnchain {
         let db_height = burn_chain_tip.block_height;
 
         // handle reorgs
-        let sync_reorg_res = Burnchain::sync_reorg(&mut indexer, &burn_chain_tip);
+        let sync_reorg_res = Burnchain::sync_reorg(indexer, &burn_chain_tip);
         let sync_height = sync_reorg_res?;
 
         // get latest headers 
@@ -775,7 +775,11 @@ impl Burnchain {
 
         // initial inputs
         // TODO: stream this -- don't need to load them all into RAM
-        let input_headers = indexer.read_headers(&headers_path, sync_height, end_block)?;
+        let start_block = match sync_height {
+            0 => 0,
+            _ => sync_height + 1,
+        };
+        let input_headers = indexer.read_headers(&headers_path, start_block, end_block + 1)?;
 
         // synchronize 
         let (downloader_send, downloader_recv) = sync_channel(1);

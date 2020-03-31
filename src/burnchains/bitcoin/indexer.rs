@@ -66,7 +66,7 @@ pub const FIRST_BLOCK_TESTNET: u64 = 0;
 pub const FIRST_BLOCK_REGTEST: u64 = 0;
 
 // batch size for searching for a reorg 
-const REORG_BATCH_SIZE: u64 = 2000;
+const REORG_BATCH_SIZE: u64 = 200;
 
 pub fn network_id_to_bytes(network_id: BitcoinNetworkType) -> u32 {
     match network_id {
@@ -501,13 +501,13 @@ impl BitcoinIndexer {
                     0
                 }
                 else {
-                    start_block - REORG_BATCH_SIZE - 1
+                    start_block - REORG_BATCH_SIZE
                 };
 
-            let existing_headers = self.read_spv_headers(&headers_path, copy_height_start, start_block + 1)?;
+            let existing_headers = self.read_spv_headers(&headers_path, copy_height_start + 1, start_block + 1)?;
 
             let mut spv_client = SpvClient::new(&reorg_headers_path, start_block, Some(start_block + REORG_BATCH_SIZE), self.runtime.network_id);
-            spv_client.write_block_headers(copy_height_start - 1, &existing_headers)
+            spv_client.write_block_headers(copy_height_start, &existing_headers)
                 .map_err(|e| {
                     error!("Failed to write block header {} to {}", start_block, &reorg_headers_path);
                     e
@@ -542,7 +542,7 @@ impl BitcoinIndexer {
                 }
             }
 
-            start_block -= REORG_BATCH_SIZE;
+            start_block = start_block.saturating_sub(REORG_BATCH_SIZE);
         }
 
         debug!("Chain history is consistent up to {}", new_tip);
