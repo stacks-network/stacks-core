@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use super::operations::BurnchainOpSigner;
+
 use chainstate::stacks::{StacksTransactionSigner, TransactionAuth, StacksPublicKey, StacksPrivateKey, StacksAddress};
 use address::AddressHashMode;
 use burnchains::{BurnchainSigner, BurnchainHeaderHash, PrivateKey};
@@ -74,7 +76,6 @@ impl Keychain {
 
         self.vrf_secret_keys.push(sk.clone());
         self.vrf_map.insert(pk.clone(), sk);
-
         pk
     }
 
@@ -165,5 +166,9 @@ impl Keychain {
             Some(auth) => Some(auth.origin().address_testnet()),
             None => None
         }
+    }
+
+    pub fn generate_op_signer(&mut self) -> BurnchainOpSigner {
+        BurnchainOpSigner::new(self.secret_keys[0], true)
     }
 }

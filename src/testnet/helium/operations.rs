@@ -1,7 +1,9 @@
 use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
-use burnchains::BurnchainSigner;
+use rand::RngCore;
+
+use burnchains::{BurnchainSigner, PrivateKey};
 use chainstate::burn::{BlockHeaderHash, ConsensusHash, Opcodes, VRFSeed};
 use chainstate::stacks::StacksAddress;
 use net::StacksMessageCodec;
@@ -9,6 +11,7 @@ use net::codec::{write_next};
 use net::Error as net_error;
 use util::hash::Hash160;
 use util::vrf::VRFPublicKey;
+use util::secp256k1::{MessageSignature, Secp256k1PublicKey, Secp256k1PrivateKey};
 
 
 #[derive(Debug, Clone)]
@@ -41,19 +44,16 @@ impl StacksMessageCodec for LeaderBlockCommitPayload {
         |------|--|-------------|---------------|------|------|-----|-----|-----|
          magic  op   block hash     new seed     parent parent key   key   memo
                                                 block  txoff  block txoff
-
-        Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
-
-        The values parent-block, parent-txoff, key-block, and key-txoff are in network byte order.
-
-        parent-delta and parent-txoff will both be 0 if this block builds off of the genesis block.
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &(Opcodes::LeaderBlockCommit as u8))?;
         write_next(fd, &self.block_header_hash)?;
-        // write_next(fd, &self.new_seed)?;
+        fd.write_all(&self.new_seed.as_bytes()[..]).map_err(net_error::WriteError)?;
         write_next(fd, &self.parent_block_ptr)?;
         write_next(fd, &self.parent_vtxindex)?;
         write_next(fd, &self.key_block_ptr)?;
+        write_next(fd, &self.key_vtxindex)?;
+
         let memo = match self.memo.len() > 0 {
             true => self.memo[0],
             false => 0x00,
@@ -62,7 +62,7 @@ impl StacksMessageCodec for LeaderBlockCommitPayload {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<LeaderBlockCommitPayload, net_error> {
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderBlockCommitPayload, net_error> {
         unimplemented!();
     }
 }
@@ -83,25 +83,21 @@ impl StacksMessageCodec for LeaderKeyRegisterPayload {
         0      2  3              23                       55                          80
         |------|--|---------------|-----------------------|---------------------------|
          magic  op consensus hash    proving public key               memo
-
-    
-        Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &(Opcodes::LeaderKeyRegister as u8))?;
         write_next(fd, &self.consensus_hash)?;
-        // write_next(fd, &self.public_key)?;
+        fd.write_all(&self.public_key.as_bytes()[..]).map_err(net_error::WriteError)?;
 
-        // todo(ludo): handle memo
-        // todo(ludo): check network order?
-        let memo = match self.memo.len() > 0 {
-            true => self.memo[0],
-            false => 0x00,
-        };
-        write_next(fd, &memo)?;
+        // todo(ludo) better management for memo
+        let len = 25;
+        let memo = vec![0; len];
+
+        fd.write_all(&memo).map_err(net_error::WriteError)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<LeaderKeyRegisterPayload, net_error> {
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderKeyRegisterPayload, net_error> {
         unimplemented!();
     }
 }
@@ -127,10 +123,11 @@ impl StacksMessageCodec for UserBurnSupportPayload {
          magic  op consensus hash   proving public key       block hash 160   key blk  key
                 (truncated by 1)                                                        vtxindex
 
-        Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &(Opcodes::UserBurnSupport as u8))?;
         write_next(fd, &self.consensus_hash)?;
+        // todo(ludo): add public key
         // write_next(fd, &self.public_key)?;
         write_next(fd, &self.block_header_hash_160)?;
         write_next(fd, &self.key_block_ptr)?;
@@ -138,8 +135,59 @@ impl StacksMessageCodec for UserBurnSupportPayload {
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<UserBurnSupportPayload, net_error> {
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<UserBurnSupportPayload, net_error> {
         unimplemented!();
     }
 }
 
+
+pub struct BurnchainOpSigner {
+    secret_key: Secp256k1PrivateKey,
+    is_one_off: bool,
+    is_disposed: bool,
+    usages: u8,
+    session_id: [u8; 16]
+}
+
+impl BurnchainOpSigner {
+
+    pub fn new(secret_key: Secp256k1PrivateKey, is_one_off: bool) -> BurnchainOpSigner {
+        let mut rng = rand::thread_rng();
+        let mut session_id = [0u8; 16];
+        rng.fill_bytes(&mut session_id);
+        BurnchainOpSigner {
+            secret_key: secret_key,
+            usages: 0,
+            is_one_off,
+            is_disposed: false,
+            session_id,
+        }
+    }
+
+    pub fn get_public_key(&mut self) -> Secp256k1PublicKey {
+        let public_key = Secp256k1PublicKey::from_private(&self.secret_key);
+        public_key
+    }
+
+    pub fn sign_message(&mut self, hash: &[u8]) -> Option<MessageSignature> {
+        if self.is_disposed {
+            return None;
+        }
+
+        let signature = match self.secret_key.sign(hash) {
+            Ok(r) => r,
+            _ => return None
+        };
+        self.usages += 1;
+        
+        if self.is_one_off && self.usages == 1 {
+            self.is_disposed = true;
+        }
+
+        Some(signature)
+    }
+
+    pub fn dispose(&mut self) {
+        self.is_disposed = true;
+    }
+}
