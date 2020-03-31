@@ -1,36 +1,25 @@
-pub mod burnchain_simulator_engine;
-pub mod bitcoin_regtest_engine;
+pub mod mock_burnchain_controller;
+pub mod bitcoin_regtest_controller;
 
-pub use self::burnchain_simulator_engine::{BurnchainSimulatorEngine};
-pub use self::bitcoin_regtest_engine::{BitcoinRegtestEngine};
+pub use self::mock_burnchain_controller::{MockBurnchainController};
+pub use self::bitcoin_regtest_controller::{BitcoinRegtestController};
 
-use super::Config;
-use super::operations::BurnchainOperationType;
+use super::operations::{BurnchainOperationType, BurnchainOpSigner};
 
-use burnchains::BurnchainSigner;
+use burnchains::{BurnchainStateTransition};
 use chainstate::burn::db::burndb::{BurnDB};
 use chainstate::burn::{BlockSnapshot};
-use chainstate::burn::operations::{BlockstackOperationType};
 
-use util::secp256k1::{MessageSignature, Secp256k1PublicKey};
-
-pub struct BurnchainState {
-    pub chain_tip: BlockSnapshot,
-    pub ops: Vec<BlockstackOperationType>,
+#[derive(Debug, Clone)]
+pub struct BurnchainTip {
+    pub block_snapshot: BlockSnapshot,
+    pub state_transition: BurnchainStateTransition,
 }
 
-pub trait BurnchainOperationSigningDelegate {
-    fn create_session(&mut self) -> [u8; 16];
-    fn get_public_key(&mut self, session_id: &[u8]) -> Option<Secp256k1PublicKey>;
-    fn sign_message(&mut self, session_id: &[u8], hash: &[u8]) -> Option<MessageSignature>;
-    fn close_session(&mut self, session_id: &[u8]);
-}
-
-pub trait BurnchainEngine {
-    fn new(config: Config) -> Self;
-    fn start(&mut self) -> BurnchainState;
-    fn submit_operation<T: BurnchainOperationSigningDelegate>(&mut self, operation: BurnchainOperationType, signer_delegate: &mut T);
-    fn sync(&mut self) -> BurnchainState;
+pub trait BurnchainController {
+    fn start(&mut self) -> BurnchainTip;
+    fn submit_operation(&mut self, operation: BurnchainOperationType, op_signer: &mut BurnchainOpSigner);
+    fn sync(&mut self) -> BurnchainTip;
     fn burndb_mut(&mut self) -> &mut BurnDB;
-    fn get_chain_tip(&mut self) -> BlockSnapshot;
+    fn get_chain_tip(&mut self) -> BurnchainTip;
 }

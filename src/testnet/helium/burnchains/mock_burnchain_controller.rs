@@ -5,9 +5,10 @@ use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
 
 use super::super::{Config};
-use super::{BurnchainEngine, BurnchainOperationType, BurnchainState, BurnchainOperationSigningDelegate};
+use super::{BurnchainController, BurnchainOperationType, BurnchainTip};
+use super::super::operations::BurnchainOpSigner;
 
-use burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid};
+use burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid, BurnchainStateTransition};
 use burnchains::bitcoin::BitcoinBlock;
 use chainstate::burn::db::burndb::{BurnDB};
 use chainstate::burn::{BlockSnapshot};
@@ -20,15 +21,34 @@ use chainstate::burn::operations::{
 use util::hash::Sha256Sum;
 use util::get_epoch_time_secs;
 
-/// BurnchainSimulatorEngine is simulating a simplistic burnchain.
-pub struct BurnchainSimulatorEngine {
+/// SimBurnchainController is simulating a simplistic burnchain.
+pub struct MockBurnchainController {
     config: Config,
     burnchain: Burnchain,
     db: Option<BurnDB>,
+    chain_tip: Option<BurnchainTip>,
     queued_operations: VecDeque<BurnchainOperationType>,
 }
 
-impl BurnchainSimulatorEngine {
+impl MockBurnchainController {
+
+    pub fn generic(config: Config) -> Box<dyn BurnchainController> {
+        Box::new(Self::new(config))
+    }
+
+    fn new(config: Config) -> Self {
+        let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain, &"regtest".to_string())
+            .expect("Error while instantiating burnchain");
+
+        Self {
+            config: config,
+            burnchain: burnchain,
+            db: None,
+            queued_operations: VecDeque::new(),
+            chain_tip: None,
+        }
+    }
+
     fn build_next_block_header(current_block: &BlockSnapshot) -> BurnchainBlockHeader {
         let curr_hash = &current_block.burn_header_hash.to_bytes()[..];
         let next_hash = Sha256Sum::from_data(&curr_hash);
@@ -43,19 +63,7 @@ impl BurnchainSimulatorEngine {
     }
 }
 
-impl BurnchainEngine for BurnchainSimulatorEngine {
-
-    fn new(config: Config) -> Self {
-        let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain, &config.burnchain.mode)
-            .expect("Error while instantiating burnchain");
-
-        Self {
-            config: config,
-            burnchain: burnchain,
-            db: None,
-            queued_operations: VecDeque::new()
-        }
-    }
+impl BurnchainController for MockBurnchainController {
 
     fn burndb_mut(&mut self) -> &mut BurnDB {
         match self.db {
@@ -66,11 +74,10 @@ impl BurnchainEngine for BurnchainSimulatorEngine {
         }
     }
     
-    fn get_chain_tip(&mut self) -> BlockSnapshot {
-        match self.db {
-            Some(ref mut db) => {
-                BurnDB::get_canonical_burn_chain_tip(db.conn())
-                    .expect("FATAL: failed to get canonical chain tip")
+    fn get_chain_tip(&mut self) -> BurnchainTip {
+        match &self.chain_tip {
+            Some(chain_tip) => {
+                chain_tip.clone()
             },
             None => {
                 unreachable!();
@@ -78,31 +85,38 @@ impl BurnchainEngine for BurnchainSimulatorEngine {
         }
     }
    
-    fn start(&mut self) -> BurnchainState {
+    fn start(&mut self) -> BurnchainTip {
         let db = match BurnDB::connect(&self.config.get_burn_db_path(), 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
             Ok(db) => db,
             Err(_) => panic!("Error while connecting to burnchain db")
         };
+        let block_snapshot = BurnDB::get_canonical_burn_chain_tip(db.conn())
+            .expect("FATAL: failed to get canonical chain tip");
 
         self.db = Some(db);
 
-        let genesis_state = BurnchainState {
-            chain_tip: self.get_chain_tip(),
-            ops: vec![],
+        let genesis_state = BurnchainTip {
+            block_snapshot,
+            state_transition: BurnchainStateTransition {
+                burn_dist: vec![],
+                accepted_ops: vec![],
+                consumed_leader_keys: vec![]
+            },
         };
+        self.chain_tip = Some(genesis_state.clone());
 
         genesis_state
     }
 
-    fn submit_operation<T: BurnchainOperationSigningDelegate>(&mut self, operation: BurnchainOperationType, signer: &mut T) {
+    fn submit_operation(&mut self, operation: BurnchainOperationType, op_signer: &mut BurnchainOpSigner) {
         self.queued_operations.push_back(operation);
     }
 
-    fn sync(&mut self) -> BurnchainState {
+    fn sync(&mut self) -> BurnchainTip {
         let chain_tip = self.get_chain_tip();
 
         // Simulating mining
-        let next_block_header = BurnchainSimulatorEngine::build_next_block_header(&chain_tip);
+        let next_block_header = Self::build_next_block_header(&chain_tip.block_snapshot);
         let mut vtxindex = 1;
         let mut ops = vec![];
 
@@ -159,7 +173,7 @@ impl BurnchainEngine for BurnchainSimulatorEngine {
         }
 
         // Include txs in a new block   
-        let new_chain_tip = {
+        let (block_snapshot, state_transition) = {
             match self.db {
                 None => {
                     unreachable!();
@@ -169,7 +183,7 @@ impl BurnchainEngine for BurnchainSimulatorEngine {
                     let new_chain_tip = Burnchain::process_block_ops(
                         &mut burn_tx, 
                         &self.burnchain, 
-                        &chain_tip, 
+                        &chain_tip.block_snapshot, 
                         &next_block_header, 
                         &ops).unwrap();
                     burn_tx.commit().unwrap();
@@ -179,10 +193,11 @@ impl BurnchainEngine for BurnchainSimulatorEngine {
         };
 
         // Transmit the new state
-        let new_state = BurnchainState {
-            chain_tip: new_chain_tip,
-            ops: ops
+        let new_state = BurnchainTip {
+            block_snapshot,
+            state_transition
         };
+        self.chain_tip = Some(new_state.clone());
 
         new_state
     }
