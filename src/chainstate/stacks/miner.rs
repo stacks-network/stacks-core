@@ -665,7 +665,8 @@ pub mod test {
 
         pub fn get_last_accepted_anchored_block(&self, miner: &TestMiner) -> Option<StacksBlock> {
             for bc in miner.block_commits.iter().rev() {
-                if StacksChainState::has_stored_block(&self.chainstate.blocks_db, &self.chainstate.blocks_path, &bc.burn_header_hash, &bc.block_header_hash).unwrap() {
+                if StacksChainState::has_stored_block(&self.chainstate.blocks_db, &self.chainstate.blocks_path, &bc.burn_header_hash, &bc.block_header_hash).unwrap() &&
+                  !StacksChainState::is_block_orphaned(&self.chainstate.blocks_db, &bc.burn_header_hash, &bc.block_header_hash).unwrap() {
                     match self.commit_ops.get(&bc.block_header_hash) {
                         None => {
                             continue;
@@ -2850,8 +2851,18 @@ pub mod test {
 
     #[test]
     fn mine_anchored_invalid_token_transfer_blocks_single() {
-        mine_stacks_blocks_1_fork_1_miner_1_burnchain(&"invalid-token-transfers".to_string(), 10, mine_invalid_token_transfers_block, |_, _| false);
-    }    
+        let miner_trace = mine_stacks_blocks_1_fork_1_miner_1_burnchain(&"invalid-token-transfers".to_string(), 10, mine_invalid_token_transfers_block, |_, _| false);
+
+        let full_test_name = "invalid-token-transfers-1_fork_1_miner_1_burnchain";
+        let chainstate = open_chainstate(false, 0x80000000, full_test_name);
+
+        // each block must be orphaned
+        for point in miner_trace.points.iter() {
+            for (height, bc) in point.block_commits.iter() {
+                assert!(StacksChainState::is_block_orphaned(&chainstate.blocks_db, &bc.burn_header_hash, &bc.block_header_hash).unwrap());
+            }
+        }
+    } 
 
     // TODO: (BLOCKED) build off of different points in the same microblock stream
     // TODO; skipped blocks
