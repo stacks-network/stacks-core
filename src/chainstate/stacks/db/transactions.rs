@@ -189,7 +189,7 @@ impl StacksChainState {
                     let amount_sent = amount_transferred.checked_add(amount_burned).expect("FATAL: sent waaaaay too much STX");
 
                     if !condition_code.check(*amount_sent_condition as u128, amount_sent) {
-                        info!("Post-condition check failure on STX owned by {:?}: {:?} {:?} {}", account_principal, amount_sent_condition, condition_code, amount_sent);
+                        info!("Post-condition check failure on STX owned by {}: {:?} {:?} {}", account_principal, amount_sent_condition, condition_code, amount_sent);
                         return false;
                     }
 
@@ -221,7 +221,7 @@ impl StacksChainState {
 
                     let amount_sent = asset_map.get_fungible_tokens(&account_principal, &asset_id).unwrap_or(0);
                     if !condition_code.check(*amount_sent_condition as u128, amount_sent) {
-                        info!("Post-condition check failure on fungible asset {:?} owned by {:?}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent);
+                        info!("Post-condition check failure on fungible asset {} owned by {}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent);
                         return false;
                     }
                     
@@ -244,7 +244,7 @@ impl StacksChainState {
                     let empty_assets = vec![];
                     let assets_sent = asset_map.get_nonfungible_tokens(&account_principal, &asset_id).unwrap_or(&empty_assets);
                     if !condition_code.check(asset_value, assets_sent) {
-                        info!("Post-condition check failure on non-fungible asset {:?} owned by {:?}: {:?} {:?}", &asset_id, account_principal, &asset_value, condition_code);
+                        info!("Post-condition check failure on non-fungible asset {} owned by {}: {:?} {:?}", &asset_id, account_principal, &asset_value, condition_code);
                         return false;
                     }
 
@@ -283,20 +283,20 @@ impl StacksChainState {
                                     // each value must be covered
                                     for v in values {
                                         if !nfts.contains(&v) {
-                                            info!("Post-condition check failure: Non-fungible asset {:?} value {:?} was moved by {:?} but not checked", &asset_identifier, &v, &principal);
+                                            info!("Post-condition check failure: Non-fungible asset {} value {:?} was moved by {} but not checked", &asset_identifier, &v, &principal);
                                             return false;
                                         }
                                     }
                                 }
                                 else {
                                     // no values covered
-                                    info!("Post-condition check failure: No checks for non-fungible asset type {:?} moved by {:?}", &asset_identifier, &principal);
+                                    info!("Post-condition check failure: No checks for non-fungible asset type {} moved by {}", &asset_identifier, &principal);
                                     return false;
                                 }
                             }
                             else {
                                 // no NFT for this principal
-                                info!("Post-condition check failure: No checks for any non-fungible assets, but moved {:?} by {:?}", &asset_identifier, &principal);
+                                info!("Post-condition check failure: No checks for any non-fungible assets, but moved {} by {}", &asset_identifier, &principal);
                                 return false;
                             }
                         },
@@ -304,12 +304,12 @@ impl StacksChainState {
                             // This is STX or a fungible token
                             if let Some(ref checked_ft_asset_ids) = checked_fungible_assets.get(&principal) {
                                 if !checked_ft_asset_ids.contains(&asset_identifier) {
-                                    info!("Post-condition check failure: checks did not cover transfer of {:?} by {:?}", &asset_identifier, &principal);
+                                    info!("Post-condition check failure: checks did not cover transfer of {} by {}", &asset_identifier, &principal);
                                     return false;
                                 }
                             }
                             else {
-                                info!("Post-condition check failure: No checks for fungible token type {:?} moved by {:?}", &asset_identifier, &principal);
+                                info!("Post-condition check failure: No checks for fungible token type {} moved by {}", &asset_identifier, &principal);
                                 return false;
                             }
                         }
