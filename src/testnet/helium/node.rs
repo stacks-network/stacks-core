@@ -1,4 +1,4 @@
-use super::{Keychain, MemPool, MemPoolFS, NodeConfig, LeaderTenure, BurnchainState};
+use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainState, EventDispatcher};
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -8,13 +8,16 @@ use address::AddressHashMode;
 use burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use chainstate::burn::db::burndb::{BurnDB};
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
+use chainstate::stacks::events::StacksTransactionReceipt;
 use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
 use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
 use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, BlockHeaderHash};
-use net::StacksMessageType;
+use net::{StacksMessageType, StacksMessageCodec};
+
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
 use util::get_epoch_time_secs;
+use vm::types::PrincipalData;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
 
@@ -61,40 +64,56 @@ pub struct Node {
     burnchain_tip: Option<BlockSnapshot>,
     pub chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
-    config: NodeConfig,
+    config: Config,
     keychain: Keychain,
     last_sortitioned_block: Option<SortitionedBlock>,
     mem_pool: MemPoolFS,
+    event_dispatcher: EventDispatcher,
     nonce: u64,
 }
 
 impl Node {
 
     /// Instantiate and initialize a new node, given a config
-    pub fn new<F>(config: NodeConfig, average_block_time: u64, boot_block_exec: F) -> Self
+    pub fn new<F>(config: Config, boot_block_exec: F) -> Self
     where F: FnOnce(&mut ClarityTx) -> () {
-        let seed = Sha256Sum::from_data(format!("{}", config.name).as_bytes());
+        
+        let seed = Sha256Sum::from_data(format!("{}", config.node.name).as_bytes());
         let keychain = Keychain::default(seed.as_bytes().to_vec());
 
-        let chain_state = match StacksChainState::open_and_exec(false, TESTNET_CHAIN_ID, &config.path, boot_block_exec) {
+        let initial_balances = config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
+
+        let chain_state = match StacksChainState::open_and_exec(
+            false, 
+            TESTNET_CHAIN_ID, 
+            &config.get_chainstate_path(), 
+            Some(initial_balances), 
+            boot_block_exec) {
             Ok(res) => res,
-            Err(_) => panic!("Error while opening chain state at path {:?}", config.path)
+            Err(_) => panic!("Error while opening chain state at path {:?}", config.get_chainstate_path())
         };
 
-        let mem_pool = MemPoolFS::new(&config.mem_pool_path);
+        let mem_pool = MemPoolFS::new(&config.mempool.path);
+
+        let mut event_dispatcher = EventDispatcher::new();
+
+        for observer in &config.events_observers {
+            event_dispatcher.register_observer(observer);
+        }
 
         Self {
             active_registered_key: None,
             bootstraping_chain: false,
             chain_state,
             chain_tip: None,
-            config,
             keychain,
             last_sortitioned_block: None,
             mem_pool,
-            average_block_time,
+            average_block_time: config.burnchain.block_time,
+            config,
             burnchain_tip: None,
             nonce: 0,
+            event_dispatcher,
         }
     }
     
@@ -276,7 +295,13 @@ impl Node {
 
     /// Process artifacts from the tenure.
     /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
-    pub fn process_tenure(&mut self, anchored_block: &StacksBlock, burn_header_hash: &BurnchainHeaderHash, parent_burn_header_hash: &BurnchainHeaderHash, microblocks: Vec<StacksMicroblock>, db: &mut BurnDB) {
+    pub fn process_tenure(
+        &mut self, 
+        anchored_block: &StacksBlock, 
+        burn_header_hash: &BurnchainHeaderHash, 
+        parent_burn_header_hash: &BurnchainHeaderHash, 
+        microblocks: Vec<StacksMicroblock>, 
+        db: &mut BurnDB) -> (StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>) {
 
         {
             // let mut db = burn_db.lock().unwrap();
@@ -302,29 +327,45 @@ impl Node {
             }
         }
 
-        self.chain_tip = {
-            // We are intentionally scoping this snippet, in order to limit the scope of the lock.
-            // let db = burn_db.lock().unwrap();
-            let mut res = None;
-            loop {
-                match self.chain_state.process_blocks(1) {
-                    Err(e) => panic!("Error while processing block - {:?}", e),
-                    Ok(blocks) => {
-                        if blocks.len() == 0 {
-                            break;
-                        } else {
-                            res = Some(blocks[0].clone());
-                        }
+        let mut processed_blocks = vec![];
+        loop {
+            match self.chain_state.process_blocks(1) {
+                Err(e) => panic!("Error while processing block - {:?}", e),
+                Ok(ref mut blocks) => {
+                    if blocks.len() == 0 {
+                        break;
+                    } else {
+                        processed_blocks.append(blocks);
                     }
                 }
             }
-            res.unwrap().0
+        }
+
+        // todo(ludo): yikes but good enough in the context of helium:
+        // we only expect 1 block.
+        let processed_block = processed_blocks[0].clone().0.unwrap();
+        
+        // Handle events
+        let receipts = processed_block.1;
+        let chain_tip_info = processed_block.0;
+        let chain_tip = {
+            let block_path = StacksChainState::get_block_path(
+                &self.chain_state.blocks_path, 
+                &chain_tip_info.burn_header_hash, 
+                &chain_tip_info.anchored_header.block_hash()).unwrap();
+            StacksChainState::consensus_load(&block_path).unwrap()
         };
+
+        self.event_dispatcher.process_receipts(&receipts, &chain_tip, &chain_tip_info);
+
+        self.chain_tip = Some(chain_tip_info.clone());
 
         // Unset the `bootstraping_chain` flag.
         if self.bootstraping_chain {
             self.bootstraping_chain = false;
         }
+
+        (chain_tip, chain_tip_info, receipts)
     }
 
     /// Returns the Stacks address of the node
