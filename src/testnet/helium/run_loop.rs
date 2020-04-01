@@ -78,7 +78,7 @@ impl RunLoop {
                 SpvClient::init_block_headers(&self.config.burnchain.spv_headers_path, BitcoinNetworkType::Regtest).unwrap();
                 BitcoinRegtestController::generic(self.config.clone())
             },
-            "sim" => {
+            "mock" => {
                 MockBurnchainController::generic(self.config.clone())
             }
             _ => unimplemented!()

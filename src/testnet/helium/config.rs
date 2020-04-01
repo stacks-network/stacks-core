@@ -192,7 +192,7 @@ impl BurnchainConfig {
     fn default() -> BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
-            network: "sim".to_string(),
+            network: "mock".to_string(),
             block_time: 5000,
             peer_host: "bitcoin.blockstack.com".to_string(),
             peer_port: 8333,
