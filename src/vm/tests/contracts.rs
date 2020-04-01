@@ -70,6 +70,7 @@ fn get_principal() -> Value {
     StandardPrincipalData::transient().into()
 }
 
+
 #[test]
 fn test_get_block_info_eval() {
 
@@ -285,16 +286,16 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
         let c_b = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("contract-b").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-a").unwrap(), "get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-a").unwrap(), "get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![p1.clone(), p1.clone()]).unwrap());
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap());
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "cc-get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "cc-get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![c_b.clone(), p1.clone()]).unwrap());
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-cc-get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-cc-get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap());
     }
 }
@@ -325,16 +326,16 @@ fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
         let c_b = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("contract-b").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-a").unwrap(), "get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-a").unwrap(), "get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![p1.clone(), p1.clone()]).unwrap());
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap());
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "cc-get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "cc-get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![c_b.clone(), p1.clone()]).unwrap());
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-cc-get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-cc-get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap());
     }
 }
@@ -419,17 +420,17 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
         assert!(is_err_code(&
                             env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "preorder",
-                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap(), 1));
+                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]), false).unwrap(), 1));
     }
 
     {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert!(is_committed(&
                              env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "preorder",
-                                                  &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap()));
+                                                  &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]), false).unwrap()));
         assert!(is_err_code(&
                             env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "preorder",
-                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap(), 2));
+                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]), false).unwrap(), 2));
     }
 
     {
@@ -437,7 +438,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(Some(p2.clone()));
         assert!(is_err_code(&
                             env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "register",
-                                                 &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(), 4));
+                                                 &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)]), false).unwrap(), 4));
     }
 
     {
@@ -445,7 +446,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert!(is_committed(&
                              env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "register",
-                                                  &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap()));
+                                                  &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)]), false).unwrap()));
         
     }
 
@@ -454,23 +455,23 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(Some(p2.clone()));
         assert!(is_committed(&
                              env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "preorder",
-                                                  &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::UInt(100)])).unwrap()));
+                                                  &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::UInt(100)]), false).unwrap()));
         assert!(is_err_code(&
                             env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "register",
-                                                 &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap(), 4));
+                                                 &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)]), false).unwrap(), 4));
         
         // register a cheap name!
         assert!(is_committed(&
                              env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "preorder",
-                             &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::UInt(100)])).unwrap()));
+                             &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::UInt(100)]), false).unwrap()));
         assert!(is_committed(&
                              env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap()));
+                             &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)]), false).unwrap()));
         
         // preorder must exist!
         assert!(is_err_code(&
                             env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "register",
-                                                 &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap(), 5));
+                                                 &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)]), false).unwrap(), 5));
     }
 }
 
@@ -498,7 +499,7 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
                     Value::Int(120),
                     Value::Int(120)];
     for expected_result in &expected {
-        env.execute_contract(&QualifiedContractIdentifier::local("proxy-compute").unwrap(), "proxy-compute", &args).unwrap();
+        env.execute_contract(&QualifiedContractIdentifier::local("proxy-compute").unwrap(), "proxy-compute", &args, false).unwrap();
         assert_eq!(
             env.eval_read_only(&QualifiedContractIdentifier::local("factorial-contract").unwrap(),
                                "(get current (unwrap! (map-get? factorials (tuple (id 8008))) 'false))").unwrap(),
@@ -553,12 +554,12 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
 
     assert_eq!(
         env.execute_contract(&QualifiedContractIdentifier::local("contract-1").unwrap(), "modify-data",
-                             &symbols_from_values(vec![Value::Int(10), Value::Int(10)])).unwrap(),
+                             &symbols_from_values(vec![Value::Int(10), Value::Int(10)]), false).unwrap(),
         Value::Response(ResponseData{ committed: true, data: Box::new(Value::Int(1)) }));
 
     assert_eq!(
         env.execute_contract(&QualifiedContractIdentifier::local("contract-1").unwrap(), "modify-data",
-                             &symbols_from_values(vec![Value::Int(20), Value::Int(10)])).unwrap(),
+                             &symbols_from_values(vec![Value::Int(20), Value::Int(10)]), false).unwrap(),
         Value::Response(ResponseData{ committed: false, data: Box::new(Value::Int(1)) }));
     
     assert_eq!(
@@ -573,12 +574,12 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
 
     assert_eq!(
         env.execute_contract(&QualifiedContractIdentifier::local("contract-2").unwrap(), "fail-in-other",
-                             &symbols_from_values(vec![])).unwrap(),
+                             &symbols_from_values(vec![]), false).unwrap(),
         Value::Response(ResponseData{ committed: true, data: Box::new(Value::Int(1)) }));
 
     assert_eq!(
         env.execute_contract(&QualifiedContractIdentifier::local("contract-2").unwrap(), "fail-in-self",
-                             &symbols_from_values(vec![])).unwrap(),
+                             &symbols_from_values(vec![]), false).unwrap(),
         Value::Response(ResponseData{ committed: false, data: Box::new(Value::Int(1)) }));
 
     assert_eq!(
@@ -632,7 +633,7 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
     env.sender = Some(get_principal());
 
     for (arguments, expectation) in arguments_to_test.iter().zip(expected.iter()) {
-        env.execute_contract(&QualifiedContractIdentifier::local("factorial").unwrap(), &tx_name, arguments).unwrap();
+        env.execute_contract(&QualifiedContractIdentifier::local("factorial").unwrap(), &tx_name, arguments, false).unwrap();
 
         assert_eq!(*expectation,
                    env.eval_read_only(&QualifiedContractIdentifier::local("factorial").unwrap(),
@@ -642,7 +643,7 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
 
     let err_result = env.execute_contract(&QualifiedContractIdentifier::local("factorial").unwrap(), "init-factorial",
                                           &symbols_from_values(vec![Value::Int(9000),
-                                                                    Value::Int(15)])).unwrap_err();
+                                                                    Value::Int(15)]), false).unwrap_err();
     match err_result {
         Error::Unchecked(CheckErrors::NoSuchPublicFunction(_, _)) => {},
         _ => {
@@ -652,7 +653,7 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
     }
 
     let err_result = env.execute_contract(&QualifiedContractIdentifier::local("factorial").unwrap(), "compute",
-                                          &symbols_from_values(vec![Value::Bool(true)])).unwrap_err();
+                                          &symbols_from_values(vec![Value::Bool(true)]), false).unwrap_err();
     match err_result {
         Error::Unchecked(CheckErrors::TypeValueError(_, _)) => {},
         _ => {

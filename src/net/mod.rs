@@ -871,6 +871,12 @@ impl HttpRequestMetadata {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct CallReadOnlyRequestBody {
+    pub sender: String,
+    pub arguments: Vec<String>,
+}
+
 /// All HTTP request paths we support, and the arguments they carry in their paths
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
@@ -883,6 +889,8 @@ pub enum HttpRequestType {
     PostTransaction(HttpRequestMetadata, StacksTransaction),
     GetAccount(HttpRequestMetadata, PrincipalData),
     GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value),
+    CallReadOnlyFunction(HttpRequestMetadata, StacksAddress, ContractName,
+                         PrincipalData, ClarityName, Vec<Value>),
     GetTransferCost(HttpRequestMetadata),
     GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName),
     GetContractABI(HttpRequestMetadata, StacksAddress, ContractName),
@@ -945,11 +953,13 @@ pub enum HttpResponseType {
     TransactionID(HttpResponseMetadata, Txid),
     TokenTransferCost(HttpResponseMetadata, u64),
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
+    CallReadOnlyFunction(HttpResponseMetadata, String),
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, String),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
+    BadRequestJSON(HttpResponseMetadata, HashMap<String, String>),
     Unauthorized(HttpResponseMetadata, String),
     PaymentRequired(HttpResponseMetadata, String),
     Forbidden(HttpResponseMetadata, String),

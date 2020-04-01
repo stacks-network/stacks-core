@@ -99,7 +99,8 @@ pub fn special_contract_call(args: &[SymbolicExpression],
 
     let result = nested_env.execute_contract(&contract_identifier, 
                                              function_name, 
-                                             &rest_args)?;
+                                             &rest_args,
+                                             false)?;
     
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.

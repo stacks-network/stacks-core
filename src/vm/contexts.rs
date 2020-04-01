@@ -398,7 +398,7 @@ impl <'a> OwnedEnvironment <'a> {
                          sender.clone(), sender)
     }
 
-    fn execute_in_env <F, A> (&mut self, sender: Value, f: F) -> Result<(A, AssetMap, Vec<StacksTransactionEvent>)>
+    pub fn execute_in_env <F, A> (&mut self, sender: Value, f: F) -> Result<(A, AssetMap, Vec<StacksTransactionEvent>)>
     where F: FnOnce(&mut Environment) -> Result<A> {
         assert!(self.context.is_top_level());
         self.begin();
@@ -436,7 +436,7 @@ impl <'a> OwnedEnvironment <'a> {
     pub fn execute_transaction(&mut self, sender: Value, contract_identifier: QualifiedContractIdentifier, 
                                tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(sender, 
-                            |exec_env| exec_env.execute_contract(&contract_identifier, tx_name, args))
+                            |exec_env| exec_env.execute_contract(&contract_identifier, tx_name, args, false))
     }
 
     #[cfg(test)]
@@ -595,7 +595,7 @@ impl <'a,'b> Environment <'a,'b> {
     }
 
     pub fn execute_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, 
-                            tx_name: &str, args: &[SymbolicExpression]) -> Result<Value> {
+                            tx_name: &str, args: &[SymbolicExpression], read_only: bool) -> Result<Value> {
         let contract_size = self.global_context.database.get_contract_size(contract_identifier)?;
         runtime_cost!(cost_functions::LOAD_CONTRACT, self, contract_size)?;
 
@@ -606,7 +606,7 @@ impl <'a,'b> Environment <'a,'b> {
 
             let func = contract.contract_context.lookup_function(tx_name)
                 .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
-            if !func.is_public() {
+            if !func.is_public() || (read_only && !func.is_read_only()) {
                 return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
             }
 

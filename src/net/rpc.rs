@@ -75,6 +75,9 @@ use vm::{
     ClarityName,
     ContractName,
     Value,
+    SymbolicExpression,
+    costs::{ LimitedCostTracker,
+             ExecutionCost },
     types::{ PrincipalData,
              QualifiedContractIdentifier },
     database::{ ClarityDatabase,
@@ -408,6 +411,39 @@ impl ConversationHttp {
         response.send(http, fd).map(|_| ())
     }
 
+    fn handle_readonly_function_call<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
+                                               chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash,
+                                               cur_block: &BlockHeaderHash, contract_addr: &StacksAddress, contract_name: &ContractName,
+                                               function: &ClarityName, sender: &PrincipalData, args: &[Value] ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let cost_track = LimitedCostTracker::new(ExecutionCost { write_length: 0, write_count: 0,
+                                                                 read_length: 100000, read_count: 10,
+                                                                 runtime: 10000000 });
+
+        let args: Vec<_> = args.iter().map(|x| SymbolicExpression::atom_value(x.clone())).collect();
+
+        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+            clarity_tx.with_readonly_clarity_env(sender.clone(), cost_track, |env| {
+                env.execute_contract(&contract_identifier, function.as_str(), &args, true)
+            })
+        });
+
+
+        let response = match data {
+            Ok(data) => HttpResponseType::CallReadOnlyFunction(response_metadata, data.serialize()),
+            Err(e) => {
+                let mut err_msg = HashMap::new();
+                err_msg.insert("message".into(), "Error executing read only function".into());
+                err_msg.insert("cause".into(), e.to_string());
+                HttpResponseType::BadRequestJSON(response_metadata, err_msg)
+            }
+        };
+        
+        response.send(http, fd).map(|_| ())
+    }
+
     fn handle_get_contract_src<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
                                          chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
                                          contract_addr: &StacksAddress, contract_name: &ContractName) -> Result<(), net_error> {
@@ -422,7 +458,7 @@ impl ConversationHttp {
 
         let response = match data {
             Some(data) => HttpResponseType::GetContractSrc(response_metadata, data),
-            None => HttpResponseType::NotFound(response_metadata, "{ \"message\": \"No contract source data found\"".into())
+            None => HttpResponseType::NotFound(response_metadata, "No contract source data found".into())
         };
         
         response.send(http, fd).map(|_| ())
@@ -443,7 +479,7 @@ impl ConversationHttp {
 
         let response = match data {
             Some(data) => HttpResponseType::GetContractABI(response_metadata, data),
-            None => HttpResponseType::NotFound(response_metadata, "{ \"message\": \"No contract interface data found\"".into())
+            None => HttpResponseType::NotFound(response_metadata, "No contract interface data found".into())
         };
         
         response.send(http, fd).map(|_| ())
@@ -543,6 +579,14 @@ impl ConversationHttp {
                 }
                 None
             },
+            HttpRequestType::CallReadOnlyFunction(ref _md, ref ctrct_addr, ref ctrct_name, ref as_sender, ref func_name, ref args) => {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
+                    ConversationHttp::handle_readonly_function_call(
+                        &mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
+                        ctrct_addr, ctrct_name, func_name, as_sender, args)?;
+                }
+                None
+            },
             HttpRequestType::GetContractSrc(ref _md, ref contract_addr, ref contract_name) => {
                 if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
                     ConversationHttp::handle_get_contract_src(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
@@ -550,8 +594,12 @@ impl ConversationHttp {
                 }
                 None
             },
-            HttpRequestType::PostTransaction(_md, _tx) => {
-                panic!("Not implemented");
+            HttpRequestType::PostTransaction(ref _md, ref _tx) => {
+                let response_metadata = HttpResponseMetadata::from(&req);
+                let response = HttpResponseType::BadRequest(
+                    response_metadata, "{ \"message\": \"Transaction not accepted.\"".into());
+                response.send(&mut self.connection.protocol, &mut reply).map(|_| ())?;
+                None
             }
         };
 

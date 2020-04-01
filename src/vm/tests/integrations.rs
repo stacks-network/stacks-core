@@ -12,7 +12,7 @@ use chainstate::stacks::{
 use chainstate::burn::VRFSeed;
 use burnchains::Address;
 use address::AddressHashMode;
-use net::{Error as NetError, StacksMessageCodec, AccountEntryResponse};
+use net::{Error as NetError, StacksMessageCodec, AccountEntryResponse, CallReadOnlyRequestBody};
 use util::{log, strings::StacksString, hash::hex_bytes, hash::to_hex};
 use std::collections::HashMap;
 use util::db::{DBConn, FromRow};
@@ -123,7 +123,7 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-private (exotic-block-height (height uint))
           (is-eq (at-block (get-block-id-hash height) block-height)
                  height))
-        (define-private (get-exotic-data-info (height uint))
+        (define-read-only (get-exotic-data-info (height uint))
           (unwrap-panic (map-get? block-data { height: height })))
 
         (define-private (exotic-data-checks (height uint))
@@ -433,6 +433,42 @@ fn integration_test_get_info() {
                 eprintln!("Test: GET {}", path);
                 assert_eq!(client.get(&path).send().unwrap().status(), 404);
 
+
+                // how about a read-only function call!
+                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info", "get-exotic-data-info");
+                eprintln!("Test: POST {}", path);
+
+                let body = CallReadOnlyRequestBody {
+                    sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    arguments: vec![Value::UInt(1).serialize()]
+                };
+
+                let res = client.post(&path)
+                    .body(serde_json::to_string(&body).unwrap())
+                    .send()
+                    .unwrap().json::<String>().unwrap();
+                let result_data = Value::try_deserialize_hex_untyped(&res).unwrap();
+                let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
+                                                                       "(get-exotic-data-info u1)");
+                assert_eq!(result_data, expected_data);
+
+                // let's have a runtime error!
+                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info", "get-exotic-data-info");
+                eprintln!("Test: POST {}", path);
+
+                let body = CallReadOnlyRequestBody {
+                    sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    arguments: vec![Value::UInt(100).serialize()]
+                };
+
+                let res = client.post(&path)
+                    .body(serde_json::to_string(&body).unwrap())
+                    .send()
+                    .unwrap();
+                assert_eq!(res.status(), 400);
+
+                let res = res.json::<HashMap<String,String>>().unwrap();
+                assert!(format!("{}", res["cause"]).contains("UnwrapFailure"));
             },
             _ => {},
         }
