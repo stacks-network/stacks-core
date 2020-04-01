@@ -29,8 +29,9 @@ use deps::bitcoin::network::encodable::ConsensusEncodable;
 use deps::bitcoin::network::serialize::RawEncoder;
 use deps::bitcoin::util::hash::Sha256dHash;
 use net::StacksMessageCodec;
-use util::hash::{Sha256Sum, Hash160, hex_bytes};
 use util::get_epoch_time_secs;
+use util::hash::{Sha256Sum, Hash160, hex_bytes};
+use util::secp256k1::{Secp256k1PublicKey};
 
 pub struct BitcoinRegtestController {
     config: Config,
@@ -197,7 +198,7 @@ impl BitcoinRegtestController {
         rpc
     }
 
-    fn get_utxo(&self, public_key: &[u8]) -> Option<UnspentOutput> {
+    fn get_utxo(&self, public_key: &[u8]) -> Option<UTXO> {
 
         use super::super::bitcoincore_rpc::bitcoin::{PublicKey, Address, Network};
 
@@ -236,7 +237,7 @@ impl BitcoinRegtestController {
 
         let script_pub_key = result.script_pub_key.to_bytes().into();
 
-        let utxo = UnspentOutput {
+        let utxo = UTXO {
             txid: txid,
             vout: result.vout,
             redeem_script: redeem_script,
@@ -253,12 +254,96 @@ impl BitcoinRegtestController {
         Some(utxo)
     }
 
-    // LeaderKeyRegisterPayload, LeaderBlockCommitPayload, UserBurnSupportPayload}
     fn build_leader_key_register_tx(&mut self, payload: LeaderKeyRegisterPayload, signer: &mut BurnchainOpSigner) -> Option<Transaction> {
+        
+        let public_key = signer.get_public_key();
+
+        let tx_fee = 1000;
+
+        let (mut tx, utxos) = self.prepare_tx(&public_key, tx_fee).unwrap();
+
+        // Serialize the payload
+        let op_bytes = {
+            let mut buffer= vec![];
+            let mut magic_bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            buffer.append(&mut magic_bytes);
+            payload.consensus_serialize(&mut buffer).expect("FATAL: invalid operation");
+            buffer
+        };
+
+        let consensus_output = TxOut {
+            value: 0,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_RETURN)
+                .push_slice(&op_bytes)
+                .into_script(),
+        };
+
+        tx.output = vec![consensus_output];
+
+        self.finalize_tx(
+            &mut tx, 
+            0, 
+            tx_fee, 
+            utxos,
+            signer);
+
+        Some(tx)   
+    }
+
+    fn build_leader_block_commit_tx(&mut self, payload: LeaderBlockCommitPayload, signer: &mut BurnchainOpSigner) -> Option<Transaction> {
 
         let public_key = signer.get_public_key();
 
-        // todo(ludo): return result instead of option
+        let tx_fee = 1000;
+
+        let (mut tx, utxos) = self.prepare_tx(&public_key, tx_fee).unwrap();
+
+        // Serialize the payload
+        let op_bytes = {
+            let mut buffer= vec![];
+            let mut magic_bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            buffer.append(&mut magic_bytes);
+            payload.consensus_serialize(&mut buffer).expect("FATAL: invalid operation");
+            buffer
+        };
+
+        let consensus_output = TxOut {
+            value: 0,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_RETURN)
+                .push_slice(&op_bytes)
+                .into_script(),
+        };
+
+        let burn_address_hash = Hash160([0u8; 20]).as_bytes();
+        let burn_output = TxOut {
+            value: payload.burn_fee,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_DUP)
+                .push_opcode(opcodes::All::OP_HASH160)
+                .push_slice(burn_address_hash)
+                .push_opcode(opcodes::All::OP_EQUALVERIFY)
+                .push_opcode(opcodes::All::OP_CHECKSIG)
+                .into_script()
+        };
+
+        tx.output = vec![consensus_output, burn_output];
+
+        self.finalize_tx(
+            &mut tx, 
+            payload.burn_fee, 
+            tx_fee, 
+            utxos,
+            signer);
+
+        Some(tx)    
+    }
+
+
+    fn prepare_tx(&self, public_key: &Secp256k1PublicKey, tx_fee: u64) -> Option<(Transaction, Vec<UTXO>)> {
+        
+        // Fetch some UTXOs
         let utxo = match self.get_utxo(&public_key.to_bytes_compressed()) {
             Some(utxo) => utxo,
             None => return None
@@ -268,8 +353,6 @@ impl BitcoinRegtestController {
             txid: utxo.txid,
             vout: utxo.vout,
         };
-        let previous_output_amount = utxo.amount;
-        let tx_fee = 500;
 
         let input = TxIn {
             previous_output,
@@ -278,47 +361,41 @@ impl BitcoinRegtestController {
             witness: vec![],
         };
 
-        // Serialize the payload
-        let mut op_bytes = vec![];
-        // Start with the magic bytes
-        let mut magic_bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
-        op_bytes.append(&mut magic_bytes);
-        // Append the payload itself
-        payload.consensus_serialize(&mut op_bytes).expect("FATAL: invalid operation");
-
-        let output_script = Builder::new()
-            .push_opcode(opcodes::All::OP_RETURN)
-            .push_slice(&op_bytes)
-            .into_script(); 
-        let consensus_output = TxOut {
-            value: 0,
-            script_pubkey: output_script,
-        };
-
-        let hashed_pubk = Hash160::from_data(&public_key.to_bytes());
-
-        let change_output = TxOut {
-            value: previous_output_amount - tx_fee,
-            script_pubkey: Builder::new()
-                .push_opcode(opcodes::All::OP_DUP)
-                .push_opcode(opcodes::All::OP_HASH160)
-                .push_slice(&hashed_pubk.to_bytes())
-                .push_opcode(opcodes::All::OP_EQUALVERIFY)
-                .push_opcode(opcodes::All::OP_CHECKSIG)
-                .into_script()
-        };
-
-        let mut transaction = Transaction {
+        // Prepare a backbone for the tx
+        let transaction = Transaction {
             input: vec![input],
-            output: vec![consensus_output, change_output],
+            output: vec![],
             version: 1,
             lock_time: 0,
         };
 
+        Some((transaction, vec![utxo]))
+    }
+
+    fn finalize_tx(&self, tx: &mut Transaction, total_spent: u64, tx_fee: u64, utxos: Vec<UTXO>, signer: &mut BurnchainOpSigner) {
+
+        // Append the change output
+        let total_unspent: u64 = utxos.iter().map(|o| o.amount).sum();
+        let public_key = signer.get_public_key();
+        let change_address_hash = Hash160::from_data(&public_key.to_bytes()).to_bytes();
+        let change_output = TxOut {
+            value: total_unspent - total_spent - tx_fee,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_DUP)
+                .push_opcode(opcodes::All::OP_HASH160)
+                .push_slice(&change_address_hash)
+                .push_opcode(opcodes::All::OP_EQUALVERIFY)
+                .push_opcode(opcodes::All::OP_CHECKSIG)
+                .into_script()
+        };
+        tx.output.push(change_output);
+
+        // Sign the UTXOs
+        let utxo = utxos[0].clone();
         let script_pub_key = utxo.script_pub_key.clone().to_bytes().into();
 
         let sig_hash_all = 0x01;
-        let sig_hash = transaction.signature_hash(0, &script_pub_key, sig_hash_all);   
+        let sig_hash = tx.signature_hash(0, &script_pub_key, sig_hash_all);   
 
         let mut sig1_der = {
             let secp = Secp256k1::new();
@@ -328,95 +405,12 @@ impl BitcoinRegtestController {
         };
         sig1_der.push(sig_hash_all as u8);
 
-        transaction.input[0].script_sig = Builder::new()
+        tx.input[0].script_sig = Builder::new()
             .push_slice(&sig1_der[..])
             .push_slice(&public_key.to_bytes())
-            .into_script(); 
-        
-        Some(transaction)
+            .into_script();        
     }
-
-    fn build_leader_block_commit_tx(&mut self, payload: LeaderBlockCommitPayload, signer: &mut BurnchainOpSigner) -> Option<Transaction> {
-
-        let public_key = signer.get_public_key();
-
-        let utxo = match self.get_utxo(&public_key.to_bytes_compressed()) {
-            Some(utxo) => utxo,
-            None => return None
-        };
-
-        let previous_output = OutPoint {
-            txid: utxo.txid,
-            vout: utxo.vout,
-        };
-        let previous_output_amount = utxo.amount;
-        let tx_fee = 500;
-
-        let input = TxIn {
-            previous_output,
-            script_sig: Script::new(),
-            sequence: 0xFFFFFFFF,
-            witness: vec![],
-        };
-        
-        // Serialize the payload
-        let mut op_bytes = vec![];
-        // Start with the magic bytes
-        let mut magic_bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
-        op_bytes.append(&mut magic_bytes);
-        // Append the payload itself
-        payload.consensus_serialize(&mut op_bytes).expect("FATAL: invalid operation");
-
-        let output_script = Builder::new()
-            .push_opcode(opcodes::All::OP_RETURN)
-            .push_slice(&op_bytes)
-            .into_script(); 
-        let consensus_output = TxOut {
-            value: payload.burn_fee,
-            script_pubkey: output_script,
-        };
-
-        let hashed_pubk = Hash160::from_data(&public_key.to_bytes());
-
-        let change_output = TxOut {
-            value: previous_output_amount - payload.burn_fee - tx_fee,
-            script_pubkey: Builder::new()
-                .push_opcode(opcodes::All::OP_DUP)
-                .push_opcode(opcodes::All::OP_HASH160)
-                .push_slice(&hashed_pubk.to_bytes())
-                .push_opcode(opcodes::All::OP_EQUALVERIFY)
-                .push_opcode(opcodes::All::OP_CHECKSIG)
-                .into_script()
-        };
-
-        let mut transaction = Transaction {
-            input: vec![input],
-            output: vec![consensus_output, change_output],
-            version: 1,
-            lock_time: 0,
-        };
-
-        let script_pub_key = utxo.script_pub_key.clone().to_bytes().into();
-
-        let sig_hash_all = 0x01;
-        let sig_hash = transaction.signature_hash(0, &script_pub_key, sig_hash_all);   
-
-        let mut sig1_der = {
-            let secp = Secp256k1::new();
-            let message = signer.sign_message(sig_hash.as_bytes()).unwrap();
-            let der = message.to_secp256k1_recoverable().unwrap().to_standard(&secp).serialize_der(&secp);
-            der
-        };
-        sig1_der.push(0x01);
-
-        transaction.input[0].script_sig = Builder::new()
-            .push_slice(&sig1_der[..])
-            .push_slice(&public_key.to_bytes())
-            .into_script(); 
-        
-        Some(transaction)    
-    }
-
+ 
     fn build_user_burn_support_tx(&mut self, _payload: UserBurnSupportPayload, _signer: &mut BurnchainOpSigner) -> Option<Transaction> {
         unimplemented!()
     }
@@ -456,8 +450,8 @@ impl BitcoinRegtestController {
     }
 }
 
-#[derive(Debug)]
-pub struct UnspentOutput {
+#[derive(Debug, Clone)]
+pub struct UTXO {
     pub txid: Sha256dHash,
     pub vout: u32,
     pub redeem_script: Option<Script>,
