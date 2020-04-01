@@ -102,7 +102,7 @@ impl SqliteConnection {
 
     pub fn commit(&mut self, key: &BlockHeaderHash) {
         self.conn.execute(&format!("RELEASE SAVEPOINT SP{}", key), NO_PARAMS)
-            .expect(SQL_FAIL_MESSAGE);
+            .expect("PANIC: Failed to SQL commit in Smart Contract VM.");
     }
 }
 
@@ -158,7 +158,7 @@ impl SqliteConnection {
 
 #[cfg(test)]
 #[test]
-#[should_panic]
+#[should_panic(expected = "Failed to SQL commit")]
 fn test_rollback() {
     let mut conn = SqliteConnection::memory().unwrap();
     let bhh = BlockHeaderHash([1; 32]);
