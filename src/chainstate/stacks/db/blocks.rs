@@ -2715,21 +2715,39 @@ impl StacksChainState {
 
         for i in 0..max_blocks {
             // process up to max_blocks pending blocks
-            let (next_tip_opt, next_microblock_poison_opt) = self.process_next_staging_block()?;
-            match next_tip_opt {
-                Some(next_tip) => {
-                    ret.push((Some(next_tip), next_microblock_poison_opt));
-                },
-                None => {
-                    match next_microblock_poison_opt {
-                        Some(poison) => {
-                            ret.push((None, Some(poison)));
-                        },
-                        None => {
-                            debug!("No more staging blocks -- processed {} in total", i);
-                            break;
+            match self.process_next_staging_block() {
+                Ok((next_tip_opt, next_microblock_poison_opt)) => match next_tip_opt {
+                    Some(next_tip) => {
+                        ret.push((Some(next_tip), next_microblock_poison_opt));
+                    },
+                    None => {
+                        match next_microblock_poison_opt {
+                            Some(poison) => {
+                                ret.push((None, Some(poison)));
+                            },
+                            None => {
+                                debug!("No more staging blocks -- processed {} in total", i);
+                                break;
+                            }
                         }
                     }
+                },
+                Err(Error::InvalidStacksBlock(msg)) => {
+                    warn!("Encountered invalid block: {}", &msg);
+                    continue;
+                },
+                Err(Error::InvalidStacksMicroblock(msg, hash)) => {
+                    warn!("Encountered invalid microblock {}: {}", hash, &msg);
+                    continue;
+                },
+                Err(Error::NetError(net_error::DeserializeError(msg))) => {
+                    // happens if we load a zero-sized block (i.e. an invalid block)
+                    warn!("Encountered invalid block: {}", &msg);
+                    continue;
+                },
+                Err(e) => {
+                    error!("Unrecoverable error when processing blocks: {:?}", &e);
+                    return Err(e);
                 }
             }
         }
@@ -2743,6 +2761,7 @@ impl StacksChainState {
             }
         }
 
+        block_tx.commit().map_err(|e| Error::DBError(e))?;
         Ok(ret)
     }
 
