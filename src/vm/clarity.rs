@@ -8,7 +8,7 @@ use vm::ast::{ContractAST, errors::ParseError};
 use vm::analysis::{ContractAnalysis, errors::CheckError, errors::CheckErrors};
 use vm::ast;
 use vm::analysis;
-use vm::costs::{LimitedCostTracker, ExecutionCost};
+use vm::costs::{LimitedCostTracker, ExecutionCost, CostTracker};
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::marf::MARF;
@@ -346,17 +346,20 @@ impl <'a> ClarityBlockConnection <'a> {
             identifier, &mut contract_ast.expressions,
             &mut db, false, cost_track);
 
-        match result {
+        let (mut cost_track, result) = match result {
             Ok(mut contract_analysis) => {
                 let cost_track = contract_analysis.take_contract_cost_tracker();
-                self.cost_track.replace(cost_track);
-                Ok((contract_ast, contract_analysis))
+                (cost_track, Ok((contract_ast, contract_analysis)))
             },
             Err((e, cost_track)) => {
-                self.cost_track.replace(cost_track);
-                Err(e.into())
+                (cost_track, Err(e.into()))
             }
-        }
+        };
+
+        cost_track.reset_memory();
+        self.cost_track.replace(cost_track);
+
+        result
     }
 
     fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap), Error>
@@ -370,8 +373,11 @@ impl <'a> ClarityBlockConnection <'a> {
             .expect("Failed to get ownership of cost tracker in ClarityBlockConnection");
         let mut vm_env = OwnedEnvironment::new_cost_limited(db, cost_track);
         let result = to_do(&mut vm_env);
-        let (mut db, cost_track) = vm_env.destruct()
+        let (mut db, mut cost_track) = vm_env.destruct()
             .expect("Failed to recover database reference after executing transaction");
+        // reset memory usage in cost_track -- this wipes out
+        //   the memory tracking used for the k-v wrapper / replay log 
+        cost_track.reset_memory();
         self.cost_track.replace(cost_track);
 
         match result {

@@ -1,10 +1,14 @@
 pub mod cost_functions;
+pub mod constants;
 
 use std::{fmt, cmp};
 use vm::types::TypeSignature;
+use vm::Value;
 use std::convert::TryFrom;
 
 type Result<T> = std::result::Result<T, CostErrors>;
+
+pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 
 macro_rules! runtime_cost {
     ( $cost_spec:expr, $env:expr, $input:expr ) => {
@@ -24,6 +28,16 @@ macro_rules! runtime_cost {
     }
 }
 
+macro_rules! finally_drop_memory {
+    ( $env: expr, $used_mem:expr; $exec:expr ) => {
+        {
+            let result = (|| { $exec })();
+            $env.drop_memory($used_mem);
+            result
+        }
+    }
+}
+
 pub fn analysis_typecheck_cost<T: CostTracker>(track: &mut T, t1: &TypeSignature, t2: &TypeSignature) -> Result<()> {
     let t1_size = t1.type_size()
         .map_err(|_| CostErrors::CostOverflow)?;
@@ -35,8 +49,22 @@ pub fn analysis_typecheck_cost<T: CostTracker>(track: &mut T, t1: &TypeSignature
 
 pub struct TypeCheckCost {}
 
+pub trait MemoryConsumer {
+    fn get_memory_use(&self) -> u64; 
+}
+
+impl MemoryConsumer for Value {
+    fn get_memory_use(&self) -> u64 {
+        self.size().into()
+    }
+}
+
 pub trait CostTracker {
     fn add_cost(&mut self, cost: ExecutionCost) -> Result<()>;
+
+    fn add_memory(&mut self, memory: u64) -> Result<()>;
+    fn drop_memory(&mut self, memory: u64);
+    fn reset_memory(&mut self);
 }
 
 // Don't track!
@@ -44,51 +72,93 @@ impl CostTracker for () {
     fn add_cost(&mut self, _cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         Ok(())
     }
+
+    fn add_memory(&mut self, _memory: u64) -> std::result::Result<(), CostErrors> {
+        Ok(())
+    }
+    fn drop_memory(&mut self, _memory: u64) {}
+    fn reset_memory(&mut self) {}
 }
 
 #[derive(Debug)]
 pub struct LimitedCostTracker {
     total: ExecutionCost,
-    limit: ExecutionCost
+    limit: ExecutionCost,
+    memory: u64,
+    memory_limit: u64
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CostErrors {
     CostOverflow,
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
+    MemoryBalanceExceeded(u64, u64),
 }
 
 impl LimitedCostTracker {
     pub fn new(limit: ExecutionCost) -> LimitedCostTracker {
-        LimitedCostTracker { limit, total: ExecutionCost::zero() }
+        LimitedCostTracker { limit, memory_limit: CLARITY_MEMORY_LIMIT,
+                             total: ExecutionCost::zero(), memory: 0 }
     }
     pub fn new_max_limit() -> LimitedCostTracker {
-        LimitedCostTracker { limit: ExecutionCost::max_value(), total: ExecutionCost::zero() }
+        LimitedCostTracker { limit: ExecutionCost::max_value(), total: ExecutionCost::zero(),
+                             memory: 0, memory_limit: CLARITY_MEMORY_LIMIT }
     }
     pub fn get_total(&self) -> ExecutionCost {
         self.total.clone()
     }
 }
 
+fn add_cost(s: &mut LimitedCostTracker, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
+    s.total.add(&cost)?;
+    if s.total.exceeds(&s.limit) {
+        Err(CostErrors::CostBalanceExceeded(s.total.clone(), s.limit.clone()))
+    } else {
+        Ok(())
+    }
+}
+
+fn add_memory(s: &mut LimitedCostTracker, memory: u64) -> std::result::Result<(), CostErrors> {
+    s.memory = s.memory.cost_overflow_add(memory)?;
+    if s.memory > s.memory_limit {
+        Err(CostErrors::MemoryBalanceExceeded(s.memory, s.memory_limit))
+    } else {
+        Ok(())
+    }
+}
+
+fn drop_memory(s: &mut LimitedCostTracker, memory: u64) {
+    s.memory = s.memory.checked_sub(memory)
+        .expect("Underflowed dropped memory");
+}
+
 impl CostTracker for LimitedCostTracker {
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
-        self.total.add(&cost)?;
-        if self.total.exceeds(&self.limit) {
-            Err(CostErrors::CostBalanceExceeded(self.total.clone(), self.limit.clone()))
-        } else {
-            Ok(())
-        }
+        add_cost(self, cost)
+    }
+    fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+        add_memory(self, memory)
+    }
+    fn drop_memory(&mut self, memory: u64) {
+        drop_memory(self, memory)
+    }
+    fn reset_memory(&mut self) {
+        self.memory = 0;
     }
 }
 
 impl CostTracker for &mut LimitedCostTracker {
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
-        self.total.add(&cost)?;
-        if self.total.exceeds(&self.limit) {
-            Err(CostErrors::CostBalanceExceeded(self.total.clone(), self.limit.clone()))
-        } else {
-            Ok(())
-        }
+        add_cost(self, cost)
+    }
+    fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+        add_memory(self, memory)
+    }
+    fn drop_memory(&mut self, memory: u64) {
+        drop_memory(self, memory)
+    }
+    fn reset_memory(&mut self) {
+        self.memory = 0;
     }
 }
 
@@ -245,16 +315,6 @@ impl CostFunctions {
 }
 
 impl SimpleCostSpecification {
-    pub fn new_diskless(runtime: CostFunctions) -> SimpleCostSpecification {
-        SimpleCostSpecification {
-            write_length: CostFunctions::Constant(0),
-            write_count: CostFunctions::Constant(0),
-            read_count: CostFunctions::Constant(0),
-            read_length: CostFunctions::Constant(0),
-            runtime
-        }
-    }
-
     pub fn compute_cost(&self, input: u64) -> Result<ExecutionCost> {
         Ok(ExecutionCost {
             write_length: self.write_length.compute_cost(input)?,

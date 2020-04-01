@@ -33,8 +33,8 @@ use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result};
 use vm::database::MemoryBackingStore;
-use vm::types::{QualifiedContractIdentifier, TraitIdentifier, PrincipalData};
-use vm::costs::{cost_functions, CostOverflowingMath, LimitedCostTracker};
+use vm::types::{QualifiedContractIdentifier, TraitIdentifier, PrincipalData, TypeSignature};
+use vm::costs::{cost_functions, CostOverflowingMath, LimitedCostTracker, MemoryConsumer, CostTracker};
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
@@ -113,15 +113,30 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
         resp
     } else {
         env.call_stack.insert(&identifier, track_recursion);
-        let eval_tried: Result<Vec<Value>> =
-            args.iter().map(|x| eval(x, env, context)).collect();
-        let evaluated_args = match eval_tried {
-            Ok(x) => x,
-            Err(e) => {
-                env.call_stack.remove(&identifier, track_recursion)?;
-                return Err(e)
-            }
-        };
+
+        let mut used_memory = 0;
+        let mut evaluated_args = vec![];
+        for arg_x in args.iter() {
+            let arg_value = match eval(arg_x, env, context) {
+                Ok(x) => x,
+                Err(e) => {
+                    env.drop_memory(used_memory);
+                    env.call_stack.remove(&identifier, track_recursion)?;
+                    return Err(e)
+                }
+            };
+            let arg_use = arg_value.get_memory_use();
+            match env.add_memory(arg_use) {
+                Ok(_x) => {},
+                Err(e) => {
+                    env.drop_memory(used_memory);
+                    env.call_stack.remove(&identifier, track_recursion)?;
+                    return Err(Error::from(e))
+                }
+            };
+            used_memory += arg_value.get_memory_use();
+            evaluated_args.push(arg_value);
+        }
         let mut resp = match function {
             CallableType::NativeFunction(_, function, cost_function) => {
                 let arg_size = evaluated_args.len();
@@ -132,6 +147,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
             _ => panic!("Should be unreachable.")
         };
         add_stack_trace(&mut resp, env);
+        env.drop_memory(used_memory);
         env.call_stack.remove(&identifier, track_recursion)?;
         resp
     }
@@ -174,73 +190,98 @@ fn eval_all (expressions: &[SymbolicExpression],
              global_context: &mut GlobalContext) -> Result<Option<Value>> {
     let mut last_executed = None;
     let context = LocalContext::new();
+    let mut total_memory_use = 0;
 
-    for exp in expressions {
-        let try_define = {
-            global_context.execute(|context| {
+    finally_drop_memory!(global_context, total_memory_use; {
+        for exp in expressions {
+            let try_define = global_context.execute(|context| {
                 let mut call_stack = CallStack::new();
                 let mut env = Environment::new(
                     context, contract_context, &mut call_stack, None, None);
                 functions::define::evaluate_define(exp, &mut env)
-            })?
-        };
-        match try_define {
-            DefineResult::Variable(name, value) => {
-                runtime_cost!(cost_functions::BIND_NAME, global_context, 0)?;
+            })?;
+            match try_define {
+                DefineResult::Variable(name, value) => {
+                    runtime_cost!(cost_functions::BIND_NAME, global_context, 0)?;
+                    let value_memory_use = value.get_memory_use();
+                    global_context.add_memory(value_memory_use)?;
+                    total_memory_use += value_memory_use;
 
-                contract_context.variables.insert(name, value);
-            },
-            DefineResult::Function(name, value) => {
-                runtime_cost!(cost_functions::BIND_NAME, global_context, 0)?;
+                    contract_context.variables.insert(name, value);
+                },
+                DefineResult::Function(name, value) => {
+                    runtime_cost!(cost_functions::BIND_NAME, global_context, 0)?;
 
-                contract_context.functions.insert(name, value);
-            },
-            DefineResult::PersistedVariable(name, value_type, value) => {
-                runtime_cost!(cost_functions::CREATE_VAR, global_context, value_type.size())?;
-                contract_context.persisted_names.insert(name.clone());
-                global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type);
-                global_context.database.set_variable(&contract_context.contract_identifier, &name, value)?;
-            },
-            DefineResult::Map(name, key_type, value_type) => {
-                runtime_cost!(cost_functions::CREATE_MAP, global_context,
-                              u64::from(key_type.size()).cost_overflow_add(
-                                  u64::from(value_type.size()))?)?;
-                contract_context.persisted_names.insert(name.clone());
-                global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type);
-            },
-            DefineResult::FungibleToken(name, total_supply) => {
-                runtime_cost!(cost_functions::CREATE_FT, global_context, 0)?;
-                contract_context.persisted_names.insert(name.clone());
-                global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply);
-            },
-            DefineResult::NonFungibleAsset(name, asset_type) => {
-                runtime_cost!(cost_functions::CREATE_NFT, global_context, asset_type.size())?;
-                contract_context.persisted_names.insert(name.clone());
-                global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
-            },
-            DefineResult::Trait(name, trait_type) => { 
-                contract_context.defined_traits.insert(name, trait_type);
-            },
-            DefineResult::UseTrait(_name, _trait_identifier) => {},
-            DefineResult::ImplTrait(trait_identifier) => {
-                contract_context.implemented_traits.insert(trait_identifier);
-            },
-            DefineResult::NoDefine => {
-                // not a define function, evaluate normally.
-                global_context.execute(|global_context| {
-                    let mut call_stack = CallStack::new();
-                    let mut env = Environment::new(
-                        global_context, contract_context, &mut call_stack, None, None);
-                    
-                    let result = eval(exp, &mut env, &context)?;
-                    last_executed = Some(result);
-                    Ok(())
-                })?;
+                    contract_context.functions.insert(name, value);
+                },
+                DefineResult::PersistedVariable(name, value_type, value) => {
+                    runtime_cost!(cost_functions::CREATE_VAR, global_context, value_type.size())?;
+                    contract_context.persisted_names.insert(name.clone());
+
+                    global_context.add_memory(value_type.type_size()
+                                              .expect("type size should be realizable") as u64)?;
+
+                    global_context.add_memory(value.size() as u64)?;
+
+                    global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type);
+                    global_context.database.set_variable(&contract_context.contract_identifier, &name, value)?;
+                },
+                DefineResult::Map(name, key_type, value_type) => {
+                    runtime_cost!(cost_functions::CREATE_MAP, global_context,
+                                  u64::from(key_type.size()).cost_overflow_add(
+                                      u64::from(value_type.size()))?)?;
+                    contract_context.persisted_names.insert(name.clone());
+
+                    global_context.add_memory(key_type.type_size()
+                                              .expect("type size should be realizable") as u64)?;
+                    global_context.add_memory(value_type.type_size()
+                                              .expect("type size should be realizable") as u64)?;
+
+                    global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type);
+                },
+                DefineResult::FungibleToken(name, total_supply) => {
+                    runtime_cost!(cost_functions::CREATE_FT, global_context, 0)?;
+                    contract_context.persisted_names.insert(name.clone());
+
+                    global_context.add_memory(TypeSignature::UIntType.type_size()
+                                              .expect("type size should be realizable") as u64)?;
+
+                    global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply);
+                },
+                DefineResult::NonFungibleAsset(name, asset_type) => {
+                    runtime_cost!(cost_functions::CREATE_NFT, global_context, asset_type.size())?;
+                    contract_context.persisted_names.insert(name.clone());
+
+                    global_context.add_memory(asset_type.type_size()
+                                              .expect("type size should be realizable") as u64)?;
+
+                    global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
+                },
+                DefineResult::Trait(name, trait_type) => { 
+                    contract_context.defined_traits.insert(name, trait_type);
+                },
+                DefineResult::UseTrait(_name, _trait_identifier) => {},
+                DefineResult::ImplTrait(trait_identifier) => {
+                    contract_context.implemented_traits.insert(trait_identifier);
+                },
+                DefineResult::NoDefine => {
+                    // not a define function, evaluate normally.
+                    global_context.execute(|global_context| {
+                        let mut call_stack = CallStack::new();
+                        let mut env = Environment::new(
+                            global_context, contract_context, &mut call_stack, None, None);
+
+                        let result = eval(exp, &mut env, &context)?;
+                        last_executed = Some(result);
+                        Ok(())
+                    })?;
+                }
             }
         }
-    }
 
-    Ok(last_executed)
+        contract_context.data_size = total_memory_use;
+        Ok(last_executed)
+    })
 }
 
 /* Run provided program in a brand new environment, with a transient, empty

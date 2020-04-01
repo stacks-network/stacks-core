@@ -81,6 +81,7 @@ pub struct ContractContext {
     // tracks the names of NFTs, FTs, Maps, and Data Vars.
     //  used for ensuring that they never are defined twice.
     pub persisted_names: HashSet<ClarityName>,
+    pub data_size: u64
 }
 
 pub struct LocalContext <'a> {
@@ -467,11 +468,29 @@ impl CostTracker for Environment<'_,'_> {
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.global_context.cost_track.add_cost(cost)
     }
+    fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+        self.global_context.cost_track.add_memory(memory)
+    }
+    fn drop_memory(&mut self, memory: u64) {
+        self.global_context.cost_track.drop_memory(memory)
+    }
+    fn reset_memory(&mut self) {
+        self.global_context.cost_track.reset_memory()
+    }
 }
 
 impl CostTracker for GlobalContext<'_> {
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         self.cost_track.add_cost(cost)
+    }
+    fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+        self.cost_track.add_memory(memory)
+    }
+    fn drop_memory(&mut self, memory: u64) {
+        self.cost_track.drop_memory(memory)
+    }
+    fn reset_memory(&mut self) {
+        self.cost_track.reset_memory()
     }
 }
 
@@ -563,33 +582,37 @@ impl <'a,'b> Environment <'a,'b> {
         let contract_size = self.global_context.database.get_contract_size(contract_identifier)?;
         runtime_cost!(cost_functions::LOAD_CONTRACT, self, contract_size)?;
 
-        let contract = self.global_context.database.get_contract(contract_identifier)?;
+        self.global_context.add_memory(contract_size)?;
 
-        let func = contract.contract_context.lookup_function(tx_name)
-            .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
-        if !func.is_public() {
-            return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
-        }
+        finally_drop_memory!(self.global_context, contract_size; {
+            let contract = self.global_context.database.get_contract(contract_identifier)?;
 
-        let args: Result<Vec<Value>> = args.iter()
-            .map(|arg| {
-                let value = arg.match_atom_value()
-                    .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
-                                                                              tx_name)))?;
-                Ok(value.clone())
-            })
-            .collect();
+            let func = contract.contract_context.lookup_function(tx_name)
+                .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
+            if !func.is_public() {
+                return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
+            }
 
-        let args = args?;
+            let args: Result<Vec<Value>> = args.iter()
+                .map(|arg| {
+                    let value = arg.match_atom_value()
+                        .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
+                                                                                  tx_name)))?;
+                    Ok(value.clone())
+                })
+                .collect();
 
-        let func_identifier = func.get_identifier();
-        if self.call_stack.contains(&func_identifier) {
-            return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
-        }
-        self.call_stack.insert(&func_identifier, true);
-        let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
-        self.call_stack.remove(&func_identifier, true)?;
-        res
+            let args = args?;
+
+            let func_identifier = func.get_identifier();
+            if self.call_stack.contains(&func_identifier) {
+                return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
+            }
+            self.call_stack.insert(&func_identifier, true);
+            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
+            self.call_stack.remove(&func_identifier, true)?;
+            res
+        })
     }
 
     pub fn execute_function_as_transaction(&mut self, function: &DefinedFunction, args: &[Value],
@@ -650,13 +673,21 @@ impl <'a,'b> Environment <'a,'b> {
         //    this is necessary before creating and accessing metadata fields in the data store,
         //      --or-- storing any analysis metadata in the data store.
         self.global_context.database.insert_contract_hash(&contract_identifier, contract_string)?;
+        let memory_use = contract_string.len() as u64;
+        self.add_memory(memory_use)?;
 
         let result = Contract::initialize_from_ast(contract_identifier.clone(), 
                                                    contract_content,
                                                    &mut self.global_context);
+        self.drop_memory(memory_use);
+
         match result {
             Ok(contract) => {
+                let data_size = contract.contract_context.data_size;
                 self.global_context.database.insert_contract(&contract_identifier, contract);
+                self.global_context.database.set_contract_data_size(
+                    &contract_identifier, data_size)?;
+
                 self.global_context.commit()?;
                 Ok(())
             },
@@ -812,6 +843,7 @@ impl ContractContext {
             defined_traits: HashMap::new(),
             implemented_traits: HashSet::new(),
             persisted_names: HashSet::new(),
+            data_size: 0
         }
     }
 
