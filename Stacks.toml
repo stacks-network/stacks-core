@@ -11,7 +11,8 @@ rpc_ssl = false
 username = "helium-node"
 password = "secret"
 timeout = 30
-
+local_mining_public_key = "032fd788a3571255ff03839a0f859073d96fc34c4e247699ab3cc18cdd892e9540"
+burnchain_op_tx_fee = 1000
 
 [mempool]
 path = "/tmp/mempool"
@@ -34,13 +35,13 @@ path = "/tmp/mempool"
 # ]
 
 [[mstx_balance]]
-address = "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A"
-amount = 10000
-
-[[mstx_balance]]
-address = "ST2T9J9B3X0087W3FZKWFVMAJS1KX1PAPWM2PJ8FP"
+address = "ST26FVX16539KKXZKJN098Q08HRX3XBAP541MFS0P" # 3a4e84abb8abe0c1ba37cef4b604e73c82b1fe8d99015cb36b029a65099d373601
 amount = 100000
 
 [[mstx_balance]]
-address = "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
-amount = 10000
+address = "ST3CECAKJ4BH08JYY7W53MC81BYDT4YDA5M7S5F53" # 052cc5b8f25b1e44a65329244066f76c8057accd5316c889f476d0ea0329632c01
+amount = 100000
+
+[[mstx_balance]]
+address = "ST31HHVBKYCYQQJ5AQ25ZHA6W2A548ZADDQ6S16GP" # 9aef533e754663a453984b69d36f109be817e9940519cc84979419e2be00864801
+amount = 100000

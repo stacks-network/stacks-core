@@ -32,6 +32,7 @@ use net::StacksMessageCodec;
 use util::get_epoch_time_secs;
 use util::hash::{Sha256Sum, Hash160, hex_bytes};
 use util::secp256k1::{Secp256k1PublicKey};
+use util::sleep_ms;
 
 pub struct BitcoinRegtestController {
     config: Config,
@@ -93,9 +94,11 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     fn sync(&mut self) -> BurnchainTip {
-        use util::sleep_ms;
-        self.build_next_block();
-        sleep_ms(1000); // todo(ludo): use config instead
+        if let Some(local_mining_pk) = &self.config.burnchain.local_mining_public_key {
+            sleep_ms(self.config.burnchain.block_time);
+            self.build_next_block(local_mining_pk);
+        }
+
         self.receive_blocks()
     }
 
@@ -187,18 +190,19 @@ impl BitcoinRegtestController {
     }
 
     fn get_rpc_client(&self) -> Client {
-        // todo(ludo): use values from config instead
+        let auth = match (&self.config.burnchain.username, &self.config.burnchain.password) {
+            (Some(username), Some(password)) => Auth::UserPass(username.clone(), password.clone()),
+            (_, _) => Auth::None
+        };
+
         let rpc = Client::new(
-            "http://127.0.0.1:18443".to_string(),
-            Auth::UserPass(
-                "helium-node".to_string(),
-                "secret".to_string()
-            )
-        ).unwrap(); //todo(ludo): safe unwrap
+            self.config.burnchain.get_rpc_url(),
+            auth
+        ).expect("Bitcoin RPC failure: server unreachable");
         rpc
     }
 
-    fn get_utxo(&self, public_key: &[u8]) -> Option<UTXO> {
+    fn get_utxo(&self, public_key: &[u8], amount_required: u64) -> Option<UTXO> {
 
         use super::super::bitcoincore_rpc::bitcoin::{PublicKey, Address, Network};
 
@@ -211,11 +215,17 @@ impl BitcoinRegtestController {
         // let filter_addresses = [address];
 
         // Perform request
-        let utxos = rpc.list_unspent(
+        let utxos = match rpc.list_unspent(
             None, 
             None,         
             None, //Some(&filter_addresses[..]), 
-            Some(false), None).unwrap();
+            Some(false), None) {
+                Ok(utxos) => utxos,
+                Err(e) => {
+                    error!("Bitcoin RPC failure: error listing utxos {:?}", e);
+                    panic!();    
+                }
+        };
 
         // todo(ludo): select the correct utxo (amount)
         let mut result = utxos[0].clone();
@@ -258,9 +268,7 @@ impl BitcoinRegtestController {
         
         let public_key = signer.get_public_key();
 
-        let tx_fee = 1000;
-
-        let (mut tx, utxos) = self.prepare_tx(&public_key, tx_fee).unwrap();
+        let (mut tx, utxos) = self.prepare_tx(&public_key, 0).unwrap();
 
         // Serialize the payload
         let op_bytes = {
@@ -284,7 +292,6 @@ impl BitcoinRegtestController {
         self.finalize_tx(
             &mut tx, 
             0, 
-            tx_fee, 
             utxos,
             signer);
 
@@ -295,9 +302,7 @@ impl BitcoinRegtestController {
 
         let public_key = signer.get_public_key();
 
-        let tx_fee = 1000;
-
-        let (mut tx, utxos) = self.prepare_tx(&public_key, tx_fee).unwrap();
+        let (mut tx, utxos) = self.prepare_tx(&public_key, payload.burn_fee).unwrap();
 
         // Serialize the payload
         let op_bytes = {
@@ -333,18 +338,19 @@ impl BitcoinRegtestController {
         self.finalize_tx(
             &mut tx, 
             payload.burn_fee, 
-            tx_fee, 
             utxos,
             signer);
 
         Some(tx)    
     }
 
-
-    fn prepare_tx(&self, public_key: &Secp256k1PublicKey, tx_fee: u64) -> Option<(Transaction, Vec<UTXO>)> {
+    fn prepare_tx(&self, public_key: &Secp256k1PublicKey, ops_fee: u64) -> Option<(Transaction, Vec<UTXO>)> {
         
+        let tx_fee = self.config.burnchain.burnchain_op_tx_fee;
+        let amount_required = tx_fee + ops_fee;
+
         // Fetch some UTXOs
-        let utxo = match self.get_utxo(&public_key.to_bytes_compressed()) {
+        let utxo = match self.get_utxo(&public_key.to_bytes_compressed(), amount_required) {
             Some(utxo) => utxo,
             None => return None
         };
@@ -372,7 +378,9 @@ impl BitcoinRegtestController {
         Some((transaction, vec![utxo]))
     }
 
-    fn finalize_tx(&self, tx: &mut Transaction, total_spent: u64, tx_fee: u64, utxos: Vec<UTXO>, signer: &mut BurnchainOpSigner) {
+    fn finalize_tx(&self, tx: &mut Transaction, total_spent: u64, utxos: Vec<UTXO>, signer: &mut BurnchainOpSigner) {
+
+        let tx_fee = self.config.burnchain.burnchain_op_tx_fee;
 
         // Append the change output
         let total_unspent: u64 = utxos.iter().map(|o| o.amount).sum();
@@ -421,30 +429,26 @@ impl BitcoinRegtestController {
         match rpc.send_raw_transaction(transaction) {
             Ok(_) => true,
             Err(e) =>  {
-                println!("TX submission failed - {:?}", e);
+                error!("Bitcoin RPC failure: transaction submission failed - {:?}", e);
                 false
             } 
         }
     }
 
-    fn build_next_block(&self) -> bool {
+    fn build_next_block(&self, public_key: &String) {
 
         use super::super::bitcoincore_rpc::bitcoin::{PublicKey, Address, Network};
 
-        // todo(ludo): load public key from config
-        let public_key = hex_bytes("032fd788a3571255ff03839a0f859073d96fc34c4e247699ab3cc18cdd892e9540").unwrap();
-        let coinbase_public_key = PublicKey::from_slice(&public_key).unwrap();
+        let public_key = hex_bytes(public_key).expect("Mining public key byte sequence invalid");
+        let coinbase_public_key = PublicKey::from_slice(&public_key).expect("Mining public key invalid");
         let address = Address::p2pkh(&coinbase_public_key, Network::Regtest);
 
         let rpc = self.get_rpc_client();
         match rpc.generate_to_address(1, &address) {
-            Ok(res) => {
-                println!("Block generated {:?}", res);
-                true
-            },
+            Ok(_) => {},
             Err(e) => {
-                println!("Error generating block {:?}", e);
-                false
+                error!("Bitcoin RPC failure: error generating block {:?}", e);
+                panic!();
             }
         }
     }

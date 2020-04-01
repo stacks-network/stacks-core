@@ -40,6 +40,7 @@ impl StacksMessageCodec for LeaderBlockCommitPayload {
 
     /*
         Wire format:
+
         0      2  3            35               67     71     73    77   79     80
         |------|--|-------------|---------------|------|------|-----|-----|-----|
          magic  op   block hash     new seed     parent parent key   key   memo
@@ -63,6 +64,7 @@ impl StacksMessageCodec for LeaderBlockCommitPayload {
     }
 
     fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderBlockCommitPayload, net_error> {
+        // Op deserialized through burchain indexer
         unimplemented!();
     }
 }
@@ -87,17 +89,16 @@ impl StacksMessageCodec for LeaderKeyRegisterPayload {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &(Opcodes::LeaderKeyRegister as u8))?;
         write_next(fd, &self.consensus_hash)?;
-        fd.write_all(&self.public_key.as_bytes()[..]).map_err(net_error::WriteError)?;
-
-        // todo(ludo) better management for memo
-        let len = 25;
-        let memo = vec![0; len];
-
+        fd.write_all(&self.public_key.as_bytes()[..]).map_err(net_error::WriteError)?;    
+        let memo_len = 25;
+        let mut memo = self.memo.clone();
+        memo.resize(memo_len, 0);
         fd.write_all(&memo).map_err(net_error::WriteError)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderKeyRegisterPayload, net_error> {
+        // Op deserialized through burchain indexer
         unimplemented!();
     }
 }
@@ -122,13 +123,11 @@ impl StacksMessageCodec for UserBurnSupportPayload {
         |------|--|---------------|-----------------------|------------------|--------|---------|
          magic  op consensus hash   proving public key       block hash 160   key blk  key
                 (truncated by 1)                                                        vtxindex
-
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &(Opcodes::UserBurnSupport as u8))?;
         write_next(fd, &self.consensus_hash)?;
-        // todo(ludo): add public key
-        // write_next(fd, &self.public_key)?;
+        fd.write_all(&self.public_key.as_bytes()[..]).map_err(net_error::WriteError)?;    
         write_next(fd, &self.block_header_hash_160)?;
         write_next(fd, &self.key_block_ptr)?;
         write_next(fd, &self.key_vtxindex)?;
@@ -136,6 +135,7 @@ impl StacksMessageCodec for UserBurnSupportPayload {
     }
 
     fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<UserBurnSupportPayload, net_error> {
+        // Op deserialized through burchain indexer
         unimplemented!();
     }
 }
