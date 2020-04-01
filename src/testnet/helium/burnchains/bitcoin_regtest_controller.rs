@@ -16,6 +16,7 @@ use super::super::Config;
 use burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid, BurnchainSigner};
 use burnchains::bitcoin::{BitcoinBlock, BitcoinNetworkType};
 use burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
+use burnchains::bitcoin::spv::SpvClient; 
 use burnchains::indexer::BurnchainIndexer;
 use burnchains::{PrivateKey, PublicKey};
 use chainstate::burn::db::burndb::{BurnDB};
@@ -130,6 +131,9 @@ impl BitcoinRegtestController {
 
     pub fn new(config: Config) -> Self {
         
+        std::fs::create_dir_all(&config.node.get_burnchain_path()).unwrap();
+        SpvClient::init_block_headers(&config.burnchain.spv_headers_path, BitcoinNetworkType::Regtest).unwrap();
+
         let indexer_config = {
             let burnchain_config = config.burnchain.clone();
             BitcoinIndexerConfig {
@@ -399,24 +403,26 @@ impl BitcoinRegtestController {
         tx.output.push(change_output);
 
         // Sign the UTXOs
-        let utxo = utxos[0].clone();
-        let script_pub_key = utxo.script_pub_key.clone().to_bytes().into();
-
-        let sig_hash_all = 0x01;
-        let sig_hash = tx.signature_hash(0, &script_pub_key, sig_hash_all);   
-
-        let mut sig1_der = {
-            let secp = Secp256k1::new();
-            let message = signer.sign_message(sig_hash.as_bytes()).unwrap();
-            let der = message.to_secp256k1_recoverable().unwrap().to_standard(&secp).serialize_der(&secp);
-            der
-        };
-        sig1_der.push(sig_hash_all as u8);
-
-        tx.input[0].script_sig = Builder::new()
-            .push_slice(&sig1_der[..])
-            .push_slice(&public_key.to_bytes())
-            .into_script();        
+        for (i, utxo) in utxos.iter().enumerate() {
+            let script_pub_key = utxo.script_pub_key.clone().to_bytes().into();
+    
+            let sig_hash_all = 0x01;
+            let sig_hash = tx.signature_hash(i, &script_pub_key, sig_hash_all);   
+    
+            let mut sig1_der = {
+                let secp = Secp256k1::new();
+                let message = signer.sign_message(sig_hash.as_bytes()).unwrap();
+                let der = message.to_secp256k1_recoverable().unwrap().to_standard(&secp).serialize_der(&secp);
+                der
+            };
+            sig1_der.push(sig_hash_all as u8);
+    
+            tx.input[i].script_sig = Builder::new()
+                .push_slice(&sig1_der[..])
+                .push_slice(&public_key.to_bytes())
+                .into_script();   
+        }
+        signer.dispose();
     }
  
     fn build_user_burn_support_tx(&mut self, _payload: UserBurnSupportPayload, _signer: &mut BurnchainOpSigner) -> Option<Transaction> {

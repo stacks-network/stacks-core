@@ -4,7 +4,6 @@ use super::tenure::TenureArtifacts;
 
 use burnchains::Address;
 use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::bitcoin::spv::SpvClient; 
 use chainstate::burn::{ConsensusHash};
 use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState, ClarityTx};
 use chainstate::burn::{BlockHeaderHash};
@@ -74,8 +73,6 @@ impl RunLoop {
         // Initialize and start the burnchain.
         let mut burnchain: Box<dyn BurnchainController> = match &self.config.burnchain.network[..] {
             "regtest" => {
-                std::fs::create_dir_all(&self.config.node.get_burnchain_path()).unwrap();
-                SpvClient::init_block_headers(&self.config.burnchain.spv_headers_path, BitcoinNetworkType::Regtest).unwrap();
                 BitcoinRegtestController::generic(self.config.clone())
             },
             "mock" => {

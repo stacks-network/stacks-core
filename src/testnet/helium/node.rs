@@ -293,8 +293,8 @@ impl Node {
                 &parent_block,
                 VRFSeed::from_proof(&vrf_proof));
 
-                let mut one_off_signer = self.keychain.generate_op_signer();
-                burnchain_controller.submit_operation(op, &mut one_off_signer);
+                let mut op_signer = self.keychain.generate_op_signer();
+                burnchain_controller.submit_operation(op, &mut op_signer);
         }
         
         // Naive implementation: we keep registering new keys
