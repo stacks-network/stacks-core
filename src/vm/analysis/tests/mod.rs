@@ -3,6 +3,8 @@ use vm::analysis::{AnalysisDatabase, mem_type_check};
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{ContractAnalysis, type_check};
 
+mod costs;
+
 #[test]
 fn test_list_types_must_match() {
     let snippet = "(list 1 'true)";
@@ -234,6 +236,7 @@ fn test_bad_syntax_binding() {
 fn test_unbound_variable() {
     let snippet = "(+ 1 unicorn)";
     let err = mem_type_check(snippet).unwrap_err();
+    eprintln!("{}", err.diagnostic);
     assert!(format!("{}", err.diagnostic).contains("use of unresolved variable 'unicorn'"));
 }
 

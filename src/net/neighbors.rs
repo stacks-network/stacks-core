@@ -65,7 +65,7 @@ use rusqlite::Transaction;
 #[cfg(test)] pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL : u64 = 0;
 #[cfg(not(test))] pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL : u64 = 600;      // don't reach out to a frontier neighbor more than once every 10 minutes
 
-pub const NEIGHBOR_REQUEST_TIMEOUT : u64 = 60;
+pub const NEIGHBOR_REQUEST_TIMEOUT : u64 = 10;
 
 pub const NUM_INITIAL_WALKS : u64 = 10;     // how many unthrottled walks should we do when this peer starts up
 #[cfg(test)] pub const PRUNE_FREQUENCY : u64 = 0;             // how often we should consider pruning neighbors
@@ -92,7 +92,7 @@ impl Neighbor {
     /// If there's no DB entry for this peer, then do nothing.
     pub fn save_update<'a>(&self, tx: &mut Transaction<'a>) -> Result<(), net_error> {
         PeerDB::update_peer(tx, &self)
-            .map_err(|_e| net_error::DBError)
+            .map_err(net_error::DBError)
     }
 
     /// Save to the peer DB, inserting it if it isn't already there.
@@ -100,15 +100,15 @@ impl Neighbor {
     /// Return false if not saved -- i.e. the frontier is full and we should try evicting neighbors.
     pub fn save<'a>(&self, tx: &mut Transaction<'a>) -> Result<bool, net_error> {
         PeerDB::try_insert_peer(tx, &self)
-            .map_err(|_e| net_error::DBError)
+            .map_err(net_error::DBError)
     }
 
     /// Attempt to load a neighbor from our peer DB, given its NeighborAddress reported by another
     /// peer.  Returns a neighbor in the peer DB if it matches the neighbor address and has a fresh public key
     /// (where "fresh" means "the public key hash matches the neighbor address")
-    pub fn from_neighbor_address(conn: &DBConn, peer_version: u32, network_id: u32, block_height: u64, neighbor_address: &NeighborAddress) -> Result<Option<Neighbor>, net_error> {
+    pub fn from_neighbor_address(conn: &DBConn, network_id: u32, block_height: u64, neighbor_address: &NeighborAddress) -> Result<Option<Neighbor>, net_error> {
         let peer_opt = PeerDB::get_peer(conn, network_id, &neighbor_address.addrbytes, neighbor_address.port)
-            .map_err(|_e| net_error::DBError)?;
+            .map_err(net_error::DBError)?;
 
         match peer_opt {
             None => {
@@ -367,7 +367,7 @@ impl NeighborWalk {
     }
 
     /// Finish handshaking with our current neighbor, thereby ensuring that it is connected 
-    pub fn handshake_try_finish<'a>(&mut self, tx: &mut Transaction<'a>, burn_block_height: u64, burn_stable_block_height: u64) -> Result<Option<Neighbor>, net_error> {
+    pub fn handshake_try_finish<'a>(&mut self, tx: &mut Transaction<'a>, burn_stable_block_height: u64) -> Result<Option<Neighbor>, net_error> {
         assert!(self.state == NeighborWalkState::HandshakeFinish);
 
         let req_opt = self.handshake_request.take();
@@ -415,7 +415,7 @@ impl NeighborWalk {
                             // told to bugger off 
                             Err(net_error::PeerNotConnected)
                         },
-                        StacksMessageType::Nack(ref data) => {
+                        StacksMessageType::Nack(_) => {
                             // something's wrong on our end (we're using a new key that they don't yet
                             // know about, or something)
                             Err(net_error::PeerNotConnected)
@@ -464,18 +464,18 @@ impl NeighborWalk {
     /// and find out the neighbor addresses that we already have fresh neighbor data for.
     /// If we know of a neighbor, and contacted it recently, then consider it resolved _even if_
     /// the reported NeighborAddress public key hash doesn't match our records.
-    fn lookup_stale_neighbors(dbconn: &DBConn, peer_version: u32, network_id: u32, block_height: u64, addrs: &Vec<NeighborAddress>) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error> {
+    fn lookup_stale_neighbors(dbconn: &DBConn, network_id: u32, block_height: u64, addrs: &Vec<NeighborAddress>) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error> {
         let mut to_resolve = vec![];
         let mut resolved = HashMap::<NeighborAddress, Neighbor>::new();
         for naddr in addrs {
-            let neighbor_opt = Neighbor::from_neighbor_address(dbconn, peer_version, network_id, block_height, naddr)?;
+            let neighbor_opt = Neighbor::from_neighbor_address(dbconn, network_id, block_height, naddr)?;
             match neighbor_opt {
                 None => {
                     // need to resolve this one, but don't talk to it if we did so recently (even
                     // if we have stale information for it -- the remote node could be trying to trick
                     // us into DDoS'ing this node).
                     let peer_opt = PeerDB::get_peer(dbconn, network_id, &naddr.addrbytes, naddr.port)
-                        .map_err(|_e| net_error::DBError)?;
+                        .map_err(net_error::DBError)?;
 
                     match peer_opt {
                         None => {
@@ -534,7 +534,7 @@ impl NeighborWalk {
                 }
                 match message.payload {
                     StacksMessageType::Neighbors(ref data) => {
-                        let (mut found, to_resolve) = NeighborWalk::lookup_stale_neighbors(dbconn, message.preamble.peer_version, message.preamble.network_id, block_height, &data.neighbors)?;
+                        let (mut found, to_resolve) = NeighborWalk::lookup_stale_neighbors(dbconn, message.preamble.network_id, block_height, &data.neighbors)?;
 
                         for (naddr, neighbor) in found.drain() {
                             info!("New neighbor {:?}", &neighbor.addr);
@@ -593,7 +593,7 @@ impl NeighborWalk {
     /// neighbors it collided with.  Return its slot in the peer db.
     fn find_replaced_neighbor_slot(conn: &DBConn, nk: &NeighborKey) -> Result<Option<u32>, net_error> {
         let mut slots = PeerDB::peer_slots(conn, nk.network_id, &nk.addrbytes, nk.port)
-            .map_err(|_e| net_error::DBError)?;
+            .map_err(net_error::DBError)?;
 
         if slots.len() == 0 {
             // not present
@@ -605,7 +605,7 @@ impl NeighborWalk {
         
         for slot in slots {
             let peer_opt = PeerDB::get_peer_at(conn, nk.network_id, slot)
-                .map_err(|_e| net_error::DBError)?;
+                .map_err(net_error::DBError)?;
 
             match peer_opt {
                 None => {
@@ -645,7 +645,7 @@ impl NeighborWalk {
                             StacksMessageType::HandshakeAccept(ref data) => {
                                 // success! do we know about this peer already?
                                 let neighbor_from_handshake = Neighbor::from_handshake(tx, message.preamble.peer_version, message.preamble.network_id, &data.handshake)?;
-                                let neighbor_opt = Neighbor::from_neighbor_address(tx, message.preamble.peer_version, message.preamble.network_id, block_height, &naddr)?;
+                                let neighbor_opt = Neighbor::from_neighbor_address(tx, message.preamble.network_id, block_height, &naddr)?;
                                 match neighbor_opt {
                                     Some(neighbor) => {
                                         info!("{:?}: already know about {:?}", &self.local_peer, &neighbor.addr);
@@ -814,7 +814,7 @@ impl NeighborWalk {
                         }
                         Err(e) => {
                             // disconnected from peer 
-                            debug!("Failed to get neighbors from {:?}", &nkey);
+                            debug!("Failed to get neighbors from {:?} ({})", &nkey, e);
                             self.result.add_broken(nkey);
                             None
                         }
@@ -840,7 +840,7 @@ impl NeighborWalk {
             self.cur_neighbor.in_degree = 1;
             self.cur_neighbor.out_degree = self.frontier.len() as u32;
 
-            for (nkey, neighbor_list) in self.resolved_getneighbors_neighbors.iter() {
+            for (_, neighbor_list) in self.resolved_getneighbors_neighbors.iter() {
                 for na in neighbor_list {
                     if na.addrbytes == self.cur_neighbor.addr.addrbytes && na.port == self.cur_neighbor.addr.port {
                         self.cur_neighbor.in_degree += 1;
@@ -850,8 +850,7 @@ impl NeighborWalk {
 
             // remember this peer's in/out degree estimates
             test_debug!("{:?}: In/Out degree of {:?} is {}/{}", &self.local_peer, &self.cur_neighbor.addr, self.cur_neighbor.in_degree, self.cur_neighbor.out_degree);
-            self.cur_neighbor.save_update(tx)
-                .map_err(|e| net_error::DBError)?;
+            self.cur_neighbor.save_update(tx)?;
 
             // advance state!
             self.set_state(NeighborWalkState::NeighborsPingBegin);
@@ -1038,7 +1037,7 @@ impl NeighborWalk {
                             // try again 
                             Some(nrh)
                         }
-                        Err(e) => {
+                        Err(_) => {
                             // disconnected from peer already -- we can replace it
                             debug!("Neighbor {:?} could not be pinged; will replace", &nkey);
                             self.result.add_broken(nkey);
@@ -1067,14 +1066,14 @@ impl NeighborWalk {
                 };
 
                 let replaced_opt = PeerDB::get_peer_at(tx, self.local_peer.network_id, *slot)
-                    .map_err(|_e| net_error::DBError)?;
+                    .map_err(net_error::DBError)?;
 
                 match replaced_opt {
                     Some(replaced) => {
                         debug!("Replace {:?} with {:?}", &replaced.addr, &replacement.addr);
 
                         PeerDB::insert_or_replace_peer(tx, &replacement, *slot)
-                            .map_err(|_e| net_error::DBError)?;
+                            .map_err(net_error::DBError)?;
 
                         self.result.add_replaced(replaced.addr.clone());
                     },
@@ -1097,8 +1096,8 @@ impl NeighborWalk {
 impl PeerNetwork {
     /// Get some initial fresh random neighbor(s) to crawl
     pub fn get_random_neighbors(&self, num_neighbors: u64, block_height: u64) -> Result<Vec<Neighbor>, net_error> {
-        let neighbors = PeerDB::get_random_walk_neighbors(&self.peerdb.conn(), self.burnchain.network_id, num_neighbors as u32, block_height)
-            .map_err(|_e| net_error::DBError)?;
+        let neighbors = PeerDB::get_random_walk_neighbors(&self.peerdb.conn(), self.local_peer.network_id, num_neighbors as u32, block_height)
+            .map_err(net_error::DBError)?;
 
         if neighbors.len() == 0 {
             debug!("{:?}: No neighbors available!  Will not begin neighbor walk", &self.local_peer);
@@ -1119,8 +1118,8 @@ impl PeerNetwork {
                     // stop the pruner from removing this connection
                     walk.events.insert(event_id);
                 },
-                Err(e) => {
-                    test_debug!("{:?}: Failed to connect to {:?}: {:?}", &self.local_peer, nk, &e);
+                Err(_e) => {
+                    test_debug!("{:?}: Failed to connect to {:?}: {:?}", &self.local_peer, nk, &_e);
                     return Err(net_error::PeerNotConnected);
                 }
             }
@@ -1136,7 +1135,7 @@ impl PeerNetwork {
         test_debug!("{:?}: send Handshake to {:?}", &self.local_peer, &nk);
 
         let msg = self.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data))?;
-        let req_res = self.send_message(nk, msg, get_epoch_time_secs() + NEIGHBOR_REQUEST_TIMEOUT);
+        let req_res = self.send_message(nk, msg, get_epoch_time_secs() + self.connection_opts.timeout);
         match req_res {
             Ok(handle) => {
                 Ok(handle)
@@ -1200,18 +1199,13 @@ impl PeerNetwork {
 
     /// Try to finish handshaking with our current neighbor
     pub fn walk_handshake_try_finish(&mut self) -> Result<Option<Neighbor>, net_error> {
-        let burn_block_height = self.chain_view.burn_block_height;
         let burn_stable_block_height = self.chain_view.burn_stable_block_height;
 
         PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
             let neighbor_opt = {
-                let mut tx = network.peerdb.tx_begin()
-                    .map_err(|_e| net_error::DBError)?;
-
-                let res = walk.handshake_try_finish(&mut tx, burn_block_height, burn_stable_block_height)?;
-                tx.commit()
-                    .map_err(|_e| net_error::DBError)?;
-
+                let mut tx = network.peerdb.tx_begin().map_err(net_error::DBError)?;
+                let res = walk.handshake_try_finish(&mut tx, burn_stable_block_height)?;
+                tx.commit().map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
                 res
             };
             Ok(neighbor_opt)
@@ -1232,7 +1226,7 @@ impl PeerNetwork {
                     test_debug!("{:?}: send GetNeighbors to {:?}", &walk.local_peer, &walk.cur_neighbor);
 
                     let msg = network.sign_for_peer(&walk.cur_neighbor.addr, StacksMessageType::GetNeighbors)?;
-                    let req_res = network.send_message(&walk.cur_neighbor.addr, msg, get_epoch_time_secs() + NEIGHBOR_REQUEST_TIMEOUT);
+                    let req_res = network.send_message(&walk.cur_neighbor.addr, msg, get_epoch_time_secs() + network.connection_opts.timeout);
                     match req_res {
                         Ok(handle) => {
                             walk.getneighbors_begin(Some(handle));
@@ -1267,7 +1261,6 @@ impl PeerNetwork {
                     // got neighbors -- proceed to ask each one for *its* neighbors so we can
                     // estimate cur_neighbor's in-degree and grow our frontier.
                     let mut pending_handshakes = HashMap::new();
-                    let now = get_epoch_time_secs();
 
                     for na in neighbor_addrs {
                         // don't talk to myself if we're listed as a neighbor of this
@@ -1282,13 +1275,13 @@ impl PeerNetwork {
                             continue;
                         }
 
-                        let nk = NeighborKey::from_neighbor_address(network.burnchain.peer_version, network.burnchain.network_id, &na);
+                        let nk = NeighborKey::from_neighbor_address(network.peer_version, network.local_peer.network_id, &na);
                         let handle_res = network.connect_and_handshake(walk, &nk);
                         match handle_res {
                             Ok(handle) => {
                                 pending_handshakes.insert(na, handle);
                             }
-                            Err(e) => {
+                            Err(_) => {
                                 continue;
                             }
                         }
@@ -1311,11 +1304,10 @@ impl PeerNetwork {
         PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
             let neighbor_keys_opt = {
                 let mut tx = network.peerdb.tx_begin()
-                    .map_err(|_e| net_error::DBError)?;
+                    .map_err(net_error::DBError)?;
 
                 let res = walk.neighbor_handshakes_try_finish(&mut tx, burn_block_height, burn_stable_block_height)?;
-                tx.commit()
-                    .map_err(|_e| net_error::DBError)?;
+                tx.commit().map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
                 res
             };
 
@@ -1339,7 +1331,7 @@ impl PeerNetwork {
                         test_debug!("{:?}: send GetNeighbors to {:?}", &walk.local_peer, &nk);
 
                         let msg = network.sign_for_peer(&nk, StacksMessageType::GetNeighbors)?;
-                        let rh_res = network.send_message(&nk, msg, now + NEIGHBOR_REQUEST_TIMEOUT);
+                        let rh_res = network.send_message(&nk, msg, now + network.connection_opts.timeout);
                         match rh_res {
                             Ok(rh) => {
                                 pending_getneighbors.insert(nk, rh);
@@ -1367,12 +1359,11 @@ impl PeerNetwork {
 
         PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
             let neighbor_opt = {
-                let mut tx = network.peerdb.tx_begin()
-                    .map_err(|_e| net_error::DBError)?;
+                let mut tx = network.peerdb.tx_begin().map_err(net_error::DBError)?;
                 
                 let neighbor_opt = walk.getneighbors_neighbors_try_finish(&mut tx, burn_stable_block_height)?;
                 tx.commit()
-                    .map_err(|_e| net_error::DBError)?;
+                    .map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
 
                 neighbor_opt
             };
@@ -1389,12 +1380,12 @@ impl PeerNetwork {
                     let mut ping_handles = HashMap::new();
 
                     // proceed to ping/handshake neighbors we need to replace
-                    for (nk, slot) in walk.replaced_neighbors.iter() {
+                    for (nk, _) in walk.replaced_neighbors.iter() {
                         test_debug!("{:?}: send Handshake to replaceable neighbor {:?}", &walk.local_peer, nk);
 
                         let handshake_data = HandshakeData::from_local_peer(&walk.local_peer);
                         let msg = network.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data))?;
-                        let req_res = network.send_message(nk, msg, get_epoch_time_secs() + NEIGHBOR_REQUEST_TIMEOUT);
+                        let req_res = network.send_message(nk, msg, get_epoch_time_secs() + network.connection_opts.timeout);
                         match req_res {
                             Ok(handle) => {
                                 ping_handles.insert((*nk).clone(), handle);
@@ -1420,12 +1411,11 @@ impl PeerNetwork {
 
         PeerNetwork::with_walk_state(self, |ref mut network, ref mut walk| {
             let replaced_opt = {
-                let mut tx = network.peerdb.tx_begin()
-                    .map_err(|_e| net_error::DBError)?;
+                let mut tx = network.peerdb.tx_begin().map_err(net_error::DBError)?;
 
                 let res = walk.ping_existing_neighbors_try_finish(&mut tx)?;
                 tx.commit()
-                    .map_err(|_e| net_error::DBError)?;
+                    .map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
 
                 res
             };
@@ -1488,27 +1478,27 @@ impl PeerNetwork {
         let res = match walk_state {
             NeighborWalkState::HandshakeBegin => {
                 self.walk_handshake_begin()
-                    .and_then(|_r| Ok(None))
+                    .and_then(|_| Ok(None))
             },
             NeighborWalkState::HandshakeFinish => {
                 self.walk_handshake_try_finish()
-                    .and_then(|_r| Ok(None))
+                    .and_then(|_| Ok(None))
             },
             NeighborWalkState::GetNeighborsBegin => {
                 self.walk_getneighbors_begin()
-                    .and_then(|_r| Ok(None))
+                    .and_then(|_| Ok(None))
             },
             NeighborWalkState::GetNeighborsFinish => {
                 self.walk_getneighbors_try_finish()
-                    .and_then(|_r| Ok(None))
+                    .and_then(|_| Ok(None))
             },
             NeighborWalkState::GetHandshakesFinish => {
                 self.walk_neighbor_handshakes_try_finish()
-                    .and_then(|r| Ok(None))
+                    .and_then(|_| Ok(None))
             },
             NeighborWalkState::GetNeighborsNeighborsFinish => {
                 self.walk_getneighbors_neighbors_try_finish()
-                    .and_then(|r| Ok(None))
+                    .and_then(|_| Ok(None))
             },
             NeighborWalkState::NeighborsPingFinish => {
                 test_debug!("{:?}: finish walk {}", &self.local_peer, self.walk_count);
@@ -1571,8 +1561,8 @@ impl PeerNetwork {
                 
                 walk_opt
             },
-            Err(e) => {
-                test_debug!("{:?}: Restarting neighbor with new random neighbors: {:?} => {:?}", &self.local_peer, walk_state, &e);
+            Err(_e) => {
+                test_debug!("{:?}: Restarting neighbor with new random neighbors: {:?} => {:?}", &self.local_peer, walk_state, &_e);
                 self.walk = None;
                 None
             }
@@ -1588,6 +1578,7 @@ mod test {
     use net::db::*;
     use net::test::*;
     use util::hash::*;
+    use util::sleep_ms;
 
     const TEST_IN_OUT_DEGREES : u64 = 0x1;
 
@@ -1662,6 +1653,95 @@ mod test {
                 assert_eq!(p.expire_block, neighbor_2.expire_block);
             }
         }
+    }
+    
+    #[test]
+    fn test_step_walk_1_neighbor_heartbeat_ping() {
+        let mut peer_1_config = TestPeerConfig::from_port(31992);
+        let mut peer_2_config = TestPeerConfig::from_port(31993);
+
+        peer_1_config.connection_opts.heartbeat = 10;
+        peer_2_config.connection_opts.heartbeat = 10;
+
+        // peer 1 crawls peer 2
+        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+
+        let mut i = 0;
+        let mut walk_1_count = 0;
+        let mut walk_2_count = 0;
+        
+        while walk_1_count < 20 && walk_2_count < 20 {
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+
+            walk_1_count = peer_1.network.walk_total_step_count;
+            walk_2_count = peer_2.network.walk_total_step_count;
+
+            test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
+
+            match peer_1.network.walk {
+                Some(ref w) => {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                }
+                None => {}
+            };
+
+            match peer_2.network.walk {
+                Some(ref w) => {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                }
+                None => {}
+            };
+
+            i += 1;
+        }
+
+        info!("Completed walk round {} step(s)", i);
+
+        peer_1.dump_frontier();
+        peer_2.dump_frontier();
+
+        // peer 1 contacted peer 2
+        let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
+        assert!(stats_1.last_contact_time > 0);
+        assert!(stats_1.last_handshake_time > 0);
+        assert!(stats_1.last_send_time > 0);
+        assert!(stats_1.last_recv_time > 0);
+        assert!(stats_1.bytes_rx > 0);
+        assert!(stats_1.bytes_tx > 0);
+
+        let neighbor_2 = peer_2.to_neighbor();
+
+        // peer 2 is in peer 1's frontier DB
+        let peer_1_dbconn = peer_1.get_peerdb_conn();
+        match PeerDB::get_peer(peer_1_dbconn, neighbor_2.addr.network_id, &neighbor_2.addr.addrbytes, neighbor_2.addr.port).unwrap() {
+            None => {
+                test_debug!("no such peer: {:?}", &neighbor_2.addr);
+                assert!(false);
+            },
+            Some(p) => {
+                assert_eq!(p.public_key, neighbor_2.public_key);
+                assert_eq!(p.expire_block, neighbor_2.expire_block);
+            }
+        }
+
+        assert_eq!(peer_1.network.relay_handles.len(), 0);
+        assert_eq!(peer_2.network.relay_handles.len(), 0);
+
+        info!("Wait {} seconds for ping timeout", peer_1.config.connection_opts.timeout);
+        sleep_ms(1000 * peer_1.config.connection_opts.timeout);
+
+        peer_1.network.queue_ping_heartbeats();
+        peer_2.network.queue_ping_heartbeats();
+
+        // pings queued
+        assert_eq!(peer_1.network.relay_handles.len(), 1);
+        assert_eq!(peer_2.network.relay_handles.len(), 0);
     }
     
     #[test]
@@ -1837,38 +1917,78 @@ mod test {
         // next, make peer 1 discover peer 2's neighbors and peer 2's in/out degree.
         // Do two full walks
         let mut i = 0;
-        let mut walk_1_count = 0;
-        let mut walk_2_count = 0;
-        while walk_1_count < 20 && walk_2_count < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+        let mut did_connect = false;
+        while !did_connect {
+            let mut walk_1_count = 0;
+            let mut walk_2_count = 0;
+            while walk_1_count < 20 && walk_2_count < 20 {
+                let _ = peer_1.step();
+                let _ = peer_2.step();
 
-            for j in 0..10 {
-                let _ = peer_2_neighbors[j].step();
+                for j in 0..10 {
+                    let _ = peer_2_neighbors[j].step();
+                }
+                
+                walk_1_count = peer_1.network.walk_total_step_count;
+                walk_2_count = peer_2.network.walk_total_step_count;
+
+                test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
+                
+                match peer_1.network.walk {
+                    Some(ref w) => {
+                        assert_eq!(w.result.broken_connections.len(), 0);
+                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    }
+                    None => {}
+                };
+
+                match peer_2.network.walk {
+                    Some(ref w) => {
+                        assert_eq!(w.result.broken_connections.len(), 0);
+                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    }
+                    None => {}
+                };
+
+                i += 1;
+            }
+
+            // peer 1 must have handshaked with all of peer 2's neighbors if this test will pass
+            let peer_1_dbconn = peer_1.get_peerdb_conn();
+            let mut num_handshakes = 0;
+            for peer in &peer_2_neighbors {
+                let n = peer.to_neighbor();
+                let p_opt = PeerDB::get_peer(peer_1_dbconn, n.addr.network_id, &n.addr.addrbytes, n.addr.port).unwrap();
+                match p_opt {
+                    None => {
+                        test_debug!("no such peer: {:?}", &n.addr);
+                    },
+                    Some(p) => {
+                        assert_eq!(p.public_key, n.public_key);
+                        assert_eq!(p.expire_block, n.expire_block);
+                        num_handshakes += 1;
+                    }
+                }
+            }
+
+            if num_handshakes < 10 {
+                continue;
             }
             
-            walk_1_count = peer_1.network.walk_total_step_count;
-            walk_2_count = peer_2.network.walk_total_step_count;
-
-            test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
-            
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+            // peer 1 learned that peer 2 has an out-degree of 10 (10 neighbors) and an in-degree of 1 if this test will pass
+            let n2 = peer_2.to_neighbor();
+            let p2_opt = PeerDB::get_peer(peer_1_dbconn, n2.addr.network_id, &n2.addr.addrbytes, n2.addr.port).unwrap();
+            match p2_opt {
+                None => {
+                    test_debug!("no peer 2");
+                },
+                Some(p2) => {
+                    if p2.out_degree >= 11 && p2.in_degree >= 1 {
+                        assert_eq!(p2.out_degree, 11);
+                        did_connect = true;
+                    }
                 }
-                None => {}
-            };
-
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
-            };
-
-            i += 1;
+            }
         }
         
         info!("Completed walk round {} step(s)", i);
@@ -1881,37 +2001,6 @@ mod test {
         assert!(stats_1.last_recv_time > 0);
         assert!(stats_1.bytes_rx > 0);
         assert!(stats_1.bytes_tx > 0);
-
-        // peer 1 handshaked with all of peer 2's neighbors
-        let peer_1_dbconn = peer_1.get_peerdb_conn();
-        for peer in &peer_2_neighbors {
-            let n = peer.to_neighbor();
-            let p_opt = PeerDB::get_peer(peer_1_dbconn, n.addr.network_id, &n.addr.addrbytes, n.addr.port).unwrap();
-            match p_opt {
-                None => {
-                    test_debug!("no such peer: {:?}", &n.addr);
-                    assert!(false);
-                },
-                Some(p) => {
-                    assert_eq!(p.public_key, n.public_key);
-                    assert_eq!(p.expire_block, n.expire_block);
-                }
-            }
-        }
-        
-        // peer 1 learned that peer 2 has an out-degree of 10 (10 neighbors) and an in-degree of 1 
-        let n2 = peer_2.to_neighbor();
-        let p2_opt = PeerDB::get_peer(peer_1_dbconn, n2.addr.network_id, &n2.addr.addrbytes, n2.addr.port).unwrap();
-        match p2_opt {
-            None => {
-                test_debug!("no peer 2");
-                assert!(false);
-            },
-            Some(p2) => {
-                assert_eq!(p2.out_degree, 11);
-                assert_eq!(p2.in_degree, 1);        // just peer 1
-            }
-        }
     }
     
     #[test]
@@ -1948,39 +2037,94 @@ mod test {
         // next, make peer 1 discover peer 2's neighbors and peer 2's in/out degree.
         // Do two full walks
         let mut i = 0;
-        let mut walk_1_count = 0;
-        let mut walk_2_count = 0;
-        while walk_1_count < 20 && walk_2_count < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
-            
-            for j in 0..10 {
-                let _ = peer_2_neighbors[j].step();
+        let mut did_handshakes = false;
+        while !did_handshakes {
+            let mut walk_1_count = 0;
+            let mut walk_2_count = 0;
+            while walk_1_count < 20 && walk_2_count < 20 {
+                let _ = peer_1.step();
+                let _ = peer_2.step();
+                
+                for j in 0..10 {
+                    let _ = peer_2_neighbors[j].step();
+                }
+                
+                walk_1_count = peer_1.network.walk_total_step_count;
+                walk_2_count = peer_2.network.walk_total_step_count;
+
+                test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
+
+                match peer_1.network.walk {
+                    Some(ref w) => {
+                        assert_eq!(w.result.broken_connections.len(), 0);
+                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    }
+                    None => {}
+                };
+
+                match peer_2.network.walk {
+                    Some(ref w) => {
+                        assert_eq!(w.result.broken_connections.len(), 0);
+                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    }
+                    None => {}
+                };
+                
+                i += 1;
+            }
+        
+            peer_1.dump_frontier();
+            peer_2.dump_frontier();
+
+            // check if peer 1 handshaked with all of peer 2's _fresh_ neighbors
+            let peer_1_dbconn = peer_1.get_peerdb_conn();
+            let mut num_contacted = 0;      // should be 5 when test finishes
+            for i in 0..5 {
+                let peer = &peer_2_neighbors[i];
+                let n = peer.to_neighbor();
+                let p_opt = PeerDB::get_peer(peer_1_dbconn, n.addr.network_id, &n.addr.addrbytes, n.addr.port).unwrap();
+                match p_opt {
+                    None => {
+                        test_debug!("no such peer: {:?}", &n.addr);
+                    },
+                    Some(p) => {
+                        assert_eq!(p.public_key, n.public_key);
+                        assert_eq!(p.expire_block, n.expire_block);
+                        num_contacted += 1;
+                    }
+                }
+                
+                let stale_peer = &peer_2_neighbors[i+5];
+                let stale_n = stale_peer.to_neighbor();
+                let stale_peer_opt = PeerDB::get_peer(peer_1_dbconn, stale_n.addr.network_id, &stale_n.addr.addrbytes, stale_n.addr.port).unwrap();
+                match stale_peer_opt {
+                    None => {},
+                    Some(_) => {
+                        test_debug!("stale peer contacted: {:?}", &stale_n.addr);
+                        assert!(false);
+                    }
+                }
+            }
+
+            if num_contacted < 5 {
+                continue;
             }
             
-            walk_1_count = peer_1.network.walk_total_step_count;
-            walk_2_count = peer_2.network.walk_total_step_count;
-
-            test_debug!("peer 1 took {} walk steps; peer 2 took {} walk steps", walk_1_count, walk_2_count);
-
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+            // peer 1 learned that peer 2 has an out-degree of 6 (peer_1 + 5 fresh neighbors) and an in-degree of 1 
+            let n2 = peer_2.to_neighbor();
+            let p2_opt = PeerDB::get_peer(peer_1_dbconn, n2.addr.network_id, &n2.addr.addrbytes, n2.addr.port).unwrap();
+            match p2_opt {
+                None => {
+                    test_debug!("no peer 2");
+                },
+                Some(p2) => {
+                    if p2.out_degree >= 6 && p2.in_degree >= 1 {
+                        assert_eq!(p2.out_degree, 6);
+                        did_handshakes = true;
+                    }
                 }
-                None => {}
-            };
-
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
-            };
-            
-            i += 1;
-        }
+            }
+        }        
 
         info!("Completed walk round {} step(s)", i);
         
@@ -1992,49 +2136,6 @@ mod test {
         assert!(stats_1.last_recv_time > 0);
         assert!(stats_1.bytes_rx > 0);
         assert!(stats_1.bytes_tx > 0);
-
-        // peer 1 handshaked with all of peer 2's _fresh_ neighbors
-        let peer_1_dbconn = peer_1.get_peerdb_conn();
-        for i in 0..5 {
-            let peer = &peer_2_neighbors[i];
-            let n = peer.to_neighbor();
-            let p_opt = PeerDB::get_peer(peer_1_dbconn, n.addr.network_id, &n.addr.addrbytes, n.addr.port).unwrap();
-            match p_opt {
-                None => {
-                    test_debug!("no such peer: {:?}", &n.addr);
-                    assert!(false);
-                },
-                Some(p) => {
-                    assert_eq!(p.public_key, n.public_key);
-                    assert_eq!(p.expire_block, n.expire_block);
-                }
-            }
-
-            let stale_peer = &peer_2_neighbors[i+5];
-            let stale_n = stale_peer.to_neighbor();
-            let stale_peer_opt = PeerDB::get_peer(peer_1_dbconn, stale_n.addr.network_id, &stale_n.addr.addrbytes, stale_n.addr.port).unwrap();
-            match stale_peer_opt {
-                None => {},
-                Some(_) => {
-                    test_debug!("stale peer contacted: {:?}", &stale_n.addr);
-                    assert!(false);
-                }
-            }
-        }
-        
-        // peer 1 learned that peer 2 has an out-degree of 5 (5 fresh neighbors) and an in-degree of 1 
-        let n2 = peer_2.to_neighbor();
-        let p2_opt = PeerDB::get_peer(peer_1_dbconn, n2.addr.network_id, &n2.addr.addrbytes, n2.addr.port).unwrap();
-        match p2_opt {
-            None => {
-                test_debug!("no peer 2");
-                assert!(false);
-            },
-            Some(p2) => {
-                assert_eq!(p2.out_degree, 6);
-                assert_eq!(p2.in_degree, 1);        // just peer 1
-            }
-        }
     }
 
     #[test]
@@ -2232,12 +2333,12 @@ mod test {
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
         
         // peer 2 thinks peer 1 has the same network ID that it does
-        peer_1_config.burnchain.network_id = peer_1_config.burnchain.network_id + 1;
+        peer_1_config.network_id = peer_1_config.network_id + 1;
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
-        peer_1_config.burnchain.network_id = peer_1_config.burnchain.network_id - 1;
+        peer_1_config.network_id = peer_1_config.network_id - 1;
         
         // different network IDs
-        peer_2_config.burnchain.network_id = peer_1_config.burnchain.network_id + 1;
+        peer_2_config.network_id = peer_1_config.network_id + 1;
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);

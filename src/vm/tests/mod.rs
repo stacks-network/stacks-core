@@ -11,7 +11,7 @@ use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
 
-mod integrations;
+pub mod integrations;
 mod forking;
 mod assets;
 mod iterables;
@@ -19,6 +19,8 @@ mod defines;
 mod simple_apply_eval;
 mod datamaps;
 mod contracts;
+pub mod costs;
+mod traits;
 
 pub fn with_memory_environment<F>(f: F, top_level: bool)
 where F: FnOnce(&mut OwnedEnvironment) -> ()

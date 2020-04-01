@@ -1,5 +1,5 @@
 use vm::representations::{SymbolicExpressionType, SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 use vm::types::{TypeSignature, TupleTypeSignature, Value, PrincipalData, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctionsParsed;
@@ -41,7 +41,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
 
     pub fn run(& mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
 
-        for exp in contract_analysis.expressions_iter() {
+        for exp in contract_analysis.expressions.iter() {
             let mut result = self.check_reads_only_valid(&exp);
             if let Err(ref mut error) = result {
                 if !error.has_expression() {
@@ -95,6 +95,9 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 Map { .. } | NonFungibleToken { .. } | UnboundedFungibleToken { .. } => {
                     // No arguments to (define-map ...) or (define-non-fungible-token) or fungible tokens without max supplies are eval'ed.
                 },
+                Trait { .. } | UseTrait { .. } | ImplTrait { .. } => {
+                    // No arguments to (use-trait ...), (define-trait ...). or (impl-trait) are eval'ed.
+                },
             }
         } else {
             self.check_read_only(expr)?;
@@ -108,10 +111,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     /// Note that because of (1), this function _cannot_ short-circuit on read-only.
     fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
         match expr.expr {
-            AtomValue(_) | LiteralValue(_) => {
-                Ok(true)
-            },
-            Atom(_) => {
+            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => {
                 Ok(true)
             },
             List(ref expression) => {
@@ -168,6 +168,8 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 self.check_all_read_only(args)
             },
             AtBlock => {
+                check_argument_count(2, args)?;
+                
                 let is_block_arg_read_only = self.check_read_only(&args[0])?;
                 let closure_read_only = self.check_read_only(&args[1])?;
                 if !closure_read_only {
@@ -175,7 +177,9 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 }
                 Ok(is_block_arg_read_only)
             },
-            FetchEntry => {                
+            FetchEntry => {
+                check_argument_count(2, args)?;
+
                 let res = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
                     Implicit(ref tuple_expr) => {
                         self.is_implicit_tuple_definition_read_only(tuple_expr)
@@ -186,7 +190,8 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 };
                 res
             },
-            FetchContractEntry => {                
+            FetchContractEntry => {
+                check_argument_count(3, args)?;
                 let res = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
                     Implicit(ref tuple_expr) => {
                         self.is_implicit_tuple_definition_read_only(tuple_expr)
@@ -259,15 +264,23 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             },
             ContractCall => {
                 check_arguments_at_least(2, args)?;
-                let contract_identifier = match args[0].expr {
-                    SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
-                    _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
-                };
 
                 let function_name = args[1].match_atom()
                     .ok_or(CheckErrors::ContractCallExpectName)?;
 
-                let is_function_read_only = self.db.get_read_only_function_type(&contract_identifier, function_name)?.is_some();
+                let is_function_read_only = match &args[0].expr {
+                    SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => {
+                        self.db.get_read_only_function_type(&contract_identifier, function_name)?.is_some()
+                    },
+                    SymbolicExpressionType::Atom(_trait_reference) => {
+                        // Dynamic dispatch from a readonly-function can only be guaranteed at runtime,
+                        // which would defeat granting a static readonly stamp. 
+                        // As such dynamic dispatch is currently forbidden.
+                        false
+                    },
+                    _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
+                };
+
                 self.check_all_read_only(&args[2..])
                     .map(|args_read_only| args_read_only && is_function_read_only)
             }

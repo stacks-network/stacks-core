@@ -11,6 +11,7 @@ use chainstate::burn::db::burndb::{BurnDB};
 use chainstate::burn::{BlockSnapshot};
 use chainstate::burn::operations::{BlockstackOperationType};
 use util::hash::Sha256Sum;
+use util::get_epoch_time_secs;
 
 /// BurnchainSimulator is simulating a simplistic burnchain.
 pub struct BurnchainSimulator {
@@ -62,9 +63,7 @@ impl BurnchainSimulator {
     }
    
     pub fn make_genesis_block(&mut self) -> BurnchainState {
-        let block_time = time::Duration::from_millis(self.config.burnchain_block_time);
-
-        let db = match BurnDB::connect(&self.config.burnchain_path, 0, &BurnchainHeaderHash([0u8; 32]), true) {
+        let db = match BurnDB::connect(&self.config.burnchain_path, 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
             Ok(db) => db,
             Err(_) => panic!("Error while connecting to burnchain db")
         };
@@ -148,7 +147,8 @@ impl BurnchainSimulator {
             current_block.block_height + 1,
             &BurnchainHeaderHash::from_bytes(next_hash.as_bytes()).unwrap(), 
             &current_block.burn_header_hash, 
-            &vec![]));
+            &vec![],
+            get_epoch_time_secs()));
         block.header(&current_block)
     }
 }

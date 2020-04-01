@@ -1,12 +1,13 @@
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
-use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
+use vm::representations::{PreSymbolicExpression, ClarityName};
+use vm::representations::PreSymbolicExpressionType::{AtomValue, Atom, List, Tuple, SugaredContractIdentifier, SugaredFieldIdentifier, TraitReference, FieldIdentifier};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
-use vm::analysis::types::{ContractAnalysis, AnalysisPass};
-use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
-use super::AnalysisDatabase;
+use vm::ast::types::{ContractAST, BuildASTPass};
+use vm::ast::errors::{ParseResult, ParseError, ParseErrors};
+use vm::costs::{CostTracker, cost_functions};
+use vm::types::{Value};
 
 #[cfg(test)]
 mod tests;
@@ -14,15 +15,6 @@ mod tests;
 pub struct DefinitionSorter {
     graph: Graph,
     top_level_expressions_map: HashMap<ClarityName, TopLevelExpressionIndex>   
-}
-
-impl AnalysisPass for DefinitionSorter {
-
-    fn run_pass(contract_analysis: &mut ContractAnalysis, _analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
-        let mut command = DefinitionSorter::new();
-        command.run(contract_analysis)?;
-        Ok(())
-    }
 }
 
 impl <'a> DefinitionSorter {
@@ -34,9 +26,14 @@ impl <'a> DefinitionSorter {
         }
     }
 
-    pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
+    pub fn run_pass<T: CostTracker>(contract_ast: &mut ContractAST, accounting: &mut T) -> ParseResult<()> {
+        let mut pass = DefinitionSorter::new();
+        pass.run(contract_ast, accounting)?;
+        Ok(())
+    }
 
-        let exprs = contract_analysis.expressions[..].to_vec();
+    pub fn run<T: CostTracker>(&mut self, contract_ast: &mut ContractAST, accounting: &mut T) -> ParseResult<()> {
+        let exprs = contract_ast.pre_expressions[..].to_vec();
         for (expr_index, expr) in exprs.iter().enumerate() {
             self.graph.add_node(expr_index);
 
@@ -53,29 +50,31 @@ impl <'a> DefinitionSorter {
             self.probe_for_dependencies(&expr, expr_index)?;
         }
 
+        runtime_cost!(cost_functions::AST_CYCLE_DETECTION, accounting, self.graph.edges_count()?)?;
+
         let mut walker = GraphWalker::new();
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
         
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
-            let deps_props: Vec<_> = deps.iter().map(|i| {
-                let exp = &contract_analysis.expressions[*i];
-                self.find_expression_definition(&exp).unwrap()
-            }).collect();
+            let mut deps_props = vec![];
+            for i in deps.iter() {
+                let exp = &contract_ast.pre_expressions[*i];
+                if let Some(def) = self.find_expression_definition(&exp) {
+                    deps_props.push(def);
+                }
+            }
             let functions_names = deps_props.iter().map(|i| i.0.to_string()).collect();
-            let exprs = deps_props.iter().map(|i| i.2.clone()).collect();
 
-            let mut error = CheckError::new(CheckErrors::CircularReference(functions_names));
-            error.set_expressions(exprs);
+            let error = ParseError::new(ParseErrors::CircularReference(functions_names));
             return Err(error)
         }
 
-        contract_analysis.top_level_expression_sorting = Some(sorted_indexes);
+        contract_ast.top_level_expression_sorting = Some(sorted_indexes);
         Ok(())
     }
 
-    fn probe_for_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
-        match expr.expr {
-            AtomValue(_)  | LiteralValue(_) => Ok(()),
+    fn probe_for_dependencies(&mut self, expr: &PreSymbolicExpression, tle_index: usize) -> ParseResult<()> {
+        match expr.pre_expr {
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
@@ -84,22 +83,37 @@ impl <'a> DefinitionSorter {
                 }
                 Ok(())
             },
+            TraitReference(ref name) => { 
+                if let Some(dep) = self.top_level_expressions_map.get(name) {
+                    if dep.atom_index != expr.id {
+                        self.graph.add_directed_edge(tle_index, dep.expr_index);
+                    }
+                }
+                Ok(())
+            },
             List(ref exprs) => {
-                // Avoid looking for dependencies in tuples 
+                // Avoid looking for dependencies in tuples
+                // TODO: Eliminate special handling of tuples as it is a separate presymbolic expression type
                 if let Some((function_name, function_args)) = exprs.split_first() {
                     if let Some(function_name) = function_name.match_atom() {
                         if let Some(define_function) = DefineFunctions::lookup_by_name(function_name) {
                             match define_function {
-                                DefineFunctions::NonFungibleToken | DefineFunctions::FungibleToken |
-                                DefineFunctions::PrivateFunction | DefineFunctions::Constant |
-                                DefineFunctions::PublicFunction | DefineFunctions::PersistedVariable |
-                                DefineFunctions::ReadOnlyFunction => {
+                                DefineFunctions::PersistedVariable | DefineFunctions::Constant  => {
                                     // Args: [(define-name-and-types), ...]: ignore 1st arg
                                     if function_args.len() > 1 {
                                         for expr in function_args[1..function_args.len()].into_iter() {
                                             self.probe_for_dependencies(expr, tle_index)?;
                                         }
                                     }
+                                    return Ok(());
+                                },
+                                DefineFunctions::PublicFunction | DefineFunctions::PrivateFunction |
+                                DefineFunctions::ReadOnlyFunction => {
+                                    // Args: [(define-name-and-types), ...]
+                                    if function_args.len() == 2 {
+                                        self.probe_for_dependencies_in_define_args(&function_args[0], tle_index)?;
+                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
+                                    } 
                                     return Ok(());
                                 },
                                 DefineFunctions::Map => {
@@ -109,6 +123,28 @@ impl <'a> DefinitionSorter {
                                         self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
                                     }
                                     return Ok(());
+                                },
+                                DefineFunctions::Trait => {
+                                    if function_args.len() != 2 {
+                                        return Ok(())
+                                    } 
+                                    if let Some(trait_sig) = function_args[1].match_list() {
+                                        for func_sig in trait_sig.iter() {
+                                            if let Some(func_sig) = func_sig.match_list() {
+                                                if func_sig.len() == 3 {
+                                                    self.probe_for_dependencies(&func_sig[1], tle_index)?;
+                                                    self.probe_for_dependencies(&func_sig[2], tle_index)?;
+                                                }     
+                                            }
+                                        }
+                                    }
+                                    return Ok(())
+                                },
+                                DefineFunctions::ImplTrait | DefineFunctions::UseTrait => {
+                                    return Ok(())
+                                },
+                                DefineFunctions::NonFungibleToken | DefineFunctions::FungibleToken => {
+                                    return Ok(())
                                 }
                             }
                         } else if let Some(native_function) = NativeFunctions::lookup_by_name(function_name) {
@@ -130,6 +166,15 @@ impl <'a> DefinitionSorter {
                                     }
                                     return Ok(());
                                 }, 
+                                NativeFunctions::ContractCall => {
+                                    // Args: [contract-name, function-name, ...]: ignore contract-name, function-name, handle rest
+                                    if function_args.len() > 2 {
+                                        for expr in function_args[2..].iter() {
+                                            self.probe_for_dependencies(expr, tle_index)?;
+                                        }
+                                    }
+                                    return Ok(());
+                                },
                                 NativeFunctions::FetchContractEntry => {
                                     // Args: [contract-name, map-name, tuple-predicate]: ignore contract-name, map-name, handle tuple-predicate as tuple
                                     if function_args.len() == 3 {
@@ -175,18 +220,42 @@ impl <'a> DefinitionSorter {
                     self.probe_for_dependencies(expr, tle_index)?;
                 }
                 Ok(())
-            }
+            },
+            Tuple(ref exprs) => {
+                self.probe_for_dependencies_in_tuple_list(exprs, tle_index)?;
+                Ok(())
+            },
+            AtomValue(_) | FieldIdentifier(_) | SugaredContractIdentifier(_) | SugaredFieldIdentifier(_, _) => Ok(()),
         }
     }
 
-    fn probe_for_dependencies_in_tuple_list(&mut self, tuples: &[SymbolicExpression], tle_index: usize) -> CheckResult<()> {
+    fn probe_for_dependencies_in_tuple_list(&mut self, tuples: &[PreSymbolicExpression], tle_index: usize) -> ParseResult<()> {
         for index in 0..tuples.len() {
             self.probe_for_dependencies_in_tuple(&tuples[index], tle_index)?;
         } 
         Ok(())
     }
+    
+    fn probe_for_dependencies_in_define_args(&mut self, expr: &PreSymbolicExpression, tle_index: usize) -> ParseResult<()> {
+        if let Some(func_sig) = expr.match_list() {
+            // Func definitions can look like:
+            // 1. (define-public func_name body)
+            // 2. (define-public (func_name (arg uint) ...) body)
+            // The goal here is to traverse case 2, looking for trait references
+            if let Some((_, args)) = func_sig.split_first() {
+                for pair in args.into_iter() {
+                    if let Some(pair) = pair.match_list() {
+                        if pair.len() == 2 {
+                            self.probe_for_dependencies(&pair[1], tle_index)?;
+                        }
+                    }
+                }    
+            }
+        }
+        Ok(())
+    }
 
-    fn probe_for_dependencies_in_tuple(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
+    fn probe_for_dependencies_in_tuple(&mut self, expr: &PreSymbolicExpression, tle_index: usize) -> ParseResult<()> {
         if let Some(tuple) = expr.match_list() {
             for pair in tuple.into_iter() {
                 if let Some(pair) = pair.match_list() {
@@ -199,8 +268,14 @@ impl <'a> DefinitionSorter {
         Ok(())
     }
 
-    fn find_expression_definition<'b>(&mut self, exp: &'b SymbolicExpression) -> Option<(ClarityName, u64, &'b SymbolicExpression)> {
-        let (_define_type, args) = DefineFunctions::try_parse(exp)?;
+    fn find_expression_definition<'b>(&mut self, exp: &'b PreSymbolicExpression) -> Option<(ClarityName, u64, &'b PreSymbolicExpression)> {
+        let args = {
+            let exp = exp.match_list()?;
+            let (function_name, args) = exp.split_first()?;
+            let function_name = function_name.match_atom()?;
+            DefineFunctions::lookup_by_name(function_name)?;
+            Some(args)
+        }?;
         let defined_name = match args.get(0)?.match_list() {
             Some(list) => list.get(0)?,
             _ => &args[0]
@@ -241,7 +316,18 @@ impl Graph {
         self.adjacency_list[expr_index].len() > 0
     }
 
-    fn nodes_count(&self) -> usize { self.adjacency_list.len() }
+    fn nodes_count(&self) -> usize {
+        self.adjacency_list.len()
+    }
+
+    fn edges_count(&self) -> ParseResult<u64> {
+        let mut total: u64 = 0;
+        for node in self.adjacency_list.iter() {
+            total = total.checked_add(node.len() as u64)
+                .ok_or_else(|| ParseErrors::CostOverflow)?;
+        }
+        Ok(total)
+    }
 }
 
 struct GraphWalker {
@@ -253,7 +339,7 @@ impl GraphWalker {
     fn new() -> Self { Self { seen: HashSet::new() } }
 
     /// Depth-first search producing a post-order sort
-    fn get_sorted_dependencies(&mut self, graph: &Graph) -> CheckResult<Vec<usize>> {
+    fn get_sorted_dependencies(&mut self, graph: &Graph) -> ParseResult<Vec<usize>> {
         let mut sorted_indexes = Vec::<usize>::new();
         for expr_index in 0..graph.nodes_count() {
             self.sort_dependencies_recursion(expr_index, graph, &mut sorted_indexes);

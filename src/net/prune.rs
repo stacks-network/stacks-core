@@ -26,7 +26,6 @@ use net::Error as net_error;
 
 use net::connection::ConnectionOptions;
 
-use net::chat::Conversation;
 use net::chat::NeighborStats;
 
 use net::poll::NetworkState;
@@ -60,7 +59,7 @@ impl PeerNetwork {
     fn org_neighbor_distribution(&self, peer_dbconn: &DBConn, preserve: &HashSet<usize>) -> Result<HashMap<u32, Vec<(NeighborKey, NeighborStats)>>, net_error> {
         // find out which organizations have which neighbors
         let mut org_neighbor : HashMap<u32, Vec<(NeighborKey, NeighborStats)>> = HashMap::new();
-        for (nk, event_id) in self.events.iter() {
+        for (_, event_id) in self.events.iter() {
             if preserve.contains(event_id) {
                 continue;
             }
@@ -76,7 +75,7 @@ impl PeerNetwork {
 
                     let nk = convo.to_neighbor_key();
                     let peer_opt = PeerDB::get_peer(peer_dbconn, nk.network_id, &nk.addrbytes, nk.port)
-                        .map_err(|_e| net_error::DBError)?;
+                        .map_err(net_error::DBError)?;
 
                     match peer_opt {
                         None => {
@@ -98,9 +97,9 @@ impl PeerNetwork {
         }
 
         test_debug!("==== ORG NEIGHBOR DISTRIBUTION OF {:?} ===", &self.local_peer);
-        for (ref org, ref neighbor_infos) in org_neighbor.iter() {
-            let neighbors : Vec<NeighborKey> = neighbor_infos.iter().map(|ni| ni.0.clone()).collect();
-            test_debug!("Org {}: {} neighbors: {:?}", org, neighbors.len(), &neighbors);
+        for (ref _org, ref neighbor_infos) in org_neighbor.iter() {
+            let _neighbors : Vec<NeighborKey> = neighbor_infos.iter().map(|ni| ni.0.clone()).collect();
+            test_debug!("Org {}: {} neighbors: {:?}", _org, _neighbors.len(), &_neighbors);
         }
         test_debug!("===============================================================");
 
@@ -191,11 +190,10 @@ impl PeerNetwork {
             // likely to be up for X more seconds, so we only really want to distinguish between nodes that
             // have wildly different uptimes.
             // Within uptime buckets, sort by health.
-            let now = get_epoch_time_secs();
             match org_neighbors.get_mut(&org) {
                 None => {},
                 Some(ref mut neighbor_infos) => {
-                    neighbor_infos.sort_by(|&(ref nk1, ref stats1), &(ref nk2, ref stats2)| PeerNetwork::compare_neighbor_uptime_health(stats1, stats2));
+                    neighbor_infos.sort_by(|&(ref _nk1, ref stats1), &(ref _nk2, ref stats2)| PeerNetwork::compare_neighbor_uptime_health(stats1, stats2));
                 }
             }
         }
@@ -301,8 +299,8 @@ impl PeerNetwork {
         }
 
         // sort in order by first-contact time (oldest first)
-        for (addrbytes, stats_list) in ip_neighbor.iter_mut() {
-            stats_list.sort_by(|&(ref e1, ref nk1, ref stats1), &(ref e2, ref nk2, ref stats2)| {
+        for (_, stats_list) in ip_neighbor.iter_mut() {
+            stats_list.sort_by(|&(ref _e1, ref _nk1, ref stats1), &(ref _e2, ref _nk2, ref stats2)| {
                 if stats1.first_contact_time < stats2.first_contact_time {
                     Ordering::Less
                 }

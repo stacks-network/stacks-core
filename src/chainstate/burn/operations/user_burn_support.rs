@@ -266,6 +266,7 @@ mod tests {
 
     use util::hash::{hex_bytes, Hash160};
     use util::log;
+    use util::get_epoch_time_secs;
 
     struct OpFixture {
         txstr: String,
@@ -345,6 +346,7 @@ mod tests {
                         parent_block_hash: op.burn_header_hash.clone(),
                         num_txs: 1,
                         parent_index_root: TrieHash::from_empty_data(),
+                        timestamp: get_epoch_time_secs()
                     }
                 },
                 None => {
@@ -354,6 +356,7 @@ mod tests {
                         parent_block_hash: BurnchainHeaderHash([0u8; 32]),
                         num_txs: 0,
                         parent_index_root: TrieHash::from_empty_data(),
+                        timestamp: get_epoch_time_secs()
                     }
                 }
             };
@@ -463,6 +466,7 @@ mod tests {
             for i in 0..10 {
                 let mut snapshot_row = BlockSnapshot {
                     block_height: i + 1 + first_block_height,
+                    burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i as usize].clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i + 1) as u8]).unwrap(),
@@ -547,7 +551,8 @@ mod tests {
                 block_hash: fixture.op.burn_header_hash.clone(),
                 parent_block_hash: fixture.op.burn_header_hash.clone(),
                 num_txs: 1,
-                parent_index_root: tip_index_root.clone()
+                parent_index_root: tip_index_root.clone(),
+                timestamp: get_epoch_time_secs()
             };
             let mut tx = db.tx_begin().unwrap();
             assert_eq!(fixture.res, fixture.op.check(&burnchain, &header, &mut tx));

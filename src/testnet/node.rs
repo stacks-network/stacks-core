@@ -14,6 +14,7 @@ use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, Blo
 use net::StacksMessageType;
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
+use util::get_epoch_time_secs;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
 
@@ -70,12 +71,12 @@ pub struct Node {
 impl Node {
 
     /// Instantiate and initialize a new node, given a config
-    pub fn new(config: NodeConfig, average_block_time: u64) -> Self {
-        
+    pub fn new<F>(config: NodeConfig, average_block_time: u64, boot_block_exec: F) -> Self
+    where F: FnOnce(&mut ClarityTx) -> () {
         let seed = Sha256Sum::from_data(format!("{}", config.name).as_bytes());
         let keychain = Keychain::default(seed.as_bytes().to_vec());
 
-        let chain_state = match StacksChainState::open(false, TESTNET_CHAIN_ID, &config.path) {
+        let chain_state = match StacksChainState::open_and_exec(false, TESTNET_CHAIN_ID, &config.path, boot_block_exec) {
             Ok(res) => res,
             Err(_) => panic!("Error while opening chain state at path {:?}", config.path)
         };
@@ -283,8 +284,9 @@ impl Node {
 
             // Preprocess the anchored block
             self.chain_state.preprocess_anchored_block(
-                &mut tx, 
+                &mut tx,
                 &burn_header_hash,
+                get_epoch_time_secs(),
                 &anchored_block, 
                 &parent_burn_header_hash).unwrap();
 
@@ -305,7 +307,7 @@ impl Node {
             // let db = burn_db.lock().unwrap();
             let mut res = None;
             loop {
-                match self.chain_state.process_blocks(db.conn(), 1) {
+                match self.chain_state.process_blocks(1) {
                     Err(e) => panic!("Error while processing block - {:?}", e),
                     Ok(blocks) => {
                         if blocks.len() == 0 {

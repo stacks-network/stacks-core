@@ -2,13 +2,18 @@ pub mod contexts;
 //mod maps;
 pub mod natives;
 
-use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
+use std::convert::TryInto;
+use std::collections::{HashMap, BTreeMap};
+use vm::representations::{SymbolicExpression, ClarityName, depth_traverse};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue, TraitReference, Field};
 use vm::types::{TypeSignature, TupleTypeSignature, FunctionArg,
-                FunctionType, FixedFunction, parse_name_type_pairs};
+                FunctionType, FixedFunction, parse_name_type_pairs, Value, PrincipalData};
+use vm::types::signatures::{FunctionSignature};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctionsParsed;
 use vm::variables::NativeVariables;
+use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker, CostErrors,
+                cost_functions, analysis_typecheck_cost, CostOverflowingMath};
 
 use super::AnalysisDatabase;
 pub use super::types::{ContractAnalysis, AnalysisPass};
@@ -44,26 +49,46 @@ pub struct TypeChecker <'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
-    db: &'a mut AnalysisDatabase<'b>
+    db: &'a mut AnalysisDatabase<'b>,
+    pub cost_track: LimitedCostTracker,
 }
 
-impl <'a, 'b> AnalysisPass for TypeChecker <'a, 'b> {
+impl CostTracker for TypeChecker<'_, '_> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
+        self.cost_track.add_cost(cost)
+    }
+}
+
+impl AnalysisPass for TypeChecker <'_, '_> {
     fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
-        let mut command = TypeChecker::new(analysis_db);
-        command.run(contract_analysis)?;
-        command.into_contract_analysis(contract_analysis);
-        Ok(())
+        let cost_track = contract_analysis.take_contract_cost_tracker();
+        let mut command = TypeChecker::new(analysis_db, cost_track);
+        // run the analysis, and replace the cost tracker whether or not the
+        //   analysis succeeded.
+        match command.run(contract_analysis) {
+            Ok(_) => {
+                let cost_track = command.into_contract_analysis(contract_analysis);
+                contract_analysis.replace_contract_cost_tracker(cost_track);                
+                Ok(())
+            },
+            err => {
+                let TypeChecker { cost_track, .. } = command;
+                contract_analysis.replace_contract_cost_tracker(cost_track);                
+                err
+            },
+        }
     }
 }
 
 pub type TypeResult = CheckResult<TypeSignature>;
 
 impl FunctionType {
-    pub fn check_args(&self, args: &[TypeSignature]) -> CheckResult<TypeSignature> {
+    pub fn check_args<T: CostTracker>(&self, accounting: &mut T, args: &[TypeSignature]) -> CheckResult<TypeSignature> {
         match self {
             FunctionType::Variadic(expected_type, return_type) => {
                 check_arguments_at_least(1, args)?;
                 for found_type in args.iter() {
+                    analysis_typecheck_cost(accounting, expected_type, found_type)?;
                     if !expected_type.admits_type(found_type) {
                         return Err(CheckErrors::TypeError(
                             expected_type.clone(), found_type.clone()).into())
@@ -74,6 +99,7 @@ impl FunctionType {
             FunctionType::Fixed(FixedFunction { args: arg_types, returns }) => {
                 check_argument_count(arg_types.len(), args)?;
                 for (expected_type, found_type) in arg_types.iter().map(|x| &x.signature).zip(args) {
+                    analysis_typecheck_cost(accounting, expected_type, found_type)?;
                     if !expected_type.admits_type(found_type) {
                         return Err(CheckErrors::TypeError(
                             expected_type.clone(), found_type.clone()).into())
@@ -85,6 +111,7 @@ impl FunctionType {
                 check_argument_count(1, args)?;
                 let found_type = &args[0];
                 for expected_type in arg_types.iter() {
+                    analysis_typecheck_cost(accounting, expected_type, found_type)?;
                     if expected_type.admits_type(found_type) {
                         return  Ok(return_type.clone())
                     }
@@ -97,6 +124,7 @@ impl FunctionType {
                 }
                 let (first, rest) = args.split_first()
                     .ok_or(CheckErrors::RequiresAtLeastArguments(1, args.len()))?;
+                analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
                 let return_type = match first {
                     TypeSignature::IntType => Ok(TypeSignature::IntType),
                     TypeSignature::UIntType => Ok(TypeSignature::UIntType),
@@ -104,6 +132,7 @@ impl FunctionType {
                                                          first.clone()))
                 }?;
                 for found_type in rest.iter() {
+                    analysis_typecheck_cost(accounting, &TypeSignature::IntType, found_type)?;
                     if found_type != &return_type {
                         return Err(CheckErrors::TypeError(return_type, found_type.clone()).into())
                     }
@@ -113,20 +142,33 @@ impl FunctionType {
             FunctionType::ArithmeticComparison => {
                 check_argument_count(2, args)?;
                 let (first, second) = (&args[0], &args[1]);
-                if first != second {
-                    return Err(CheckErrors::TypeError(first.clone(), second.clone()).into())
-                }
+                analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
+                analysis_typecheck_cost(accounting, &TypeSignature::IntType, second)?;
+
                 if first != &TypeSignature::IntType && first != &TypeSignature::UIntType {
                     return Err(CheckErrors::UnionTypeError(
                         vec![TypeSignature::IntType, TypeSignature::UIntType],
                         first.clone()).into())
                 }
+
+                if first != second {
+                    return Err(CheckErrors::TypeError(first.clone(), second.clone()).into())
+                }
+
                 Ok(TypeSignature::BoolType)
             },
         }
     }
 }
 
+fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<u64> {
+    let mut total_size = 0;
+    for (_func_name, value) in trait_sig.iter() {
+        total_size = total_size.cost_overflow_add(
+            value.total_type_size()? as u64)?;
+    }
+    Ok(total_size)
+}
 
 fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
     if let Some(variable) = NativeVariables::lookup_by_name(variable_name) {
@@ -136,7 +178,7 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
             ContractCaller => TypeSignature::PrincipalType,
             BlockHeight => TypeSignature::UIntType,
             BurnBlockHeight => TypeSignature::UIntType,
-            NativeNone => TypeSignature::new_option(no_type()),
+            NativeNone => TypeSignature::new_option(no_type()).unwrap(),
         };
         Some(var_type)
     } else {
@@ -149,21 +191,24 @@ pub fn no_type() -> TypeSignature {
 }
 
 impl <'a, 'b> TypeChecker <'a, 'b> {
-    fn new(db: &'a mut AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>, cost_track: LimitedCostTracker) -> TypeChecker<'a, 'b> {
         Self {
-            db,
+            db, cost_track,
             contract_context: ContractContext::new(),
             function_return_tracker: None,
-            type_map: TypeMap::new()
+            type_map: TypeMap::new(),
         }
     }
 
-    fn into_contract_analysis(self, contract_analysis: &mut ContractAnalysis) {
+    fn into_contract_analysis(self, contract_analysis: &mut ContractAnalysis) -> LimitedCostTracker {
         self.contract_context.into_contract_analysis(contract_analysis);
         contract_analysis.type_map = Some(self.type_map);
+        self.cost_track
     }
 
     pub fn track_return_type(&mut self, return_type: TypeSignature) -> CheckResult<()> {
+        runtime_cost!(cost_functions::ANALYSIS_TYPE_CHECK, self, return_type.type_size()?)?;
+
         match self.function_return_tracker {
             Some(ref mut tracker) => {
                 let new_type = match tracker.take() {
@@ -186,9 +231,26 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
+        // charge for the eventual storage cost of the analysis --
+        //  it is linear in the size of the AST.
+        let mut size: u64 = 0;
+        for exp in contract_analysis.expressions.iter() {
+            depth_traverse(exp, |_x| {
+                match size.cost_overflow_add(1) {
+                    Ok(new_size) => {
+                        size = new_size;
+                        Ok(())
+                    },
+                    Err(e) => Err(e)
+                }
+            })?;
+        }
+
+        runtime_cost!(cost_functions::ANALYSIS_STORAGE, self, size)?;
+
         let mut local_context = TypingContext::new();
 
-        for exp in contract_analysis.expressions_iter() {
+        for exp in contract_analysis.expressions.iter() {
             let mut result_res = self.try_type_check_define(&exp, &mut local_context);
             if let Err(ref mut error) = result_res {
                 if !error.has_expression() {
@@ -201,13 +263,31 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 self.type_check(&exp, &local_context)?;
             }
         }
-
         Ok(())
     }
 
     // Type check an expression, with an expected_type that should _admit_ the expression.
     pub fn type_check_expects(&mut self, expr: &SymbolicExpression, context: &TypingContext, expected_type: &TypeSignature) -> TypeResult {
+        match (&expr.expr, expected_type) {
+            (LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))), TypeSignature::TraitReferenceType(trait_identifier)) => {
+                let contract_to_check = self.db.load_contract(&contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+                let contract_defining_trait = self.db.load_contract(&trait_identifier.contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+                let trait_definition = contract_defining_trait.get_defined_trait(&trait_identifier.name)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+                contract_to_check.check_trait_compliance(trait_identifier, trait_definition)?;
+                return Ok(expected_type.clone());
+            }
+            (_, _) => {}
+        }
+
         let actual_type = self.type_check(expr, context)?;
+        analysis_typecheck_cost(self, expected_type, &actual_type)?;
+
         if !expected_type.admits_type(&actual_type) {
             let mut err: CheckError = CheckErrors::TypeError(expected_type.clone(), actual_type).into();
             err.set_expression(expr);
@@ -216,8 +296,11 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             Ok(actual_type)
         }
     }
+
     // Type checks an expression, recursively type checking its subexpressions
     pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
+        runtime_cost!(cost_functions::ANALYSIS_VISIT, self, 1)?;
+
         let mut result = self.inner_type_check(expr, context);
 
         if let Err(ref mut error) = result {
@@ -241,7 +324,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     fn type_check_function_type(&mut self, func_type: &FunctionType,
                                 args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
         let typed_args = self.type_check_all(args, context)?;
-        func_type.check_args(&typed_args)
+        func_type.check_args(self, &typed_args)
     }
 
     fn get_function_type(&self, function_name: &str) -> Option<FunctionType> {
@@ -255,7 +338,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             .ok_or(CheckErrors::RequiresAtLeastArguments(1, 0))?;
         let function_name = function_name.match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
-        let mut args = parse_name_type_pairs(args)
+        let mut args = parse_name_type_pairs::<()>(args, &mut ())
             .map_err(|_| { CheckErrors::BadSyntaxBinding })?;
 
         if self.function_return_tracker.is_some() {
@@ -266,9 +349,13 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         let mut function_context = context.extend()?;
         for (arg_name, arg_type) in args.iter() {
             self.contract_context.check_name_used(arg_name)?;
-
-            function_context.variable_types.insert(arg_name.clone(),
-                                                   arg_type.clone());
+            
+            match arg_type {
+                TypeSignature::TraitReferenceType(trait_id) => {
+                    function_context.add_trait_reference(&arg_name, &trait_id);
+                },
+                _ => { function_context.variable_types.insert(arg_name.clone(), arg_type.clone()); }
+            }
         }
 
         self.function_return_tracker = Some(None);
@@ -309,10 +396,10 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         // should we set the type of the subexpressions of the signature to no-type as well?
 
         let key_type = TypeSignature::from(
-            TupleTypeSignature::parse_name_type_pair_list(key_type)
+            TupleTypeSignature::parse_name_type_pair_list::<()>(key_type, &mut ())
                 .map_err(|_| { CheckErrors::BadMapTypeDefinition })?);
         let value_type = TypeSignature::from(
-            TupleTypeSignature::parse_name_type_pair_list(value_type)
+            TupleTypeSignature::parse_name_type_pair_list::<()>(value_type, &mut ())
                 .map_err(|_| { CheckErrors::BadMapTypeDefinition })?);
 
         Ok((map_name.clone(), (key_type, value_type)))
@@ -345,15 +432,23 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 
-    fn lookup_variable(&self, name: &str, context: &TypingContext) -> TypeResult {
+    fn lookup_variable(&mut self, name: &str, context: &TypingContext) -> TypeResult {
+        runtime_cost!(cost_functions::ANALYSIS_LOOKUP_VARIABLE_CONST, self, 1)?;
+
         if let Some(type_result) = type_reserved_variable(name) {
             Ok(type_result)
         } else if let Some(type_result) = self.contract_context.get_variable_type(name) {
             Ok(type_result.clone())
-        } else if let Some(type_result) = context.lookup_variable_type(name) {
-            Ok(type_result.clone())
+        } else if let Some(type_result) = context.lookup_trait_reference_type(name) {
+            Ok(TypeSignature::TraitReferenceType(type_result.clone()))
         } else {
-            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
+            runtime_cost!(cost_functions::ANALYSIS_LOOKUP_VARIABLE_DEPTH, self, context.depth)?;
+
+            if let Some(type_result) = context.lookup_variable_type(name) {
+                Ok(type_result.clone())
+            } else {
+                Err(CheckErrors::UndefinedVariable(name.to_string()).into())
+            }
         }
     }
 
@@ -367,9 +462,13 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             },
             List(ref expression) => {
                 self.type_check_function_application(expression, context)?
+            },
+            TraitReference(_, _) | Field(_) => {
+                return Err(CheckErrors::UnexpectedTraitOrFieldReference.into());
             }
         };
 
+        runtime_cost!(cost_functions::ANALYSIS_TYPE_ANNOTATE, self, type_sig.type_size()?)?;
         self.type_map.set_type(expr, type_sig.clone())?;
         Ok(type_sig)
     }
@@ -380,7 +479,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     fn type_check_define_persisted_variable(&mut self, var_name: &ClarityName, var_type: &SymbolicExpression, initial: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
-        let expected_type = TypeSignature::parse_type_repr(var_type)
+        let expected_type = TypeSignature::parse_type_repr::<()>(var_type, &mut ())
             .map_err(|_e| CheckErrors::DefineVariableBadSignature)?;
 
         self.type_check_expects(initial, context, &expected_type)?;
@@ -397,11 +496,18 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     fn type_check_define_nft(&mut self, asset_name: &ClarityName, nft_type: &SymbolicExpression, _context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
-        let asset_type = TypeSignature::parse_type_repr(&nft_type)
+        let asset_type = TypeSignature::parse_type_repr::<()>(&nft_type, &mut ())
             .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?;
 
         Ok((asset_name.clone(), asset_type))
     }
+
+    fn type_check_define_trait(&mut self, trait_name: &ClarityName, function_types: &[SymbolicExpression], _context: &mut TypingContext) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
+        
+        let trait_signature = TypeSignature::parse_trait_type_repr(&function_types, &mut ())?;
+
+        Ok((trait_name.clone(), trait_signature))
+    } 
     
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
     fn try_type_check_define(&mut self, expression: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
@@ -409,16 +515,20 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             match define_type {
                 DefineFunctionsParsed::Constant { name, value } => {
                     let (v_name, v_type) = self.type_check_define_variable(name, value, context)?;
+                    runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, v_type.type_size()?)?;
                     self.contract_context.add_variable_type(v_name, v_type)?;
                 },
                 DefineFunctionsParsed::PrivateFunction { signature, body } => {
                     let (f_name, f_type) = self.type_check_define_function(signature, body, context)?;
+
+                    runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, f_type.total_type_size()?)?;
                     self.contract_context.add_private_function_type(f_name, FunctionType::Fixed(f_type))?;
                 },
                 DefineFunctionsParsed::PublicFunction { signature, body } => {
                     let (f_name, f_type) = self.type_check_define_function(signature, body, context)?;
-                    let return_type = f_type.returns.clone();
-                    if let TypeSignature::ResponseType(_) = return_type {
+                    runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, f_type.total_type_size()?)?;
+
+                    if f_type.returns.is_response_type() {
                         self.contract_context.add_public_function_type(f_name, FunctionType::Fixed(f_type))?;
                         return Ok(Some(()));
                     } else {
@@ -427,34 +537,65 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 },
                 DefineFunctionsParsed::ReadOnlyFunction { signature, body } => {
                     let (f_name, f_type) = self.type_check_define_function(signature, body, context)?;
+                    runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, f_type.total_type_size()?)?;
                     self.contract_context.add_read_only_function_type(f_name, FunctionType::Fixed(f_type))?;
                 },
                 DefineFunctionsParsed::Map { name, key_type, value_type } => {
-                    let (f_name, f_type) = self.type_check_define_map(name, key_type, value_type)?;
-                    self.contract_context.add_map_type(f_name, f_type)?;
+                    let (f_name, map_type) = self.type_check_define_map(name, key_type, value_type)?;
+                    let total_type_size = u64::from(map_type.0.type_size()?).cost_overflow_add(
+                        u64::from(map_type.1.type_size()?))?;
+                    runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, total_type_size)?;
+                    self.contract_context.add_map_type(f_name, map_type)?;
                 },
                 DefineFunctionsParsed::PersistedVariable { name, data_type, initial } => {
                     let (v_name, v_type) = self.type_check_define_persisted_variable(name, data_type, initial, context)?;
+                    runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, v_type.type_size()?)?;
                     self.contract_context.add_persisted_variable_type(v_name, v_type)?;
                 },
                 DefineFunctionsParsed::BoundedFungibleToken { name, max_supply } => {
                     let token_name = self.type_check_define_ft(name, Some(max_supply), context)?;
+                    runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, TypeSignature::UIntType.type_size()?)?;
                     self.contract_context.add_ft(token_name)?;
                 },
                 DefineFunctionsParsed::UnboundedFungibleToken { name } => {
                     let token_name = self.type_check_define_ft(name, None, context)?;
+                    runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, TypeSignature::UIntType.type_size()?)?;
                     self.contract_context.add_ft(token_name)?;
                 },
                 DefineFunctionsParsed::NonFungibleToken { name, nft_type } => {
                     let (token_name, token_type) = self.type_check_define_nft(name, nft_type, context)?;
+                    runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, token_type.type_size()?)?;
                     self.contract_context.add_nft(token_name, token_type)?;
-                }
+                },
+                DefineFunctionsParsed::Trait { name, functions } => {
+                    let (trait_name, trait_signature) = self.type_check_define_trait(name, functions, context)?;
+                    runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, trait_type_size(&trait_signature)?)?;
+                    self.contract_context.add_trait(trait_name, trait_signature)?;
+                },
+                DefineFunctionsParsed::UseTrait { name, trait_identifier } => {
+                    let result = self.db.get_defined_trait(&trait_identifier.contract_identifier, &trait_identifier.name)?;
+                    match result {
+                        Some(trait_sig) => {
+                            let type_size = trait_type_size(&trait_sig)?;
+                            runtime_cost!(cost_functions::ANALYSIS_USE_TRAIT_ENTRY, self, type_size)?;
+                            runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, type_size)?;
+                            self.contract_context.add_trait(trait_identifier.name.clone(), trait_sig)?
+                        },
+                        None => {
+                            // still had to do a db read, even if it didn't exist!
+                            runtime_cost!(cost_functions::ANALYSIS_USE_TRAIT_ENTRY, self, 1)?;
+                            return Err(CheckErrors::TraitReferenceUnknown(name.to_string()).into())
+                        }
+                    }
+                },
+                DefineFunctionsParsed::ImplTrait { trait_identifier } => {
+                    self.contract_context.add_implemented_trait(trait_identifier.clone())?;
+                },
             };
             Ok(Some(()))
         } else {
-        // not a define.
+            // not a define.
             Ok(None)
         }
     }
 }
-

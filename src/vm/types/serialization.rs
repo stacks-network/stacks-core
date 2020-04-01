@@ -1,6 +1,6 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError, 
                  IncomparableError, Error as ClarityError, CheckErrors};
-use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, BufferLength,
+use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, BufferLength, MAX_VALUE_SIZE,
                 TypeSignature, TupleData, QualifiedContractIdentifier, ResponseData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 use vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
@@ -10,6 +10,7 @@ use std::convert::{TryFrom, TryInto};
 use std::collections::HashMap;
 use serde_json::{Value as JSONValue};
 use util::hash::{hex_bytes, to_hex};
+use util::retry::{BoundReader};
 
 use std::{error, fmt};
 use std::io::{Write, Read};
@@ -51,20 +52,8 @@ impl error::Error for SerializationError {
     }
 }
 
-/*
- * jude -- it would be better for the transaction-parsing logic to know, through the type system,
- * whether or not a failure to parse a Clarity value was due to an unexpected EOF or
- * semantically-invalid data.  Disabling this From impl fixes this.
-impl From<std::io::Error> for SerializationError {
-    fn from(err: std::io::Error) -> Self {
-        match err.kind() {
-            std::io::ErrorKind::UnexpectedEof => "Unexpected end of byte stream".into(),
-            _ => SerializationError::IOError(IncomparableError { err })
-        }
-    }
-}
-*/
-
+// Note: a byte stream that describes a longer type than
+//   there are available bytes to read will result in an IOError(UnexpectedEOF)
 impl From<std::io::Error> for SerializationError {
     fn from(err: std::io::Error) -> Self {
         SerializationError::IOError(IncomparableError { err })
@@ -125,9 +114,9 @@ impl From<&Value> for TypePrefix {
                 }
             },
             Optional(OptionalData{ data: None }) => TypePrefix::OptionalNone,
-            Optional(OptionalData{ data: Some(value) }) => TypePrefix::OptionalSome,
+            Optional(OptionalData{ data: Some(_) }) => TypePrefix::OptionalSome,
             List(_) => TypePrefix::List,
-            Tuple(_) => TypePrefix::Tuple
+            Tuple(_) => TypePrefix::Tuple,
         }
     }
 }
@@ -201,8 +190,17 @@ macro_rules! check_match {
 
 impl Value {
     pub fn deserialize_read<R: Read>(r: &mut R, expected_type: Option<&TypeSignature>) -> Result<Value, SerializationError> {
+        let mut bound_reader = BoundReader::from_reader(r, 2 * MAX_VALUE_SIZE as u64);
+        Value::inner_deserialize_read(&mut bound_reader, expected_type, 0)
+    }
+
+    fn inner_deserialize_read<R: Read>(r: &mut R, expected_type: Option<&TypeSignature>, depth: u8) -> Result<Value, SerializationError> {
         use super::Value::*;
         use super::PrincipalData::*;
+
+        if depth >= 16 {
+            return Err(CheckErrors::TypeSignatureTooDeep.into())
+        }
 
         let mut header = [0];
         r.read_exact(&mut header)?;
@@ -282,8 +280,14 @@ impl Value {
                     }
                 };
 
-                let data = Box::new(Value::deserialize_read(r, expect_contained_type)?);
-                Ok(Response(ResponseData { committed, data }))
+                let data = Value::inner_deserialize_read(r, expect_contained_type, depth+1)?;
+                let value = if committed {
+                    Value::okay(data)                        
+                } else {
+                    Value::error(data)
+                }.map_err(|_x| "Value too large")?;
+
+                Ok(value)
             },
             TypePrefix::OptionalNone => {
                 check_match!(expected_type, TypeSignature::OptionalType(_))?;
@@ -301,12 +305,19 @@ impl Value {
                     }
                 };
 
-                Ok(Value::some(Value::deserialize_read(r, expect_contained_type)?))
-            }
+                let value = Value::some(Value::inner_deserialize_read(r, expect_contained_type, depth + 1)?)
+                    .map_err(|_x| "Value too large")?;
+
+                Ok(value)
+            },
             TypePrefix::List => {
                 let mut len = [0; 4];
                 r.read_exact(&mut len)?;
                 let len = u32::from_be_bytes(len);
+
+                if len > MAX_VALUE_SIZE {
+                    return Err("Illegal list type".into());
+                }
 
                 let (list_type, entry_type) = match expected_type {
                     None => (None, None),
@@ -322,7 +333,7 @@ impl Value {
 
                 let mut items = Vec::with_capacity(len as usize);
                 for _i in 0..len {
-                    items.push(Value::deserialize_read(r, entry_type)?);
+                    items.push(Value::inner_deserialize_read(r, entry_type, depth + 1)?);
                 }
 
                 if let Some(list_type) = list_type {
@@ -337,6 +348,10 @@ impl Value {
                 let mut len = [0; 4];
                 r.read_exact(&mut len)?;
                 let len = u32::from_be_bytes(len);
+
+                if len > MAX_VALUE_SIZE {
+                    return Err(SerializationError::DeserializationError("Illegal tuple type".to_string()));
+                }
 
                 let tuple_type = match expected_type {
                     None => None,
@@ -362,7 +377,7 @@ impl Value {
                                 .ok_or_else(|| SerializationError::DeserializeExpected(expected_type.unwrap().clone()))?)
                     };
 
-                    let value = Value::deserialize_read(r, expected_field_type)?;
+                    let value = Value::inner_deserialize_read(r, expected_field_type, depth + 1)?;
                     items.push((key, value))
                 }
 
@@ -549,12 +564,12 @@ mod tests {
 
 
         // make a list that says it is longer than it is!
-        //   this describes a list of size 1+MAX_VALUE_SIZE of Value::Bool(true)'s, but is actually only 59 bools.
+        //   this describes a list of size MAX_VALUE_SIZE of Value::Bool(true)'s, but is actually only 59 bools.
         let mut eof = vec![3u8; 64 as usize];
         // list prefix
         eof[0] = 11;
         // list length
-        Write::write_all(&mut eof.get_mut(1..5).unwrap(), &(1+MAX_VALUE_SIZE).to_be_bytes()).unwrap();
+        Write::write_all(&mut eof.get_mut(1..5).unwrap(), &(MAX_VALUE_SIZE).to_be_bytes()).unwrap();
 
         /*
          * jude -- this should return an IOError
@@ -608,23 +623,23 @@ mod tests {
     #[test]
     fn test_opts() {
         test_deser_ser(Value::none());
-        test_deser_ser(Value::some(Value::Int(15)));
+        test_deser_ser(Value::some(Value::Int(15)).unwrap());
 
         test_bad_expectation(Value::none(), TypeSignature::IntType);
-        test_bad_expectation(Value::some(Value::Int(15)), TypeSignature::IntType);
+        test_bad_expectation(Value::some(Value::Int(15)).unwrap(), TypeSignature::IntType);
         // bad expected _contained_ type
-        test_bad_expectation(Value::some(Value::Int(15)), TypeSignature::from("(optional uint)"));
+        test_bad_expectation(Value::some(Value::Int(15)).unwrap(), TypeSignature::from("(optional uint)"));
     }
 
     #[test]
     fn test_resp() {
-        test_deser_ser(Value::okay(Value::Int(15)));
-        test_deser_ser(Value::error(Value::Int(15)));
+        test_deser_ser(Value::okay(Value::Int(15)).unwrap());
+        test_deser_ser(Value::error(Value::Int(15)).unwrap());
 
         // Bad expected types.
-        test_bad_expectation(Value::okay(Value::Int(15)), TypeSignature::IntType);
-        test_bad_expectation(Value::okay(Value::Int(15)), TypeSignature::from("(response uint int)"));
-        test_bad_expectation(Value::error(Value::Int(15)), TypeSignature::from("(response int uint)"));
+        test_bad_expectation(Value::okay(Value::Int(15)).unwrap(), TypeSignature::IntType);
+        test_bad_expectation(Value::okay(Value::Int(15)).unwrap(), TypeSignature::from("(response uint int)"));
+        test_bad_expectation(Value::error(Value::Int(15)).unwrap(), TypeSignature::from("(response int uint)"));
     }
 
     #[test]
@@ -721,10 +736,10 @@ mod tests {
                         [0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
                          0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]),
                     "abcd".into()).into())),
-            ("0700ffffffffffffffffffffffffffffffff", Ok(Value::okay(Value::Int(-1)))),
-            ("0800ffffffffffffffffffffffffffffffff", Ok(Value::error(Value::Int(-1)))),
+            ("0700ffffffffffffffffffffffffffffffff", Ok(Value::okay(Value::Int(-1)).unwrap())),
+            ("0800ffffffffffffffffffffffffffffffff", Ok(Value::error(Value::Int(-1)).unwrap())),
             ("09", Ok(Value::none())),
-            ("0a00ffffffffffffffffffffffffffffffff", Ok(Value::some(Value::Int(-1)))),
+            ("0a00ffffffffffffffffffffffffffffffff", Ok(Value::some(Value::Int(-1)).unwrap())),
             ("0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
              Ok(Value::list_from(vec![
                  Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(-4)]).unwrap())),
@@ -746,6 +761,31 @@ mod tests {
     }
 
     #[test]
+    fn try_deser_large_list() {
+        let buff = vec![11, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255];
+
+        assert_eq!(Value::try_deserialize_bytes_untyped(&buff).unwrap_err(),
+                   SerializationError::DeserializationError("Illegal list type".to_string()));
+    }
+
+
+    #[test]
+    fn try_deser_large_tuple() {
+        let buff = vec![12, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255];
+
+        assert_eq!(Value::try_deserialize_bytes_untyped(&buff).unwrap_err(),
+                   SerializationError::DeserializationError("Illegal tuple type".to_string()));
+    }
+
+    #[test]
+    fn try_overflow_stack() {
+        let input = "08080808080808080808070707080807080808080808080708080808080708080707080707080807080808080808080708080808080708080707080708070807080808080808080708080808080708080708080808080808080807070807080808080808070808070707080807070808070808080808070808070708070807080808080808080707080708070807080708080808080808070808080808070808070808080808080808080707080708080808080807080807070708080707080807080808080807080807070807080708080808080808070708070808080808080708080707070808070708080807080807070708";
+        assert_eq!(
+            Err(CheckErrors::TypeSignatureTooDeep.into()),
+            Value::try_deserialize_hex_untyped(input));
+    }
+
+    #[test]
     fn test_principals() {
         let issuer = PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
         let standard_p = Value::from(issuer.clone());
@@ -759,5 +799,4 @@ mod tests {
         test_bad_expectation(contract_p2, TypeSignature::BoolType);
         test_bad_expectation(standard_p, TypeSignature::BoolType);
     }
-
 }

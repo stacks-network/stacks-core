@@ -5,8 +5,8 @@ use regex::{Regex, Captures};
 use address::c32::c32_address_decode;
 use vm::ast::errors::{ParseResult, ParseErrors, ParseError};
 use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
-use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, ContractName};
-use vm::types::{Value, PrincipalData, QualifiedContractIdentifier};
+use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, ContractName, ClarityName, MAX_STRING_LEN};
+use vm::types::{Value, PrincipalData, TraitIdentifier, QualifiedContractIdentifier};
 
 pub const CONTRACT_MIN_NAME_LENGTH : usize = 5;
 pub const CONTRACT_MAX_NAME_LENGTH : usize = 40;
@@ -14,20 +14,31 @@ pub const CONTRACT_MAX_NAME_LENGTH : usize = 40;
 pub enum LexItem {
     LeftParen,
     RightParen,
+    LeftCurly,
+    RightCurly,
     LiteralValue(usize, Value),
-    UnexpandedContractName(usize, ContractName),
+    SugaredContractIdentifier(usize, ContractName),
+    SugaredFieldIdentifier(usize, ContractName, ClarityName),
+    FieldIdentifier(usize, TraitIdentifier),
+    TraitReference(usize, ClarityName),
     Variable(String),
+    CommaSeparator,
+    ColonSeparator,
     Whitespace
 }
 
 #[derive(Debug)]
 enum TokenType {
-    LParens, RParens, Whitespace,
+    Whitespace, Comma, Colon,
+    LParens, RParens,
+    LCurly, RCurly,
     StringLiteral, HexStringLiteral,
     UIntLiteral, IntLiteral, QuoteLiteral,
-    Variable, PrincipalLiteral,
-    QualifiedContractPrincipalLiteral,
-    UnexpandedContractNameLiteral
+    Variable, TraitReferenceLiteral, PrincipalLiteral,
+    SugaredContractIdentifierLiteral,
+    FullyQualifiedContractIdentifierLiteral,
+    SugaredFieldIdentifierLiteral,
+    FullyQualifiedFieldIdentifierLiteral,
 }
 
 struct LexMatcher {
@@ -38,6 +49,11 @@ struct LexMatcher {
 enum LexContext {
     ExpectNothing,
     ExpectClosing
+}
+
+enum ParseContext {
+    CollectList,
+    CollectTuple,
 }
 
 impl LexMatcher {
@@ -73,14 +89,26 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new(";;[ -~]*", TokenType::Whitespace), // ;; comments.
         LexMatcher::new("[\n]+", TokenType::Whitespace),
         LexMatcher::new("[ \t]+", TokenType::Whitespace),
+        LexMatcher::new("[,]", TokenType::Comma),
+        LexMatcher::new("[:]", TokenType::Colon),
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
+        LexMatcher::new("[{]", TokenType::LCurly),
+        LexMatcher::new("[}]", TokenType::RCurly),
+        LexMatcher::new("<(?P<value>([[:word:]]|[-])+)>", TokenType::TraitReferenceLiteral),
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
-        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}})"#, CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::QualifiedContractPrincipalLiteral),
-        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}})"#, CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::UnexpandedContractNameLiteral),
+        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
+            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH, MAX_STRING_LEN),
+            TokenType::FullyQualifiedFieldIdentifierLiteral),
+        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
+            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH, MAX_STRING_LEN), TokenType::SugaredFieldIdentifierLiteral),
+        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}})"#,
+            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::FullyQualifiedContractIdentifierLiteral),
+        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}})"#,
+            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::SugaredContractIdentifierLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("(?P<value>([[:word:]]|[-!?+<>=/*])+)", TokenType::Variable),
     ];
@@ -121,7 +149,10 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         // this prevents an atom like 1234abc from getting split into "1234" and "abc"
                         match matcher.handler {
                             TokenType::RParens => Ok(()),
+                            TokenType::RCurly => Ok(()),
                             TokenType::Whitespace => Ok(()),
+                            TokenType::Comma => Ok(()),
+                            TokenType::Colon => Ok(()),
                             _ => Err(ParseError::new(ParseErrors::SeparatorExpected(current_slice[..whole_match.end()].to_string())))
                         }
                     }
@@ -131,7 +162,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                 context = LexContext::ExpectClosing;
 
                 let token = match matcher.handler {
-                    TokenType::LParens => { 
+                    TokenType::LParens => {
                         context = LexContext::ExpectNothing;
                         Ok(LexItem::LeftParen)
                     },
@@ -141,6 +172,21 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                     TokenType::Whitespace => {
                         context = LexContext::ExpectNothing;
                         Ok(LexItem::Whitespace)
+                    },
+                    TokenType::Comma => {
+                        context = LexContext::ExpectNothing;
+                        Ok(LexItem::CommaSeparator)
+                    },
+                    TokenType::Colon => {
+                        context = LexContext::ExpectNothing;
+                        Ok(LexItem::ColonSeparator)
+                    },
+                    TokenType::LCurly => {
+                        context = LexContext::ExpectNothing;
+                        Ok(LexItem::LeftCurly)
+                    },
+                    TokenType::RCurly => {
+                        Ok(LexItem::RightCurly)
                     },
                     TokenType::Variable => {
                         let value = get_value_or_err(current_slice, captures)?;
@@ -175,7 +221,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
-                    TokenType::QualifiedContractPrincipalLiteral => {
+                    TokenType::FullyQualifiedContractIdentifierLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match PrincipalData::parse_qualified_contract_principal(&str_value) {
                             Ok(parsed) => Ok(Value::Principal(parsed)),
@@ -183,13 +229,29 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
-                    TokenType::UnexpandedContractNameLiteral => {
+                    TokenType::SugaredContractIdentifierLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match str_value[1..].to_string().try_into() {
                             Ok(parsed) => Ok(parsed),
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone())))
                         }?;
-                        Ok(LexItem::UnexpandedContractName(str_value.len(), value))
+                        Ok(LexItem::SugaredContractIdentifier(str_value.len(), value))
+                    },
+                    TokenType::FullyQualifiedFieldIdentifierLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let value = match TraitIdentifier::parse_fully_qualified(&str_value) {
+                            Ok(parsed) => Ok(parsed),
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingField(str_value.clone())))
+                        }?;
+                        Ok(LexItem::FieldIdentifier(str_value.len(), value))
+                    },
+                    TokenType::SugaredFieldIdentifierLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let (contract_name, field_name) = match TraitIdentifier::parse_sugared_syntax(&str_value) {
+                            Ok((contract_name, field_name)) => Ok((contract_name, field_name)),
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingField(str_value.clone())))
+                        }?;
+                        Ok(LexItem::SugaredFieldIdentifier(str_value.len(), contract_name, field_name))
                     },
                     TokenType::PrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
@@ -198,6 +260,12 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone())))
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
+                    },
+                    TokenType::TraitReferenceLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let data = str_value.clone().try_into()
+                            .map_err(|_| { ParseError::new(ParseErrors::IllegalVariableName(str_value.to_string())) })?;
+                        Ok(LexItem::TraitReference(str_value.len(), data))
                     },
                     TokenType::HexStringLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
@@ -247,24 +315,58 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
             LexItem::LeftParen => {
                 // start new list.
                 let new_list = Vec::new();
-                parse_stack.push((new_list, line_pos, column_pos));
+                parse_stack.push((new_list, line_pos, column_pos, ParseContext::CollectList));
             },
             LexItem::RightParen => {
                 // end current list.
-                if let Some((value, start_line, start_column)) = parse_stack.pop() {
-                    let mut pre_expr = PreSymbolicExpression::list(value.into_boxed_slice());
-                    pre_expr.set_span(start_line, start_column, line_pos, column_pos);
-                    match parse_stack.last_mut() {
-                        None => {
-                            // no open lists on stack, add current to result.
-                            output_list.push(pre_expr)
+                if let Some((value, start_line, start_column, parse_context)) = parse_stack.pop() {
+                    match parse_context {
+                        ParseContext::CollectList => {
+                            let mut pre_expr = PreSymbolicExpression::list(value.into_boxed_slice());
+                            pre_expr.set_span(start_line, start_column, line_pos, column_pos);
+                            match parse_stack.last_mut() {
+                                None => {
+                                    // no open lists on stack, add current to result.
+                                    output_list.push(pre_expr)
+                                },
+                                Some((ref mut list, _, _, _)) => {
+                                    list.push(pre_expr);
+                                }
+                            };
                         },
-                        Some((ref mut list, _, _)) => {
-                            list.push(pre_expr);
+                        ParseContext::CollectTuple => {
+                            return Err(ParseError::new(ParseErrors::ClosingTupleLiteralExpected))
                         }
-                    };
+                    }
                 } else {
                     return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected))
+                }
+            },
+            LexItem::LeftCurly => {
+                let new_list = Vec::new();
+                parse_stack.push((new_list, line_pos, column_pos, ParseContext::CollectTuple));
+            },
+            LexItem::RightCurly => {
+                if let Some((value, start_line, start_column, parse_context)) = parse_stack.pop() {
+                    match parse_context {
+                        ParseContext::CollectTuple => {
+                            let mut pre_expr = PreSymbolicExpression::tuple(value.into_boxed_slice());
+                            pre_expr.set_span(start_line, start_column, line_pos, column_pos);
+                            match parse_stack.last_mut() {
+                                None => {
+                                    output_list.push(pre_expr)
+                                },
+                                Some((ref mut list, _, _, _)) => {
+                                    list.push(pre_expr);
+                                }
+                            };
+                        },
+                        ParseContext::CollectList => {
+                            return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
+                        }
+                    }
+                } else {
+                    return Err(ParseError::new(ParseErrors::ClosingTupleLiteralUnexpected))
                 }
             },
             LexItem::Variable(value) => {
@@ -276,7 +378,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
 
                 match parse_stack.last_mut() {
                     None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
                 };
             },
             LexItem::LiteralValue(length, value) => {
@@ -290,21 +392,89 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
 
                 match parse_stack.last_mut() {
                     None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
                 };
             },
-            LexItem::UnexpandedContractName(length, value) => {
+            LexItem::SugaredContractIdentifier(length, value) => {
                 let mut end_column = column_pos + (length as u32);
                 // Avoid underflows on cases like empty strings
                 if length > 0 {
                     end_column = end_column - 1;
                 }
-                let mut pre_expr = PreSymbolicExpression::unexpanded_contract_name(value);
+                let mut pre_expr = PreSymbolicExpression::sugared_contract_identifier(value);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
 
                 match parse_stack.last_mut() {
                     None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
+                };
+            },
+            LexItem::SugaredFieldIdentifier(length, contract_name, name) => {
+                let mut end_column = column_pos + (length as u32);
+                // Avoid underflows on cases like empty strings
+                if length > 0 {
+                    end_column = end_column - 1;
+                }
+                let mut pre_expr = PreSymbolicExpression::sugared_field_identifier(contract_name, name);
+                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
+
+                match parse_stack.last_mut() {
+                    None => output_list.push(pre_expr),
+                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
+                };
+            },
+            LexItem::FieldIdentifier(length, trait_identifier) => {
+                let mut end_column = column_pos + (length as u32);
+                // Avoid underflows on cases like empty strings
+                if length > 0 {
+                    end_column = end_column - 1;
+                }
+                let mut pre_expr = PreSymbolicExpression::field_identifier(trait_identifier);
+                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
+
+                match parse_stack.last_mut() {
+                    None => output_list.push(pre_expr),
+                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
+                };
+            },
+            LexItem::TraitReference(_length, value) => {
+                let end_column = column_pos + (value.len() as u32) - 1;
+                let value = value.clone().try_into()
+                    .map_err(|_| { ParseError::new(ParseErrors::IllegalVariableName(value.to_string())) })?;
+                let mut pre_expr = PreSymbolicExpression::trait_reference(value);
+                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
+
+                match parse_stack.last_mut() {
+                    None => output_list.push(pre_expr),
+                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
+                };
+            }
+            LexItem::ColonSeparator => {
+                match parse_stack.last_mut() {
+                    None => return Err(ParseError::new(ParseErrors::ColonSeparatorUnexpected)),
+                    Some((ref mut list, _, _, parse_context)) => {
+                        if let ParseContext::CollectTuple = parse_context {
+                            if list.len() % 2 == 0 {
+                                return Err(ParseError::new(ParseErrors::ColonSeparatorUnexpected))
+                            }
+                        } else {
+                            return Err(ParseError::new(ParseErrors::ColonSeparatorUnexpected))
+                        }
+                    }
+                };
+            }
+            LexItem::CommaSeparator => {
+                match parse_stack.last_mut() {
+                    None => return Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected)),
+                    Some((ref mut list, _, _, parse_context)) => {
+                        if let ParseContext::CollectTuple = parse_context {
+                            if list.len() == 0 || list.len() % 2 == 1 {
+                                return Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected))
+                            }
+                        } else {
+                            return Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected))
+                        }
+                    }
                 };
             },
             LexItem::Whitespace => ()
@@ -327,10 +497,11 @@ pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
 
 #[cfg(test)]
 mod test {
-    use vm::representations::{PreSymbolicExpression};
+    use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
     use vm::{Value, ast};
-    use vm::types::{QualifiedContractIdentifier};
+    use vm::types::{QualifiedContractIdentifier, PrincipalData};
     use vm::ast::errors::{ParseErrors, ParseError};
+    use vm::types::{TraitIdentifier};
 
     fn make_atom(x: &str, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::atom(x.into());
@@ -350,16 +521,22 @@ mod test {
         e
     }
 
+    fn make_tuple(start_line: u32, start_column: u32, end_line: u32, end_column: u32, x: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
+        let mut e = PreSymbolicExpression::tuple(x);
+        e.set_span(start_line, start_column, end_line, end_column);
+        e
+    }
+
     #[test]
     fn test_parse_let_expression() {
 
         // This test includes some assertions ont the spans of each atom / atom_value / list, which makes indentation important.
-        let input = 
+        let input =
 r#"z (let ((x 1) (y 2))
     (+ x ;; "comments section?"
         ;; this is also a comment!
         (let ((x 3)) ;; more commentary
-        (+ x y))     
+        (+ x y))
         x)) x y
         ;; this is 'quoted comment!"#;
         let program = vec![
@@ -404,21 +581,73 @@ r#"z (let ((x 1) (y 2))
 
         let parsed = ast::parser::parse(&input);
         assert_eq!(Ok(program), parsed, "Should match expected symbolic expression");
-        
+
+    }
+
+    #[test]
+    fn test_parse_tuple_literal () {
+      let input = "{id 1337}";
+      let program = vec![ make_tuple(1, 1, 1, 9, Box::new([
+                              make_atom("id", 1, 2, 1, 3),
+                              make_atom_value(Value::Int(1337), 1, 5, 1, 8)]))];
+      let parsed = ast::parser::parse(&input);
+      assert_eq!(Ok(program), parsed, "Should match expected tuple literal");
     }
 
     #[test]
     fn test_parse_contract_principals() {
-        use vm::types::PrincipalData;
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract-a";
         let parsed = ast::parser::parse(&input).unwrap();
 
         let x1 = &parsed[0];
         assert!( match x1.match_atom_value() {
             Some(Value::Principal(PrincipalData::Contract(identifier))) => {
-                format!("{}", 
+                format!("{}",
                     PrincipalData::Standard(identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
                     identifier.name == "contract-a".into()
+            },
+            _ => false
+        });
+    }
+
+    #[test]
+    fn test_parse_generics() {
+        let input = "<a>";
+        let parsed = ast::parser::parse(&input).unwrap();
+
+        let x1 = &parsed[0];
+        assert!( match x1.match_trait_reference() {
+            Some(trait_name) => *trait_name == "a".into(),
+            _ => false
+        });
+    }
+
+    #[test]
+    fn test_parse_field_identifiers() {
+        use vm::types::PrincipalData;
+        let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.my-contract.my-trait";
+        let parsed = ast::parser::parse(&input).unwrap();
+
+        let x1 = &parsed[0];
+        assert!( match x1.match_field_identifier() {
+            Some(data) => {
+                format!("{}", PrincipalData::Standard(data.contract_identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
+                    data.contract_identifier.name == "my-contract".into() &&
+                    data.name == "my-trait".into()
+            },
+            _ => false
+        });
+    }
+
+    #[test]
+    fn test_parse_sugared_field_identifiers() {
+        let input = ".my-contract.my-trait";
+        let parsed = ast::parser::parse(&input).unwrap();
+
+        let x1 = &parsed[0];
+        assert!( match &x1.pre_expr {
+            PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, field_name) => {
+                *contract_name == "my-contract".into() && *field_name == "my-trait".into()
             },
             _ => false
         });
@@ -434,7 +663,16 @@ r#"z (let ((x 1) (y 2))
         let unicode = "(let ((x🎶 1)) (eq x🎶 1))";
         let split_tokens = "(let ((023ab13 1)))";
         let name_with_dot = "(let ((ab.de 1)))";
-
+        let wrong_tuple_literal_close = "{id 1337)";
+        let wrong_list_close = "(13 37}";
+        let extra_tuple_literal_close = "{37}}";
+        let unexpected_comma = "(let ((a 1),(b 2)) b)";
+        let shorthand_tuple = "{ a, b }";
+        let shorthand_tuple_dangling_comma = "{ a: b, b: ,}";
+        let decorative_colon_on_value = "{ a: b: }";
+        let tuple_literal_colon_after_comma = "{ a: b, :b a}";
+        let empty_tuple_literal_comma = "{,}";
+        let empty_tuple_literal_colon = "{:}";
         let function_with_CR = "(define (foo (x y)) \n (+ 1 2 3) \r (- 1 2 3))";
         let function_with_CRLF = "(define (foo (x y)) \n (+ 1 2 3) \n\r (- 1 2 3))";
         let function_with_NEL = "(define (foo (x y)) \u{0085} (+ 1 2 3) \u{0085} (- 1 2 3))";
@@ -443,33 +681,63 @@ r#"z (let ((x 1) (y 2))
         // good case
         let function_with_LF = "(define (foo (x y)) \n (+ 1 2 3) \n (- 1 2 3))";
 
-        assert!(match ast::parser::parse(&split_tokens).unwrap_err().err { 
+        assert!(match ast::parser::parse(&split_tokens).unwrap_err().err {
             ParseErrors::SeparatorExpected(_) => true, _ => false });
 
-        assert!(match ast::parser::parse(&too_much_closure).unwrap_err().err { 
+        assert!(match ast::parser::parse(&too_much_closure).unwrap_err().err {
             ParseErrors::ClosingParenthesisUnexpected => true, _ => false });
 
-        assert!(match ast::parser::parse(&not_enough_closure).unwrap_err().err { 
+        assert!(match ast::parser::parse(&not_enough_closure).unwrap_err().err {
             ParseErrors::ClosingParenthesisExpected => true, _ => false });
 
-        assert!(match ast::parser::parse(&middle_hash).unwrap_err().err { 
+        assert!(match ast::parser::parse(&middle_hash).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
-        assert!(match ast::parser::parse(&unicode).unwrap_err().err { 
+        assert!(match ast::parser::parse(&unicode).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
-        assert!(match ast::parser::parse(&name_with_dot).unwrap_err().err { 
+        assert!(match ast::parser::parse(&name_with_dot).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
-        assert!(match ast::parser::parse(&function_with_CR).unwrap_err().err { 
+        assert!(match ast::parser::parse(&wrong_tuple_literal_close).unwrap_err().err {
+            ParseErrors::ClosingTupleLiteralExpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&wrong_list_close).unwrap_err().err {
+            ParseErrors::ClosingParenthesisExpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&extra_tuple_literal_close).unwrap_err().err {
+            ParseErrors::ClosingTupleLiteralUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&unexpected_comma).unwrap_err().err {
+            ParseErrors::CommaSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&shorthand_tuple).unwrap_err().err {
+            ParseErrors::CommaSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&shorthand_tuple_dangling_comma).unwrap_err().err {
+            ParseErrors::CommaSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&decorative_colon_on_value).unwrap_err().err {
+            ParseErrors::ColonSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&tuple_literal_colon_after_comma).unwrap_err().err {
+            ParseErrors::ColonSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&empty_tuple_literal_comma).unwrap_err().err {
+            ParseErrors::CommaSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&empty_tuple_literal_colon).unwrap_err().err {
+            ParseErrors::ColonSeparatorUnexpected => true, _ => false });
+
+        assert!(match ast::parser::parse(&function_with_CR).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
-        assert!(match ast::parser::parse(&function_with_CRLF).unwrap_err().err { 
+        assert!(match ast::parser::parse(&function_with_CRLF).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
-        assert!(match ast::parser::parse(&function_with_NEL).unwrap_err().err { 
+        assert!(match ast::parser::parse(&function_with_NEL).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
-        assert!(match ast::parser::parse(&function_with_LS).unwrap_err().err { 
+        assert!(match ast::parser::parse(&function_with_LS).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
-        assert!(match ast::parser::parse(&function_with_PS).unwrap_err().err { 
+        assert!(match ast::parser::parse(&function_with_PS).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
         ast::parser::parse(&function_with_LF).unwrap();

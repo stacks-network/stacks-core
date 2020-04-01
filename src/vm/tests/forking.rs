@@ -65,7 +65,7 @@ fn test_at_block_good() {
         initialize,
         |x| {
             assert_eq!(branch(x, 1, "set-val").unwrap(),
-                       Value::okay(Value::Int(10)));
+                       Value::okay(Value::Int(10)).unwrap());
         },
         |x| {
             let resp = branch(x, 1, "reset").unwrap_err();
@@ -78,7 +78,7 @@ fn test_at_block_good() {
         },
         |x| {
             assert_eq!(branch(x, 10, "reset").unwrap(),
-                       Value::okay(Value::Int(11)));
+                       Value::okay(Value::Int(11)).unwrap());
         });
 }
 
@@ -86,14 +86,13 @@ fn test_at_block_good() {
 fn test_at_block_missing_defines() {
     fn initialize_1(owned_env: &mut OwnedEnvironment) {
         let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
-        let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
 
         let contract =
             "(define-map datum ((id bool)) ((value int)))
-             
+
              (define-public (flip)
-               (let ((current (default-to (get value (map-get?! datum ((id 'true)))) 0)))
-                 (map-set datum ((id 'true)) (if (is-eq 1 current) 0 1))
+               (let ((current (default-to (get value (map-get?! datum {id 'true})) 0)))
+                 (map-set datum {id 'true} (if (is-eq 1 current) 0 1))
                  (ok current)))";
 
         eprintln!("Initializing contract...");
@@ -101,7 +100,6 @@ fn test_at_block_missing_defines() {
     }
 
     fn initialize_2(owned_env: &mut OwnedEnvironment) -> Error {
-        let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
         let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
 
         let contract =
@@ -117,7 +115,6 @@ fn test_at_block_missing_defines() {
     }
 
     fn initialize_3(owned_env: &mut OwnedEnvironment) -> Error {
-        let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
         let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
 
         let contract =

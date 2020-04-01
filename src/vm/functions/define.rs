@@ -1,8 +1,10 @@
-use vm::types::{Value, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
+use std::collections::{HashMap, BTreeMap};
+use vm::types::{Value, TypeSignature, TupleTypeSignature, PrincipalData, TraitIdentifier, QualifiedContractIdentifier, parse_name_type_pairs};
+use vm::types::signatures::FunctionSignature;
 use vm::callables::{DefinedFunction, DefineType};
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{Atom, AtomValue, List};
-use vm::errors::{RuntimeErrorType, CheckErrors, InterpreterResult as Result, check_argument_count};
+use vm::representations::SymbolicExpressionType::{Atom, AtomValue, List, LiteralValue, Field};
+use vm::errors::{RuntimeErrorType, CheckErrors, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::eval;
 
@@ -15,6 +17,9 @@ define_named_enum!(DefineFunctions {
     PersistedVariable("define-data-var"),
     FungibleToken("define-fungible-token"),
     NonFungibleToken("define-non-fungible-token"),
+    Trait("define-trait"),
+    UseTrait("use-trait"),
+    ImplTrait("impl-trait"),
 });
 
 pub enum DefineFunctionsParsed <'a> {
@@ -27,22 +32,26 @@ pub enum DefineFunctionsParsed <'a> {
     UnboundedFungibleToken { name: &'a ClarityName },
     Map { name: &'a ClarityName, key_type: &'a SymbolicExpression, value_type: &'a SymbolicExpression },
     PersistedVariable  { name: &'a ClarityName, data_type: &'a SymbolicExpression, initial: &'a SymbolicExpression },
+    Trait { name: &'a ClarityName, functions: &'a [SymbolicExpression] },
+    UseTrait { name: &'a ClarityName, trait_identifier: &'a TraitIdentifier },
+    ImplTrait { trait_identifier: &'a TraitIdentifier },
 }
 
 pub enum DefineResult {
     Variable(ClarityName, Value),
     Function(ClarityName, DefinedFunction),
-    Map(String, TupleTypeSignature, TupleTypeSignature),
-    PersistedVariable(String, TypeSignature, Value),
-    FungibleToken(String, Option<u128>),
-    NonFungibleAsset(String, TypeSignature),
+    Map(ClarityName, TupleTypeSignature, TupleTypeSignature),
+    PersistedVariable(ClarityName, TypeSignature, Value),
+    FungibleToken(ClarityName, Option<u128>),
+    NonFungibleAsset(ClarityName, TypeSignature),
+    Trait(ClarityName, BTreeMap<ClarityName, FunctionSignature>),
+    UseTrait(ClarityName, TraitIdentifier),
+    ImplTrait(TraitIdentifier),
     NoDefine
 }
 
 fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<()> {
-    use vm::is_reserved;
-
-    if is_reserved(name) || contract_context.variables.contains_key(name) || contract_context.functions.contains_key(name) {
+    if contract_context.is_name_used(name) {
         Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
     } else {
         Ok(())
@@ -59,7 +68,7 @@ fn handle_define_variable(variable: &ClarityName, expression: &SymbolicExpressio
 
 fn handle_define_function(signature: &[SymbolicExpression],
                           expression: &SymbolicExpression,
-                          env: &Environment,
+                          env: &mut Environment,
                           define_type: DefineType) -> Result<DefineResult> {
     let (function_symbol, arg_symbols) = signature.split_first()
         .ok_or(CheckErrors::DefineFunctionBadSignature)?;
@@ -69,7 +78,7 @@ fn handle_define_function(signature: &[SymbolicExpression],
 
     check_legal_define(&function_name, &env.contract_context)?;
 
-    let arguments = parse_name_type_pairs(arg_symbols)?;
+    let arguments = parse_name_type_pairs(arg_symbols, env)?;
 
     for (argument, _) in arguments.iter() {
         check_legal_define(argument, &env.contract_context)?;
@@ -88,20 +97,20 @@ fn handle_define_function(signature: &[SymbolicExpression],
 fn handle_define_persisted_variable(variable_str: &ClarityName, value_type: &SymbolicExpression, value: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     check_legal_define(&variable_str, &env.contract_context)?;
 
-    let value_type_signature = TypeSignature::parse_type_repr(value_type)?;
+    let value_type_signature = TypeSignature::parse_type_repr(value_type, env)?;
 
     let context = LocalContext::new();
     let value = eval(value, env, &context)?;
 
-    Ok(DefineResult::PersistedVariable(variable_str.to_string(), value_type_signature, value))
+    Ok(DefineResult::PersistedVariable(variable_str.clone(), value_type_signature, value))
 }
 
 fn handle_define_nonfungible_asset(asset_name: &ClarityName, key_type: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     check_legal_define(&asset_name, &env.contract_context)?;
 
-    let key_type_signature = TypeSignature::parse_type_repr(key_type)?;
+    let key_type_signature = TypeSignature::parse_type_repr(key_type, env)?;
 
-    Ok(DefineResult::NonFungibleAsset(asset_name.to_string(), key_type_signature))
+    Ok(DefineResult::NonFungibleAsset(asset_name.clone(), key_type_signature))
 }
 
 fn handle_define_fungible_token(asset_name: &ClarityName, total_supply: Option<&SymbolicExpression>, env: &mut Environment) -> Result<DefineResult> {
@@ -111,25 +120,43 @@ fn handle_define_fungible_token(asset_name: &ClarityName, total_supply: Option<&
         let context = LocalContext::new();
         let total_supply_value = eval(total_supply_expr, env, &context)?;
         if let Value::UInt(total_supply_int) = total_supply_value {
-            Ok(DefineResult::FungibleToken(asset_name.to_string(), Some(total_supply_int)))
+            Ok(DefineResult::FungibleToken(asset_name.clone(), Some(total_supply_int)))
         } else {
             Err(CheckErrors::TypeValueError(TypeSignature::UIntType, total_supply_value).into())
         }
     } else {
-        Ok(DefineResult::FungibleToken(asset_name.to_string(), None))
+        Ok(DefineResult::FungibleToken(asset_name.clone(), None))
     }
 }
 
 fn handle_define_map(map_str: &ClarityName,
                      key_type: &SymbolicExpression,
                      value_type: &SymbolicExpression,
-                     env: &Environment) -> Result<DefineResult> {
+                     env: &mut Environment) -> Result<DefineResult> {
     check_legal_define(&map_str, &env.contract_context)?;
 
-    let key_type_signature = TupleTypeSignature::parse_name_type_pair_list(key_type)?;
-    let value_type_signature = TupleTypeSignature::parse_name_type_pair_list(value_type)?;
+    let key_type_signature = TupleTypeSignature::parse_name_type_pair_list(key_type, env)?;
+    let value_type_signature = TupleTypeSignature::parse_name_type_pair_list(value_type, env)?;
 
-    Ok(DefineResult::Map(map_str.to_string(), key_type_signature, value_type_signature))
+    Ok(DefineResult::Map(map_str.clone(), key_type_signature, value_type_signature))
+}
+
+fn handle_define_trait(name: &ClarityName,
+                       functions: &[SymbolicExpression],
+                       env: &mut Environment) -> Result<DefineResult> {
+    check_legal_define(&name, &env.contract_context)?;
+    
+    let trait_signature = TypeSignature::parse_trait_type_repr(&functions, env)?;
+    
+    Ok(DefineResult::Trait(name.clone(), trait_signature))
+}
+
+fn handle_use_trait(name: &ClarityName, trait_identifier: &TraitIdentifier) -> Result<DefineResult> {
+    Ok(DefineResult::UseTrait(name.clone(), trait_identifier.clone()))
+}
+
+fn handle_impl_trait(trait_identifier: &TraitIdentifier) -> Result<DefineResult> {
+    Ok(DefineResult::ImplTrait(trait_identifier.clone()))
 }
 
 impl DefineFunctions {
@@ -145,7 +172,7 @@ impl DefineFunctions {
 impl <'a> DefineFunctionsParsed <'a> {
     /// Try to parse a Top-Level Expression (e.g., (define-private (foo) 1)) as
     /// a define-statement, returns None if the supplied expression is not a define.
-    pub fn try_parse (expression: &'a SymbolicExpression) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrors> {
+    pub fn try_parse(expression: &'a SymbolicExpression) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrors> {
         let (define_type, args) = match DefineFunctions::try_parse(expression) {
             Some(x) => x,
             None => return Ok(None)
@@ -195,7 +222,33 @@ impl <'a> DefineFunctionsParsed <'a> {
                 check_argument_count(3, args)?;
                 let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
                 DefineFunctionsParsed::PersistedVariable { name, data_type: &args[1], initial: &args[2] }
-            }
+            },
+            DefineFunctions::Trait => {
+                check_argument_count(2, args)?;
+                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                DefineFunctionsParsed::Trait { name, functions: &args[1..] }
+            },
+            DefineFunctions::UseTrait => {
+                check_argument_count(2, args)?;
+                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                match &args[1].expr {
+                    Field(ref field) => DefineFunctionsParsed::UseTrait { 
+                        name: &name, 
+                        trait_identifier: &field 
+                    },
+                    _ => return Err(CheckErrors::ExpectedTraitIdentifier.into())
+                }
+            },
+            DefineFunctions::ImplTrait => {
+                check_argument_count(1, args)?;
+                match &args[0].expr {
+                    Field(ref field) => DefineFunctionsParsed::ImplTrait { 
+                        trait_identifier: &field 
+                    },
+                    _ => return Err(CheckErrors::ExpectedTraitIdentifier.into())
+                }
+            },
+
         };
         Ok(Some(result))
     }
@@ -230,6 +283,15 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
             },
             DefineFunctionsParsed::PersistedVariable { name, data_type, initial } => {
                 handle_define_persisted_variable(name, data_type, initial, env)
+            }
+            DefineFunctionsParsed::Trait { name, functions } => {
+                handle_define_trait(name, functions, env)
+            },
+            DefineFunctionsParsed::UseTrait { name, trait_identifier } => {
+                handle_use_trait(name, trait_identifier)
+            },
+            DefineFunctionsParsed::ImplTrait { trait_identifier } => {
+                handle_impl_trait(trait_identifier)
             }
         }
     } else {

@@ -4,8 +4,9 @@ use vm::{
     Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
 use chainstate::stacks::{
     db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
+    StacksMicroblockHeader, StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
     StacksPublicKey, TransactionPayload, StacksTransactionSigner,
+    TokenTransferMemo, CoinbasePayload,
     StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress };
 use chainstate::burn::VRFSeed;
 use burnchains::Address;
@@ -18,12 +19,12 @@ use util::db::{DBConn, FromRow};
 use testnet;
 use testnet::mem_pool::MemPool;
 
-fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
-                                         sender: &StacksPrivateKey, nonce: u64) -> Vec<u8> {
+pub fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
+                                         sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> Vec<u8> {
     let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
         .expect("Failed to create p2pkh spending condition from public key.");
     spending_condition.set_nonce(nonce);
-    spending_condition.set_fee_rate(0);
+    spending_condition.set_fee_rate(fee_rate);
     let auth = TransactionAuth::Standard(spending_condition);
     let unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
@@ -34,17 +35,35 @@ fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
     buf
 }
 
-fn make_contract_publish(sender: &StacksPrivateKey, nonce: u64, contract_name: &str, contract_content: &str) -> Vec<u8> {
+pub fn make_contract_publish(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+                             contract_name: &str, contract_content: &str) -> Vec<u8> {
     let name = ContractName::from(contract_name);
     let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
 
     let payload = TransactionSmartContract { name, code_body };
 
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
 }
 
-fn make_contract_call(
-    sender: &StacksPrivateKey, nonce: u64,
+pub fn make_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+                            recipient: &StacksAddress, amount: u64) -> Vec<u8> {
+    let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+}
+
+pub fn make_poison(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+                   header_1: StacksMicroblockHeader, header_2: StacksMicroblockHeader) -> Vec<u8> {
+    let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+}
+
+pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> Vec<u8> {
+    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]));
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
+}
+
+pub fn make_contract_call(
+    sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
     contract_addr: &StacksAddress, contract_name: &str,
     function_name: &str, function_args: &[Value]) -> Vec<u8> {
 
@@ -57,10 +76,10 @@ fn make_contract_call(
         function_args: function_args.iter().map(|x| x.clone()).collect()
     };
 
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
 }
 
-fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
+pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
     StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(sk)])
         .unwrap()
@@ -72,7 +91,9 @@ const GET_INFO_CONTRACT: &'static str = "
           ((stacks-hash (buff 32)) 
            (id-hash (buff 32))
            (btc-hash (buff 32))
-           (vrf-seed (buff 32))))
+           (vrf-seed (buff 32))
+           (burn-block-time uint)
+           (stacks-miner principal)))
         (define-private (test-1) (get-block-info? time u1))
         (define-private (test-2) (get-block-info? time block-height))
         (define-private (test-3) (get-block-info? time u100000))
@@ -80,6 +101,9 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-private (test-5) (get-block-info? header-hash (- block-height u1)))
         (define-private (test-6) (get-block-info? burnchain-header-hash u1))
         (define-private (test-7) (get-block-info? vrf-seed u1))
+        (define-private (test-8) (get-block-info? miner-address u1))
+        (define-private (test-9) (get-block-info? miner-address block-height))
+        (define-private (test-10) (get-block-info? miner-address u100000))
 
         (define-private (get-block-id-hash (height uint)) (unwrap-panic
           (get id-hash (map-get? block-data ((height height))))))
@@ -105,14 +129,22 @@ const GET_INFO_CONTRACT: &'static str = "
                         (print (get vrf-seed block-info)))
                  (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? burnchain-header-hash (- block-height u1)))))
                         (print (unwrap-panic (get-block-info? burnchain-header-hash (- height u1))))
-                        (print (get btc-hash block-info))))))
+                        (print (get btc-hash block-info)))
+                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? time (- block-height u1)))))
+                        (print (unwrap-panic (get-block-info? time (- height u1))))
+                        (print (get burn-block-time block-info)))
+                 (is-eq (print (unwrap-panic (at-block block-to-check (get-block-info? miner-address (- block-height u1)))))
+                        (print (unwrap-panic (get-block-info? miner-address (- height u1))))
+                        (print (get stacks-miner block-info))))))
 
         (define-private (inner-update-info (height uint))
             (let ((value (tuple 
               (stacks-hash (unwrap-panic (get-block-info? header-hash height)))
               (id-hash (unwrap-panic (get-block-info? id-header-hash height)))
               (btc-hash (unwrap-panic (get-block-info? burnchain-header-hash height)))
-              (vrf-seed (unwrap-panic (get-block-info? vrf-seed height))))))
+              (vrf-seed (unwrap-panic (get-block-info? vrf-seed height)))
+              (burn-block-time (unwrap-panic (get-block-info? time height)))
+              (stacks-miner (unwrap-panic (get-block-info? miner-address height))))))
              (ok (map-set block-data ((height height)) value))))
 
         (define-public (update-info)
@@ -134,7 +166,7 @@ fn integration_test_get_info() {
     let contract_sk = StacksPrivateKey::new();
 
     let num_rounds = 4;
-    let contract_addr = to_addr(&contract_sk);
+    let _contract_addr = to_addr(&contract_sk);
 
     let mut run_loop = testnet::RunLoop::new(conf);
     run_loop.apply_on_new_tenures(|round, tenure| {
@@ -142,11 +174,11 @@ fn integration_test_get_info() {
         let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
 
         if round == 1 { // block-height = 2
-            let publish_tx = make_contract_publish(&contract_sk, 0, "get-info", GET_INFO_CONTRACT);
+            let publish_tx = make_contract_publish(&contract_sk, 0, 0, "get-info", GET_INFO_CONTRACT);
             eprintln!("Tenure in 1 started!");
             tenure.mem_pool.submit(publish_tx);
         } else if round >= 2 { // block-height > 2
-            let tx = make_contract_call(&principal_sk, (round - 2).into(), &to_addr(&contract_sk), "get-info", "update-info", &[]);
+            let tx = make_contract_call(&principal_sk, (round - 2).into(), 0, &to_addr(&contract_sk), "get-info", "update-info", &[]);
             tenure.mem_pool.submit(tx);
         }
 
@@ -176,6 +208,24 @@ fn integration_test_get_info() {
                 eprintln!("Current Block: {}       Parent Block: {}", bhh, parent);
                 let parent_val = Value::buff_from(parent.as_bytes().to_vec()).unwrap();
 
+                // find header metadata
+                let mut headers = vec![];
+                for block in blocks.iter() {
+                    let header = StacksChainState::get_anchored_block_header_info(&chain_state.headers_db, &block.0, &block.1).unwrap().unwrap();
+                    headers.push(header);
+                }
+
+                let _tip_header_info = headers.last().unwrap();
+
+                // find miner metadata
+                let mut miners = vec![];
+                for block in blocks.iter() {
+                    let miner = StacksChainState::get_miner_info(&chain_state.headers_db, &block.0, &block.1).unwrap().unwrap();
+                    miners.push(miner);
+                }
+
+                let _tip_miner = miners.last().unwrap();
+
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "block-height"),
@@ -183,13 +233,28 @@ fn integration_test_get_info() {
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-1)"),
+                    Value::some(Value::UInt(headers[0].burn_header_timestamp as u128)).unwrap());
+                
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-2)"),
+                    Value::none());
+
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-3)"),
+                    Value::none());
+                
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-4 u1)"),
-                    Value::some(parent_val.clone()));
+                    Value::some(parent_val.clone()).unwrap());
 
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-5)"),
-                    Value::some(parent_val));
+                    Value::some(parent_val).unwrap());
 
                 // test-6 and test-7 return the block at height 1's VRF-seed,
                 //   which in this integration test, should be blocks[0]
@@ -204,11 +269,28 @@ fn integration_test_get_info() {
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-6)"),
-                    Value::some(Value::buff_from(last_burn_header).unwrap()));
+                    Value::some(Value::buff_from(last_burn_header).unwrap()).unwrap());
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-7)"),
-                    Value::some(Value::buff_from(last_vrf_seed).unwrap()));
+                    Value::some(Value::buff_from(last_vrf_seed).unwrap()).unwrap());
+
+                // verify that we can get the block miner
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-8)"),
+                    Value::some(Value::Principal(miners[0].address.to_account_principal())).unwrap());
+
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-9)"),
+                    Value::none());
+
+                assert_eq!(
+                    chain_state.clarity_eval_read_only(
+                        bhh, &contract_identifier, "(test-10)"),
+                    Value::none());
+                    
             },
             3 => {
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(

@@ -27,6 +27,8 @@ pub mod neighbors;
 pub mod p2p;
 pub mod poll;
 pub mod prune;
+pub mod rpc;
+pub mod server;
 
 use std::fmt;
 use std::hash::Hash;
@@ -46,6 +48,9 @@ use std::convert::TryFrom;
 use std::ops::Deref;
 use std::borrow::Borrow;
 
+use rand::RngCore;
+use rand::thread_rng;
+
 use serde_json;
 use serde::{Serialize, Deserialize};
 
@@ -63,7 +68,8 @@ use chainstate::stacks::StacksMicroblock;
 use chainstate::stacks::StacksTransaction;
 use chainstate::stacks::StacksPublicKey;
 
-use util::hash::DoubleSha256;
+use chainstate::stacks::Error as chainstate_error;
+
 use util::hash::Hash160;
 use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
 use util::hash::HASH160_ENCODED_SIZE;
@@ -112,7 +118,7 @@ pub enum Error {
     /// Failed to read from the FS 
     FilesystemError,
     /// Database error 
-    DBError,
+    DBError(db_error),
     /// Socket mutex was poisoned
     SocketMutexPoisoned,
     /// Socket not instantiated
@@ -178,7 +184,7 @@ impl fmt::Display for Error {
             Error::TemporarilyDrained => write!(f, "Temporarily out of bytes to read; try again later"),
             Error::PermanentlyDrained => write!(f, "Out of bytes to read"),
             Error::FilesystemError => write!(f, "Disk I/O error"),
-            Error::DBError => write!(f, "Database error"),
+            Error::DBError(ref e) => fmt::Display::fmt(e, f),
             Error::SocketMutexPoisoned => write!(f, "socket mutex was poisoned"),
             Error::SocketNotConnectedToPeer => write!(f, "not connected to peer"),
             Error::ConnectionBroken => write!(f, "connection to peer node is broken"),
@@ -223,7 +229,7 @@ impl error::Error for Error {
             Error::TemporarilyDrained => None,
             Error::PermanentlyDrained => None,
             Error::FilesystemError => None,
-            Error::DBError => None,
+            Error::DBError(ref e) => Some(e),
             Error::SocketMutexPoisoned => None,
             Error::SocketNotConnectedToPeer => None,
             Error::ConnectionBroken => None,
@@ -439,12 +445,13 @@ impl FromStr for HttpContentType {
 /// HTTP request preamble
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpRequestPreamble {
+    pub version: HttpVersion,
     pub verb: String,
     pub path: String,
     pub host: PeerHost,
-    pub request_id: u32,               // optional header as X-Request-ID
     pub content_type: Option<HttpContentType>,
     pub content_length: Option<u32>,
+    pub keep_alive: bool,
     pub headers: HashMap<String, String>
 }
 
@@ -453,10 +460,10 @@ pub struct HttpRequestPreamble {
 pub struct HttpResponsePreamble {
     pub status_code: u16,
     pub reason: String,
+    pub keep_alive: bool,
     pub content_length: Option<u32>,     // if not given, then content will be transfer-encoed: chunked
     pub content_type: HttpContentType,   // required header
-    pub request_id: u32,                 // paired with an HTTP request (X-Request-ID)
-    pub request_path: String,            // paired with an HTTP request (X-Request-Path)
+    pub request_id: u32,                 // X-Request-ID
     pub headers: HashMap<String, String>
 }
 
@@ -592,7 +599,6 @@ pub enum ServiceFlags {
     RPC = 0x02,
 }
 
-// TODO: URL string type
 #[derive(Debug, Clone, PartialEq)]
 pub struct HandshakeAcceptData {
     pub handshake: HandshakeData,       // this peer's handshake information
@@ -674,6 +680,23 @@ impl fmt::Debug for PeerHost {
     }
 }
 
+impl Hash for PeerHost {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match *self {
+            PeerHost::DNS(ref name, ref port) => {
+                "DNS".hash(state);
+                name.hash(state);
+                port.hash(state);
+            },
+            PeerHost::IP(ref addrbytes, ref port) => {
+                "IP".hash(state);
+                addrbytes.hash(state);
+                port.hash(state);
+            }
+        }
+    }
+}
+
 impl PeerHost {
     pub fn hostname(&self) -> String {
         match *self {
@@ -696,19 +719,67 @@ impl PeerHost {
             Err(_) => PeerHost::DNS(host, port)
         }
     }
+
+    pub fn from_socketaddr(socketaddr: &SocketAddr) -> PeerHost {
+        PeerHost::IP(PeerAddress::from_socketaddr(socketaddr), socketaddr.port())
+    }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct HttpRequestMetadata {
-    pub peer: PeerHost,
-    pub request_id: u32
+/// The data we return on GET /v2/info
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeerInfoData {
+    peer_version: u32,
+    burn_consensus: ConsensusHash,
+    burn_block_height: u64,
+    stable_burn_consensus: ConsensusHash,
+    stable_burn_block_height: u64,
+    server_version: String,
+    network_id: u32,
+    parent_network_id: u32,
 }
+
+#[derive(Debug, Clone, PartialEq, Copy, Hash)]
+#[repr(u8)]
+pub enum HttpVersion {
+    Http10 = 0x10,
+    Http11 = 0x11
+}
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub struct HttpRequestMetadata {
+    pub version: HttpVersion,
+    pub peer: PeerHost,
+    pub keep_alive: bool
+}
+
+/// Request ID to use or expect from non-Stacks HTTP clients.
+/// In particular, if a HTTP response does not contain the x-request-id header, then it's assumed
+/// to be this value.  This is needed to support fetching immutables like block and microblock data
+/// from non-Stacks nodes (like Gaia hubs, CDNs, vanilla HTTP servers, and so on).
+pub const HTTP_REQUEST_ID_RESERVED : u32 = 0;
 
 impl HttpRequestMetadata {
+    pub fn new(host: String, port: u16) -> HttpRequestMetadata {
+        HttpRequestMetadata {
+            version: HttpVersion::Http11,
+            peer: PeerHost::from_host_port(host, port),
+            keep_alive: true,
+        }
+    }
+
+    pub fn from_host(peer_host: PeerHost) -> HttpRequestMetadata {
+        HttpRequestMetadata {
+            version: HttpVersion::Http11,
+            peer: peer_host,
+            keep_alive: true,
+        }
+    }
+
     pub fn from_preamble(preamble: &HttpRequestPreamble) -> HttpRequestMetadata {
         HttpRequestMetadata {
+            version: preamble.version,
             peer: preamble.host.clone(),
-            request_id: preamble.request_id
+            keep_alive: preamble.keep_alive,
         }
     }
 }
@@ -716,47 +787,61 @@ impl HttpRequestMetadata {
 /// All HTTP request paths we support, and the arguments they carry in their paths
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
+    GetInfo(HttpRequestMetadata),
     GetNeighbors(HttpRequestMetadata),
     GetBlock(HttpRequestMetadata, BlockHeaderHash),
     GetMicroblocks(HttpRequestMetadata, BlockHeaderHash),
+    GetMicroblocksUnconfirmed(HttpRequestMetadata, BlockHeaderHash, u16),
     PostTransaction(HttpRequestMetadata, StacksTransaction)
 }
 
 /// The fields that Actually Matter to http responses
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpResponseMetadata {
+    pub client_version: HttpVersion,
+    pub client_keep_alive: bool,
     pub request_id: u32,
-    pub request_path: String,
-    pub content_length: Option<u32>
+    pub content_length: Option<u32>,
 }
 
 impl HttpResponseMetadata {
-    pub fn new(request_id: u32, request_path: String, content_length: Option<u32>) -> HttpResponseMetadata {
+    pub fn make_request_id() -> u32 {
+        let mut rng = thread_rng();
+        let mut request_id = HTTP_REQUEST_ID_RESERVED;
+        while request_id == HTTP_REQUEST_ID_RESERVED {
+            request_id = rng.next_u32();
+        }
+        request_id
+    }
+
+    pub fn new(client_version: HttpVersion, request_id: u32, content_length: Option<u32>, client_keep_alive: bool) -> HttpResponseMetadata {
         HttpResponseMetadata {
+            client_version: client_version,
+            client_keep_alive: client_keep_alive,
             request_id: request_id,
-            request_path: request_path,
             content_length: content_length,
         }
     }
 
-    pub fn from_preamble(preamble: &HttpResponsePreamble) -> HttpResponseMetadata {
+    pub fn from_preamble(request_version: HttpVersion, preamble: &HttpResponsePreamble) -> HttpResponseMetadata {
         HttpResponseMetadata {
+            client_version: request_version,
+            client_keep_alive: preamble.keep_alive,
             request_id: preamble.request_id,
-            request_path: preamble.request_path.clone(),
-            content_length: preamble.content_length.clone()
+            content_length: preamble.content_length.clone(),
         }
     }
 }
 
 /// All data-plane message types a peer can reply with.
-/// TODO: these non-error variants are, for the time being, for illustrative and testing purposes
-/// only.  In reality, blocks and microblocks at least will be streamed from disk and/or a db,
-/// instead of being passed in RAM.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpResponseType {
+    PeerInfo(HttpResponseMetadata, PeerInfoData),
     Neighbors(HttpResponseMetadata, NeighborsData),
     Block(HttpResponseMetadata, StacksBlock),
+    BlockStream(HttpResponseMetadata),
     Microblocks(HttpResponseMetadata, Vec<StacksMicroblock>),
+    MicroblockStream(HttpResponseMetadata),
     TransactionID(HttpResponseMetadata, Txid),
     
     // peer-given error responses
@@ -879,9 +964,6 @@ pub const MICROBLOCKS_INV_DATA_MAX_HASHES : u32 = 4096;
 // maximum value of a blocks's inv data bitlen 
 pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 4096;
 
-// heartbeat threshold -- start trying to ping a node at this many seconds before expiration
-pub const HEARTBEAT_PING_THRESHOLD : u64 = 600;
-
 macro_rules! impl_byte_array_message_codec {
     ($thing:ident, $len:expr) => {
         impl StacksMessageCodec for $thing {
@@ -898,13 +980,14 @@ macro_rules! impl_byte_array_message_codec {
     }
 }
 impl_byte_array_message_codec!(ConsensusHash, 20);
-impl_byte_array_message_codec!(DoubleSha256, 32);
 impl_byte_array_message_codec!(Hash160, 20);
 impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
 impl_byte_array_message_codec!(BlockHeaderHash, 32);
 impl_byte_array_message_codec!(MessageSignature, 65);
 impl_byte_array_message_codec!(PeerAddress, 16);
 impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
+
+impl_byte_array_serde!(ConsensusHash);
 
 /// neighbor identifier 
 #[derive(Clone, Eq)]
@@ -978,6 +1061,9 @@ pub struct Neighbor {
 
 pub const NUM_NEIGHBORS : usize = 32;
 
+// maximum number of unconfirmed microblocks can get streamed to us
+pub const MAX_MICROBLOCKS_UNCONFIRMED : usize = 1024;
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -995,6 +1081,8 @@ mod test {
     use chainstate::burn::db::burndb;
     use chainstate::burn::db::burndb::*;
     use chainstate::*;
+
+    use chainstate::stacks::db::StacksChainState;
 
     use burnchains::*;
     use burnchains::burnchain::*;
@@ -1017,6 +1105,8 @@ mod test {
     use std::ops::Deref;
     use std::ops::DerefMut;
     use std::collections::HashMap;
+
+    use std::fs;
     
     use rand::RngCore;
     use rand;
@@ -1190,6 +1280,8 @@ mod test {
     // describes a peer's initial configuration
     #[derive(Debug, Clone)]
     pub struct TestPeerConfig {
+        pub network_id: u32,
+        pub peer_version: u32,
         pub current_block: u64,
         pub private_key: Secp256k1PrivateKey,
         pub private_key_expire: u64,
@@ -1198,19 +1290,23 @@ mod test {
         pub burnchain: Burnchain,
         pub connection_opts: ConnectionOptions,
         pub server_port: u16,
+        pub http_port: u16,
         pub asn: u32,
         pub org: u32,
         pub whitelisted: i64,
         pub blacklisted: i64,
-        pub data_url: UrlString
+        pub data_url: UrlString,
+        pub test_name: String,
     }
 
     impl TestPeerConfig {
         pub fn default() -> TestPeerConfig {
             let conn_opts = ConnectionOptions::default();
-            let start_block = 10;
+            let start_block = 1;
             let burnchain = Burnchain::default_unittest(start_block, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap());
             TestPeerConfig {
+                network_id: 0xfffefdfc,
+                peer_version: 0x01020304,
                 current_block: start_block + (burnchain.consensus_hash_lifetime + 1) as u64,
                 private_key: Secp256k1PrivateKey::new(),
                 private_key_expire: start_block + conn_opts.private_key_lifetime,
@@ -1219,17 +1315,28 @@ mod test {
                 burnchain: burnchain,
                 connection_opts: conn_opts,
                 server_port: 32000,
+                http_port: 32001,
                 asn: 0,
                 org: 0,
                 whitelisted: 0,
                 blacklisted: 0,
-                data_url: "".into()
+                data_url: "".into(),
+                test_name: "".into()
             }
         }
 
         pub fn from_port(p: u16) -> TestPeerConfig {
             TestPeerConfig {
                 server_port: p,
+                ..TestPeerConfig::default()
+            }
+        }
+        
+        pub fn new(test_name: &str, p2p_port: u16, rpc_port: u16) -> TestPeerConfig {
+            TestPeerConfig {
+                test_name: test_name.into(),
+                server_port: p2p_port,
+                http_port: rpc_port,
                 ..TestPeerConfig::default()
             }
         }
@@ -1241,8 +1348,8 @@ mod test {
         pub fn to_neighbor(&self) -> Neighbor {
             Neighbor {
                 addr: NeighborKey {
-                    peer_version: self.burnchain.peer_version,
-                    network_id: self.burnchain.network_id,
+                    peer_version: self.peer_version,
+                    network_id: self.network_id,
                     addrbytes: PeerAddress([0,0,0,0,0,0,0,0,0,0,0xff,0xff,127,0,0,1]),
                     port: self.server_port
                 },
@@ -1259,18 +1366,38 @@ mod test {
                 out_degree: 0
             }
         }
+
+        pub fn to_peer_host(&self) -> PeerHost {
+            PeerHost::IP(PeerAddress([0,0,0,0,0,0,0,0,0,0,0xff,0xff,127,0,0,1]), self.http_port)
+        }
     }
 
     pub struct TestPeer {
         pub config: TestPeerConfig,
         pub network: PeerNetwork,
-        pub burndb: Option<BurnDB>
+        pub burndb: Option<BurnDB>,
+        pub chainstate: Option<StacksChainState>,
     }
 
     impl TestPeer {
         pub fn new(config: TestPeerConfig) -> TestPeer {
-            let mut peerdb = PeerDB::connect_memory(config.burnchain.network_id, config.private_key_expire, config.data_url.clone(), &config.asn4_entries, &config.initial_neighbors).unwrap();
-            let mut burndb = BurnDB::connect_memory(config.burnchain.first_block_height, &config.burnchain.first_block_hash).unwrap();
+            let test_path = format!("/tmp/blockstack-test-peer-{}-{}", &config.test_name, config.server_port);
+            match fs::metadata(&test_path) {
+                Ok(_) => {
+                    fs::remove_dir_all(&test_path).unwrap();
+                },
+                Err(_) => {}
+            };
+
+            fs::create_dir_all(&test_path).unwrap();
+
+            let burndb_path = format!("{}/burn", &test_path);
+            let peerdb_path = format!("{}/peers.db", &test_path);
+            let chainstate_path = format!("{}/chainstate", &test_path);
+
+            let mut burndb = BurnDB::connect(&burndb_path, config.burnchain.first_block_height, &config.burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
+            let mut peerdb = PeerDB::connect(&peerdb_path, true, config.network_id, config.burnchain.network_id, config.private_key_expire, config.data_url.clone(), &config.asn4_entries, Some(&config.initial_neighbors)).unwrap();
+            let chainstate = StacksChainState::open(false, config.network_id, &chainstate_path).unwrap();
 
             {
                 let mut tx = burndb.tx_begin().unwrap();
@@ -1317,14 +1444,15 @@ mod test {
                 let mut tx = burndb.tx_begin().unwrap();
                 BurnDB::get_burnchain_view(&mut tx, &config.burnchain).unwrap()
             };
-            let mut peer_network = PeerNetwork::new(peerdb, local_peer, config.burnchain.clone(), burnchain_view, config.connection_opts.clone());
+            let mut peer_network = PeerNetwork::new(peerdb, local_peer, config.peer_version, config.burnchain.clone(), burnchain_view, config.connection_opts.clone());
 
             peer_network.bind(&local_addr).unwrap();
             
             TestPeer {
                 config: config,
                 network: peer_network,
-                burndb: Some(burndb)
+                burndb: Some(burndb),
+                chainstate: Some(chainstate)
             }
         }
 
@@ -1348,14 +1476,15 @@ mod test {
             Ok(())
         }
 
-        pub fn step(&mut self) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+        pub fn step(&mut self) -> Result<HashMap<usize, Vec<StacksMessage>>, net_error> {
             let mut burndb = self.burndb.take().unwrap();
-            let burnchain_snapshot = {
-                let mut tx = burndb.tx_begin().unwrap();
-                BurnDB::get_burnchain_view(&mut tx, &self.config.burnchain).unwrap()
-            };
-            let ret = self.network.run(burnchain_snapshot, 1);
+            let mut chainstate = self.chainstate.take().unwrap();
+            
+            let ret = self.network.run(&mut burndb, &mut chainstate, 1);
+
             self.burndb = Some(burndb);
+            self.chainstate = Some(chainstate);
+
             ret
         }
 
@@ -1376,7 +1505,7 @@ mod test {
                 block_hash: BurnchainHeaderHash(block_hash_bytes),
                 parent_block_hash: BurnchainHeaderHash(prev_block_hash_bytes),
                 txs: vec![],
-                // timestamp: get_epoch_time_secs()
+                timestamp: get_epoch_time_secs()
             })
         }
 
@@ -1402,6 +1531,10 @@ mod test {
             self.config.to_neighbor()
         }
 
+        pub fn to_peer_host(&self) -> PeerHost {
+            self.config.to_peer_host()
+        }
+
         pub fn get_public_key(&self) -> Secp256k1PublicKey {
             let local_peer = PeerDB::get_local_peer(&self.network.peerdb.conn()).unwrap();
             Secp256k1PublicKey::from_private(&local_peer.private_key)
@@ -1409,6 +1542,16 @@ mod test {
 
         pub fn get_peerdb_conn(&self) -> &DBConn {
             self.network.peerdb.conn()
+        }
+
+        pub fn get_burnchain_view(&mut self) -> Result<BurnchainView, db_error> {
+            let mut burndb = self.burndb.take().unwrap();
+            let view_res = {
+                let mut tx = burndb.tx_begin().unwrap();
+                BurnDB::get_burnchain_view(&mut tx, &self.config.burnchain)
+            };
+            self.burndb = Some(burndb);
+            view_res
         }
 
         pub fn dump_frontier(&self) -> () {

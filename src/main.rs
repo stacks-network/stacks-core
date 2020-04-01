@@ -18,8 +18,6 @@
 */
 
 #![allow(unused_imports)]
-#![allow(unused_assignments)]
-#![allow(unused_variables)]
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -154,8 +152,14 @@ fn main() {
         let mblock_path = &argv[2];
         let mblock_data = fs::read(mblock_path).expect(&format!("Failed to open {}", mblock_path));
 
-        let mblocks : Vec<StacksMicroblock> = Vec::consensus_deserialize(&mut io::Cursor::new(&mblock_data)).map_err(|_e| {
-            eprintln!("Failed to decode microblocks");
+        let mut cursor = io::Cursor::new(&mblock_data);
+        let mut debug_cursor = LogReader::from_reader(&mut cursor);
+        let mblocks : Vec<StacksMicroblock> = Vec::consensus_deserialize(&mut debug_cursor).map_err(|e| {
+            eprintln!("Failed to decode microblocks: {:?}", &e);
+            eprintln!("Bytes consumed:");
+            for buf in debug_cursor.log().iter() {
+                eprintln!("  {}", to_hex(buf));
+            }
             process::exit(1);
         }).unwrap();
 

@@ -120,7 +120,7 @@ impl MarfedKV {
         let mut path = PathBuf::from(path_str);
 
         std::fs::create_dir_all(&path)
-            .map_err(|err| InterpreterError::FailedToCreateDataDirectory)?;
+            .map_err(|_| InterpreterError::FailedToCreateDataDirectory)?;
 
         path.push("marf");
         let marf_path = path.to_str()
@@ -219,7 +219,6 @@ impl MarfedKV {
         &self.chain_tip
     }
 
-    #[cfg(test)]
     pub fn set_chain_tip(&mut self, bhh: &BlockHeaderHash) {
         self.chain_tip = bhh.clone();
     }

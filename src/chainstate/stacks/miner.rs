@@ -22,10 +22,10 @@ use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use chainstate::stacks::db::{
     ClarityTx,
-    StacksChainState
+    StacksChainState,
+    blocks::MemPoolRejection
 };
 use chainstate::stacks::index::TrieHash;
-
 use chainstate::burn::BlockHeaderHash;
 
 use net::StacksMessageCodec;
@@ -75,13 +75,14 @@ impl StacksBlockBuilder {
         }
     }
     
-    pub fn first(miner_id: usize, genesis_burn_header_hash: &BurnchainHeaderHash, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
+    pub fn first(miner_id: usize, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis(),
             microblock_tail: None,
             block_height: 0,
             index_root: TrieHash([0u8; 32]),
-            burn_header_hash: genesis_burn_header_hash.clone()
+            burn_header_hash: genesis_burn_header_hash.clone(),
+            burn_header_timestamp: genesis_burn_header_timestamp
         };
 
         let mut builder = StacksBlockBuilder::from_parent(miner_id, &genesis_chain_tip, &StacksWorkScore::initial(), proof, microblock_privkey);
@@ -212,6 +213,10 @@ impl StacksBlockBuilder {
         test_debug!("\n\nMiner {}: Mined microblock block {} (seq={}): {} transaction(s)\n", self.miner_id, microblock.block_hash(), microblock.header.sequence, microblock.txs.len());
         Ok(microblock)
     }
+
+    pub fn will_admit_mempool_tx<R: Read>(&self, chainstate: &mut StacksChainState, fd: &mut R) -> Result<StacksTransaction, MemPoolRejection> {
+        chainstate.will_admit_mempool_tx(&self.chain_tip.burn_header_hash, &self.header.parent_block, fd)
+    }
     
     /// Begin mining an epoch's transactions.
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
@@ -254,8 +259,8 @@ impl StacksBlockBuilder {
             self.set_parent_microblock(&EMPTY_MICROBLOCK_PARENT_HASH, 0);
         }
         else {
-            let (stx_spent, _stx_burnt) = match StacksChainState::process_microblocks_transactions(&mut tx, &parent_microblocks) {
-                Ok((stx_spent, stx_burnt)) => (stx_spent, stx_burnt),
+            match StacksChainState::process_microblocks_transactions(&mut tx, &parent_microblocks) {
+                Ok(_) => { },
                 Err((e, mblock_header_hash)) => {
                     let msg = format!("Invalid Stacks microblocks {},{} (offender {}): {:?}", parent_burn_header_hash, parent_header_hash, mblock_header_hash, &e);
                     warn!("{}", &msg);
@@ -722,7 +727,7 @@ pub mod test {
             let (builder, parent_block_snapshot_opt) = match parent_stacks_block {
                 None => {
                     // first stacks block
-                    let builder = StacksBlockBuilder::first(miner.id, &burn_block.parent_snapshot.burn_header_hash, &proof, &miner.next_microblock_privkey());
+                    let builder = StacksBlockBuilder::first(miner.id, &burn_block.parent_snapshot.burn_header_hash, burn_block.parent_snapshot.burn_header_timestamp, &proof, &miner.next_microblock_privkey());
                     (builder, None)
                 },
                 Some(parent_stacks_block) => {
@@ -791,7 +796,7 @@ pub mod test {
 
         // "discover" this stacks block
         test_debug!("\n\nPreprocess Stacks block {}/{}", &commit_snapshot.burn_header_hash, &block_hash);
-        let block_res = node.chainstate.preprocess_anchored_block(&mut tx, &commit_snapshot.burn_header_hash, &stacks_block, &parent_block_burn_header_hash).unwrap();
+        let block_res = node.chainstate.preprocess_anchored_block(&mut tx, &commit_snapshot.burn_header_hash, commit_snapshot.burn_header_timestamp, &stacks_block, &parent_block_burn_header_hash).unwrap();
 
         // "discover" this stacks microblock stream
         for mblock in stacks_microblocks.iter() {
@@ -968,7 +973,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block.block_hash(), microblocks.len());
-            let tip_info_list = node.chainstate.process_blocks(burn_node.burndb.conn(), 1).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(1).unwrap();
 
             // processed _this_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -1062,7 +1067,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block.block_hash(), microblocks.len());
-            let tip_info_list = node.chainstate.process_blocks(burn_node.burndb.conn(), 1).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(1).unwrap();
 
             // processed _this_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -1161,7 +1166,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {}", &fork_snapshot.winning_stacks_block_hash);
-            let tip_info_list = node.chainstate.process_blocks(burn_node.burndb.conn(), 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(2).unwrap();
 
             // processed exactly one block, but got back two tip-infos
             assert_eq!(tip_info_list.len(), 1);
@@ -1312,7 +1317,7 @@ pub mod test {
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_1.block_hash(), microblocks_1.len());
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_2.block_hash(), microblocks_2.len());
-            let tip_info_list = node.chainstate.process_blocks(burn_node.burndb.conn(), 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(2).unwrap();
 
             // processed _one_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -1456,8 +1461,8 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process Stacks block {}", &fork_snapshot.winning_stacks_block_hash);
-            let mut tip_info_list = node.chainstate.process_blocks(burn_node.burndb.conn(), 2).unwrap();
-            let mut tip_info_list_2 = node_2.chainstate.process_blocks(burn_node.burndb.conn(), 2).unwrap();
+            let mut tip_info_list = node.chainstate.process_blocks(2).unwrap();
+            let mut tip_info_list_2 = node_2.chainstate.process_blocks(2).unwrap();
 
             tip_info_list.append(&mut tip_info_list_2);
 
@@ -1499,8 +1504,8 @@ pub mod test {
             // block data.
             preprocess_stacks_block_data(&mut node, &mut burn_node, &fork_snapshot, &stacks_block_2, &microblocks_2, &block_commit_op_2);
             preprocess_stacks_block_data(&mut node_2, &mut burn_node, &fork_snapshot, &stacks_block_1, &microblocks_1, &block_commit_op_1);
-            let _ = node.chainstate.process_blocks(burn_node.burndb.conn(), 2).unwrap();
-            let _ = node_2.chainstate.process_blocks(burn_node.burndb.conn(), 2).unwrap();
+            let _ = node.chainstate.process_blocks(2).unwrap();
+            let _ = node_2.chainstate.process_blocks(2).unwrap();
         }
         
         TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
@@ -1612,7 +1617,7 @@ pub mod test {
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_1.block_hash(), microblocks_1.len());
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_2.block_hash(), microblocks_2.len());
-            let tip_info_list = node.chainstate.process_blocks(burn_node.burndb.conn(), 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(2).unwrap();
 
             // processed _one_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -1736,7 +1741,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process all Stacks blocks: {}, {}", &stacks_block_1.block_hash(), &stacks_block_2.block_hash());
-            let tip_info_list = node.chainstate.process_blocks(burn_node.burndb.conn(), 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(2).unwrap();
 
             // processed all stacks blocks -- one on each burn chain fork
             assert_eq!(tip_info_list.len(), 2);
@@ -1891,7 +1896,7 @@ pub mod test {
             // process all blocks
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_1.block_hash(), microblocks_1.len());
             test_debug!("Process Stacks block {} and {} microblocks", &stacks_block_2.block_hash(), microblocks_2.len());
-            let tip_info_list = node.chainstate.process_blocks(burn_node.burndb.conn(), 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(2).unwrap();
 
             // processed _one_ block
             assert_eq!(tip_info_list.len(), 1);
@@ -2021,7 +2026,7 @@ pub mod test {
 
             // process all blocks
             test_debug!("Process all Stacks blocks: {}, {}", &stacks_block_1.block_hash(), &stacks_block_2.block_hash());
-            let tip_info_list = node.chainstate.process_blocks(burn_node.burndb.conn(), 2).unwrap();
+            let tip_info_list = node.chainstate.process_blocks(2).unwrap();
 
             // processed all stacks blocks -- one on each burn chain fork
             assert_eq!(tip_info_list.len(), 2);
@@ -2106,8 +2111,8 @@ pub mod test {
 
         // compare block status (staging vs confirmed) and contents
         for i in 0..all_blocks_1.len() {
-            let staging_1_opt = StacksChainState::load_staging_block(&ch1.blocks_db, &all_blocks_1[i].0, &all_blocks_1[i].1).unwrap();
-            let staging_2_opt = StacksChainState::load_staging_block(&ch2.blocks_db, &all_blocks_2[i].0, &all_blocks_2[i].1).unwrap();
+            let staging_1_opt = StacksChainState::load_staging_block(&ch1.blocks_db, &ch2.blocks_path, &all_blocks_1[i].0, &all_blocks_1[i].1).unwrap();
+            let staging_2_opt = StacksChainState::load_staging_block(&ch2.blocks_db, &ch2.blocks_path, &all_blocks_2[i].0, &all_blocks_2[i].1).unwrap();
 
             let chunk_1_opt = StacksChainState::load_block(&ch1.blocks_path, &all_blocks_1[i].0, &all_blocks_1[i].1).unwrap();
             let chunk_2_opt = StacksChainState::load_block(&ch2.blocks_path, &all_blocks_2[i].0, &all_blocks_2[i].1).unwrap();
@@ -2231,7 +2236,7 @@ pub mod test {
                                 
                                     // process all the blocks we can 
                                     test_debug!("Process Stacks block {} and microblock {} {}", &stacks_block.block_hash(), mblock.block_hash(), mblock.header.sequence);
-                                    let tip_info_list = node.chainstate.process_blocks(miner_trace.burn_node.burndb.conn(), expected_num_blocks).unwrap();
+                                    let tip_info_list = node.chainstate.process_blocks(expected_num_blocks).unwrap();
 
                                     num_processed += tip_info_list.len();
                                 }
@@ -2239,7 +2244,7 @@ pub mod test {
                             else {
                                 // process all the blocks we can 
                                 test_debug!("Process Stacks block {} and {} microblocks in {}", &stacks_block.block_hash(), microblocks.len(), &node_name);
-                                let tip_info_list = node.chainstate.process_blocks(miner_trace.burn_node.burndb.conn(), expected_num_blocks).unwrap();
+                                let tip_info_list = node.chainstate.process_blocks(expected_num_blocks).unwrap();
 
                                 num_processed += tip_info_list.len();
                             }

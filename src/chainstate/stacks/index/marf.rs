@@ -335,17 +335,15 @@ impl MARF {
 
         // walk to insertion point 
         let (mut node, _) = Trie::read_root(storage)?;
-        let mut node_ptr = TriePtr::new(0,0,0);
 
         for _ in 0..(cursor.path.len()+1) {
             match Trie::walk_from(storage, &node, &mut cursor) {
                 Ok(node_info_opt) => {
                     match node_info_opt {
-                        Some((next_node_ptr, next_node, _)) => {
+                        Some((_, next_node, _)) => {
                             // end-of-node-path, and found a child.
                             // keep walking
                             node = next_node;
-                            node_ptr = next_node_ptr;
                             continue;
                         },
                         None => {
@@ -383,7 +381,6 @@ impl MARF {
 
                                     // keep going
                                     node = next_node;
-                                    node_ptr = next_node_ptr;
                                     continue;
                                 }
                             }
@@ -534,7 +531,7 @@ impl MARF {
         }))
     }
 
-    pub fn get_block_height_miner_tip(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash, miner_tip: Option<&BlockHeaderHash>) -> Result<Option<u32>, Error> {
+    pub fn get_block_height_miner_tip(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
         #[cfg(test)] {
             // used in testing in order to short-circuit block-height lookups
@@ -555,7 +552,7 @@ impl MARF {
     }
     
     pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
-        MARF::get_block_height_miner_tip(storage, block_hash, current_block_hash, None)
+        MARF::get_block_height_miner_tip(storage, block_hash, current_block_hash)
     }
 
     pub fn get_block_at_height(storage: &mut TrieFileStorage, height: u32, current_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
@@ -725,8 +722,7 @@ impl MARF {
 
         let block_height = 
             if !is_parent_sentinel {
-                let miner_tip = self.storage.get_miner_tip();
-                let height = MARF::get_block_height_miner_tip(&mut self.storage, chain_tip, chain_tip, miner_tip.as_ref())?
+                let height = MARF::get_block_height_miner_tip(&mut self.storage, chain_tip, chain_tip)?
                     .ok_or(Error::CorruptionError(format!("Failed to find block height for `{:?}`", chain_tip)))?;
                 height.checked_add(1).expect("FATAL: block height overflow!")
             } else {
@@ -781,8 +777,7 @@ impl MARF {
         if Some(bhh) == self.get_open_chain_tip() {
             return Ok(self.get_open_chain_tip_height())
         } else {
-            let miner_tip = self.storage.get_miner_tip();
-            MARF::get_block_height_miner_tip(&mut self.storage, bhh, current_block_hash, miner_tip.as_ref())
+            MARF::get_block_height_miner_tip(&mut self.storage, bhh, current_block_hash)
         }
     }
 
@@ -2057,7 +2052,7 @@ mod test {
 
         for (i, block) in blocks.iter().enumerate() {
             debug!("Verify block height and hash at {} {} from {}", i, block, block_header);
-            assert_eq!(MARF::get_block_height_miner_tip(marf.borrow_storage_backend(), block, &block_header, Some(&target_block)).unwrap(),
+            assert_eq!(MARF::get_block_height_miner_tip(marf.borrow_storage_backend(), block, &block_header).unwrap(),
                        Some(i as u32));
 
             // get_block_at_height should now always return the correct block_header

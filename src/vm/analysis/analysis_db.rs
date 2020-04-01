@@ -1,10 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap, BTreeSet};
 
-use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
+use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier, TraitIdentifier};
+use vm::types::signatures::FunctionSignature;
 use vm::database::{ClaritySerializable, ClarityDeserializable,
                    RollbackWrapper, MarfedKV, ClarityBackingStore};
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::analysis::type_checker::{ContractAnalysis};
+use vm::representations::{ClarityName};
 
 pub struct AnalysisDatabase <'a> {
     store: RollbackWrapper <'a>
@@ -67,7 +69,11 @@ impl <'a> AnalysisDatabase <'a> {
         self.store.prepare_for_contract_metadata(contract_identifier, Sha512Trunc256Sum([0; 32]));
     }
 
-    fn load_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractAnalysis> {
+    pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
+        self.store.has_metadata_entry(contract_identifier, AnalysisDatabase::storage_key())
+    }
+
+    pub fn load_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractAnalysis> {
         self.store.get_metadata(contract_identifier, AnalysisDatabase::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
             //    the analysis will propagate that as a CheckError anyways.
@@ -80,11 +86,16 @@ impl <'a> AnalysisDatabase <'a> {
         if self.store.has_metadata_entry(contract_identifier, key) {
             return Err(CheckErrors::ContractAlreadyExists(contract_identifier.to_string()).into())
         }
+
         self.store.insert_metadata(contract_identifier, key, &contract.serialize());
         Ok(())
     }
 
     pub fn get_public_function_type(&mut self, contract_identifier: &QualifiedContractIdentifier, function_name: &str) -> CheckResult<Option<FunctionType>> {
+        // TODO: this function loads the whole contract to obtain the function type.
+        //         but it doesn't need to -- rather this information can just be 
+        //         stored as its own entry. the analysis cost tracking currently only
+        //         charges based on the function type size.
         let contract = self.load_contract(contract_identifier)
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract.get_public_function_type(function_name)
@@ -92,10 +103,31 @@ impl <'a> AnalysisDatabase <'a> {
     }
 
     pub fn get_read_only_function_type(&mut self, contract_identifier: &QualifiedContractIdentifier, function_name: &str) -> CheckResult<Option<FunctionType>> {
+        // TODO: this function loads the whole contract to obtain the function type.
+        //         but it doesn't need to -- rather this information can just be 
+        //         stored as its own entry. the analysis cost tracking currently only
+        //         charges based on the function type size.
         let contract = self.load_contract(contract_identifier)
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract.get_read_only_function_type(function_name)
            .cloned())
+    }
+
+    pub fn get_defined_trait(&mut self, contract_identifier: &QualifiedContractIdentifier, trait_name: &str) -> CheckResult<Option<BTreeMap<ClarityName, FunctionSignature>>> {
+        // TODO: this function loads the whole contract to obtain the function type.
+        //         but it doesn't need to -- rather this information can just be 
+        //         stored as its own entry. the analysis cost tracking currently only
+        //         charges based on the function type size.
+        let contract = self.load_contract(contract_identifier)
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+        Ok(contract.get_defined_trait(trait_name)
+           .cloned())
+    }
+
+    pub fn get_implemented_traits(&mut self, contract_identifier: &QualifiedContractIdentifier) -> CheckResult<BTreeSet<TraitIdentifier>> {
+        let contract = self.load_contract(contract_identifier)
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+        Ok(contract.implemented_traits)
     }
 
     pub fn get_map_type(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str) -> CheckResult<(TypeSignature, TypeSignature)> {

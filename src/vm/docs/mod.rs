@@ -82,7 +82,7 @@ const NONE_KEYWORD: KeywordAPI = KeywordAPI {
     output_type: "(optional ?)",
     description: "Represents the _none_ option indicating no value for a given optional (analogous to a null value).",
     example: "
-(define (only-if-positive (a int))
+(define-public (only-if-positive (a int))
   (if (> a 0)
       (some a)
       none))
@@ -347,15 +347,19 @@ input list, and returns the same list with any elements removed for which the `f
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(A, B) -> B, (list A)",
+    input_type: "Function(A, B) -> B, (list A), B",
     output_type: "B",
     signature: "(fold func list initial-value)",
-    description: "The `fold` function applies the input function `func` to each element of the
+    description: "The `fold` special form applies the input function `func` to each element of the
 input list _and_ the output of the previous application of the `fold` function. When invoked on
 the first list element, it uses the `initial-value` as the second input. `fold` returns the last
-value return by the successive applications.",
+value returned by the successive applications. Note that the first argument is not evaluated thus 
+has to be a literal function name.",
     example: "(fold * (list 2 2 2) 1) ;; Returns 8
-(fold * (list 2 2 2) 0) ;; Returns 0"
+(fold * (list 2 2 2) 0) ;; Returns 0
+(fold - (list 3 7 11) 2) ;; Returns 5 by calculating (- 11 (- 7 (- 3 2)))
+(fold concat \"cdef\" \"ab\")   ;; Returns \"fedcab\"
+(fold concat (list \"cd\" \"ef\") \"ab\")   ;; Returns \"efcdab\""
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
@@ -442,7 +446,10 @@ const SET_ENTRY_API: SpecialAPI = SpecialAPI {
     signature: "(map-set map-name key-tuple value-tuple)",
     description: "The `map-set` function sets the value associated with the input key to the 
 inputted value. This function performs a _blind_ update; whether or not a value is already associated
-with the key, the function overwrites that existing association.",
+with the key, the function overwrites that existing association.
+
+Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
+and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
     example: "(map-set names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
 (map-set names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
@@ -455,7 +462,10 @@ const INSERT_ENTRY_API: SpecialAPI = SpecialAPI {
     description: "The `map-insert` function sets the value associated with the input key to the 
 inputted value if and only if there is not already a value associated with the key in the map.
 If an insert occurs, the function returns `true`. If a value already existed for
-this key in the data map, the function returns `false`.",
+this key in the data map, the function returns `false`.
+
+Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
+and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
     example: "(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
 (map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'false
 (map-insert names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
@@ -635,7 +645,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
 `try!` _returns_ either `none` or the `(err ...)` value from the current function and exits the current control-flow.",
     example: "(try! (map-get? names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
 (define-private (checked-even (x int))
-  (if (eq? (mod x 2) 0) 
+  (if (is-eq (mod x 2) 0) 
       (ok x)
       (err 'false)))
 (define-private (double-if-even (x int))
@@ -963,7 +973,7 @@ Like other kinds of definition statements, `define-map` may only be used at the 
 definition (i.e., you cannot put a define statement in the middle of a function body).",
     example: "
 (define-map squares ((x int)) ((square int)))
-(define (add-entry (x int))
+(define-private (add-entry (x int))
   (map-insert squares ((x 2)) ((square (* x x)))))
 (add-entry 1)
 (add-entry 2)
@@ -986,10 +996,70 @@ Like other kinds of definition statements, `define-data-var` may only be used at
 definition (i.e., you cannot put a define statement in the middle of a function body).",
     example: "
 (define-data-var size int 0)
-(define (set-size (value int))
+(define-private (set-size (value int))
   (var-set size value))
 (set-size 1)
 (set-size 2)
+"
+};
+
+const DEFINE_TRAIT_API: DefineAPI = DefineAPI {
+    input_type: "VarName, [MethodSignature]",
+    output_type: "Not Applicable",
+    signature: "(define-trait trait-name ((func1-name (arg1-type arg2-type ...) (return-type))))",
+    description: "`define-trait` is used to define a new trait definition for use in a smart contract. Other contracts 
+can implement a given trait and then have their contract identifier being passed as function arguments in order to be called 
+dynamically with `contract-call?`.
+
+Traits are defined with a name, and a list functions defined with a name, a list of argument types, and return type.
+
+Like other kinds of definition statements, `define-trait` may only be used at the top level of a smart contract
+definition (i.e., you cannot put a define statement in the middle of a function body).
+",
+    example: "
+(define-trait token-trait
+    ((transfer? (principal principal uint) (response uint uint))
+     (get-balance (principal) (response uint uint))))
+"
+};
+
+const USE_TRAIT_API: DefineAPI = DefineAPI {
+    input_type: "VarName, TraitIdentifier",
+    output_type: "Not Applicable",
+    signature: "(use-trait trait-alias trait-identifier)",
+    description: "`use-trait` is used to bring a trait, defined in another contract, to the current contract. Subsequent 
+references to an imported trait are signaled with the syntax <trait-alias>.
+
+Traits import are defined with a name, used as an alias, and a trait identifier. Trait identifiers can either be 
+using the sugared syntax (.token-a.token-trait), or be fully qualified ('SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait).
+
+Like other kinds of definition statements, `use-trait` may only be used at the top level of a smart contract
+definition (i.e., you cannot put such a statement in the middle of a function body).
+    ",
+    example: "
+(use-trait token-a-trait 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait)
+(define-public (forward-get-balance (user principal) (contract <token-a-trait>))
+  (begin
+    (ok 1)))
+"
+};
+
+const IMPL_TRAIT_API: DefineAPI = DefineAPI {
+    input_type: "TraitIdentifier",
+    output_type: "Not Applicable",
+    signature: "(impl-trait trait-identifier)",
+    description: "`impl-trait` can be use for asserting that a contract is fully implementing a given trait. 
+Additional checks are being performed when the contract is being published, rejecting the deployment if the
+contract is violating the trait specification.
+
+Trait identifiers can either be using the sugared syntax (.token-a.token-trait), or be fully qualified 
+('SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait).
+
+Like other kinds of definition statements, `impl-trait` may only be used at the top level of a smart contract
+definition (i.e., you cannot put such a statement in the middle of a function body).
+",
+    example: "
+(impl-trait 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait)
 "
 };
 
@@ -1262,6 +1332,9 @@ fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
         FungibleToken => make_for_define(&DEFINE_TOKEN_API, name),
         ReadOnlyFunction => make_for_define(&DEFINE_READ_ONLY_API, name),
         PersistedVariable => make_for_define(&DEFINE_DATA_VAR_API, name),
+        Trait => make_for_define(&DEFINE_TRAIT_API, name),
+        UseTrait => make_for_define(&USE_TRAIT_API, name),
+        ImplTrait => make_for_define(&IMPL_TRAIT_API, name),
     }
 }
 

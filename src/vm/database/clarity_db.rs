@@ -6,7 +6,7 @@ use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, StandardPrincipalData, QualifiedContractIdentifier, NONE};
 
-use chainstate::stacks::db::StacksHeaderInfo;
+use chainstate::stacks::db::{StacksHeaderInfo, MinerPaymentSchedule};
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
 
@@ -62,6 +62,14 @@ fn get_stacks_header_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<Sta
         .expect("Unexpected SQL failure querying block header table")
 }
 
+fn get_miner_info(conn: &DBConn, id_bhh: &BlockHeaderHash) -> Option<MinerPaymentSchedule> {
+    conn.query_row("SELECT * FROM payments WHERE index_block_hash = ? AND miner = 1",
+                   [id_bhh].iter(),
+                   |x| MinerPaymentSchedule::from_row(x).expect("Bad payment info in database"))
+        .optional()
+        .expect("Unexpected SQL failure querying payment table")
+}
+
 impl HeadersDB for DBConn {
     fn get_stacks_block_header_hash_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<BlockHeaderHash> {
         get_stacks_header_info(self, id_bhh)
@@ -73,8 +81,9 @@ impl HeadersDB for DBConn {
             .map(|x| x.burn_header_hash)
     }
 
-    fn get_burn_block_time_for_block(&self, _id_bhh: &BlockHeaderHash) -> Option<u64> {
-        panic!("Block time data not available in burn header db")
+    fn get_burn_block_time_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<u64> {
+        get_stacks_header_info(self, id_bhh)
+            .map(|x| x.burn_header_timestamp)
     }
 
     fn get_vrf_seed_for_block(&self, id_bhh: &BlockHeaderHash) -> Option<VRFSeed> {
@@ -83,7 +92,8 @@ impl HeadersDB for DBConn {
     }
 
     fn get_miner_address(&self, id_bhh: &BlockHeaderHash)  -> Option<StacksAddress> {
-        panic!("Miner address data not available in burn header db")
+        get_miner_info(self, id_bhh)
+            .map(|x| x.address)
     }
 }
 
@@ -183,6 +193,10 @@ impl <'a> ClarityDatabase <'a> {
     pub fn insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
         let hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
         self.store.prepare_for_contract_metadata(contract_identifier, hash);
+        // insert contract-size
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+        self.insert_metadata(contract_identifier, &key,
+                             &(contract_content.len() as u64));
         Ok(())
     }
 
@@ -200,9 +214,16 @@ impl <'a> ClarityDatabase <'a> {
             .map(|x_opt| x_opt.map(|x| T::deserialize(&x)))
     }
 
+    pub fn get_contract_size(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<u64> {
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+        let data = self.fetch_metadata(contract_identifier, &key)?
+            .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
+        Ok(data)
+    }
+
     pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: Contract) {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
-       self.insert_metadata(contract_identifier, &key, &contract);
+        self.insert_metadata(contract_identifier, &key, &contract);
     }
 
     pub fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Contract> {
@@ -210,7 +231,6 @@ impl <'a> ClarityDatabase <'a> {
         let data = self.fetch_metadata(contract_identifier, &key)?
             .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
         Ok(data)
-
     }
 }
 
@@ -278,7 +298,7 @@ impl <'a> ClarityDatabase <'a> {
         self.insert_metadata(contract_identifier, &key, &variable_data)
     }
 
-    fn load_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str) -> Result<DataVariableMetadata> {
+    pub fn load_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str) -> Result<DataVariableMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
         map_no_contract_as_none(
@@ -325,7 +345,7 @@ impl <'a> ClarityDatabase <'a> {
         self.insert_metadata(contract_identifier, &key, &data)
     }
 
-    fn load_map(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str) -> Result<DataMapMetadata> {
+    pub fn load_map(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str) -> Result<DataMapMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
 
         map_no_contract_as_none(
@@ -341,7 +361,7 @@ impl <'a> ClarityDatabase <'a> {
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
 
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type);
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type)?;
         let result = self.get_value(&key, &stored_type);
 
         match result {
@@ -376,13 +396,14 @@ impl <'a> ClarityDatabase <'a> {
         }
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type);
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type)?;
 
         if return_if_exists && self.data_map_entry_exists(&key, &stored_type)? {
             return Ok(Value::Bool(false))
         }
 
-        self.put(&key, &Value::some(value));
+        let placed_value = Value::some(value)?;
+        self.put(&key, &placed_value);
 
         return Ok(Value::Bool(true))
     }
@@ -394,7 +415,7 @@ impl <'a> ClarityDatabase <'a> {
         }
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type);
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type)?;
         if !self.data_map_entry_exists(&key, &stored_type)? {
             return Ok(Value::Bool(false))
         }
@@ -470,7 +491,7 @@ impl <'a> ClarityDatabase <'a> {
     }
 
     pub fn get_ft_balance(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str, principal: &PrincipalData) -> Result<u128> {
-        let descriptor = self.load_ft(contract_identifier, token_name)?;
+        self.load_ft(contract_identifier, token_name)?;
 
         let key =  ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::FungibleToken, token_name, principal.serialize());
 
