@@ -240,7 +240,7 @@ impl error::Error for Error {
 
 pub const SUITE : u8 = 0x03;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct VRFProof {
     // force private so we don't accidentally expose
     // an invalid c point
@@ -248,6 +248,19 @@ pub struct VRFProof {
     Gamma: EdwardsPoint,
     c: ed25519_Scalar,
     s: ed25519_Scalar
+}
+
+impl Debug for VRFProof {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", &self.to_hex())
+    }
+}
+
+impl Hash for VRFProof {
+    fn hash<H: Hasher>(&self, h: &mut H) -> () {
+        let bytes = self.to_bytes();
+        bytes.hash(h);
+    }
 }
 
 pub const VRF_PROOF_ENCODED_SIZE : u32 = 80;
@@ -378,7 +391,6 @@ impl VRFProof {
 pub struct VRF {}
 
 impl VRF {
-
     /// Hash-to-curve, Try-and-increment approach (described in 
     /// https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html)
     fn hash_to_curve(y: &VRFPublicKey, alpha: &Vec<u8>) -> EdwardsPoint {

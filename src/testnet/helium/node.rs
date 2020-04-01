@@ -13,7 +13,7 @@ use chainstate::stacks::events::StacksTransactionReceipt;
 use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
 use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
 use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, BlockHeaderHash};
-use net::{StacksMessageType, StacksMessageCodec, db::PeerDB, server::HttpServer, connection::ConnectionOptions};
+use net::{StacksMessageType, StacksMessageCodec, db::PeerDB, server::HttpPeer, connection::ConnectionOptions};
 
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
@@ -78,6 +78,7 @@ pub const DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
     inbox_maxlen: 100,
     outbox_maxlen: 100,
     timeout: 5000,
+    idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
     heartbeat: 60000,
     // can't use u64::max, because sqlite stores as i64.
     private_key_lifetime: 9223372036854775807,
@@ -91,6 +92,8 @@ pub const DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
     soft_max_neighbors_per_org: 100,
     soft_max_clients_per_host: 1000,
     walk_interval: 9223372036854775807,
+    dns_timeout: 15_000,
+    max_inflight_blocks: 6,
 };
 
 impl Node {
@@ -160,7 +163,7 @@ impl Node {
             &vec![], None).unwrap();
         // use node = 0 for the chain state
 
-        let http_server = HttpServer::new(TESTNET_CHAIN_ID, burnchain, view, DEFAULT_CONNECTION_OPTIONS.clone());
+        let http_server = HttpPeer::new(TESTNET_CHAIN_ID, burnchain, view, DEFAULT_CONNECTION_OPTIONS.clone());
         let socket_addr = self.config.node.rpc_bind.parse()
             .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
         let _join_handle = http_server.spawn(&socket_addr, peerdb, self.config.get_burn_db_path(),

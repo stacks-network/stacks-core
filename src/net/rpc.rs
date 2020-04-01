@@ -21,6 +21,7 @@ use std::io::prelude::*;
 use std::io;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::fmt;
+use std::net::SocketAddr;
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -41,6 +42,7 @@ use net::NeighborAddress;
 use net::NeighborsData;
 use net::StacksHttp;
 use net::PeerHost;
+use net::UrlString;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::connection::ConnectionHttp;
 use net::connection::ReplyHandleHttp;
@@ -90,6 +92,8 @@ pub struct ConversationHttp {
     conn_id: usize,
     timeout: u64,
     peer_host: PeerHost,
+    outbound_url: Option<UrlString>,
+    peer_addr: SocketAddr,
     burnchain: Burnchain,
     keep_alive: bool,
     total_request_count: u64,       // number of messages taken from the inbox
@@ -151,13 +155,15 @@ impl PeerInfoData {
 }
 
 impl ConversationHttp {
-    pub fn new(network_id: u32, burnchain: &Burnchain, peer_host: PeerHost, conn_opts: &ConnectionOptions, conn_id: usize) -> ConversationHttp {
+    pub fn new(network_id: u32, burnchain: &Burnchain, peer_addr: SocketAddr, outbound_url: Option<UrlString>, peer_host: PeerHost, conn_opts: &ConnectionOptions, conn_id: usize) -> ConversationHttp {
         ConversationHttp {
             network_id: network_id,
             connection: ConnectionHttp::new(StacksHttp::new(), conn_opts, None),
             conn_id: conn_id,
             timeout: conn_opts.timeout,
             reply_streams: VecDeque::new(),
+            peer_addr: peer_addr,
+            outbound_url: outbound_url,
             peer_host: peer_host,
             burnchain: burnchain.clone(),
             pending_request: None,
@@ -176,17 +182,41 @@ impl ConversationHttp {
         self.reply_streams.len()
     }
 
+    /// What's our outbound URL?
+    pub fn get_url(&self) -> Option<&UrlString> {
+        self.outbound_url.as_ref()
+    }
+
+    /// What's our peer IP address?
+    pub fn get_peer_addr(&self) -> &SocketAddr {
+        &self.peer_addr
+    }
+
+    /// Is a conversation in-progress?
+    pub fn is_request_inflight(&self) -> bool {
+        self.pending_request.is_some()
+    }
+    
+    /// Start a HTTP request from this peer, and expect a response.
+    /// Returns the request handle; does not set the handle into this connection.
+    pub fn start_request(&mut self, req: HttpRequestType) -> Result<ReplyHandleHttp, net_error> {
+        test_debug!("{:?},id={}: Start HTTP request {:?}", &self.peer_host, self.conn_id, &req);
+        let mut handle = self.connection.make_request_handle(HTTP_REQUEST_ID_RESERVED, get_epoch_time_secs() + self.timeout)?;
+        let stacks_msg = StacksHttpMessage::Request(req);
+        self.connection.send_message(&mut handle, &stacks_msg)?;
+        Ok(handle)
+    }
+
     /// Start a HTTP request from this peer, and expect a response.
     /// Non-blocking.
     /// Only one request in-flight is allowed.
     pub fn send_request(&mut self, req: HttpRequestType) -> Result<(), net_error> {
-        if self.pending_request.is_some() {
+        if self.is_request_inflight() {
+            test_debug!("{:?},id={}: Request in progress still", &self.peer_host, self.conn_id);
             return Err(net_error::InProgress);
         }
-        
-        let mut handle = self.connection.make_request_handle(HTTP_REQUEST_ID_RESERVED, self.timeout)?;
-        let stacks_msg = StacksHttpMessage::Request(req);
-        self.connection.send_message(&mut handle, &stacks_msg)?;
+       
+        let handle = self.start_request(req)?;
         
         self.pending_request = Some(handle);
         self.pending_response = None;
@@ -260,12 +290,41 @@ impl ConversationHttp {
         }
     }
     
-    /// Handle a GET confirmed microblock stream.  Start streaming the reply.
+    /// Handle a GET confirmed microblock stream, by _anchor block hash_.  Start streaming the reply.
     /// The response's preamble (but not the block data) will be synchronously written to the fd
     /// (so use a fd that can buffer!)
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
-    fn handle_getmicroblocks<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_microblock_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
+    fn handle_getmicroblocks_confirmed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_anchor_block_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+
+        match chainstate.get_confirmed_microblock_index_hash(index_anchor_block_hash) {
+            Err(e) => {
+                // oops
+                warn!("Failed to serve confirmed microblock stream {:?}: {:?}", req, &e);
+                let response = HttpResponseType::ServerError(response_metadata, format!("Failed to query confirmed microblock stream from anchor block {}", index_anchor_block_hash.to_hex()));
+                response.send(http, fd).and_then(|_| Ok(None))
+            },
+            Ok(None) => {
+                // we don't have it
+                let response = HttpResponseType::NotFound(response_metadata, format!("No such confirmed microblock stream from anchor block {}", index_anchor_block_hash.to_hex()));
+                response.send(http, fd).and_then(|_| Ok(None))
+            },
+            Ok(Some(index_microblock_hash)) => {
+                // Have it!
+                let stream = BlockStreamData::new_microblock_confirmed(index_microblock_hash.clone());
+                let response = HttpResponseType::MicroblockStream(response_metadata);
+                response.send(http, fd).and_then(|_| Ok(Some(stream)))
+            }
+        }
+    }
+
+    /// Handle a GET confirmed microblock stream, by _index microblock hash_.  Start streaming the reply.
+    /// The response's preamble (but not the block data) will be synchronously written to the fd
+    /// (so use a fd that can buffer!)
+    /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
+    /// make progress sending it.
+    fn handle_getmicroblocks_indexed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_microblock_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this confirmed microblock stream?
@@ -451,8 +510,11 @@ impl ConversationHttp {
             HttpRequestType::GetBlock(ref _md, ref index_block_hash) => {
                 ConversationHttp::handle_getblock(&mut self.connection.protocol, &mut reply, &req, index_block_hash, chainstate)?
             },
-            HttpRequestType::GetMicroblocks(ref _md, ref index_head_hash) => {
-                ConversationHttp::handle_getmicroblocks(&mut self.connection.protocol, &mut reply, &req, index_head_hash, chainstate)?
+            HttpRequestType::GetMicroblocksIndexed(ref _md, ref index_head_hash) => {
+                ConversationHttp::handle_getmicroblocks_indexed(&mut self.connection.protocol, &mut reply, &req, index_head_hash, chainstate)?
+            },
+            HttpRequestType::GetMicroblocksConfirmed(ref _md, ref anchor_index_block_hash) => {
+                ConversationHttp::handle_getmicroblocks_confirmed(&mut self.connection.protocol, &mut reply, &req, anchor_index_block_hash, chainstate)?
             },
             HttpRequestType::GetMicroblocksUnconfirmed(ref _md, ref index_anchor_block_hash, ref min_seq) => {
                 ConversationHttp::handle_getmicroblocks_unconfirmed(&mut self.connection.protocol, &mut reply, &req, index_anchor_block_hash, *min_seq, chainstate)?
@@ -604,36 +666,53 @@ impl ConversationHttp {
         Ok(())
     }
 
+    pub fn try_send_recv_response(req: ReplyHandleHttp) -> Result<HttpResponseType, Result<ReplyHandleHttp, net_error>> {
+        match req.try_send_recv() {
+            Ok(message) => match message {
+                StacksHttpMessage::Request(_) => {
+                    warn!("Received response: not a HTTP response");
+                    return Err(Err(net_error::InvalidMessage));
+                },
+                StacksHttpMessage::Response(http_response) => {
+                    Ok(http_response)
+                }
+            },
+            Err(res) => Err(res)
+        }
+    }
+
     /// Make progress on our request/response
     fn recv_inbound_response(&mut self) -> Result<(), net_error> {
         // make progress on our pending request (if it exists).
+        let inprogress = self.pending_request.is_some();
+        let is_pending = self.pending_response.is_none();
+
         let pending_request = self.pending_request.take();
         let response = match pending_request {
             None => Ok(self.pending_response.take()),
-            Some(req) => {
-                match req.try_send_recv() {
-                    Ok(message) => match message {
-                        StacksHttpMessage::Request(_) => {
-                            warn!("Received response: not an HTTP response");
-                            return Err(net_error::InvalidMessage);
-                        },
-                        StacksHttpMessage::Response(http_response) => {
-                            Ok(Some(http_response))
-                        }
+            Some(req) => match ConversationHttp::try_send_recv_response(req) {
+                Ok(response) => Ok(Some(response)),
+                Err(res) => match res {
+                    Ok(handle) => {
+                        // try again
+                        self.pending_request = Some(handle);
+                        Ok(self.pending_response.take())
                     },
-                    Err(res) => match res {
-                        Ok(handle) => {
-                            // try again
-                            self.pending_request = Some(handle);
-                            Ok(self.pending_response.take())
-                        },
-                        Err(e) => Err(e)
-                    }
+                    Err(e) => Err(e)
                 }
             }
         }?;
 
         self.pending_response = response;
+
+        if inprogress && self.pending_request.is_none() {
+            test_debug!("{:?},id={}: HTTP request finished", &self.peer_host, self.conn_id);
+        }
+
+        if is_pending && self.pending_response.is_some() {
+            test_debug!("{:?},id={}: HTTP response finished", &self.peer_host, self.conn_id);
+        }
+
         Ok(())
     }
 
@@ -718,6 +797,7 @@ impl ConversationHttp {
                 }
             }
         }
+        
         Ok(())
     }
     
@@ -749,15 +829,20 @@ impl ConversationHttp {
     pub fn new_getneighbors(&self) -> HttpRequestType {
         HttpRequestType::GetNeighbors(HttpRequestMetadata::from_host(self.peer_host.clone()))
     }
-    
+
     /// Make a new getblock request to this endpoint
     pub fn new_getblock(&self, index_block_hash: BlockHeaderHash) -> HttpRequestType {
         HttpRequestType::GetBlock(HttpRequestMetadata::from_host(self.peer_host.clone()), index_block_hash)
     }
     
     /// Make a new get-microblocks request to this endpoint
-    pub fn new_getmicroblocks(&self, index_microblock_hash: BlockHeaderHash) -> HttpRequestType {
-        HttpRequestType::GetMicroblocks(HttpRequestMetadata::from_host(self.peer_host.clone()), index_microblock_hash)
+    pub fn new_getmicroblocks_indexed(&self, index_microblock_hash: BlockHeaderHash) -> HttpRequestType {
+        HttpRequestType::GetMicroblocksIndexed(HttpRequestMetadata::from_host(self.peer_host.clone()), index_microblock_hash)
+    }
+    
+    /// Make a new get-microblocks-confirmed request to this endpoint
+    pub fn new_getmicroblocks_confirmed(&self, index_anchor_block_hash: BlockHeaderHash) -> HttpRequestType {
+        HttpRequestType::GetMicroblocksConfirmed(HttpRequestMetadata::from_host(self.peer_host.clone()), index_anchor_block_hash)
     }
 
     /// Make a new get-microblocks request for unconfirmed microblocks
@@ -832,27 +917,59 @@ mod test {
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
 
-        let mut convo_1 = ConversationHttp::new(peer_1.config.network_id, &peer_1.config.burnchain, peer_1.to_peer_host(), &peer_1.config.connection_opts, 0);
-        let mut convo_2 = ConversationHttp::new(peer_2.config.network_id, &peer_2.config.burnchain, peer_2.to_peer_host(), &peer_2.config.connection_opts, 1);
+        let mut convo_1 = ConversationHttp::new(peer_1.config.network_id, 
+                                                &peer_1.config.burnchain, 
+                                                format!("127.0.0.1:{}", peer_1_http).parse::<SocketAddr>().unwrap(), 
+                                                Some(UrlString::try_from(format!("http://peer1.com")).unwrap()), 
+                                                peer_1.to_peer_host(), 
+                                                &peer_1.config.connection_opts, 
+                                                0);
+
+        let mut convo_2 = ConversationHttp::new(peer_2.config.network_id, 
+                                                &peer_2.config.burnchain, 
+                                                format!("127.0.0.1:{}", peer_2_http).parse::<SocketAddr>().unwrap(),
+                                                Some(UrlString::try_from(format!("http://peer2.com")).unwrap()), 
+                                                peer_2.to_peer_host(), 
+                                                &peer_2.config.connection_opts, 
+                                                1);
 
         let req = make_request(&mut peer_1, &mut convo_1, &mut peer_2, &mut convo_2);
 
         convo_1.send_request(req.clone()).unwrap();
 
         test_debug!("convo1 sends to convo2");
-        convo_send_recv(&mut convo_1, peer_1.chainstate.as_mut().unwrap(), &mut convo_2, peer_2.chainstate.as_mut().unwrap());
-        convo_1.chat(&view_1, peer_1.burndb.as_mut().unwrap(), &mut peer_1.network.peerdb,
-                     peer_1.chainstate.as_mut().unwrap()).unwrap();
+        convo_send_recv(&mut convo_1, peer_1.chainstate(), &mut convo_2, peer_2.chainstate());
+
+        // hack around the borrow-checker
+        let mut peer_1_burndb = peer_1.burndb.take().unwrap();
+        let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+        convo_1.chat(&view_1, &mut peer_1_burndb, &mut peer_1.network.peerdb, &mut peer_1_stacks_node.chainstate).unwrap();
+        peer_1.burndb = Some(peer_1_burndb);
+        peer_1.stacks_node = Some(peer_1_stacks_node);
         
         test_debug!("convo2 sends to convo1");
-        convo_2.chat(&view_2, peer_2.burndb.as_mut().unwrap(), &mut peer_2.network.peerdb, peer_2.chainstate.as_mut().unwrap()).unwrap();
-        convo_send_recv(&mut convo_2, peer_2.chainstate.as_mut().unwrap(), &mut convo_1, peer_1.chainstate.as_mut().unwrap());
+        
+        // hack around the borrow-checker
+        let mut peer_2_burndb = peer_2.burndb.take().unwrap();
+        let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
+        convo_2.chat(&view_2, &mut peer_2_burndb, &mut peer_2.network.peerdb, &mut peer_2_stacks_node.chainstate).unwrap();
+        peer_2.burndb = Some(peer_2_burndb);
+        peer_2.stacks_node = Some(peer_2_stacks_node);
+        
+        convo_send_recv(&mut convo_2, peer_2.chainstate(), &mut convo_1, peer_1.chainstate());
       
         test_debug!("flush convo1");
-        convo_send_recv(&mut convo_1, peer_1.chainstate.as_mut().unwrap(), &mut convo_2, peer_2.chainstate.as_mut().unwrap());
-        convo_1.chat(&view_1, peer_1.burndb.as_mut().unwrap(), &mut peer_1.network.peerdb, peer_1.chainstate.as_mut().unwrap()).unwrap();
+        
+        // hack around the borrow-checker
+        convo_send_recv(&mut convo_1, peer_1.chainstate(), &mut convo_2, peer_2.chainstate());
+        
+        let mut peer_1_burndb = peer_1.burndb.take().unwrap();
+        let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+        convo_1.chat(&view_1, &mut peer_1_burndb, &mut peer_1.network.peerdb, &mut peer_1_stacks_node.chainstate).unwrap();
+        peer_1.burndb = Some(peer_1_burndb);
+        peer_1.stacks_node = Some(peer_1_stacks_node);
 
-        convo_1.try_flush(peer_1.chainstate.as_mut().unwrap()).unwrap();
+        convo_1.try_flush(peer_1.chainstate()).unwrap();
 
         // should have gotten a reply
         let resp_opt = convo_1.try_get_response();
@@ -921,7 +1038,7 @@ mod test {
                      let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block.block_hash());
 
                      test_debug!("Store peer server index block {:?}", &index_block_hash);
-                     store_staging_block(peer_server.chainstate.as_mut().unwrap(), &peer_server_burn_block_hash, get_epoch_time_secs(), &peer_server_block, &BurnchainHeaderHash([0x03; 32]), 456, 123);
+                     store_staging_block(peer_server.chainstate(), &peer_server_burn_block_hash, get_epoch_time_secs(), &peer_server_block, &BurnchainHeaderHash([0x03; 32]), 456, 123);
 
                      *server_block_cell.borrow_mut() = Some(peer_server_block);
 
@@ -956,8 +1073,8 @@ mod test {
                      let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block.block_hash());
 
                      test_debug!("Store peer server index block {:?}", &index_block_hash);
-                     store_staging_block(peer_server.chainstate.as_mut().unwrap(), &peer_server_burn_block_hash, get_epoch_time_secs(), &peer_server_block, &BurnchainHeaderHash([0x03; 32]), 456, 123);
-                     set_block_processed(peer_server.chainstate.as_mut().unwrap(), &peer_server_burn_block_hash, &peer_server_block.block_hash(), true);
+                     store_staging_block(peer_server.chainstate(), &peer_server_burn_block_hash, get_epoch_time_secs(), &peer_server_block, &BurnchainHeaderHash([0x03; 32]), 456, 123);
+                     set_block_processed(peer_server.chainstate(), &peer_server_burn_block_hash, &peer_server_block.block_hash(), true);
 
                      *server_block_cell.borrow_mut() = Some(peer_server_block);
 
@@ -980,10 +1097,10 @@ mod test {
     }
     
     #[test]
-    fn test_rpc_confirmed_microblocks() {
+    fn test_rpc_get_indexed_microblocks() {
         let server_microblocks_cell = RefCell::new(vec![]);
 
-        test_rpc("test_rpc_confirmed_microblocks", 40040, 40041, 50040, 50041,
+        test_rpc("test_rpc_indexed_microblocks", 40040, 40041, 50040, 50041,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
                      let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
 
@@ -996,14 +1113,55 @@ mod test {
                      let index_microblock_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &mblocks[0].block_hash());
 
                      for mblock in mblocks.iter() {
-                         store_staging_microblock(peer_server.chainstate.as_mut().unwrap(), &burn_header_hash, &anchored_block_hash, &mblock);
+                         store_staging_microblock(peer_server.chainstate(), &burn_header_hash, &anchored_block_hash, &mblock);
                      }
 
-                     set_microblocks_confirmed(peer_server.chainstate.as_mut().unwrap(), &burn_header_hash, &anchored_block_hash, mblocks.last().unwrap().header.sequence);
+                     set_microblocks_confirmed(peer_server.chainstate(), &burn_header_hash, &anchored_block_hash, mblocks.last().unwrap().header.sequence);
 
                      *server_microblocks_cell.borrow_mut() = mblocks;
 
-                     convo_client.new_getmicroblocks(index_microblock_hash)
+                     convo_client.new_getmicroblocks_indexed(index_microblock_hash)
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                    let req_md = http_request.metadata().clone();
+                    match http_response {
+                        HttpResponseType::Microblocks(response_md, microblocks) => {
+                            assert_eq!(microblocks.len(), (*server_microblocks_cell.borrow()).len());
+                            assert_eq!(*microblocks, *server_microblocks_cell.borrow());
+                            true
+                        },
+                        _ => {
+                           error!("Invalid response: {:?}", &http_response);
+                           false
+                       }
+                    }
+                });
+    }
+    
+    #[test]
+    fn test_rpc_get_confirmed_microblocks() {
+        let server_microblocks_cell = RefCell::new(vec![]);
+
+        test_rpc("test_rpc_confirmed_microblocks", 40042, 40043, 50042, 50043,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
+
+                     let burn_header_hash = BurnchainHeaderHash([0x02; 32]);
+                     let anchored_block_hash = BlockHeaderHash([0x03; 32]);
+                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &anchored_block_hash);
+
+                     let mut mblocks = make_sample_microblock_stream(&privk, &anchored_block_hash);
+                     mblocks.truncate(15);
+                     
+                     for mblock in mblocks.iter() {
+                         store_staging_microblock(peer_server.chainstate(), &burn_header_hash, &anchored_block_hash, &mblock);
+                     }
+
+                     set_microblocks_confirmed(peer_server.chainstate(), &burn_header_hash, &anchored_block_hash, mblocks.last().unwrap().header.sequence);
+
+                     *server_microblocks_cell.borrow_mut() = mblocks;
+
+                     convo_client.new_getmicroblocks_confirmed(index_block_hash)
                  },
                  |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                     let req_md = http_request.metadata().clone();
@@ -1037,7 +1195,7 @@ mod test {
                      mblocks.truncate(15);
                      
                      for mblock in mblocks.iter() {
-                         store_staging_microblock(peer_server.chainstate.as_mut().unwrap(), &burn_header_hash, &anchored_block_hash, &mblock);
+                         store_staging_microblock(peer_server.chainstate(), &burn_header_hash, &anchored_block_hash, &mblock);
                      }
 
                      *server_microblocks_cell.borrow_mut() = mblocks;
@@ -1085,15 +1243,38 @@ mod test {
     }
     
     #[test]
-    fn test_rpc_missing_getmicroblocks() {
-        test_rpc("test_rpc_missing_getmicroblocks", 40070, 40071, 50070, 50071,
+    fn test_rpc_missing_index_getmicroblocks() {
+        test_rpc("test_rpc_missing_index_getmicroblocks", 40070, 40071, 50070, 50071,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
                      let peer_server_block_hash = BlockHeaderHash([0x04; 32]);
                      let peer_server_burn_block_hash = BurnchainHeaderHash([0x02; 32]);
                      let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block_hash);
 
                      // now ask for it
-                     convo_client.new_getmicroblocks(index_block_hash)
+                     convo_client.new_getmicroblocks_indexed(index_block_hash)
+                 },
+                 |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                     let req_md = http_request.metadata().clone();
+                     match http_response {
+                        HttpResponseType::NotFound(response_md, msg) => true,
+                        _ => {
+                           error!("Invalid response: {:?}", &http_response);
+                           false
+                        }
+                    }
+                });
+    }
+    
+    #[test]
+    fn test_rpc_missing_confirmed_getmicroblocks() {
+        test_rpc("test_rpc_missing_confirmed_getmicroblocks", 40070, 40071, 50070, 50071,
+                 |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
+                     let peer_server_block_hash = BlockHeaderHash([0x04; 32]);
+                     let peer_server_burn_block_hash = BurnchainHeaderHash([0x02; 32]);
+                     let index_block_hash = StacksBlockHeader::make_index_block_hash(&peer_server_burn_block_hash, &peer_server_block_hash);
+
+                     // now ask for it
+                     convo_client.new_getmicroblocks_confirmed(index_block_hash)
                  },
                  |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                      let req_md = http_request.metadata().clone();
@@ -1123,7 +1304,7 @@ mod test {
                      mblocks.truncate(15);
                      
                      for mblock in mblocks.iter() {
-                         store_staging_microblock(peer_server.chainstate.as_mut().unwrap(), &burn_header_hash, &anchored_block_hash, &mblock);
+                         store_staging_microblock(peer_server.chainstate(), &burn_header_hash, &anchored_block_hash, &mblock);
                      }
 
                      *server_microblocks_cell.borrow_mut() = mblocks;
