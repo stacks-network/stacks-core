@@ -108,7 +108,7 @@ impl BurnchainController for MockBurnchainController {
         genesis_state
     }
 
-    fn submit_operation(&mut self, operation: BurnchainOperationType, op_signer: &mut BurnchainOpSigner) {
+    fn submit_operation(&mut self, operation: BurnchainOperationType, _op_signer: &mut BurnchainOpSigner) {
         self.queued_operations.push_back(operation);
     }
 
