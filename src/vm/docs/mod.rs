@@ -82,7 +82,7 @@ const NONE_KEYWORD: KeywordAPI = KeywordAPI {
     output_type: "(optional ?)",
     description: "Represents the _none_ option indicating no value for a given optional (analogous to a null value).",
     example: "
-(define (only-if-positive (a int))
+(define-public (only-if-positive (a int))
   (if (> a 0)
       (some a)
       none))
@@ -632,7 +632,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
 `try!` _returns_ either `none` or the `(err ...)` value from the current function and exits the current control-flow.",
     example: "(try! (map-get? names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
 (define-private (checked-even (x int))
-  (if (eq? (mod x 2) 0) 
+  (if (is-eq (mod x 2) 0) 
       (ok x)
       (err 'false)))
 (define-private (double-if-even (x int))
@@ -960,7 +960,7 @@ Like other kinds of definition statements, `define-map` may only be used at the 
 definition (i.e., you cannot put a define statement in the middle of a function body).",
     example: "
 (define-map squares ((x int)) ((square int)))
-(define (add-entry (x int))
+(define-private (add-entry (x int))
   (map-insert squares ((x 2)) ((square (* x x)))))
 (add-entry 1)
 (add-entry 2)
@@ -983,7 +983,7 @@ Like other kinds of definition statements, `define-data-var` may only be used at
 definition (i.e., you cannot put a define statement in the middle of a function body).",
     example: "
 (define-data-var size int 0)
-(define (set-size (value int))
+(define-private (set-size (value int))
   (var-set size value))
 (set-size 1)
 (set-size 2)

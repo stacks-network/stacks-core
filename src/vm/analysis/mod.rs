@@ -44,15 +44,16 @@ pub fn type_check(contract_identifier: &QualifiedContractIdentifier,
                   analysis_db: &mut AnalysisDatabase, 
                   insert_contract: bool) -> CheckResult<ContractAnalysis> {
     run_analysis(&contract_identifier, expressions, analysis_db, insert_contract, LimitedCostTracker::new_max_limit())
+        .map_err(|(e, _cost_tracker)| e)
 }
 
 pub fn run_analysis(contract_identifier: &QualifiedContractIdentifier, 
                     expressions: &mut [SymbolicExpression],
                     analysis_db: &mut AnalysisDatabase, 
                     save_contract: bool,
-                    cost_tracker: LimitedCostTracker) -> CheckResult<ContractAnalysis> {
-    analysis_db.execute(|db| {
-        let mut contract_analysis = ContractAnalysis::new(contract_identifier.clone(), expressions.to_vec(), cost_tracker);
+                    cost_tracker: LimitedCostTracker) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
+    let mut contract_analysis = ContractAnalysis::new(contract_identifier.clone(), expressions.to_vec(), cost_tracker);
+    let result = analysis_db.execute(|db| {
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         TypeChecker::run_pass(&mut contract_analysis, db)?;
         TraitChecker::run_pass(&mut contract_analysis, db)?;
@@ -63,8 +64,12 @@ pub fn run_analysis(contract_identifier: &QualifiedContractIdentifier,
         if save_contract {
             db.insert_contract(&contract_identifier, &contract_analysis)?;
         }
-        Ok(contract_analysis)
-    })
+        Ok(())
+    });
+    match result {
+        Ok(_) => Ok(contract_analysis),
+        Err(e) => Err((e, contract_analysis.take_contract_cost_tracker()))
+    }
 }
 
 #[cfg(test)]
