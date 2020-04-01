@@ -1,4 +1,6 @@
-use super::{Config, Node, BurnchainController, MockBurnchainController, BitcoinRegtestController, BurnchainTip, LeaderTenure, };
+use super::{Config, Node, BurnchainController, MockBurnchainController, BitcoinRegtestController, BurnchainTip, Tenure};
+
+use super::tenure::TenureArtifacts;
 
 use burnchains::Address;
 use burnchains::bitcoin::BitcoinNetworkType;
@@ -17,7 +19,7 @@ pub struct RunLoop {
     config: Config,
     node: Node,
     new_burnchain_state_callback: Option<fn(u64, &BurnchainTip)>,
-    new_tenure_callback: Option<fn(u64, &LeaderTenure)>,
+    new_tenure_callback: Option<fn(u64, &Tenure)>,
     new_chain_state_callback: Option<fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>)>,
 }
 
@@ -114,13 +116,15 @@ impl RunLoop {
             None => panic!("Error while running 1st tenure")
         };
 
-        let (anchored_block_1, microblocks, parent_block_1) = artifacts_from_1st_tenure;
-
         // Tenures are instantiating their own chainstate, so that nodes can keep a clean chainstate,
         // while having the option of running multiple tenures concurrently and try different strategies.
         // As a result, once the tenure ran and we have the artifacts (anchored_blocks, microblocks),
         // we have the 1st node (leading) updating its chainstate with the artifacts from its own tenure.
-        leader.receive_tenure_artifacts(&anchored_block_1, &parent_block_1, &mut burnchain);
+        leader.commit_artifacts(
+            &artifacts_from_1st_tenure.anchored_block, 
+            &artifacts_from_1st_tenure.parent_block, 
+            &mut burnchain, 
+            artifacts_from_1st_tenure.burn_fee);
 
         let mut burnchain_state = burnchain.sync();
         RunLoop::handle_burnchain_state_cb(&self.new_burnchain_state_callback, round_index, &burnchain_state);
@@ -138,10 +142,10 @@ impl RunLoop {
         // We should have some additional checks here, and ensure that the previous artifacts are legit.
 
         let (chain_tip, chain_tip_info, receipts) = self.node.process_tenure(
-            &anchored_block_1, 
+            &artifacts_from_1st_tenure.anchored_block, 
             &last_sortitioned_block.burn_header_hash, 
             &last_sortitioned_block.parent_burn_header_hash, 
-            microblocks.clone(),
+            artifacts_from_1st_tenure.microblocks.clone(),
             burnchain.burndb_mut());
 
         RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index, &mut self.node.chain_state, chain_tip, chain_tip_info, receipts);
@@ -170,8 +174,11 @@ impl RunLoop {
             match artifacts_from_tenure {
                 Some(ref artifacts) => {
                     // Have each node receive artifacts from the current tenure
-                    let (anchored_block, _, parent_block) = artifacts;
-                    self.node.receive_tenure_artifacts(&anchored_block, &parent_block, &mut burnchain);
+                    self.node.commit_artifacts(
+                        &artifacts.anchored_block, 
+                        &artifacts.parent_block, 
+                        &mut burnchain, 
+                        artifacts.burn_fee);
                 },
                 None => {}
             }
@@ -193,13 +200,11 @@ impl RunLoop {
                 Some(ref artifacts) => {
                     // Have each node process the previous tenure.
                     // We should have some additional checks here, and ensure that the previous artifacts are legit.
-                    let (anchored_block, microblocks, _) = artifacts;
-
                     let (chain_tip, chain_tip_info, events) = self.node.process_tenure(
-                        &anchored_block, 
+                        &artifacts.anchored_block, 
                         &burnchain_state.block_snapshot.burn_header_hash, 
                         &burnchain_state.block_snapshot.parent_burn_header_hash,             
-                        microblocks.to_vec(),
+                        artifacts.microblocks.clone(),
                         burnchain.burndb_mut());
 
                     RunLoop::handle_new_chain_state_cb(
@@ -228,7 +233,7 @@ impl RunLoop {
         self.new_burnchain_state_callback = Some(f);
     }
 
-    pub fn apply_on_new_tenures(&mut self, f: fn(u64, &LeaderTenure)) {
+    pub fn apply_on_new_tenures(&mut self, f: fn(u64, &Tenure)) {
         self.new_tenure_callback = Some(f);
     }
     
@@ -236,8 +241,8 @@ impl RunLoop {
         self.new_chain_state_callback = Some(f);
     }
 
-    fn handle_new_tenure_cb(new_tenure_callback: &Option<fn(u64, &LeaderTenure)>,
-                            round_index: u64, tenure: &LeaderTenure) {
+    fn handle_new_tenure_cb(new_tenure_callback: &Option<fn(u64, &Tenure)>,
+                            round_index: u64, tenure: &Tenure) {
         info_yellow!("Node starting new tenure with VRF {:?}", tenure.vrf_seed);
         new_tenure_callback.map(|cb| cb(round_index, tenure));
     }

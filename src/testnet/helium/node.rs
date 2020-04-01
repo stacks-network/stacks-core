@@ -1,4 +1,4 @@
-use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainController, BurnchainTip, EventDispatcher};
+use super::{Keychain, MemPool, MemPoolFS, Config, Tenure, BurnchainController, BurnchainTip, EventDispatcher};
 use super::operations::{BurnchainOperationType, LeaderBlockCommitPayload, LeaderKeyRegisterPayload};
 
 use std::collections::HashMap;
@@ -196,7 +196,7 @@ impl Node {
     /// Prepares the node to run a tenure consisting in bootstraping the chain.
     /// 
     /// Will internally call initiate_new_tenure().
-    pub fn initiate_genesis_tenure(&mut self, block: &BlockSnapshot) -> Option<LeaderTenure> {
+    pub fn initiate_genesis_tenure(&mut self, block: &BlockSnapshot) -> Option<Tenure> {
         // Set the `bootstraping_chain` flag, that will be unset once the 
         // bootstraping tenure ran successfully (process_tenure).
         self.bootstraping_chain = true;
@@ -208,7 +208,7 @@ impl Node {
             op_txid: Txid([0u8; 32]),
             sortition_hash: block.sortition_hash,
             consensus_hash: block.consensus_hash,
-            total_burn: 0,
+            total_burn: block.total_burn,
             burn_header_hash: block.burn_header_hash,
             parent_burn_header_hash: block.parent_burn_header_hash,
         };
@@ -218,10 +218,10 @@ impl Node {
         self.initiate_new_tenure(&block)
     }
 
-    /// Constructs and returns an instance of LeaderTenure, that can be run
+    /// Constructs and returns an instance of Tenure, that can be run
     /// on an isolated thread and discarded or canceled without corrupting the
     /// chain state of the node.
-    pub fn initiate_new_tenure(&mut self, sortitioned_block: &SortitionedBlock) -> Option<LeaderTenure> {
+    pub fn initiate_new_tenure(&mut self, sortitioned_block: &SortitionedBlock) -> Option<Tenure> {
         // Get the latest registered key
         let registered_key = match &self.active_registered_key {
             None => {
@@ -254,8 +254,11 @@ impl Node {
         // the upcoming tenure.
         let coinbase_tx = self.generate_coinbase_tx();
 
+
+        let burn_fee_cap = 10000;
+
         // Construct the upcoming tenure
-        let tenure = LeaderTenure::new(
+        let tenure = Tenure::new(
             chain_tip, 
             self.average_block_time,
             coinbase_tx,
@@ -263,16 +266,18 @@ impl Node {
             self.mem_pool.clone(),
             microblock_secret_key, 
             sortitioned_block.clone(),
-            vrf_proof);
+            vrf_proof,
+            burn_fee_cap);
 
         Some(tenure)
     }
 
-    pub fn receive_tenure_artifacts(
+    pub fn commit_artifacts(
         &mut self, 
         anchored_block_from_ongoing_tenure: &StacksBlock, 
         parent_block: &SortitionedBlock,
-        burnchain_controller: &mut Box<dyn BurnchainController>) 
+        burnchain_controller: &mut Box<dyn BurnchainController>,
+        burn_fee: u64) 
     {
         if self.active_registered_key.is_some() {
             let registered_key = self.active_registered_key.clone().unwrap();
@@ -281,7 +286,6 @@ impl Node {
                 &registered_key.vrf_public_key, 
                 parent_block.sortition_hash.as_bytes()).unwrap();
 
-            let burn_fee = 1;
             let op = self.generate_block_commit_op(
                 anchored_block_from_ongoing_tenure.header.block_hash(),
                 burn_fee,
