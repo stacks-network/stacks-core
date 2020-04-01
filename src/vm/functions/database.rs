@@ -8,7 +8,7 @@ use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty,
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{CheckErrors, InterpreterError, RuntimeErrorType, InterpreterResult as Result,
                  check_argument_count, check_arguments_at_least};
-use vm::costs::cost_functions;
+use vm::costs::{cost_functions, constants as cost_constants, CostTracker, MemoryConsumer};
 use vm::{eval, LocalContext, Environment};
 use vm::callables::{DefineType};
 use chainstate::burn::{BlockHeaderHash};
@@ -153,6 +153,8 @@ pub fn special_set_variable(args: &[SymbolicExpression],
     let data_types = env.global_context.database.load_variable(contract, var_name)?;
     runtime_cost!(cost_functions::SET_VAR, env, data_types.value_type.size())?;
 
+    env.add_memory(value.get_memory_use())?;
+
     env.global_context.database.set_variable(contract, var_name, value)
 }
 
@@ -199,35 +201,11 @@ pub fn special_at_block(args: &[SymbolicExpression],
         x => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), x).into())
     };
 
-    env.evaluate_at_block(bhh, &args[1], context)
-}
+    env.add_memory(cost_constants::AT_BLOCK_MEMORY)?;
+    let result = env.evaluate_at_block(bhh, &args[1], context);
+    env.drop_memory(cost_constants::AT_BLOCK_MEMORY);
 
-pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
-                                    env: &mut Environment,
-                                    context: &LocalContext) -> Result<Value> {
-    check_argument_count(3, args)?;
-
-    let contract_identifier = match args[0].expr {
-        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
-        _ => return Err(CheckErrors::ContractCallExpectName.into())
-    };
-
-    let map_name = args[1].match_atom()
-        .ok_or(CheckErrors::ExpectedName)?;
-
-    let key = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[2], env, &context)?
-    };
-
-    // optimization todo: db metadata like this should just get stored
-    //   in the contract object, so that it gets loaded in when the contract
-    //   is loaded from the db.
-    let data_types = env.global_context.database.load_map(&contract_identifier, map_name)?;
-    runtime_cost!(cost_functions::FETCH_ENTRY, env,
-                  data_types.value_type.size() + data_types.key_type.size())?;
-
-    env.global_context.database.fetch_entry(&contract_identifier, map_name, &key)
+    result
 }
 
 pub fn special_set_entry(args: &[SymbolicExpression],
@@ -260,6 +238,9 @@ pub fn special_set_entry(args: &[SymbolicExpression],
     let data_types = env.global_context.database.load_map(contract, map_name)?;
     runtime_cost!(cost_functions::SET_ENTRY, env,
                   data_types.value_type.size() + data_types.key_type.size())?;
+
+    env.add_memory(key.get_memory_use())?;
+    env.add_memory(value.get_memory_use())?;
 
     env.global_context.database.set_entry(contract, map_name, key, value)
 }
@@ -295,6 +276,9 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
     runtime_cost!(cost_functions::SET_ENTRY, env,
                   data_types.value_type.size() + data_types.key_type.size())?;
 
+    env.add_memory(key.get_memory_use())?;
+    env.add_memory(value.get_memory_use())?;
+
     env.global_context.database.insert_entry(contract, map_name, key, value)
 }
 
@@ -322,6 +306,8 @@ pub fn special_delete_entry(args: &[SymbolicExpression],
     //   is loaded from the db.
     let data_types = env.global_context.database.load_map(contract, map_name)?;
     runtime_cost!(cost_functions::SET_ENTRY, env, data_types.key_type.size())?;
+
+    env.add_memory(key.get_memory_use())?;
 
     env.global_context.database.delete_entry(contract, map_name, &key)
 }
