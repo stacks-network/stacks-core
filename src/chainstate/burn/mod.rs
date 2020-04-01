@@ -213,17 +213,16 @@ impl ConsensusHash {
     /// for the resulting consensus hash, and the geometric series of previous consensus
     /// hashes.  Note that prev_consensus_hashes should be in order from most-recent to
     /// least-recent.
-    pub fn from_ops(opshash: &OpsHash, total_burn: u64, prev_consensus_hashes: &Vec<ConsensusHash>) -> ConsensusHash {
+    pub fn from_ops(burn_header_hash: &BurnchainHeaderHash, opshash: &OpsHash, total_burn: u64, prev_consensus_hashes: &Vec<ConsensusHash>) -> ConsensusHash {
         // NOTE: unlike stacks v1, we calculate the next consensus hash
         // simply as a hash-chain of the new ops hash, the sequence of 
         // previous consensus hashes, and the total burn that went into this
         // consensus hash.  We don't turn them into Merkle trees first.
-        
-        // encode the burn as a string, so it's unambiguous regardless of architecture endianness
-        // (and it's not constrained by the word size)
-        let burn_str = format!("{}", total_burn);
-        assert!(burn_str.is_ascii());
+        // We also make it so the consensus hash commits to both the transactions and the block
+        // that contains them (so two different blocks with the same Blockstack-relevant transactions
+        // in the same order will have two different consensus hashes, as they should).
 
+        let burn_bytes = total_burn.to_be_bytes();
         let result;
         {
             use sha2::Digest;
@@ -232,11 +231,14 @@ impl ConsensusHash {
             // fork-set version... 
             hasher.input(SYSTEM_FORK_SET_VERSION);
 
+            // burn block hash...
+            hasher.input(burn_header_hash.as_bytes());
+
             // ops hash...
             hasher.input(opshash.as_bytes());
             
             // total burn amount on this fork...
-            hasher.input(burn_str.as_str().as_bytes());
+            hasher.input(&burn_bytes);
 
             // previous consensus hashes...
             for ch in prev_consensus_hashes {
@@ -263,7 +265,8 @@ impl ConsensusHash {
         while i < 64 && block_height - (((1 as u64) << i) - 1) >= first_block_height {
             let prev_block : u64 = block_height - (((1 as u64) << i) - 1);
             let prev_ch = BurnDB::get_consensus_at(tx, prev_block, tip_block_hash)
-                .expect(&format!("FATAL: failed to get consensus hash at {} in fork {}", prev_block, tip_block_hash));
+                .expect(&format!("FATAL: failed to get consensus hash at {} in fork {}", prev_block, tip_block_hash))
+                .unwrap_or(ConsensusHash::empty());
 
             debug!("Consensus at {}: {}", prev_block, &prev_ch);
             prev_chs.push(prev_ch.clone());
@@ -282,9 +285,9 @@ impl ConsensusHash {
     }
 
     /// Make a new consensus hash, given the ops hash and parent block data
-    pub fn from_parent_block_data<'a>(tx: &mut BurnDBTx<'a>, opshash: &OpsHash, parent_block_height: u64, first_block_height: u64, parent_block_hash: &BurnchainHeaderHash, total_burn: u64) -> Result<ConsensusHash, db_error> {
+    pub fn from_parent_block_data<'a>(tx: &mut BurnDBTx<'a>, opshash: &OpsHash, parent_block_height: u64, first_block_height: u64, parent_block_hash: &BurnchainHeaderHash, this_block_hash: &BurnchainHeaderHash, total_burn: u64) -> Result<ConsensusHash, db_error> {
         let prev_consensus_hashes = ConsensusHash::get_prev_consensus_hashes(tx, parent_block_height, first_block_height, parent_block_hash)?;
-        Ok(ConsensusHash::from_ops(opshash, total_burn, &prev_consensus_hashes))
+        Ok(ConsensusHash::from_ops(this_block_hash, opshash, total_burn, &prev_consensus_hashes))
     }
 
     /// raw consensus hash

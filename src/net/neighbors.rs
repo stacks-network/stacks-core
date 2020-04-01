@@ -163,6 +163,8 @@ pub struct NeighborWalkResult {
     pub new_connections: HashSet<NeighborKey>,
     pub broken_connections: HashSet<NeighborKey>,
     pub replaced_neighbors: HashSet<NeighborKey>,
+    pub burn_chain_tips: HashMap<NeighborKey, (u64, ConsensusHash)>,
+    pub stable_burn_chain_tips: HashMap<NeighborKey, (u64, ConsensusHash)>,
     pub do_prune: bool
 }
 
@@ -172,6 +174,8 @@ impl NeighborWalkResult {
             new_connections: HashSet::new(),
             broken_connections: HashSet::new(),
             replaced_neighbors: HashSet::new(),
+            burn_chain_tips: HashMap::new(),
+            stable_burn_chain_tips: HashMap::new(),
             do_prune: false
         }
     }
@@ -188,10 +192,17 @@ impl NeighborWalkResult {
         self.replaced_neighbors.insert(nk);
     }
 
+    pub fn add_chain_tip(&mut self, nk: NeighborKey, tip_height: u64, tip: ConsensusHash, stable_tip_height: u64, stable_tip: ConsensusHash) -> () {
+        self.burn_chain_tips.insert(nk.clone(), (tip_height, tip));
+        self.stable_burn_chain_tips.insert(nk, (stable_tip_height, stable_tip));
+    }
+
     pub fn clear(&mut self) -> () {
         self.new_connections.clear();
         self.broken_connections.clear();
         self.replaced_neighbors.clear();
+        self.burn_chain_tips.clear();
+        self.stable_burn_chain_tips.clear();
         self.do_prune = false;
     }
 }
@@ -406,6 +417,9 @@ impl NeighborWalk {
                                 debug!("Connected with {:?}", &self.cur_neighbor.addr);
                                 self.new_frontier.insert(self.cur_neighbor.addr.clone(), self.cur_neighbor.clone());
 
+                                // remember the tip this peer reported
+                                self.result.add_chain_tip(self.cur_neighbor.addr.clone(), message.preamble.burn_block_height, message.preamble.burn_consensus_hash.clone(), message.preamble.burn_stable_block_height, message.preamble.burn_stable_consensus_hash.clone());
+
                                 // advance state!
                                 self.set_state(NeighborWalkState::GetNeighborsBegin);
                                 Ok(Some(self.cur_neighbor.clone()))
@@ -577,15 +591,11 @@ impl NeighborWalk {
 
     /// Begin getting the neighors of cur_neighbor's neighbors.
     /// ReplyHandleP2Ps should be reply handles for Handshake requests.
-    pub fn neighbor_handshakes_begin(&mut self, mut handshake_handles: HashMap<NeighborAddress, ReplyHandleP2P>) -> () {
+    pub fn neighbor_handshakes_begin(&mut self, handshake_handles: HashMap<NeighborAddress, ReplyHandleP2P>) -> () {
         assert!(self.state == NeighborWalkState::GetHandshakesBegin);
 
         // advance state!
-        self.unresolved_handshake_neighbors.clear();
-        for (naddr, nh) in handshake_handles.drain() {
-            self.unresolved_handshake_neighbors.insert(naddr, nh);
-        }
-
+        self.unresolved_handshake_neighbors = handshake_handles;
         self.set_state(NeighborWalkState::GetHandshakesFinish);
     }
 
@@ -652,6 +662,9 @@ impl NeighborWalk {
 
                                         // knew about this neighbor already
                                         self.resolved_handshake_neighbors.insert(naddr, neighbor.clone());
+                                
+                                        // remember the tip this peer saw
+                                        self.result.add_chain_tip(neighbor.addr.clone(), message.preamble.burn_block_height, message.preamble.burn_consensus_hash.clone(), message.preamble.burn_stable_block_height, message.preamble.burn_stable_consensus_hash.clone());
 
                                         // update our frontier as well
                                         self.new_frontier.insert(neighbor.addr.clone(), neighbor);
@@ -762,15 +775,11 @@ impl NeighborWalk {
 
     /// Begin asking remote neighbors for their neighbors in order to estimate cur_neighbor's
     /// in-degree. 
-    pub fn getneighbors_neighbors_begin(&mut self, mut getneighbors_handles: HashMap<NeighborKey, ReplyHandleP2P>) -> () {
+    pub fn getneighbors_neighbors_begin(&mut self, getneighbors_handles: HashMap<NeighborKey, ReplyHandleP2P>) -> () {
         assert!(self.state == NeighborWalkState::GetNeighborsNeighborsBegin);
 
         // advance state!
-        self.unresolved_getneighbors_neighbors.clear();
-        for (naddr, nh) in getneighbors_handles.drain() {
-            self.unresolved_getneighbors_neighbors.insert(naddr, nh);
-        }
-
+        self.unresolved_getneighbors_neighbors = getneighbors_handles;
         self.set_state(NeighborWalkState::GetNeighborsNeighborsFinish);
     }
 
@@ -976,15 +985,11 @@ impl NeighborWalk {
 
     // proceed to ping _existing_ neighbors that would be replaced by the discovery of a new
     // neighbor
-    pub fn ping_existing_neighbors_begin(&mut self, mut network_handles: HashMap<NeighborKey, ReplyHandleP2P>) -> () {
+    pub fn ping_existing_neighbors_begin(&mut self, network_handles: HashMap<NeighborKey, ReplyHandleP2P>) -> () {
         assert!(self.state == NeighborWalkState::NeighborsPingBegin);
 
-        self.unresolved_neighbor_pings.clear();
-
-        for (neighbor_key, ping_handle) in network_handles.drain() {
-            self.unresolved_neighbor_pings.insert(neighbor_key, ping_handle);
-        }
-
+        self.unresolved_neighbor_pings = network_handles;
+        
         // advance state!
         self.set_state(NeighborWalkState::NeighborsPingFinish);
     }
@@ -1017,6 +1022,9 @@ impl NeighborWalk {
                                 test_debug!("{:?}: will NOT replace {:?}", &self.local_peer, &neighbor_from_handshake.addr);
                                 self.replaced_neighbors.remove(&neighbor_from_handshake.addr);
                             }
+                            
+                            // remember the tip this neighbor saw 
+                            self.result.add_chain_tip(nkey.clone(), message.preamble.burn_block_height, message.preamble.burn_consensus_hash.clone(), message.preamble.burn_stable_block_height, message.preamble.burn_stable_consensus_hash.clone());
                         },
                         StacksMessageType::Nack(ref data) => {
                             // evict
@@ -1134,6 +1142,8 @@ impl PeerNetwork {
         
         test_debug!("{:?}: send Handshake to {:?}", &self.local_peer, &nk);
 
+        // NOTE: the below can fail if the connection is not yet finished (but that's okay --
+        // eventually, the connection will finish, and we can ask this neighbor again).
         let msg = self.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data))?;
         let req_res = self.send_message(nk, msg, get_epoch_time_secs() + self.connection_opts.timeout);
         match req_res {
@@ -1159,13 +1169,16 @@ impl PeerNetwork {
         Ok(())
     }
 
-    fn with_walk_state<F, R>(network: &mut PeerNetwork, handler: F) -> Result<R, net_error>
+    pub fn with_walk_state<F, R>(network: &mut PeerNetwork, handler: F) -> Result<R, net_error>
     where
         F: FnOnce(&mut PeerNetwork, &mut NeighborWalk) -> Result<R, net_error>
     {
         let mut walk = network.walk.take();
         let res = match walk {
-            None => Err(net_error::NotConnected),
+            None => {
+                test_debug!("{:?}: not connected", &network.local_peer);
+                Err(net_error::NotConnected)
+            },
             Some(ref mut walk) => handler(network, walk)
         };
         network.walk = walk;
@@ -1453,13 +1466,15 @@ impl PeerNetwork {
     /// Update the state of our peer graph walk.
     /// If we complete a walk, give back a walk result.
     /// Mask errors by restarting the graph walk.
-    pub fn walk_peer_graph(&mut self) -> Option<NeighborWalkResult> {
+    /// Returns the walk result, and a true/false flag to indicate whether or not the work for the
+    /// walk was finished (i.e. we either completed the walk, or we reset the walk)
+    pub fn walk_peer_graph(&mut self) -> (bool, Option<NeighborWalkResult>) {
         if self.walk.is_none() {
             // time to do a walk yet?
             if self.walk_count > NUM_INITIAL_WALKS && self.walk_deadline > get_epoch_time_secs() {
                 // we've done enough walks for an initial mixing,
                 // so throttle ourselves down until the walk deadline passes.
-                return None;
+                return (true, None);
             }
         }
 
@@ -1514,9 +1529,12 @@ impl PeerNetwork {
 
         match res {
             Ok(mut walk_opt) => {
+                let mut done = false;
+
                 match walk_opt {
                     Some(ref mut walk_result) => {
                         // finished a walk completely
+                        done = true;
                         self.walk_count += 1;
                         self.walk_deadline = self.connection_opts.walk_interval + get_epoch_time_secs();
 
@@ -1557,14 +1575,37 @@ impl PeerNetwork {
                 if reset {
                     test_debug!("{:?}: random walk restart", &self.local_peer);
                     self.walk = None;
+                    done = true;        // move onto the next p2p work item
+                }
+
+                #[cfg(test)]
+                {
+                    if done {
+                        let (mut inbound, mut outbound) = self.dump_peer_table();
+
+                        inbound.sort();
+                        outbound.sort();
+
+                        debug!("Walk finished ===================");
+                        debug!("{:?}: Peers outbound ({}): {}", &self.local_peer, outbound.len(), outbound.join(", "));
+                        debug!("{:?}: Peers inbound ({}):  {}", &self.local_peer, inbound.len(), inbound.join(", "));
+                        debug!("Walk finished ===================");
+
+                        match PeerDB::get_frontier_size(self.peerdb.conn()) {
+                            Ok(count) => {
+                                debug!("{:?}: Frontier size: {}", &self.local_peer, count);
+                            },
+                            Err(_) => {}
+                        };
+                    }
                 }
                 
-                walk_opt
+                (done, walk_opt)
             },
             Err(_e) => {
                 test_debug!("{:?}: Restarting neighbor with new random neighbors: {:?} => {:?}", &self.local_peer, walk_state, &_e);
                 self.walk = None;
-                None
+                (true, None)
             }
         }
     }
@@ -1585,7 +1626,7 @@ mod test {
     #[test]
     fn test_step_walk_1_neighbor_plain() {
         let mut peer_1_config = TestPeerConfig::from_port(31990);
-        let peer_2_config = TestPeerConfig::from_port(31991);
+        let peer_2_config = TestPeerConfig::from_port(31992);
 
         // peer 1 crawls peer 2
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
@@ -1658,7 +1699,7 @@ mod test {
     #[test]
     fn test_step_walk_1_neighbor_heartbeat_ping() {
         let mut peer_1_config = TestPeerConfig::from_port(31992);
-        let mut peer_2_config = TestPeerConfig::from_port(31993);
+        let mut peer_2_config = TestPeerConfig::from_port(31994);
 
         peer_1_config.connection_opts.heartbeat = 10;
         peer_2_config.connection_opts.heartbeat = 10;
@@ -1747,7 +1788,7 @@ mod test {
     #[test]
     fn test_step_walk_1_neighbor_bootstrapping() {
         let mut peer_1_config = TestPeerConfig::from_port(32100);
-        let peer_2_config = TestPeerConfig::from_port(32101);
+        let peer_2_config = TestPeerConfig::from_port(32102);
 
         // peer 1 crawls peer 2, but peer 1 doesn't add peer 2 to its frontier becuase peer 2 is
         // too far behind.
@@ -1813,7 +1854,7 @@ mod test {
     #[test]
     fn test_step_walk_1_neighbor_behind() {
         let mut peer_1_config = TestPeerConfig::from_port(32200);
-        let peer_2_config = TestPeerConfig::from_port(32201);
+        let peer_2_config = TestPeerConfig::from_port(32202);
 
         // peer 1 crawls peer 2, and peer 1 adds peer 2 to its frontier even though peer 2 does
         // not, because peer 2 is too far ahead
@@ -1898,10 +1939,10 @@ mod test {
         // peer 2 has 10 other neighbors.
         // Goal: peer 1 learns about the 10 other neighbors.
         let mut peer_1_config = TestPeerConfig::from_port(32300);
-        let mut peer_2_config = TestPeerConfig::from_port(32301);
+        let mut peer_2_config = TestPeerConfig::from_port(32302);
         let mut peer_2_neighbors = vec![];
         for i in 0..10 {
-            let n = TestPeerConfig::from_port(i + 2 + 32300);
+            let n = TestPeerConfig::from_port(2*i + 4 + 32300);
             peer_2_config.add_neighbor(&n.to_neighbor());
 
             let p = TestPeer::new(n);
@@ -2009,10 +2050,10 @@ mod test {
         // peer 2 has 10 other neighbors, 5 of which are too far behind peer 1.
         // Goal: peer 1 learns about the 5 fresher neighbors.
         let mut peer_1_config = TestPeerConfig::from_port(32400);
-        let mut peer_2_config = TestPeerConfig::from_port(32401);
+        let mut peer_2_config = TestPeerConfig::from_port(32402);
         let mut peer_2_neighbors = vec![];
         for i in 0..10 {
-            let n = TestPeerConfig::from_port(i + 2 + 32400);
+            let n = TestPeerConfig::from_port(2*i + 4 + 32400);
             peer_2_config.add_neighbor(&n.to_neighbor());
 
             let p = TestPeer::new(n);
@@ -2141,7 +2182,7 @@ mod test {
     #[test]
     fn test_step_walk_2_neighbors_plain() {
         let mut peer_1_config = TestPeerConfig::from_port(32500);
-        let mut peer_2_config = TestPeerConfig::from_port(32501);
+        let mut peer_2_config = TestPeerConfig::from_port(32502);
 
         peer_1_config.whitelisted = -1;
         peer_2_config.whitelisted = -1;
@@ -2237,7 +2278,7 @@ mod test {
     #[test]
     fn test_step_walk_2_neighbors_rekey() {
         let mut peer_1_config = TestPeerConfig::from_port(32600);
-        let mut peer_2_config = TestPeerConfig::from_port(32601);
+        let mut peer_2_config = TestPeerConfig::from_port(32602);
 
         peer_1_config.whitelisted = -1;
         peer_2_config.whitelisted = -1;
@@ -2284,11 +2325,8 @@ mod test {
                 };
             }
 
-            let empty_block_1 = peer_1.empty_burnchain_block(i + first_block_height - 1);
-            let empty_block_2 = peer_2.empty_burnchain_block(i + first_block_height - 1);
-
-            peer_1.next_burnchain_block(&empty_block_1);
-            peer_2.next_burnchain_block(&empty_block_2);
+            peer_1.add_empty_burnchain_block();
+            peer_2.add_empty_burnchain_block();
         }
 
         // peer 1 contacted peer 2
@@ -2327,7 +2365,7 @@ mod test {
     fn test_step_walk_2_neighbors_different_networks() {
         // peer 1 and 2 try to handshake but never succeed since they have different network IDs
         let mut peer_1_config = TestPeerConfig::from_port(32700);
-        let mut peer_2_config = TestPeerConfig::from_port(32701);
+        let mut peer_2_config = TestPeerConfig::from_port(32702);
 
         // peer 1 crawls peer 2, and peer 2 crawls peer 1
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
@@ -2395,7 +2433,7 @@ mod test {
     }
     
     fn setup_peer_config(i: usize, port_base: u16, neighbor_count: usize, peer_count: usize) -> TestPeerConfig {
-        let mut conf = TestPeerConfig::from_port(port_base + (i as u16));
+        let mut conf = TestPeerConfig::from_port(port_base + (2*i as u16));
         conf.connection_opts.num_neighbors = neighbor_count as u64;
         conf.connection_opts.soft_num_neighbors = neighbor_count as u64;
 
