@@ -93,20 +93,20 @@ lazy_static! {
     static ref PATH_GETMICROBLOCKS_CONFIRMED : Regex = Regex::new(r#"^/v2/microblocks/confirmed/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_GETMICROBLOCKS_UNCONFIRMED : Regex = Regex::new(r#"^/v2/microblocks/unconfirmed/([0-9a-f]{64})/([0-9]{1,5})$"#).unwrap();
     static ref PATH_POSTTRANSACTION : Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
-    static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!("^/v2/accounts/(?P<principal>{})", *PRINCIPAL_DATA_REGEX)).unwrap();
+    static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!("^/v2/accounts/(?P<principal>{})$", *PRINCIPAL_DATA_REGEX)).unwrap();
     static ref PATH_GET_MAP_ENTRY: Regex = Regex::new(&format!(
-        "^/v2/map_entry/(?P<address>{})/(?P<contract>{})/(?P<map>{})",
+        "^/v2/map_entry/(?P<address>{})/(?P<contract>{})/(?P<map>{})$",
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX)).unwrap();
     static ref PATH_POST_CALL_READ_ONLY: Regex = Regex::new(&format!(
-        "^/v2/contracts/call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})",
+        "^/v2/contracts/call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})$",
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX)).unwrap();
     static ref PATH_GET_CONTRACT_SRC: Regex = Regex::new(&format!(
-        "^/v2/contracts/source/(?P<address>{})/(?P<contract>{})",
+        "^/v2/contracts/source/(?P<address>{})/(?P<contract>{})$",
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX)).unwrap();
     static ref PATH_GET_CONTRACT_ABI: Regex = Regex::new(&format!(
-        "^/v2/contracts/interface/(?P<address>{})/(?P<contract>{})",
+        "^/v2/contracts/interface/(?P<address>{})/(?P<contract>{})$",
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX)).unwrap();
-    static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer").unwrap();
+    static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
 }
 
 /// HTTP headers that we really care about
@@ -1225,11 +1225,8 @@ impl HttpRequestType {
         let map_name = ClarityName::try_from(captures["map"].to_string())
             .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
 
-        // deserialize hex bytes from the HTTP request
-        // this _buffers_ the post data, because that's much simpler for now than
-        //   using something like a hex-decoding-stream-wrapper.
-        let mut value_hex = String::new();
-        fd.read_to_string(&mut value_hex).map_err(net_error::ReadError)?;
+        let value_hex: String = serde_json::from_reader(fd)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse JSON body".into()))?;
 
         let value = Value::try_deserialize_hex_untyped(&value_hex)
             .map_err(|_e| net_error::DeserializeError("Failed to deserialize key value".into()))?;

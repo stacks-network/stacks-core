@@ -828,6 +828,7 @@ pub struct HttpRequestMetadata {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MapEntryResponse {
     pub data: String,
+    #[serde(rename = "marfProof")]
     pub marf_proof: String
 }
 
@@ -835,7 +836,9 @@ pub struct MapEntryResponse {
 pub struct AccountEntryResponse {
     pub balance: u128,
     pub nonce: u64,
+    #[serde(rename = "balanceProof")]
     pub balance_proof: String,
+    #[serde(rename = "nonceProof")]
     pub nonce_proof: String
 }
 

@@ -350,12 +350,14 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .body(key.serialize())
+                    .body(serde_json::to_string(&key.serialize()).unwrap())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u1))");
+                eprintln!("{}", serde_json::to_string(&res).unwrap());
+
                 assert_eq!(result_data, expected_data);
 
                 let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(100))])
@@ -363,12 +365,11 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .body(key.serialize())
+                    .body(serde_json::to_string(&key.serialize()).unwrap())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
                 assert_eq!(result_data, Value::none());
-
 
                 let sender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap());
 
@@ -396,6 +397,14 @@ fn integration_test_get_info() {
                 assert_eq!(res.balance, 300);
                 assert_eq!(res.nonce, 0);
 
+                // account with neither!
+                let path = format!("{}/v2/accounts/{}.get-info",
+                                   &http_origin, &contract_addr);
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+                assert_eq!(res.balance, 0);
+                assert_eq!(res.nonce, 0);
+
                 // let's try getting the transfer cost
                 let path = format!("{}/v2/fees/transfer", &http_origin);
                 eprintln!("Test: GET {}", path);
@@ -410,6 +419,8 @@ fn integration_test_get_info() {
 
                 let contract_analysis = mem_type_check(GET_INFO_CONTRACT).unwrap().1;
                 let expected_interface = build_contract_interface(&contract_analysis);
+
+                eprintln!("{}", serde_json::to_string(&expected_interface).unwrap());
 
                 assert_eq!(res, expected_interface);
 
