@@ -1186,6 +1186,22 @@ impl StacksChainState {
                 }
             })
     }
+    
+    /// Is a block orphaned?
+    pub fn is_block_orphaned(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
+        StacksChainState::read_i64s(blocks_conn, "SELECT orphaned FROM staging_blocks WHERE anchored_block_hash = ?1 AND burn_header_hash = ?2", &[block_hash, burn_hash])
+            .and_then(|orphaned| {
+                if orphaned.len() == 0 {
+                    Ok(false)
+                }
+                else if orphaned.len() == 1 {
+                    Ok(orphaned[0] != 0)
+                }
+                else {
+                    Err(Error::DBError(db_error::Overflow))
+                }
+            })
+    }
 
     /// Do we have a microblock queued up, and if so, is it being processed?
     /// Return Some(processed) if the microblock is queued up
@@ -1198,6 +1214,22 @@ impl StacksChainState {
                 }
                 else if processed.len() == 1 {
                     Ok(Some(processed[0] != 0))
+                }
+                else {
+                    Err(Error::DBError(db_error::Overflow))
+                }
+            })
+    }
+    
+    /// Is a microblock orphaned?
+    pub fn is_microblock_orphaned(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<bool, Error> {
+        StacksChainState::read_i64s(blocks_conn, "SELECT orphaned FROM staging_microblocks WHERE anchored_block_hash = ?1 AND microblock_hash = ?2 AND burn_header_hash = ?3", &[block_hash, microblock_hash, burn_hash])
+            .and_then(|orphaned| {
+                if orphaned.len() == 0 {
+                    Ok(false)
+                }
+                else if orphaned.len() == 1 {
+                    Ok(orphaned[0] != 0)
                 }
                 else {
                     Err(Error::DBError(db_error::Overflow))
@@ -1358,6 +1390,7 @@ impl StacksChainState {
         else {
             // Otherwise, all descendents of this processed block are never attacheable.
             // Mark this block's children as orphans, blow away its data, and blow away its descendent microblocks.
+            test_debug!("Orphan block {}/{}", burn_hash, anchored_block_hash);
             StacksChainState::delete_orphaned_epoch_data(tx, burn_hash, anchored_block_hash)?;
         }
 
@@ -1959,22 +1992,29 @@ impl StacksChainState {
             test_debug!("Block already stored and/or processed: {}/{}", burn_header_hash, &block.block_hash());
             return Ok(false);
         }
-        
-        // does this block match the burnchain state? skip if not
-        let (commit_burn, sortition_burn) = match StacksChainState::validate_anchored_block_burnchain(burn_tx, burn_header_hash, block, self.mainnet, self.chain_id)? {
-            Some((commit_burn, sortition_burn)) => (commit_burn, sortition_burn),
-            None => { 
-                let msg = format!("Invalid block {}: does not correspond to burn chain state", block.block_hash());
-                warn!("{}", &msg);
-                return Err(Error::InvalidStacksBlock(msg));
-            }
-        };
-    
+         
         // find all user burns that supported this block 
         let user_burns = BurnDB::get_winning_user_burns_by_block(burn_tx, burn_header_hash)
             .map_err(Error::DBError)?;
 
+        let mainnet = self.mainnet;
+        let chain_id = self.chain_id;
         let mut block_tx = self.blocks_tx_begin()?;
+
+        // does this block match the burnchain state? skip if not
+        let (commit_burn, sortition_burn) = match StacksChainState::validate_anchored_block_burnchain(burn_tx, burn_header_hash, block, mainnet, chain_id)? {
+            Some((commit_burn, sortition_burn)) => (commit_burn, sortition_burn),
+            None => { 
+                let msg = format!("Invalid block {}: does not correspond to burn chain state", block.block_hash());
+                warn!("{}", &msg);
+
+                // orphan it
+                StacksChainState::set_block_processed(&mut block_tx, burn_header_hash, &block.block_hash(), false)?;
+
+                block_tx.commit().map_err(Error::DBError)?;
+                return Err(Error::InvalidStacksBlock(msg));
+            }
+        };
      
         // queue block up for processing
         StacksChainState::store_staging_block(&mut block_tx, burn_header_hash, burn_header_timestamp, &block, parent_burn_header_hash, commit_burn, sortition_burn)?;
@@ -2159,6 +2199,7 @@ impl StacksChainState {
         let sql = "SELECT * FROM staging_blocks WHERE processed = 0 AND orphaned = 1 ORDER BY RANDOM() LIMIT 1".to_string();
         let mut rows = query_rows::<StagingBlock, _>(blocks_tx, &sql, NO_PARAMS).map_err(Error::DBError)?;
         if rows.len() == 0 {
+            test_debug!("No orphans to remove");
             return Ok(false);
         }
 
@@ -2587,7 +2628,10 @@ impl StacksChainState {
             debug!("Block already processed: {}/{}", &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash);
 
             // clear out
-            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, true)?;
+            StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, &next_staging_block.burn_header_hash, &next_staging_block.anchored_block_hash, true)?; 
+            chainstate_tx.commit()
+                .map_err(Error::DBError)?;
+
             return Ok((None, None));
         }
 
@@ -2660,6 +2704,7 @@ impl StacksChainState {
                 // something's wrong with this epoch -- either a microblock was invalid, or the
                 // anchored block was invalid.  Either way, the anchored block will _never be_
                 // valid, so we can drop it from the chunk store and orphan all of its descendents.
+                test_debug!("Failed to append {}/{}", &next_staging_block.burn_header_hash, &block.block_hash());
                 StacksChainState::set_block_processed(&mut chainstate_tx.blocks_tx, &next_staging_block.burn_header_hash, &block.header.block_hash(), false)
                     .expect(&format!("FATAL: failed to clear invalid block {}/{}", next_staging_block.burn_header_hash, &block.header.block_hash()));
                 
@@ -2679,6 +2724,10 @@ impl StacksChainState {
                         // leave them in the staging database.
                     }
                 }
+
+                chainstate_tx.commit()
+                    .map_err(Error::DBError)?;
+
                 return Err(e);
             }
         };
@@ -2715,21 +2764,39 @@ impl StacksChainState {
 
         for i in 0..max_blocks {
             // process up to max_blocks pending blocks
-            let (next_tip_opt, next_microblock_poison_opt) = self.process_next_staging_block()?;
-            match next_tip_opt {
-                Some(next_tip) => {
-                    ret.push((Some(next_tip), next_microblock_poison_opt));
-                },
-                None => {
-                    match next_microblock_poison_opt {
-                        Some(poison) => {
-                            ret.push((None, Some(poison)));
-                        },
-                        None => {
-                            debug!("No more staging blocks -- processed {} in total", i);
-                            break;
+            match self.process_next_staging_block() {
+                Ok((next_tip_opt, next_microblock_poison_opt)) => match next_tip_opt {
+                    Some(next_tip) => {
+                        ret.push((Some(next_tip), next_microblock_poison_opt));
+                    },
+                    None => {
+                        match next_microblock_poison_opt {
+                            Some(poison) => {
+                                ret.push((None, Some(poison)));
+                            },
+                            None => {
+                                debug!("No more staging blocks -- processed {} in total", i);
+                                break;
+                            }
                         }
                     }
+                },
+                Err(Error::InvalidStacksBlock(msg)) => {
+                    warn!("Encountered invalid block: {}", &msg);
+                    continue;
+                },
+                Err(Error::InvalidStacksMicroblock(msg, hash)) => {
+                    warn!("Encountered invalid microblock {}: {}", hash, &msg);
+                    continue;
+                },
+                Err(Error::NetError(net_error::DeserializeError(msg))) => {
+                    // happens if we load a zero-sized block (i.e. an invalid block)
+                    warn!("Encountered invalid block: {}", &msg);
+                    continue;
+                },
+                Err(e) => {
+                    error!("Unrecoverable error when processing blocks: {:?}", &e);
+                    return Err(e);
                 }
             }
         }
@@ -2743,6 +2810,7 @@ impl StacksChainState {
             }
         }
 
+        block_tx.commit().map_err(|e| Error::DBError(e))?;
         Ok(ret)
     }
 
@@ -3958,7 +4026,6 @@ pub mod test {
             if i + 1 < blocks.len() {
                 // block i+1 should be marked as an orphan, but its data should still be there
                 assert!(StacksChainState::load_staging_block(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[i+1], &blocks[i+1].block_hash()).unwrap().is_none());
-                // assert!(StacksChainState::load_staging_block_bytes(&chainstate.blocks_db, &burn_headers[i+1], &blocks[i+1].block_hash()).unwrap().unwrap().len() > 0);
                 assert!(StacksChainState::load_block_bytes(&chainstate.blocks_path, &burn_headers[i+1], &blocks[i+1].block_hash()).unwrap().unwrap().len() > 0);
                 
                 for mblock in microblocks[i+1].iter() {
