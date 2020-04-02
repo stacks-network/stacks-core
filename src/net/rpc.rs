@@ -516,6 +516,9 @@ impl ConversationHttp {
     }
 
     fn handle_load_stacks_chain_tip<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burndb: &mut BurnDB) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
+        // TODO: this shouldn't use get_canonical_chain_tip_headers,
+        //   since the chainstate may not have progressed to that block yet (or may never).
+        //   issue #1388
         match burndb.get_canonical_chain_tip_headers()? {
             Some(x) => Ok(Some(x)),
             None => {
