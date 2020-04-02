@@ -128,7 +128,7 @@ impl fmt::Debug for ConversationHttp {
 impl PeerInfoData {
     pub fn from_db(burnchain: &Burnchain, burndb: &mut BurnDB, peerdb: &mut PeerDB) -> Result<PeerInfoData, net_error> {
         let burnchain_tip = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).map_err(net_error::DBError)?;
-        let local_peer = PeerDB::get_local_peer(peerdb.conn()).map_err(net_error::DBError).unwrap();
+        let local_peer = PeerDB::get_local_peer(peerdb.conn()).map_err(net_error::DBError)?;
         let stable_burnchain_tip = {
             let mut tx = burndb.tx_begin().map_err(net_error::DBError)?;
             let stable_height = 
@@ -159,9 +159,11 @@ impl PeerInfoData {
 
 impl ConversationHttp {
     pub fn new(network_id: u32, burnchain: &Burnchain, peer_addr: SocketAddr, outbound_url: Option<UrlString>, peer_host: PeerHost, conn_opts: &ConnectionOptions, conn_id: usize) -> ConversationHttp {
+        let mut stacks_http = StacksHttp::new();
+        stacks_http.maximum_call_argument_size = conn_opts.maximum_call_argument_size;
         ConversationHttp {
             network_id: network_id,
-            connection: ConnectionHttp::new(StacksHttp::new(), conn_opts, None),
+            connection: ConnectionHttp::new(stacks_http, conn_opts, None),
             conn_id: conn_id,
             timeout: conn_opts.timeout,
             reply_streams: VecDeque::new(),
@@ -414,13 +416,11 @@ impl ConversationHttp {
     fn handle_readonly_function_call<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
                                                chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash,
                                                cur_block: &BlockHeaderHash, contract_addr: &StacksAddress, contract_name: &ContractName,
-                                               function: &ClarityName, sender: &PrincipalData, args: &[Value] ) -> Result<(), net_error> {
+                                               function: &ClarityName, sender: &PrincipalData, args: &[Value], options: &ConnectionOptions) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
-        let cost_track = LimitedCostTracker::new(ExecutionCost { write_length: 0, write_count: 0,
-                                                                 read_length: 100000, read_count: 10,
-                                                                 runtime: 10000000 });
+        let cost_track = LimitedCostTracker::new(options.read_only_call_limit.clone());
 
         let args: Vec<_> = args.iter().map(|x| SymbolicExpression::atom_value(x.clone())).collect();
 
@@ -583,7 +583,7 @@ impl ConversationHttp {
                 if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
                     ConversationHttp::handle_readonly_function_call(
                         &mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
-                        ctrct_addr, ctrct_name, func_name, as_sender, args)?;
+                        ctrct_addr, ctrct_name, func_name, as_sender, args, &self.connection.options)?;
                 }
                 None
             },

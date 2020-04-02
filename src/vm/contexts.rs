@@ -606,8 +606,10 @@ impl <'a,'b> Environment <'a,'b> {
 
             let func = contract.contract_context.lookup_function(tx_name)
                 .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
-            if !func.is_public() || (read_only && !func.is_read_only()) {
+            if !func.is_public() {
                 return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
+            } else if read_only && !func.is_read_only() {
+                return Err(CheckErrors::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
             }
 
             let args: Result<Vec<Value>> = args.iter()

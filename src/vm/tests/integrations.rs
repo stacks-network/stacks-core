@@ -169,7 +169,11 @@ const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334b
 
 const ADDR_4: &'static str = "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0";
 
-static mut http_binding: Option<String> = None;
+use std::sync::Mutex;
+
+lazy_static! {
+    static ref http_binding: Mutex<Option<String>> = Mutex::new(None);
+}
 
 #[test]
 fn integration_test_get_info() {
@@ -189,9 +193,10 @@ fn integration_test_get_info() {
 
     let mut run_loop = testnet::helium::RunLoop::new(conf);
 
-    unsafe {
-        http_binding = Some(format!("http://{}", &run_loop.node.config.node.rpc_bind));
-    };
+    { 
+        let mut http_opt = http_binding.lock().unwrap();
+        http_opt.replace(format!("http://{}", &run_loop.node.config.node.rpc_bind));
+    }
 
     run_loop.apply_on_new_tenures(|round, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
@@ -207,8 +212,6 @@ fn integration_test_get_info() {
             tenure.mem_pool.submit(tx);
         }
 
-        let recipient = to_addr(&contract_sk);
-
         if round >= 1 {
             let tx_xfer = make_stacks_transfer(&spender_sk, (round - 1).into(), 0,
                                                &StacksAddress::from_string(ADDR_4).unwrap(), 100);
@@ -223,8 +226,8 @@ fn integration_test_get_info() {
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}", &contract_addr, "get-info")).unwrap();
 
-        let http_origin = unsafe {
-            http_binding.clone().unwrap()
+        let http_origin = {
+            http_binding.lock().unwrap().clone().unwrap()
         };
 
         match round {
@@ -480,6 +483,25 @@ fn integration_test_get_info() {
 
                 let res = res.json::<HashMap<String,String>>().unwrap();
                 assert!(format!("{}", res["cause"]).contains("UnwrapFailure"));
+
+                // let's have a runtime error!
+                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info", "update-info");
+                eprintln!("Test: POST {}", path);
+
+                let body = CallReadOnlyRequestBody {
+                    sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    arguments: vec![]
+                };
+
+                let res = client.post(&path)
+                    .body(serde_json::to_string(&body).unwrap())
+                    .send()
+                    .unwrap();
+                assert_eq!(res.status(), 400);
+
+                let res = res.json::<HashMap<String,String>>().unwrap();
+                assert!(format!("{}", res["cause"]).contains("NotReadOnly"));
+
             },
             _ => {},
         }

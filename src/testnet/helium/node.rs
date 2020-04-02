@@ -74,27 +74,30 @@ pub struct Node {
     nonce: u64,
 }
 
-pub const DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
-    inbox_maxlen: 100,
-    outbox_maxlen: 100,
-    timeout: 5000,
-    idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
-    heartbeat: 60000,
-    // can't use u64::max, because sqlite stores as i64.
-    private_key_lifetime: 9223372036854775807,
-    num_neighbors: 4,
-    num_clients: 1000,
-    soft_num_neighbors: 4,
-    soft_num_clients: 1000,
-    max_neighbors_per_host: 10,
-    max_clients_per_host: 1000,
-    soft_max_neighbors_per_host: 10,
-    soft_max_neighbors_per_org: 100,
-    soft_max_clients_per_host: 1000,
-    walk_interval: 9223372036854775807,
-    dns_timeout: 15_000,
-    max_inflight_blocks: 6,
-};
+lazy_static! {
+    static ref DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
+        inbox_maxlen: 100,
+        outbox_maxlen: 100,
+        timeout: 5000,
+        idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
+        heartbeat: 60000,
+        // can't use u64::max, because sqlite stores as i64.
+        private_key_lifetime: 9223372036854775807,
+        num_neighbors: 4,
+        num_clients: 1000,
+        soft_num_neighbors: 4,
+        soft_num_clients: 1000,
+        max_neighbors_per_host: 10,
+        max_clients_per_host: 1000,
+        soft_max_neighbors_per_host: 10,
+        soft_max_neighbors_per_org: 100,
+        soft_max_clients_per_host: 1000,
+        walk_interval: 9223372036854775807,
+        dns_timeout: 15_000,
+        max_inflight_blocks: 6,
+        .. std::default::Default::default()
+    };
+}
 
 impl Node {
 
@@ -170,7 +173,7 @@ impl Node {
                                              self.config.get_chainstate_path(), false, TESTNET_CHAIN_ID, 5000)
             .unwrap();
 
-        info!("Bound P2P/HTTP server on: {}", &self.config.node.rpc_bind);
+        info!("Bound HTTP server on: {}", &self.config.node.rpc_bind);
     }
     
     pub fn setup(&mut self) -> BlockstackOperationType {

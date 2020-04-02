@@ -70,7 +70,7 @@ use vm::{
     ast::parser::{
         STANDARD_PRINCIPAL_REGEX, PRINCIPAL_DATA_REGEX, CLARITY_NAME_REGEX, CONTRACT_NAME_REGEX
     },
-    types::{ PrincipalData, MAX_VALUE_SIZE },
+    types::{ PrincipalData, BOUND_VALUE_SERIALIZATION_HEX },
     ClarityName, ContractName, Value
 };
 
@@ -1214,7 +1214,7 @@ impl HttpRequestType {
 
     fn parse_get_map_entry<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, fd: &mut R) -> Result<HttpRequestType, net_error> {
         let content_len = preamble.get_content_length();
-        if !(content_len > 0 && content_len < (MAX_VALUE_SIZE * 4)) {
+        if !(content_len > 0 && content_len < (BOUND_VALUE_SERIALIZATION_HEX)) {
             return Err(net_error::DeserializeError("Invalid Http request: invalid body length for GetMapEntry".to_string()));
         }
 
@@ -1234,9 +1234,9 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetMapEntry(HttpRequestMetadata::from_preamble(preamble), contract_addr, contract_name, map_name, value))
     }
 
-    fn parse_call_read_only<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_call_read_only<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, fd: &mut R) -> Result<HttpRequestType, net_error> {
         let content_len = preamble.get_content_length();
-        if !(content_len > 0 && content_len < (MAX_VALUE_SIZE * 4 * 20)) {
+        if !(content_len > 0 && content_len < protocol.maximum_call_argument_size) {
             return Err(net_error::DeserializeError("Invalid Http request: invalid body length for GetMapEntry".to_string()));
         }
 
@@ -2054,6 +2054,8 @@ pub struct StacksHttp {
     reply: Option<HttpReplyData>,
     /// Size of HTTP chunks to write
     chunk_size: usize,
+    /// Maximum size of call arguments
+    pub maximum_call_argument_size: u32,
 }
 
 impl StacksHttp {
@@ -2062,7 +2064,8 @@ impl StacksHttp {
             reply: None,
             request_version: None,
             request_path: None,
-            chunk_size: 8192
+            chunk_size: 8192,
+            maximum_call_argument_size: 20 * BOUND_VALUE_SERIALIZATION_HEX,
         }
     }
 
