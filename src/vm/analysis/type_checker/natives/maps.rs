@@ -48,39 +48,6 @@ pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpr
     }
 }
 
-pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    check_arguments_at_least(3, args)?;
-    
-
-    let contract_identifier = match args[0].expr {
-        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
-        _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
-    };
-
-    let map_name = args[1].match_atom()
-        .ok_or(CheckErrors::BadMapName)?;
-    
-    checker.type_map.set_type(&args[1], no_type())?;
-    
-    let key_type = check_and_type_map_arg_tuple(checker, &args[2], context)?;
-    
-    let (expected_key_type, value_type) = checker.db.get_map_type(&contract_identifier, map_name)?;
-
-    let fetch_size = expected_key_type.type_size()?
-        .checked_add(value_type.type_size()?)
-        .ok_or_else(|| CheckErrors::CostOverflow)?;
-    runtime_cost!(cost_functions::ANALYSIS_FETCH_CONTRACT_ENTRY, &mut checker.cost_track, fetch_size)?;
-    analysis_typecheck_cost(&mut checker.cost_track, &expected_key_type, &key_type)?;
-
-    let option_type = TypeSignature::new_option(value_type)?;
-    
-    if !expected_key_type.admits_type(&key_type) {
-        return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
-    } else {
-        return Ok(option_type)
-    }
-}
-
 pub fn check_special_delete_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(2, args)?;
 

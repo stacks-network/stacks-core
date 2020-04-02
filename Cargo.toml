@@ -29,10 +29,6 @@ path = "src/blockstack_cli.rs"
 name = "marf_bench"
 harness = false
 
-[features]
-developer-mode = []
-default = ["developer-mode"]
-
 [dependencies]
 byteorder = "1.1"
 rust-ini = "0.13"
@@ -47,6 +43,8 @@ mio = "0.6"
 libc = "0.2"
 lazy_static = "1.4.0"
 url = "2.1.1" 
+sha2 = { version = "0.8.0", optional = true }
+sha2-asm = { version="0.5.3", optional = true }
 
 [dependencies.secp256k1]
 version = "0.11.5"
@@ -64,10 +62,6 @@ features = ["serde"]
 version = "=2.0.0"
 features = ["serde"]
 
-[dependencies.sha2]
-version = "0.8.0"
-features = ["asm"]
-
 [dependencies.time]
 version = "0.2.1"
 features = ["std"]
@@ -75,3 +69,9 @@ features = ["std"]
 [dev-dependencies]
 assert-json-diff = "1.0.0"
 criterion = "0.3"
+
+[features]
+developer-mode = []
+asm = ["sha2", "sha2-asm"]
+aarch64 = ["developer-mode", "sha2"]
+default = ["developer-mode", "asm"]

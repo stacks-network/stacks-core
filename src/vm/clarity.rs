@@ -8,7 +8,7 @@ use vm::ast::{ContractAST, errors::ParseError};
 use vm::analysis::{ContractAnalysis, errors::CheckError, errors::CheckErrors};
 use vm::ast;
 use vm::analysis;
-use vm::costs::{LimitedCostTracker, ExecutionCost};
+use vm::costs::{LimitedCostTracker, ExecutionCost, CostTracker};
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::marf::MARF;
@@ -342,13 +342,24 @@ impl <'a> ClarityBlockConnection <'a> {
         let cost_track = self.cost_track.take()
             .expect("Failed to get ownership of cost tracker in ClarityBlockConnection");
 
-        let mut contract_analysis = analysis::run_analysis(identifier, &mut contract_ast.expressions,
-                                                       &mut db, false, cost_track)?;
+        let result = analysis::run_analysis(
+            identifier, &mut contract_ast.expressions,
+            &mut db, false, cost_track);
 
-        let cost_track = contract_analysis.take_contract_cost_tracker();
+        let (mut cost_track, result) = match result {
+            Ok(mut contract_analysis) => {
+                let cost_track = contract_analysis.take_contract_cost_tracker();
+                (cost_track, Ok((contract_ast, contract_analysis)))
+            },
+            Err((e, cost_track)) => {
+                (cost_track, Err(e.into()))
+            }
+        };
+
+        cost_track.reset_memory();
         self.cost_track.replace(cost_track);
 
-        Ok((contract_ast, contract_analysis))
+        result
     }
 
     fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap), Error>
@@ -362,8 +373,11 @@ impl <'a> ClarityBlockConnection <'a> {
             .expect("Failed to get ownership of cost tracker in ClarityBlockConnection");
         let mut vm_env = OwnedEnvironment::new_cost_limited(db, cost_track);
         let result = to_do(&mut vm_env);
-        let (mut db, cost_track) = vm_env.destruct()
+        let (mut db, mut cost_track) = vm_env.destruct()
             .expect("Failed to recover database reference after executing transaction");
+        // reset memory usage in cost_track -- this wipes out
+        //   the memory tracking used for the k-v wrapper / replay log 
+        cost_track.reset_memory();
         self.cost_track.replace(cost_track);
 
         match result {
@@ -460,6 +474,32 @@ mod tests {
     use vm::database::{NULL_HEADER_DB, ClarityBackingStore, MarfedKV};
     use chainstate::stacks::index::storage::{TrieFileStorage};
     use rusqlite::NO_PARAMS;
+
+    #[test]
+    pub fn bad_syntax_test() {
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(marf);
+
+        let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+
+        {
+            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
+
+            let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
+
+            let _e = conn.analyze_smart_contract(&contract_identifier, &contract)
+                .unwrap_err();
+
+            // okay, let's try it again:
+
+            let _e = conn.analyze_smart_contract(&contract_identifier, &contract)
+                .unwrap_err();
+
+            conn.commit_block();
+        }
+    }
 
     #[test]
     pub fn simple_test() {
