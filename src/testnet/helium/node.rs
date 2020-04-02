@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
 use std::convert::TryFrom;
+use std::{thread, thread::JoinHandle};
+use std::net::SocketAddr;
 
 use address::AddressHashMode;
 use burnchains::{Burnchain, BurnchainHeaderHash, Txid};
@@ -13,7 +15,7 @@ use chainstate::stacks::events::StacksTransactionReceipt;
 use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
 use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
 use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, BlockHeaderHash};
-use net::{StacksMessageType, StacksMessageCodec, db::PeerDB, server::HttpPeer, connection::ConnectionOptions};
+use net::{StacksMessageType, StacksMessageCodec, db::PeerDB, server::HttpPeer, connection::ConnectionOptions, Error as NetError};
 
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
@@ -99,6 +101,31 @@ lazy_static! {
     };
 }
 
+fn spawn_http(mut this: HttpPeer, my_addr: &SocketAddr, mut peerdb: PeerDB,
+              burn_db_path: String, stacks_chainstate_path: String, 
+              is_mainnet: bool, stacks_chain_id: u32,
+              poll_timeout: u64) -> Result<JoinHandle<()>, NetError> {
+    this.bind(my_addr, 500)?;
+    let http_thread = thread::spawn(move || {
+        loop {
+            let mut burndb = BurnDB::open(&burn_db_path, true)
+                .expect("Error while instantiating burnchain db");
+            let mut chainstate = StacksChainState::open(
+                is_mainnet, stacks_chain_id, &stacks_chainstate_path)
+                .expect("Error while instantiating chainstate db");
+
+                let view = {
+                    let mut tx = burndb.tx_begin().unwrap();
+                    BurnDB::get_burnchain_view(&mut tx, &this.burnchain).unwrap()
+                };
+            this.run(view, &mut burndb, &mut peerdb, &mut chainstate, poll_timeout)
+                .unwrap();
+        }
+    });
+    Ok(http_thread)
+}
+
+
 impl Node {
 
     /// Instantiate and initialize a new node, given a config
@@ -169,8 +196,8 @@ impl Node {
         let http_server = HttpPeer::new(TESTNET_CHAIN_ID, burnchain, view, DEFAULT_CONNECTION_OPTIONS.clone());
         let socket_addr = self.config.node.rpc_bind.parse()
             .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
-        let _join_handle = http_server.spawn(&socket_addr, peerdb, self.config.get_burn_db_path(),
-                                             self.config.get_chainstate_path(), false, TESTNET_CHAIN_ID, 5000)
+        let _join_handle = spawn_http(http_server, &socket_addr, peerdb, self.config.get_burn_db_path(),
+                                      self.config.get_chainstate_path(), false, TESTNET_CHAIN_ID, 5000)
             .unwrap();
 
         info!("Bound HTTP server on: {}", &self.config.node.rpc_bind);
