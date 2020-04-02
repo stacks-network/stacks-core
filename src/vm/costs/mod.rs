@@ -46,7 +46,7 @@ impl CostTracker for () {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LimitedCostTracker {
     total: ExecutionCost,
     limit: ExecutionCost
