@@ -3001,9 +3001,7 @@ def namedb_get_all_blockstack_ops_at(db, block_id, offset=None, count=None):
     # how many preorders at this block?
     offset_count_query, offset_count_args = namedb_offset_count_predicate(offset=offset, count=count)
 
-    # preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? ORDER BY vtxindex " + " " + offset_count_query + ";"
     preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? ORDER BY vtxindex;"
-    # preorder_count_rows_args = (block_id,) + offset_count_args
     preorder_count_rows_args = (block_id,)
 
     # log.debug(namedb_format_query(preorder_count_rows_query, preorder_count_rows_args))
@@ -3033,7 +3031,7 @@ def namedb_get_all_blockstack_ops_at(db, block_id, offset=None, count=None):
     # don't return too many rows, and slide down the offset window
     if count is not None and offset is not None:
         offset = max(0, offset - num_preorders)
-        count -= num_preorders
+        count -= len(ret)
         if count <= 0:
             # done!
             return ret
