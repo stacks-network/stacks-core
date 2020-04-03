@@ -38,6 +38,8 @@ use chainstate::stacks::db::accounts::MinerReward;
 use chainstate::stacks::*;
 use chainstate::stacks::db::*;
 
+use chainstate::burn::BlockSnapshot;
+
 use std::path::{Path, PathBuf};
 
 use util::db::Error as db_error;
@@ -60,7 +62,8 @@ use util::retry::BoundReader;
 use chainstate::burn::db::burndb::*;
 
 use net::MAX_MESSAGE_LEN;
-
+use net::BLOCKS_INV_DATA_MAX_BITLEN;
+use net::BlocksInvData;
 use net::Error as net_error;
 
 use vm::types::{
@@ -912,7 +915,7 @@ impl StacksChainState {
         }
     }
 
-    /// Load up a preprocessed but still unprocessed microblock.
+    /// Load up a preprocessed microblock (processed or not)
     pub fn load_staging_microblock(blocks_conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<Option<StagingMicroblock>, Error> {
         let sql = "SELECT * FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND microblock_hash = ?3 AND orphaned = 0".to_string();
         let args: &[&dyn ToSql] = &[&burn_header_hash, &block_hash, &microblock_hash];
@@ -1029,11 +1032,57 @@ impl StacksChainState {
         let microblocks = StacksChainState::merge_microblock_streams(staging_microblocks, disk_microblocks)?;
         Ok(Some(microblocks))
     }
-    
+
+    /// Get an anchored block's parent block header.
+    /// Doesn't matter if it's staging or not.
+    pub fn load_parent_block_header<'a>(burn_tx: &mut BurnDBTx<'a>, blocks_conn: &DBConn, blocks_path: &String, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Result<Option<(StacksBlockHeader, BurnchainHeaderHash)>, Error> {
+        let header = match StacksChainState::load_block_header(blocks_path, burn_header_hash, anchored_block_hash)? {
+            Some(hdr) => hdr,
+            None => {
+                return Ok(None);
+            }
+        };
+        
+        // find block snapshot for this block
+        let block_snapshot = BurnDB::get_block_snapshot(burn_tx, burn_header_hash).map_err(Error::DBError)?
+            .expect(&format!("DB CORRUPTION: block {} has no burn snapshot", anchored_block_hash));
+
+        // find all blocks that we have that could be this block's parent
+        let sql = "SELECT * FROM staging_blocks WHERE anchored_block_hash = ?1".to_string();
+        let args : &[&dyn ToSql] = &[&header.parent_block];
+        let mut rows = query_rows::<StagingBlock, _>(&blocks_conn, &sql, args).map_err(Error::DBError)?;
+        if rows.len() == 0 {
+            // don't have any parents yet
+            return Ok(None);
+        }
+
+        // find the parent block whose burn block is also an ancestor of this block's burn block
+        for row in rows.drain(..) {
+            let parent_block_snapshot = BurnDB::get_block_snapshot(burn_tx, &row.burn_header_hash).map_err(Error::DBError)?
+                .expect(&format!("DB CORRUPTION: block {}/{} is missing its burn block in the burn database", &row.anchored_block_hash, &row.burn_header_hash));
+
+            // is it in the same burnchain fork as the given block?
+            let burn_ancestor = BurnDB::get_block_snapshot_in_fork(burn_tx, parent_block_snapshot.block_height, &block_snapshot.burn_header_hash).map_err(Error::DBError)?;
+            if let Some(ancestor) = burn_ancestor {
+                assert_eq!(ancestor.burn_header_hash, row.burn_header_hash);
+                
+                // found!
+                let ret = match StacksChainState::load_block_header(blocks_path, &ancestor.burn_header_hash, &row.anchored_block_hash)? {
+                    Some(header) => Ok(Some((header, ancestor.burn_header_hash))),
+                    None => Ok(None)
+                };
+                return ret;
+            }
+        }
+
+        Ok(None)
+    }
+
     /// Store a preprocessed block, queuing it up for subsequent processing.
     /// The caller should at least verify that the block is attached to some fork in the burn
     /// chain.
     fn store_staging_block<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, burn_header_timestamp: u64, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash, commit_burn: u64, sortition_burn: u64) -> Result<(), Error> {
+        test_debug!("Store anchored block {}/{}", burn_hash, block.block_hash());
         assert!(commit_burn < i64::max_value() as u64);
         assert!(sortition_burn < i64::max_value() as u64);
         assert!(burn_header_timestamp < i64::max_value() as u64);
@@ -1238,7 +1287,7 @@ impl StacksChainState {
     }
 
     /// What's the first microblock hash in a stream?
-    fn get_microblock_stream_head_hash(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, anchored_header_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+    pub fn get_microblock_stream_head_hash(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, anchored_header_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
         let sql = "SELECT * FROM staging_microblocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2 AND sequence = 0 AND orphaned = 0".to_string();
         let args: &[&dyn ToSql] = &[&burn_hash, &anchored_header_hash];
         let staging_microblocks = query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args).map_err(Error::DBError)?;
@@ -1248,7 +1297,83 @@ impl StacksChainState {
             _ => Ok(None)       // leader equivocated
         }
     }
-    
+
+    /// Generate a blocks inventory message, given the output of
+    /// BurnDB::get_stacks_header_hashes().  Note that header_hashes must be less than or equal to
+    /// BLOCKS_INV_DATA_MAX_BITLEN in order to generate a valid BlocksInvData payload.
+    pub fn get_blocks_inventory(&mut self, header_hashes: &[(BurnchainHeaderHash, Option<BlockHeaderHash>)]) -> Result<BlocksInvData, Error> {
+        if header_hashes.len() > (BLOCKS_INV_DATA_MAX_BITLEN as usize) {
+            return Err(Error::NetError(net_error::OverflowError("Resulting block inventory would be too big".to_string())));
+        }
+
+        let mut block_bits = vec![];
+        let mut microblock_bits = vec![];
+
+        for (burn_header_hash, stacks_header_hash_opt) in header_hashes.iter() {
+            match stacks_header_hash_opt {
+                None => {
+                    test_debug!("Do not have any block in burn block {} in {}", &burn_header_hash, &self.blocks_path);
+                    block_bits.push(false);
+                    microblock_bits.push(false);
+                },
+                Some(ref stacks_header_hash) => {
+                    let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, stacks_header_hash);
+                    
+                    // check block
+                    if StacksChainState::has_block_indexed(&self.blocks_path, &index_block_hash)? {
+                        test_debug!("Have anchored block {} in {}", &index_block_hash, &self.blocks_path);
+                        block_bits.push(true);
+                    }
+                    else {
+                        test_debug!("Do not have {} in {}", &index_block_hash, &self.blocks_path);
+                        block_bits.push(false);
+                        microblock_bits.push(false);
+                        continue;
+                    }
+
+                    // check confirmed microblocks (only report them if we have the anchored block
+                    // that produced them).
+                    match self.get_confirmed_microblock_index_hash(&index_block_hash)? {
+                        Some(microblock_index_hash) => {
+                            if self.has_confirmed_microblocks_indexed(&microblock_index_hash)? {
+                                let num_mblocks = self.get_microblock_stream_length(&index_block_hash)?;
+                                if num_mblocks > 0 {
+                                    // only report this stream as "present" if there are any blocks
+                                    // in this stream.
+                                    test_debug!("Have confirmed microblocks {} in {}", &microblock_index_hash, &self.blocks_path);
+                                    microblock_bits.push(true);
+                                }
+                                else {
+                                    test_debug!("Do not have confirmed microblocks {} in {} -- zero-length stream", &microblock_index_hash, &self.blocks_path);
+                                    microblock_bits.push(false);
+                                }
+                            }
+                            else {
+                                test_debug!("Do not have confirmed microblocks {} in {} -- file not found", &microblock_index_hash, &self.blocks_path);
+                                microblock_bits.push(false);
+                            }
+                        },
+                        None => {
+                            test_debug!("Do not have confirmed microblocks off of anchored block {} -- no index hash", &index_block_hash);
+                            microblock_bits.push(false);
+                        }
+                    }
+                }
+            }
+        }
+
+        assert_eq!(block_bits.len(), microblock_bits.len());
+
+        let block_bitvec = BlocksInvData::compress_bools(&block_bits);
+        let microblocks_bitvec = BlocksInvData::compress_bools(&microblock_bits);
+
+        Ok(BlocksInvData {
+            bitlen: block_bits.len() as u16,
+            block_bitvec: block_bitvec,
+            microblocks_bitvec: microblocks_bitvec
+        })
+    }
+
     /// Do we have a staging block?  Return true if the block is present and marked as unprocessed;
     /// false otherwise
     pub fn has_staging_block(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<bool, Error> {
@@ -1495,8 +1620,8 @@ impl StacksChainState {
     }
    
     /// Is a particular microblock in staging, given its _indexed anchored block hash_?
-    pub fn has_staging_microblock_indexed(&mut self, index_microblock_hash: &BlockHeaderHash, seq: u16) -> Result<bool, Error> {
-        StacksChainState::read_i64s(&self.blocks_db, "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = ?2", &[&index_microblock_hash, &seq])
+    pub fn has_staging_microblock_indexed(&mut self, index_anchor_block_hash: &BlockHeaderHash, seq: u16) -> Result<bool, Error> {
+        StacksChainState::read_i64s(&self.blocks_db, "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = ?2", &[&index_anchor_block_hash, &seq])
             .and_then(|processed| {
                 if processed.len() == 0 {
                     Ok(false)
@@ -1511,8 +1636,45 @@ impl StacksChainState {
     }
 
     /// Do we have a particular microblock stream given it _indexed head microblock hash_?
-    pub fn has_confirmed_microblocks_indexed(&mut self, index_block_hash: &BlockHeaderHash) -> Result<bool, Error> {
-        StacksChainState::has_block_indexed(&self.blocks_path, index_block_hash)
+    pub fn has_confirmed_microblocks_indexed(&mut self, index_microblock_hash: &BlockHeaderHash) -> Result<bool, Error> {
+        StacksChainState::has_block_indexed(&self.blocks_path, index_microblock_hash)
+    }
+
+    /// How many microblocks are in a given stream?
+    pub fn get_microblock_stream_length(&self, index_anchor_block_hash: &BlockHeaderHash) -> Result<u64, Error> {
+        let sql = "SELECT COUNT(microblock_hash) FROM staging_microblocks WHERE index_block_hash = ?1 AND processed = 1".to_string();
+        let args = [&index_anchor_block_hash as &dyn ToSql];
+        let cnt = query_count(&self.blocks_db, &sql, &args).map_err(Error::DBError)?;
+        Ok(cnt as u64)
+    }
+
+    /// Given an index anchor block hash, get the index microblock hash for a confirmed microblock stream.
+    pub fn get_confirmed_microblock_index_hash(&mut self, index_anchor_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+        let sql = "SELECT microblock_hash,burn_header_hash FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = 0 AND processed = 1 LIMIT 1";
+        let args = [&index_anchor_block_hash as &dyn ToSql];
+
+        let row_data_opt = self.blocks_db.query_row(sql, &args, 
+            |row| {
+                let microblock_hash = BlockHeaderHash::from_column(&row, "microblock_hash").map_err(Error::DBError)?;
+                let burn_header_hash = BurnchainHeaderHash::from_column(&row, "burn_header_hash").map_err(Error::DBError)?;
+                Ok((microblock_hash, burn_header_hash))
+            })
+            .optional()
+            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+
+        match row_data_opt {
+            Some(Ok((microblock_hash, burn_header_hash))) => {
+                let index_microblock_hash = StacksBlockHeader::make_index_block_hash(&burn_header_hash, &microblock_hash);
+                trace!("Index microblock hash of anchored block {} is {}", index_anchor_block_hash, &index_microblock_hash);
+                Ok(Some(index_microblock_hash))
+            },
+            Some(Err(e)) => Err(e),
+            None => {
+                // doesn't exist
+                trace!("No confirmed microblocks off of anchored block {}", index_anchor_block_hash);
+                Ok(None)
+            }
+        }
     }
     
     /// Do we have any unconfirmed microblocks at or after the given sequence number?
@@ -1533,11 +1695,8 @@ impl StacksChainState {
     
     /// Do we have any microblock available to serve in any capacity, given its anchored block's
     /// index block hash?
+    #[cfg(test)]
     fn has_microblocks_indexed(&mut self, index_block_hash: &BlockHeaderHash) -> Result<bool, Error> {
-        // check chunk store for stream
-        if StacksChainState::has_block_indexed(&self.blocks_path, index_block_hash)? {
-            return Ok(true);
-        }
         StacksChainState::read_i64s(&self.blocks_db, "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1", &[&index_block_hash])
             .and_then(|processed| {
                 Ok(processed.len() > 0)
@@ -1550,33 +1709,21 @@ impl StacksChainState {
         let sql = "SELECT staging_microblocks_data.rowid FROM \
                    staging_microblocks JOIN staging_microblocks_data \
                    ON staging_microblocks.microblock_hash = staging_microblocks_data.block_hash \
-                   WHERE staging_microblocks.index_block_hash = ?1 AND staging_microblocks.sequence = ?2".to_string();
+                   WHERE staging_microblocks.index_block_hash = ?1 AND staging_microblocks.sequence = ?2";
         let args = [&index_block_hash as &dyn ToSql, &seq as &dyn ToSql];
         
-        let mut stmt = blocks_conn.prepare(&sql)
+        let rowid_opt = blocks_conn.query_row(sql, &args,
+            |row| {
+                let rowid : i64 = row.get(0);
+                Ok(rowid)
+            })
+            .optional()
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        let mut rows = stmt.query(&args)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        // gather 
-        let mut rowids = vec![];
-        while let Some(row_res) = rows.next() {
-            match row_res {
-                Ok(row) => {
-                    let rowid : i64 = row.get(0);
-                    rowids.push(rowid);
-                },
-                Err(e) => {
-                    return Err(Error::DBError(db_error::SqliteError(e)));
-                }
-            };
-        }
-
-        let l = rowids.len();
-        match l {
-            0 => Ok(None),
-            _ => Ok(Some(rowids[0]))
+        match rowid_opt {
+            Some(Ok(rowid)) => Ok(Some(rowid)),
+            Some(Err(e)) => Err(e),
+            None => Ok(None)
         }
     }
 
@@ -1782,7 +1929,7 @@ impl StacksChainState {
     /// If there was a duplicate sequence number, then also return a poison-microblock
     /// transaction for the two headers with the lowest duplicate sequence number.
     /// Return None if the stream does not connect to this block (e.g. it's incomplete or the like)
-    fn validate_parent_microblock_stream(parent_anchored_block_header: &StacksBlockHeader, anchored_block_header: &StacksBlockHeader, microblocks: &Vec<StacksMicroblock>, verify_signatures: bool) -> Option<(usize, Option<TransactionPayload>)> {
+    pub fn validate_parent_microblock_stream(parent_anchored_block_header: &StacksBlockHeader, anchored_block_header: &StacksBlockHeader, microblocks: &Vec<StacksMicroblock>, verify_signatures: bool) -> Option<(usize, Option<TransactionPayload>)> {
         if anchored_block_header.is_genesis() {
             // there had better be zero microblocks
             if anchored_block_header.parent_microblock == EMPTY_MICROBLOCK_PARENT_HASH && anchored_block_header.parent_microblock_sequence == 0 {
@@ -1987,9 +2134,20 @@ impl StacksChainState {
     /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
     /// deciding whether or not it can be processed.
     pub fn preprocess_anchored_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, burn_header_timestamp: u64, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<bool, Error> {
+        test_debug!("preprocess anchored block {}/{}", burn_header_hash, block.block_hash());
+
         // already in queue or already processed?
-        if StacksChainState::has_stored_block(&self.blocks_db, &self.blocks_path, burn_header_hash, &block.block_hash())? || StacksChainState::has_staging_block(&self.blocks_db, burn_header_hash, &block.block_hash())? {
-            test_debug!("Block already stored and/or processed: {}/{}", burn_header_hash, &block.block_hash());
+        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, &block.block_hash());
+        if StacksChainState::has_stored_block(&self.blocks_db, &self.blocks_path, burn_header_hash, &block.block_hash())? {
+            test_debug!("Block already stored and processed: {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
+            return Ok(false);
+        }
+        else if StacksChainState::has_staging_block(&self.blocks_db, burn_header_hash, &block.block_hash())? {
+            test_debug!("Block already stored (but not processed): {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
+            return Ok(false);
+        }
+        else if StacksChainState::has_block_indexed(&self.blocks_path, &index_block_hash)? {
+            test_debug!("Block already stored to chunk store: {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
             return Ok(false);
         }
          
@@ -2041,6 +2199,8 @@ impl StacksChainState {
     ///
     /// If we find the same microblock in multiple burnchain forks, insert it into both.
     pub fn preprocess_streamed_microblock(&mut self, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<bool, Error> {
+        test_debug!("preprocess microblock {}/{}-{}", burn_header_hash, anchored_block_hash, microblock.block_hash());
+
         // already queued or already processed?
         if StacksChainState::has_staging_microblock(&self.blocks_db, burn_header_hash, anchored_block_hash, &microblock.block_hash())? {
             test_debug!("Microblock already stored and/or processed: {}/{} {} {}", burn_header_hash, &anchored_block_hash, microblock.block_hash(), microblock.header.sequence);
@@ -2086,6 +2246,16 @@ impl StacksChainState {
         blocks_tx.commit().map_err(Error::DBError)?;
 
         Ok(true)
+    }
+
+    /// Given a burnchain snapshot, a Stacks block and a microblock stream, preprocess them all.
+    pub fn preprocess_stacks_epoch<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>, snapshot: &BlockSnapshot, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> Result<(), Error> {
+        self.preprocess_anchored_block(burn_tx, &snapshot.burn_header_hash, snapshot.burn_header_timestamp, block, &snapshot.parent_burn_header_hash)?;
+        let block_hash = block.block_hash();
+        for mblock in microblocks.iter() {
+            self.preprocess_streamed_microblock(&snapshot.burn_header_hash, &block_hash, mblock)?;
+        }
+        Ok(())
     }
 
     /// Get the coinbase at this block height, in microSTX
@@ -2664,6 +2834,8 @@ impl StacksChainState {
                 // microblock fork within the Stacks fork that published the PoisonMicroblock.
                 // Moreover, if there are multiple PoisonMicroblock transactions, the reward for the PoisonMicroblock
                 // is transferred to the _earliest_ fork-publisher.
+                //
+                // TODO: the node should orphan all of the equivocated microblocks.
                 return Ok((None, Some(poison_microblock)));
             }
             None => {}
@@ -2947,6 +3119,7 @@ pub mod test {
         
     use burnchains::*;
     use chainstate::burn::*;
+    use util::db::Error as db_error;
     use util::db::*;
     use util::hash::*;
     use util::retry::*;
@@ -3144,15 +3317,38 @@ pub mod test {
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash).unwrap());
     }
 
+    fn get_microblock_stream_head_hash(chainstate: &StacksChainState, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash) -> Option<BlockHeaderHash> {
+        StacksChainState::get_microblock_stream_head_hash(&chainstate.blocks_db, burn_hash, anchored_block_hash).unwrap()
+    }
+
     pub fn set_microblocks_confirmed(chainstate: &mut StacksChainState, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, last_seq: u16) {
         let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_hash, anchored_block_hash);
         assert!(chainstate.has_microblocks_indexed(&index_block_hash).unwrap());
 
+        let stream_head_hash = get_microblock_stream_head_hash(chainstate, burn_hash, anchored_block_hash).unwrap();
+        let index_microblock_hash = StacksBlockHeader::make_index_block_hash(burn_hash, &stream_head_hash);
+        
+        let mblock_anchored_hash_opt = chainstate.get_confirmed_microblock_index_hash(&index_block_hash).unwrap();
+        
+        // is there already a confirmed stream for this anchored block?
+        if chainstate.has_confirmed_microblocks_indexed(&index_microblock_hash).unwrap() {
+            // make sure we can get back the confirmed mciroblock index hash
+            assert!(mblock_anchored_hash_opt.is_some());
+        }
+        else {
+            assert!(mblock_anchored_hash_opt.is_none());
+        }
+
         let mut tx = chainstate.blocks_tx_begin().unwrap();
         StacksChainState::set_microblocks_confirmed(&mut tx, burn_hash, anchored_block_hash, last_seq).unwrap();
         tx.commit().unwrap();
-
+        
         assert!(chainstate.has_microblocks_indexed(&index_block_hash).unwrap());
+        assert!(chainstate.has_confirmed_microblocks_indexed(&index_microblock_hash).unwrap());
+   
+        // now that the stream is confirmed, we can get its head hash by anchor block
+        let mblock_anchored_hash_opt = chainstate.get_confirmed_microblock_index_hash(&index_block_hash).unwrap();
+        assert!(mblock_anchored_hash_opt.is_some());
     }
 
     fn process_next_orphaned_staging_block(chainstate: &mut StacksChainState) -> bool {
@@ -4103,7 +4299,6 @@ pub mod test {
         assert!(!StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_header).unwrap());
         assert!(!chainstate.has_microblocks_indexed(&index_block_header).unwrap());
         
-        // assert!(StacksChainState::stream_block_get_rowid(&chainstate.blocks_db, &index_block_header).unwrap().is_none());
         assert_eq!(StacksChainState::stream_microblock_get_info(&chainstate.blocks_db, &index_block_header).unwrap().len(), 0);
 
         // store microblocks to staging
@@ -4134,12 +4329,10 @@ pub mod test {
         // store block to staging
         store_staging_block(&mut chainstate, &burn_header, get_epoch_time_secs(), &block, &parent_burn_header, 1, 2);
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_header).unwrap());
-        // assert!(StacksChainState::stream_block_get_rowid(&chainstate.blocks_db, &index_block_header).unwrap().is_some());
 
         // accept it
         set_block_processed(&mut chainstate, &burn_header, &block.block_hash(), true);
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_header).unwrap());
-        // assert!(StacksChainState::stream_block_get_rowid(&chainstate.blocks_db, &index_block_header).unwrap().is_none());   // no longer in staging
 
         for i in 0..mblocks.len() {
             assert!(StacksChainState::stream_microblock_get_rowid(&chainstate.blocks_db, &index_block_header, mblocks[i].header.sequence).unwrap().is_some());
@@ -4409,6 +4602,127 @@ pub mod test {
             }
         }
     }
+    
+    #[test]
+    fn stacks_db_get_blocks_inventory() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_get_blocks_inventory");
+      
+        let mut blocks = vec![];
+        let mut privks = vec![];
+        let mut microblocks = vec![];
+        let mut burn_headers = vec![];
+        let mut parent_burn_headers = vec![];
+
+        for i in 0..(BLOCKS_INV_DATA_MAX_BITLEN as usize) {
+            test_debug!("Making block {}", i);
+            let privk = StacksPrivateKey::new();
+            let block = make_empty_coinbase_block(&privk);
+
+            blocks.push(block);
+            privks.push(privk);
+
+            let bhh = BurnchainHeaderHash([((i + 1) as u8); 32]);
+            burn_headers.push(bhh);
+
+            let parent_bhh = BurnchainHeaderHash([(i as u8); 32]);
+            parent_burn_headers.push(parent_bhh);
+        }
+
+        for i in 0..blocks.len() {
+            test_debug!("Making microblock stream {}", i);
+            // make a sample microblock stream for block i
+            let mut mblocks = make_sample_microblock_stream(&privks[i], &blocks[i].block_hash());
+            mblocks.truncate(3);
+        
+            if i + 1 < blocks.len() {
+                blocks[i+1].header.parent_block = blocks[i].block_hash();
+                blocks[i+1].header.parent_microblock = mblocks[2].block_hash();
+                blocks[i+1].header.parent_microblock_sequence = mblocks[2].header.sequence;
+            }
+
+            microblocks.push(mblocks);
+        }
+
+        let block_hashes : Vec<BlockHeaderHash> = blocks.iter().map(|ref b| b.block_hash()).collect();
+        let header_hashes_all : Vec<(BurnchainHeaderHash, Option<BlockHeaderHash>)> = burn_headers.iter().zip(block_hashes.iter()).map(|(ref burn, ref block)| ((*burn).clone(), Some((*block).clone()))).collect();
+
+        // nothing is stored, so our inventory should be empty 
+        let block_inv_all = chainstate.get_blocks_inventory(&header_hashes_all).unwrap();
+
+        assert_eq!(block_inv_all.bitlen as usize, block_hashes.len());
+        for i in 0..blocks.len() {
+            assert!(!block_inv_all.has_ith_block(i as u16));
+            assert!(!block_inv_all.has_ith_microblock_stream(i as u16));
+        }
+
+        // store all microblocks to staging
+        for (i, ((block, burn_header), mblocks)) in blocks.iter().zip(&burn_headers).zip(&microblocks).enumerate() {
+            test_debug!("Store microblock stream {} to staging", i);
+            for mblock in mblocks.iter() {
+                store_staging_microblock(&mut chainstate, burn_header, &block.block_hash(), mblock);
+            }
+        }
+        
+        // no anchored blocks are stored, so our block inventory should _still_ be empty 
+        let block_inv_all = chainstate.get_blocks_inventory(&header_hashes_all).unwrap();
+
+        assert_eq!(block_inv_all.bitlen as usize, block_hashes.len());
+        for i in 0..blocks.len() {
+            assert!(!block_inv_all.has_ith_block(i as u16));
+            assert!(!block_inv_all.has_ith_microblock_stream(i as u16));        // because anchord blocks are missing, microblocks won't be reported either
+        }
+
+        // store blocks to staging
+        for i in 0..blocks.len() {
+            test_debug!("Store block {} to staging", i);
+            assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, &burn_headers[i], &blocks[i].block_hash()).unwrap().is_none());
+
+            store_staging_block(&mut chainstate, &burn_headers[i], get_epoch_time_secs(), &blocks[i], &parent_burn_headers[i], 1, 2);
+            assert_block_staging_not_processed(&mut chainstate, &burn_headers[i], &blocks[i]);
+        
+            // some anchored blocks are stored (to staging)
+            let block_inv_all = chainstate.get_blocks_inventory(&header_hashes_all).unwrap();
+            assert_eq!(block_inv_all.bitlen as usize, block_hashes.len());
+            for j in 0..(i+1) {
+                assert!(block_inv_all.has_ith_block(j as u16), format!("Missing block {} from bitvec {}", j, to_hex(&block_inv_all.block_bitvec)));
+
+                // microblocks not stored yet, so they should be marked absent
+                assert!(!block_inv_all.has_ith_microblock_stream(j as u16), format!("Have microblock {} from bitvec {}", j, to_hex(&block_inv_all.microblocks_bitvec)));
+            }
+            for j in i+1..blocks.len() {
+                assert!(!block_inv_all.has_ith_block(j as u16));
+                assert!(!block_inv_all.has_ith_microblock_stream(j as u16));
+            }
+        }
+
+        // confirm blocks and microblocks 
+        for i in 0..blocks.len() {
+            test_debug!("Confirm block {} and its microblock stream", i);
+            set_block_processed(&mut chainstate, &burn_headers[i], &block_hashes[i], true);
+
+            // have block, but stream is still empty
+            let block_inv_all = chainstate.get_blocks_inventory(&header_hashes_all).unwrap();
+            assert!(!block_inv_all.has_ith_microblock_stream(i as u16));
+
+            for k in 0..2 {
+                set_microblocks_confirmed(&mut chainstate, &burn_headers[i], &block_hashes[i], k);
+
+                let block_inv_all = chainstate.get_blocks_inventory(&header_hashes_all).unwrap();
+                for j in 0..blocks.len() {
+                    // still have all the blocks
+                    assert!(block_inv_all.has_ith_block(j as u16));
+
+                    if j <= i {
+                        assert!(block_inv_all.has_ith_microblock_stream(j as u16));
+                    }
+                    else {
+                        assert!(!block_inv_all.has_ith_microblock_stream(j as u16));
+                    }
+                }
+            }
+        }
+    }
+
    
     // TODO: test multiple anchored blocks confirming the same microblock stream (in the same
     // place, and different places, with/without orphans)

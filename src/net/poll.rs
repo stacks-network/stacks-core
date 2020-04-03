@@ -169,18 +169,10 @@ impl NetworkState {
     }
 
     /// Connect to a remote peer, but don't register it with the poll handle.
-    /// Connect *synchronously*, and then put the socket into non-blocking mode.
+    /// The underlying connect(2) is _asynchronous_, so the caller will need to register it with a
+    /// poll handle and wait for it to be connected.
     pub fn connect(&mut self, addr: &SocketAddr) -> Result<mio_net::TcpStream, net_error> {
-        // connect and abort after 5 seconds of waiting.
-        // TODO: revert to non-blocking connect to avoid slow neighbors starving socket work
-        let inner_stream = net::TcpStream::connect_timeout(addr, time::Duration::from_millis(5000))
-            .map_err(|_e| {
-                test_debug!("Failed to connect to {:?}: {:?}", addr, &_e);
-                net_error::ConnectionError
-            })?;
-
-        // NOTE: this will put the socket into non-blocking mode
-        let stream = mio_net::TcpStream::from_stream(inner_stream)
+        let stream = mio_net::TcpStream::connect(addr)
             .map_err(|_e| {
                 test_debug!("Failed to convert to mio stream: {:?}", &_e);
                 net_error::ConnectionError
