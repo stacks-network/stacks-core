@@ -190,18 +190,6 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 };
                 res
             },
-            FetchContractEntry => {
-                check_argument_count(3, args)?;
-                let res = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
-                    Implicit(ref tuple_expr) => {
-                        self.is_implicit_tuple_definition_read_only(tuple_expr)
-                    },
-                    Explicit => {
-                        self.check_all_read_only(args)
-                    }
-                };
-                res
-            },
             StxTransfer | StxBurn |
             SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset | MintToken | TransferAsset | TransferToken => {
                 Ok(false)

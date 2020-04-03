@@ -694,10 +694,9 @@ pub mod test {
 
             let last_snapshot_with_sortition = match parent_block_snapshot {
                 Some(sn) => sn.clone(),
-                None => BurnDB::get_last_snapshot_with_sortition(tx, self.block_height - 1, &self.parent_snapshot.burn_header_hash)
-                .expect("FATAL: failed to read last snapshot with sortition")
+                None => BurnDB::get_first_block_snapshot(tx).unwrap()
             };
-                    
+             
             // prove on the last-ever sortition's hash to produce the new seed
             let proof = miner.make_proof(&leader_key.public_key, &last_snapshot.sortition_hash)
                 .expect(&format!("FATAL: no private key for {}", leader_key.public_key.to_hex()));

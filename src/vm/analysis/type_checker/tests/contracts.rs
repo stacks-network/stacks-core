@@ -47,9 +47,7 @@ const SIMPLE_NAMES: &str =
            ((buyer principal) (paid uint)))
 
          (define-private (check-balance)
-           (default-to u0 
-             (get balance (contract-map-get?
-              .tokens tokens (tuple (account tx-sender))))))
+           (contract-call? .tokens my-get-token-balance tx-sender))
 
          (define-public (preorder 
                         (name-hash (buff 20))
@@ -410,43 +408,6 @@ fn test_names_tokens_contracts_bad() {
             _ => false
     });
 }
-
-#[test]
-fn test_names_tokens_contracts_bad_fetch_contract_entry() {
-    let broken_public = "
-         (define-private (check-balance)
-           (default-to 0 
-             (get balance (contract-map-get?
-              .tokens tokens (tuple (accnt tx-sender)))))) ;; should be a non-admissable tuple!
-    ";
-
-    let names_contract =
-        format!("{}
-                 {}", SIMPLE_NAMES, broken_public);
-
-    let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
-    let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
-
-    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS).unwrap();
-    let mut names_contract = parse(&names_contract_id, &names_contract).unwrap();
-    let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
-
-    db.execute(|db| {
-        db.test_insert_contract_hash(&tokens_contract_id);
-        type_check(&tokens_contract_id, &mut tokens_contract, db, true)
-    }).unwrap();
-
-    let err = db.execute(|db| type_check(&names_contract_id, &mut names_contract, db, true)).unwrap_err();
-    assert!(match &err.err {
-            &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
-                eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
-                format!("{} {}", expected_type, actual_type) == "(tuple (account principal)) (tuple (accnt principal))"
-            },
-            _ => false
-    });
-}
-
 
 #[test]
 fn test_bad_map_usage() {

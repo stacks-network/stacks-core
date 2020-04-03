@@ -9,7 +9,6 @@ fn test_argument_count_violations() {
         ("(define-private (foo-bar)
            (at-block))", CheckErrors::IncorrectArgumentCount(2, 0)),
         ("(define-private (foo-bar) (map-get?))", CheckErrors::IncorrectArgumentCount(2, 0)),
-        ("(define-private (foo-bar) (contract-map-get?))", CheckErrors::IncorrectArgumentCount(3, 0)),
     ];
 
     for (contract, expected) in examples.iter() {
