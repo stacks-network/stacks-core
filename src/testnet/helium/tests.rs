@@ -258,8 +258,6 @@ fn should_succeed_mining_valid_txs() {
                     },
                     _ => false
                 });
-                panic!()
-
             },
             _ => {}
         }
