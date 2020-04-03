@@ -42,9 +42,9 @@ See [SIP 000](https://github.com/blockstack/stacks-blockchain/blob/master/sip/si
 
 - [x] **Local Testnet** is a developer local setup, mono-node, assembling SIP 001, SIP 002, SIP 004 and SIP 005. With this version, developers can not only run Stacks 2.0 on their development machines, but also write, execute, and test smart contracts. See the instructions below for more details.
 
-- [ ] **Open Testnet** is the upcoming version of our public testnet, that we're anticipating will ship in Q1 2020. This testnet will ship with SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
+- [ ] **Open Testnet** is the upcoming version of our public testnet, that we're anticipating will ship in Q2 2020. This testnet will ship with SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
 
-- [ ] **Mainet** is the fully functional version, that we're intending to ship in Q2 2020.
+- [ ] **Mainet** is the fully functional version, that we're intending to ship in Q3 2020.
 
 ## Getting started
 
@@ -139,16 +139,12 @@ cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d
 You can observe the state machine in action locally by running:
 
 ```bash
-cargo run --bin blockstack-core testnet
+cargo run --bin blockstack-core testnet ./Stacks.toml
 ```
 
-In your console, you should observe an output with a similar:
+`Stacks.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.
 
-```bash
-*** mempool path: /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
-```
-
-The testnet is watching this directory, decoding and ingesting the transactions materialized as files. This mechanism is a shortcut for simulating a mempool. A RPC server will soon be integrated.
+The testnet is watching the directory specified by the key `mempool.path`. The transactions, materialized as files, will be decoded and ingested. This mechanism is a shortcut for simulating a mempool. A RPC server will soon be integrated.
 
 ### Publish your contract
 
@@ -157,7 +153,7 @@ Assuming that the testnet is running, we can publish our `kv-store` contract.
 In another terminal (or file explorer), you can move the `tx1.bin` generated earlier, to the mempool:
 
 ```bash
-cp ./tx1.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+cp ./tx1.bin /tmp/mempool
 ```
 
 In the terminal window running the testnet, you can observe the state machine's reactions.
@@ -185,7 +181,7 @@ Note: the third argument `1` is a nonce, that must be increased monotonically wi
 We can submit the transaction by moving it to the mempool path:
 
 ```bash
-cp ./tx2.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+cp ./tx2.bin /tmp/mempool
 ```
 
 Similarly, we can generate a transaction that would be setting the key `foo` to the value `bar`:
@@ -197,7 +193,7 @@ cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8
 And submit it by moving it to the mempool path:
 
 ```bash
-cp ./tx3.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+cp ./tx3.bin /tmp/mempool
 ```
 
 Finally, we can issue a third transaction, reading the key `foo` again, for ensuring that the previous transaction has successfully updated the state machine:
@@ -209,7 +205,7 @@ cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8
 And submit this last transaction by moving it to the mempool path:
 
 ```bash
-cp ./tx4.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+cp ./tx4.bin /tmp/mempool
 ```
 
 Congratulations, you can now [write your own smart contracts with Clarity](https://docs.blockstack.org/core/smart/overview.html).
