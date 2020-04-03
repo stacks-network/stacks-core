@@ -353,13 +353,13 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .body(serde_json::to_string(&key.serialize()).unwrap())
+                    .json(&key.serialize())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u1))");
-                eprintln!("{}", serde_json::to_string(&res).unwrap());
+                assert!(res.get("marfProof").is_some());
 
                 assert_eq!(result_data, expected_data);
 
@@ -368,13 +368,55 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .body(serde_json::to_string(&key.serialize()).unwrap())
+                    .json(&key.serialize())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
                 assert_eq!(result_data, Value::none());
 
                 let sender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap());
+
+                // now, let's use a query string to get data without a proof
+                let path = format!("{}/v2/map_entry/{}/{}/{}?proof=0",
+                                   &http_origin, &contract_addr, "get-info", "block-data");
+
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(1))])
+                    .unwrap().into();
+
+                eprintln!("Test: POST {}", path);
+                let res = client.post(&path)
+                    .json(&key.serialize())
+                    .send()
+                    .unwrap().json::<HashMap<String, String>>().unwrap();
+
+                assert!(res.get("marfProof").is_none());
+                let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
+                let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
+                                                                       "(some (get-exotic-data-info u1))");
+                eprintln!("{}", serde_json::to_string(&res).unwrap());
+
+                assert_eq!(result_data, expected_data);
+
+                // now, let's use a query string to get data _with_ a proof
+                let path = format!("{}/v2/map_entry/{}/{}/{}?proof=1",
+                                   &http_origin, &contract_addr, "get-info", "block-data");
+
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(1))])
+                    .unwrap().into();
+
+                eprintln!("Test: POST {}", path);
+                let res = client.post(&path)
+                    .json(&key.serialize())
+                    .send()
+                    .unwrap().json::<HashMap<String, String>>().unwrap();
+
+                assert!(res.get("marfProof").is_some());
+                let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
+                let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
+                                                                       "(some (get-exotic-data-info u1))");
+                eprintln!("{}", serde_json::to_string(&res).unwrap());
+
+                assert_eq!(result_data, expected_data);
 
                 // account with a nonce entry + a balance entry
                 let path = format!("{}/v2/accounts/{}",
@@ -383,6 +425,8 @@ fn integration_test_get_info() {
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(res.balance, 100000);
                 assert_eq!(res.nonce, 3);
+                assert!(res.nonce_proof.is_some());
+                assert!(res.balance_proof.is_some());
 
                 // account with a nonce entry but not a balance entry
                 let path = format!("{}/v2/accounts/{}",
@@ -391,6 +435,8 @@ fn integration_test_get_info() {
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(res.balance, 0);
                 assert_eq!(res.nonce, 1);
+                assert!(res.nonce_proof.is_some());
+                assert!(res.balance_proof.is_some());
 
                 // account with a balance entry but not a nonce entry
                 let path = format!("{}/v2/accounts/{}",
@@ -399,6 +445,8 @@ fn integration_test_get_info() {
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(res.balance, 300);
                 assert_eq!(res.nonce, 0);
+                assert!(res.nonce_proof.is_some());
+                assert!(res.balance_proof.is_some());
 
                 // account with neither!
                 let path = format!("{}/v2/accounts/{}.get-info",
@@ -407,6 +455,26 @@ fn integration_test_get_info() {
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(res.balance, 0);
                 assert_eq!(res.nonce, 0);
+                assert!(res.nonce_proof.is_some());
+                assert!(res.balance_proof.is_some());
+
+                let path = format!("{}/v2/accounts/{}?proof=0",
+                                   &http_origin, ADDR_4);
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+                assert_eq!(res.balance, 300);
+                assert_eq!(res.nonce, 0);
+                assert!(res.nonce_proof.is_none());
+                assert!(res.balance_proof.is_none());
+
+                let path = format!("{}/v2/accounts/{}?proof=1",
+                                   &http_origin, ADDR_4);
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+                assert_eq!(res.balance, 300);
+                assert_eq!(res.nonce, 0);
+                assert!(res.nonce_proof.is_some());
+                assert!(res.balance_proof.is_some());
 
                 // let's try getting the transfer cost
                 let path = format!("{}/v2/fees/transfer", &http_origin);
@@ -458,10 +526,13 @@ fn integration_test_get_info() {
                 };
 
                 let res = client.post(&path)
-                    .body(serde_json::to_string(&body).unwrap())
+                    .json(&body)
                     .send()
-                    .unwrap().json::<String>().unwrap();
-                let result_data = Value::try_deserialize_hex_untyped(&res).unwrap();
+                    .unwrap().json::<serde_json::Value>().unwrap();
+                assert!(res.get("cause").is_none());
+                assert!(res["okay"].as_bool().unwrap());
+
+                let result_data = Value::try_deserialize_hex_untyped(res["result"].as_str().unwrap()).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
                                                                        "(get-exotic-data-info u1)");
                 assert_eq!(result_data, expected_data);
@@ -476,13 +547,13 @@ fn integration_test_get_info() {
                 };
 
                 let res = client.post(&path)
-                    .body(serde_json::to_string(&body).unwrap())
+                    .json(&body)
                     .send()
-                    .unwrap();
-                assert_eq!(res.status(), 400);
+                    .unwrap().json::<serde_json::Value>().unwrap();
 
-                let res = res.json::<HashMap<String,String>>().unwrap();
-                assert!(format!("{}", res["cause"]).contains("UnwrapFailure"));
+                assert!(res.get("result").is_none());
+                assert!(!res["okay"].as_bool().unwrap());
+                assert!(res["cause"].as_str().unwrap().contains("UnwrapFailure"));
 
                 // let's have a runtime error!
                 let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info", "update-info");
@@ -494,14 +565,14 @@ fn integration_test_get_info() {
                 };
 
                 let res = client.post(&path)
-                    .body(serde_json::to_string(&body).unwrap())
+                    .json(&body)
                     .send()
-                    .unwrap();
-                assert_eq!(res.status(), 400);
+                    .unwrap().json::<serde_json::Value>().unwrap();
 
-                let res = res.json::<HashMap<String,String>>().unwrap();
-                assert!(format!("{}", res["cause"]).contains("NotReadOnly"));
-
+                eprintln!("{}", res["cause"].as_str().unwrap());
+                assert!(res.get("result").is_none());
+                assert!(!res["okay"].as_bool().unwrap());
+                assert!(res["cause"].as_str().unwrap().contains("NotReadOnly"));
             },
             _ => {},
         }

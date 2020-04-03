@@ -29,6 +29,9 @@ hex strings.
 For non-existent accounts, this _does not_ 404, rather it returns an
 object with balance and nonce of 0.
 
+This endpoint also accepts a querystring parameter `?proof=` which when supplied `0`, will return the
+JSON object _without_ the `balanceProof` or `nonceProof` fields.
+
 ### POST /v2/map_entry/[Stacks Address]/[Contract Name]/[Map Name]
 
 Attempt to fetch data from a contract data map. The contract is identified with [Stacks Address] and
@@ -49,6 +52,9 @@ Returns JSON data in the form:
 Where data is the hex serialization of the map response. Note that map responses are Clarity _option_ types,
 for non-existent values, this is a serialized `none`, and for all other responses, it is a serialized `(some ...)`
 object.
+
+This endpoint also accepts a querystring parameter `?proof=` which when supplied `0`, will return the
+JSON object _without_ the `marfProof` field.
 
 ### GET /v2/fees/transfer
 
@@ -226,8 +232,24 @@ the simulated `tx-sender` are supplied via the POST body in the following JSON f
 Where sender is either a Contract identifier or a normal Stacks address, and arguments
 is an array of hex serialized Clarity values.
 
-This endpoint returns a JSON string containing the hex encoding of the function's return
-value.
+This endpoint returns a JSON object of the following form:
 
-If an error occurs in processing the function call, this endpoint returns a 400 error and
-a JSON error message with a "cause" field that contains the error's message.
+```
+{
+  "okay": true,
+  "result": "0011..."
+}
+```
+
+Where `"okay"` is `true` if the function executed successfully, and result contains the
+hex serialization of the Clarity return value.
+
+If an error occurs in processing the function call, this endpoint returns a 200 response with a JSON
+object of the following form:
+
+```
+{
+  "okay": false,
+  "cause": "Unchecked(PublicFunctionNotReadOnly(..."
+}
+```

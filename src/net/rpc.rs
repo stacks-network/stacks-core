@@ -35,7 +35,7 @@ use net::HttpRequestType;
 use net::HttpResponseType;
 use net::HttpRequestMetadata;
 use net::HttpResponseMetadata;
-use net::{MapEntryResponse, AccountEntryResponse};
+use net::{ MapEntryResponse, AccountEntryResponse, CallReadOnlyResponse };
 use net::PeerAddress;
 use net::PeerInfoData;
 use net::NeighborAddress;
@@ -366,7 +366,7 @@ impl ConversationHttp {
 
     fn handle_get_account_entry<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
                                           chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
-                                          account: &PrincipalData) -> Result<(), net_error> {
+                                          account: &PrincipalData, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
         let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
@@ -375,10 +375,20 @@ impl ConversationHttp {
                 let (balance, balance_proof) = clarity_db.get_with_proof(&key)
                     .map(|(a, b)| (a, b.to_hex()))
                     .unwrap_or_else(|| (0, "".into()));
+                let balance_proof = if with_proof {
+                    Some(balance_proof)
+                } else {
+                    None
+                };
                 let key = ClarityDatabase::make_key_for_account_nonce(&account);
                 let (nonce, nonce_proof) = clarity_db.get_with_proof(&key)
                     .map(|(a, b)| (a, b.to_hex()))
                     .unwrap_or_else(|| (0, "".into()));
+                let nonce_proof = if with_proof {
+                    Some(nonce_proof)
+                } else {
+                    None
+                };
 
                 AccountEntryResponse { balance, nonce, balance_proof, nonce_proof }
             })
@@ -392,7 +402,8 @@ impl ConversationHttp {
 
     fn handle_get_map_entry<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
                                       chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
-                                      contract_addr: &StacksAddress, contract_name: &ContractName, map_name: &ClarityName, key: &Value) -> Result<(), net_error> {
+                                      contract_addr: &StacksAddress, contract_name: &ContractName,
+                                      map_name: &ClarityName, key: &Value, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
@@ -402,6 +413,12 @@ impl ConversationHttp {
                 let (value, marf_proof) = clarity_db.get_with_proof::<Value>(&key)
                     .map(|(a, b)| (a, b.to_hex()))
                     .unwrap_or_else(|| (Value::none(), "".into()));
+                let marf_proof = if with_proof {
+                    Some(marf_proof)
+                } else {
+                    None
+                };
+
                 let data = value.serialize();
                 MapEntryResponse { data, marf_proof }
             })
@@ -432,15 +449,13 @@ impl ConversationHttp {
 
 
         let response = match data {
-            Ok(data) => HttpResponseType::CallReadOnlyFunction(response_metadata, data.serialize()),
-            Err(e) => {
-                let mut err_msg = HashMap::new();
-                err_msg.insert("message".into(), "Error executing read only function".into());
-                err_msg.insert("cause".into(), e.to_string());
-                HttpResponseType::BadRequestJSON(response_metadata, err_msg)
-            }
+            Ok(data) => 
+                CallReadOnlyResponse { okay: true, result: Some(data.serialize()), cause: None },
+            Err(e) =>
+                CallReadOnlyResponse { okay: false, result: None, cause: Some(e.to_string()) },
         };
-        
+
+        let response = HttpResponseType::CallReadOnlyFunction(response_metadata, response);
         response.send(http, fd).map(|_| ())
     }
 
@@ -558,16 +573,17 @@ impl ConversationHttp {
             HttpRequestType::GetMicroblocksUnconfirmed(ref _md, ref index_anchor_block_hash, ref min_seq) => {
                 ConversationHttp::handle_getmicroblocks_unconfirmed(&mut self.connection.protocol, &mut reply, &req, index_anchor_block_hash, *min_seq, chainstate)?
             },
-            HttpRequestType::GetAccount(ref _md, ref principal) => {
+            HttpRequestType::GetAccount(ref _md, ref principal, ref with_proof) => {
                 if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
-                    ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block, principal)?;
+                    ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, chainstate,
+                                                               &burn_block, &block, principal, *with_proof)?;
                 }
                 None
             },
-            HttpRequestType::GetMapEntry(ref _md, ref contract_addr, ref contract_name, ref map_name, ref key) => {
+            HttpRequestType::GetMapEntry(ref _md, ref contract_addr, ref contract_name, ref map_name, ref key, ref with_proof) => {
                 if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
                     ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
-                                                           contract_addr, contract_name, map_name, key)?;
+                                                           contract_addr, contract_name, map_name, key, *with_proof)?;
                 }
                 None
             },

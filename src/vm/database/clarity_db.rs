@@ -25,12 +25,7 @@ use vm::costs::CostOverflowingMath;
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
 
-// not sure if this should actually only happen in developer-mode,
-//   maybe it's more like public API mode?
-#[cfg(feature = "developer-mode")]
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
-#[cfg(not(feature = "developer-mode"))]
-pub const STORE_CONTRACT_SRC_INTERFACE: bool = false;
 
 #[repr(u8)]
 pub enum StoreType {

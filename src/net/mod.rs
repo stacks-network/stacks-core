@@ -829,17 +829,35 @@ pub struct HttpRequestMetadata {
 pub struct MapEntryResponse {
     pub data: String,
     #[serde(rename = "marfProof")]
-    pub marf_proof: String
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    pub marf_proof: Option<String>
+}
+
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CallReadOnlyResponse {
+    pub okay: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    pub result: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    pub cause: Option<String>
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountEntryResponse {
     pub balance: u128,
     pub nonce: u64,
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    #[serde(default)]
     #[serde(rename = "balanceProof")]
-    pub balance_proof: String,
+    pub balance_proof: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    #[serde(default)]
     #[serde(rename = "nonceProof")]
-    pub nonce_proof: String
+    pub nonce_proof: Option<String>
 }
 
 /// Request ID to use or expect from non-Stacks HTTP clients.
@@ -890,8 +908,8 @@ pub enum HttpRequestType {
     GetMicroblocksConfirmed(HttpRequestMetadata, BlockHeaderHash),
     GetMicroblocksUnconfirmed(HttpRequestMetadata, BlockHeaderHash, u16),
     PostTransaction(HttpRequestMetadata, StacksTransaction),
-    GetAccount(HttpRequestMetadata, PrincipalData),
-    GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value),
+    GetAccount(HttpRequestMetadata, PrincipalData, bool),
+    GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value, bool),
     CallReadOnlyFunction(HttpRequestMetadata, StacksAddress, ContractName,
                          PrincipalData, ClarityName, Vec<Value>),
     GetTransferCost(HttpRequestMetadata),
@@ -956,7 +974,7 @@ pub enum HttpResponseType {
     TransactionID(HttpResponseMetadata, Txid),
     TokenTransferCost(HttpResponseMetadata, u64),
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
-    CallReadOnlyFunction(HttpResponseMetadata, String),
+    CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, String),
