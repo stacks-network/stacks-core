@@ -87,8 +87,6 @@ use deps::httparse;
 use time;
 use std::time::SystemTime;
 
-static PROOF_OR_NOT: &str = "proof|no-proof";
-
 lazy_static! {
     static ref PATH_GETINFO : Regex = Regex::new(r#"^/v2/info$"#).unwrap();
     static ref PATH_GETNEIGHBORS : Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
@@ -1466,13 +1464,10 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksConfirmed(_md, block_hash) => format!("/v2/microblocks/confirmed/{}", block_hash.to_hex()),
             HttpRequestType::GetMicroblocksUnconfirmed(_md, block_hash, min_seq) => format!("/v2/microblocks/unconfirmed/{}/{}", block_hash.to_hex(), min_seq),
             HttpRequestType::PostTransaction(_md, _tx) => "/v2/transactions".to_string(),
-            HttpRequestType::GetAccount(_md, principal, with_proof) => format!(
-                "/v2/accounts/{}/{}",
-                if *with_proof { "proof" } else { "no-proof" },
-                &principal.to_string()[1..]),
+            HttpRequestType::GetAccount(_md, principal, with_proof) => 
+                format!("/v2/accounts/{}", &principal.to_string()[1..]),
             HttpRequestType::GetMapEntry(_md, contract_addr, contract_name, map_name, _key, with_proof) =>
-                format!("/v2/map_entry/{}/{}/{}/{}",
-                        if *with_proof { "proof" } else { "no-proof" },
+                format!("/v2/map_entry/{}/{}/{}",
                         contract_addr, contract_name.as_str(), map_name.as_str()),
             HttpRequestType::GetTransferCost(_md) => "/v2/fees/transfer".into(),
             HttpRequestType::GetContractABI(_, contract_addr, contract_name) =>
