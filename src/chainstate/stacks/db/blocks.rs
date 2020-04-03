@@ -1642,7 +1642,7 @@ impl StacksChainState {
 
     /// How many microblocks are in a given stream?
     pub fn get_microblock_stream_length(&self, index_anchor_block_hash: &BlockHeaderHash) -> Result<u64, Error> {
-        let sql = "SELECT COUNT(microblock_hash) FROM staging_microblocks WHERE index_block_hash = ?1".to_string();
+        let sql = "SELECT COUNT(microblock_hash) FROM staging_microblocks WHERE index_block_hash = ?1 AND processed = 1".to_string();
         let args = [&index_anchor_block_hash as &dyn ToSql];
         let cnt = query_count(&self.blocks_db, &sql, &args).map_err(Error::DBError)?;
         Ok(cnt as u64)
