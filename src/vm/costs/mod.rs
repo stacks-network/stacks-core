@@ -80,7 +80,7 @@ impl CostTracker for () {
     fn reset_memory(&mut self) {}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LimitedCostTracker {
     total: ExecutionCost,
     limit: ExecutionCost,
