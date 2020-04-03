@@ -1464,9 +1464,9 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksConfirmed(_md, block_hash) => format!("/v2/microblocks/confirmed/{}", block_hash.to_hex()),
             HttpRequestType::GetMicroblocksUnconfirmed(_md, block_hash, min_seq) => format!("/v2/microblocks/unconfirmed/{}/{}", block_hash.to_hex(), min_seq),
             HttpRequestType::PostTransaction(_md, _tx) => "/v2/transactions".to_string(),
-            HttpRequestType::GetAccount(_md, principal, with_proof) => 
+            HttpRequestType::GetAccount(_md, principal, _with_proof) => 
                 format!("/v2/accounts/{}", &principal.to_string()[1..]),
-            HttpRequestType::GetMapEntry(_md, contract_addr, contract_name, map_name, _key, with_proof) =>
+            HttpRequestType::GetMapEntry(_md, contract_addr, contract_name, map_name, _key, _with_proof) =>
                 format!("/v2/map_entry/{}/{}/{}",
                         contract_addr, contract_name.as_str(), map_name.as_str()),
             HttpRequestType::GetTransferCost(_md) => "/v2/fees/transfer".into(),

@@ -52,6 +52,7 @@ impl Config {
                     name: node.name.unwrap_or(default_node_config.name),
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
                     rpc_bind: node.rpc_bind.unwrap_or(default_node_config.rpc_bind),
+                    p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
                 }
             },
             None => default_node_config
@@ -182,6 +183,7 @@ pub struct NodeConfig {
     pub name: String,
     pub working_dir: String,
     pub rpc_bind: String,
+    pub p2p_bind: String,
 }
 
 impl NodeConfig {
@@ -192,14 +194,18 @@ impl NodeConfig {
         rng.fill_bytes(&mut buf);
         let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
 
-        let port = u16::from_be_bytes(buf[0..2].try_into().unwrap())
+        let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap())
+            .saturating_add(1024); // use a non-privileged port
+
+        let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap())
             .saturating_add(1024); // use a non-privileged port
 
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
             working_dir: format!("/tmp/{}", testnet_id),
-            rpc_bind: format!("127.0.0.1:{}", port)
+            rpc_bind: format!("127.0.0.1:{}", rpc_port),
+            p2p_bind: format!("127.0.0.1:{}", p2p_port)
         }
     }
 
@@ -213,6 +219,7 @@ pub struct NodeConfigFile {
     pub name: Option<String>,
     pub working_dir: Option<String>,
     pub rpc_bind: Option<String>,
+    pub p2p_bind: Option<String>,
 }
 
 #[derive(Clone, Default, Deserialize)]
