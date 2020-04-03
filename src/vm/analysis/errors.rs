@@ -12,6 +12,7 @@ pub enum CheckErrors {
     // cost checker errors
     CostOverflow,
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
+    MemoryBalanceExceeded(u64, u64),
 
     ValueTooLarge,
     TypeSignatureTooDeep,
@@ -211,6 +212,7 @@ impl From<CostErrors> for CheckErrors {
         match err {
             CostErrors::CostOverflow => CheckErrors::CostOverflow,
             CostErrors::CostBalanceExceeded(a, b) => CheckErrors::CostBalanceExceeded(a, b),
+            CostErrors::MemoryBalanceExceeded(a, b) => CheckErrors::MemoryBalanceExceeded(a, b),
         }
     }
 }
@@ -277,6 +279,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::TypeAnnotationExpectedFailure => "analysis expected type to already be annotated for expression".into(),
             CheckErrors::CostOverflow => "contract execution cost overflowed cost counter".into(),
             CheckErrors::CostBalanceExceeded(a, b) => format!("contract execution cost exceeded budget: {:?} > {:?}", a, b),
+            CheckErrors::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {:?} > {:?}", a, b),
             CheckErrors::InvalidTypeDescription => "supplied type description is invalid".into(),
             CheckErrors::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             CheckErrors::BadSyntaxExpectedListOfPairs => "bad syntax: function expects a list of pairs to bind names, e.g., ((name-0 a) (name-1 b) ...)".into(),

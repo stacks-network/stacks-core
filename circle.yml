@@ -38,6 +38,10 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Install perftools
+          command: |
+            sudo apt-get update -y && sudo apt-get install libgoogle-perftools4 -y
+      - run:
           name: Fetch latest grcov
           command: |
             curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -

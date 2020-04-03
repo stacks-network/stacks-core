@@ -6,14 +6,14 @@ Reference implementation of the [Blockstack Technical Whitepaper](https://blocks
 
 ## Repository
 
-| Blockstack Topic/Tech | Where to learn more more |
-|---------------------------------|------------------------------------------------------------------------------|
-| Stacks 2.0 | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master) |
-| Stacks 1.0 | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0) |
-| Use the package | [our core docs](https://docs.blockstack.org/core/naming/introduction.html) |
-| Develop a Blockstack App | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html) |
-| Use a Blockstack App | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
-| Blockstack the company | [our website](https://blockstack.org) |
+| Blockstack Topic/Tech    | Where to learn more more                                                          |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| Stacks 2.0               | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master)      |
+| Stacks 1.0               | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0)  |
+| Use the package          | [our core docs](https://docs.blockstack.org/core/naming/introduction.html)        |
+| Develop a Blockstack App | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html)   |
+| Use a Blockstack App     | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
+| Blockstack the company   | [our website](https://blockstack.org)                                             |
 
 ## Design Thesis
 
@@ -21,17 +21,16 @@ Stacks 2.0 is an open-membership replicated state machine produced by the coordi
 
 To unpack this definition:
 
-- A replicated state machine is two or more copies (“replicas”) of a given set of rules (a “machine”) that, in processing a common input (such as the same sequence of transactions), will arrive at the same configuration (“state”).  Bitcoin is a replicated state machine — its state is the set of UTXOs, which each peer has a full copy of, and given a block, all peers will independently calculate the same new UTXO set from the existing one.
+- A replicated state machine is two or more copies (“replicas”) of a given set of rules (a “machine”) that, in processing a common input (such as the same sequence of transactions), will arrive at the same configuration (“state”). Bitcoin is a replicated state machine — its state is the set of UTXOs, which each peer has a full copy of, and given a block, all peers will independently calculate the same new UTXO set from the existing one.
 - Open-membership means that any host on the Internet can join the blockchain and independently calculate the same full replica as all other peers.
-- Non-enumerable means that the set of peers that are producing the blocks don’t know about one another — they don’t know their identities, or even how many exist and are online.  They are indistinguishable.
+- Non-enumerable means that the set of peers that are producing the blocks don’t know about one another — they don’t know their identities, or even how many exist and are online. They are indistinguishable.
 
 ## Roadmap
 
 - [x] [SIP 001: Burn Election](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-001-burn-election.md)
 - [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-002-smart-contract-language.md)
 - [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-004-materialized-view.md)
-- [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-005-blocks-and-transactions.md
-)
+- [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-005-blocks-and-transactions.md)
 - [ ] [SIP 003: Peer Network](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-003-peer-network.md) (Q1 2020)
 - [ ] SIP 006: Clarity Execution Cost Assessment (Q1 2020)
 
@@ -71,7 +70,13 @@ Then build the project:
 cargo build
 ```
 
-And run the tests:
+Building the project on ARM:
+
+```bash
+cargo build --features "aarch64" --no-default-features
+```
+
+Run the tests:
 
 ```bash
 cargo test testnet  -- --test-threads=1
@@ -213,16 +218,18 @@ Congratulations, you can now [write your own smart contracts with Clarity](https
 
 Beyond this Github project,
 Blockstack maintains a public [forum](https://forum.blockstack.org) and an
-opened [Discord](https://discordapp.com/invite/9r94Xkj) channel.  In addition, the project
+opened [Discord](https://discordapp.com/invite/9r94Xkj) channel. In addition, the project
 maintains a [mailing list](https://blockstack.org/signup) which sends out
 community announcements.
 
 The greater Blockstack community regularly hosts in-person
-[meetups](https://www.meetup.com/topics/blockstack/).  The project's
+[meetups](https://www.meetup.com/topics/blockstack/). The project's
 [YouTube channel](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ) includes
 videos from some of these meetups, as well as video tutorials to help new
 users get started and help developers wrap their heads around the system's
 design.
+
+For help cross-compiling on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
 
 ## Further Reading
 

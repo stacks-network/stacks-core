@@ -12,6 +12,7 @@ pub type ParseResult <T> = Result<T, ParseError>;
 pub enum ParseErrors {
     CostOverflow,
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
+    MemoryBalanceExceeded(u64, u64),
     TooManyExpressions,
     ExpressionStackDepthTooDeep,
     FailedCapturingInput,
@@ -107,6 +108,7 @@ impl From<CostErrors> for ParseError {
         match err {
             CostErrors::CostOverflow => ParseError::new(ParseErrors::CostOverflow),
             CostErrors::CostBalanceExceeded(a,b) => ParseError::new(ParseErrors::CostBalanceExceeded(a,b)),
+            CostErrors::MemoryBalanceExceeded(a,b) => ParseError::new(ParseErrors::MemoryBalanceExceeded(a,b)),
         }
     }
 }
@@ -117,6 +119,7 @@ impl DiagnosableError for ParseErrors {
         match &self {
             ParseErrors::CostOverflow => format!("Used up cost budget during the parse"),
             ParseErrors::CostBalanceExceeded(bal, used) => format!("Used up cost budget during the parse: {} balance, {} used", bal, used),
+            ParseErrors::MemoryBalanceExceeded(bal, used) => format!("Used up memory budget during the parse: {} balance, {} used", bal, used),
             ParseErrors::TooManyExpressions => format!("Too many expressions"),
             ParseErrors::FailedCapturingInput => format!("Failed to capture value from input"),
             ParseErrors::SeparatorExpected(found) => format!("Expected whitespace or a close parens. Found: '{}'", found),
