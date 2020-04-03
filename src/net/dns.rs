@@ -17,8 +17,6 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::collections::VecDeque;
-
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::Receiver;
@@ -34,53 +32,19 @@ use net::PeerAddress;
 use net::Neighbor;
 use net::NeighborKey;
 use net::Error as net_error;
-use net::db::PeerDB;
 use net::asn::ASEntry4;
 
 use net::*;
 use net::codec::*;
 
-use net::StacksMessage;
-use net::StacksP2P;
-use net::GetBlocksInv;
-use net::BLOCKS_INV_DATA_MAX_BITLEN;
-use net::connection::ConnectionP2P;
-use net::connection::ReplyHandleP2P;
-use net::connection::ConnectionOptions;
-
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-
-use net::db::*;
-
-use net::p2p::PeerNetwork;
-
 use util::sleep_ms;
 use util::db::Error as db_error;
-use util::db::DBConn;
-use util::secp256k1::Secp256k1PublicKey;
-use util::secp256k1::Secp256k1PrivateKey;
-
-use chainstate::burn::BlockHeaderHash;
-use chainstate::burn::db::burndb;
-use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::burndb::BurnDBTx;
-use chainstate::burn::BlockSnapshot;
-
-use chainstate::stacks::db::StacksChainState;
-
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
 
 use std::net::SocketAddr;
 
+use std::collections::VecDeque;
 use std::collections::HashMap;
-use std::collections::BTreeMap;
 use std::collections::HashSet;
-
-use std::io::Read;
-use std::io::Write;
-
-use std::convert::TryFrom;
 
 use util::log;
 use util::get_epoch_time_secs;
