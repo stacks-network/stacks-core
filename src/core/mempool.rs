@@ -58,8 +58,8 @@ mod tests {
 
     use util::db::{DBConn, FromRow};
     use testnet;
-    use testnet::Keychain;
-    use testnet::mem_pool::MemPool;
+    use testnet::helium::Keychain;
+    use testnet::helium::mem_pool::MemPool;
 
     const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                         (define-public (bar (x uint)) (ok x))";
@@ -89,22 +89,17 @@ mod tests {
 
     #[test]
     fn mempool_setup_chainstate() {
-        let mut conf = testnet::tests::new_test_conf();
+        let mut conf = testnet::helium::tests::new_test_conf();
 
-        conf.burnchain_block_time = 1500;
-
+        conf.burnchain.block_time = 1500;
+        
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let contract_addr = to_addr(&contract_sk);
+        conf.add_initial_balance(contract_addr.to_string(), 100000);
 
         let num_rounds = 4;
 
-        let mut run_loop = testnet::RunLoop::new_with_boot_exec(conf, |clarity_tx| {
-            // lets dole out some stacks.
-            clarity_tx.connection().with_clarity_db(|db| {
-                db.set_account_stx_balance(&contract_addr.clone().into(), 100000);
-                Ok(())
-            }).unwrap();
-        });
+        let mut run_loop = testnet::helium::RunLoop::new(conf);
 
         run_loop.apply_on_new_tenures(|round, tenure| {
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
@@ -115,7 +110,8 @@ mod tests {
             }
         });
 
-        run_loop.apply_on_new_chain_states(|round, ref mut chainstate, bhh| {
+        run_loop.apply_on_new_chain_states(|round, chainstate, block, chain_tip_info, _receipts| {
+        // run_loop.apply_on_new_chain_states(|round, ref mut chainstate, bhh| {
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let contract_addr = to_addr(&contract_sk);
 
@@ -123,9 +119,7 @@ mod tests {
             let other_addr = to_addr(&other_sk);
 
             if round == 3 {
-                let block_header = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                    &mut chainstate.headers_db, bhh)
-                    .unwrap().unwrap();
+                let block_header = chain_tip_info;
                 let burn_hash = &block_header.burn_header_hash;
                 let block_hash = &block_header.anchored_header.block_hash();
 
@@ -293,22 +287,17 @@ mod tests {
 
                 // find the correct priv-key
                 let mut secret_key = None;
-                let conf = testnet::tests::new_test_conf();
+                let conf = testnet::helium::tests::new_test_conf();
 
-                for nc in conf.node_config.iter() {
-                    let seed = Sha256Sum::from_data(format!("{}", nc.name).as_bytes());
-                    let mut keychain = Keychain::default(seed.as_bytes().to_vec());
-                    for _i in 0..4 {
-                        let microblock_secret_key = keychain.rotate_microblock_keypair();
-                        let mut microblock_pubkey = Secp256k1PublicKey::from_private(&microblock_secret_key);
-                        microblock_pubkey.set_compressed(true);
-                        let pubkey_hash = StacksBlockHeader::pubkey_hash(&microblock_pubkey);
-                        if pubkey_hash == *micro_pubkh {
-                            secret_key = Some(microblock_secret_key);
-                            break;
-                        }
-                    }
-                    if secret_key.is_some() {
+                let seed = Sha256Sum::from_data(format!("{}", conf.node.name).as_bytes());
+                let mut keychain = Keychain::default(seed.as_bytes().to_vec());
+                for _i in 0..4 {
+                    let microblock_secret_key = keychain.rotate_microblock_keypair();
+                    let mut microblock_pubkey = Secp256k1PublicKey::from_private(&microblock_secret_key);
+                    microblock_pubkey.set_compressed(true);
+                    let pubkey_hash = StacksBlockHeader::pubkey_hash(&microblock_pubkey);
+                    if pubkey_hash == *micro_pubkh {
+                        secret_key = Some(microblock_secret_key);
                         break;
                     }
                 }

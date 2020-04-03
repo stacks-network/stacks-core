@@ -21,6 +21,7 @@ pub mod address;
 pub mod auth;
 pub mod block;
 pub mod db;
+pub mod events;
 pub mod index;
 pub mod miner;
 pub mod transaction;

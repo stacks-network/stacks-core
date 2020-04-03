@@ -87,7 +87,7 @@ impl QualifiedContractIdentifier {
     }
 
     pub fn to_string(&self) -> String {
-        format!("'{}.{}", self.issuer, self.name.to_string())
+        format!("{}.{}", self.issuer, self.name.to_string())
     }
 }
 
@@ -257,6 +257,10 @@ impl Value {
 
     pub fn err_uint(ecode: u128) -> Value {
         Value::Response(ResponseData { committed: false, data: Box::new(Value::UInt(ecode)) })
+    }
+
+    pub fn err_none() -> Value {
+        Value::Response(ResponseData { committed: false, data: Box::new(NONE.clone()) })
     }
 
     pub fn okay(data: Value) -> Result<Value> {
@@ -451,10 +455,10 @@ impl fmt::Display for PrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PrincipalData::Standard(sender) => {
-                write!(f, "'{}", sender)                
+                write!(f, "{}", sender)                
             },
             PrincipalData::Contract(contract_identifier) => {
-                write!(f, "'{}.{}", contract_identifier.issuer, contract_identifier.name.to_string())
+                write!(f, "{}.{}", contract_identifier.issuer, contract_identifier.name.to_string())
             }
         }
     }
@@ -667,7 +671,7 @@ mod test {
                    "none");
         assert_eq!(&format!("{}", Value::from(
             PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap())),
-                   "'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+                   "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
         assert_eq!(&format!("{}", Value::from(TupleData::from_data(
             vec![("a".into(), Value::Int(2))]).unwrap())),

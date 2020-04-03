@@ -134,7 +134,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Sha512 => NativeFunction("native_sha512", NativeHandle::SingleArg(&native_sha512), cost_functions::SHA512),
             Sha512Trunc256 => NativeFunction("native_sha512trunc256", NativeHandle::SingleArg(&native_sha512trunc256), cost_functions::SHA512T256),
             Keccak256 => NativeFunction("native_keccak256", NativeHandle::SingleArg(&native_keccak256), cost_functions::KECCAK256),
-            Print => NativeFunction("native_print", NativeHandle::SingleArg(&native_print), cost_functions::PRINT),
+            Print => SpecialFunction("special_print", &special_print),
             ContractCall => SpecialFunction("special_contract-call", &database::special_contract_call),
             AsContract => SpecialFunction("special_as-contract", &special_as_contract),
             GetBlockInfo => SpecialFunction("special_get_block_info", &database::special_get_block_info),
@@ -218,10 +218,16 @@ fn native_begin(mut args: Vec<Value>) -> Result<Value> {
     }
 }
 
-fn native_print(input: Value) -> Result<Value> {
+fn special_print(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    let input = eval(&args[0], env, context)?;
+
+    runtime_cost!(cost_functions::PRINT, env, input.size())?;
+
     if cfg!(feature = "developer-mode") {
         eprintln!("{}", &input);
     }
+
+    env.register_print_event(input.clone())?;
     Ok(input)
 }
 

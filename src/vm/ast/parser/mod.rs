@@ -602,8 +602,8 @@ r#"z (let ((x 1) (y 2))
         let x1 = &parsed[0];
         assert!( match x1.match_atom_value() {
             Some(Value::Principal(PrincipalData::Contract(identifier))) => {
-                format!("{}",
-                    PrincipalData::Standard(identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
+                format!("{}", 
+                    PrincipalData::Standard(identifier.issuer.clone())) == "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
                     identifier.name == "contract-a".into()
             },
             _ => false
@@ -631,7 +631,7 @@ r#"z (let ((x 1) (y 2))
         let x1 = &parsed[0];
         assert!( match x1.match_field_identifier() {
             Some(data) => {
-                format!("{}", PrincipalData::Standard(data.contract_identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
+                format!("{}", PrincipalData::Standard(data.contract_identifier.issuer.clone())) == "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
                     data.contract_identifier.name == "my-contract".into() &&
                     data.name == "my-trait".into()
             },
