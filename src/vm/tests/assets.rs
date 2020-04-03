@@ -28,13 +28,13 @@ const ASSET_NAMES: &str =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name int))
            (if (< name 100000) u1000 u100))
-         
+
          (define-non-fungible-token names int)
          (define-map preorder-map
            ((name-hash (buff 20)))
            ((buyer principal) (paid uint)))
-         
-         (define-public (preorder 
+
+         (define-public (preorder
                         (name-hash (buff 20))
                         (name-price uint))
            (let ((xfer-result (contract-call? .tokens my-token-transfer
@@ -79,12 +79,12 @@ const ASSET_NAMES: &str =
                    ;; preorder entry must exist!
                    (unwrap! (map-get? preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err u5)))
-                 (name-entry 
+                 (name-entry
                    (nft-get-owner? names name)))
              (if (and
                   (is-none name-entry)
                   ;; preorder must have paid enough
-                  (<= (price-function name) 
+                  (<= (price-function name)
                       (get paid preorder-entry))
                   ;; preorder must have been the current principal
                   (is-eq tx-sender
@@ -432,7 +432,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
 
 fn total_supply(owned_env: &mut OwnedEnvironment) {
     let bad_0 = "(define-fungible-token stackaroos (- 5))";
-    let bad_1 = "(define-fungible-token stackaroos 'true)";
+    let bad_1 = "(define-fungible-token stackaroos true)";
 
     let contract = "(define-fungible-token stackaroos u5)
          (define-read-only (get-balance (account principal))
@@ -529,13 +529,13 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap();
 
     assert!(is_err_code(&result, 1));
-    
+
     let (result, _asset_map) = execute_transaction(
         owned_env, p1.clone(), &names_contract_id, "preorder",
         &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap();
-    
+
     assert!(is_committed(&result));
-    
+
     let (result, _asset_map) = execute_transaction(
         owned_env, p1.clone(), &names_contract_id, "preorder",
         &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap();
@@ -587,7 +587,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     // let's mint some names
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p1.clone(), &names_contract_id, "force-mint", 
+        owned_env, p1.clone(), &names_contract_id, "force-mint",
         &symbols_from_values(vec![Value::Int(1)])).unwrap();
 
     assert!(is_err_code(&result, 1));
@@ -595,7 +595,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
 
     let (result, asset_map) = execute_transaction(
-        owned_env, p1.clone(), &names_contract_id, "force-mint", 
+        owned_env, p1.clone(), &names_contract_id, "force-mint",
         &symbols_from_values(vec![Value::Int(5)])).unwrap();
 
     assert!(is_committed(&result));
@@ -642,13 +642,13 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::UInt(100)])).unwrap();
 
     assert!(is_committed(&result));
-    
+
     let (result, _asset_map) = execute_transaction(
         owned_env, p2.clone(), &names_contract_id, "register",
         &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap();
 
     assert!(is_err_code(&result, 4));
-    
+
     // register a cheap name!
 
     let (result, _asset_map) = execute_transaction(
