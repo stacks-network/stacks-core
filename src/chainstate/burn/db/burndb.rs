@@ -602,17 +602,17 @@ impl BurnDB {
     fn store_burnchain_transaction<'a>(tx: &mut BurnDBTx<'a>, blockstack_op: &BlockstackOperationType) -> Result<(), db_error> {
         match blockstack_op {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                info!("ACCEPTED({}) leader key register {} at {},{}", op.block_height, &op.txid, op.block_height, op.vtxindex);
+                debug!("ACCEPTED({}) leader key register {} at {},{}", op.block_height, &op.txid, op.block_height, op.vtxindex);
                 BurnDB::insert_leader_key(tx, op)
                     .expect("FATAL: failed to store leader key to Sqlite");
             },
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                info!("ACCEPTED({}) leader block commit {} at {},{}", op.block_height, &op.txid, op.block_height, op.vtxindex);
+                debug!("ACCEPTED({}) leader block commit {} at {},{}", op.block_height, &op.txid, op.block_height, op.vtxindex);
                 BurnDB::insert_block_commit(tx, op)
                     .expect("FATAL: failed to store leader block commit to Sqlite");
             },
             BlockstackOperationType::UserBurnSupport(ref op) => {
-                info!("ACCEPTED({}) user burn support {} at {},{}", op.block_height, &op.txid, op.block_height, op.vtxindex);
+                debug!("ACCEPTED({}) user burn support {} at {},{}", op.block_height, &op.txid, op.block_height, op.vtxindex);
                 BurnDB::insert_user_burn(tx, op)
                     .expect("FATAL: failed to store user burn support to Sqlite");
             }

@@ -171,7 +171,7 @@ impl BlockSnapshot {
         let ops_hash = OpsHash::from_txids(txids);
         let ch = ConsensusHash::from_parent_block_data(tx, &ops_hash, block_height - 1, first_block_height, &block_header.parent_block_hash, &block_hash, burn_total)?;
 
-        info!("SORTITION({}): NO BLOCK CHOSEN", block_height);
+        debug!("SORTITION({}): NO BLOCK CHOSEN", block_height);
 
         Ok(BlockSnapshot {
             block_height: block_height,
@@ -218,7 +218,7 @@ impl BlockSnapshot {
         
         if burn_dist.len() == 0 {
             // no burns happened
-            info!("No burns happened in block {} {:?}", block_height, &block_hash);
+            debug!("No burns happened in block {} {:?}", block_height, &block_hash);
             return BlockSnapshot::make_snapshot_no_sortition(tx, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
         }
 
@@ -228,7 +228,7 @@ impl BlockSnapshot {
             Some(total) => {
                 if total == 0 {
                     // no one burned, so no sortition
-                    info!("No transactions submitted burns in block {} {:?}", block_height, &block_hash);
+                    debug!("No transactions submitted burns in block {} {:?}", block_height, &block_hash);
                     return BlockSnapshot::make_snapshot_no_sortition(tx, parent_snapshot, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
                 }
                 else {
@@ -266,7 +266,7 @@ impl BlockSnapshot {
         let next_ops_hash = OpsHash::from_txids(&txids);
         let next_ch = ConsensusHash::from_parent_block_data(tx, &next_ops_hash, block_height - 1, first_block_height, &block_header.parent_block_hash, &block_hash, next_burn_total)?;
 
-        info!("SORTITION({}): WINNER IS {:?} (from {:?})", block_height, &winning_block.block_header_hash, &winning_block.txid);
+        debug!("SORTITION({}): WINNER IS {:?} (from {:?})", block_height, &winning_block.block_header_hash, &winning_block.txid);
 
         Ok(BlockSnapshot {
             block_height: block_height,

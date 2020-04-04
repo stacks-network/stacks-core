@@ -42,6 +42,7 @@ use burnchains::Address;
 
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
+use chainstate::stacks::events::*;
 use chainstate::stacks::db::blocks::*;
 use chainstate::stacks::index::{
     TrieHash,
@@ -442,7 +443,6 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
 #[cfg(test)]
 const STACKS_MINER_AUTH_KEY : &'static str = "a5879925788dcb3fe1f2737453e371ba04c4064e6609552ef59a126ac4fa598001";
 
-#[cfg(test)]
 const STACKS_BOOT_CODE : &'static [&'static str] = &[
     r#"
     (define-constant ERR-NO-PRINCIPAL 1)
@@ -468,11 +468,8 @@ const STACKS_BOOT_CODE : &'static [&'static str] = &[
     "#
 ];
 
-
-#[cfg(test)]
 pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS : &'static str = "ST000000000000000000002AMW42H";
 
-#[cfg(test)]
 const STACKS_BOOT_CODE_CONTRACT_NAMES : &'static [&'static str] = &[
     "miner-rewards"
 ];
@@ -498,19 +495,6 @@ pub const MINER_REWARD_WINDOW : u64 = 1008;
 pub const MINER_FEE_MINIMUM_BLOCK_USAGE : u64 = 80;         // miner must share the first F% of the anchored block tx fees, and gets 100% - F% exclusively
 
 pub const MINER_FEE_WINDOW : u64 = 24;                      // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
-
-#[cfg(not(test))]
-pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS : &'static str = "SP000000000000000000002Q6VF78";
-
-// TODO
-#[cfg(not(test))]
-const STACKS_BOOT_CODE : &'static [&'static str] = &[
-];
-
-// TODO
-#[cfg(not(test))]
-const STACKS_BOOT_CODE_CONTRACT_NAMES : &'static [&'static str] = &[
-];
 
 impl StacksChainState {
     fn instantiate_headers_db(conn: &mut DBConn, mainnet: bool, chain_id: u32, marf_path: &str) -> Result<(), Error> {
@@ -605,8 +589,12 @@ impl StacksChainState {
 
     /// Install the boot code into the chain history.
     /// TODO: instantiate all account balances as well.
-    fn install_boot_code<F>(chainstate: &mut StacksChainState, mainnet: bool, additional_boot_code_contract_names: &Vec<String>, additional_boot_code: &Vec<String>, f: F) -> Result<(), Error>
-    where F: FnOnce(&mut ClarityTx) -> () {
+    fn install_boot_code<F>(chainstate: &mut StacksChainState, 
+                         mainnet: bool, 
+                         additional_boot_code_contract_names: &Vec<String>, 
+                         additional_boot_code: &Vec<String>, 
+                         initial_balances: Option<Vec<(PrincipalData, u64)>>, f: F) -> Result<(), Error> where F: FnOnce(&mut ClarityTx) -> () {
+
         assert_eq!(STACKS_BOOT_CODE.len(), STACKS_BOOT_CODE_CONTRACT_NAMES.len());
         assert_eq!(additional_boot_code_contract_names.len(), additional_boot_code.len());
         
@@ -664,6 +652,12 @@ impl StacksChainState {
                 boot_code_account.nonce += 1;
             }
 
+            if let Some(initial_balances) = initial_balances {
+                for (address, amount) in initial_balances {
+                    StacksChainState::account_credit(&mut clarity_tx, &address, amount);
+                }    
+            }
+
             f(&mut clarity_tx);
 
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
@@ -713,10 +707,15 @@ impl StacksChainState {
     }
 
     pub fn open(mainnet: bool, chain_id: u32, path_str: &str) -> Result<StacksChainState, Error> {
-        StacksChainState::open_and_exec(mainnet, chain_id, path_str, |_| {})
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, |_| {})
     }
 
-    pub fn open_and_exec<F>(mainnet: bool, chain_id: u32, path_str: &str, in_boot_block: F) -> Result<StacksChainState, Error> 
+    pub fn open_testnet<F>(chain_id: u32, path_str: &str, initial_balances: Option<Vec<(PrincipalData, u64)>>, in_boot_block: F) -> Result<StacksChainState, Error> 
+    where F: FnOnce(&mut ClarityTx) -> () {        
+        StacksChainState::open_and_exec(false, chain_id, path_str, initial_balances, in_boot_block)
+    }
+
+    pub fn open_and_exec<F>(mainnet: bool, chain_id: u32, path_str: &str, initial_balances: Option<Vec<(PrincipalData, u64)>>, in_boot_block: F) -> Result<StacksChainState, Error> 
     where F: FnOnce(&mut ClarityTx) -> () {
         let mut path = PathBuf::from(path_str);
 
@@ -789,7 +788,7 @@ impl StacksChainState {
         };
 
         if !index_exists {
-            StacksChainState::install_boot_code(&mut chainstate, mainnet, &vec![], &vec![], in_boot_block)?;
+            StacksChainState::install_boot_code(&mut chainstate, mainnet, &vec![], &vec![], initial_balances, in_boot_block)?;
         }
 
         Ok(chainstate)

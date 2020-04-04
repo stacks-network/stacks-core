@@ -315,7 +315,7 @@ impl NeighborWalk {
     /// Resets neighbor pointer.
     /// Clears out connections, but preserves state (frontier, result, etc.).
     pub fn reset(&mut self, next_neighbor: &Neighbor) -> NeighborWalkResult {
-        info!("Walk reset");
+        debug!("Walk reset");
         self.state = NeighborWalkState::HandshakeBegin;
 
         self.prev_neighbor = Some(self.cur_neighbor.clone());
@@ -336,7 +336,7 @@ impl NeighborWalk {
 
     /// Clear the walk's intermittent state
     pub fn clear_state(&mut self) -> () {
-        info!("Walk clear state");
+        debug!("Walk clear state");
         self.new_frontier.clear();
         self.frontier.clear();
         self.result.clear();
@@ -414,7 +414,7 @@ impl NeighborWalk {
                                 self.cur_neighbor.handshake_update(tx, &data.handshake)?;
                                 self.cur_neighbor.save_update(tx)?;
                                
-                                info!("Connected with {:?}", &self.cur_neighbor.addr);
+                                debug!("Connected with {:?}", &self.cur_neighbor.addr);
                                 self.new_frontier.insert(self.cur_neighbor.addr.clone(), self.cur_neighbor.clone());
 
                                 // remember the tip this peer reported
@@ -551,7 +551,7 @@ impl NeighborWalk {
                         let (mut found, to_resolve) = NeighborWalk::lookup_stale_neighbors(dbconn, message.preamble.network_id, block_height, &data.neighbors)?;
 
                         for (naddr, neighbor) in found.drain() {
-                            info!("New neighbor {:?}", &neighbor.addr);
+                            debug!("New neighbor {:?}", &neighbor.addr);
                             self.new_frontier.insert(neighbor.addr.clone(), neighbor.clone());
                             self.resolved_handshake_neighbors.insert(naddr, neighbor);
                         }
@@ -658,7 +658,7 @@ impl NeighborWalk {
                                 let neighbor_opt = Neighbor::from_neighbor_address(tx, message.preamble.network_id, block_height, &naddr)?;
                                 match neighbor_opt {
                                     Some(neighbor) => {
-                                        info!("{:?}: already know about {:?}", &self.local_peer, &neighbor.addr);
+                                        debug!("{:?}: already know about {:?}", &self.local_peer, &neighbor.addr);
 
                                         // knew about this neighbor already
                                         self.resolved_handshake_neighbors.insert(naddr, neighbor.clone());
@@ -671,7 +671,7 @@ impl NeighborWalk {
                                         neighbor_from_handshake.save_update(tx)?;
                                     },
                                     None => {
-                                        info!("{:?}: new neighbor {:?}", &self.local_peer, &neighbor_from_handshake.addr);
+                                        debug!("{:?}: new neighbor {:?}", &self.local_peer, &neighbor_from_handshake.addr);
 
                                         // didn't know about this neighbor yet. Try to add it.
                                         let added = neighbor_from_handshake.save(tx)?;
@@ -753,7 +753,7 @@ impl NeighborWalk {
             
             // update our frontier knowledge
             for (nkey, new_neighbor) in self.new_frontier.drain() {
-                info!("{:?}: Add to frontier: {:?}", &self.local_peer, &nkey);
+                debug!("{:?}: Add to frontier: {:?}", &self.local_peer, &nkey);
                 self.frontier.insert(nkey.clone(), new_neighbor);
 
                 if nkey.addrbytes != self.cur_neighbor.addr.addrbytes || nkey.port != self.cur_neighbor.addr.port {
@@ -1666,7 +1666,7 @@ mod test {
             i += 1;
         }
 
-        info!("Completed walk round {} step(s)", i);
+        debug!("Completed walk round {} step(s)", i);
 
         peer_1.dump_frontier();
         peer_2.dump_frontier();
@@ -1839,7 +1839,7 @@ mod test {
             i += 1;
         }
 
-        info!("Completed walk round {} step(s)", i);
+        debug!("Completed walk round {} step(s)", i);
 
         // peer 1 contacted peer 2
         let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
@@ -1906,7 +1906,7 @@ mod test {
             i += 1;
         }
         
-        info!("Completed walk round {} step(s)", i);
+        debug!("Completed walk round {} step(s)", i);
 
         // peer 1 contacted peer 2
         let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
@@ -2032,7 +2032,7 @@ mod test {
             }
         }
         
-        info!("Completed walk round {} step(s)", i);
+        debug!("Completed walk round {} step(s)", i);
 
         // peer 1 contacted peer 2
         let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
@@ -2167,7 +2167,7 @@ mod test {
             }
         }        
 
-        info!("Completed walk round {} step(s)", i);
+        debug!("Completed walk round {} step(s)", i);
         
         // peer 1 contacted peer 2
         let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
@@ -2225,7 +2225,7 @@ mod test {
             i += 1;
         }
 
-        info!("Completed walk round {} step(s)", i);
+        debug!("Completed walk round {} step(s)", i);
 
         // peer 1 contacted peer 2
         let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr).unwrap();
@@ -2412,7 +2412,7 @@ mod test {
             i += 1;
         }
         
-        info!("Completed walk round {} step(s)", i);
+        debug!("Completed walk round {} step(s)", i);
 
         // peer 1 did NOT contact peer 2
         let stats_1 = peer_1.network.get_neighbor_stats(&peer_2.to_neighbor().addr);

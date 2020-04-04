@@ -31,7 +31,7 @@ pub struct BurnchainState {
 impl BurnchainSimulator {
 
     pub fn new(config: Config) -> Self {
-        let burnchain = Burnchain::new(&config.burnchain_path, &config.chain, &config.testnet_name)
+        let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain, &config.burnchain.mode)
             .expect("Error while instantiating burnchain");
 
         Self {
@@ -63,7 +63,7 @@ impl BurnchainSimulator {
     }
    
     pub fn make_genesis_block(&mut self) -> BurnchainState {
-        let db = match BurnDB::connect(&self.config.burnchain_path, 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
+        let db = match BurnDB::connect(&self.config.get_burn_db_path(), 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
             Ok(db) => db,
             Err(_) => panic!("Error while connecting to burnchain db")
         };

@@ -14,6 +14,7 @@ use chainstate::burn::BlockHeaderHash;
 pub mod integrations;
 mod forking;
 mod assets;
+mod events;
 mod iterables;
 mod defines;
 mod simple_apply_eval;

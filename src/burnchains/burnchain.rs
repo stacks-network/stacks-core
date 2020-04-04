@@ -593,10 +593,10 @@ impl Burnchain {
 
         snapshot.index_root = index_root;
 
-        info!("OPS-HASH({}): {}", this_block_height, &snapshot.ops_hash);
-        info!("INDEX-ROOT({}): {}", this_block_height, &snapshot.index_root);
-        info!("SORTITION-HASH({}): {}", this_block_height, &snapshot.sortition_hash);
-        info!("CONSENSUS({}): {}", this_block_height, &snapshot.consensus_hash);
+        debug!("OPS-HASH({}): {}", this_block_height, &snapshot.ops_hash);
+        debug!("INDEX-ROOT({}): {}", this_block_height, &snapshot.index_root);
+        debug!("SORTITION-HASH({}): {}", this_block_height, &snapshot.sortition_hash);
+        debug!("CONSENSUS({}): {}", this_block_height, &snapshot.consensus_hash);
         Ok(snapshot)
     }
 
@@ -608,7 +608,7 @@ impl Burnchain {
     /// * commit the results of the sortition
     /// Returns the BlockSnapshot created from this block.
     pub fn process_block_ops<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, blockstack_txs: &Vec<BlockstackOperationType>) -> Result<BlockSnapshot, burnchain_error> {
-        info!("BEGIN({}) block ({},{})", block_header.block_height, block_header.block_hash, block_header.parent_block_hash);
+        debug!("BEGIN({}) block ({},{})", block_header.block_height, block_header.block_hash, block_header.parent_block_hash);
         debug!("Append {} operation(s) from block {} {}", blockstack_txs.len(), block_header.block_height, &block_header.block_hash);
 
         // check each transaction, and filter out only the ones that are valid 

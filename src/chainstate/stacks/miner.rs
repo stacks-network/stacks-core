@@ -1063,7 +1063,7 @@ pub mod test {
                 assert!(chain_tip_opt.is_some());
                 assert!(poison_opt.is_none());
 
-                let chain_tip = chain_tip_opt.unwrap();
+                let (chain_tip, _) = chain_tip_opt.unwrap();
 
                 assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block.block_hash());
                 assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
@@ -1158,7 +1158,7 @@ pub mod test {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
 
-            let chain_tip = chain_tip_opt.unwrap();
+            let (chain_tip, _) = chain_tip_opt.unwrap();
 
             assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block.block_hash());
             assert_eq!(chain_tip.burn_header_hash, fork_snapshot.burn_header_hash);
@@ -1257,7 +1257,7 @@ pub mod test {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
 
-            let chain_tip = chain_tip_opt.unwrap();
+            let (chain_tip, _) = chain_tip_opt.unwrap();
 
             // selected block is the sortition-winning block
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
@@ -1555,7 +1555,7 @@ pub mod test {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
 
-            let chain_tip = chain_tip_opt.unwrap();
+            let (chain_tip, _) = chain_tip_opt.unwrap();
 
             // selected block is the sortition-winning block
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
@@ -1708,7 +1708,7 @@ pub mod test {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
 
-            let chain_tip = chain_tip_opt.unwrap();
+            let (chain_tip, _) = chain_tip_opt.unwrap();
 
             // selected block is the sortition-winning block
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
@@ -1836,7 +1836,7 @@ pub mod test {
             // fork 1?
             let mut found_fork_1 = false;
             for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
-                let chain_tip = chain_tip_opt.clone().unwrap();
+                let (chain_tip, _) = chain_tip_opt.clone().unwrap();
                 if chain_tip.burn_header_hash == fork_snapshot_1.burn_header_hash {
                     found_fork_1 = true;
                     assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block_1.block_hash());
@@ -1850,7 +1850,7 @@ pub mod test {
 
             let mut found_fork_2 = false;
             for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
-                let chain_tip = chain_tip_opt.clone().unwrap();
+                let (chain_tip, _) = chain_tip_opt.clone().unwrap();
                 if chain_tip.burn_header_hash == fork_snapshot_2.burn_header_hash {
                     found_fork_2 = true;
                     assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block_2.block_hash());
@@ -1987,7 +1987,7 @@ pub mod test {
             assert!(chain_tip_opt.is_some());
             assert!(poison_opt.is_none());
 
-            let chain_tip = chain_tip_opt.unwrap();
+            let (chain_tip, _) = chain_tip_opt.unwrap();
 
             // selected block is the sortition-winning block
             assert_eq!(chain_tip.anchored_header.block_hash(), fork_snapshot.winning_stacks_block_hash);
@@ -2121,7 +2121,7 @@ pub mod test {
             // fork 1?
             let mut found_fork_1 = false;
             for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
-                let chain_tip = chain_tip_opt.clone().unwrap();
+                let (chain_tip, _) = chain_tip_opt.clone().unwrap();
                 if chain_tip.burn_header_hash == fork_snapshot_1.burn_header_hash {
                     found_fork_1 = true;
                     assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block_1.block_hash());
@@ -2135,7 +2135,7 @@ pub mod test {
 
             let mut found_fork_2 = false;
             for (ref chain_tip_opt, ref poison_opt) in tip_info_list.iter() {
-                let chain_tip = chain_tip_opt.clone().unwrap();
+                let (chain_tip, _) = chain_tip_opt.clone().unwrap();
                 if chain_tip.burn_header_hash == fork_snapshot_2.burn_header_hash {
                     found_fork_2 = true;
                     assert_eq!(chain_tip.anchored_header.block_hash(), stacks_block_2.block_hash());
@@ -2162,8 +2162,8 @@ pub mod test {
         let ch2 = open_chainstate(false, 0x80000000, test_name_2);
 
         // check presence of anchored blocks
-        let mut all_blocks_1 = StacksChainState::list_blocks(&ch1.blocks_db, &ch1.blocks_path).unwrap();
-        let mut all_blocks_2 = StacksChainState::list_blocks(&ch2.blocks_db, &ch2.blocks_path).unwrap();
+        let mut all_blocks_1 = StacksChainState::list_blocks(&ch1.blocks_db).unwrap();
+        let mut all_blocks_2 = StacksChainState::list_blocks(&ch2.blocks_db).unwrap();
 
         all_blocks_1.sort();
         all_blocks_2.sort();
