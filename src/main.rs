@@ -38,6 +38,7 @@ extern crate regex;
 extern crate time;
 extern crate byteorder;
 extern crate mio;
+extern crate url;
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;
@@ -65,7 +66,7 @@ use util::retry::LogReader;
 
 fn main() {
 
-    log::set_loglevel(log::LOG_DEBUG).unwrap();
+    log::set_loglevel(log::LOG_INFO).unwrap();
 
     let argv : Vec<String> = env::args().collect();
     if argv.len() < 2 {
@@ -186,32 +187,22 @@ fn main() {
 
     if argv[1] == "testnet" {
         use testnet;
-        use rand::RngCore;
-        use util::hash::{to_hex};
-        
-        // Testnet's name
-        let mut rng = rand::thread_rng();
-        let mut buf = [0u8; 8];
-        rng.fill_bytes(&mut buf);
-        let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
-        
-        let conf = testnet::Config {
-            testnet_name: "testnet".to_string(),
-            chain: "bitcoin".to_string(),
-            burnchain_path: format!("/tmp/{}/burnchain", testnet_id),
-            burnchain_block_time: 2000,
-            node_config: vec![testnet::NodeConfig {
-                name: "L1".to_string(),
-                path: format!("/tmp/{}/L1", testnet_id),
-                mem_pool_path: format!("/tmp/{}/L1/mempool", testnet_id)
-            }]
-        };
-        
-        println!("Starting testnet...");
-        println!("*** Mempool path: {}", conf.node_config[0].mem_pool_path);
 
-        let mut run_loop = testnet::RunLoop::new(conf);
-        let num_round = 0; // Infinite number of rounds
+        let conf = match argv.len() {
+            n if n >= 3 => {
+                println!("Starting testnet with config {}...", argv[2]);
+                testnet::helium::Config::from_config_file_path(&argv[2])
+            },
+            _ => {
+                println!("Starting testnet with default config...");
+                testnet::helium::Config::default()
+            }
+        };
+
+        println!("*** Mempool path: {}", conf.mempool.path);
+
+        let mut run_loop = testnet::helium::RunLoop::new(conf);
+        let num_round: u64 = 0; // Infinite number of rounds
         run_loop.start(num_round);
         return
     }

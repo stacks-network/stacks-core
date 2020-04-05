@@ -430,3 +430,56 @@ macro_rules! fmax {
         }
     }}
 }
+
+#[allow(unused_macros)]
+macro_rules! set_fault {
+    ($fault_name: expr, $fault_value: expr) => (
+        #[cfg(test)]
+        {
+            std::env::set_var(format!("BLOCKSTACK_TEST_FAULT_{}", expr), format!("{}", expr));
+        }
+    )
+}
+
+#[allow(unused_macros)]
+macro_rules! unset_fault {
+    ($fault_name: expr) => (
+        #[cfg(test)]
+        {
+            std::env::set_var(format!("BLOCKSTACK_TEST_FAULT_{}", expr), "".to_string());
+        }
+    )
+}
+
+#[allow(unused_macros)]
+macro_rules! has_fault {
+    ($fault_name: expr) => (
+        if cfg!(test) {
+            match std::env::var(format!("BLOCKSTACK_TEST_FAULT_{}", expr)) {
+                Ok(value) => value.len() > 0,
+                Err(_) => false
+            }
+        }
+        else {
+            false
+        }
+    )
+}
+
+#[allow(unused_macros)]
+macro_rules! get_fault_value {
+    ($fault_name: expr) => (
+        if cfg!(test) {
+            match std::env::var(format!("BLOCKSTACK_TEST_FAULT_{}", expr)) {
+                Ok(value) => value,
+                Err(_) => {
+                    panic!("No such fault value set: {}", expr);
+                }
+            }
+        }
+        else {
+            "".to_string()
+        }
+    )
+}
+

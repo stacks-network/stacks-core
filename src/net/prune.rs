@@ -277,6 +277,7 @@ impl PeerNetwork {
             return vec![];
         }
 
+        // map IP address to (event ID, neighbor, neighbor stats)
         let mut ip_neighbor : HashMap<PeerAddress, Vec<(usize, NeighborKey, NeighborStats)>> = HashMap::new();
         for (nk, event_id) in self.events.iter() {
             if preserve.contains(event_id) {
@@ -353,9 +354,7 @@ impl PeerNetwork {
     pub fn prune_frontier(&mut self, preserve: &HashSet<usize>) -> () {
         let pruned_by_ip = self.prune_frontier_inbound_ip(preserve);
 
-        if pruned_by_ip.len() > 0 {
-            test_debug!("{:?}: remove {} inbound peers by shared IP", &self.local_peer, pruned_by_ip.len());
-        }
+        test_debug!("{:?}: remove {} inbound peers by shared IP", &self.local_peer, pruned_by_ip.len());
 
         for prune in pruned_by_ip.iter() {
             test_debug!("{:?}: prune by IP: {:?}", &self.local_peer, prune);
@@ -372,9 +371,7 @@ impl PeerNetwork {
        
         let pruned_by_org = self.prune_frontier_outbound_orgs(preserve).unwrap_or(vec![]);
 
-        if pruned_by_org.len() > 0 {
-            test_debug!("{:?}: remove {} outbound peers by shared Org", &self.local_peer, pruned_by_org.len());
-        }
+        test_debug!("{:?}: remove {} outbound peers by shared Org", &self.local_peer, pruned_by_org.len());
 
         for prune in pruned_by_org.iter() {
             test_debug!("{:?}: prune by Org: {:?}", &self.local_peer, prune);

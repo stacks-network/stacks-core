@@ -1,0 +1,40 @@
+[node]
+name = "helium-node"
+
+[burnchain]
+chain = "bitcoin"
+mode = "regtest"
+block_time = 5000
+
+[mempool]
+path = "/tmp/mempool"
+
+[[mstx_balance]]
+address = "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A"
+amount = 10000
+
+[[mstx_balance]]
+address = "ST1JA3KG2CQY67FZ071BSHMT18CQPCQVMNZ6A7XE6"
+amount = 100000
+
+[[mstx_balance]]
+address = "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
+amount = 10000
+
+# Event dispatcher
+# The stacks blockchain can be observed by sidecar processes, notified through TCP socket, of events such as:
+# - print
+# - stx-transfer / stx-burn
+# - ft-mint / ft-transfer
+# - nft-mint / nft-transfer
+# A demo is available here: https://github.com/blockstack/stacks-blockchain-sidecar
+#
+# [[events_observer]]
+# port = 8080
+# address = "127.0.0.1"
+# events_keys = [
+#     "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store::print",
+#     "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.ft-token",
+#     "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.contract.nft-token",
+#     "stx"
+# ]

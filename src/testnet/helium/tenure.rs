@@ -1,4 +1,4 @@
-use super::{MemPool, MemPoolFS, NodeConfig};
+use super::{MemPool, MemPoolFS, Config};
 use super::node::{SortitionedBlock, TESTNET_CHAIN_ID};
 
 use std::thread;
@@ -15,12 +15,12 @@ pub struct LeaderTenure {
     average_block_time: u64,
     block_builder: StacksBlockBuilder,
     coinbase_tx: StacksTransaction,
-    config: NodeConfig,
+    config: Config,
     last_sortitioned_block: SortitionedBlock,
     pub mem_pool: MemPoolFS,
     parent_block: StacksHeaderInfo,
     started_at: std::time::Instant,
-    vrf_seed: VRFSeed,
+    pub vrf_seed: VRFSeed,
 }
 
 impl <'a> LeaderTenure {
@@ -28,7 +28,7 @@ impl <'a> LeaderTenure {
     pub fn new(parent_block: StacksHeaderInfo, 
                average_block_time: u64,
                coinbase_tx: StacksTransaction,
-               config: NodeConfig,
+               config: Config,
                mem_pool: MemPoolFS,
                microblock_secret_key: StacksPrivateKey,  
                last_sortitioned_block: SortitionedBlock,
@@ -71,7 +71,10 @@ impl <'a> LeaderTenure {
 
     pub fn run(&mut self) -> Option<(StacksBlock, Vec<StacksMicroblock>, SortitionedBlock)> {
 
-        let mut chain_state = StacksChainState::open(false, TESTNET_CHAIN_ID, &self.config.path).unwrap();
+        let mut chain_state = StacksChainState::open(
+            false, 
+            TESTNET_CHAIN_ID, 
+            &self.config.get_chainstate_path()).unwrap();
 
         let mut clarity_tx = self.block_builder.epoch_begin(&mut chain_state).unwrap();
 
