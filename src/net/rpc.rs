@@ -35,7 +35,6 @@ use net::HttpRequestType;
 use net::HttpResponseType;
 use net::HttpRequestMetadata;
 use net::HttpResponseMetadata;
-use net::{ MapEntryResponse, AccountEntryResponse, CallReadOnlyResponse };
 use net::PeerAddress;
 use net::PeerInfoData;
 use net::NeighborAddress;
@@ -48,6 +47,7 @@ use net::connection::ConnectionHttp;
 use net::connection::ReplyHandleHttp;
 use net::connection::ConnectionOptions;
 use net::db::PeerDB;
+use net::{ MapEntryResponse, AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse };
 
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
@@ -81,7 +81,9 @@ use vm::{
     types::{ PrincipalData,
              QualifiedContractIdentifier },
     database::{ ClarityDatabase,
-                ClaritySerializable },
+                MarfedKV,
+                ClaritySerializable,
+                marf::ContractCommitment },
 };
 
 use rand::prelude::*;
@@ -461,13 +463,23 @@ impl ConversationHttp {
 
     fn handle_get_contract_src<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
                                          chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
-                                         contract_addr: &StacksAddress, contract_name: &ContractName) -> Result<(), net_error> {
+                                         contract_addr: &StacksAddress, contract_name: &ContractName, with_proof: bool) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
         let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|db| {
-                db.get_contract_src(&contract_identifier)
+                let source = db.get_contract_src(&contract_identifier)?;
+                let contract_commit_key = MarfedKV::make_contract_hash_key(&contract_identifier);
+                let (contract_commit, proof) = db.get_with_proof::<ContractCommitment>(&contract_commit_key)
+                    .expect("BUG: obtained source, but couldn't get MARF proof.");
+                let marf_proof = if with_proof {
+                    Some(proof.to_hex())
+                } else {
+                    None
+                };
+                let publish_height = contract_commit.block_height;
+                Some(ContractSrcResponse { source, publish_height, marf_proof })
             })
         });
 
@@ -606,10 +618,10 @@ impl ConversationHttp {
                 }
                 None
             },
-            HttpRequestType::GetContractSrc(ref _md, ref contract_addr, ref contract_name) => {
+            HttpRequestType::GetContractSrc(ref _md, ref contract_addr, ref contract_name, ref with_proof) => {
                 if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
                     ConversationHttp::handle_get_contract_src(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
-                                                              contract_addr, contract_name)?;
+                                                              contract_addr, contract_name, *with_proof)?;
                 }
                 None
             },

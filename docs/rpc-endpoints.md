@@ -45,7 +45,7 @@ Returns JSON data in the form:
 ```
 {
  "data": "01ce...",
- "marfProof": "01ab...",
+ "proof": "01ab...",
 }
 ```
 
@@ -54,7 +54,7 @@ for non-existent values, this is a serialized `none`, and for all other response
 object.
 
 This endpoint also accepts a querystring parameter `?proof=` which when supplied `0`, will return the
-JSON object _without_ the `marfProof` field.
+JSON object _without_ the `proof` field.
 
 ### GET /v2/fees/transfer
 
@@ -213,7 +213,20 @@ This returns a JSON object of the form:
 
 ### GET /v2/contracts/source/[Stacks Address]/[Contract Name]
 
-Fetch the source for a smart contract. Returned as a JSON string.
+Fetch the source for a smart contract, along with the block height it was
+published in, and the MARF proof for the data.
+
+```
+{
+ "source": "(define-private ...",
+ "publishHeight": 1,
+ "proof": "00213..."
+}
+```
+
+This endpoint also accepts a querystring parameter `?proof=` which
+when supplied `0`, will return the JSON object _without_ the `proof`
+field.
 
 ### POST /v2/contracts/call-read/[Stacks Address]/[Contract Name]/[Function Name]
 

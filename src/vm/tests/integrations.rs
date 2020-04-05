@@ -12,7 +12,7 @@ use chainstate::stacks::{
 use chainstate::burn::VRFSeed;
 use burnchains::Address;
 use address::AddressHashMode;
-use net::{Error as NetError, StacksMessageCodec, AccountEntryResponse, CallReadOnlyRequestBody};
+use net::{Error as NetError, StacksMessageCodec, AccountEntryResponse, ContractSrcResponse, CallReadOnlyRequestBody};
 use util::{log, strings::StacksString, hash::hex_bytes, hash::to_hex};
 use std::collections::HashMap;
 use util::db::{DBConn, FromRow};
@@ -359,7 +359,7 @@ fn integration_test_get_info() {
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u1))");
-                assert!(res.get("marfProof").is_some());
+                assert!(res.get("proof").is_some());
 
                 assert_eq!(result_data, expected_data);
 
@@ -389,7 +389,7 @@ fn integration_test_get_info() {
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
-                assert!(res.get("marfProof").is_none());
+                assert!(res.get("proof").is_none());
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u1))");
@@ -410,7 +410,7 @@ fn integration_test_get_info() {
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
-                assert!(res.get("marfProof").is_some());
+                assert!(res.get("proof").is_some());
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u1))");
@@ -505,9 +505,20 @@ fn integration_test_get_info() {
 
                 let path = format!("{}/v2/contracts/source/{}/{}", &http_origin, &contract_addr, "get-info");
                 eprintln!("Test: GET {}", path);
-                let res = client.get(&path).send().unwrap().json::<String>().unwrap();
+                let res = client.get(&path).send().unwrap().json::<ContractSrcResponse>().unwrap();
 
-                assert_eq!(res, GET_INFO_CONTRACT);
+                assert_eq!(res.source, GET_INFO_CONTRACT);
+                assert_eq!(res.publish_height, 2);
+                assert!(res.marf_proof.is_some());
+
+
+                let path = format!("{}/v2/contracts/source/{}/{}?proof=0", &http_origin, &contract_addr, "get-info");
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<ContractSrcResponse>().unwrap();
+
+                assert_eq!(res.source, GET_INFO_CONTRACT);
+                assert_eq!(res.publish_height, 2);
+                assert!(res.marf_proof.is_none());
 
                 // a missing one?
 

@@ -828,12 +828,22 @@ pub struct HttpRequestMetadata {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MapEntryResponse {
     pub data: String,
-    #[serde(rename = "marfProof")]
+    #[serde(rename = "proof")]
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")] 
     pub marf_proof: Option<String>
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContractSrcResponse {
+    pub source: String,
+    #[serde(rename = "publishHeight")]
+    pub publish_height: u32,
+    #[serde(rename = "proof")]
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    pub marf_proof: Option<String>
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CallReadOnlyResponse {
@@ -913,7 +923,7 @@ pub enum HttpRequestType {
     CallReadOnlyFunction(HttpRequestMetadata, StacksAddress, ContractName,
                          PrincipalData, ClarityName, Vec<Value>),
     GetTransferCost(HttpRequestMetadata),
-    GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName),
+    GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName, bool),
     GetContractABI(HttpRequestMetadata, StacksAddress, ContractName),
 }
 
@@ -977,7 +987,7 @@ pub enum HttpResponseType {
     CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
-    GetContractSrc(HttpResponseMetadata, String),
+    GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     BadRequestJSON(HttpResponseMetadata, HashMap<String, String>),

@@ -1213,14 +1213,10 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetTransferCost(HttpRequestMetadata::from_preamble(preamble)))
     }
 
-    fn parse_get_account<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
-        if preamble.get_content_length() != 0 {
-            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetAccount".to_string()));
-        }
-
-        let principal = PrincipalData::parse(&captures["principal"])
-            .map_err(|_e| net_error::DeserializeError("Failed to parse account principal".into()))?;
-
+    /// check whether the given option query string
+    ///   sets proof=0 (setting proof to false).
+    /// Defaults to _true_
+    fn get_proof_query(query: Option<&str>) -> bool {
         let no_proof = if let Some(query_string) = query {
             form_urlencoded::parse(query_string.as_bytes())
                 .find(|(key, _v)| key == "proof")
@@ -1229,7 +1225,19 @@ impl HttpRequestType {
         } else {
             false
         };
-        let with_proof = !no_proof;
+
+        !no_proof
+    }
+
+    fn parse_get_account<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetAccount".to_string()));
+        }
+
+        let principal = PrincipalData::parse(&captures["principal"])
+            .map_err(|_e| net_error::DeserializeError("Failed to parse account principal".into()))?;
+
+        let with_proof = HttpRequestType::get_proof_query(query);
 
         Ok(HttpRequestType::GetAccount(HttpRequestMetadata::from_preamble(preamble), principal, with_proof))
     }
@@ -1258,15 +1266,7 @@ impl HttpRequestType {
         let value = Value::try_deserialize_hex_untyped(&value_hex)
             .map_err(|_e| net_error::DeserializeError("Failed to deserialize key value".into()))?;
 
-        let no_proof = if let Some(query_string) = query {
-            form_urlencoded::parse(query_string.as_bytes())
-                .find(|(key, _v)| key == "proof")
-                .map(|(_k, value)| value == "0")
-                .unwrap_or(false)
-        } else {
-            false
-        };
-        let with_proof = !no_proof;
+        let with_proof = HttpRequestType::get_proof_query(query);
 
         Ok(HttpRequestType::GetMapEntry(HttpRequestMetadata::from_preamble(preamble), contract_addr, contract_name, map_name, value, with_proof))
     }
@@ -1322,9 +1322,10 @@ impl HttpRequestType {
             .map(|(preamble, addr, name)| HttpRequestType::GetContractABI(preamble, addr, name))
     }
 
-    fn parse_get_contract_source<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_get_contract_source<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        let with_proof = HttpRequestType::get_proof_query(query);
         HttpRequestType::parse_get_contract_arguments(preamble, captures)
-            .map(|(preamble, addr, name)| HttpRequestType::GetContractSrc(preamble, addr, name))
+            .map(|(preamble, addr, name)| HttpRequestType::GetContractSrc(preamble, addr, name, with_proof))
     }
 
     fn parse_getblock<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
@@ -1472,7 +1473,7 @@ impl HttpRequestType {
             HttpRequestType::GetTransferCost(_md) => "/v2/fees/transfer".into(),
             HttpRequestType::GetContractABI(_, contract_addr, contract_name) =>
                 format!("/v2/contracts/interface/{}/{}", contract_addr, contract_name.as_str()),
-            HttpRequestType::GetContractSrc(_, contract_addr, contract_name) => 
+            HttpRequestType::GetContractSrc(_, contract_addr, contract_name, _with_proof) => 
                 format!("/v2/contracts/source/{}/{}", contract_addr, contract_name.as_str()),
             HttpRequestType::CallReadOnlyFunction(_, contract_addr, contract_name, _, func_name, ..) => {
                 format!("/v2/contracts/call-read/{}/{}/{}", contract_addr, contract_name.as_str(), func_name.as_str())

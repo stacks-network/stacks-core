@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use vm::types::{QualifiedContractIdentifier};
 use vm::errors::{InterpreterError, CheckErrors, InterpreterResult as Result, IncomparableError, RuntimeErrorType};
-use vm::database::{SqliteConnection, ClarityDatabase, HeadersDB, NULL_HEADER_DB};
+use vm::database::{SqliteConnection, ClarityDatabase, HeadersDB, NULL_HEADER_DB,
+                   ClaritySerializable, ClarityDeserializable};
 use vm::analysis::{AnalysisDatabase};
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MARFValue, Error as MarfError, TrieHash};
@@ -99,16 +100,19 @@ pub trait ClarityBackingStore {
     }
 }
 
-struct ContractCommitment {
+pub struct ContractCommitment {
     pub hash: Sha512Trunc256Sum,
     pub block_height: u32
 }
 
-impl ContractCommitment {
-    pub fn serialize(&self) -> String {
+impl ClaritySerializable for ContractCommitment {
+    fn serialize(&self) -> String {
         format!("{}{}", self.hash, to_hex(&self.block_height.to_be_bytes()))
     }
-    pub fn deserialize(input: &str) -> ContractCommitment {
+}
+
+impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
+    fn deserialize(input: &str) -> ContractCommitment {
         assert_eq!(input.len(), 72);
         let hash = Sha512Trunc256Sum::from_hex(&input[0..64]).expect("Hex decode fail.");
         let height_bytes = hex_bytes(&input[64..72]).expect("Hex decode fail.");
