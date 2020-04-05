@@ -53,6 +53,7 @@ where command is one of:
   check              to typecheck a potential contract definition.
   launch             to launch a initialize a new contract in the local state database.
   eval               to evaluate (in read-only mode) a program in a given contract context.
+  eval_at_chaintip   like `eval`, but does not advance to a new block.
   eval_raw           to typecheck and evaluate an expression without a contract or database context.
   repl               to typecheck and evaluate expressions in a stdin/stdout loop.
   execute            to execute a public function of a defined contract.
@@ -75,6 +76,12 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
         eprintln!("{}", msg);
         panic_test!();
     })
+}
+
+struct EvalInput {
+    marf_kv: MarfedKV,
+    contract_identifier: QualifiedContractIdentifier,
+    content: String,
 }
 
 fn parse(contract_identifier: &QualifiedContractIdentifier, source_code: &str) -> Result<Vec<SymbolicExpression>, Error> {
@@ -198,6 +205,44 @@ where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
     let (mut marf_return, result) = f(marf_kv);
     marf_return.rollback();
     result
+}
+
+fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
+    if args.len() < 3 || args.len() > 4 {
+        eprintln!("Usage: {} {} [contract-identifier] (program.clar) [vm-state.db]", invoked_by, args[0]);
+        panic_test!();
+    }
+
+    let vm_filename = 
+        if args.len() == 3 {
+            &args[2]
+        } else {
+            &args[3]
+        };
+
+
+
+    let content: String = {
+        if args.len() == 3 {
+            let mut buffer = String::new();
+            friendly_expect(io::stdin().read_to_string(&mut buffer),
+                            "Error reading from stdin.");
+            buffer
+        } else {
+            friendly_expect(fs::read_to_string(&args[2]),
+                            &format!("Error reading file: {}", args[2]))
+        }
+    };
+
+    let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[1]), "Failed to parse contract identifier.");
+
+    let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+    // return (marf_kv, contract_identifier, vm_filename, content);
+    return EvalInput {
+        marf_kv,
+        contract_identifier,
+        content,
+    }
 }
 
 pub fn invoke_command(invoked_by: &str, args: &[String]) {
@@ -366,45 +411,53 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
         },
         "eval" => {
-            if args.len() < 3 {
-                eprintln!("Usage: {} {} [contract-identifier] (program.clar) [vm-state.db]", invoked_by, args[0]);
-                panic_test!();
-            }
-
+            let evalInput = get_eval_input(invoked_by, args);
             let vm_filename = 
                 if args.len() == 3 {
                     &args[2]
                 } else {
                     &args[3]
                 };
-
-
-
-            let content: String = {
-                if args.len() == 3 {
-                    let mut buffer = String::new();
-                    friendly_expect(io::stdin().read_to_string(&mut buffer),
-                                    "Error reading from stdin.");
-                    buffer
-                } else {
-                    friendly_expect(fs::read_to_string(&args[2]),
-                                    &format!("Error reading file: {}", args[2]))
-                }
-            };
-
-            let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[1]), "Failed to parse contract identifier.");
-
             let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
             let result = in_block(vm_filename, marf_kv, |mut marf| {
                 let result = {
                     let db = marf.as_clarity_db(&NULL_HEADER_DB);
                     let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
                     vm_env.get_exec_environment(None)
-                        .eval_read_only(&contract_identifier, &content)
+                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                 };
                 (marf, result)
             });
-
+        
+            match result {
+                Ok(x) => {
+                    println!("Program executed successfully! Output: \n{}", x);
+                },
+                Err(error) => { 
+                    eprintln!("Program execution error: \n{}", error);
+                    panic_test!();
+                }
+            }
+        },
+        "eval_at_chaintip" => {
+            let evalInput = get_eval_input(invoked_by, args);
+            let vm_filename = 
+                if args.len() == 3 {
+                    &args[2]
+                } else {
+                    &args[3]
+                };
+            let marf_kv = friendly_expect(MarfedKV::open(vm_filename, None), "Failed to open VM database.");
+            let result = at_chaintip(vm_filename, marf_kv, |mut marf| {
+                let result = {
+                    let db = marf.as_clarity_db(&NULL_HEADER_DB);
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(db, LimitedCostTracker::new_max_limit());
+                    vm_env.get_exec_environment(None)
+                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
+                };
+                (marf, result)
+            });
+        
             match result {
                 Ok(x) => {
                     println!("Program executed successfully! Output: \n{}", x);
@@ -574,5 +627,17 @@ mod test {
         invoke_command("test", &["execute".to_string(), db_name.clone(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
                                  "mint!".to_string(), "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR".to_string(),
                                  "u1000".to_string()]);
+                            
+        eprintln!("eval tokens");
+        invoke_command("test", &["eval".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(), 
+                                 "sample-programs/tokens-mint.clar".to_string(),
+                                 db_name.clone()
+                                 ]);
+
+        eprintln!("eval_at_chaintip tokens");
+        invoke_command("test", &["eval_at_chaintip".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(), 
+                                 "sample-programs/tokens-mint.clar".to_string(),
+                                 db_name.clone()
+                                 ]);
     }
 }
