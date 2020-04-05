@@ -1286,7 +1286,7 @@ impl BurnDB {
                 num_headers
             };
         
-        let tip_block_hash = tip_snapshot.burn_header_hash.clone();
+        let tip_block_hash = tip_snapshot.burn_header_hash;
         if tip_snapshot.sortition {
             ret.push((tip_block_hash.clone(), Some(tip_snapshot.winning_stacks_block_hash)));
         }

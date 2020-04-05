@@ -7,6 +7,7 @@ use serde_json::json;
 use serde::Serialize;
 
 use vm::types::{Value, QualifiedContractIdentifier, AssetIdentifier};
+use vm::analysis::{contract_interface_builder::build_contract_interface};
 use burnchains::Txid;
 use chainstate::stacks::StacksBlock;
 use chainstate::stacks::events::{StacksTransactionReceipt, StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
@@ -60,13 +61,19 @@ impl EventObserver {
                 let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
                 formatted_bytes
             };
-
+            let contract_interface_json = {
+                match &artifact.contract_analysis {
+                    Some(analysis) => json!(build_contract_interface(analysis)),
+                    None => json!(null)
+                }
+            };
             let val = json!({
                 "txid": format!("0x{}", tx.txid()),
                 "tx_index": tx_index,
                 "success": success,
                 "raw_result": format!("0x{}", raw_result.join("")),
                 "raw_tx": format!("0x{}", raw_tx.join("")),
+                "contract_abi": contract_interface_json,
             });
             tx_index += 1;
             val

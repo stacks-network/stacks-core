@@ -3,7 +3,7 @@ use rand::RngCore;
 use util::hash::{to_hex, hex_bytes};
 use testnet::helium::mem_pool::MemPool;
 use chainstate::stacks::db::{StacksChainState};
-use chainstate::stacks::events::{StacksTransactionEvent};
+use chainstate::stacks::events::{StacksTransactionEvent, STXEventType};
 use super::node::{TESTNET_CHAIN_ID};
 use super::config::{InitialBalance};
 
@@ -177,6 +177,14 @@ fn should_succeed_mining_valid_txs() {
                 // 1 event should have been produced
                 let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 1);
+                assert!(match &events[0] {
+                    StacksTransactionEvent::SmartContractEvent(data) => {
+                        format!("{}", data.key.0) == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store" &&
+                        data.key.1 == "print" &&
+                        format!("{}", data.value) == "0x53657474696e67206b657920666f6f" // "Setting key foo" in hexa
+                    },
+                    _ => false
+                });
             },
             4 => {
                 // Inspecting the chain at round 4.
@@ -205,8 +213,16 @@ fn should_succeed_mining_valid_txs() {
                 // 1 event should have been produced
                 let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 1);
+                assert!(match &events[0] {
+                    StacksTransactionEvent::SmartContractEvent(data) => {
+                        format!("{}", data.key.0) == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store" &&
+                        data.key.1 == "print" &&
+                        format!("{}", data.value) == "0x47657474696e67206b657920666f6f" // "Getting key foo" in hexa
+                    },
+                    _ => false
+                });
             },
-            6 => {
+            5 => {
                 // Inspecting the chain at round 5.
                 // - Chain length should be 6.
                 assert!(chain_tip_info.block_height == 6);
@@ -234,6 +250,14 @@ fn should_succeed_mining_valid_txs() {
                 // 1 event should have been produced
                 let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 1);
+                assert!(match &events[0] {
+                    StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event)) => {
+                        format!("{}", event.recipient) == "ST195Q2HPXY576N4CT2A0R94D7DRYSX54A5X3YZTH" &&
+                        format!("{}", event.sender) == "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT" &&                        
+                        event.amount == 1000
+                    },
+                    _ => false
+                });
             },
             _ => {}
         }
