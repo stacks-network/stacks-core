@@ -441,7 +441,7 @@ pub const TOKEN_TRANSFER_MEMO_LENGTH : usize = 34;      // same as it is in Stac
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionPayload {
-    TokenTransfer(StacksAddress, u64, TokenTransferMemo),
+    TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
     SmartContract(TransactionSmartContract),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),       // the previous epoch leader sent two microblocks with the same sequence, and this is proof

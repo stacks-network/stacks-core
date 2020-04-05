@@ -158,10 +158,10 @@ impl StacksMessageCodec for TransactionPayload {
         let type_id : u8 = read_next(fd)?;
         let payload = match type_id {
             x if x == TransactionPayloadID::TokenTransfer as u8 => {
-                let addr : StacksAddress = read_next(fd)?;
-                let amount : u64 = read_next(fd)?;
-                let memo : TokenTransferMemo = read_next(fd)?;
-                TransactionPayload::TokenTransfer(addr, amount, memo)
+                let principal = read_next(fd)?;
+                let amount = read_next(fd)?;
+                let memo = read_next(fd)?;
+                TransactionPayload::TokenTransfer(principal, amount, memo)
             },
             x if x == TransactionPayloadID::ContractCall as u8 => {
                 let payload : TransactionContractCall = read_next(fd)?;

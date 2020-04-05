@@ -419,6 +419,22 @@ impl PrincipalData {
         }
     }
 
+    pub fn parse(literal: &str) -> Result<PrincipalData> {
+        // be permissive about leading single-quote
+        let literal = if literal.starts_with("'") {
+            &literal[1..]
+        } else {
+            literal
+        };
+
+        if literal.contains(".") {
+            PrincipalData::parse_qualified_contract_principal(literal)
+        } else {
+            PrincipalData::parse_standard_principal(literal)
+                .map(PrincipalData::from)
+        }
+    }
+
     pub fn parse_qualified_contract_principal(literal: &str) -> Result<PrincipalData> {
         let contract_id = QualifiedContractIdentifier::parse(literal)?;
         Ok(PrincipalData::Contract(contract_id))

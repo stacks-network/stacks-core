@@ -13,7 +13,9 @@ use std::io::Read;
 use blockstack_lib::util::{log, strings::StacksString, hash::hex_bytes, hash::to_hex};
 use blockstack_lib::vm;
 use blockstack_lib::vm::{
-    Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
+    Value, ClarityName, ContractName, types::PrincipalData,
+    errors::{RuntimeErrorType, Error as ClarityError }
+};
 use blockstack_lib::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
@@ -303,7 +305,8 @@ fn handle_token_transfer(args: &[String], version: TransactionVersion) -> Result
     let sk_origin = StacksPrivateKey::from_hex(&args[0])?;
     let fee_rate = args[1].parse()?;
     let nonce = args[2].parse()?;
-    let recipient_address = StacksAddress::from_string(&args[3]).ok_or("Failed to parse contract address")?;
+    let recipient_address = PrincipalData::parse(&args[3])
+        .map_err(|_e| "Failed to parse recipient")?;
     let amount = &args[4].parse()?;
     let memo = {
         let mut memo = [0; 34];

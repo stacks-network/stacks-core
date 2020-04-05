@@ -322,10 +322,8 @@ impl StacksChainState {
 
     /// Process a token transfer payload (but pass the transaction that wraps it, in order to do
     /// post-condition checks).
-    fn process_transaction_token_transfer<'a>(clarity_tx: &mut ClarityTx<'a>, txid: &Txid, addr: &StacksAddress, amount: u64, origin_account: &StacksAccount) -> Result<(), Error> {
-        let recipient_principal = PrincipalData::Standard(StandardPrincipalData::from(addr.clone()));
-        
-        if origin_account.principal == recipient_principal {
+    fn process_transaction_token_transfer<'a>(clarity_tx: &mut ClarityTx<'a>, txid: &Txid, recipient_principal: &PrincipalData, amount: u64, origin_account: &StacksAccount) -> Result<(), Error> {
+        if &origin_account.principal == recipient_principal {
             // not allowed to send to yourself
             let msg = format!("Error validating STX-transfer transaction: address tried to send to itself");
             warn!("{}", &msg);
@@ -381,7 +379,7 @@ impl StacksChainState {
                 StacksChainState::process_transaction_token_transfer(clarity_tx, &tx.txid(), addr, *amount, origin_account)?;
 
                 let sender = origin_account.principal.clone();
-                let recipient = addr.to_account_principal();
+                let recipient = addr.clone();
                 let amount = u128::try_from(*amount).unwrap();
                 let event_data = STXTransferEventData { sender, recipient, amount };
                 let receipt = StacksTransactionReceipt {
