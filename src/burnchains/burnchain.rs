@@ -677,7 +677,7 @@ impl Burnchain {
     /// Given the extracted txs, and a block header, go process them into the next
     /// snapshot.  Unlike process_block_ops, this method applies safety checks against the given
     /// list of blockstack transactions.
-    pub fn process_block_txs<'a>(tx: &mut BurnDBTx<'a>, parent_snapshot: &BlockSnapshot, this_block_header: &BurnchainBlockHeader, burnchain: &Burnchain, mut blockstack_txs: Vec<BlockstackOperationType>) -> Result<BlockSnapshot, burnchain_error> {
+    pub fn process_block_txs<'a>(tx: &mut BurnDBTx<'a>, parent_snapshot: &BlockSnapshot, this_block_header: &BurnchainBlockHeader, burnchain: &Burnchain, mut blockstack_txs: Vec<BlockstackOperationType>) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
         assert_eq!(parent_snapshot.block_height + 1, this_block_header.block_height);
         assert_eq!(parent_snapshot.burn_header_hash, this_block_header.parent_block_hash);
         Burnchain::apply_blockstack_txs_safety_checks(this_block_header.block_height, &mut blockstack_txs);
@@ -699,7 +699,7 @@ impl Burnchain {
         
         // commit everything!
         tx.commit().expect("FATAL: failed to commit Sqlite transaction");
-        Ok(res)
+        Ok(new_snapshot)
     }
 
     fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I, chain_tip: &BlockSnapshot) -> Result<u64, burnchain_error> {
