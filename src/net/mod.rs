@@ -837,7 +837,6 @@ pub struct MapEntryResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractSrcResponse {
     pub source: String,
-    #[serde(rename = "publishHeight")]
     pub publish_height: u32,
     #[serde(rename = "proof")]
     #[serde(default)]
@@ -862,11 +861,9 @@ pub struct AccountEntryResponse {
     pub nonce: u64,
     #[serde(skip_serializing_if = "Option::is_none")] 
     #[serde(default)]
-    #[serde(rename = "balanceProof")]
     pub balance_proof: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")] 
     #[serde(default)]
-    #[serde(rename = "nonceProof")]
     pub nonce_proof: Option<String>
 }
 

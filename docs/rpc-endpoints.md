@@ -18,8 +18,8 @@ Returns JSON data in the form:
 {
  "balance": "0x100..",
  "nonce": 1,
- "balanceProof": "0x01fa...",
- "nonceProof": "0x01ab...",
+ "balance_proof": "0x01fa...",
+ "nonce_proof": "0x01ab...",
 }
 ```
 
@@ -31,7 +31,7 @@ For non-existent accounts, this _does not_ 404, rather it returns an
 object with balance and nonce of 0.
 
 This endpoint also accepts a querystring parameter `?proof=` which when supplied `0`, will return the
-JSON object _without_ the `balanceProof` or `nonceProof` fields.
+JSON object _without_ the `balance_proof` or `nonce_proof` fields.
 
 ### POST /v2/map_entry/[Stacks Address]/[Contract Name]/[Map Name]
 
@@ -220,7 +220,7 @@ published in, and the MARF proof for the data.
 ```
 {
  "source": "(define-private ...",
- "publishHeight": 1,
+ "publish_height": 1,
  "proof": "0x00213..."
 }
 ```
