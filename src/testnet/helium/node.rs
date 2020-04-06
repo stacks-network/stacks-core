@@ -79,31 +79,6 @@ pub struct Node {
     nonce: u64,
 }
 
-lazy_static! {
-    static ref DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
-        inbox_maxlen: 100,
-        outbox_maxlen: 100,
-        timeout: 5000,
-        idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
-        heartbeat: 60000,
-        // can't use u64::max, because sqlite stores as i64.
-        private_key_lifetime: 9223372036854775807,
-        num_neighbors: 4,
-        num_clients: 1000,
-        soft_num_neighbors: 4,
-        soft_num_clients: 1000,
-        max_neighbors_per_host: 10,
-        max_clients_per_host: 1000,
-        soft_max_neighbors_per_host: 10,
-        soft_max_neighbors_per_org: 100,
-        soft_max_clients_per_host: 1000,
-        walk_interval: 9223372036854775807,
-        dns_timeout: 15_000,
-        max_inflight_blocks: 6,
-        .. std::default::Default::default()
-    };
-}
-
 fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAddr,
               burn_db_path: String, stacks_chainstate_path: String, 
               poll_timeout: u64) -> Result<JoinHandle<()>, NetError> {
@@ -193,10 +168,10 @@ impl Node {
             &vec![], None).unwrap();
 
         let local_peer = LocalPeer::new(TESTNET_CHAIN_ID, burnchain.network_id,
-                                        DEFAULT_CONNECTION_OPTIONS.private_key_lifetime,
+                                        self.config.connection_options.private_key_lifetime.clone(),
                                         data_url);
 
-        let p2p_net = PeerNetwork::new(peerdb, local_peer, TESTNET_PEER_VERSION, burnchain, view, DEFAULT_CONNECTION_OPTIONS.clone());
+        let p2p_net = PeerNetwork::new(peerdb, local_peer, TESTNET_PEER_VERSION, burnchain, view, self.config.connection_options.clone());
         let rpc_sock = self.config.node.rpc_bind.parse()
             .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
         let p2p_sock = self.config.node.p2p_bind.parse()
