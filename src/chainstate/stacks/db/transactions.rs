@@ -612,21 +612,58 @@ pub mod test {
         assert_eq!(recv_account.stx_balance, 0);
         assert_eq!(recv_account.nonce, 0);
 
-        StacksChainState::account_credit(&mut conn, &addr.to_account_principal(), 123);
+        StacksChainState::account_credit(&mut conn, &addr.to_account_principal(), 223);
 
         let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
         
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account_after.nonce, 1);
-        assert_eq!(account_after.stx_balance, 0);
+        assert_eq!(account_after.stx_balance, 100);
 
         let recv_account_after = StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
         assert_eq!(recv_account_after.nonce, 0);
         assert_eq!(recv_account_after.stx_balance, 123);
-        
-        conn.commit_block();
 
         assert_eq!(fee, 0);
+
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let recv_addr = PrincipalData::from(QualifiedContractIdentifier {
+            issuer: StacksAddress { version: 1, bytes: Hash160([0xfe; 20]) }.into(),
+            name: "contract-hellow".into()
+        });
+
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet, auth.clone(),
+            TransactionPayload::TokenTransfer(recv_addr.clone(), 100, TokenTransferMemo([0u8; 34])));
+
+        tx_stx_transfer.chain_id = 0x80000000;
+        tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer.set_fee_rate(0);
+        tx_stx_transfer.set_origin_nonce(1);
+
+        let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_tx = signer.get_tx().unwrap();
+
+        let recv_account = StacksChainState::get_account(&mut conn, &recv_addr);
+
+        assert_eq!(recv_account.stx_balance, 0);
+        assert_eq!(recv_account.nonce, 0);
+
+        let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
+        
+        let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+        assert_eq!(account_after.nonce, 2);
+        assert_eq!(account_after.stx_balance, 0);
+
+        let recv_account_after = StacksChainState::get_account(&mut conn, &recv_addr);
+        assert_eq!(recv_account_after.nonce, 0);
+        assert_eq!(recv_account_after.stx_balance, 100);
+
+        assert_eq!(fee, 0);
+
+        conn.commit_block();
     }
     
     #[test]

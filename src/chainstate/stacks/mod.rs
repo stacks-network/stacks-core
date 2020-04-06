@@ -875,6 +875,10 @@ pub mod test {
         let tx_payloads = vec![
             TransactionPayload::TokenTransfer(
                 stx_address.into(), 123, TokenTransferMemo([0u8; 34])),
+            TransactionPayload::TokenTransfer(
+                PrincipalData::from(QualifiedContractIdentifier {
+                    issuer: stx_address.into(),
+                    name: "hello-contract-name".into() }), 123, TokenTransferMemo([0u8; 34])),
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress { version: 4, bytes: Hash160([0xfc; 20]) },
                 contract_name: ContractName::try_from("hello-contract-name").unwrap(),
