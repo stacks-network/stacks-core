@@ -858,7 +858,7 @@ pub struct CallReadOnlyResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountEntryResponse {
-    pub balance: u128,
+    pub balance: String,
     pub nonce: u64,
     #[serde(skip_serializing_if = "Option::is_none")] 
     #[serde(default)]

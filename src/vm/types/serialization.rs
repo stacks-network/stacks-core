@@ -475,6 +475,11 @@ impl Value {
     }
 
     pub fn try_deserialize_hex_untyped(hex: &str) -> Result<Value, SerializationError> {
+        let hex = if hex.starts_with("0x") {
+            &hex[2..]
+        } else {
+            &hex
+        };
         let mut data = hex_bytes(hex)
             .map_err(|_| "Bad hex string")?;
         Value::try_deserialize_bytes_untyped(&mut data)
@@ -765,6 +770,9 @@ mod tests {
             assert_eq!(
                 expected,
                 &Value::try_deserialize_hex_untyped(test));
+            assert_eq!(
+                expected,
+                &Value::try_deserialize_hex_untyped(&format!("0x{}", test)));
         }
     }
 

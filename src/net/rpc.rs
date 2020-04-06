@@ -374,8 +374,8 @@ impl ConversationHttp {
         let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_account_balance(&account);
-                let (balance, balance_proof) = clarity_db.get_with_proof(&key)
-                    .map(|(a, b)| (a, b.to_hex()))
+                let (balance, balance_proof) = clarity_db.get_with_proof::<u128>(&key)
+                    .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
                     .unwrap_or_else(|| (0, "".into()));
                 let balance_proof = if with_proof {
                     Some(balance_proof)
@@ -384,7 +384,7 @@ impl ConversationHttp {
                 };
                 let key = ClarityDatabase::make_key_for_account_nonce(&account);
                 let (nonce, nonce_proof) = clarity_db.get_with_proof(&key)
-                    .map(|(a, b)| (a, b.to_hex()))
+                    .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
                     .unwrap_or_else(|| (0, "".into()));
                 let nonce_proof = if with_proof {
                     Some(nonce_proof)
@@ -392,6 +392,7 @@ impl ConversationHttp {
                     None
                 };
 
+                let balance = format!("0x{}", to_hex(&balance.to_be_bytes()));
                 AccountEntryResponse { balance, nonce, balance_proof, nonce_proof }
             })
         });
@@ -413,7 +414,7 @@ impl ConversationHttp {
             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 let key = ClarityDatabase::make_key_for_data_map_entry(&contract_identifier, map_name, key);
                 let (value, marf_proof) = clarity_db.get_with_proof::<Value>(&key)
-                    .map(|(a, b)| (a, b.to_hex()))
+                    .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
                     .unwrap_or_else(|| (Value::none(), "".into()));
                 let marf_proof = if with_proof {
                     Some(marf_proof)
@@ -421,7 +422,7 @@ impl ConversationHttp {
                     None
                 };
 
-                let data = value.serialize();
+                let data = format!("0x{}", value.serialize());
                 MapEntryResponse { data, marf_proof }
             })
         });
@@ -452,7 +453,7 @@ impl ConversationHttp {
 
         let response = match data {
             Ok(data) => 
-                CallReadOnlyResponse { okay: true, result: Some(data.serialize()), cause: None },
+                CallReadOnlyResponse { okay: true, result: Some(format!("0x{}", data.serialize())), cause: None },
             Err(e) =>
                 CallReadOnlyResponse { okay: false, result: None, cause: Some(e.to_string()) },
         };

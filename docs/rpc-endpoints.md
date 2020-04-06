@@ -16,15 +16,16 @@ Returns JSON data in the form:
 
 ```
 {
- "balance": 100,
+ "balance": "0x100..",
  "nonce": 1,
- "balanceProof": "01fa...",
- "nonceProof": "01ab...",
+ "balanceProof": "0x01fa...",
+ "nonceProof": "0x01ab...",
 }
 ```
 
-Where balance (a u128) and nonce (a u64) are both integers, and the proofs are provided as
-hex strings.
+Where balance is the hex encoding of a unsigned 128-bit integer
+(big-endian), nonce is a unsigned 64-bit integer, and the proofs are
+provided as hex strings.
 
 For non-existent accounts, this _does not_ 404, rather it returns an
 object with balance and nonce of 0.
@@ -44,8 +45,8 @@ Returns JSON data in the form:
 
 ```
 {
- "data": "01ce...",
- "proof": "01ab...",
+ "data": "0x01ce...",
+ "proof": "0x01ab...",
 }
 ```
 
@@ -220,7 +221,7 @@ published in, and the MARF proof for the data.
 {
  "source": "(define-private ...",
  "publishHeight": 1,
- "proof": "00213..."
+ "proof": "0x00213..."
 }
 ```
 
@@ -238,7 +239,7 @@ the simulated `tx-sender` are supplied via the POST body in the following JSON f
 ```
 {
   "sender": "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info",
-  "arguments": [ "0011...", "00231..." ]
+  "arguments": [ "0x0011...", "0x00231..." ]
 }
 ```
 
@@ -250,7 +251,7 @@ This endpoint returns a JSON object of the following form:
 ```
 {
   "okay": true,
-  "result": "0011..."
+  "result": "0x0011..."
 }
 ```
 

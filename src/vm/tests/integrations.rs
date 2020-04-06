@@ -187,8 +187,6 @@ fn integration_test_get_info() {
 
     conf.burnchain.block_time = 1500;
 
-    let contract_sk = StacksPrivateKey::new();
-
     let num_rounds = 4;
 
     let mut run_loop = testnet::helium::RunLoop::new(conf);
@@ -356,7 +354,7 @@ fn integration_test_get_info() {
                     .json(&key.serialize())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
-                let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
+                let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u1))");
                 assert!(res.get("proof").is_some());
@@ -371,7 +369,7 @@ fn integration_test_get_info() {
                     .json(&key.serialize())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
-                let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
+                let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 assert_eq!(result_data, Value::none());
 
                 let sender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap());
@@ -390,7 +388,7 @@ fn integration_test_get_info() {
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
                 assert!(res.get("proof").is_none());
-                let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
+                let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u1))");
                 eprintln!("{}", serde_json::to_string(&res).unwrap());
@@ -411,7 +409,7 @@ fn integration_test_get_info() {
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
                 assert!(res.get("proof").is_some());
-                let result_data = Value::try_deserialize_hex_untyped(&res["data"]).unwrap();
+                let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u1))");
                 eprintln!("{}", serde_json::to_string(&res).unwrap());
@@ -423,7 +421,7 @@ fn integration_test_get_info() {
                                    &http_origin, &sender_addr);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(res.balance, 100000);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 100000);
                 assert_eq!(res.nonce, 3);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
@@ -433,7 +431,7 @@ fn integration_test_get_info() {
                                    &http_origin, &contract_addr);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(res.balance, 0);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
                 assert_eq!(res.nonce, 1);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
@@ -443,7 +441,7 @@ fn integration_test_get_info() {
                                    &http_origin, ADDR_4);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(res.balance, 300);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
                 assert_eq!(res.nonce, 0);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
@@ -453,7 +451,7 @@ fn integration_test_get_info() {
                                    &http_origin, &contract_addr);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(res.balance, 0);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
                 assert_eq!(res.nonce, 0);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
@@ -462,7 +460,7 @@ fn integration_test_get_info() {
                                    &http_origin, ADDR_4);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(res.balance, 300);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
                 assert_eq!(res.nonce, 0);
                 assert!(res.nonce_proof.is_none());
                 assert!(res.balance_proof.is_none());
@@ -471,7 +469,7 @@ fn integration_test_get_info() {
                                    &http_origin, ADDR_4);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(res.balance, 300);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
                 assert_eq!(res.nonce, 0);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
@@ -543,7 +541,7 @@ fn integration_test_get_info() {
                 assert!(res.get("cause").is_none());
                 assert!(res["okay"].as_bool().unwrap());
 
-                let result_data = Value::try_deserialize_hex_untyped(res["result"].as_str().unwrap()).unwrap();
+                let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
                                                                        "(get-exotic-data-info u1)");
                 assert_eq!(result_data, expected_data);
