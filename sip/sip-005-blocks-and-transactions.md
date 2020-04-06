@@ -640,10 +640,15 @@ The _STX token-transfer_ structure is encoded as follows:
 * An 8-byte number denominating the number of microSTX to send to the recipient
   address's account.
 
-Note that if a transaction contains a token-transfer payload, it MUST have only
-a standard authorization field. It cannot be sponsored. The recipient principal
-does not need to be a materialized account -- STX may be transfered to an account
-which has not been used in any prior transactions.
+Note that if a transaction contains a token-transfer payload, it MUST
+have only a standard authorization field. It cannot be sponsored. The
+recipient principal does not need to be a materialized account -- STX
+may be transfered to an account which has not been used in any prior
+transactions. In the case of a contract principal, the unmaterialized
+contract principal will receive the funds and maintain a balance in
+the STX holdings map. If and when that contract is published, the contract
+will be able to spend those STX via `(as-contract (stx-transfer? ...`
+invocations.
 
 A _smart-contract payload_ is encoded as follows:
 * A **contract name** string, described above, that encodes the human-readable
