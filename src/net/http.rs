@@ -70,6 +70,17 @@ use regex::Regex;
 
 use deps::httparse;
 use time;
+use std::time::SystemTime;
+
+lazy_static! {
+    static ref PATH_GETINFO : Regex = Regex::new(r#"^/v2/info$"#).unwrap();
+    static ref PATH_GETNEIGHBORS : Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
+    static ref PATH_GETBLOCK : Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
+    static ref PATH_GETMICROBLOCKS_INDEXED : Regex = Regex::new(r#"^/v2/microblocks/([0-9a-f]{64})$"#).unwrap();
+    static ref PATH_GETMICROBLOCKS_CONFIRMED : Regex = Regex::new(r#"^/v2/microblocks/confirmed/([0-9a-f]{64})$"#).unwrap();
+    static ref PATH_GETMICROBLOCKS_UNCONFIRMED : Regex = Regex::new(r#"^/v2/microblocks/unconfirmed/([0-9a-f]{64})/([0-9]{1,5})$"#).unwrap();
+    static ref PATH_POSTTRANSACTION : Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
+}
 
 /// HTTP headers that we really care about
 #[derive(Debug, Clone, PartialEq)]
@@ -974,7 +985,7 @@ impl HttpResponsePreamble {
 
 /// Get an RFC 7231 date that represents the current time
 fn rfc7231_now() -> String {
-    let now = time::PrimitiveDateTime::now();
+    let now = time::PrimitiveDateTime::from(SystemTime::now());
     now.format("%a, %b %-d %-Y %-H:%M:%S GMT")
 }
 
@@ -1105,11 +1116,12 @@ impl HttpRequestType {
 
     pub fn parse<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, fd: &mut R) -> Result<HttpRequestType, net_error> {
         // TODO: make this static somehow
-        let REQUEST_METHODS : [(&str, &Regex, &dyn Fn(&mut StacksHttp, &HttpRequestPreamble, &Regex, &mut R) -> Result<HttpRequestType, net_error>); 6] = [
+        let REQUEST_METHODS : [(&str, &Regex, &dyn Fn(&mut StacksHttp, &HttpRequestPreamble, &Regex, &mut R) -> Result<HttpRequestType, net_error>); 7] = [
             ("GET", &PATH_GETINFO, &HttpRequestType::parse_getinfo),
             ("GET", &PATH_GETNEIGHBORS, &HttpRequestType::parse_getneighbors),
             ("GET", &PATH_GETBLOCK, &HttpRequestType::parse_getblock),
-            ("GET", &PATH_GETMICROBLOCKS, &HttpRequestType::parse_getmicroblocks),
+            ("GET", &PATH_GETMICROBLOCKS_INDEXED, &HttpRequestType::parse_getmicroblocks_indexed),
+            ("GET", &PATH_GETMICROBLOCKS_CONFIRMED, &HttpRequestType::parse_getmicroblocks_confirmed),
             ("GET", &PATH_GETMICROBLOCKS_UNCONFIRMED, &HttpRequestType::parse_getmicroblocks_unconfirmed),
             ("POST", &PATH_POSTTRANSACTION, &HttpRequestType::parse_posttransaction)
         ];
@@ -1164,7 +1176,24 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetBlock(HttpRequestMetadata::from_preamble(preamble), block_hash))
     }
 
-    fn parse_getmicroblocks<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_getmicroblocks_indexed<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicroblocksIndexed".to_string()));
+        }
+
+        let captures = regex.captures(&preamble.path).ok_or(net_error::DeserializeError("Failed to match path to microblock hash".to_string()))?;
+        let block_hash_str = captures
+            .get(1)
+            .ok_or(net_error::DeserializeError("Failed to match path to microblock hash group".to_string()))?
+            .as_str();
+
+        let block_hash = BlockHeaderHash::from_hex(block_hash_str)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse microblock hash".to_string()))?;
+
+        Ok(HttpRequestType::GetMicroblocksIndexed(HttpRequestMetadata::from_preamble(preamble), block_hash))
+    }
+    
+    fn parse_getmicroblocks_confirmed<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicrolocks".to_string()));
         }
@@ -1178,7 +1207,7 @@ impl HttpRequestType {
         let block_hash = BlockHeaderHash::from_hex(block_hash_str)
             .map_err(|_e| net_error::DeserializeError("Failed to parse microblock hash".to_string()))?;
 
-        Ok(HttpRequestType::GetMicroblocks(HttpRequestMetadata::from_preamble(preamble), block_hash))
+        Ok(HttpRequestType::GetMicroblocksConfirmed(HttpRequestMetadata::from_preamble(preamble), block_hash))
     }
     
     fn parse_getmicroblocks_unconfirmed<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
@@ -1231,7 +1260,8 @@ impl HttpRequestType {
             HttpRequestType::GetInfo(ref md) => md,
             HttpRequestType::GetNeighbors(ref md) => md,
             HttpRequestType::GetBlock(ref md, _) => md,
-            HttpRequestType::GetMicroblocks(ref md, _) => md,
+            HttpRequestType::GetMicroblocksIndexed(ref md, _) => md,
+            HttpRequestType::GetMicroblocksConfirmed(ref md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref md, _, _) => md,
             HttpRequestType::PostTransaction(ref md, _) => md,
         }
@@ -1242,7 +1272,8 @@ impl HttpRequestType {
             HttpRequestType::GetInfo(ref mut md) => md,
             HttpRequestType::GetNeighbors(ref mut md) => md,
             HttpRequestType::GetBlock(ref mut md, _) => md,
-            HttpRequestType::GetMicroblocks(ref mut md, _) => md,
+            HttpRequestType::GetMicroblocksIndexed(ref mut md, _) => md,
+            HttpRequestType::GetMicroblocksConfirmed(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref mut md, _, _) => md,
             HttpRequestType::PostTransaction(ref mut md, _) => md,
         }
@@ -1253,7 +1284,8 @@ impl HttpRequestType {
             HttpRequestType::GetInfo(ref _md) => "/v2/info".to_string(),
             HttpRequestType::GetNeighbors(ref _md) => "/v2/neighbors".to_string(),
             HttpRequestType::GetBlock(ref _md, ref block_hash) => format!("/v2/blocks/{}", block_hash.to_hex()),
-            HttpRequestType::GetMicroblocks(ref _md, ref block_hash) => format!("/v2/microblocks/{}", block_hash.to_hex()),
+            HttpRequestType::GetMicroblocksIndexed(ref _md, ref block_hash) => format!("/v2/microblocks/{}", block_hash.to_hex()),
+            HttpRequestType::GetMicroblocksConfirmed(ref _md, ref block_hash) => format!("/v2/microblocks/confirmed/{}", block_hash.to_hex()),
             HttpRequestType::GetMicroblocksUnconfirmed(ref _md, ref block_hash, ref min_seq) => format!("/v2/microblocks/unconfirmed/{}/{}", block_hash.to_hex(), min_seq),
             HttpRequestType::PostTransaction(ref _md, ref _tx) => "/v2/transactions".to_string()
         }
@@ -1270,7 +1302,10 @@ impl HttpRequestType {
             HttpRequestType::GetBlock(ref md, ref _block_hash) => {
                 HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
-            HttpRequestType::GetMicroblocks(ref md, ref _block_hash) => {
+            HttpRequestType::GetMicroblocksIndexed(ref md, ref _block_hash) => {
+                HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
+            },
+            HttpRequestType::GetMicroblocksConfirmed(ref md, ref _block_hash) => {
                 HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
             },
             HttpRequestType::GetMicroblocksUnconfirmed(ref md, ref _block_hash, ref _min_seq) => {
@@ -1444,11 +1479,12 @@ impl HttpResponseType {
         }
 
         // TODO: make this static somehow
-        let RESPONSE_METHODS : [(&Regex, &dyn Fn(&mut StacksHttp, HttpVersion, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>); 6] = [
+        let RESPONSE_METHODS : [(&Regex, &dyn Fn(&mut StacksHttp, HttpVersion, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>); 7] = [
             (&PATH_GETINFO, &HttpResponseType::parse_peerinfo),
             (&PATH_GETNEIGHBORS, &HttpResponseType::parse_neighbors),
             (&PATH_GETBLOCK, &HttpResponseType::parse_block),
-            (&PATH_GETMICROBLOCKS, &HttpResponseType::parse_microblocks),
+            (&PATH_GETMICROBLOCKS_INDEXED, &HttpResponseType::parse_microblocks),
+            (&PATH_GETMICROBLOCKS_CONFIRMED, &HttpResponseType::parse_microblocks),
             (&PATH_GETMICROBLOCKS_UNCONFIRMED, &HttpResponseType::parse_microblocks_unconfirmed),
             (&PATH_POSTTRANSACTION, &HttpResponseType::parse_txid)
         ];
@@ -1575,7 +1611,7 @@ impl HttpResponseType {
             HttpResponseType::Error(ref md, _, _) => md,
         }
     }
-
+    
     fn send_bytestream<W: Write, T: StacksMessageCodec>(protocol: &mut StacksHttp, md: &HttpResponseMetadata, fd: &mut W, message: &T) -> Result<(), net_error> {
         if md.content_length.is_some() {
             // have explicit content-length, so we can send as-is
@@ -1667,15 +1703,6 @@ impl HttpResponseType {
     }
 }
 
-lazy_static! {
-    static ref PATH_GETINFO : Regex = Regex::new(r#"^/v[12]/info$"#).unwrap();
-    static ref PATH_GETNEIGHBORS : Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
-    static ref PATH_GETBLOCK : Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
-    static ref PATH_GETMICROBLOCKS : Regex = Regex::new(r#"^/v2/microblocks/([0-9a-f]{64})$"#).unwrap();
-    static ref PATH_GETMICROBLOCKS_UNCONFIRMED : Regex = Regex::new(r#"^/v2/microblocks/unconfirmed/([0-9a-f]{64})/([0-9]{1,5})$"#).unwrap();
-    static ref PATH_POSTTRANSACTION : Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
-}
-
 impl StacksMessageCodec for StacksHttpPreamble {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         match *self {
@@ -1728,7 +1755,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetInfo(_) => "HTTP(GetInfo)",
                 HttpRequestType::GetNeighbors(_) => "HTTP(GetNeighbors)",
                 HttpRequestType::GetBlock(_, _) => "HTTP(GetBlock)",
-                HttpRequestType::GetMicroblocks(_, _) => "HTTP(GetMicroblocks)",
+                HttpRequestType::GetMicroblocksIndexed(_, _) => "HTTP(GetMicroblocksIndexed)",
+                HttpRequestType::GetMicroblocksConfirmed(_, _) => "HTTP(GetMicroblocksConfirmed)",
                 HttpRequestType::GetMicroblocksUnconfirmed(_, _, _) => "HTTP(GetMicroblocksUnconfirmed)",
                 HttpRequestType::PostTransaction(_, _) => "HTTP(PostTransaction)"
             },
@@ -1845,7 +1873,7 @@ pub struct StacksHttp {
     /// Incoming reply
     reply: Option<HttpReplyData>,
     /// Size of HTTP chunks to write
-    chunk_size: usize
+    chunk_size: usize,
 }
 
 impl StacksHttp {
@@ -1947,7 +1975,6 @@ impl StacksHttp {
     }
 
     /// Given a fully-formed single HTTP response, parse it (used by clients).
-    /// The StacksHttp object
     pub fn parse_response(request_path: &str, response_buf: &[u8]) -> Result<StacksHttpMessage, net_error> {
         let mut http = StacksHttp::new();
         http.reset();
@@ -1960,7 +1987,7 @@ impl StacksHttp {
                 return Err(net_error::DeserializeError("Invalid HTTP message: did not get a Response preamble".to_string()));
             }
         };
-            
+         
         let mut message_bytes = &response_buf[message_offset..];
 
         if is_chunked {
@@ -2834,7 +2861,7 @@ mod test {
         let tests = vec![
             HttpRequestType::GetNeighbors(http_request_metadata_ip.clone()),
             HttpRequestType::GetBlock(http_request_metadata_dns.clone(), BlockHeaderHash([2u8; 32])),
-            HttpRequestType::GetMicroblocks(http_request_metadata_ip.clone(), BlockHeaderHash([3u8; 32])),
+            HttpRequestType::GetMicroblocksIndexed(http_request_metadata_ip.clone(), BlockHeaderHash([3u8; 32])),
             HttpRequestType::PostTransaction(http_request_metadata_dns.clone(), make_test_transaction())
         ];
 

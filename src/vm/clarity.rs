@@ -13,6 +13,7 @@ use vm::costs::{LimitedCostTracker, ExecutionCost, CostTracker};
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::TrieHash;
+use chainstate::stacks::events::StacksTransactionEvent;
 
 use std::error;
 use std::fmt;
@@ -169,7 +170,7 @@ impl ClarityInstance {
             .as_clarity_db(header_db);
         let mut env = OwnedEnvironment::new(clarity_db);
         env.eval_read_only(contract, program)
-            .map(|(x, _)| x)
+            .map(|(x, _, _)| x)
             .map_err(Error::from)
     }
 
@@ -362,9 +363,9 @@ impl <'a> ClarityBlockConnection <'a> {
         result
     }
 
-    fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap), Error>
+    fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), Error>
     where A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
-          F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap), Error> {
+          F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), Error> {
         let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
         // wrap the whole contract-call in a claritydb transaction,
         //   so we can abort on call_back's boolean retun
@@ -381,13 +382,13 @@ impl <'a> ClarityBlockConnection <'a> {
         self.cost_track.replace(cost_track);
 
         match result {
-            Ok((value, asset_map)) => {
+            Ok((value, asset_map, events)) => {
                 if abort_call_back(&asset_map, &mut db) {
                     db.roll_back();
                 } else {
                     db.commit();
                 }
-                Ok((value, asset_map))
+                Ok((value, asset_map, events))
             },
             Err(e) => {
                 db.roll_back();
@@ -422,13 +423,18 @@ impl <'a> ClarityBlockConnection <'a> {
     ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     pub fn run_contract_call <F> (&mut self, sender: &PrincipalData, contract: &QualifiedContractIdentifier, public_function: &str,
-                                  args: &[Value], abort_call_back: F) -> Result<(Value, AssetMap), Error>
+                                  args: &[Value], abort_call_back: F) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
         let expr_args: Vec<_> = args.iter().map(|x| SymbolicExpression::atom_value(x.clone())).collect();
 
         self.with_abort_callback(
-            |vm_env| { vm_env.execute_transaction(Value::Principal(sender.clone()), contract.clone(), public_function, &expr_args)
-                       .map_err(Error::from) },
+            |vm_env| { 
+                vm_env.execute_transaction(
+                    Value::Principal(sender.clone()), 
+                    contract.clone(), 
+                    public_function, 
+                    &expr_args)
+                .map_err(Error::from) },
             abort_call_back)
     }
 
@@ -438,19 +444,19 @@ impl <'a> ClarityBlockConnection <'a> {
     ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     pub fn initialize_smart_contract <F> (&mut self, identifier: &QualifiedContractIdentifier, contract_ast: &ContractAST,
-                                          contract_str: &str, abort_call_back: F) -> Result<AssetMap, Error>
+                                          contract_str: &str, abort_call_back: F) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
-        let (_, asset_map) = self.with_abort_callback(
+        let (_, asset_map, events) = self.with_abort_callback(
             |vm_env| { vm_env.initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str)
                        .map_err(Error::from) },
             abort_call_back)?;
-        Ok(asset_map)
+        Ok((asset_map, events))
     }
 
     /// Evaluate a raw Clarity snippit
     #[cfg(test)]
     pub fn clarity_eval_raw(&mut self, code: &str) -> Result<Value, Error> {
-        let (result, _) = self.with_abort_callback(
+        let (result, _, _) = self.with_abort_callback(
             |vm_env| { vm_env.eval_raw(code).map_err(Error::from) },
             |_, _| { false })?;
         Ok(result)
@@ -458,7 +464,7 @@ impl <'a> ClarityBlockConnection <'a> {
 
     #[cfg(test)]
     pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, code: &str) -> Result<Value, Error> {
-        let (result, _) = self.with_abort_callback(
+        let (result, _, _) = self.with_abort_callback(
             |vm_env| { vm_env.eval_read_only(contract, code).map_err(Error::from) },
             |_, _| { false })?;
         Ok(result)

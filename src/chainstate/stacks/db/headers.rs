@@ -44,6 +44,8 @@ use util::db::{
     query_count
 };
 
+use core::FIRST_STACKS_BLOCK_HASH;
+
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {
         let version : u8 = row.get("version");
@@ -74,7 +76,7 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
             microblock_pubkey_hash
         };
 
-        if header.block_hash() != block_hash {
+        if block_hash != FIRST_STACKS_BLOCK_HASH && header.block_hash() != block_hash {
             return Err(db_error::ParseError);
         }
 
@@ -180,20 +182,7 @@ impl StacksChainState {
 
         Ok(rows.pop())
     }
-    
-    /// Get the tail of a block's microblock stream, given an anchored block's header info.
-    pub fn get_stacks_microblock_stream_tail(conn: &DBConn, header_info: &StacksHeaderInfo) -> Result<Option<StacksMicroblockHeader>, Error> {
-        let sql = "SELECT * FROM microblock_headers WHERE parent_block_hash = ?1 AND parent_burn_header_hash = ?2 ORDER BY sequence DESC LIMIT 1".to_string();
-        let args: &[&dyn ToSql] = &[&header_info.anchored_header.block_hash(), &header_info.burn_header_hash];
-        let mut rows = query_rows::<StacksMicroblockHeader, _>(conn, &sql, args).map_err(Error::DBError)?;
-        let cnt = rows.len();
-        if cnt > 1 {
-            unreachable!("FATAL: DB returned multiple microblock headers for the same block")
-        }
 
-        Ok(rows.pop())
-    }
-    
     /// Get an ancestor block header
     pub fn get_tip_ancestor<'a>(tx: &mut StacksDBTx<'a>, tip: &StacksHeaderInfo, height: u64) -> Result<Option<StacksHeaderInfo>, Error> {
         assert!(tip.block_height >= height);
@@ -205,48 +194,5 @@ impl StacksChainState {
                 Ok(None)
             }
         }
-    }
-
-    /// Get the sequence of stacks block headers and microblock stream tails over a given Stacks
-    /// block range.  Only return headers for blocks we have.
-    pub fn get_stacks_block_headers<'a>(tx: &mut StacksDBTx<'a>, count: u64, tip_burn_hash: &BurnchainHeaderHash, tip_block_hash: &BlockHeaderHash) -> Result<Vec<Option<StacksHeaderInfo>>, Error> {
-        let tip = match StacksChainState::get_anchored_block_header_info(tx, tip_burn_hash, tip_block_hash)? {
-            Some(tip) => {
-                tip
-            },
-            None => {
-                error!("No such block {},{}", tip_burn_hash, tip_block_hash);
-                return Err(Error::NoSuchBlockError);
-            }
-        };
-
-        let start_height = 
-            if tip.block_height < count {
-                0
-            }
-            else {
-                tip.block_height - count
-            };
-
-        let mut ret = vec![];
-
-        for height in start_height..tip.block_height {
-            let mut ancestor_block_info = match StacksChainState::get_tip_ancestor(tx, &tip, height)? {
-                Some(info) => {
-                    info
-                },
-                None => {
-                    test_debug!("No such block {} from {}", height, tip_block_hash);
-                    ret.push(None);
-                    continue;
-                }
-            };
-
-            let stacks_microblock_tail_opt = StacksChainState::get_stacks_microblock_stream_tail(tx, &ancestor_block_info)?;
-            ancestor_block_info.microblock_tail = stacks_microblock_tail_opt;
-            ret.push(Some(ancestor_block_info));
-        }
-
-        Ok(ret)
     }
 }

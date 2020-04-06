@@ -189,7 +189,7 @@ impl StacksChainState {
                     let amount_sent = amount_transferred.checked_add(amount_burned).expect("FATAL: sent waaaaay too much STX");
 
                     if !condition_code.check(*amount_sent_condition as u128, amount_sent) {
-                        debug!("Post-condition check failure on STX owned by {:?}: {:?} {:?} {}", account_principal, amount_sent_condition, condition_code, amount_sent);
+                        info!("Post-condition check failure on STX owned by {:?}: {:?} {:?} {}", account_principal, amount_sent_condition, condition_code, amount_sent);
                         return false;
                     }
 
@@ -221,7 +221,7 @@ impl StacksChainState {
 
                     let amount_sent = asset_map.get_fungible_tokens(&account_principal, &asset_id).unwrap_or(0);
                     if !condition_code.check(*amount_sent_condition as u128, amount_sent) {
-                        debug!("Post-condition check failure on fungible asset {:?} owned by {:?}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent);
+                        info!("Post-condition check failure on fungible asset {:?} owned by {:?}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent);
                         return false;
                     }
                     
@@ -244,7 +244,7 @@ impl StacksChainState {
                     let empty_assets = vec![];
                     let assets_sent = asset_map.get_nonfungible_tokens(&account_principal, &asset_id).unwrap_or(&empty_assets);
                     if !condition_code.check(asset_value, assets_sent) {
-                        debug!("Post-condition check failure on non-fungible asset {:?} owned by {:?}: {:?} {:?}", &asset_id, account_principal, &asset_value, condition_code);
+                        info!("Post-condition check failure on non-fungible asset {:?} owned by {:?}: {:?} {:?}", &asset_id, account_principal, &asset_value, condition_code);
                         return false;
                     }
 
@@ -283,20 +283,20 @@ impl StacksChainState {
                                     // each value must be covered
                                     for v in values {
                                         if !nfts.contains(&v) {
-                                            debug!("Post-condition check failure: Non-fungible asset {:?} value {:?} was moved by {:?} but not checked", &asset_identifier, &v, &principal);
+                                            info!("Post-condition check failure: Non-fungible asset {:?} value {:?} was moved by {:?} but not checked", &asset_identifier, &v, &principal);
                                             return false;
                                         }
                                     }
                                 }
                                 else {
                                     // no values covered
-                                    debug!("Post-condition check failure: No checks for non-fungible asset type {:?} moved by {:?}", &asset_identifier, &principal);
+                                    info!("Post-condition check failure: No checks for non-fungible asset type {:?} moved by {:?}", &asset_identifier, &principal);
                                     return false;
                                 }
                             }
                             else {
                                 // no NFT for this principal
-                                debug!("Post-condition check failure: No checks for any non-fungible assets, but moved {:?} by {:?}", &asset_identifier, &principal);
+                                info!("Post-condition check failure: No checks for any non-fungible assets, but moved {:?} by {:?}", &asset_identifier, &principal);
                                 return false;
                             }
                         },
@@ -304,12 +304,12 @@ impl StacksChainState {
                             // This is STX or a fungible token
                             if let Some(ref checked_ft_asset_ids) = checked_fungible_assets.get(&principal) {
                                 if !checked_ft_asset_ids.contains(&asset_identifier) {
-                                    debug!("Post-condition check failure: checks did not cover transfer of {:?} by {:?}", &asset_identifier, &principal);
+                                    info!("Post-condition check failure: checks did not cover transfer of {:?} by {:?}", &asset_identifier, &principal);
                                     return false;
                                 }
                             }
                             else {
-                                debug!("Post-condition check failure: No checks for fungible token type {:?} moved by {:?}", &asset_identifier, &principal);
+                                info!("Post-condition check failure: No checks for fungible token type {:?} moved by {:?}", &asset_identifier, &principal);
                                 return false;
                             }
                         }
@@ -366,7 +366,7 @@ impl StacksChainState {
 
     /// Process the transaction's payload, and run the post-conditions against the resulting state.
     /// Returns the number of STX burned.
-    pub fn process_transaction_payload<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction, origin_account: &StacksAccount) -> Result<u128, Error> {
+    pub fn process_transaction_payload<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction, origin_account: &StacksAccount) -> Result<StacksTransactionReceipt, Error> {
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref _memo) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
@@ -380,8 +380,20 @@ impl StacksChainState {
 
                 StacksChainState::process_transaction_token_transfer(clarity_tx, &tx.txid(), addr, *amount, origin_account)?;
 
+                let sender = origin_account.principal.clone();
+                let recipient = addr.to_account_principal();
+                let amount = u128::try_from(*amount).unwrap();
+                let event_data = STXTransferEventData { sender, recipient, amount };
+                let receipt = StacksTransactionReceipt {
+                    transaction: tx.clone(),
+                    events: vec![StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data))],
+                    result: Value::okay_true(),
+                    stx_burned: 0,
+                    contract_analysis: None,
+                };
+
                 // no burns
-                Ok(0)
+                Ok(receipt)
             },
             TransactionPayload::ContractCall(ref contract_call) => {
                 // if this calls a function that doesn't exist or is syntactically invalid, then the
@@ -390,18 +402,18 @@ impl StacksChainState {
                 // transaction is still valid, but no changes will materialize besides debiting the
                 // tx fee.
                 let contract_id = contract_call.to_clarity_contract_id();
-                let asset_map = match clarity_tx.connection().run_contract_call(&origin_account.principal, &contract_id, &contract_call.function_name, &contract_call.function_args,
+                let (result, asset_map, events) = match clarity_tx.connection().run_contract_call(&origin_account.principal, &contract_id, &contract_call.function_name, &contract_call.function_args,
                                                                                 |asset_map, _| { !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode, origin_account, asset_map) }) {
-                    Ok((return_value, asset_map)) => {
-                        debug!("Contract-call to {:?}.{:?} args {:?} returned {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &return_value);
-                        Ok(asset_map)
+                    Ok((return_value, asset_map, events)) => {
+                        info!("Contract-call to {}.{:?} args {:?} returned {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &return_value);
+                        Ok((return_value, asset_map, events))
                     },
                     Err(e) => {
                         match e {
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
-                                debug!("Runtime error {:?} on contract-call {:?}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
-                                Ok(AssetMap::new())
+                                info!("Runtime error {:?} on contract-call {}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
+                                Ok((Value::err_none(), AssetMap::new(), vec![]))
                             },
                             _ => Err(e)
                         }
@@ -411,7 +423,15 @@ impl StacksChainState {
                     Error::ClarityError(e)
                 })?;
 
-                Ok(asset_map.get_stx_burned_total())
+                let receipt = StacksTransactionReceipt {
+                    transaction: tx.clone(),
+                    events,
+                    result,
+                    stx_burned: asset_map.get_stx_burned_total(),
+                    contract_analysis: None,
+                };
+
+                Ok(receipt)
             },
             TransactionPayload::SmartContract(ref smart_contract) => {
                 let issuer_principal = match origin_account.principal {
@@ -442,33 +462,40 @@ impl StacksChainState {
                     Ok((ast, analysis)) => (ast, analysis),
                     Err(e) => {
                         // this analysis isn't free -- convert to runtime error
-                        debug!("Runtime error in contract analysis for {:?}: {:?}", &contract_id, &e);
-
+                        error!("Runtime error in contract analysis for {}: {}", &contract_id, &e);
+                        let receipt = StacksTransactionReceipt {
+                            transaction: tx.clone(),
+                            events: vec![],
+                            result: Value::err_none(),
+                            stx_burned: 0,
+                            contract_analysis: None,
+                        };
+                
                         // abort now -- no burns
-                        return Ok(0);
+                        return Ok(receipt);
                     }
                 };
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).
-                let asset_map = match clarity_tx.connection().initialize_smart_contract(
+                let (asset_map, events) = match clarity_tx.connection().initialize_smart_contract(
                     &contract_id, &contract_ast, &contract_code_str,
                     |asset_map, _| { !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode, origin_account, asset_map) }) {
-                    Ok(asset_map) => {
-                        Ok(asset_map)
+                    Ok((asset_map, events)) => {
+                        Ok((asset_map, events))
                     },
                     Err(e) => {
                         match e {
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
-                                debug!("Runtime error {:?} on instantiating {:?}, code {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_code_str, stack);
-                                Ok(AssetMap::new())
+                                info!("Runtime error {:?} on instantiating {}, code {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_code_str, stack);
+                                Ok((AssetMap::new(), vec![]))
                             },
                             _ => Err(e)
                         }
                     }
                 }.map_err(|e| {
-                    warn!("Invalid smart-contract transaction {}: {:?}", &tx.txid(), &e);
+                    info!("Invalid smart-contract transaction {}: {}", &tx.txid(), &e);
                     Error::ClarityError(e)
                 })?;
                 
@@ -476,7 +503,15 @@ impl StacksChainState {
                 clarity_tx.connection().save_analysis(&contract_id, &contract_analysis)
                     .expect("FATAL: failed to store contract analysis");
                 
-                Ok(asset_map.get_stx_burned_total())
+                let receipt = StacksTransactionReceipt {
+                    transaction: tx.clone(),
+                    events,
+                    result: Value::okay_true(),
+                    stx_burned: asset_map.get_stx_burned_total(),
+                    contract_analysis: Some(contract_analysis),
+                };
+
+                Ok(receipt)
             },
             TransactionPayload::PoisonMicroblock(ref _mblock_header_1, ref _mblock_header_2) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
@@ -494,13 +529,21 @@ impl StacksChainState {
             TransactionPayload::Coinbase(_) => {
                 // no-op; not handled here
                 // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
-                Ok(0)
+                let receipt = StacksTransactionReceipt {
+                    transaction: tx.clone(),
+                    events: vec![],
+                    result: Value::okay_true(),
+                    stx_burned: 0,
+                    contract_analysis: None,
+                };
+
+                Ok(receipt)
             }
         }
     }
 
-    /// Process a transaction.  Return the fee and amount of STX destroyed
-    pub fn process_transaction<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(u64, u128), Error> {
+    /// Process a transaction.  Return the fee, the amount of STX destroyed and the events emitted
+    pub fn process_transaction<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {}", tx.txid());
 
         StacksChainState::process_transaction_precheck(&clarity_tx.config, tx)?;
@@ -512,7 +555,7 @@ impl StacksChainState {
         // debit the account (aborting the _whole block_ if the balance would go negative)
         let fee = StacksChainState::pay_transaction_fee(clarity_tx, tx, &payer_account)?;
     
-        let burns = StacksChainState::process_transaction_payload(clarity_tx, tx, &origin_account)?;
+        let tx_receipt = StacksChainState::process_transaction_payload(clarity_tx, tx, &origin_account)?;
 
         // update the account nonces
         StacksChainState::update_account_nonce(clarity_tx, &origin_account);
@@ -520,7 +563,7 @@ impl StacksChainState {
             StacksChainState::update_account_nonce(clarity_tx, &payer_account);
         }
 
-        Ok((fee, burns))
+        Ok((fee, tx_receipt))
     }
 }
 
@@ -1195,7 +1238,7 @@ pub mod test {
             let account_2 = StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
             assert_eq!(account_2.nonce, next_nonce);
         
-            let (fee_2, _) = StacksChainState::process_transaction(&mut conn, &signed_tx_2).unwrap();
+            let (fee_, _) = StacksChainState::process_transaction(&mut conn, &signed_tx_2).unwrap();
 
             // nonce should have incremented
             next_nonce += 1;
