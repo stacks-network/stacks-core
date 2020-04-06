@@ -9,6 +9,7 @@ use vm::types::{
     QualifiedContractIdentifier,
     AssetIdentifier
 };
+use vm::analysis::ContractAnalysis;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksTransactionReceipt {
@@ -16,6 +17,7 @@ pub struct StacksTransactionReceipt {
     pub events: Vec<StacksTransactionEvent>,
     pub result: Value,
     pub stx_burned: u128,
+    pub contract_analysis: Option<ContractAnalysis>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -221,7 +223,7 @@ impl FTMintEventData {
         json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "recipient": format!("{}",self.recipient),
-            "value": format!("{}", self.amount),
+            "amount": format!("{}", self.amount),
         })
     }
 }

@@ -653,7 +653,7 @@ impl Burnchain {
     /// Apply safety checks on extracted blockstack transactions
     /// - put them in order by vtxindex
     /// - make sure there are no vtxindex duplicates
-    pub fn apply_blockstack_txs_safety_checks(block: &BurnchainBlock, blockstack_txs: &mut Vec<BlockstackOperationType>) -> () {
+    pub fn apply_blockstack_txs_safety_checks(block_height: u64, blockstack_txs: &mut Vec<BlockstackOperationType>) -> () {
         // safety -- make sure these are in order
         blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
@@ -668,10 +668,22 @@ impl Burnchain {
 
         // safety -- block heights all match
         for tx in blockstack_txs.iter() {
-            if tx.block_height() != block.block_height() {
-                panic!("FATAL: BUG: block height mismatch: {} != {}", tx.block_height(), block.block_height());
+            if tx.block_height() != block_height {
+                panic!("FATAL: BUG: block height mismatch: {} != {}", tx.block_height(), block_height);
             }
         }
+    }
+
+    /// Given the extracted txs, and a block header, go process them into the next
+    /// snapshot.  Unlike process_block_ops, this method applies safety checks against the given
+    /// list of blockstack transactions.
+    pub fn process_block_txs<'a>(tx: &mut BurnDBTx<'a>, parent_snapshot: &BlockSnapshot, this_block_header: &BurnchainBlockHeader, burnchain: &Burnchain, mut blockstack_txs: Vec<BlockstackOperationType>) -> Result<BlockSnapshot, burnchain_error> {
+        assert_eq!(parent_snapshot.block_height + 1, this_block_header.block_height);
+        assert_eq!(parent_snapshot.burn_header_hash, this_block_header.parent_block_hash);
+        Burnchain::apply_blockstack_txs_safety_checks(this_block_header.block_height, &mut blockstack_txs);
+        
+        let new_snapshot = Burnchain::process_block_ops(tx, burnchain, &parent_snapshot, &this_block_header, &blockstack_txs)?;
+        Ok(new_snapshot)
     }
 
     /// Top-level entry point to check and process a block.
@@ -682,12 +694,9 @@ impl Burnchain {
             .expect("FATAL: failed to begin Sqlite transaction");
 
         let (header, parent_snapshot) = Burnchain::get_burnchain_block_attachment_info(&mut tx, block)?;
-        let mut blockstack_txs = Burnchain::get_blockstack_transactions(block, &header);
-
-        Burnchain::apply_blockstack_txs_safety_checks(block, &mut blockstack_txs);
+        let blockstack_txs = Burnchain::get_blockstack_transactions(block, &header);
+        let new_snapshot = Burnchain::process_block_txs(&mut tx, &parent_snapshot, &header, burnchain, blockstack_txs)?;
         
-        let res = Burnchain::process_block_ops(&mut tx, burnchain, &parent_snapshot, &header, &blockstack_txs)?;
-
         // commit everything!
         tx.commit().expect("FATAL: failed to commit Sqlite transaction");
         Ok(res)
@@ -1166,7 +1175,7 @@ pub mod tests {
             burn_header_timestamp: 121,
             parent_burn_header_hash: first_burn_hash.clone(),
             ops_hash: block_opshash_121.clone(),
-            consensus_hash: ConsensusHash::from_ops(&block_opshash_121, 0, &block_prev_chs_121),
+            consensus_hash: ConsensusHash::from_ops(&block_121_hash, &block_opshash_121, 0, &block_prev_chs_121),
             total_burn: 0,
             sortition: false,
             sortition_hash: SortitionHash::initial()
@@ -1191,7 +1200,7 @@ pub mod tests {
             burn_header_timestamp: 122,
             parent_burn_header_hash: block_121_hash.clone(),
             ops_hash: block_opshash_122.clone(),
-            consensus_hash: ConsensusHash::from_ops(&block_opshash_122, 0, &block_prev_chs_122),
+            consensus_hash: ConsensusHash::from_ops(&block_122_hash, &block_opshash_122, 0, &block_prev_chs_122),
             total_burn: 0,
             sortition: false,
             sortition_hash: SortitionHash::initial()
@@ -1222,7 +1231,7 @@ pub mod tests {
             burn_header_timestamp: 123,
             parent_burn_header_hash: block_122_hash.clone(),
             ops_hash: block_opshash_123.clone(),
-            consensus_hash: ConsensusHash::from_ops(&block_opshash_123, 0, &block_prev_chs_123),        // user burns not included, so zero burns this block
+            consensus_hash: ConsensusHash::from_ops(&block_123_hash, &block_opshash_123, 0, &block_prev_chs_123),        // user burns not included, so zero burns this block
             total_burn: 0,
             sortition: false,
             sortition_hash: SortitionHash::initial()
@@ -1360,7 +1369,7 @@ pub mod tests {
                 burn_header_timestamp: 124,
                 parent_burn_header_hash: block_123_snapshot.burn_header_hash.clone(),
                 ops_hash: block_opshash_124.clone(),
-                consensus_hash: ConsensusHash::from_ops(&block_opshash_124, burn_total, &block_prev_chs_124),
+                consensus_hash: ConsensusHash::from_ops(&block_124_hash, &block_opshash_124, burn_total, &block_prev_chs_124),
                 total_burn: burn_total,
                 sortition: next_sortition,
                 sortition_hash: SortitionHash::initial()
@@ -1510,7 +1519,7 @@ pub mod tests {
 
             let ch = {
                 let mut tx = db.tx_begin().unwrap();
-                BurnDB::get_consensus_at(&mut tx, (i as u64) + first_block_height, &parent_burn_block_hash).unwrap()
+                BurnDB::get_consensus_at(&mut tx, (i as u64) + first_block_height, &parent_burn_block_hash).unwrap().unwrap_or(ConsensusHash::empty())
             };
 
             let next_leader_key = LeaderKeyRegisterOp {

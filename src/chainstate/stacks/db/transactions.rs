@@ -389,6 +389,7 @@ impl StacksChainState {
                     events: vec![StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data))],
                     result: Value::okay_true(),
                     stx_burned: 0,
+                    contract_analysis: None,
                 };
 
                 // no burns
@@ -426,7 +427,8 @@ impl StacksChainState {
                     transaction: tx.clone(),
                     events,
                     result,
-                    stx_burned: asset_map.get_stx_burned_total()
+                    stx_burned: asset_map.get_stx_burned_total(),
+                    contract_analysis: None,
                 };
 
                 Ok(receipt)
@@ -465,7 +467,8 @@ impl StacksChainState {
                             transaction: tx.clone(),
                             events: vec![],
                             result: Value::err_none(),
-                            stx_burned: 0
+                            stx_burned: 0,
+                            contract_analysis: None,
                         };
                 
                         // abort now -- no burns
@@ -504,7 +507,8 @@ impl StacksChainState {
                     transaction: tx.clone(),
                     events,
                     result: Value::okay_true(),
-                    stx_burned: asset_map.get_stx_burned_total()
+                    stx_burned: asset_map.get_stx_burned_total(),
+                    contract_analysis: Some(contract_analysis),
                 };
 
                 Ok(receipt)
@@ -529,7 +533,8 @@ impl StacksChainState {
                     transaction: tx.clone(),
                     events: vec![],
                     result: Value::okay_true(),
-                    stx_burned: 0
+                    stx_burned: 0,
+                    contract_analysis: None,
                 };
 
                 Ok(receipt)

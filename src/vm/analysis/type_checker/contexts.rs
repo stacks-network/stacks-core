@@ -8,7 +8,7 @@ use vm::contexts::MAX_CONTEXT_DEPTH;
 use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
 use vm::analysis::types::{ContractAnalysis};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TypeMap {
     map: HashMap<u64, TypeSignature>
 }

@@ -343,9 +343,9 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
         version, &AddressHashMode::SerializeP2PKH, 1, &vec![pk.clone()])
         .expect("Failed to generate address from public key");
     Ok(format!("{{ 
-  secretKey: \"{}\",
-  publicKey: \"{}\",
-  stacksAddress: \"{}\"
+  \"secretKey\": \"{}\",
+  \"publicKey\": \"{}\",
+  \"stacksAddress\": \"{}\"
 }}",
              sk.to_hex(),
              pk.to_hex(),

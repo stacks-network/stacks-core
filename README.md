@@ -6,14 +6,14 @@ Reference implementation of the [Blockstack Technical Whitepaper](https://blocks
 
 ## Repository
 
-| Blockstack Topic/Tech | Where to learn more more |
-|---------------------------------|------------------------------------------------------------------------------|
-| Stacks 2.0 | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master) |
-| Stacks 1.0 | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0) |
-| Use the package | [our core docs](https://docs.blockstack.org/core/naming/introduction.html) |
-| Develop a Blockstack App | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html) |
-| Use a Blockstack App | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
-| Blockstack the company | [our website](https://blockstack.org) |
+| Blockstack Topic/Tech    | Where to learn more more                                                          |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| Stacks 2.0               | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master)      |
+| Stacks 1.0               | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0)  |
+| Use the package          | [our core docs](https://docs.blockstack.org/core/naming/introduction.html)        |
+| Develop a Blockstack App | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html)   |
+| Use a Blockstack App     | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
+| Blockstack the company   | [our website](https://blockstack.org)                                             |
 
 ## Design Thesis
 
@@ -21,17 +21,16 @@ Stacks 2.0 is an open-membership replicated state machine produced by the coordi
 
 To unpack this definition:
 
-- A replicated state machine is two or more copies (“replicas”) of a given set of rules (a “machine”) that, in processing a common input (such as the same sequence of transactions), will arrive at the same configuration (“state”).  Bitcoin is a replicated state machine — its state is the set of UTXOs, which each peer has a full copy of, and given a block, all peers will independently calculate the same new UTXO set from the existing one.
+- A replicated state machine is two or more copies (“replicas”) of a given set of rules (a “machine”) that, in processing a common input (such as the same sequence of transactions), will arrive at the same configuration (“state”). Bitcoin is a replicated state machine — its state is the set of UTXOs, which each peer has a full copy of, and given a block, all peers will independently calculate the same new UTXO set from the existing one.
 - Open-membership means that any host on the Internet can join the blockchain and independently calculate the same full replica as all other peers.
-- Non-enumerable means that the set of peers that are producing the blocks don’t know about one another — they don’t know their identities, or even how many exist and are online.  They are indistinguishable.
+- Non-enumerable means that the set of peers that are producing the blocks don’t know about one another — they don’t know their identities, or even how many exist and are online. They are indistinguishable.
 
 ## Roadmap
 
 - [x] [SIP 001: Burn Election](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-001-burn-election.md)
 - [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-002-smart-contract-language.md)
 - [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-004-materialized-view.md)
-- [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-005-blocks-and-transactions.md
-)
+- [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-005-blocks-and-transactions.md)
 - [ ] [SIP 003: Peer Network](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-003-peer-network.md) (Q1 2020)
 - [ ] SIP 006: Clarity Execution Cost Assessment (Q1 2020)
 
@@ -43,9 +42,9 @@ See [SIP 000](https://github.com/blockstack/stacks-blockchain/blob/master/sip/si
 
 - [x] **Local Testnet** is a developer local setup, mono-node, assembling SIP 001, SIP 002, SIP 004 and SIP 005. With this version, developers can not only run Stacks 2.0 on their development machines, but also write, execute, and test smart contracts. See the instructions below for more details.
 
-- [ ] **Open Testnet** is the upcoming version of our public testnet, that we're anticipating will ship in Q1 2020. This testnet will ship with SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
+- [ ] **Open Testnet** is the upcoming version of our public testnet, that we're anticipating will ship in Q2 2020. This testnet will ship with SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
 
-- [ ] **Mainet** is the fully functional version, that we're intending to ship in Q2 2020.
+- [ ] **Mainet** is the fully functional version, that we're intending to ship in Q3 2020.
 
 ## Getting started
 
@@ -71,7 +70,13 @@ Then build the project:
 cargo build
 ```
 
-And run the tests:
+Building the project on ARM:
+
+```bash
+cargo build --features "aarch64" --no-default-features
+```
+
+Run the tests:
 
 ```bash
 cargo test testnet  -- --test-threads=1
@@ -134,16 +139,12 @@ cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d
 You can observe the state machine in action locally by running:
 
 ```bash
-cargo run --bin blockstack-core testnet
+cargo run --bin blockstack-core testnet ./Stacks.toml
 ```
 
-In your console, you should observe an output with a similar:
+`Stacks.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.
 
-```bash
-*** mempool path: /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
-```
-
-The testnet is watching this directory, decoding and ingesting the transactions materialized as files. This mechanism is a shortcut for simulating a mempool. A RPC server will soon be integrated.
+The testnet is watching the directory specified by the key `mempool.path`. The transactions, materialized as files, will be decoded and ingested. This mechanism is a shortcut for simulating a mempool. A RPC server will soon be integrated.
 
 ### Publish your contract
 
@@ -152,7 +153,7 @@ Assuming that the testnet is running, we can publish our `kv-store` contract.
 In another terminal (or file explorer), you can move the `tx1.bin` generated earlier, to the mempool:
 
 ```bash
-cp ./tx1.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+cp ./tx1.bin /tmp/mempool
 ```
 
 In the terminal window running the testnet, you can observe the state machine's reactions.
@@ -180,7 +181,7 @@ Note: the third argument `1` is a nonce, that must be increased monotonically wi
 We can submit the transaction by moving it to the mempool path:
 
 ```bash
-cp ./tx2.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+cp ./tx2.bin /tmp/mempool
 ```
 
 Similarly, we can generate a transaction that would be setting the key `foo` to the value `bar`:
@@ -192,7 +193,7 @@ cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8
 And submit it by moving it to the mempool path:
 
 ```bash
-cp ./tx3.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+cp ./tx3.bin /tmp/mempool
 ```
 
 Finally, we can issue a third transaction, reading the key `foo` again, for ensuring that the previous transaction has successfully updated the state machine:
@@ -204,7 +205,7 @@ cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8
 And submit this last transaction by moving it to the mempool path:
 
 ```bash
-cp ./tx4.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+cp ./tx4.bin /tmp/mempool
 ```
 
 Congratulations, you can now [write your own smart contracts with Clarity](https://docs.blockstack.org/core/smart/overview.html).
@@ -213,16 +214,18 @@ Congratulations, you can now [write your own smart contracts with Clarity](https
 
 Beyond this Github project,
 Blockstack maintains a public [forum](https://forum.blockstack.org) and an
-opened [Discord](https://discordapp.com/invite/9r94Xkj) channel.  In addition, the project
+opened [Discord](https://discordapp.com/invite/9r94Xkj) channel. In addition, the project
 maintains a [mailing list](https://blockstack.org/signup) which sends out
 community announcements.
 
 The greater Blockstack community regularly hosts in-person
-[meetups](https://www.meetup.com/topics/blockstack/).  The project's
+[meetups](https://www.meetup.com/topics/blockstack/). The project's
 [YouTube channel](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ) includes
 videos from some of these meetups, as well as video tutorials to help new
 users get started and help developers wrap their heads around the system's
 design.
+
+For help cross-compiling on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
 
 ## Further Reading
 

@@ -244,9 +244,9 @@ impl RunLoop {
         new_tenure_callback.map(|cb| cb(round_index, tenure));
     }
 
-    fn handle_burnchain_state_cb(burn_callback: &Option<fn(u64, &BurnchainTip)>,
-                                 round_index: u64, state: &BurnchainTip) {
-        info_yellow!("Burnchain block #{} ({}) was produced with sortition #{}", state.block_snapshot.block_height, state.block_snapshot.burn_header_hash, state.block_snapshot.sortition_hash);
+    fn handle_burnchain_state_cb(burn_callback: &Option<fn(u64, &BurnchainState)>,
+                                 round_index: u64, state: &BurnchainState) {
+        info_blue!("Burnchain block #{} ({}) was produced with sortition #{}", state.chain_tip.block_height, state.chain_tip.burn_header_hash, state.chain_tip.sortition_hash);
         burn_callback.map(|cb| cb(round_index, state));
     }
 

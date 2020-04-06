@@ -329,49 +329,24 @@ impl StacksMessageCodec for Preamble {
     }
 }
 
-impl StacksMessageCodec for GetBlocksData {
+impl StacksMessageCodec for GetBlocksInv {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.burn_height_start)?;
-        write_next(fd, &self.burn_header_hash_start)?;
-        write_next(fd, &self.burn_height_end)?;
-        write_next(fd, &self.burn_header_hash_end)?;
+        write_next(fd, &self.consensus_hash)?;
+        write_next(fd, &self.num_blocks)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<GetBlocksData, net_error> {
-        let burn_height_start : u64                         = read_next(fd)?;
-        let burn_header_hash_start : BurnchainHeaderHash    = read_next(fd)?;
-        let burn_height_end : u64                           = read_next(fd)?;
-        let burn_header_hash_end : BurnchainHeaderHash      = read_next(fd)?;
-
-        if burn_height_end - burn_height_start > BLOCKS_INV_DATA_MAX_BITLEN as u64 {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<GetBlocksInv, net_error> {
+        let consensus_hash: ConsensusHash             = read_next(fd)?;
+        let num_blocks : u16                          = read_next(fd)?;
+        if (num_blocks as u32) > BLOCKS_INV_DATA_MAX_BITLEN {
             // requested too long of a range 
-            return Err(net_error::DeserializeError(format!("Block diff is too big for inv ({} - {})", burn_height_start, burn_height_end)));
+            return Err(net_error::DeserializeError(format!("Block diff is too big for inv ({})", num_blocks)));
         }
 
-        Ok(GetBlocksData {
-            burn_height_start,
-            burn_header_hash_start,
-            burn_height_end,
-            burn_header_hash_end
-        })
-    }
-}
-
-impl StacksMessageCodec for MicroblocksInvData {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.last_microblock_hash)?;
-        write_next(fd, &self.last_sequence)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<MicroblocksInvData, net_error> {
-        let last_microblock_hash : BlockHeaderHash = read_next(fd)?;
-        let last_sequence : u16 = read_next(fd)?;
-
-        Ok(MicroblocksInvData {
-            last_microblock_hash,
-            last_sequence
+        Ok(GetBlocksInv {
+            consensus_hash: consensus_hash,
+            num_blocks: num_blocks
         })
     }
 }
@@ -379,25 +354,81 @@ impl StacksMessageCodec for MicroblocksInvData {
 impl StacksMessageCodec for BlocksInvData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &self.bitlen)?;
-        write_next(fd, &self.bitvec)?;
-        write_next(fd, &self.microblocks_inventory)?;
+        write_next(fd, &self.block_bitvec)?;
+        write_next(fd, &self.microblocks_bitvec)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlocksInvData, net_error> {
-        let bitlen : u16                                     = read_next(fd)?;
+        let bitlen : u16 = read_next(fd)?;
         if bitlen > BLOCKS_INV_DATA_MAX_BITLEN as u16 {
             return Err(net_error::DeserializeError(format!("bitlen is bigger than max bitlen inv ({})", bitlen)));
         }
 
-        let bitvec : Vec<u8>                                = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
-        let microblocks_inventory : Vec<MicroblocksInvData> = read_next_exact::<_, MicroblocksInvData>(fd, bitlen as u32)?;
+        let block_bitvec : Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
+        let microblocks_bitvec : Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
 
         Ok(BlocksInvData {
             bitlen,
-            bitvec,
-            microblocks_inventory
+            block_bitvec,
+            microblocks_bitvec
         })
+    }
+}
+
+impl BlocksInvData {
+    pub fn empty() -> BlocksInvData {
+        BlocksInvData {
+            bitlen: 0,
+            block_bitvec: vec![],
+            microblocks_bitvec: vec![]
+        }
+    }
+
+    pub fn compress_bools(bits: &Vec<bool>) -> Vec<u8> {
+        let mut bitvec = vec![];
+        for i in 0..(bits.len() / 8) {
+            let mut next_octet = 0;
+            for j in 0..8 {
+                if bits[8*i + j] {
+                    next_octet |= 1 << j;
+                }
+            }
+            bitvec.push(next_octet);
+        }
+        if bits.len() % 8 != 0 {
+            let mut last_octet = 0;
+            let idx = (bits.len() as u64) & 0xfffffffffffffff8;     // (bits.len() / 8) * 8
+            for (j, bit) in bits[(idx as usize)..].iter().enumerate() {
+                if *bit {
+                    last_octet |= 1 << j;
+                }
+            }
+            bitvec.push(last_octet);
+        }
+        bitvec
+    }
+
+    #[cfg(test)]
+    pub fn has_ith_block(&self, block_index: u16) -> bool {
+        if block_index >= self.bitlen {
+            return false;
+        }
+
+        let idx = block_index / 8;
+        let bit = block_index % 8;
+        (self.block_bitvec[idx as usize] & (1 << bit)) != 0
+    }
+    
+    #[cfg(test)]
+    pub fn has_ith_microblock_stream(&self, block_index: u16) -> bool {
+        if block_index >= self.bitlen {
+            return false;
+        }
+
+        let idx = block_index / 8;
+        let bit = block_index % 8;
+        (self.microblocks_bitvec[idx as usize] & (1 << bit)) != 0
     }
 }
 
@@ -416,29 +447,6 @@ impl StacksMessageCodec for BlocksData {
 
         Ok(BlocksData {
             blocks
-        })
-    }
-}
-
-impl StacksMessageCodec for GetMicroblocksData {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &self.burn_header_height)?;
-        write_next(fd, &self.burn_header_hash)?;
-        write_next(fd, &self.block_header_hash)?;
-        write_next(fd, &self.microblocks_header_hash)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<GetMicroblocksData, net_error> {
-        let burn_header_height: u64                     = read_next(fd)?;
-        let burn_header_hash: BurnchainHeaderHash       = read_next(fd)?;
-        let block_header_hash: BlockHeaderHash          = read_next(fd)?;
-        let microblocks_header_hash: BlockHeaderHash    = read_next(fd)?;
-        Ok(GetMicroblocksData {
-            burn_header_hash,
-            burn_header_height,
-            block_header_hash,
-            microblocks_header_hash
         })
     }
 }
@@ -674,9 +682,7 @@ impl StacksMessageType {
             StacksMessageType::Neighbors(ref _m) => StacksMessageID::Neighbors,
             StacksMessageType::GetBlocksInv(ref _m) => StacksMessageID::GetBlocksInv,
             StacksMessageType::BlocksInv(ref _m) => StacksMessageID::BlocksInv,
-            StacksMessageType::GetBlocks(ref _m) => StacksMessageID::GetBlocks,
             StacksMessageType::Blocks(ref _m) => StacksMessageID::Blocks,
-            StacksMessageType::GetMicroblocks(ref _m) => StacksMessageID::GetMicroblocks,
             StacksMessageType::Microblocks(ref _m) => StacksMessageID::Microblocks,
             StacksMessageType::Transaction(ref _m) => StacksMessageID::Transaction,
             StacksMessageType::Nack(ref _m) => StacksMessageID::Nack,
@@ -694,9 +700,7 @@ impl StacksMessageType {
             StacksMessageType::Neighbors(ref _m) => "Neighbors",
             StacksMessageType::GetBlocksInv(ref _m) => "GetBlocksInv",
             StacksMessageType::BlocksInv(ref _m) => "BlocksInv",
-            StacksMessageType::GetBlocks(ref _m) => "GetBlocks",
             StacksMessageType::Blocks(ref _m) => "Blocks",
-            StacksMessageType::GetMicroblocks(ref _m) => "GetMicroblocks",
             StacksMessageType::Microblocks(ref _m) => "Microblocks",
             StacksMessageType::Transaction(ref _m) => "Transaction",
             StacksMessageType::Nack(ref _m) => "Nack",
@@ -721,9 +725,7 @@ impl StacksMessageCodec for StacksMessageID {
             x if x == StacksMessageID::Neighbors as u8 => StacksMessageID::Neighbors,
             x if x == StacksMessageID::GetBlocksInv as u8 => StacksMessageID::GetBlocksInv,
             x if x == StacksMessageID::BlocksInv as u8 => StacksMessageID::BlocksInv,
-            x if x == StacksMessageID::GetBlocks as u8 => StacksMessageID::GetBlocks,
             x if x == StacksMessageID::Blocks as u8 => StacksMessageID::Blocks,
-            x if x == StacksMessageID::GetMicroblocks as u8 => StacksMessageID::GetMicroblocks,
             x if x == StacksMessageID::Microblocks as u8 => StacksMessageID::Microblocks,
             x if x == StacksMessageID::Transaction as u8 => StacksMessageID::Transaction,
             x if x == StacksMessageID::Nack as u8 => StacksMessageID::Nack,
@@ -746,9 +748,7 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::Neighbors(ref m) => write_next(fd, m)?,
             StacksMessageType::GetBlocksInv(ref m) => write_next(fd, m)?,
             StacksMessageType::BlocksInv(ref m) => write_next(fd, m)?,
-            StacksMessageType::GetBlocks(ref m) => write_next(fd, m)?,
             StacksMessageType::Blocks(ref m) => write_next(fd, m)?,
-            StacksMessageType::GetMicroblocks(ref m) => write_next(fd, m)?,
             StacksMessageType::Microblocks(ref m) => write_next(fd, m)?,
             StacksMessageType::Transaction(ref m) => write_next(fd, m)?,
             StacksMessageType::Nack(ref m) => write_next(fd, m)?,
@@ -766,11 +766,9 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageID::HandshakeReject => { StacksMessageType::HandshakeReject },
             StacksMessageID::GetNeighbors => { StacksMessageType::GetNeighbors },
             StacksMessageID::Neighbors => { let m : NeighborsData = read_next(fd)?; StacksMessageType::Neighbors(m) },
-            StacksMessageID::GetBlocksInv => { let m : GetBlocksData = read_next(fd)?; StacksMessageType::GetBlocksInv(m) },
+            StacksMessageID::GetBlocksInv => { let m : GetBlocksInv = read_next(fd)?; StacksMessageType::GetBlocksInv(m) },
             StacksMessageID::BlocksInv => { let m : BlocksInvData = read_next(fd)?; StacksMessageType::BlocksInv(m) },
-            StacksMessageID::GetBlocks => { let m : GetBlocksData = read_next(fd)?; StacksMessageType::GetBlocks(m) },
             StacksMessageID::Blocks => { let m : BlocksData = read_next(fd)?; StacksMessageType::Blocks(m) },
-            StacksMessageID::GetMicroblocks => { let m : GetMicroblocksData = read_next(fd)?; StacksMessageType::GetMicroblocks(m) },
             StacksMessageID::Microblocks => { let m : MicroblocksData = read_next(fd)?; StacksMessageType::Microblocks(m) },
             StacksMessageID::Transaction => { let m : StacksTransaction = read_next(fd)?; StacksMessageType::Transaction(m) },
             StacksMessageID::Nack => { let m : NackData = read_next(fd)?; StacksMessageType::Nack(m) },
@@ -1186,97 +1184,54 @@ pub mod test {
     }
 
     #[test]
-    fn codec_GetBlocksData() {
-        let getblocksdata = GetBlocksData {
-            burn_height_start: 0x0001020304050607,
-            burn_header_hash_start: BurnchainHeaderHash::from_bytes(&hex_bytes("5555555555555555555555555555555555555555555555555555555555555555").unwrap()).unwrap(),
-            burn_height_end: 0x0001020304050607 + (BLOCKS_INV_DATA_MAX_BITLEN as u64),
-            burn_header_hash_end: BurnchainHeaderHash::from_bytes(&hex_bytes("6666666666666666666666666666666666666666666666666666666666666666").unwrap()).unwrap(),
+    fn codec_GetBlocksInv() {
+        let getblocksdata = GetBlocksInv {
+            consensus_hash: ConsensusHash([0x55; 20]),
+            num_blocks: 32
         };
 
         let getblocksdata_bytes : Vec<u8> = vec![
-            // burn_height_start
-            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-            // burn_header_hash_start
-            0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
-            // burn_height_end
-            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x16, 0x07,
-            // burn_header_hash_end
-            0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+            // consensus hash
+            0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+            // num blocks
+            0x00, 0x20
         ];
 
-        check_codec_and_corruption::<GetBlocksData>(&getblocksdata, &getblocksdata_bytes);
+        check_codec_and_corruption::<GetBlocksInv>(&getblocksdata, &getblocksdata_bytes);
 
         // should fail to decode if the block range is too big 
-        let getblocksdata_range_too_big = GetBlocksData {
-            burn_height_start: 0x0001020304050607,
-            burn_header_hash_start: BurnchainHeaderHash::from_bytes(&hex_bytes("5555555555555555555555555555555555555555555555555555555555555555").unwrap()).unwrap(),
-            burn_height_end: 0x0001020304050607 + (BLOCKS_INV_DATA_MAX_BITLEN as u64) + 1,
-            burn_header_hash_end: BurnchainHeaderHash::from_bytes(&hex_bytes("6666666666666666666666666666666666666666666666666666666666666666").unwrap()).unwrap(),
+        let getblocksdata_range_too_big = GetBlocksInv {
+            consensus_hash: ConsensusHash([0x55; 20]),
+            num_blocks: (BLOCKS_INV_DATA_MAX_BITLEN + 1) as u16,
         };
 
-        assert!(check_deserialize_failure::<GetBlocksData>(&getblocksdata_range_too_big));
-    }
-
-    #[test]
-    fn codec_MicroblocksInvData() {
-        let data = MicroblocksInvData {
-            last_microblock_hash: BlockHeaderHash([0x66; 32]),
-            last_sequence: 1
-        };
-        let bytes : Vec<u8> = vec![
-            // hash
-            0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-            // seq
-            0x00, 0x01
-        ];
-        check_codec_and_corruption::<MicroblocksInvData>(&data, &bytes);
+        assert!(check_deserialize_failure::<GetBlocksInv>(&getblocksdata_range_too_big));
     }
 
     #[test]
     fn codec_BlocksInvData() {
         // maximially big BlocksInvData
-        let maximal_bitvec : Vec<u8> = vec![0xff, 0xff, 0xff, 0xfe];
+        let maximal_bitvec = vec![0xffu8; (BLOCKS_INV_DATA_MAX_BITLEN / 8) as usize];
         let mut too_big_bitvec : Vec<u8> = vec![];
         for i in 0..BLOCKS_INV_DATA_MAX_BITLEN+1 {
             too_big_bitvec.push(0xff);
         }
-
-        let mut maximal_microblocks_inventory = vec![];
-        let mut too_big_microblocks_inventory = vec![];
-
-        // must get the message down to 32 MB
-        for _i in 0..31 {
-            let microblock_inv = MicroblocksInvData {
-                last_microblock_hash: BlockHeaderHash([0x01; 32]),
-                last_sequence: _i
-            };
-            maximal_microblocks_inventory.push(microblock_inv.clone());
-            too_big_microblocks_inventory.push(microblock_inv);
-        }
-
-        too_big_microblocks_inventory.push(MicroblocksInvData {
-            last_microblock_hash: BlockHeaderHash([0xff; 32]),
-            last_sequence: 0xff
-        });
-
+        
         let maximal_blocksinvdata = BlocksInvData {
-            bitlen: 31,
-            bitvec: maximal_bitvec.clone(),
-            microblocks_inventory: maximal_microblocks_inventory.clone()
+            bitlen: BLOCKS_INV_DATA_MAX_BITLEN  as u16,
+            block_bitvec: maximal_bitvec.clone(),
+            microblocks_bitvec: maximal_bitvec.clone(),
         };
 
-        let mut maximal_microblocks_inventory_bytes : Vec<u8> = vec![];
-        maximal_microblocks_inventory.consensus_serialize(&mut maximal_microblocks_inventory_bytes).unwrap();
-        
         let mut maximal_blocksinvdata_bytes : Vec<u8> = vec![];
         // bitlen 
-        maximal_blocksinvdata_bytes.append(&mut vec![0x00, 0x1f]);
-        // bitvec
-        maximal_blocksinvdata_bytes.append(&mut vec![0x00, 0x00, 0x00, 0x04]);
+        maximal_blocksinvdata_bytes.append(&mut (BLOCKS_INV_DATA_MAX_BITLEN as u16).to_be_bytes().to_vec());
+        // block bitvec
+        maximal_blocksinvdata_bytes.append(&mut (BLOCKS_INV_DATA_MAX_BITLEN / 8).to_be_bytes().to_vec());
         maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
-        // microblocks inventory 
-        maximal_blocksinvdata_bytes.append(&mut maximal_microblocks_inventory_bytes.clone());
+        // microblock bitvec
+        maximal_blocksinvdata_bytes.append(&mut (BLOCKS_INV_DATA_MAX_BITLEN / 8).to_be_bytes().to_vec());
+        maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
 
         assert!((maximal_blocksinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
 
@@ -1285,123 +1240,42 @@ pub mod test {
         // should fail to decode if the bitlen is too big 
         let too_big_blocksinvdata = BlocksInvData {
             bitlen: (BLOCKS_INV_DATA_MAX_BITLEN + 1) as u16,
-            bitvec: too_big_bitvec.clone(),
-            microblocks_inventory: too_big_microblocks_inventory.clone(),
+            block_bitvec: too_big_bitvec.clone(),
+            microblocks_bitvec: too_big_bitvec.clone(),
         };
         assert!(check_deserialize_failure::<BlocksInvData>(&too_big_blocksinvdata));
 
         // should fail to decode if the bitlen doesn't match the bitvec
         let long_bitlen = BlocksInvData {
             bitlen: 1,
-            bitvec: vec![0xff, 0x01],
-            microblocks_inventory: vec![
-                MicroblocksInvData {
-                    last_microblock_hash: BlockHeaderHash([0x01; 32]),
-                    last_sequence: 1,
-                },
-                MicroblocksInvData {
-                    last_microblock_hash: BlockHeaderHash([0x02; 32]),
-                    last_sequence: 2,
-                },
-            ]
+            block_bitvec: vec![0xff, 0x01],
+            microblocks_bitvec: vec![0xff, 0x01],
         };
         assert!(check_deserialize_failure::<BlocksInvData>(&long_bitlen));
 
         let short_bitlen = BlocksInvData {
             bitlen: 9,
-            bitvec: vec![0xff],
-            microblocks_inventory: vec![
-                MicroblocksInvData {
-                    last_microblock_hash: BlockHeaderHash([0x01; 32]),
-                    last_sequence: 1,
-                },
-                MicroblocksInvData {
-                    last_microblock_hash: BlockHeaderHash([0x02; 32]),
-                    last_sequence: 2,
-                },
-                MicroblocksInvData {
-                    last_microblock_hash: BlockHeaderHash([0x03; 32]),
-                    last_sequence: 3,
-                },
-                MicroblocksInvData {
-                    last_microblock_hash: BlockHeaderHash([0x04; 32]),
-                    last_sequence: 4,
-                },
-                MicroblocksInvData {
-                    last_microblock_hash: BlockHeaderHash([0x05; 32]),
-                    last_sequence: 5,
-                },
-                MicroblocksInvData {
-                    last_microblock_hash: BlockHeaderHash([0x06; 32]),
-                    last_sequence: 6,
-                },
-                MicroblocksInvData {
-                    last_microblock_hash: BlockHeaderHash([0x07; 32]),
-                    last_sequence: 7,
-                },
-                MicroblocksInvData {
-                    last_microblock_hash: BlockHeaderHash([0x08; 32]),
-                    last_sequence: 8,
-                },
-                MicroblocksInvData {
-                    last_microblock_hash: BlockHeaderHash([0x09; 32]),
-                    last_sequence: 9,
-                },
-            ]
+            block_bitvec: vec![0xff],
+            microblocks_bitvec: vec![0xff],
         };
         assert!(check_deserialize_failure::<BlocksInvData>(&short_bitlen));
-
-        // should fail if microblocks inventory doesn't match bitlen 
-        let wrong_microblocks_inv = BlocksInvData {
-            bitlen: 2,
-            bitvec: vec![0x03],
-            microblocks_inventory: vec![
-                MicroblocksInvData {
-                    last_microblock_hash: BlockHeaderHash([0x09; 32]),
-                    last_sequence: 9,
-                },
-            ]
-        };
-        assert!(check_deserialize_failure::<BlocksInvData>(&wrong_microblocks_inv));
 
         // empty 
         let empty_inv = BlocksInvData {
             bitlen: 0,
-            bitvec: vec![],
-            microblocks_inventory: vec![]
+            block_bitvec: vec![],
+            microblocks_bitvec: vec![],
         };
         let empty_inv_bytes = vec![
             // bitlen
             0x00, 0x00, 0x00, 0x00,
             // bitvec 
             0x00, 0x00, 0x00, 0x00,
-            // microblock inv 
+            // microblock bitvec
             0x00, 0x00, 0x00, 0x00
         ];
 
         check_codec_and_corruption::<BlocksInvData>(&maximal_blocksinvdata, &maximal_blocksinvdata_bytes);
-    }
-
-    #[test]
-    fn codec_GetMicroblocksData() {
-        let data = GetMicroblocksData {
-            burn_header_height: 0x0001020304050607,
-            burn_header_hash: BurnchainHeaderHash::from_bytes(&hex_bytes("8888888888888888888888888888888888888888888888888888888888888888").unwrap()).unwrap(),
-            block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("9999999999999999999999999999999999999999999999999999999999999999").unwrap()).unwrap(),
-            microblocks_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap()).unwrap(),
-        };
-        let bytes = vec![
-            // burn header height 
-            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-            // burn header hash
-            0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88,
-            // block header hash 
-            0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99, 0x99,
-            // microblocks header hash 
-            0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa
-        ];
-
-        check_codec_and_corruption::<GetMicroblocksData>(&data, &bytes);
     }
 
     #[test]
@@ -1607,39 +1481,16 @@ pub mod test {
                     },
                 ]
             }),
-            StacksMessageType::GetBlocksInv(GetBlocksData {
-                burn_height_start: 0x0001020304050607,
-                burn_header_hash_start: BurnchainHeaderHash::from_bytes(&hex_bytes("5555555555555555555555555555555555555555555555555555555555555555").unwrap()).unwrap(),
-                burn_height_end: 0x0001020304050607 + (BLOCKS_INV_DATA_MAX_BITLEN as u64),
-                burn_header_hash_end: BurnchainHeaderHash::from_bytes(&hex_bytes("6666666666666666666666666666666666666666666666666666666666666666").unwrap()).unwrap(),
+            StacksMessageType::GetBlocksInv(GetBlocksInv {
+                consensus_hash: ConsensusHash([0x55; 20]),
+                num_blocks: 32,
             }),
             StacksMessageType::BlocksInv(BlocksInvData {
                 bitlen: 2,
-                bitvec: vec![0x03],
-                microblocks_inventory: vec![
-                    MicroblocksInvData {
-                        last_microblock_hash: BlockHeaderHash([0xa3; 32]),
-                        last_sequence: 0xa3,
-                    },
-                    MicroblocksInvData {
-                        last_microblock_hash: BlockHeaderHash([0xa4; 32]),
-                        last_sequence: 0xa4,
-                    },
-                ]
-            }),
-            StacksMessageType::GetBlocks(GetBlocksData {
-                burn_height_start: 0x0001020304050607,
-                burn_header_hash_start: BurnchainHeaderHash::from_bytes(&hex_bytes("5555555555555555555555555555555555555555555555555555555555555555").unwrap()).unwrap(),
-                burn_height_end: 0x0001020304050607 + (BLOCKS_INV_DATA_MAX_BITLEN as u64),
-                burn_header_hash_end: BurnchainHeaderHash::from_bytes(&hex_bytes("6666666666666666666666666666666666666666666666666666666666666666").unwrap()).unwrap(),
+                block_bitvec: vec![0x03],
+                microblocks_bitvec: vec![0x03],
             }),
             // TODO: Blocks
-            StacksMessageType::GetMicroblocks(GetMicroblocksData {
-                burn_header_height: 0x0001020304050607,
-                burn_header_hash: BurnchainHeaderHash::from_bytes(&hex_bytes("8888888888888888888888888888888888888888888888888888888888888888").unwrap()).unwrap(),
-                block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("9999999999999999999999999999999999999999999999999999999999999999").unwrap()).unwrap(),
-                microblocks_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap()).unwrap(),
-            }),
             // TODO: Microblocks
             // TODO: Transaction
             StacksMessageType::Nack(NackData {
@@ -1757,5 +1608,33 @@ pub mod test {
 
             assert_eq!(pubkey, pubkey_2);
         }
+    }
+
+    #[test]
+    fn blocks_inv_compress_bools() {
+        let block_flags = vec![
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            true,
+
+            true,
+            false,
+            true
+        ];
+        let block_bitvec = BlocksInvData::compress_bools(&block_flags);
+        assert_eq!(block_bitvec, vec![0x87, 0x05]);
+
+        let short_block_flags = vec![
+            true,
+            false,
+            true
+        ];
+        let short_block_bitvec = BlocksInvData::compress_bools(&short_block_flags);
+        assert_eq!(short_block_bitvec, vec![0x05]);
     }
 } 

@@ -22,6 +22,7 @@ mod datamaps;
 mod contracts;
 pub mod costs;
 mod traits;
+mod large_contract;
 
 pub fn with_memory_environment<F>(f: F, top_level: bool)
 where F: FnOnce(&mut OwnedEnvironment) -> ()

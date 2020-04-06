@@ -38,6 +38,7 @@ extern crate regex;
 extern crate time;
 extern crate byteorder;
 extern crate mio;
+extern crate url;
 extern crate bitcoincore_rpc;
 
 #[macro_use] extern crate serde_derive;
