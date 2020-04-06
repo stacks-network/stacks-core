@@ -1,6 +1,7 @@
 use vm::{
     database::HeadersDB,
-    types::QualifiedContractIdentifier,
+    types::{QualifiedContractIdentifier, PrincipalData},
+    clarity::ClarityConnection,
     Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
 use chainstate::stacks::{
     db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -46,8 +47,8 @@ pub fn make_contract_publish(sender: &StacksPrivateKey, nonce: u64, fee_rate: u6
 }
 
 pub fn make_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
-                            recipient: &StacksAddress, amount: u64) -> Vec<u8> {
-    let payload = TransactionPayload::TokenTransfer(recipient.clone().into(), amount, TokenTransferMemo([0; 34]));
+                            recipient: &PrincipalData, amount: u64) -> Vec<u8> {
+    let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
 }
 
@@ -161,7 +162,11 @@ const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334b
 fn integration_test_get_info() {
     let mut conf = testnet::helium::tests::new_test_conf();
 
+    let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+    let addr_3 = to_addr(&sk_3);
+
     conf.burnchain.block_time = 1500;
+    conf.add_initial_balance(addr_3.to_string(), 100000);
 
     let contract_sk = StacksPrivateKey::new();
 
@@ -171,11 +176,21 @@ fn integration_test_get_info() {
     run_loop.apply_on_new_tenures(|round, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
+        let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+
+        let contract_identifier =
+            QualifiedContractIdentifier::parse(&format!("{}.{}",
+                                                        to_addr(
+                                                            &StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
+                                                        "get-info")).unwrap();
 
         if round == 1 { // block-height = 2
             let publish_tx = make_contract_publish(&contract_sk, 0, 0, "get-info", GET_INFO_CONTRACT);
             eprintln!("Tenure in 1 started!");
             tenure.mem_pool.submit(publish_tx);
+
+            let xfer_to_contract = make_stacks_transfer(&sk_3, 0, 1, &contract_identifier.into(), 1000);
+            tenure.mem_pool.submit(xfer_to_contract);
         } else if round >= 2 { // block-height > 2
             let tx = make_contract_call(&principal_sk, (round - 2).into(), 0, &to_addr(&contract_sk), "get-info", "update-info", &[]);
             tenure.mem_pool.submit(tx);
@@ -198,8 +213,8 @@ fn integration_test_get_info() {
                 blocks.sort();
                 assert!(chain_tip_info.block_height == 2);
                 
-                // Block #1 should only have 2 txs
-                assert!(block.txs.len() == 2);
+                // Block #1 should have 3 txs
+                assert!(block.txs.len() == 3);
 
                 let parent = block.header.parent_block;
                 let bhh = &chain_tip_info.index_block_hash();
@@ -253,6 +268,27 @@ fn integration_test_get_info() {
                     chain_state.clarity_eval_read_only(
                         bhh, &contract_identifier, "(test-5)"),
                     Value::some(parent_val).unwrap());
+
+
+                let cur_tip = (chain_tip_info.burn_header_hash.clone(), chain_tip_info.anchored_header.block_hash());
+                // check that 1000 stx _was_ transfered to the contract principal
+                assert_eq!(
+                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_account_stx_balance(&contract_identifier.clone().into())
+                        })
+                    }),
+                    1000);
+                // check that 1000 stx _was_ debited from SK_3
+                let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+                let addr_3 = to_addr(&sk_3).into();
+                assert_eq!(
+                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_account_stx_balance(&addr_3)
+                        })
+                    }),
+                    98999);
 
                 // test-6 and test-7 return the block at height 1's VRF-seed,
                 //   which in this integration test, should be blocks[0]
