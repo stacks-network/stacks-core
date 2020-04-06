@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
 use std::convert::TryFrom;
-use std::{thread, thread::JoinHandle};
+use std::{thread, time, thread::JoinHandle};
 use std::net::SocketAddr;
 
 use address::AddressHashMode;
@@ -85,11 +85,23 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
         loop {
-            let mut burndb = BurnDB::open(&burn_db_path, true)
-                .expect("Error while instantiating burnchain db");
-            let mut chainstate = StacksChainState::open(
-                false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
-                .expect("Error while instantiating chainstate db");
+            let mut burndb = match BurnDB::open(&burn_db_path, true) {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Error while connecting burnchain db in peer loop: {}", e);
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                },
+            };
+            let mut chainstate = match StacksChainState::open(
+                false, TESTNET_CHAIN_ID, &stacks_chainstate_path) {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Error while connecting chainstate db in peer loop: {}", e);
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                },
+            };
 
             this.run(&mut burndb, &mut chainstate, None, poll_timeout)
                 .unwrap();
