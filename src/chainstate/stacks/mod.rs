@@ -871,8 +871,10 @@ pub mod test {
             ]);
         }
 
+        let stx_address = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
         let tx_payloads = vec![
-            TransactionPayload::TokenTransfer(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, 123, TokenTransferMemo([0u8; 34])),
+            TransactionPayload::TokenTransfer(
+                stx_address.into(), 123, TokenTransferMemo([0u8; 34])),
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress { version: 4, bytes: Hash160([0xfc; 20]) },
                 contract_name: ContractName::try_from("hello-contract-name").unwrap(),

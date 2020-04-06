@@ -590,9 +590,9 @@ pub mod test {
         let addr = auth.origin().address_testnet();
         let recv_addr = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
 
-        let mut tx_stx_transfer = StacksTransaction::new(TransactionVersion::Testnet,
-                                                         auth.clone(),
-                                                         TransactionPayload::TokenTransfer(recv_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet, auth.clone(),
+            TransactionPayload::TokenTransfer(recv_addr.clone().into(), 123, TokenTransferMemo([0u8; 34])));
 
         tx_stx_transfer.chain_id = 0x80000000;
         tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -647,35 +647,35 @@ pub mod test {
             auth_origin.into_sponsored(auth_sponsor).unwrap()
         };
 
-        let mut tx_stx_transfer_same_receiver = StacksTransaction::new(TransactionVersion::Testnet,
-                                                                       auth.clone(),
-                                                                       TransactionPayload::TokenTransfer(recv_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+        let mut tx_stx_transfer_same_receiver = StacksTransaction::new(
+            TransactionVersion::Testnet, auth.clone(),
+            TransactionPayload::TokenTransfer(recv_addr.clone().into(), 123, TokenTransferMemo([0u8; 34])));
 
-        let mut tx_stx_transfer_wrong_network = StacksTransaction::new(TransactionVersion::Mainnet,
-                                                                       auth.clone(),
-                                                                       TransactionPayload::TokenTransfer(sponsor_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+        let mut tx_stx_transfer_wrong_network = StacksTransaction::new(
+            TransactionVersion::Mainnet, auth.clone(),
+            TransactionPayload::TokenTransfer(sponsor_addr.clone().into(), 123, TokenTransferMemo([0u8; 34])));
         
-        let mut tx_stx_transfer_wrong_chain_id = StacksTransaction::new(TransactionVersion::Testnet,
-                                                                        auth.clone(),
-                                                                        TransactionPayload::TokenTransfer(sponsor_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+        let mut tx_stx_transfer_wrong_chain_id = StacksTransaction::new(
+            TransactionVersion::Testnet, auth.clone(),
+            TransactionPayload::TokenTransfer(sponsor_addr.clone().into(), 123, TokenTransferMemo([0u8; 34])));
         
-        let mut tx_stx_transfer_postconditions = StacksTransaction::new(TransactionVersion::Testnet,
-                                                                        auth.clone(),
-                                                                        TransactionPayload::TokenTransfer(sponsor_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+        let mut tx_stx_transfer_postconditions = StacksTransaction::new(
+            TransactionVersion::Testnet, auth.clone(),
+            TransactionPayload::TokenTransfer(sponsor_addr.clone().into(), 123, TokenTransferMemo([0u8; 34])));
 
         tx_stx_transfer_postconditions.add_post_condition(TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentGt, 0));
         
         let mut wrong_nonce_auth = auth.clone();
         wrong_nonce_auth.set_origin_nonce(1);
-        let mut tx_stx_transfer_wrong_nonce = StacksTransaction::new(TransactionVersion::Testnet,
-                                                                     wrong_nonce_auth,
-                                                                     TransactionPayload::TokenTransfer(recv_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+        let mut tx_stx_transfer_wrong_nonce = StacksTransaction::new(
+            TransactionVersion::Testnet, wrong_nonce_auth,
+            TransactionPayload::TokenTransfer(recv_addr.clone().into(), 123, TokenTransferMemo([0u8; 34])));
 
         let mut wrong_nonce_auth_sponsored = auth_sponsored.clone();
         wrong_nonce_auth_sponsored.set_sponsor_nonce(1).unwrap();
-        let mut tx_stx_transfer_wrong_nonce_sponsored = StacksTransaction::new(TransactionVersion::Testnet,
-                                                                               wrong_nonce_auth_sponsored,
-                                                                               TransactionPayload::TokenTransfer(recv_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+        let mut tx_stx_transfer_wrong_nonce_sponsored = StacksTransaction::new(
+            TransactionVersion::Testnet, wrong_nonce_auth_sponsored,
+            TransactionPayload::TokenTransfer(recv_addr.clone().into(), 123, TokenTransferMemo([0u8; 34])));
 
         tx_stx_transfer_same_receiver.chain_id = 0x80000000;
         tx_stx_transfer_wrong_network.chain_id = 0x80000000;
@@ -763,9 +763,9 @@ pub mod test {
 
         let recv_addr = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
 
-        let mut tx_stx_transfer = StacksTransaction::new(TransactionVersion::Testnet,
-                                                         auth.clone(),
-                                                         TransactionPayload::TokenTransfer(recv_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet, auth.clone(),
+            TransactionPayload::TokenTransfer(recv_addr.clone().into(), 123, TokenTransferMemo([0u8; 34])));
 
         tx_stx_transfer.chain_id = 0x80000000;
         tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;

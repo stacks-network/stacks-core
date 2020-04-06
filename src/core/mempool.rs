@@ -69,7 +69,7 @@ mod tests {
 
     pub fn make_bad_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
                                     recipient: &StacksAddress, amount: u64) -> Vec<u8> {
-        let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+        let payload = TransactionPayload::TokenTransfer(recipient.clone().into(), amount, TokenTransferMemo([0; 34]));
 
         let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
             .expect("Failed to create p2pkh spending condition from public key.");

@@ -47,7 +47,7 @@ pub fn make_contract_publish(sender: &StacksPrivateKey, nonce: u64, fee_rate: u6
 
 pub fn make_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
                             recipient: &StacksAddress, amount: u64) -> Vec<u8> {
-    let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    let payload = TransactionPayload::TokenTransfer(recipient.clone().into(), amount, TokenTransferMemo([0; 34]));
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
 }
 
