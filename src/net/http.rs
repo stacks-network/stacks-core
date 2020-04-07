@@ -929,6 +929,9 @@ impl HttpResponsePreamble {
         fd.write_all(format!("{} {}\r\n", status_code, reason).as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all("Server: stacks/2.0\r\nDate: ".as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all(rfc7231_now().as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("\r\nAccess-Control-Allow-Origin: *".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("\r\nAccess-Control-Allow-Headers: origin, content-type".as_bytes()).map_err(net_error::WriteError)?;
+        fd.write_all("\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS".as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all("\r\nContent-Type: ".as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all(content_type.as_str().as_bytes()).map_err(net_error::WriteError)?;
         fd.write_all("\r\n".as_bytes()).map_err(net_error::WriteError)?;
