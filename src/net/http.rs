@@ -110,7 +110,7 @@ lazy_static! {
         "^/v2/contracts/interface/(?P<address>{})/(?P<contract>{})$",
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX)).unwrap();
     static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
-    static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("(?P<path>)$").unwrap();
+    static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
 }
 
 /// HTTP headers that we really care about
