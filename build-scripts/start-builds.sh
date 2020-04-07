@@ -39,23 +39,23 @@ build_linux_musl_x64 () {
 ### Build and package for Linux-ARMv7 hardfloat
 build_linux_armv7 () {
   "$script_path/build-dist-linux-armv7.sh"
-  dist_archive_linux_musl="$dist_dir/blockstack-core-linux-armv7.tar.bz2"
-  rm -f "$dist_archive_linux_musl"
-  tar cfvj "$dist_archive_linux_musl" -C "$src_dir/target/armv7-unknown-linux-gnueabihf/release" blockstack-core blockstack-cli clarity-cli
+  dist_archive="$dist_dir/blockstack-core-linux-armv7.tar.bz2"
+  rm -f "$dist_archive"
+  tar cfvj "$dist_archive" -C "$src_dir/target/armv7-unknown-linux-gnueabihf/release" blockstack-core blockstack-cli clarity-cli
 
   clarity_tgz="$dist_dir/clarity-cli-linux-armv7.tar.gz"
   rm -f "$clarity_tgz"
   tar czvf "$clarity_tgz" -C "$src_dir/target/armv7-unknown-linux-gnueabihf/release" clarity-cli
 }
 
-### Build and package for Linux-aarch64 hardfloat
-build_linux_aarch64 () {
-  "$script_path/build-dist-linux-aarch64.sh"
-  dist_archive_linux_musl="$dist_dir/blockstack-core-linux-aarch64.tar.bz2"
-  rm -f "$dist_archive_linux_musl"
-  tar cfvj "$dist_archive_linux_musl" -C "$src_dir/target/aarch64-unknown-linux-gnu/release" blockstack-core blockstack-cli clarity-cli
+### Build and package for Linux-ARM64
+build_linux_arm64 () {
+  "$script_path/build-dist-linux-arm64.sh"
+  dist_archive="$dist_dir/blockstack-core-linux-arm64.tar.bz2"
+  rm -f "$dist_archive"
+  tar cfvj "$dist_archive" -C "$src_dir/target/aarch64-unknown-linux-gnu/release" blockstack-core blockstack-cli clarity-cli
 
-  clarity_tgz="$dist_dir/clarity-cli-linux-aarch64.tar.gz"
+  clarity_tgz="$dist_dir/clarity-cli-linux-arm64.tar.gz"
   rm -f "$clarity_tgz"
   tar czvf "$clarity_tgz" -C "$src_dir/target/aarch64-unknown-linux-gnu/release" clarity-cli
 }
@@ -96,7 +96,7 @@ case $DIST_TARGET_FILTER in
       linux_x64) build_linux_x64 ;;
       linux_musl_x64) build_linux_musl_x64 ;;
       linux_armv7) build_linux_armv7 ;;
-      linux_aarch64) build_linux_aarch64 ;;
+      linux_arm64) build_linux_arm64 ;;
       win_x64) build_win_x64 ;;
       mac_x64) build_mac_x64 ;;
       *)
@@ -109,8 +109,8 @@ case $DIST_TARGET_FILTER in
     build_mac_x64
     build_linux_x64
     build_linux_armv7
-    ## do not build aarch64 by default
-    # build_linux_aarch64
+    ## do not build arm64 by default
+    # build_linux_arm64
     build_linux_musl_x64
     build_win_x64
     ;;
