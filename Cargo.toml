@@ -78,3 +78,7 @@ developer-mode = []
 asm = ["sha2", "sha2-asm"]
 aarch64 = ["developer-mode", "sha2"]
 default = ["developer-mode", "asm"]
+
+
+[workspace]
+members = [".", "testnet/helium/"]

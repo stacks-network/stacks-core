@@ -1,0 +1,2 @@
+[alias]
+testnet = "run --package stacks-helium --"

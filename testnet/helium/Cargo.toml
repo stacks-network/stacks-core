@@ -8,7 +8,7 @@ edition = "2018"
 toml = "0.5.6"
 bitcoincore-rpc = "0.9.1"
 rand = "=0.7.2"
-stacks = { package = "blockstack-core", path = "../../../../blockstack-core" }
+stacks = { package = "blockstack-core", path = "../../../blockstack-core" }
 serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision"] }
