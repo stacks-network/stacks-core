@@ -280,8 +280,8 @@ impl BurnchainBlock {
 }
 
 impl Burnchain {
-    pub fn new(working_dir: &String, chain_name: &String, network_name: &String) -> Result<Burnchain, burnchain_error> {
-        let params = match (chain_name.as_str(), network_name.as_str()) {
+    pub fn new(working_dir: &str, chain_name: &str, network_name: &str) -> Result<Burnchain, burnchain_error> {
+        let params = match (chain_name, network_name) {
             ("bitcoin", "mainnet") => BurnchainParameters::bitcoin_mainnet(),
             ("bitcoin", "testnet") => BurnchainParameters::bitcoin_testnet(),
             ("bitcoin", "regtest") => BurnchainParameters::bitcoin_regtest(),
@@ -295,7 +295,7 @@ impl Burnchain {
             network_id: params.network_id,
             chain_name: params.chain_name.clone(),
             network_name: params.network_name.clone(),
-            working_dir: working_dir.clone(),
+            working_dir: working_dir.into(),
             consensus_hash_lifetime: params.consensus_hash_lifetime,
             stable_confirmations: params.stable_confirmations,
             first_block_height: params.first_block_height,

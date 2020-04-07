@@ -79,6 +79,16 @@ fn get_lines_at(input: &str) -> Vec<usize> {
     out
 }
 
+lazy_static! {
+    pub static ref STANDARD_PRINCIPAL_REGEX: String = "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into();
+    pub static ref CONTRACT_NAME_REGEX: String = format!(r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
+                                                         CONTRACT_MIN_NAME_LENGTH - 1, CONTRACT_MAX_NAME_LENGTH - 1);
+    pub static ref CONTRACT_PRINCIPAL_REGEX: String =
+        format!(r#"{}(\.){}"#, *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX);
+    pub static ref PRINCIPAL_DATA_REGEX: String = format!("({})|({})", *STANDARD_PRINCIPAL_REGEX, *CONTRACT_PRINCIPAL_REGEX);
+    pub static ref CLARITY_NAME_REGEX: String = format!(r#"([[:word:]]|[-!?+<>=/*]){{1,{}}}"#, MAX_STRING_LEN); 
+}
+
 pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     // Aaron: I'd like these to be static, but that'd require using
     //    lazy_static (or just hand implementing that), and I'm not convinced
@@ -100,17 +110,14 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
-        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
-            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH, MAX_STRING_LEN),
-            TokenType::FullyQualifiedFieldIdentifierLiteral),
-        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
-            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH, MAX_STRING_LEN), TokenType::SugaredFieldIdentifierLiteral),
-        LexMatcher::new(&format!(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{{28,41}}(\.)([[:alnum:]]|[-]){{{},{}}})"#,
-            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::FullyQualifiedContractIdentifierLiteral),
-        LexMatcher::new(&format!(r#"(?P<value>(\.)([[:alnum:]]|[-]){{{},{}}})"#,
-            CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_LENGTH), TokenType::SugaredContractIdentifierLiteral),
-        LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
-        LexMatcher::new("(?P<value>([[:word:]]|[-!?+<>=/*])+)", TokenType::Variable),
+        LexMatcher::new(&format!(r#"'(?P<value>{}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
+                                 *CONTRACT_PRINCIPAL_REGEX, MAX_STRING_LEN), TokenType::FullyQualifiedFieldIdentifierLiteral),
+        LexMatcher::new(&format!(r#"(?P<value>(\.){}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
+                                 *CONTRACT_NAME_REGEX, MAX_STRING_LEN), TokenType::SugaredFieldIdentifierLiteral),
+        LexMatcher::new(&format!(r#"'(?P<value>{})"#, *CONTRACT_PRINCIPAL_REGEX), TokenType::FullyQualifiedContractIdentifierLiteral),
+        LexMatcher::new(&format!(r#"(?P<value>(\.){})"#, *CONTRACT_NAME_REGEX), TokenType::SugaredContractIdentifierLiteral),
+        LexMatcher::new(&format!("'(?P<value>{})", *STANDARD_PRINCIPAL_REGEX), TokenType::PrincipalLiteral),
+        LexMatcher::new(&format!("(?P<value>{})", *CLARITY_NAME_REGEX), TokenType::Variable),
     ];
 
     let mut context = LexContext::ExpectNothing;

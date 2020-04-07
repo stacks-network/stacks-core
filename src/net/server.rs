@@ -312,7 +312,9 @@ impl HttpPeer {
 
     /// Process network traffic on a HTTP conversation.
     /// Returns whether or not the convo is still alive.
-    fn process_http_conversation(chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState, event_id: usize, client_sock: &mut mio_net::TcpStream, convo: &mut ConversationHttp) -> Result<bool, net_error> {
+    fn process_http_conversation(chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+                                 chainstate: &mut StacksChainState, event_id: usize, client_sock: &mut mio_net::TcpStream,
+                                 convo: &mut ConversationHttp) -> Result<bool, net_error> {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
         let recv_res = convo.recv(client_sock);
@@ -375,7 +377,8 @@ impl HttpPeer {
     /// Process sockets that are ready, but specifically inbound or outbound only.
     /// Advance the state of all such conversations with remote peers.
     /// Return the list of events that correspond to failed conversations
-    fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState) -> Vec<usize> {
+    fn process_ready_sockets(&mut self, poll_state: &mut NetworkPollState, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+                             chainstate: &mut StacksChainState) -> Vec<usize> {
         let mut to_remove = vec![];
         for event_id in &poll_state.ready {
             if !self.sockets.contains_key(&event_id) {
@@ -396,7 +399,8 @@ impl HttpPeer {
                 Some(ref mut convo) => {
                     // activity on a http socket
                     test_debug!("Process HTTP data from {:?}", convo);
-                    match HttpPeer::process_http_conversation(&self.chain_view, burndb, peerdb, chainstate, *event_id, client_sock, convo) {
+                    match HttpPeer::process_http_conversation(&self.chain_view, burndb, peerdb,
+                                                              chainstate, *event_id, client_sock, convo) {
                         Ok(alive) => {
                             if !alive {
                                 to_remove.push(*event_id);
@@ -480,7 +484,8 @@ impl HttpPeer {
     /// -- send data on ready sockets
     /// -- receive data on ready sockets
     /// -- clear out timed-out requests
-    fn dispatch_network(&mut self, new_chain_view: BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState, mut poll_state: NetworkPollState) -> Result<(), net_error> {
+    fn dispatch_network(&mut self, new_chain_view: BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+                        chainstate: &mut StacksChainState, mut poll_state: NetworkPollState) -> Result<(), net_error> {
         if self.network.is_none() {
             test_debug!("HTTP not connected");
             return Err(net_error::NotConnected);
@@ -531,7 +536,8 @@ impl HttpPeer {
     /// Top-level main-loop circuit to take for http server and clients.
     /// -- polls the http server state to get new sockets and detect ready sockets
     /// -- carries out http network conversations
-    pub fn run(&mut self, new_chain_view: BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState, poll_timeout: u64) -> Result<(), net_error> {
+    pub fn run(&mut self, new_chain_view: BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+               chainstate: &mut StacksChainState, poll_timeout: u64) -> Result<(), net_error> {
         let poll_state = match self.network {
             None => {
                 test_debug!("HTTP not connected");

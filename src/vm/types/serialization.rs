@@ -1,6 +1,7 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError, 
                  IncomparableError, Error as ClarityError, CheckErrors};
 use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, BufferLength, MAX_VALUE_SIZE,
+                BOUND_VALUE_SERIALIZATION_BYTES,
                 TypeSignature, TupleData, QualifiedContractIdentifier, ResponseData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 use vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
@@ -246,7 +247,7 @@ macro_rules! check_match {
 
 impl Value {
     pub fn deserialize_read<R: Read>(r: &mut R, expected_type: Option<&TypeSignature>) -> Result<Value, SerializationError> {
-        let mut bound_reader = BoundReader::from_reader(r, 2 * MAX_VALUE_SIZE as u64);
+        let mut bound_reader = BoundReader::from_reader(r, BOUND_VALUE_SERIALIZATION_BYTES as u64);
         Value::inner_deserialize_read(&mut bound_reader, expected_type, 0)
     }
 
@@ -530,6 +531,11 @@ impl Value {
     }
 
     pub fn try_deserialize_hex_untyped(hex: &str) -> Result<Value, SerializationError> {
+        let hex = if hex.starts_with("0x") {
+            &hex[2..]
+        } else {
+            &hex
+        };
         let mut data = hex_bytes(hex)
             .map_err(|_| "Bad hex string")?;
         Value::try_deserialize_bytes_untyped(&mut data)
@@ -547,6 +553,13 @@ impl ClaritySerializable for Value {
         self.serialize_write(&mut byte_serialization)
             .expect("IOError filling byte buffer.");
         to_hex(byte_serialization.as_slice())
+    }
+}
+
+impl ClarityDeserializable<Value> for Value {
+    fn deserialize(hex: &str) -> Self {
+        Value::try_deserialize_hex_untyped(hex)
+            .expect("ERROR: Failed to parse Clarity hex string")
     }
 }
 
@@ -813,6 +826,9 @@ mod tests {
             assert_eq!(
                 expected,
                 &Value::try_deserialize_hex_untyped(test));
+            assert_eq!(
+                expected,
+                &Value::try_deserialize_hex_untyped(&format!("0x{}", test)));
         }
     }
 
