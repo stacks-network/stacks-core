@@ -6,9 +6,9 @@ pub use self::bitcoin_regtest_controller::{BitcoinRegtestController};
 
 use super::operations::{BurnchainOperationType, BurnchainOpSigner};
 
-use burnchains::{BurnchainStateTransition};
-use chainstate::burn::db::burndb::{BurnDB};
-use chainstate::burn::{BlockSnapshot};
+use stacks::burnchains::{BurnchainStateTransition};
+use stacks::chainstate::burn::db::burndb::{BurnDB};
+use stacks::chainstate::burn::{BlockSnapshot};
 
 #[derive(Debug, Clone)]
 pub struct BurnchainTip {

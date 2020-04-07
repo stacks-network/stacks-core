@@ -1,34 +1,27 @@
 use super::{Config, Node, BurnchainController, MockBurnchainController, BitcoinRegtestController, BurnchainTip, Tenure};
 
-use super::tenure::TenureArtifacts;
-
-use burnchains::Address;
-use burnchains::bitcoin::BitcoinNetworkType;
-use chainstate::burn::{ConsensusHash};
-use chainstate::stacks::db::{StacksHeaderInfo, StacksChainState, ClarityTx};
-use chainstate::burn::{BlockHeaderHash};
-use chainstate::stacks::{StacksBlock, TransactionAuth, TransactionSpendingCondition, SinglesigSpendingCondition, TransactionPayload};
-use chainstate::stacks::events::StacksTransactionReceipt;
-
-use util::sleep_ms;
+use stacks::chainstate::stacks::db::{StacksHeaderInfo, StacksChainState, ClarityTx};
+use stacks::chainstate::stacks::{StacksBlock, TransactionAuth, TransactionSpendingCondition, TransactionPayload};
+use stacks::chainstate::stacks::events::StacksTransactionReceipt;
+use stacks::util::sleep_ms;
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
 pub struct RunLoop {
     config: Config,
-    node: Node,
+    pub node: Node,
     new_burnchain_state_callback: Option<fn(u64, &BurnchainTip)>,
     new_tenure_callback: Option<fn(u64, &Tenure)>,
     new_chain_state_callback: Option<fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>)>,
 }
 
-#[allow(unused_macros)]
 macro_rules! info_blue {
     ($($arg:tt)*) => ({
         eprintln!("\x1b[0;96m{}\x1b[0m", format!($($arg)*));
     })
 }
 
+#[allow(unused_macros)]
 macro_rules! info_yellow {
     ($($arg:tt)*) => ({
         eprintln!("\x1b[0;33m{}\x1b[0m", format!($($arg)*));
@@ -96,6 +89,8 @@ impl RunLoop {
         // Sync and update node with this new block.
         let state_1 = burnchain.sync();
         self.node.process_burnchain_state(&state_1);
+
+        self.node.spawn_peer_server();
 
         // Bootstrap the chain: node will start a new tenure,
         // using the sortition hash from block #1 for generating a VRF.
@@ -240,7 +235,6 @@ impl RunLoop {
 
     fn handle_new_tenure_cb(new_tenure_callback: &Option<fn(u64, &Tenure)>,
                             round_index: u64, tenure: &Tenure) {
-        info_yellow!("Node starting new tenure with VRF {:?}", tenure.vrf_seed);
         new_tenure_callback.map(|cb| cb(round_index, tenure));
     }
 

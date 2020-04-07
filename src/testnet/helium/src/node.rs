@@ -1,30 +1,22 @@
-use super::{Keychain, MemPool, MemPoolFS, Config, Tenure, BurnchainController, BurnchainTip, EventDispatcher};
+use super::{Keychain, MemPoolFS, Config, Tenure, BurnchainController, BurnchainTip, EventDispatcher};
 use super::operations::{BurnchainOperationType, LeaderBlockCommitPayload, LeaderKeyRegisterPayload};
 
-use std::collections::HashMap;
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::sync::{Arc, Mutex};
 use std::convert::TryFrom;
 use std::{thread, time, thread::JoinHandle};
 use std::net::SocketAddr;
 
-use address::AddressHashMode;
-use burnchains::{Burnchain, BurnchainHeaderHash, Txid};
-use chainstate::burn::db::burndb::{BurnDB};
-use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
-use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
-use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, BlockHeaderHash};
-use net::{ StacksMessageType, StacksMessageCodec,
-           p2p::PeerNetwork, connection::ConnectionOptions, Error as NetError,
-           db::{ PeerDB, LocalPeer } };
-
-use util::hash::Sha256Sum;
-use util::vrf::{VRFProof, VRFPublicKey};
-use util::get_epoch_time_secs;
-use util::strings::UrlString;
-use vm::types::PrincipalData;
+use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
+use stacks::chainstate::burn::db::burndb::{BurnDB};
+use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
+use stacks::chainstate::stacks::events::StacksTransactionReceipt;
+use stacks::chainstate::stacks::{ StacksBlock, TransactionPayload, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, TransactionAnchorMode};
+use stacks::chainstate::burn::operations::BlockstackOperationType;
+use stacks::chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, BlockHeaderHash};
+use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer } };
+use stacks::util::hash::Sha256Sum;
+use stacks::util::vrf::VRFPublicKey;
+use stacks::util::get_epoch_time_secs;
+use stacks::util::strings::UrlString;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xdead1010;
@@ -67,7 +59,6 @@ impl SortitionedBlock {
 /// Node is a structure modelising an active node working on the stacks chain.
 pub struct Node {
     active_registered_key: Option<RegisteredKey>,
-    average_block_time: u64,
     bootstraping_chain: bool,
     burnchain_tip: Option<BlockSnapshot>,
     pub chain_state: StacksChainState,
@@ -149,7 +140,6 @@ impl Node {
             keychain,
             last_sortitioned_block: None,
             mem_pool,
-            average_block_time: config.burnchain.block_time,
             config,
             burnchain_tip: None,
             nonce: 0,
@@ -163,9 +153,10 @@ impl Node {
         let mut burndb = BurnDB::open(&self.config.get_burn_db_path(), true)
             .expect("Error while instantiating burnchain db");
 
-        let burnchain = Burnchain::new(&self.config.get_burn_db_path(),
-                                       &self.config.burnchain.chain, &self.config.burnchain.mode)
-            .expect("Error while instantiating burnchain");
+        let burnchain = Burnchain::new(
+            &self.config.get_burn_db_path(),
+            &self.config.burnchain.chain,
+            "regtest").expect("Error while instantiating burnchain");
 
         let view = {
             let mut tx = burndb.tx_begin().unwrap();
@@ -339,7 +330,6 @@ impl Node {
         // Construct the upcoming tenure
         let tenure = Tenure::new(
             chain_tip, 
-            self.average_block_time,
             coinbase_tx,
             self.config.clone(),
             self.mem_pool.clone(),

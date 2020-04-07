@@ -161,7 +161,6 @@ impl ClarityInstance {
         }
     }
 
-    #[cfg(test)]
     pub fn eval_read_only(&mut self, at_block: &BlockHeaderHash, header_db: &dyn HeadersDB,
                           contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
         self.datastore.as_mut().unwrap()

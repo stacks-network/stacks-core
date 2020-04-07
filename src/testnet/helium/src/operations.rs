@@ -1,17 +1,15 @@
-use std::io;
-use std::io::prelude::*;
 use std::io::{Read, Write};
 use rand::RngCore;
 
-use burnchains::{BurnchainSigner, PrivateKey};
-use chainstate::burn::{BlockHeaderHash, ConsensusHash, Opcodes, VRFSeed};
-use chainstate::stacks::StacksAddress;
-use net::StacksMessageCodec;
-use net::codec::{write_next};
-use net::Error as net_error;
-use util::hash::Hash160;
-use util::vrf::VRFPublicKey;
-use util::secp256k1::{MessageSignature, Secp256k1PublicKey, Secp256k1PrivateKey};
+use stacks::burnchains::{BurnchainSigner, PrivateKey};
+use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, Opcodes, VRFSeed};
+use stacks::chainstate::stacks::StacksAddress;
+use stacks::net::StacksMessageCodec;
+use stacks::net::codec::{write_next};
+use stacks::net::Error as net_error;
+use stacks::util::hash::Hash160;
+use stacks::util::vrf::VRFPublicKey;
+use stacks::util::secp256k1::{MessageSignature, Secp256k1PublicKey, Secp256k1PrivateKey};
 
 
 #[derive(Debug, Clone)]
@@ -146,7 +144,6 @@ pub struct BurnchainOpSigner {
     is_one_off: bool,
     is_disposed: bool,
     usages: u8,
-    session_id: [u8; 16]
 }
 
 impl BurnchainOpSigner {
@@ -160,7 +157,6 @@ impl BurnchainOpSigner {
             usages: 0,
             is_one_off,
             is_disposed: false,
-            session_id,
         }
     }
 

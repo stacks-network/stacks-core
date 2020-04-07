@@ -1,22 +1,19 @@
-use testnet;
-use rand::RngCore;
-use util::hash::{to_hex, hex_bytes};
-use testnet::helium::mem_pool::MemPool;
-use chainstate::stacks::db::{StacksChainState};
-use chainstate::stacks::events::{StacksTransactionEvent, STXEventType};
+// mod integrations;
+
+use stacks::chainstate::stacks::events::{StacksTransactionEvent, STXEventType};
+use stacks::chainstate::stacks::{TransactionPayload};
+use stacks::util::hash::{hex_bytes};
+
+use super::{MemPool, Config, RunLoop};
 use super::node::{TESTNET_CHAIN_ID};
-use super::config::{InitialBalance};
 
-use chainstate::stacks::{TransactionPayload, CoinbasePayload};
-use vm::types::PrincipalData;
-
-pub fn new_test_conf() -> testnet::helium::Config {
+pub fn new_test_conf() -> Config {
     
     // secretKey: "b1cf9cee5083f421c84d7cb53be5edf2801c3c78d63d53917aee0bdc8bd160ee01",
     // publicKey: "03e2ed46873d0db820e8c6001aabc082d72b5b900b53b7a1b9714fe7bde3037b81",
     // stacksAddress: "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
 
-    let mut conf = testnet::helium::Config::default();
+    let mut conf = Config::default();
     conf.add_initial_balance("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(), 10000);
     conf
 }
@@ -26,7 +23,7 @@ fn should_succeed_mining_valid_txs() {
     let conf = new_test_conf();
     
     let num_rounds = 6;
-    let mut run_loop = testnet::helium::RunLoop::new(conf);
+    let mut run_loop = RunLoop::new(conf);
 
     // Use tenure's hook for submitting transactions
     run_loop.apply_on_new_tenures(|round, tenure| {
@@ -270,7 +267,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     let conf = new_test_conf();
     
     let num_rounds = 4;
-    let mut run_loop = testnet::helium::RunLoop::new(conf);
+    let mut run_loop = RunLoop::new(conf);
 
     // Use tenure's hook for submitting transactions
     run_loop.apply_on_new_tenures(|round, tenure| {
@@ -320,7 +317,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _receipts| {
+    run_loop.apply_on_new_chain_states(|round, _chain_state, block, chain_tip_info, _receipts| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.

@@ -1,0 +1,24 @@
+[package]
+name = "stacks-helium"
+version = "0.1.0"
+authors = ["Ludo Galabru <ludovic@blockstack.com>"]
+edition = "2018"
+
+[dependencies]
+toml = "0.5.6"
+bitcoincore-rpc = "0.9.1"
+rand = "=0.7.2"
+stacks = { package = "blockstack-core", path = "../../../../blockstack-core" }
+serde = "1"
+serde_derive = "1"
+serde_json = { version = "1.0", features = ["arbitrary_precision"] }
+secp256k1 = { version = "0.11.5" }
+mio = "0.6"
+lazy_static = "1.4.0"
+
+[dev-dependencies]
+reqwest = { version = "0.10", features = ["blocking", "json"] }
+
+[[bin]]
+name = "stacks-helium"
+path = "src/main.rs"

@@ -39,7 +39,6 @@ extern crate time;
 extern crate byteorder;
 extern crate mio;
 extern crate url;
-extern crate bitcoincore_rpc;
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;
@@ -183,28 +182,6 @@ fn main() {
                 panic!("Program Execution Error: \n{}", error);
             }
         }
-        return
-    }
-
-    if argv[1] == "testnet" {
-        use testnet;
-
-        let conf = match argv.len() {
-            n if n >= 3 => {
-                println!("Starting testnet with config {}...", argv[2]);
-                testnet::helium::Config::from_config_file_path(&argv[2])
-            },
-            _ => {
-                println!("Starting testnet with default config...");
-                testnet::helium::Config::default()
-            }
-        };
-
-        println!("*** Mempool path: {}", conf.mempool.path);
-
-        let mut run_loop = testnet::helium::RunLoop::new(conf);
-        let num_round: u64 = 0; // Infinite number of rounds
-        run_loop.start(num_round);
         return
     }
 

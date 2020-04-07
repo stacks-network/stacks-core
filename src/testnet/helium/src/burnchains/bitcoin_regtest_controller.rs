@@ -1,11 +1,6 @@
-use std::collections::VecDeque;
-use std::sync::mpsc;
-use std::thread;
-use std::time;
-use std::sync::{Arc, Mutex};
 use std::io::Cursor;
 
-use super::super::bitcoincore_rpc::{Auth, Client, RpcApi, RawTx};
+use bitcoincore_rpc::{Auth, Client, RpcApi, RawTx};
 
 use secp256k1::{Secp256k1};
 
@@ -13,27 +8,22 @@ use super::{BurnchainController, BurnchainTip};
 use super::super::operations::{BurnchainOperationType, LeaderKeyRegisterPayload, LeaderBlockCommitPayload, UserBurnSupportPayload, BurnchainOpSigner};
 use super::super::Config;
 
-use burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid, BurnchainSigner};
-use burnchains::bitcoin::{BitcoinBlock, BitcoinNetworkType};
-use burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
-use burnchains::bitcoin::spv::SpvClient; 
-use burnchains::indexer::BurnchainIndexer;
-use burnchains::{PrivateKey, PublicKey};
-use chainstate::burn::db::burndb::{BurnDB};
-use chainstate::burn::{BlockSnapshot};
-use chainstate::burn::operations::{BlockstackOperationType};
-use deps::bitcoin::blockdata::transaction::{Transaction, TxIn, TxOut, OutPoint, SigHashType};
-use deps::bitcoin::blockdata::opcodes;
-use deps::bitcoin::blockdata::script::{Script, Builder};
-use deps::bitcoin::network::message::NetworkMessage;
-use deps::bitcoin::network::encodable::ConsensusEncodable;
-use deps::bitcoin::network::serialize::RawEncoder;
-use deps::bitcoin::util::hash::Sha256dHash;
-use net::StacksMessageCodec;
-use util::get_epoch_time_secs;
-use util::hash::{Sha256Sum, Hash160, hex_bytes};
-use util::secp256k1::{Secp256k1PublicKey};
-use util::sleep_ms;
+use stacks::burnchains::Burnchain;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
+use stacks::burnchains::bitcoin::spv::SpvClient; 
+use stacks::burnchains::PublicKey;
+use stacks::chainstate::burn::db::burndb::{BurnDB};
+use stacks::deps::bitcoin::blockdata::transaction::{Transaction, TxIn, TxOut, OutPoint};
+use stacks::deps::bitcoin::blockdata::opcodes;
+use stacks::deps::bitcoin::blockdata::script::{Script, Builder};
+use stacks::deps::bitcoin::network::encodable::ConsensusEncodable;
+use stacks::deps::bitcoin::network::serialize::RawEncoder;
+use stacks::deps::bitcoin::util::hash::Sha256dHash;
+use stacks::net::StacksMessageCodec;
+use stacks::util::hash::{Hash160, hex_bytes};
+use stacks::util::secp256k1::{Secp256k1PublicKey};
+use stacks::util::sleep_ms;
 
 pub struct BitcoinRegtestController {
     config: Config,
@@ -42,12 +32,25 @@ pub struct BitcoinRegtestController {
     chain_tip: Option<BurnchainTip>,
 }
 
-impl RawTx for Transaction {
-    fn raw_hex(self) -> String {
+#[derive(Debug, Clone)]
+struct SerializedTx {
+    bytes: Vec<u8>
+}
+
+impl SerializedTx {
+    pub fn new(tx: Transaction) -> SerializedTx {
         let mut encoder = RawEncoder::new(Cursor::new(vec![]));
-        self.consensus_encode(&mut encoder).expect("BUG: failed to serialize to a vec");
+        tx.consensus_encode(&mut encoder).expect("BUG: failed to serialize to a vec");
         let bytes: Vec<u8> = encoder.into_inner().into_inner(); 
-        let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+        SerializedTx {
+            bytes
+        }
+    }
+}
+
+impl RawTx for SerializedTx {
+    fn raw_hex(self) -> String {
+        let formatted_bytes: Vec<String> = self.bytes.iter().map(|b| format!("{:02x}", b)).collect();
         format!("{}", formatted_bytes.join(""))
     }
 }
@@ -115,7 +118,7 @@ impl BurnchainController for BitcoinRegtestController {
         };
 
         let transaction = match transaction {
-            Some(tx) => tx,
+            Some(tx) => SerializedTx::new(tx),
             _ => return
         };
 
@@ -434,7 +437,7 @@ impl BitcoinRegtestController {
         unimplemented!()
     }
 
-    fn send_transaction(&self, transaction: Transaction) -> bool {
+    fn send_transaction(&self, transaction: SerializedTx) -> bool {
         let rpc = self.get_rpc_client();
 
         match rpc.send_raw_transaction(transaction) {

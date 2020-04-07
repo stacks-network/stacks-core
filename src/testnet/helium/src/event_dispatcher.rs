@@ -1,18 +1,17 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::thread::spawn;
 use std::net::{SocketAddr};
+
 use mio::tcp::TcpStream;
 use serde_json::json;
-use serde::Serialize;
 
-use vm::types::{Value, QualifiedContractIdentifier, AssetIdentifier};
-use vm::analysis::{contract_interface_builder::build_contract_interface};
-use burnchains::Txid;
-use chainstate::stacks::StacksBlock;
-use chainstate::stacks::events::{StacksTransactionReceipt, StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
-use chainstate::stacks::db::StacksHeaderInfo;
-use net::StacksMessageCodec;
+use stacks::burnchains::Txid;
+use stacks::chainstate::stacks::StacksBlock;
+use stacks::chainstate::stacks::events::{StacksTransactionReceipt, StacksTransactionEvent, STXEventType, FTEventType, NFTEventType};
+use stacks::chainstate::stacks::db::StacksHeaderInfo;
+use stacks::net::StacksMessageCodec;
+use stacks::vm::types::{Value, QualifiedContractIdentifier, AssetIdentifier};
+use stacks::vm::analysis::{contract_interface_builder::build_contract_interface};
 
 use super::config::{EventObserverConfig, EventKeyType};
 

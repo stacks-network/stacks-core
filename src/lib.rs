@@ -47,9 +47,6 @@ extern crate url;
 #[macro_use]
 extern crate assert_json_diff;
 
-#[cfg(test)]
-extern crate reqwest;
-
 #[macro_use]
 pub mod util;
 
@@ -66,4 +63,3 @@ pub mod deps;
 pub mod vm;
 
 pub mod clarity;
-pub mod testnet;

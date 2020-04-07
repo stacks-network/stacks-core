@@ -1,25 +1,21 @@
-use std::sync::mpsc;
-use std::thread;
-use std::time;
-use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
 
 use super::super::{Config};
 use super::{BurnchainController, BurnchainOperationType, BurnchainTip};
 use super::super::operations::BurnchainOpSigner;
 
-use burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid, BurnchainStateTransition};
-use burnchains::bitcoin::BitcoinBlock;
-use chainstate::burn::db::burndb::{BurnDB};
-use chainstate::burn::{BlockSnapshot};
-use chainstate::burn::operations::{
+use stacks::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid, BurnchainStateTransition};
+use stacks::burnchains::bitcoin::BitcoinBlock;
+use stacks::chainstate::burn::db::burndb::{BurnDB};
+use stacks::chainstate::burn::{BlockSnapshot};
+use stacks::chainstate::burn::operations::{
     LeaderBlockCommitOp,
     LeaderKeyRegisterOp,
     UserBurnSupportOp,
     BlockstackOperationType,
 };
-use util::hash::Sha256Sum;
-use util::get_epoch_time_secs;
+use stacks::util::hash::Sha256Sum;
+use stacks::util::get_epoch_time_secs;
 
 /// SimBurnchainController is simulating a simplistic burnchain.
 pub struct MockBurnchainController {

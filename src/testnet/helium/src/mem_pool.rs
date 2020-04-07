@@ -1,16 +1,13 @@
-use std::thread;
-use std::time;
 use std::fs;
-use std::io;
 use std::io::Read;
 use std::io::BufReader;
 use std::io::prelude::*;
-use rand::RngCore;
-use util::hash::{to_hex};
 
-use burnchains::{Txid};
-use chainstate::stacks::{StacksTransaction};
-use net::StacksMessageCodec;
+use rand::RngCore;
+
+use stacks::chainstate::stacks::{StacksTransaction};
+use stacks::net::StacksMessageCodec;
+use stacks::util::hash::{to_hex};
 
 pub trait MemPool {
     fn poll(&mut self) -> Vec<StacksTransaction>;

@@ -1,15 +1,12 @@
 use super::{MemPool, MemPoolFS, Config};
 use super::node::{SortitionedBlock, TESTNET_CHAIN_ID};
 
-use std::thread;
 use std::time;
 
-use burnchains::{BurnchainHeaderHash, Txid};
-use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
-use chainstate::stacks::{StacksPrivateKey, StacksBlock, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
-use chainstate::stacks::{MINER_BLOCK_BURN_HEADER_HASH, MINER_BLOCK_HEADER_HASH};
-use chainstate::burn::{VRFSeed, BlockHeaderHash};
-use util::vrf::{VRFProof};
+use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
+use stacks::chainstate::stacks::{StacksPrivateKey, StacksBlock, StacksWorkScore, StacksTransaction, StacksMicroblock, StacksBlockBuilder};
+use stacks::chainstate::burn::VRFSeed;
+use stacks::util::vrf::VRFProof;
 
 pub struct TenureArtifacts {
     pub anchored_block: StacksBlock,
@@ -19,13 +16,11 @@ pub struct TenureArtifacts {
 }
 
 pub struct Tenure {
-    average_block_time: u64,
     block_builder: StacksBlockBuilder,
     coinbase_tx: StacksTransaction,
     config: Config,
     last_sortitioned_block: SortitionedBlock,
     pub mem_pool: MemPoolFS,
-    parent_block: StacksHeaderInfo,
     started_at: std::time::Instant,
     pub vrf_seed: VRFSeed,
     burn_fee_cap: u64,
@@ -34,7 +29,6 @@ pub struct Tenure {
 impl <'a> Tenure {
 
     pub fn new(parent_block: StacksHeaderInfo, 
-               average_block_time: u64,
                coinbase_tx: StacksTransaction,
                config: Config,
                mem_pool: MemPoolFS,
@@ -56,13 +50,11 @@ impl <'a> Tenure {
         };
 
         Self {
-            average_block_time,
             block_builder,
             coinbase_tx,
             config,
             last_sortitioned_block,
             mem_pool,
-            parent_block,
             started_at: now,
             vrf_seed: VRFSeed::from_proof(&vrf_proof),
             burn_fee_cap,
@@ -80,6 +72,7 @@ impl <'a> Tenure {
     }
 
     pub fn run(&mut self) -> Option<TenureArtifacts> {
+        info!("Node starting new tenure with VRF {:?} at {:?}", self.vrf_seed, self.started_at);
 
         let mut chain_state = StacksChainState::open(
             false, 

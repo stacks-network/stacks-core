@@ -1,14 +1,12 @@
 use std::collections::HashMap;
-use rand::RngCore;
 
 use super::operations::BurnchainOpSigner;
 
-use chainstate::stacks::{StacksTransactionSigner, TransactionAuth, StacksPublicKey, StacksPrivateKey, StacksAddress};
-use address::AddressHashMode;
-use burnchains::{BurnchainSigner, BurnchainHeaderHash, PrivateKey};
-use util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
-use util::hash::{Sha256Sum};
-use util::secp256k1::{MessageSignature, Secp256k1PublicKey, Secp256k1PrivateKey};
+use stacks::chainstate::stacks::{StacksTransactionSigner, TransactionAuth, StacksPublicKey, StacksPrivateKey, StacksAddress};
+use stacks::address::AddressHashMode;
+use stacks::burnchains::{BurnchainSigner, PrivateKey};
+use stacks::util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
+use stacks::util::hash::{Sha256Sum};
 
 pub struct Keychain {
     secret_keys: Vec<StacksPrivateKey>, 
@@ -18,7 +16,6 @@ pub struct Keychain {
     microblocks_secret_keys: Vec<StacksPrivateKey>,
     vrf_secret_keys: Vec<VRFPrivateKey>,
     vrf_map: HashMap<VRFPublicKey, VRFPrivateKey>,
-    sessions_ids: HashMap<[u8; 16], bool>
 }
 
 impl Keychain {
@@ -41,7 +38,6 @@ impl Keychain {
             threshold,
             vrf_secret_keys: vec![],
             vrf_map: HashMap::new(),
-            sessions_ids: HashMap::new(),
         }
     }
 

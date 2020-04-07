@@ -1,12 +1,16 @@
 use std::convert::TryInto;
 use std::io::{BufReader, Read};
-use std::fs::{File};
+use std::fs::File;
 
-use burnchains::{Address, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
-use burnchains::bitcoin::indexer::{FIRST_BLOCK_REGTEST, FIRST_BLOCK_MAINNET};
-use vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier} ;
 use rand::RngCore;
-use util::hash::{to_hex};
+
+use stacks::burnchains::{
+    MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
+use stacks::net::connection::ConnectionOptions;
+use stacks::util::hash::{to_hex};
+use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier} ;
+
 
 #[derive(Clone, Deserialize)]
 pub struct ConfigFile {

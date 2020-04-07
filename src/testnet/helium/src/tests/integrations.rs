@@ -1,29 +1,23 @@
-use vm::{
-    database::{ HeadersDB, ClaritySerializable },
+use std::collections::HashMap;
+
+use stacks::vm::{
+    database::ClaritySerializable,
     types::{QualifiedContractIdentifier, TupleData},
     analysis::{mem_type_check, contract_interface_builder::{build_contract_interface, ContractInterface}},
-    Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
-use chainstate::stacks::{
+    Value, ClarityName, ContractName };
+use stacks::chainstate::stacks::{
     db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     StacksMicroblockHeader, StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
     StacksPublicKey, TransactionPayload, StacksTransactionSigner,
     TokenTransferMemo, CoinbasePayload,
     StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress };
-use chainstate::burn::VRFSeed;
-use burnchains::Address;
-use address::AddressHashMode;
-use net::{Error as NetError, StacksMessageCodec, AccountEntryResponse, ContractSrcResponse, CallReadOnlyRequestBody};
-use util::{log, strings::StacksString, hash::hex_bytes, hash::to_hex};
-use std::collections::HashMap;
-use util::db::{DBConn, FromRow};
+use stacks::chainstate::burn::VRFSeed;
+use stacks::burnchains::Address;
+use stacks::address::AddressHashMode;
+use stacks::net::{StacksMessageCodec, AccountEntryResponse, ContractSrcResponse, CallReadOnlyRequestBody};
+use stacks::util::{strings::StacksString};
 
-use std::{thread, time};
-
-use testnet;
-use testnet::helium::{
-    mem_pool::MemPool,
-    config::InitialBalance
-};
+use super::super::{MemPool, RunLoop, config::InitialBalance};
 
 use reqwest;
 
@@ -177,7 +171,7 @@ lazy_static! {
 
 #[test]
 fn integration_test_get_info() {
-    let mut conf = testnet::helium::tests::new_test_conf();
+    let mut conf = super::new_test_conf();
     let spender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap()).into();
 
     conf.initial_balances.push(InitialBalance { 
@@ -189,7 +183,7 @@ fn integration_test_get_info() {
 
     let num_rounds = 4;
 
-    let mut run_loop = testnet::helium::RunLoop::new(conf);
+    let mut run_loop = RunLoop::new(conf);
 
     { 
         let mut http_opt = http_binding.lock().unwrap();
