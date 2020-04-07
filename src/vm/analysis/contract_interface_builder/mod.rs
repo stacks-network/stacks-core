@@ -21,6 +21,7 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         contract_identifier: _,
         type_map: _,
         cost_track: _,
+        contract_interface: _,
     } = contract_analysis;
 
     contract_interface.functions.append(
@@ -60,21 +61,21 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
     contract_interface
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ContractInterfaceFunctionAccess {
     private,
     public,
     read_only,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractInterfaceTupleEntryType {
     pub name: String,
     #[serde(rename = "type")]
     pub type_f: ContractInterfaceAtomType,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ContractInterfaceAtomType {
     none,
     int128,
@@ -93,12 +94,12 @@ pub enum ContractInterfaceAtomType {
     trait_reference,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractInterfaceFungibleTokens {
     pub name: String
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractInterfaceNonFungibleTokens {
     pub name: String,
     #[serde(rename = "type")]
@@ -152,7 +153,7 @@ impl ContractInterfaceAtomType {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractInterfaceFunctionArg {
     pub name: String,
     #[serde(rename = "type")]
@@ -172,13 +173,13 @@ impl ContractInterfaceFunctionArg {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractInterfaceFunctionOutput {
     #[serde(rename = "type")]
     pub type_f: ContractInterfaceAtomType,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractInterfaceFunction {
     pub name: String,
     pub access: ContractInterfaceFunctionAccess,
@@ -211,13 +212,13 @@ impl ContractInterfaceFunction {
     }
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ContractInterfaceVariableAccess {
     constant,
     variable,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractInterfaceVariable { 
     pub name: String,
     #[serde(rename = "type")]
@@ -253,7 +254,7 @@ impl ContractInterfaceVariable {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractInterfaceMap {
     pub name: String,
     pub key: Vec<ContractInterfaceTupleEntryType>,
@@ -283,7 +284,7 @@ impl ContractInterfaceMap {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractInterface {
     pub functions: Vec<ContractInterfaceFunction>,
     pub variables: Vec<ContractInterfaceVariable>,

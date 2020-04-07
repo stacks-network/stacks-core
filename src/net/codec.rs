@@ -112,56 +112,26 @@ pub fn read_next_exact<R: Read, T: StacksMessageCodec + Sized>(fd: &mut R, num_i
     read_next_vec::<T, R>(fd, num_items, 0)
 }
 
-impl StacksMessageCodec for u8 {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        let buf : [u8; 1] = [*self];
-        fd.write_all(&buf).map_err(net_error::WriteError)
-    }
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<u8, net_error> {
-        let mut buf : [u8; 1] = [0u8];
-        fd.read_exact(&mut buf).map_err(net_error::ReadError)?;
-        Ok(buf[0])
-    }
-}
-
-impl StacksMessageCodec for u16 {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        // big-endian
-        fd.write_all(&self.to_be_bytes()).map_err(net_error::WriteError)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<u16, net_error> {
-        let mut bytes = [0u8; 2];
-        fd.read_exact(&mut bytes).map_err(net_error::ReadError)?;
-        Ok(u16::from_be_bytes(bytes))
+macro_rules! impl_stacks_message_codec_for_int {
+    ($typ:ty; $array:expr) => {
+        impl StacksMessageCodec for $typ {
+            fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+                fd.write_all(&self.to_be_bytes()).map_err(net_error::WriteError)
+            }
+            fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, net_error> {
+                let mut buf = $array;
+                fd.read_exact(&mut buf).map_err(net_error::ReadError)?;
+                Ok(<$typ>::from_be_bytes(buf))
+            }
+        }
     }
 }
 
-impl StacksMessageCodec for u32 {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        // big-endian 
-        fd.write_all(&self.to_be_bytes()).map_err(net_error::WriteError)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<u32, net_error> {
-        let mut bytes = [0u8; 4];
-        fd.read_exact(&mut bytes).map_err(net_error::ReadError)?;
-        Ok(u32::from_be_bytes(bytes))
-    }
-}
-
-impl StacksMessageCodec for u64 {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        // big-endian
-        fd.write_all(&self.to_be_bytes()).map_err(net_error::WriteError)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<u64, net_error> {
-        let mut bytes = [0u8; 8];
-        fd.read_exact(&mut bytes).map_err(net_error::ReadError)?;
-        Ok(u64::from_be_bytes(bytes))
-    }
-}
+impl_stacks_message_codec_for_int!(u8; [0; 1]);
+impl_stacks_message_codec_for_int!(u16; [0; 2]);
+impl_stacks_message_codec_for_int!(u32; [0; 4]);
+impl_stacks_message_codec_for_int!(u64; [0; 8]);
+impl_stacks_message_codec_for_int!(i64; [0; 8]);
 
 impl StacksPublicKeyBuffer {
     pub fn from_public_key(pubkey: &Secp256k1PublicKey) -> StacksPublicKeyBuffer {

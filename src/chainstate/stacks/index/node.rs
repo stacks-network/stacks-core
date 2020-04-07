@@ -58,6 +58,7 @@ use chainstate::stacks::index::{
 
 use chainstate::stacks::index::Error as Error;
 
+use net::{StacksMessageCodec, codec::read_next};
 use util::hash::to_hex;
 use util::log;
 
@@ -612,6 +613,21 @@ impl TrieLeaf {
             path: path.clone(),
             data: value,
         }
+    }
+}
+
+
+impl StacksMessageCodec for TrieLeaf {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+        self.path.consensus_serialize(fd)?;
+        self.data.consensus_serialize(fd)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TrieLeaf, ::net::Error> {
+        let path = read_next(fd)?;
+        let data = read_next(fd)?;
+
+        Ok(TrieLeaf { path, data })
     }
 }
 

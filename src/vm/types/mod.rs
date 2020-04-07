@@ -17,6 +17,9 @@ pub use vm::types::signatures::{
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
+pub const BOUND_VALUE_SERIALIZATION_BYTES: u32 = MAX_VALUE_SIZE * 2;
+pub const BOUND_VALUE_SERIALIZATION_HEX: u32 = BOUND_VALUE_SERIALIZATION_BYTES * 2;
+
 pub const MAX_TYPE_DEPTH: u8 = 32;
 // this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
@@ -416,6 +419,22 @@ impl PrincipalData {
             PrincipalData::Contract(QualifiedContractIdentifier { issuer, name: _ }) => {
                 issuer.0
             }
+        }
+    }
+
+    pub fn parse(literal: &str) -> Result<PrincipalData> {
+        // be permissive about leading single-quote
+        let literal = if literal.starts_with("'") {
+            &literal[1..]
+        } else {
+            literal
+        };
+
+        if literal.contains(".") {
+            PrincipalData::parse_qualified_contract_principal(literal)
+        } else {
+            PrincipalData::parse_standard_principal(literal)
+                .map(PrincipalData::from)
         }
     }
 

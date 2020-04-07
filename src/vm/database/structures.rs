@@ -10,6 +10,18 @@ pub trait ClarityDeserializable<T> {
     fn deserialize(json: &str) -> T;
 }
 
+impl ClaritySerializable for String {
+    fn serialize(&self) -> String {
+        self.into()
+    }
+}
+
+impl ClarityDeserializable<String> for String {
+    fn deserialize(serialized: &str) -> String {
+        serialized.into()
+    }
+}
+
 macro_rules! clarity_serializable {
     ($Name:ident) =>
     {
