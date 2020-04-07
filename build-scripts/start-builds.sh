@@ -36,16 +36,28 @@ build_linux_musl_x64 () {
   tar czvf "$clarity_tgz" -C "$src_dir/target/x86_64-unknown-linux-musl/release" clarity-cli
 }
 
-### Build and package for Linux-ARMv6 hardfloat
-build_linux_arm () {
-  "$script_path/build-dist-linux-arm.sh"
-  dist_archive_linux_musl="$dist_dir/blockstack-core-linux-arm.tar.bz2"
+### Build and package for Linux-ARMv7 hardfloat
+build_linux_armv7 () {
+  "$script_path/build-dist-linux-armv7.sh"
+  dist_archive_linux_musl="$dist_dir/blockstack-core-linux-armv7.tar.bz2"
   rm -f "$dist_archive_linux_musl"
   tar cfvj "$dist_archive_linux_musl" -C "$src_dir/target/armv7-unknown-linux-gnueabihf/release" blockstack-core blockstack-cli clarity-cli
 
-  clarity_tgz="$dist_dir/clarity-cli-linux-arm.tar.gz"
+  clarity_tgz="$dist_dir/clarity-cli-linux-armv7.tar.gz"
   rm -f "$clarity_tgz"
   tar czvf "$clarity_tgz" -C "$src_dir/target/armv7-unknown-linux-gnueabihf/release" clarity-cli
+}
+
+### Build and package for Linux-aarch64 hardfloat
+build_linux_aarch64 () {
+  "$script_path/build-dist-linux-aarch64.sh"
+  dist_archive_linux_musl="$dist_dir/blockstack-core-linux-aarch64.tar.bz2"
+  rm -f "$dist_archive_linux_musl"
+  tar cfvj "$dist_archive_linux_musl" -C "$src_dir/target/aarch64-unknown-linux-gnu/release" blockstack-core blockstack-cli clarity-cli
+
+  clarity_tgz="$dist_dir/clarity-cli-linux-aarch64.tar.gz"
+  rm -f "$clarity_tgz"
+  tar czvf "$clarity_tgz" -C "$src_dir/target/aarch64-unknown-linux-gnu/release" clarity-cli
 }
 
 ### Build and package for MacOS-x64
@@ -83,7 +95,8 @@ case $DIST_TARGET_FILTER in
     case $DIST_TARGET_FILTER in
       linux_x64) build_linux_x64 ;;
       linux_musl_x64) build_linux_musl_x64 ;;
-      linux_arm) build_linux_arm ;;
+      linux_armv7) build_linux_armv7 ;;
+      linux_aarch64) build_linux_aarch64 ;;
       win_x64) build_win_x64 ;;
       mac_x64) build_mac_x64 ;;
       *)
@@ -95,7 +108,9 @@ case $DIST_TARGET_FILTER in
   (*)
     build_mac_x64
     build_linux_x64
-    build_linux_arm
+    build_linux_armv7
+    ## do not build aarch64 by default
+    # build_linux_aarch64
     build_linux_musl_x64
     build_win_x64
     ;;
