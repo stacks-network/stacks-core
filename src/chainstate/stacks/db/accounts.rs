@@ -498,7 +498,7 @@ mod test {
     
     #[test]
     fn get_tip_ancestor() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "load_store_miner_payment_schedule");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "get_tip_ancestor_test");
         let miner_1 = StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string()).unwrap();
         let user_1 = StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string()).unwrap();
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);

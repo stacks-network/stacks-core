@@ -708,6 +708,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_http_10_threads_getinfo() {
         test_http_server("test_http_10_threads_getinfo", 51010, 51011, ConnectionOptions::default(), 10, 0,
                         |client_id, _| {
@@ -760,6 +761,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_http_10_threads_getblock() {
         test_http_server("test_http_getblock", 51030, 51031, ConnectionOptions::default(), 10, 0,
                         |client_id, ref mut peer_server| {

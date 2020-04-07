@@ -1855,6 +1855,7 @@ mod test {
     }
    
     #[test]
+    #[ignore]
     fn test_step_walk_1_neighbor_behind() {
         let mut peer_1_config = TestPeerConfig::from_port(32200);
         let peer_2_config = TestPeerConfig::from_port(32202);
