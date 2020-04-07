@@ -2741,6 +2741,14 @@ mod test {
             assert_eq!(sreq.unwrap(), StacksHttpPreamble::Request((*request).clone()));
         }
     }
+
+    #[test]
+    fn test_parse_http_request_options() {
+        let data = "OPTIONS /foo HTTP/1.1\r\nHost: localhost:6270\r\n\r\n";
+        let req = HttpRequestPreamble::consensus_deserialize(&mut data.as_bytes());
+        let preamble = HttpRequestPreamble::from_headers(HttpVersion::Http11, "OPTIONS".to_string(), "/foo".to_string(), "localhost".to_string(), 6270, true, vec![], vec![]);
+        assert_eq!(req.unwrap(), preamble);
+    }
     
     #[test]
     fn test_parse_http_request_preamble_case_ok() {
@@ -2854,6 +2862,9 @@ mod test {
         assert!(txt.find("Host: localhost:6270\r\n").is_some(), "Host header is missing");
         assert!(txt.find("foo: bar\r\n").is_some(), "foo header is missing");
         assert!(txt.find("Content-Type: application/octet-stream\r\n").is_some(), "content-type is missing");
+        assert!(txt.find("Access-Control-Allow-Origin: *\r\n").is_some(), "CORS header is missing");
+        assert!(txt.find("Access-Control-Allow-Headers: origin, content-type\r\n").is_some(), "CORS header is missing");
+        assert!(txt.find("Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n").is_some(), "CORS header is missing");
         assert!(txt.find("Connection: ").is_none());    // not sent if keep_alive is true (for HTTP/1.1)
         
         let mut bytes_10 = vec![];
@@ -2949,6 +2960,8 @@ mod test {
         assert!(txt.find("foo: bar\r\n").is_some(), "foo header is missing");
         assert!(txt.find("X-Request-Id: 456\r\n").is_some(), "X-Request-Id is missing");
         assert!(txt.find("Access-Control-Allow-Origin: *\r\n").is_some(), "CORS header is missing");
+        assert!(txt.find("Access-Control-Allow-Headers: origin, content-type\r\n").is_some(), "CORS header is missing");
+        assert!(txt.find("Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n").is_some(), "CORS header is missing");
         assert!(txt.find("Connection: ").is_none());    // not sent if keep_alive is true
     }
 
