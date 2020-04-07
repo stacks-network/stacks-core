@@ -83,7 +83,7 @@ impl SugarExpander {
                     }                    
                 },
             };
-            expr.id = pre_expr.id;
+            // expr.id will be set by the subsequent expression identifier pass.
             expr.span = pre_expr.span.clone();
             expressions.push(expr);
         }

@@ -56,6 +56,7 @@ pub struct MARFValue(pub [u8; 40]);
 impl_array_newtype!(MARFValue, u8, 40);
 impl_array_hexstring_fmt!(MARFValue);
 impl_byte_array_newtype!(MARFValue, u8, 40);
+impl_byte_array_message_codec!(MARFValue, 40);
 pub const MARF_VALUE_ENCODED_SIZE : u32 = 40;
 
 impl TrieHash {

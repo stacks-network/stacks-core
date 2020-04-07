@@ -12,7 +12,7 @@ fn run_scoped_parsing_helper(contract: &str) -> ParseResult<ContractAST> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let pre_expressions = parser::parse(contract)?;
     let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
-    ExpressionIdentifier::run_pass(&mut contract_ast)?;
+    ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast)?;
     DefinitionSorter::run_pass(&mut contract_ast, &mut ())?;
     Ok(contract_ast)
 }
@@ -219,16 +219,6 @@ fn should_raise_dependency_cycle_case_insert_entry() {
 
     let err = run_scoped_parsing_helper(contract).unwrap_err();
     assert!(match err.err { ParseErrors::CircularReference(_) => true, _ => false})
-}
-
-#[test]
-fn should_not_raise_dependency_cycle_case_fetch_contract_entry() {
-    let contract = r#"
-        (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (contract-map-get? .contract1 kv-store ((foo 1)))) 
-    "#;
-
-    run_scoped_parsing_helper(contract).unwrap();
 }
 
 #[test]

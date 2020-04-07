@@ -12,6 +12,7 @@ pub enum CheckErrors {
     // cost checker errors
     CostOverflow,
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
+    MemoryBalanceExceeded(u64, u64),
 
     ValueTooLarge,
     TypeSignatureTooDeep,
@@ -97,6 +98,7 @@ pub enum CheckErrors {
     // contract-call errors
     NoSuchContract(String),
     NoSuchPublicFunction(String, String),
+    PublicFunctionNotReadOnly(String, String),
     ContractAlreadyExists(String),
     ContractCallExpectName,
 
@@ -211,6 +213,7 @@ impl From<CostErrors> for CheckErrors {
         match err {
             CostErrors::CostOverflow => CheckErrors::CostOverflow,
             CostErrors::CostBalanceExceeded(a, b) => CheckErrors::CostBalanceExceeded(a, b),
+            CostErrors::MemoryBalanceExceeded(a, b) => CheckErrors::MemoryBalanceExceeded(a, b),
         }
     }
 }
@@ -277,6 +280,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::TypeAnnotationExpectedFailure => "analysis expected type to already be annotated for expression".into(),
             CheckErrors::CostOverflow => "contract execution cost overflowed cost counter".into(),
             CheckErrors::CostBalanceExceeded(a, b) => format!("contract execution cost exceeded budget: {:?} > {:?}", a, b),
+            CheckErrors::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {:?} > {:?}", a, b),
             CheckErrors::InvalidTypeDescription => "supplied type description is invalid".into(),
             CheckErrors::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             CheckErrors::BadSyntaxExpectedListOfPairs => "bad syntax: function expects a list of pairs to bind names, e.g., ((name-0 a) (name-1 b) ...)".into(),
@@ -322,6 +326,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ReturnTypesMustMatch(type_1, type_2) => format!("detected two execution paths, returning two different expression types (got '{}' and '{}')", type_1, type_2),
             CheckErrors::NoSuchContract(contract_identifier) => format!("use of unresolved contract '{}'", contract_identifier),
             CheckErrors::NoSuchPublicFunction(contract_identifier, function_name) => format!("contract '{}' has no public function '{}'", contract_identifier, function_name),
+            CheckErrors::PublicFunctionNotReadOnly(contract_identifier, function_name) => format!("function '{}' in '{}' is not read-only", contract_identifier, function_name),
             CheckErrors::ContractAlreadyExists(contract_identifier) => format!("contract name '{}' conflicts with existing contract", contract_identifier),
             CheckErrors::ContractCallExpectName => format!("missing contract name for call"),
             CheckErrors::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{}'", property_name),

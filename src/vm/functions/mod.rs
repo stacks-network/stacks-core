@@ -7,13 +7,13 @@ mod database;
 mod options;
 mod assets;
 
-use vm::errors::{CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
+use vm::errors::{Error, CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::{CallableType, NativeHandle};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
-use vm::costs::cost_functions;
+use vm::costs::{cost_functions, MemoryConsumer, CostTracker, constants as cost_constants};
 use util::hash;
 
 define_named_enum!(NativeFunctions {
@@ -46,7 +46,6 @@ define_named_enum!(NativeFunctions {
     FetchVar("var-get"),
     SetVar("var-set"),
     FetchEntry("map-get?"),
-    FetchContractEntry("contract-map-get?"),
     SetEntry("map-set"),
     InsertEntry("map-insert"),
     DeleteEntry("map-delete"),
@@ -124,7 +123,6 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Len => NativeFunction("native_len", NativeHandle::SingleArg(&iterables::native_len), cost_functions::LEN),
             ListCons => SpecialFunction("special_list_cons", &iterables::list_cons),
             FetchEntry => SpecialFunction("special_map-get?", &database::special_fetch_entry),
-            FetchContractEntry => SpecialFunction("special_contract-map-get?", &database::special_fetch_contract_entry),
             SetEntry => SpecialFunction("special_set-entry", &database::special_set_entry),
             InsertEntry => SpecialFunction("special_insert-entry", &database::special_insert_entry),
             DeleteEntry => SpecialFunction("special_delete-entry", &database::special_delete_entry),
@@ -136,7 +134,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Sha512 => NativeFunction("native_sha512", NativeHandle::SingleArg(&native_sha512), cost_functions::SHA512),
             Sha512Trunc256 => NativeFunction("native_sha512trunc256", NativeHandle::SingleArg(&native_sha512trunc256), cost_functions::SHA512T256),
             Keccak256 => NativeFunction("native_keccak256", NativeHandle::SingleArg(&native_keccak256), cost_functions::KECCAK256),
-            Print => NativeFunction("native_print", NativeHandle::SingleArg(&native_print), cost_functions::PRINT),
+            Print => SpecialFunction("special_print", &special_print),
             ContractCall => SpecialFunction("special_contract-call", &database::special_contract_call),
             AsContract => SpecialFunction("special_as-contract", &special_as_contract),
             GetBlockInfo => SpecialFunction("special_get_block_info", &database::special_get_block_info),
@@ -220,10 +218,16 @@ fn native_begin(mut args: Vec<Value>) -> Result<Value> {
     }
 }
 
-fn native_print(input: Value) -> Result<Value> {
+fn special_print(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    let input = eval(&args[0], env, context)?;
+
+    runtime_cost!(cost_functions::PRINT, env, input.size())?;
+
     if cfg!(feature = "developer-mode") {
         eprintln!("{}", &input);
     }
+
+    env.register_print_event(input.clone())?;
     Ok(input)
 }
 
@@ -309,32 +313,39 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     let bindings = args[0].match_list()
         .ok_or(CheckErrors::BadLetSyntax)?;
 
-    let mut binding_results = parse_eval_bindings(bindings, env, context)?;
-
-    runtime_cost!(cost_functions::LET, env, binding_results.len())?;
+    runtime_cost!(cost_functions::LET, env, bindings.len())?;
 
     // create a new context.
     let mut inner_context = context.extend()?;
 
-    for (binding_name, binding_value) in binding_results.drain(..) {
-        if is_reserved(&binding_name) ||
-           env.contract_context.lookup_function(&binding_name).is_some() ||
-           inner_context.lookup_variable(&binding_name).is_some() {
-            return Err(CheckErrors::NameAlreadyUsed(binding_name.into()).into())
+    let mut memory_use = 0;
+
+    finally_drop_memory!( env, memory_use; {
+        handle_binding_list::<_, Error>(bindings, |binding_name, var_sexp| {
+            if is_reserved(binding_name) ||
+                env.contract_context.lookup_function(binding_name).is_some() ||
+                inner_context.lookup_variable(binding_name).is_some() {
+                    return Err(CheckErrors::NameAlreadyUsed(binding_name.clone().into()).into())
+                }
+
+            let binding_value = eval(var_sexp, env, context)?;
+
+            let bind_mem_use = binding_value.get_memory_use();
+            env.add_memory(bind_mem_use)?;
+            memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
+            inner_context.variables.insert(binding_name.clone(), binding_value);
+            Ok(())
+        })?;
+
+        // evaluate the let-bodies
+        let mut last_result = None;
+        for body in args[1..].iter() {
+            let body_result = eval(&body, env, &inner_context)?;
+            last_result.replace(body_result);
         }
-        inner_context.variables.insert(binding_name, binding_value);
-    }
-
-    // evaluate the let-bodies
-
-    let mut last_result = None;
-    for body in args[1..].iter() {
-        let body_result = eval(&body, env, &inner_context)?;
-        last_result.replace(body_result);
-    }
-
-    // last_result should always be Some(...), because of the arg len check above.
-    Ok(last_result.unwrap())
+        // last_result should always be Some(...), because of the arg len check above.
+        Ok(last_result.unwrap())
+    })
 }
 
 fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
@@ -343,8 +354,14 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     check_argument_count(1, args)?;
 
     // nest an environment.
+    env.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
+
     let contract_principal = Value::Principal(PrincipalData::Contract(env.contract_context.contract_identifier.clone()));
     let mut nested_env = env.nest_as_principal(contract_principal);
 
-    eval(&args[0], &mut nested_env, context)
+    let result = eval(&args[0], &mut nested_env, context);
+
+    env.drop_memory(cost_constants::AS_CONTRACT_MEMORY);
+
+    result
 }

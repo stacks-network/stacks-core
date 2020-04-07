@@ -17,12 +17,16 @@ pub use vm::types::signatures::{
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
+pub const BOUND_VALUE_SERIALIZATION_BYTES: u32 = MAX_VALUE_SIZE * 2;
+pub const BOUND_VALUE_SERIALIZATION_HEX: u32 = BOUND_VALUE_SERIALIZATION_BYTES * 2;
+
 pub const MAX_TYPE_DEPTH: u8 = 32;
 // this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
+    // todo: remove type_signature
     pub type_signature: TupleTypeSignature,
     pub data_map: BTreeMap<ClarityName, Value>
 }
@@ -35,6 +39,7 @@ pub struct BuffData {
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct ListData {
     pub data: Vec<Value>,
+    // todo: remove type_signature
     pub type_signature: ListTypeData
 }
 
@@ -85,7 +90,7 @@ impl QualifiedContractIdentifier {
     }
 
     pub fn to_string(&self) -> String {
-        format!("'{}.{}", self.issuer, self.name.to_string())
+        format!("{}.{}", self.issuer, self.name.to_string())
     }
 }
 
@@ -257,6 +262,10 @@ impl Value {
         Value::Response(ResponseData { committed: false, data: Box::new(Value::UInt(ecode)) })
     }
 
+    pub fn err_none() -> Value {
+        Value::Response(ResponseData { committed: false, data: Box::new(NONE.clone()) })
+    }
+
     pub fn okay(data: Value) -> Result<Value> {
         if data.size() + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge.into())
@@ -404,6 +413,31 @@ impl fmt::Display for Value {
 }
 
 impl PrincipalData {
+    pub fn version(&self) -> u8 {
+        match self {
+            PrincipalData::Standard(StandardPrincipalData(version, _)) => *version,
+            PrincipalData::Contract(QualifiedContractIdentifier { issuer, name: _ }) => {
+                issuer.0
+            }
+        }
+    }
+
+    pub fn parse(literal: &str) -> Result<PrincipalData> {
+        // be permissive about leading single-quote
+        let literal = if literal.starts_with("'") {
+            &literal[1..]
+        } else {
+            literal
+        };
+
+        if literal.contains(".") {
+            PrincipalData::parse_qualified_contract_principal(literal)
+        } else {
+            PrincipalData::parse_standard_principal(literal)
+                .map(PrincipalData::from)
+        }
+    }
+
     pub fn parse_qualified_contract_principal(literal: &str) -> Result<PrincipalData> {
         let contract_id = QualifiedContractIdentifier::parse(literal)?;
         Ok(PrincipalData::Contract(contract_id))
@@ -440,10 +474,10 @@ impl fmt::Display for PrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PrincipalData::Standard(sender) => {
-                write!(f, "'{}", sender)                
+                write!(f, "{}", sender)                
             },
             PrincipalData::Contract(contract_identifier) => {
-                write!(f, "'{}.{}", contract_identifier.issuer, contract_identifier.name.to_string())
+                write!(f, "{}.{}", contract_identifier.issuer, contract_identifier.name.to_string())
             }
         }
     }
@@ -656,7 +690,7 @@ mod test {
                    "none");
         assert_eq!(&format!("{}", Value::from(
             PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap())),
-                   "'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+                   "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
         assert_eq!(&format!("{}", Value::from(TupleData::from_data(
             vec![("a".into(), Value::Int(2))]).unwrap())),

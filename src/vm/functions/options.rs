@@ -1,7 +1,7 @@
 use vm::errors::{CheckErrors, RuntimeErrorType, ShortReturnType, InterpreterResult as Result,
                  check_argument_count, check_arguments_at_least};
 use vm::types::{Value, ResponseData, OptionalData, TypeSignature};
-use vm::costs::cost_functions;
+use vm::costs::{cost_functions, MemoryConsumer, CostTracker};
 use vm::contexts::{LocalContext, Environment};
 use vm::{SymbolicExpression, ClarityName};
 use vm;
@@ -110,9 +110,15 @@ fn eval_with_new_binding(body: &SymbolicExpression, bind_name: ClarityName, bind
         return Err(CheckErrors::NameAlreadyUsed(bind_name.into()).into())
     }
 
-    inner_context.variables.insert(bind_name, bind_value);
+    let memory_use = bind_value.get_memory_use();
+    env.add_memory(memory_use)?;
 
-    vm::eval(body, env, &inner_context)
+    inner_context.variables.insert(bind_name, bind_value);
+    let result = vm::eval(body, env, &inner_context);
+
+    env.drop_memory(memory_use);
+
+    result
 }
 
 fn special_match_opt(input: OptionalData, args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {

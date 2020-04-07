@@ -36,6 +36,7 @@ pub enum InterpreterError {
     InterpreterError(String),
     UninitializedPersistedVariable,
     FailedToConstructAssetTable,
+    FailedToConstructEventBatch,
     SqliteError(IncomparableError<SqliteError>),
     BadFileName,
     FailedToCreateDataDirectory,

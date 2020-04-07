@@ -1,6 +1,6 @@
 use vm::representations::SymbolicExpression;
 use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
-use vm::contexts::{OwnedEnvironment, AssetMap};
+use vm::contexts::{OwnedEnvironment, AssetMap, Environment};
 use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection, HeadersDB};
 use vm::analysis::{AnalysisDatabase};
 use vm::errors::{Error as InterpreterError};
@@ -8,11 +8,12 @@ use vm::ast::{ContractAST, errors::ParseError};
 use vm::analysis::{ContractAnalysis, errors::CheckError, errors::CheckErrors};
 use vm::ast;
 use vm::analysis;
-use vm::costs::{LimitedCostTracker, ExecutionCost};
+use vm::costs::{LimitedCostTracker, ExecutionCost, CostTracker};
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::TrieHash;
+use chainstate::stacks::events::StacksTransactionEvent;
 
 use std::error;
 use std::fmt;
@@ -42,6 +43,12 @@ pub struct ClarityBlockConnection<'a> {
     parent: &'a mut ClarityInstance,
     header_db: &'a dyn HeadersDB,
     cost_track: Option<LimitedCostTracker>
+}
+
+pub struct ClarityReadOnlyConnection<'a> {
+    datastore: MarfedKV,
+    parent: &'a mut ClarityInstance,
+    header_db: &'a dyn HeadersDB,
 }
 
 #[derive(Debug)]
@@ -138,6 +145,22 @@ impl ClarityInstance {
         }
     }
 
+    pub fn read_only_connection<'a>(&'a mut self, at_block: &BlockHeaderHash, header_db: &'a dyn HeadersDB) -> ClarityReadOnlyConnection<'a> {
+        let mut datastore = self.datastore.take()
+            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
+            //   doesn't restore it's parent's datastore
+            .expect("FAIL: use of begin_block while prior block neither committed nor rolled back.");
+
+        datastore
+            .set_chain_tip(at_block);
+
+        ClarityReadOnlyConnection {
+            datastore,
+            header_db,
+            parent: self
+        }
+    }
+
     #[cfg(test)]
     pub fn eval_read_only(&mut self, at_block: &BlockHeaderHash, header_db: &dyn HeadersDB,
                           contract: &QualifiedContractIdentifier, program: &str) -> Result<Value, Error> {
@@ -147,7 +170,7 @@ impl ClarityInstance {
             .as_clarity_db(header_db);
         let mut env = OwnedEnvironment::new(clarity_db);
         env.eval_read_only(contract, program)
-            .map(|(x, _)| x)
+            .map(|(x, _, _)| x)
             .map_err(Error::from)
     }
 
@@ -156,6 +179,95 @@ impl ClarityInstance {
             .expect("FAIL: attempt to recover database connection from clarity instance which is still open");
 
         datastore
+    }
+}
+
+pub trait ClarityConnection {
+    /// Do something to the underlying DB that involves only reading.
+    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut ClarityDatabase) -> R;
+    fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase);
+    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R;
+
+    fn with_readonly_clarity_env<F, R>(&mut self, sender: PrincipalData, cost_track: LimitedCostTracker, to_do: F) -> Result<R, InterpreterError>
+    where F: FnOnce(&mut Environment) -> Result<R, InterpreterError> {
+        self.with_clarity_db_readonly_owned(|clarity_db| {
+            let mut vm_env = OwnedEnvironment::new_cost_limited(clarity_db, cost_track);
+            let result = vm_env.execute_in_env(sender.into(), to_do)
+                .map(|(result, _, _)| result);
+            let (db, _) = vm_env.destruct()
+                .expect("Failed to recover database reference after executing transaction");
+            (result, db)
+        })
+    }
+}
+
+impl ClarityConnection for ClarityBlockConnection <'_> {
+    /// Do something to the underlying DB that involves only reading.
+    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut ClarityDatabase) -> R {
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+
+    /// Do something with ownership of the underlying DB that involves only reading.
+    fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        db.begin();
+        let (result, mut db) = to_do(db);
+        db.roll_back();
+        result
+    }
+
+    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R {
+        let mut db = AnalysisDatabase::new(&mut self.datastore);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+}
+
+impl ClarityConnection for ClarityReadOnlyConnection <'_> {
+    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut ClarityDatabase) -> R {
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+
+    /// Do something with ownership of the underlying DB that involves only reading.
+    fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        db.begin();
+        let (result, mut db) = to_do(db);
+        db.roll_back();
+        result
+    }
+
+    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R {
+        let mut db = AnalysisDatabase::new(&mut self.datastore);
+        db.begin();
+        let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+}
+
+impl <'a> ClarityReadOnlyConnection <'a> {
+    pub fn done(self) {
+        self.parent.datastore.replace(self.datastore);
     }
 }
 
@@ -265,18 +377,29 @@ impl <'a> ClarityBlockConnection <'a> {
         let cost_track = self.cost_track.take()
             .expect("Failed to get ownership of cost tracker in ClarityBlockConnection");
 
-        let mut contract_analysis = analysis::run_analysis(identifier, &mut contract_ast.expressions,
-                                                       &mut db, false, cost_track)?;
+        let result = analysis::run_analysis(
+            identifier, &mut contract_ast.expressions,
+            &mut db, false, cost_track);
 
-        let cost_track = contract_analysis.take_contract_cost_tracker();
+        let (mut cost_track, result) = match result {
+            Ok(mut contract_analysis) => {
+                let cost_track = contract_analysis.take_contract_cost_tracker();
+                (cost_track, Ok((contract_ast, contract_analysis)))
+            },
+            Err((e, cost_track)) => {
+                (cost_track, Err(e.into()))
+            }
+        };
+
+        cost_track.reset_memory();
         self.cost_track.replace(cost_track);
 
-        Ok((contract_ast, contract_analysis))
+        result
     }
 
-    fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap), Error>
+    fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), Error>
     where A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
-          F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap), Error> {
+          F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), Error> {
         let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
         // wrap the whole contract-call in a claritydb transaction,
         //   so we can abort on call_back's boolean retun
@@ -285,18 +408,21 @@ impl <'a> ClarityBlockConnection <'a> {
             .expect("Failed to get ownership of cost tracker in ClarityBlockConnection");
         let mut vm_env = OwnedEnvironment::new_cost_limited(db, cost_track);
         let result = to_do(&mut vm_env);
-        let (mut db, cost_track) = vm_env.destruct()
+        let (mut db, mut cost_track) = vm_env.destruct()
             .expect("Failed to recover database reference after executing transaction");
+        // reset memory usage in cost_track -- this wipes out
+        //   the memory tracking used for the k-v wrapper / replay log 
+        cost_track.reset_memory();
         self.cost_track.replace(cost_track);
 
         match result {
-            Ok((value, asset_map)) => {
+            Ok((value, asset_map, events)) => {
                 if abort_call_back(&asset_map, &mut db) {
                     db.roll_back();
                 } else {
                     db.commit();
                 }
-                Ok((value, asset_map))
+                Ok((value, asset_map, events))
             },
             Err(e) => {
                 db.roll_back();
@@ -331,13 +457,18 @@ impl <'a> ClarityBlockConnection <'a> {
     ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     pub fn run_contract_call <F> (&mut self, sender: &PrincipalData, contract: &QualifiedContractIdentifier, public_function: &str,
-                                  args: &[Value], abort_call_back: F) -> Result<(Value, AssetMap), Error>
+                                  args: &[Value], abort_call_back: F) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
         let expr_args: Vec<_> = args.iter().map(|x| SymbolicExpression::atom_value(x.clone())).collect();
 
         self.with_abort_callback(
-            |vm_env| { vm_env.execute_transaction(Value::Principal(sender.clone()), contract.clone(), public_function, &expr_args)
-                       .map_err(Error::from) },
+            |vm_env| { 
+                vm_env.execute_transaction(
+                    Value::Principal(sender.clone()), 
+                    contract.clone(), 
+                    public_function, 
+                    &expr_args)
+                .map_err(Error::from) },
             abort_call_back)
     }
 
@@ -347,19 +478,19 @@ impl <'a> ClarityBlockConnection <'a> {
     ///   if abort_call_back returns false, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     pub fn initialize_smart_contract <F> (&mut self, identifier: &QualifiedContractIdentifier, contract_ast: &ContractAST,
-                                          contract_str: &str, abort_call_back: F) -> Result<AssetMap, Error>
+                                          contract_str: &str, abort_call_back: F) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
     where F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool {
-        let (_, asset_map) = self.with_abort_callback(
+        let (_, asset_map, events) = self.with_abort_callback(
             |vm_env| { vm_env.initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str)
                        .map_err(Error::from) },
             abort_call_back)?;
-        Ok(asset_map)
+        Ok((asset_map, events))
     }
 
     /// Evaluate a raw Clarity snippit
     #[cfg(test)]
     pub fn clarity_eval_raw(&mut self, code: &str) -> Result<Value, Error> {
-        let (result, _) = self.with_abort_callback(
+        let (result, _, _) = self.with_abort_callback(
             |vm_env| { vm_env.eval_raw(code).map_err(Error::from) },
             |_, _| { false })?;
         Ok(result)
@@ -367,7 +498,7 @@ impl <'a> ClarityBlockConnection <'a> {
 
     #[cfg(test)]
     pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, code: &str) -> Result<Value, Error> {
-        let (result, _) = self.with_abort_callback(
+        let (result, _, _) = self.with_abort_callback(
             |vm_env| { vm_env.eval_read_only(contract, code).map_err(Error::from) },
             |_, _| { false })?;
         Ok(result)
@@ -383,6 +514,32 @@ mod tests {
     use vm::database::{NULL_HEADER_DB, ClarityBackingStore, MarfedKV};
     use chainstate::stacks::index::storage::{TrieFileStorage};
     use rusqlite::NO_PARAMS;
+
+    #[test]
+    pub fn bad_syntax_test() {
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(marf);
+
+        let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+
+        {
+            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
+
+            let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
+
+            let _e = conn.analyze_smart_contract(&contract_identifier, &contract)
+                .unwrap_err();
+
+            // okay, let's try it again:
+
+            let _e = conn.analyze_smart_contract(&contract_identifier, &contract)
+                .unwrap_err();
+
+            conn.commit_block();
+        }
+    }
 
     #[test]
     pub fn simple_test() {

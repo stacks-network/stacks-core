@@ -197,7 +197,7 @@ impl BurnSamplePoint {
                     burn_sample[idx].user_burns.push(user_burn.clone());
                 },
                 None => {
-                    info!("User burn {} ({},{}) of {} for key={}, block={} has no matching block commit",
+                    debug!("User burn {} ({},{}) of {} for key={}, block={} has no matching block commit",
                           &user_burn.txid, user_burn.block_height, user_burn.vtxindex, user_burn.burn_fee,
                           user_burn.public_key.to_hex(), &user_burn.block_header_hash_160);
                     continue;

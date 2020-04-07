@@ -6,6 +6,7 @@ use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, StandardPrincipalData, QualifiedContractIdentifier, NONE};
 
+use chainstate::stacks::index::proofs::TrieMerkleProof;
 use chainstate::stacks::db::{StacksHeaderInfo, MinerPaymentSchedule};
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -20,8 +21,11 @@ use vm::database::structures::{
 use vm::database::RollbackWrapper;
 use util::db::{DBConn, FromRow};
 use chainstate::stacks::StacksAddress;
+use vm::costs::CostOverflowingMath;
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
+
+pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
 #[repr(u8)]
 pub enum StoreType {
@@ -169,13 +173,15 @@ impl <'a> ClarityDatabase <'a> {
     }
 
     fn get <T> (&mut self, key: &str) -> Option<T> where T: ClarityDeserializable<T> {
-        self.store.get(&key)
-            .map(|x| T::deserialize(&x))
+        self.store.get::<T>(key)
     }
 
     pub fn get_value (&mut self, key: &str, expected: &TypeSignature) -> Option<Value> {
-        self.store.get(&key)
-            .map(|json| Value::deserialize(&json, expected))
+        self.store.get_value(key, expected)
+    }
+
+    pub fn get_with_proof <T> (&mut self, key: &str) -> Option<(T, TrieMerkleProof)> where T: ClarityDeserializable<T> {
+        self.store.get_with_proof(key)
     }
 
     pub fn make_key_for_trip(contract_identifier: &QualifiedContractIdentifier, data: StoreType, var_name: &str) -> String {
@@ -197,7 +203,18 @@ impl <'a> ClarityDatabase <'a> {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
         self.insert_metadata(contract_identifier, &key,
                              &(contract_content.len() as u64));
+
+        // insert contract-src
+        if STORE_CONTRACT_SRC_INTERFACE {
+            let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
+            self.insert_metadata(contract_identifier, &key, &contract_content.to_string());
+        }
         Ok(())
+    }
+
+    pub fn get_contract_src(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<String> {
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
+        self.fetch_metadata(contract_identifier, &key).ok().flatten()
     }
 
     fn insert_metadata <T: ClaritySerializable> (&mut self, contract_identifier: &QualifiedContractIdentifier, key: &str, data: &T) {
@@ -216,9 +233,26 @@ impl <'a> ClarityDatabase <'a> {
 
     pub fn get_contract_size(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<u64> {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
-        let data = self.fetch_metadata(contract_identifier, &key)?
+        let contract_size: u64 = self.fetch_metadata(contract_identifier, &key)?
             .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
-        Ok(data)
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
+        let data_size: u64 = self.fetch_metadata(contract_identifier, &key)?
+            .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
+
+        // u64 overflow is _checked_ on insert into contract-data-size
+        Ok(data_size + contract_size)
+    }
+
+    /// used for adding the memory usage of `define-constant` variables.
+    pub fn set_contract_data_size(&mut self, contract_identifier: &QualifiedContractIdentifier, data_size: u64) -> Result<()> {
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+        let contract_size: u64 = self.fetch_metadata(contract_identifier, &key)?
+            .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
+        contract_size.cost_overflow_add(data_size)?;
+
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
+        self.insert_metadata(contract_identifier, &key, &data_size);
+        Ok(())
     }
 
     pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: Contract) {
@@ -353,13 +387,17 @@ impl <'a> ClarityDatabase <'a> {
             .ok_or(CheckErrors::NoSuchMap(map_name.to_string()).into())
     }
 
+    pub fn make_key_for_data_map_entry(contract_identifier: &QualifiedContractIdentifier, map_name: &str, key_value: &Value) -> String {
+        ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize())
+    }
+
     pub fn fetch_entry(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str, key_value: &Value) -> Result<Value> {
         let map_descriptor = self.load_map(contract_identifier, map_name)?;
         if !map_descriptor.key_type.admits(key_value) {
             return Err(CheckErrors::TypeValueError(map_descriptor.key_type, (*key_value).clone()).into())
         }
 
-        let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
+        let key = ClarityDatabase::make_key_for_data_map_entry(contract_identifier, map_name, key_value);
 
         let stored_type = TypeSignature::new_option(map_descriptor.value_type)?;
         let result = self.get_value(&key, &stored_type);
