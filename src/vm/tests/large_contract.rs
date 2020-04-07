@@ -22,6 +22,7 @@ use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbo
  *      this is mainly due to using hex encoding in the sqlite storage.
  */
 #[test]
+#[ignore]
 pub fn rollback_log_memory_test() {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(marf);
@@ -209,6 +210,7 @@ pub fn fcall_memory_test() {
 }
 
 #[test]
+#[ignore]
 pub fn ccall_memory_test() {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(marf);

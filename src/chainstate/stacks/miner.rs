@@ -2794,6 +2794,7 @@ pub mod test {
     }
     
     #[test]
+    #[ignore]
     fn mine_anchored_smart_contract_block_contract_call_microblock_stacks_fork_random() {
         let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-stacks-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock, mine_smart_contract_block_contract_call_microblock);
         miner_trace_replay_randomized(&mut miner_trace);
@@ -2849,6 +2850,7 @@ pub mod test {
     }
     
     #[test]
+    #[ignore]
     fn mine_anchored_smart_contract_block_contract_call_microblock_exception_stacks_fork_random() {
         let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-exception-stacks-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception, mine_smart_contract_block_contract_call_microblock_exception);
         miner_trace_replay_randomized(&mut miner_trace);

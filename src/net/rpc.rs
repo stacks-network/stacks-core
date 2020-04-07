@@ -1060,6 +1060,7 @@ mod test {
     }
 
     #[test]
+        #[ignore]
     fn test_rpc_getinfo() {
         let peer_server_info = RefCell::new(None);
         test_rpc("test_rpc_getinfo", 40000, 40001, 50000, 50001,
@@ -1085,6 +1086,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_rpc_getneighbors() {
         test_rpc("test_rpc_getneighbors", 40010, 40011, 50010, 50011,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
@@ -1142,6 +1144,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_rpc_confirmed_getblock() {
         let server_block_cell = RefCell::new(None);
 
@@ -1177,6 +1180,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_rpc_get_indexed_microblocks() {
         let server_microblocks_cell = RefCell::new(vec![]);
 
@@ -1219,6 +1223,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_rpc_get_confirmed_microblocks() {
         let server_microblocks_cell = RefCell::new(vec![]);
 
@@ -1260,6 +1265,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_rpc_unconfirmed_microblocks() {
         let server_microblocks_cell = RefCell::new(vec![]);
 
@@ -1300,6 +1306,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_rpc_missing_getblock() {
         test_rpc("test_rpc_missing_getblock", 40060, 40061, 50060, 50061,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
@@ -1323,6 +1330,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_rpc_missing_index_getmicroblocks() {
         test_rpc("test_rpc_missing_index_getmicroblocks", 40070, 40071, 50070, 50071,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
@@ -1346,6 +1354,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_rpc_missing_confirmed_getmicroblocks() {
         test_rpc("test_rpc_missing_confirmed_getmicroblocks", 40070, 40071, 50070, 50071,
                  |ref mut peer_client, ref mut convo_client, ref mut peer_server, ref mut convo_server| {
@@ -1369,6 +1378,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_rpc_missing_unconfirmed_microblocks() {
         let server_microblocks_cell = RefCell::new(vec![]);
 

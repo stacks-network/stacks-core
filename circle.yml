@@ -54,7 +54,7 @@ jobs:
           command: |
             docker run -it --security-opt seccomp=unconfined -e CIRCLE_TESTING=1 -e RUST_BACKTRACE=1 -e CARGO_INCREMENTAL=0 \
             -e RUSTFLAGS="$RUSTFLAGS" -v "$PWD:/blockstack" rustlang/rust:nightly-stretch \
-            bash -c "cd /blockstack && rustup override set nightly && cargo build --verbose && cargo test -- --test-threads 1"
+            bash -c "cd /blockstack && rustup override set nightly && cargo build --verbose && cargo test && cargo test -- --ignored --test-threads 1"
           environment:
             RUSTFLAGS: -Zprofile -Copt-level=2 -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
           no_output_timeout: 30m

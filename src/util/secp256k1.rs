@@ -582,6 +582,7 @@ mod tests {
     }
     
     #[test]
+    #[ignore]
     fn test_verify_benchmark_roundtrip() {
         let mut runtime_sign = 0;
         let mut runtime_verify = 0;

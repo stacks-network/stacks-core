@@ -176,6 +176,7 @@ lazy_static! {
 }
 
 #[test]
+#[ignore]
 fn integration_test_get_info() {
     let mut conf = testnet::helium::tests::new_test_conf();
     let spender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap()).into();

@@ -1630,6 +1630,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_dispatch_requests_relay() {
         let neighbor = make_test_neighbor(2100);
 

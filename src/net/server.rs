@@ -794,6 +794,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_http_too_many_clients() {
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.num_clients = 1;
