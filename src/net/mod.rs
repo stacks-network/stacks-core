@@ -922,6 +922,7 @@ pub enum HttpRequestType {
     GetTransferCost(HttpRequestMetadata),
     GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName, bool),
     GetContractABI(HttpRequestMetadata, StacksAddress, ContractName),
+    OptionsPreflight(HttpRequestMetadata),
 }
 
 /// The fields that Actually Matter to http responses
@@ -985,6 +986,7 @@ pub enum HttpResponseType {
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
+    OptionsPreflight(HttpResponseMetadata),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     BadRequestJSON(HttpResponseMetadata, HashMap<String, String>),

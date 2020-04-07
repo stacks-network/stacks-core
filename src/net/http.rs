@@ -110,6 +110,7 @@ lazy_static! {
         "^/v2/contracts/interface/(?P<address>{})/(?P<contract>{})$",
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX)).unwrap();
     static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
+    static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new(".*").unwrap();
 }
 
 /// HTTP headers that we really care about
@@ -1170,6 +1171,7 @@ impl HttpRequestType {
             ("GET", &PATH_GET_CONTRACT_SRC, &HttpRequestType::parse_get_contract_source),
             ("GET", &PATH_GET_CONTRACT_ABI, &HttpRequestType::parse_get_contract_abi),
             ("POST", &PATH_POST_CALL_READ_ONLY, &HttpRequestType::parse_call_read_only),
+            ("OPTIONS", &PATH_OPTIONS_WILDCARD, &HttpRequestType::parse_options_preflight),
         ];
 
         // use url::Url to parse path and query string
@@ -1423,6 +1425,10 @@ impl HttpRequestType {
         Ok(HttpRequestType::PostTransaction(HttpRequestMetadata::from_preamble(preamble), tx))
     }
 
+    fn parse_options_preflight<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        Ok(HttpRequestType::OptionsPreflight(HttpRequestMetadata::from_preamble(preamble)))
+    }
+
     pub fn metadata(&self) -> &HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref md) => md,
@@ -1438,6 +1444,7 @@ impl HttpRequestType {
             HttpRequestType::GetContractABI(ref md, ..) => md,
             HttpRequestType::GetContractSrc(ref md, ..) => md,
             HttpRequestType::CallReadOnlyFunction(ref md, ..) => md,
+            HttpRequestType::OptionsPreflight(ref md, ..) => md,
         }
     }
     
@@ -1456,6 +1463,7 @@ impl HttpRequestType {
             HttpRequestType::GetContractABI(ref mut md, ..) => md,
             HttpRequestType::GetContractSrc(ref mut md, ..) => md,
             HttpRequestType::CallReadOnlyFunction(ref mut md, ..) => md,
+            HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
         }
     }
 
@@ -1480,7 +1488,8 @@ impl HttpRequestType {
                 format!("/v2/contracts/source/{}/{}", contract_addr, contract_name.as_str()),
             HttpRequestType::CallReadOnlyFunction(_, contract_addr, contract_name, _, func_name, ..) => {
                 format!("/v2/contracts/call-read/{}/{}/{}", contract_addr, contract_name.as_str(), func_name.as_str())
-            }
+            },
+            HttpRequestType::OptionsPreflight(_md) => "/*".to_string(),
         }
     }
 
@@ -1786,6 +1795,7 @@ impl HttpResponseType {
             HttpResponseType::GetContractABI(ref md, _) => md,
             HttpResponseType::GetContractSrc(ref md, _) => md,
             HttpResponseType::CallReadOnlyFunction(ref md, _) => md,
+            HttpResponseType::OptionsPreflight(ref md) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
             HttpResponseType::BadRequest(ref md, _) => md,
@@ -1901,6 +1911,10 @@ impl HttpResponseType {
                 HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Text, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
                 HttpResponseType::send_text(protocol, md, fd, &txid_bytes)?;
             },
+            HttpResponseType::OptionsPreflight(ref md) => {
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", None, &HttpContentType::Bytes, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
+                HttpResponseType::send_text(protocol, md, fd, "ok".as_bytes())?;
+            },
             HttpResponseType::BadRequestJSON(ref md, ref data) => {
                 HttpResponsePreamble::new_serialized(fd, 400, HttpResponseType::error_reason(400), md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
                 HttpResponseType::send_json(protocol, md, fd, data)?;
@@ -1980,6 +1994,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetContractABI(..) => "HTTP(GetContractABI)",
                 HttpRequestType::GetContractSrc(..) => "HTTP(GetContractSrc)",
                 HttpRequestType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
+                HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
@@ -1995,6 +2010,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::Microblocks(_, _) => "HTTP(Microblocks)",
                 HttpResponseType::MicroblockStream(_) => "HTTP(MicroblockStream)",
                 HttpResponseType::TransactionID(_, _) => "HTTP(Transaction)",
+                HttpResponseType::OptionsPreflight(_) => "HTTP(OptionsPreflight)",
                 HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => "HTTP(400)",
                 HttpResponseType::Unauthorized(_, _) => "HTTP(401)",
                 HttpResponseType::PaymentRequired(_, _) => "HTTP(402)",
