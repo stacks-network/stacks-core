@@ -158,10 +158,10 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn receive_blocks(&mut self) -> BurnchainTip {
+    fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
         let network = self.config.burnchain.network.clone();
         let working_dir = self.config.get_burn_db_path();
-        let mut burnchain = Burnchain::new(
+        let burnchain = Burnchain::new(
             &working_dir,
             &self.config.burnchain.chain, 
             &network)
@@ -171,10 +171,15 @@ impl BitcoinRegtestController {
         }).unwrap();
 
         let indexer_runtime = BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest);
-        let mut burnchain_indexer = BitcoinIndexer {
+        let burnchain_indexer = BitcoinIndexer {
             config: self.indexer_config.clone(),
             runtime: indexer_runtime
         };
+        (burnchain, burnchain_indexer)
+    }
+
+    fn receive_blocks(&mut self) -> BurnchainTip {
+        let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
 
         let (block_snapshot, state_transition) = burnchain.sync_with_indexer(&mut burnchain_indexer).unwrap();
 
@@ -474,3 +479,4 @@ pub struct UTXO {
     pub descriptor: Option<String>,
     pub safe: bool,
 }
+
