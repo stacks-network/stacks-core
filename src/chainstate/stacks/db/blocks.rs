@@ -3001,6 +3001,7 @@ impl StacksChainState {
         }
     }
 
+
     /// This function bounds the max read on fd to MAX_MESSAGE_LEN, so it does not need to be passed a bounded reader.
     pub fn will_admit_mempool_tx<R: Read>(&mut self, current_burn: &BurnchainHeaderHash, current_block: &BlockHeaderHash, fd: &mut R) -> Result<StacksTransaction, MemPoolRejection> {
         // 1: it should parse as a tx.

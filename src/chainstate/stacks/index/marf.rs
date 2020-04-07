@@ -69,6 +69,7 @@ use chainstate::stacks::index::storage::{
 };
 
 use chainstate::stacks::index::{
+    proofs::TrieMerkleProof,
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
     MARFValue
@@ -506,6 +507,15 @@ impl MARF {
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     pub fn get(&mut self, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<MARFValue>, Error> {
         MARF::get_by_key(&mut self.storage, block_hash, key)
+    }
+
+    pub fn get_with_proof(&mut self, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<(MARFValue, TrieMerkleProof)>, Error> {
+        let marf_value = match MARF::get_by_key(&mut self.storage, block_hash, key)? {
+            None => return Ok(None),
+            Some(x) => x
+        };
+        let proof = TrieMerkleProof::from_raw_entry(&mut self.storage, key, &marf_value, block_hash)?;
+        Ok(Some((marf_value, proof)))
     }
 
     pub fn get_bhh_at_height(&mut self, block_hash: &BlockHeaderHash, height: u32) -> Result<Option<BlockHeaderHash>, Error> {

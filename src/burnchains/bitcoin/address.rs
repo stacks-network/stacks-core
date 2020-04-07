@@ -190,12 +190,8 @@ impl Address for BitcoinAddress {
     fn to_bytes(&self) -> Vec<u8> {
         self.bytes.as_bytes().to_vec()
     }
-    
-    fn to_string(&self) -> String {
-        self.to_b58()
-    }
 
-    fn from_string(s: &String) -> Option<BitcoinAddress> {
+    fn from_string(s: &str) -> Option<BitcoinAddress> {
         match BitcoinAddress::from_b58(s) {
             Ok(a) => Some(a),
             Err(_e) => None
@@ -204,6 +200,12 @@ impl Address for BitcoinAddress {
 
     fn is_burn(&self) -> bool {
         self.bytes == Hash160([0u8; 20])
+    }
+}
+
+impl std::fmt::Display for BitcoinAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_b58().fmt(f)
     }
 }
 

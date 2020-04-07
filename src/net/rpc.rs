@@ -47,6 +47,7 @@ use net::connection::ConnectionHttp;
 use net::connection::ReplyHandleHttp;
 use net::connection::ConnectionOptions;
 use net::db::PeerDB;
+use net::{ MapEntryResponse, AccountEntryResponse, CallReadOnlyResponse, ContractSrcResponse };
 
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
@@ -54,8 +55,10 @@ use burnchains::BurnchainHeaderHash;
 
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::BlockHeaderHash;
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::db::BlockStreamData;
+use chainstate::stacks::db::{
+    StacksChainState,
+    BlockStreamData,
+    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE};
 use chainstate::stacks::Error as chain_error;
 use chainstate::stacks::*;
 use burnchains::*;
@@ -65,6 +68,23 @@ use rusqlite::{DatabaseName, NO_PARAMS};
 use util::db::Error as db_error;
 use util::db::DBConn;
 use util::get_epoch_time_secs;
+use util::hash::to_hex;
+
+use vm::{
+    clarity::ClarityConnection,
+    ClarityName,
+    ContractName,
+    Value,
+    SymbolicExpression,
+    costs::{ LimitedCostTracker,
+             ExecutionCost },
+    types::{ PrincipalData,
+             QualifiedContractIdentifier },
+    database::{ ClarityDatabase,
+                MarfedKV,
+                ClaritySerializable,
+                marf::ContractCommitment },
+};
 
 use rand::prelude::*;
 use rand::thread_rng;
@@ -141,9 +161,11 @@ impl PeerInfoData {
 
 impl ConversationHttp {
     pub fn new(network_id: u32, burnchain: &Burnchain, peer_addr: SocketAddr, outbound_url: Option<UrlString>, peer_host: PeerHost, conn_opts: &ConnectionOptions, conn_id: usize) -> ConversationHttp {
+        let mut stacks_http = StacksHttp::new();
+        stacks_http.maximum_call_argument_size = conn_opts.maximum_call_argument_size;
         ConversationHttp {
             network_id: network_id,
-            connection: ConnectionHttp::new(StacksHttp::new(), conn_opts, None),
+            connection: ConnectionHttp::new(stacks_http, conn_opts, None),
             conn_id: conn_id,
             timeout: conn_opts.timeout,
             reply_streams: VecDeque::new(),
@@ -211,7 +233,8 @@ impl ConversationHttp {
     /// Handle a GET peer info.
     /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
     fn handle_getinfo<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burnchain: &Burnchain, burndb: &mut BurnDB, peerdb: &mut PeerDB) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None, req.metadata().keep_alive);
+        let response_metadata = HttpResponseMetadata::from(req);
+
         match PeerInfoData::from_db(burnchain, burndb, peerdb) {
             Ok(pi) => {
                 let response = HttpResponseType::PeerInfo(response_metadata, pi);
@@ -228,7 +251,7 @@ impl ConversationHttp {
     /// Handle a GET neighbors
     /// The response will be synchronously written to the given fd (so use a fd that can buffer!)
     fn handle_getneighbors<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, network_id: u32, chain_view: &BurnchainView, peerdb: &mut PeerDB) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None, req.metadata().keep_alive);
+        let response_metadata = HttpResponseMetadata::from(req);
         
         // get neighbors at random as long as they're fresh
         let neighbors = PeerDB::get_random_neighbors(peerdb.conn(), network_id, MAX_NEIGHBORS_DATA_LEN, chain_view.burn_block_height, false)
@@ -250,7 +273,7 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getblock<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_block_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
-        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None, req.metadata().keep_alive);
+        let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this block?
         match StacksChainState::has_block_indexed(&chainstate.blocks_path, index_block_hash) {
@@ -280,7 +303,7 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getmicroblocks_confirmed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_anchor_block_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
-        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None, req.metadata().keep_alive);
+        let response_metadata = HttpResponseMetadata::from(req);
 
         match chainstate.get_confirmed_microblock_index_hash(index_anchor_block_hash) {
             Err(e) => {
@@ -309,7 +332,7 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getmicroblocks_indexed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_microblock_hash: &BlockHeaderHash, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
-        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None, req.metadata().keep_alive);
+        let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this confirmed microblock stream?
         match chainstate.has_confirmed_microblocks_indexed(index_microblock_hash) {
@@ -332,6 +355,163 @@ impl ConversationHttp {
             }
         }
     }
+
+    fn handle_token_transfer_cost<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+
+        // todo -- need to actually estimate the cost / length for token transfers
+        //   right now, it just uses the minimum.
+        let fee = MINIMUM_TX_FEE_RATE_PER_BYTE;
+        let response = HttpResponseType::TokenTransferCost(response_metadata, fee);
+        response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_get_account_entry<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
+                                          chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
+                                          account: &PrincipalData, with_proof: bool) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+
+        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+            clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                let key = ClarityDatabase::make_key_for_account_balance(&account);
+                let (balance, balance_proof) = clarity_db.get_with_proof::<u128>(&key)
+                    .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
+                    .unwrap_or_else(|| (0, "".into()));
+                let balance_proof = if with_proof {
+                    Some(balance_proof)
+                } else {
+                    None
+                };
+                let key = ClarityDatabase::make_key_for_account_nonce(&account);
+                let (nonce, nonce_proof) = clarity_db.get_with_proof(&key)
+                    .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
+                    .unwrap_or_else(|| (0, "".into()));
+                let nonce_proof = if with_proof {
+                    Some(nonce_proof)
+                } else {
+                    None
+                };
+
+                let balance = format!("0x{}", to_hex(&balance.to_be_bytes()));
+                AccountEntryResponse { balance, nonce, balance_proof, nonce_proof }
+            })
+        });
+
+        let response = HttpResponseType::GetAccount(
+            response_metadata, data);
+
+        response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_get_map_entry<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
+                                      chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
+                                      contract_addr: &StacksAddress, contract_name: &ContractName,
+                                      map_name: &ClarityName, key: &Value, with_proof: bool) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+            clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                let key = ClarityDatabase::make_key_for_data_map_entry(&contract_identifier, map_name, key);
+                let (value, marf_proof) = clarity_db.get_with_proof::<Value>(&key)
+                    .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
+                    .unwrap_or_else(|| (Value::none(), "".into()));
+                let marf_proof = if with_proof {
+                    Some(marf_proof)
+                } else {
+                    None
+                };
+
+                let data = format!("0x{}", value.serialize());
+                MapEntryResponse { data, marf_proof }
+            })
+        });
+
+        let response = HttpResponseType::GetMapEntry(
+            response_metadata, data);
+
+        response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_readonly_function_call<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
+                                               chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash,
+                                               cur_block: &BlockHeaderHash, contract_addr: &StacksAddress, contract_name: &ContractName,
+                                               function: &ClarityName, sender: &PrincipalData, args: &[Value], options: &ConnectionOptions) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let cost_track = LimitedCostTracker::new(options.read_only_call_limit.clone());
+
+        let args: Vec<_> = args.iter().map(|x| SymbolicExpression::atom_value(x.clone())).collect();
+
+        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+            clarity_tx.with_readonly_clarity_env(sender.clone(), cost_track, |env| {
+                env.execute_contract(&contract_identifier, function.as_str(), &args, true)
+            })
+        });
+
+
+        let response = match data {
+            Ok(data) => 
+                CallReadOnlyResponse { okay: true, result: Some(format!("0x{}", data.serialize())), cause: None },
+            Err(e) =>
+                CallReadOnlyResponse { okay: false, result: None, cause: Some(e.to_string()) },
+        };
+
+        let response = HttpResponseType::CallReadOnlyFunction(response_metadata, response);
+        response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_get_contract_src<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
+                                         chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
+                                         contract_addr: &StacksAddress, contract_name: &ContractName, with_proof: bool) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+            clarity_tx.with_clarity_db_readonly(|db| {
+                let source = db.get_contract_src(&contract_identifier)?;
+                let contract_commit_key = MarfedKV::make_contract_hash_key(&contract_identifier);
+                let (contract_commit, proof) = db.get_with_proof::<ContractCommitment>(&contract_commit_key)
+                    .expect("BUG: obtained source, but couldn't get MARF proof.");
+                let marf_proof = if with_proof {
+                    Some(proof.to_hex())
+                } else {
+                    None
+                };
+                let publish_height = contract_commit.block_height;
+                Some(ContractSrcResponse { source, publish_height, marf_proof })
+            })
+        });
+
+        let response = match data {
+            Some(data) => HttpResponseType::GetContractSrc(response_metadata, data),
+            None => HttpResponseType::NotFound(response_metadata, "No contract source data found".into())
+        };
+        
+        response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_get_contract_abi<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType,
+                                         chainstate: &mut StacksChainState, cur_burn: &BurnchainHeaderHash, cur_block: &BlockHeaderHash,
+                                         contract_addr: &StacksAddress, contract_name: &ContractName) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let contract_identifier = QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let data = chainstate.with_read_only_clarity_tx(cur_burn, cur_block, |clarity_tx| {
+            clarity_tx.with_analysis_db_readonly(|db| {
+                let contract = db.load_contract(&contract_identifier)?;
+                contract.contract_interface
+            })
+        });
+
+        let response = match data {
+            Some(data) => HttpResponseType::GetContractABI(response_metadata, data),
+            None => HttpResponseType::NotFound(response_metadata, "No contract interface data found".into())
+        };
+        
+        response.send(http, fd).map(|_| ())
+    }
     
     /// Handle a GET unconfirmed microblock stream.  Start streaming the reply.
     /// The response's preamble (but not the block data) will be synchronously written to the fd
@@ -339,7 +519,7 @@ impl ConversationHttp {
     /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getmicroblocks_unconfirmed<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, index_anchor_block_hash: &BlockHeaderHash, min_seq: u16, chainstate: &mut StacksChainState) -> Result<Option<BlockStreamData>, net_error> {
-        let response_metadata = HttpResponseMetadata::new(req.metadata().version, HttpResponseMetadata::make_request_id(), None, req.metadata().keep_alive);
+        let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this unconfirmed microblock stream?
         match chainstate.has_any_staging_microblock_indexed(index_anchor_block_hash, min_seq) {
@@ -363,11 +543,28 @@ impl ConversationHttp {
         }
     }
 
+    fn handle_load_stacks_chain_tip<W: Write>(http: &mut StacksHttp, fd: &mut W, req: &HttpRequestType, burndb: &mut BurnDB) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, net_error> {
+        // TODO: this shouldn't use get_canonical_chain_tip_headers,
+        //   since the chainstate may not have progressed to that block yet (or may never).
+        //   issue #1388
+        match burndb.get_canonical_chain_tip_headers()? {
+            Some(x) => Ok(Some(x)),
+            None => {
+                let response_metadata = HttpResponseMetadata::from(req);
+                warn!("Failed to load Stacks chain tip");
+                let response = HttpResponseType::ServerError(response_metadata, format!("Failed to load Stacks chain tip"));
+                response.send(http, fd).and_then(|_| Ok(None))
+            }
+        }
+    }
+
     /// Handle an external HTTP request.
     /// Some requests, such as those for blocks, will create new reply streams.  This method adds
     /// those new streams into the `reply_streams` set.
-    pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState) -> Result<(), net_error> {
+    pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+                          chainstate: &mut StacksChainState) -> Result<(), net_error> {
         let mut reply = self.connection.make_relay_handle()?;
+        let keep_alive = req.metadata().keep_alive;
         let stream_opt = match req {
             HttpRequestType::GetInfo(ref _md) => {
                 ConversationHttp::handle_getinfo(&mut self.connection.protocol, &mut reply, &req, &self.burnchain, burndb, peerdb)?;
@@ -389,17 +586,61 @@ impl ConversationHttp {
             HttpRequestType::GetMicroblocksUnconfirmed(ref _md, ref index_anchor_block_hash, ref min_seq) => {
                 ConversationHttp::handle_getmicroblocks_unconfirmed(&mut self.connection.protocol, &mut reply, &req, index_anchor_block_hash, *min_seq, chainstate)?
             },
-            HttpRequestType::PostTransaction(_md, _tx) => {
-                panic!("Not implemented");
+            HttpRequestType::GetAccount(ref _md, ref principal, ref with_proof) => {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
+                    ConversationHttp::handle_get_account_entry(&mut self.connection.protocol, &mut reply, &req, chainstate,
+                                                               &burn_block, &block, principal, *with_proof)?;
+                }
+                None
+            },
+            HttpRequestType::GetMapEntry(ref _md, ref contract_addr, ref contract_name, ref map_name, ref key, ref with_proof) => {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
+                    ConversationHttp::handle_get_map_entry(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
+                                                           contract_addr, contract_name, map_name, key, *with_proof)?;
+                }
+                None
+            },
+            HttpRequestType::GetTransferCost(ref _md) => {
+                ConversationHttp::handle_token_transfer_cost(&mut self.connection.protocol, &mut reply, &req)?;
+                None
+            },
+            HttpRequestType::GetContractABI(ref _md, ref contract_addr, ref contract_name) => {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
+                    ConversationHttp::handle_get_contract_abi(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
+                                                              contract_addr, contract_name)?;
+                }
+                None
+            },
+            HttpRequestType::CallReadOnlyFunction(ref _md, ref ctrct_addr, ref ctrct_name, ref as_sender, ref func_name, ref args) => {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
+                    ConversationHttp::handle_readonly_function_call(
+                        &mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
+                        ctrct_addr, ctrct_name, func_name, as_sender, args, &self.connection.options)?;
+                }
+                None
+            },
+            HttpRequestType::GetContractSrc(ref _md, ref contract_addr, ref contract_name, ref with_proof) => {
+                if let Some((burn_block, block)) = ConversationHttp::handle_load_stacks_chain_tip(&mut self.connection.protocol, &mut reply, &req, burndb)? {
+                    ConversationHttp::handle_get_contract_src(&mut self.connection.protocol, &mut reply, &req, chainstate, &burn_block, &block,
+                                                              contract_addr, contract_name, *with_proof)?;
+                }
+                None
+            },
+            HttpRequestType::PostTransaction(ref _md, ref _tx) => {
+                let response_metadata = HttpResponseMetadata::from(&req);
+                let response = HttpResponseType::BadRequest(
+                    response_metadata, "{ \"message\": \"Transaction not accepted.\"".into());
+                response.send(&mut self.connection.protocol, &mut reply).map(|_| ())?;
+                None
             }
         };
 
         match stream_opt {
             None => {
-                self.reply_streams.push_back((reply, None, req.metadata().keep_alive));
+                self.reply_streams.push_back((reply, None, keep_alive));
             },
             Some(stream) => {
-                self.reply_streams.push_back((reply, Some((HttpChunkedTransferWriterState::new(STREAM_CHUNK_SIZE as usize), stream)), req.metadata().keep_alive));
+                self.reply_streams.push_back((reply, Some((HttpChunkedTransferWriterState::new(STREAM_CHUNK_SIZE as usize), stream)), keep_alive));
             }
         }
         Ok(())
@@ -600,7 +841,8 @@ impl ConversationHttp {
 
     /// Make progress on in-flight requests and replies.
     /// Returns the list of unhandled inbound requests
-    pub fn chat(&mut self, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB, chainstate: &mut StacksChainState) -> Result<(), net_error> {
+    pub fn chat(&mut self, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
+                chainstate: &mut StacksChainState) -> Result<(), net_error> {
         // handle in-bound HTTP request(s)
         let num_inbound = self.connection.inbox_len();
         test_debug!("{:?}: {} HTTP requests pending", &self, num_inbound);

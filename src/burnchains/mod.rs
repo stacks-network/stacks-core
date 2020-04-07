@@ -157,10 +157,9 @@ pub trait PrivateKey : Clone + fmt::Debug + serde::Serialize + serde::de::Deseri
     fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str>;
 }
 
-pub trait Address : Clone + fmt::Debug {
+pub trait Address : Clone + fmt::Debug + fmt::Display {
     fn to_bytes(&self) -> Vec<u8>;
-    fn to_string(&self) -> String;
-    fn from_string(&String) -> Option<Self>
+    fn from_string(&str) -> Option<Self>
         where Self: Sized;
     fn is_burn(&self) -> bool;
 }

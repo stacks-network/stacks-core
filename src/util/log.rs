@@ -18,6 +18,7 @@
 */
 
 use std::cell::RefCell;
+use std::env;
 
 // Message Priorities/Levels
 // Apache Conventions defined here: https://commons.apache.org/proper/commons-logging/guide.html#Message_PrioritiesLevels
@@ -64,7 +65,13 @@ pub fn get_loglevel() -> u8 {
     loglevel.with(|lvl| {
         res = *lvl.borrow();
     });
-    res
+
+    if env::var("BLOCKSTACK_DEBUG") == Ok("1".into()) && res > LOG_DEBUG {
+        set_loglevel(LOG_DEBUG).unwrap();
+        LOG_DEBUG
+    } else {
+        res
+    }
 }
 
 #[allow(unused_macros)]
