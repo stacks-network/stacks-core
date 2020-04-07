@@ -1,6 +1,6 @@
 use vm::representations::SymbolicExpression;
 use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
-use vm::contexts::{OwnedEnvironment, AssetMap};
+use vm::contexts::{OwnedEnvironment, AssetMap, Environment};
 use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection, HeadersDB};
 use vm::analysis::{AnalysisDatabase};
 use vm::errors::{Error as InterpreterError};
@@ -186,8 +186,22 @@ pub trait ClarityConnection {
     /// Do something to the underlying DB that involves only reading.
     fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(&mut ClarityDatabase) -> R;
+    fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase);
     fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(&mut AnalysisDatabase) -> R;
+
+    fn with_readonly_clarity_env<F, R>(&mut self, sender: PrincipalData, cost_track: LimitedCostTracker, to_do: F) -> Result<R, InterpreterError>
+    where F: FnOnce(&mut Environment) -> Result<R, InterpreterError> {
+        self.with_clarity_db_readonly_owned(|clarity_db| {
+            let mut vm_env = OwnedEnvironment::new_cost_limited(clarity_db, cost_track);
+            let result = vm_env.execute_in_env(sender.into(), to_do)
+                .map(|(result, _, _)| result);
+            let (db, _) = vm_env.destruct()
+                .expect("Failed to recover database reference after executing transaction");
+            (result, db)
+        })
+    }
 }
 
 impl ClarityConnection for ClarityBlockConnection <'_> {
@@ -197,6 +211,16 @@ impl ClarityConnection for ClarityBlockConnection <'_> {
         let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
         db.begin();
         let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+
+    /// Do something with ownership of the underlying DB that involves only reading.
+    fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        db.begin();
+        let (result, mut db) = to_do(db);
         db.roll_back();
         result
     }
@@ -217,6 +241,16 @@ impl ClarityConnection for ClarityReadOnlyConnection <'_> {
         let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
         db.begin();
         let result = to_do(&mut db);
+        db.roll_back();
+        result
+    }
+
+    /// Do something with ownership of the underlying DB that involves only reading.
+    fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
+        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        db.begin();
+        let (result, mut db) = to_do(db);
         db.roll_back();
         result
     }

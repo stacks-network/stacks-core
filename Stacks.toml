@@ -1,5 +1,6 @@
 [node]
 name = "helium-node"
+rpc_bind = "127.0.0.1:9000"
 
 [burnchain]
 chain = "bitcoin"

@@ -15,6 +15,7 @@ pub struct ConfigFile {
     pub mempool: Option<MempoolConfig>,
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
+    pub connection_options: Option<ConnectionOptionsFile>,
 }
 
 impl ConfigFile {
@@ -39,6 +40,32 @@ pub struct Config {
     pub mempool: MempoolConfig,
     pub initial_balances: Vec<InitialBalance>,
     pub events_observers: Vec<EventObserverConfig>,
+    pub connection_options: ConnectionOptions,
+}
+
+lazy_static! {
+    static ref HELIUM_DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
+        inbox_maxlen: 100,
+        outbox_maxlen: 100,
+        timeout: 5000,
+        idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
+        heartbeat: 60000,
+        // can't use u64::max, because sqlite stores as i64.
+        private_key_lifetime: 9223372036854775807,
+        num_neighbors: 4,
+        num_clients: 1000,
+        soft_num_neighbors: 4,
+        soft_num_clients: 1000,
+        max_neighbors_per_host: 10,
+        max_clients_per_host: 1000,
+        soft_max_neighbors_per_host: 10,
+        soft_max_neighbors_per_org: 100,
+        soft_max_clients_per_host: 1000,
+        walk_interval: 9223372036854775807,
+        dns_timeout: 15_000,
+        max_inflight_blocks: 6,
+        .. std::default::Default::default()
+    };
 }
 
 impl Config {
@@ -56,6 +83,8 @@ impl Config {
                 NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
+                    rpc_bind: node.rpc_bind.unwrap_or(default_node_config.rpc_bind),
+                    p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
                 }
             },
             None => default_node_config
@@ -119,12 +148,49 @@ impl Config {
             None => vec![]
         };
 
+        let connection_options = match config_file.connection_options {
+            Some(opts) => {
+                let mut read_only_call_limit = HELIUM_DEFAULT_CONNECTION_OPTIONS.read_only_call_limit.clone();
+                opts.read_only_call_limit_write_length.map(|x| { read_only_call_limit.write_length = x; });
+                opts.read_only_call_limit_write_count.map(|x| { read_only_call_limit.write_count = x; });
+                opts.read_only_call_limit_read_length.map(|x| { read_only_call_limit.read_length = x; });
+                opts.read_only_call_limit_read_count.map(|x| { read_only_call_limit.read_count = x; });
+                opts.read_only_call_limit_runtime.map(|x| { read_only_call_limit.runtime = x; });
+                ConnectionOptions {
+                    read_only_call_limit,
+                    inbox_maxlen: opts.inbox_maxlen.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inbox_maxlen.clone()),
+                    outbox_maxlen: opts.outbox_maxlen.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.outbox_maxlen.clone()),
+                    timeout: opts.timeout.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.timeout.clone()),
+                    idle_timeout: opts.idle_timeout.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.idle_timeout.clone()),
+                    heartbeat: opts.heartbeat.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.heartbeat.clone()),
+                    private_key_lifetime: opts.private_key_lifetime.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.private_key_lifetime.clone()),
+                    num_neighbors: opts.num_neighbors.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.num_neighbors.clone()),
+                    num_clients: opts.num_clients.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.num_clients.clone()),
+                    soft_num_neighbors: opts.soft_num_neighbors.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_num_neighbors.clone()),
+                    soft_num_clients: opts.soft_num_clients.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_num_clients.clone()),
+                    max_neighbors_per_host: opts.max_neighbors_per_host.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_neighbors_per_host.clone()),
+                    max_clients_per_host: opts.max_clients_per_host.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_clients_per_host.clone()),
+                    soft_max_neighbors_per_host: opts.soft_max_neighbors_per_host.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_neighbors_per_host.clone()),
+                    soft_max_neighbors_per_org: opts.soft_max_neighbors_per_org.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_neighbors_per_org.clone()),
+                    soft_max_clients_per_host: opts.soft_max_clients_per_host.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_clients_per_host.clone()),
+                    walk_interval: opts.walk_interval.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval.clone()),
+                    dns_timeout: opts.dns_timeout.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone()),
+                    max_inflight_blocks: opts.max_inflight_blocks.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_inflight_blocks.clone()),
+                    maximum_call_argument_size: opts.maximum_call_argument_size.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.maximum_call_argument_size.clone()),
+                }
+            },
+            None => {
+                HELIUM_DEFAULT_CONNECTION_OPTIONS.clone()
+            }
+        };
+
         Config {
             node,
             burnchain,
             mempool,
             initial_balances,
             events_observers,
+            connection_options
         }
     }
 
@@ -136,8 +202,12 @@ impl Config {
         format!("{}/burnchain/db/", self.node.working_dir)
     }
 
-    pub fn get_chainstate_path(&self) -> String{
+    pub fn get_chainstate_path(&self) -> String {
         format!("{}/chainstate/", self.node.working_dir)
+    }
+
+    pub fn get_peer_db_path(&self) -> String {
+        format!("{}/peer_db.sqlite", self.node.working_dir)
     }
 
     pub fn default() -> Config {
@@ -154,12 +224,15 @@ impl Config {
             path: node.get_default_mempool_path(),
         };
 
+        let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
+
         Config {
             burnchain: burnchain,
             node: node,
             mempool,
             initial_balances: vec![],
             events_observers: vec![],
+            connection_options,
         }
     }
 
@@ -241,6 +314,8 @@ pub struct BurnchainConfigFile {
 pub struct NodeConfig {
     pub name: String,
     pub working_dir: String,
+    pub rpc_bind: String,
+    pub p2p_bind: String,
 }
 
 impl NodeConfig {
@@ -251,10 +326,18 @@ impl NodeConfig {
         rng.fill_bytes(&mut buf);
         let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
 
+        let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap())
+            .saturating_add(1024); // use a non-privileged port
+
+        let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap())
+            .saturating_add(1024); // use a non-privileged port
+
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
             working_dir: format!("/tmp/{}", testnet_id),
+            rpc_bind: format!("127.0.0.1:{}", rpc_port),
+            p2p_bind: format!("127.0.0.1:{}", p2p_port)
         }
     }
 
@@ -272,9 +355,40 @@ impl NodeConfig {
 }
 
 #[derive(Clone, Default, Deserialize)]
+pub struct ConnectionOptionsFile {
+    pub inbox_maxlen: Option<usize>,
+    pub outbox_maxlen: Option<usize>,
+    pub timeout: Option<u64>,
+    pub idle_timeout: Option<u64>,
+    pub heartbeat: Option<u32>,
+    pub private_key_lifetime: Option<u64>,
+    pub num_neighbors: Option<u64>,
+    pub num_clients: Option<u64>,
+    pub soft_num_neighbors: Option<u64>,
+    pub soft_num_clients: Option<u64>,
+    pub max_neighbors_per_host: Option<u64>,
+    pub max_clients_per_host: Option<u64>,
+    pub soft_max_neighbors_per_host: Option<u64>,
+    pub soft_max_neighbors_per_org: Option<u64>,
+    pub soft_max_clients_per_host: Option<u64>,
+    pub walk_interval: Option<u64>,
+    pub dns_timeout: Option<u128>,
+    pub max_inflight_blocks: Option<u64>,
+    pub read_only_call_limit_write_length: Option<u64>,
+    pub read_only_call_limit_read_length: Option<u64>,
+    pub read_only_call_limit_write_count: Option<u64>,
+    pub read_only_call_limit_read_count: Option<u64>,
+    pub read_only_call_limit_runtime: Option<u64>,
+    pub maximum_call_argument_size: Option<u32>,
+}
+
+
+#[derive(Clone, Default, Deserialize)]
 pub struct NodeConfigFile {
     pub name: Option<String>,
     pub working_dir: Option<String>,
+    pub rpc_bind: Option<String>,
+    pub p2p_bind: Option<String>,
 }
 
 #[derive(Clone, Default, Deserialize)]

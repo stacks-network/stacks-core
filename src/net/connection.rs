@@ -53,6 +53,11 @@ use net::MAX_MESSAGE_LEN;
 
 use util::strings::UrlString;
 
+use vm::{
+    costs::ExecutionCost,
+    types::BOUND_VALUE_SERIALIZATION_HEX
+};
+
 use chainstate::burn::ConsensusHash;
 
 use util::log;
@@ -304,7 +309,9 @@ pub struct ConnectionOptions {
     pub soft_max_clients_per_host: u64,
     pub walk_interval: u64,
     pub dns_timeout: u128,
-    pub max_inflight_blocks: u64
+    pub max_inflight_blocks: u64,
+    pub read_only_call_limit: ExecutionCost,
+    pub maximum_call_argument_size: u32,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -328,6 +335,10 @@ impl std::default::Default for ConnectionOptions {
             walk_interval: 300,             // how often to do a neighbor walk
             dns_timeout: 15_000,            // DNS timeout, in millis
             max_inflight_blocks: 6,         // number of parallel block downloads
+            read_only_call_limit: ExecutionCost { write_length: 0, write_count: 0,
+                                                  read_length: 100000, read_count: 10,
+                                                  runtime: 10000000 },
+            maximum_call_argument_size: 20 * BOUND_VALUE_SERIALIZATION_HEX,
         }
     }
 }

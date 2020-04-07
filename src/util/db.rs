@@ -117,6 +117,12 @@ impl error::Error for Error {
     }
 }
 
+impl From<sqlite_error> for Error {
+    fn from(e: sqlite_error) -> Error {
+        Error::SqliteError(e)
+    }
+}
+
 pub trait FromRow<T> {
     fn from_row<'a>(row: &'a Row) -> Result<T, Error>;
 }
@@ -154,28 +160,47 @@ where
     P::Item: ToSql,
     T: FromRow<T>
 {
-    let mut stmt = conn.prepare(sql_query)
-        .map_err(Error::SqliteError)?;
+    let mut stmt = conn.prepare(sql_query)?;
+    let result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
 
-    let mut rows = stmt.query(sql_args)
-        .map_err(Error::SqliteError)?;
-
-    // gather 
-    let mut row_data = vec![];
-    while let Some(row_res) = rows.next() {
-        match row_res {
-            Ok(row) => {
-                let next_row = T::from_row(&row)?;
-                row_data.push(next_row);
-            },
-            Err(e) => {
-                return Err(Error::SqliteError(e));
-            }
-        };
-    }
-
-    Ok(row_data)
+    result.collect()
 }
+
+/// boilerplate code for querying a single row
+///   if more than 1 row is returned, excess rows are ignored.
+pub fn query_row<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Option<T>, Error>
+where
+    P: IntoIterator,
+    P::Item: ToSql,
+    T: FromRow<T>
+{
+    let query_result = conn.query_row_and_then(sql_query, sql_args, |row| T::from_row(row));
+    match query_result {
+        Ok(x) => Ok(Some(x)),
+        Err(Error::SqliteError(sqlite_error::QueryReturnedNoRows)) => Ok(None),
+        Err(e) => Err(e)
+    }
+}
+
+/// boilerplate code for querying a single row
+///   if more than 1 row is returned, panic
+pub fn query_expect_row<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Option<T>, Error>
+where
+    P: IntoIterator,
+    P::Item: ToSql,
+    T: FromRow<T>
+{
+    let mut stmt = conn.prepare(sql_query)?;
+    let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
+    let mut return_value = None;
+    if let Some(value) = result.next() {
+        return_value = Some(value?);
+    }
+    assert!(result.next().is_none(),
+            "FATAL: Multiple values returned for query that expected a single result:\n {}", sql_query);
+    Ok(return_value)
+}
+
 
 /// boilerplate code for querying a column out of a sequence of rows
 pub fn query_row_columns<T, P>(conn: &Connection, sql_query: &String, sql_args: P, column_name: &str) -> Result<Vec<T>, Error>

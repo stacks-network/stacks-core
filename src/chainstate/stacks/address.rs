@@ -18,7 +18,7 @@
 */
 
 use std::io::prelude::*;
-use std::io;
+use std::{io, fmt};
 use std::io::{Read, Write};
 
 use net::StacksMessageCodec;
@@ -131,17 +131,21 @@ impl StacksAddress {
     }
 }
 
+impl std::fmt::Display for StacksAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        c32_address(self.version, self.bytes.as_bytes())
+            .expect("Stacks version is not C32-encodable")
+            .fmt(f)
+    }
+}
+
 impl Address for StacksAddress {
     fn to_bytes(&self) -> Vec<u8> {
         self.bytes.as_bytes().to_vec()
     }
 
-    fn to_string(&self) -> String {
-        c32_address(self.version, self.bytes.as_bytes()).expect("Stacks version is not C32-encodable")
-    }
-
-    fn from_string(s: &String) -> Option<StacksAddress> {
-        let (version, bytes) = match c32_address_decode(s.as_str()) {
+    fn from_string(s: &str) -> Option<StacksAddress> {
+        let (version, bytes) = match c32_address_decode(s) {
             Ok((v, b)) => (v, b),
             Err(_) => {
                 return None;

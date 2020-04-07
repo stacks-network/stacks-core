@@ -98,6 +98,7 @@ pub enum CheckErrors {
     // contract-call errors
     NoSuchContract(String),
     NoSuchPublicFunction(String, String),
+    PublicFunctionNotReadOnly(String, String),
     ContractAlreadyExists(String),
     ContractCallExpectName,
 
@@ -325,6 +326,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ReturnTypesMustMatch(type_1, type_2) => format!("detected two execution paths, returning two different expression types (got '{}' and '{}')", type_1, type_2),
             CheckErrors::NoSuchContract(contract_identifier) => format!("use of unresolved contract '{}'", contract_identifier),
             CheckErrors::NoSuchPublicFunction(contract_identifier, function_name) => format!("contract '{}' has no public function '{}'", contract_identifier, function_name),
+            CheckErrors::PublicFunctionNotReadOnly(contract_identifier, function_name) => format!("function '{}' in '{}' is not read-only", contract_identifier, function_name),
             CheckErrors::ContractAlreadyExists(contract_identifier) => format!("contract name '{}' conflicts with existing contract", contract_identifier),
             CheckErrors::ContractCallExpectName => format!("missing contract name for call"),
             CheckErrors::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{}'", property_name),

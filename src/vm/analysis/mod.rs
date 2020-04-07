@@ -10,6 +10,7 @@ pub use self::types::{ContractAnalysis, AnalysisPass};
 use vm::representations::{SymbolicExpression};
 use vm::types::{TypeSignature, QualifiedContractIdentifier};
 use vm::costs::LimitedCostTracker;
+use vm::database::STORE_CONTRACT_SRC_INTERFACE;
 
 pub use self::errors::{CheckResult, CheckError, CheckErrors};
 pub use self::analysis_db::{AnalysisDatabase};
@@ -17,6 +18,7 @@ pub use self::analysis_db::{AnalysisDatabase};
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::TypeChecker;
+use self::contract_interface_builder::build_contract_interface;
 
 #[cfg(test)]
 pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
@@ -55,6 +57,10 @@ pub fn run_analysis(contract_identifier: &QualifiedContractIdentifier,
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         TypeChecker::run_pass(&mut contract_analysis, db)?;
         TraitChecker::run_pass(&mut contract_analysis, db)?;
+        if STORE_CONTRACT_SRC_INTERFACE {
+            let interface = build_contract_interface(&contract_analysis);
+            contract_analysis.contract_interface = Some(interface);
+        }
         if save_contract {
             db.insert_contract(&contract_identifier, &contract_analysis)?;
         }
