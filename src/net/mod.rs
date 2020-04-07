@@ -922,7 +922,7 @@ pub enum HttpRequestType {
     GetTransferCost(HttpRequestMetadata),
     GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName, bool),
     GetContractABI(HttpRequestMetadata, StacksAddress, ContractName),
-    OptionsPreflight(HttpRequestMetadata),
+    OptionsPreflight(HttpRequestMetadata, String),
 }
 
 /// The fields that Actually Matter to http responses

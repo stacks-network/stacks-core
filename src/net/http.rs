@@ -110,7 +110,7 @@ lazy_static! {
         "^/v2/contracts/interface/(?P<address>{})/(?P<contract>{})$",
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX)).unwrap();
     static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
-    static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new(".*").unwrap();
+    static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("(?P<path>)$").unwrap();
 }
 
 /// HTTP headers that we really care about
@@ -1426,7 +1426,7 @@ impl HttpRequestType {
     }
 
     fn parse_options_preflight<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
-        Ok(HttpRequestType::OptionsPreflight(HttpRequestMetadata::from_preamble(preamble)))
+        Ok(HttpRequestType::OptionsPreflight(HttpRequestMetadata::from_preamble(preamble), preamble.path.to_string()))
     }
 
     pub fn metadata(&self) -> &HttpRequestMetadata {
@@ -1489,7 +1489,7 @@ impl HttpRequestType {
             HttpRequestType::CallReadOnlyFunction(_, contract_addr, contract_name, _, func_name, ..) => {
                 format!("/v2/contracts/call-read/{}/{}/{}", contract_addr, contract_name.as_str(), func_name.as_str())
             },
-            HttpRequestType::OptionsPreflight(_md) => "/*".to_string(),
+            HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
         }
     }
 
@@ -1912,8 +1912,8 @@ impl HttpResponseType {
                 HttpResponseType::send_text(protocol, md, fd, &txid_bytes)?;
             },
             HttpResponseType::OptionsPreflight(ref md) => {
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", None, &HttpContentType::Bytes, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
-                HttpResponseType::send_text(protocol, md, fd, "ok".as_bytes())?;
+                HttpResponsePreamble::new_serialized(fd, 200, "OK", None, &HttpContentType::Text, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
+                HttpResponseType::send_text(protocol, md, fd, "".as_bytes())?;
             },
             HttpResponseType::BadRequestJSON(ref md, ref data) => {
                 HttpResponsePreamble::new_serialized(fd, 400, HttpResponseType::error_reason(400), md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
