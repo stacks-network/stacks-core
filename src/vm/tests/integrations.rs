@@ -215,7 +215,7 @@ fn integration_test_get_info() {
 
         if round >= 1 {
             let tx_xfer = make_stacks_transfer(&spender_sk, (round - 1).into(), 0,
-                                               &StacksAddress::from_string(ADDR_4).unwrap(), 100);
+                                               &StacksAddress::from_string(ADDR_4).unwrap().into(), 100);
             tenure.mem_pool.submit(tx_xfer);
         }
 
