@@ -158,10 +158,10 @@ impl StacksMessageCodec for TransactionPayload {
         let type_id : u8 = read_next(fd)?;
         let payload = match type_id {
             x if x == TransactionPayloadID::TokenTransfer as u8 => {
-                let addr : StacksAddress = read_next(fd)?;
-                let amount : u64 = read_next(fd)?;
-                let memo : TokenTransferMemo = read_next(fd)?;
-                TransactionPayload::TokenTransfer(addr, amount, memo)
+                let principal = read_next(fd)?;
+                let amount = read_next(fd)?;
+                let memo = read_next(fd)?;
+                TransactionPayload::TokenTransfer(principal, amount, memo)
             },
             x if x == TransactionPayloadID::ContractCall as u8 => {
                 let payload : TransactionContractCall = read_next(fd)?;
@@ -877,6 +877,7 @@ mod test {
     use util::retry::LogReader;
 
     use vm::representations::{ClarityName, ContractName};
+    use vm::types::{PrincipalData, QualifiedContractIdentifier};
 
     use std::error::Error;
 
@@ -1392,13 +1393,13 @@ mod test {
 
     #[test]
     fn tx_stacks_transaction_payload_tokens() {
-        let addr = StacksAddress {
+        let addr = PrincipalData::from(StacksAddress {
             version: 1,
             bytes: Hash160([0xff; 20])
-        };
+        });
         
         let tt_stx = TransactionPayload::TokenTransfer(addr.clone(), 123, TokenTransferMemo([1u8; 34]));
-        
+
         // wire encodings of the same
         let mut tt_stx_bytes = vec![];
         tt_stx_bytes.push(TransactionPayloadID::TokenTransfer as u8);
@@ -1407,6 +1408,23 @@ mod test {
         tt_stx_bytes.append(&mut vec![1u8; 34]);
 
         check_codec_and_corruption::<TransactionPayload>(&tt_stx, &tt_stx_bytes);
+
+        let addr = PrincipalData::from(QualifiedContractIdentifier {
+            issuer: StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }.into(),
+            name: "foo-contract".into()
+        });
+        
+        let tt_stx = TransactionPayload::TokenTransfer(addr.clone(), 123, TokenTransferMemo([1u8; 34]));
+
+        // wire encodings of the same
+        let mut tt_stx_bytes = vec![];
+        tt_stx_bytes.push(TransactionPayloadID::TokenTransfer as u8);
+        addr.consensus_serialize(&mut tt_stx_bytes).unwrap();
+        tt_stx_bytes.append(&mut vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 123]);
+        tt_stx_bytes.append(&mut vec![1u8; 34]);
+
+        check_codec_and_corruption::<TransactionPayload>(&tt_stx, &tt_stx_bytes);
+
     }
 
     #[test]
@@ -1931,9 +1949,11 @@ mod test {
             asset_name: asset_name.clone()
         };
 
+        let stx_address = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
+
         let tx_contract_call = StacksTransaction::new(TransactionVersion::Mainnet,
                                                       auth.clone(),
-                                                      TransactionPayload::new_contract_call(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, "hello", "world", vec![Value::Int(1)]).unwrap());
+                                                      TransactionPayload::new_contract_call(stx_address.clone(), "hello", "world", vec![Value::Int(1)]).unwrap());
 
         let tx_smart_contract = StacksTransaction::new(TransactionVersion::Mainnet,
                                                        auth.clone(),
@@ -1945,7 +1965,7 @@ mod test {
 
         let tx_stx = StacksTransaction::new(TransactionVersion::Mainnet,
                                             auth.clone(),
-                                            TransactionPayload::TokenTransfer(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, 123, TokenTransferMemo([0u8; 34])));
+                                            TransactionPayload::TokenTransfer(stx_address.clone().into(), 123, TokenTransferMemo([0u8; 34])));
 
         let tx_poison = StacksTransaction::new(TransactionVersion::Mainnet,
                                                auth.clone(),
