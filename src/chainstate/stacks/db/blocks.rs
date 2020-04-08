@@ -3040,7 +3040,7 @@ impl StacksChainState {
         match &tx.payload {
             TransactionPayload::TokenTransfer(addr, amount, _memo) => {
                 // version byte matches?
-                if !self.is_valid_address_version(addr.version) {
+                if !self.is_valid_address_version(addr.version()) {
                     return Err(MemPoolRejection::BadAddressVersionByte)
                 }
 

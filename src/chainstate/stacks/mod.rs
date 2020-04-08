@@ -441,7 +441,7 @@ pub const TOKEN_TRANSFER_MEMO_LENGTH : usize = 34;      // same as it is in Stac
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionPayload {
-    TokenTransfer(StacksAddress, u64, TokenTransferMemo),
+    TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
     SmartContract(TransactionSmartContract),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),       // the previous epoch leader sent two microblocks with the same sequence, and this is proof
@@ -871,8 +871,14 @@ pub mod test {
             ]);
         }
 
+        let stx_address = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
         let tx_payloads = vec![
-            TransactionPayload::TokenTransfer(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, 123, TokenTransferMemo([0u8; 34])),
+            TransactionPayload::TokenTransfer(
+                stx_address.into(), 123, TokenTransferMemo([0u8; 34])),
+            TransactionPayload::TokenTransfer(
+                PrincipalData::from(QualifiedContractIdentifier {
+                    issuer: stx_address.into(),
+                    name: "hello-contract-name".into() }), 123, TokenTransferMemo([0u8; 34])),
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress { version: 4, bytes: Hash160([0xfc; 20]) },
                 contract_name: ContractName::try_from("hello-contract-name").unwrap(),

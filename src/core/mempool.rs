@@ -38,7 +38,7 @@ mod tests {
     use vm::tests::integrations::*;
     use vm::{
         database::HeadersDB,
-        types::QualifiedContractIdentifier,
+        types::{QualifiedContractIdentifier, PrincipalData},
         Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
     use chainstate::burn::{VRFSeed, BlockHeaderHash};
     use burnchains::Address;
@@ -68,7 +68,7 @@ mod tests {
     const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
 
     pub fn make_bad_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
-                                    recipient: &StacksAddress, amount: u64) -> Vec<u8> {
+                                    recipient: &PrincipalData, amount: u64) -> Vec<u8> {
         let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
 
         let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
@@ -116,7 +116,7 @@ mod tests {
             let contract_addr = to_addr(&contract_sk);
 
             let other_sk =  StacksPrivateKey::from_hex(SK_2).unwrap();
-            let other_addr = to_addr(&other_sk);
+            let other_addr = to_addr(&other_sk).into();
 
             if round == 3 {
                 let block_header = chain_tip_info;
@@ -152,7 +152,8 @@ mod tests {
                 let bad_addr = 
                     StacksAddress::from_public_keys(
                         88, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&other_sk)])
-                    .unwrap();
+                    .unwrap()
+                    .into();
 
                 let tx = make_contract_call(&contract_sk, 1, 200, &bad_addr, "foo_contract", "bar", &[Value::UInt(1), Value::Int(2)]);
                 let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err();
@@ -163,7 +164,8 @@ mod tests {
                 let bad_addr = 
                     StacksAddress::from_public_keys(
                         C32_ADDRESS_VERSION_MAINNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&other_sk)])
-                    .unwrap();
+                    .unwrap()
+                    .into();
 
                 let tx = make_stacks_transfer(&contract_sk, 1, 200, &bad_addr, 1000);
                 let e = chainstate.will_admit_mempool_tx(burn_hash, block_hash, &mut tx.as_slice()).unwrap_err();
