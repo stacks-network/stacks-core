@@ -33,6 +33,10 @@ harness = false
 name = "large_contract_bench"
 harness = false
 
+[[bench]]
+name = "block_limits"
+harness = false
+
 [dependencies]
 byteorder = "1.1"
 rust-ini = "0.13"

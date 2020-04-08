@@ -1,6 +1,7 @@
 use util::hash::{to_hex};
 use burnchains::{Address, Burnchain};
 use vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier} ;
+use vm::costs::ExecutionCost;
 use rand::RngCore;
 use std::convert::TryInto;
 use std::io::BufReader;
@@ -16,10 +17,10 @@ pub struct ConfigFile {
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
+    pub block_limit: Option<BlockLimitFile>,
 }
 
 impl ConfigFile {
-
     pub fn from_path(path: &str) -> ConfigFile {
         let path = File::open(path).unwrap();
         let mut config_file_reader = BufReader::new(path);
@@ -37,6 +38,7 @@ pub struct Config {
     pub initial_balances: Vec<InitialBalance>,
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
+    pub block_limit: ExecutionCost,
 }
 
 lazy_static! {
@@ -63,6 +65,14 @@ lazy_static! {
         .. std::default::Default::default()
     };
 }
+
+pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
+    write_length: 15_0_000_000,
+    write_count: 5_0_000,
+    read_length: 1_000_000_000,
+    read_count: 5_0_000,
+    runtime: 1_00_000_000,
+};
 
 impl Config {
 
@@ -168,13 +178,25 @@ impl Config {
             }
         };
 
+        let block_limit = match config_file.block_limit {
+            Some(opts) => ExecutionCost {
+                write_length: opts.write_length.unwrap_or(HELIUM_BLOCK_LIMIT.write_length.clone()),
+                write_count:  opts.write_count.unwrap_or(HELIUM_BLOCK_LIMIT.write_count.clone()),
+                read_length:  opts.read_length.unwrap_or(HELIUM_BLOCK_LIMIT.read_length.clone()),
+                read_count:  opts.read_count.unwrap_or(HELIUM_BLOCK_LIMIT.read_count.clone()),
+                runtime:  opts.runtime.unwrap_or(HELIUM_BLOCK_LIMIT.runtime.clone()),
+            },
+            None => HELIUM_BLOCK_LIMIT.clone()
+        };
+
         Config {
             node,
             burnchain,
             mempool,
             initial_balances,
             events_observers,
-            connection_options
+            connection_options,
+            block_limit
         }
     }
 
@@ -308,6 +330,15 @@ pub struct ConnectionOptionsFile {
     pub read_only_call_limit_read_count: Option<u64>,
     pub read_only_call_limit_runtime: Option<u64>,
     pub maximum_call_argument_size: Option<u32>,
+}
+
+#[derive(Clone, Default, Deserialize)]
+pub struct BlockLimitFile {
+    pub write_length: Option<u64>,
+    pub read_length: Option<u64>,
+    pub write_count: Option<u64>,
+    pub read_count: Option<u64>,
+    pub runtime: Option<u64>,
 }
 
 
