@@ -275,10 +275,10 @@ impl BurnchainConfig {
     fn default() -> BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
-            network: "mock".to_string(),
+            network: "mocknet".to_string(),
             burn_fee_cap: 10000,
             block_time: 5000,
-            peer_host: "bitcoin.blockstack.com".to_string(),
+            peer_host: "bitcoin.blockstack.com".to_string(), // todo(ludo): Update URL
             peer_port: 8333,
             rpc_port: 8332,
             rpc_ssl: false,

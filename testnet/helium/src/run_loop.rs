@@ -70,7 +70,7 @@ impl RunLoop {
             "regtest" => {
                 BitcoinRegtestController::generic(self.config.clone())
             },
-            "mock" => {
+            "mocknet" => {
                 MockBurnchainController::generic(self.config.clone())
             }
             _ => unimplemented!()
@@ -96,7 +96,9 @@ impl RunLoop {
         let state_1 = burnchain.sync();
         self.node.process_burnchain_state(&state_1);
 
-        self.node.spawn_peer_server();
+        if self.config.burnchain.network == "mocknet" {
+            self.node.spawn_peer_server();
+        }
 
         // Bootstrap the chain: node will start a new tenure,
         // using the sortition hash from block #1 for generating a VRF.

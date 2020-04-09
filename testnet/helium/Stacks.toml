@@ -4,7 +4,7 @@ rpc_bind = "127.0.0.1:9000"
 
 [burnchain]
 chain = "bitcoin"
-network = "mock" # "mock", "regtest"
+network = "mocknet" # "mocknet", "regtest" ("testnet", "mainnet" available soon).
 peer_host = "127.0.0.1"
 peer_port = 18444
 rpc_port = 18443
