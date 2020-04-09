@@ -197,5 +197,8 @@ impl BurnchainController for MockBurnchainController {
 
         new_state
     }
+
+    #[cfg(test)]
+    fn bootstrap_chain(&mut self) {}
 }
 

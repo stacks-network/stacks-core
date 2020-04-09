@@ -22,4 +22,7 @@ pub trait BurnchainController {
     fn sync(&mut self) -> BurnchainTip;
     fn burndb_mut(&mut self) -> &mut BurnDB;
     fn get_chain_tip(&mut self) -> BurnchainTip;
+
+    #[cfg(test)]
+    fn bootstrap_chain(&mut self);
 }

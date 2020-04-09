@@ -10,6 +10,7 @@ use stacks::util::sleep_ms;
 pub struct RunLoop {
     config: Config,
     pub node: Node,
+    burnchain_initialized_callback: Option<fn(&mut Box<dyn BurnchainController>)>,
     new_burnchain_state_callback: Option<fn(u64, &BurnchainTip)>,
     new_tenure_callback: Option<fn(u64, &Tenure)>,
     new_chain_state_callback: Option<fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>)>,
@@ -49,6 +50,7 @@ impl RunLoop {
         Self {
             config,
             node,
+            burnchain_initialized_callback: None,
             new_burnchain_state_callback: None,
             new_tenure_callback: None,
             new_chain_state_callback: None,
@@ -73,6 +75,10 @@ impl RunLoop {
             }
             _ => unimplemented!()
         };
+
+        RunLoop::handle_burnchain_initialized_cb(
+            &self.burnchain_initialized_callback, 
+            &mut burnchain);
 
         let genesis_state = burnchain.start();
 
@@ -221,6 +227,10 @@ impl RunLoop {
         }
     }
 
+    pub fn apply_once_burnchain_initialized(&mut self, f: fn(&mut Box<dyn BurnchainController>)) {
+        self.burnchain_initialized_callback = Some(f);
+    }
+
     pub fn apply_on_new_burnchain_states(&mut self, f: fn(u64, &BurnchainTip)) {
         self.new_burnchain_state_callback = Some(f);
     }
@@ -231,6 +241,10 @@ impl RunLoop {
     
     pub fn apply_on_new_chain_states(&mut self, f: fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>)) {
         self.new_chain_state_callback = Some(f);
+    }
+
+    fn handle_burnchain_initialized_cb(burnchain_initialized_callback: &Option<fn(&mut Box<dyn BurnchainController>)>, burnchain_controller: &mut Box<dyn BurnchainController>) {
+        burnchain_initialized_callback.map(|cb| cb(burnchain_controller));
     }
 
     fn handle_new_tenure_cb(new_tenure_callback: &Option<fn(u64, &Tenure)>,
