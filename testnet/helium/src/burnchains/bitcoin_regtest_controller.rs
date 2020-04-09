@@ -32,100 +32,6 @@ pub struct BitcoinRegtestController {
     chain_tip: Option<BurnchainTip>,
 }
 
-#[derive(Debug, Clone)]
-struct SerializedTx {
-    bytes: Vec<u8>
-}
-
-impl SerializedTx {
-    pub fn new(tx: Transaction) -> SerializedTx {
-        let mut encoder = RawEncoder::new(Cursor::new(vec![]));
-        tx.consensus_encode(&mut encoder).expect("BUG: failed to serialize to a vec");
-        let bytes: Vec<u8> = encoder.into_inner().into_inner(); 
-        SerializedTx {
-            bytes
-        }
-    }
-}
-
-impl RawTx for SerializedTx {
-    fn raw_hex(self) -> String {
-        let formatted_bytes: Vec<String> = self.bytes.iter().map(|b| format!("{:02x}", b)).collect();
-        format!("{}", formatted_bytes.join(""))
-    }
-}
-
-impl BurnchainController for BitcoinRegtestController {
-
-    fn burndb_mut(&mut self) -> &mut BurnDB {
-
-        // todo(ludo): revisit this approach
-
-        let network = self.config.burnchain.network.clone();
-        let working_dir = self.config.get_burn_db_path();
-        let burnchain = Burnchain::new(
-            &working_dir,
-            &self.config.burnchain.chain, 
-            &network)
-        .map_err(|e| {
-            error!("Failed to instantiate burn chain driver for {}: {:?}", network, e);
-            e
-        }).unwrap();
-
-        let db = burnchain.open_db(true).unwrap();
-        self.db = Some(db);
-
-        match self.db {
-            Some(ref mut burndb) => burndb,
-            None => {
-                unreachable!()
-            }
-        }
-    }
-    
-    fn get_chain_tip(&mut self) -> BurnchainTip {
-        match &self.chain_tip {
-            Some(chain_tip) => chain_tip.clone(),
-            None => {
-                unreachable!();
-            }
-        }
-    }
-
-
-    fn start(&mut self) -> BurnchainTip {
-        self.receive_blocks()
-    }
-
-    fn sync(&mut self) -> BurnchainTip {
-        if let Some(local_mining_pk) = &self.config.burnchain.local_mining_public_key {
-            sleep_ms(self.config.burnchain.block_time);
-            self.build_next_block(local_mining_pk);
-        }
-
-        self.receive_blocks()
-    }
-
-    fn submit_operation(&mut self, operation: BurnchainOperationType, op_signer: &mut BurnchainOpSigner) {
-
-        let transaction = match operation {
-            BurnchainOperationType::LeaderBlockCommit(payload) 
-                => self.build_leader_block_commit_tx(payload, op_signer),
-            BurnchainOperationType::LeaderKeyRegister(payload) 
-                => self.build_leader_key_register_tx(payload, op_signer),
-            BurnchainOperationType::UserBurnSupport(payload) 
-                => self.build_user_burn_support_tx(payload, op_signer)
-        };
-
-        let transaction = match transaction {
-            Some(tx) => SerializedTx::new(tx),
-            _ => return
-        };
-
-        self.send_transaction(transaction);
-    }
-}
-
 impl BitcoinRegtestController {
 
     pub fn generic(config: Config) -> Box<dyn BurnchainController> {
@@ -214,7 +120,7 @@ impl BitcoinRegtestController {
         rpc
     }
 
-    fn get_utxo(&self, public_key: &[u8], amount_required: u64) -> Option<UTXO> {
+    fn get_utxo(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<UTXO> {
 
         use super::super::bitcoincore_rpc::bitcoin::{PublicKey, Address, Network};
 
@@ -222,22 +128,49 @@ impl BitcoinRegtestController {
         let rpc = self.get_rpc_client();
 
         // Configure UTXO filter
-        let public_key = PublicKey::from_slice(&public_key).unwrap();
+        let public_key = PublicKey::from_slice(&public_key.to_bytes()).unwrap();
         let address = Address::p2pkh(&public_key, Network::Regtest);
-        // let filter_addresses = [address];
+        let filter_addresses = [address];
 
         // Perform request
-        let utxos = match rpc.list_unspent(
+        let mut utxos = match rpc.list_unspent(
             None, 
             None,         
-            None, //Some(&filter_addresses[..]), 
-            Some(false), None) {
+            Some(&filter_addresses[..]), 
+            Some(false), 
+            None) {
                 Ok(utxos) => utxos,
                 Err(e) => {
                     error!("Bitcoin RPC failure: error listing utxos {:?}", e);
                     panic!();    
                 }
         };
+
+        if utxos.len() == 0 {
+            println!("Got 0 UTXO. Importing address {}", public_key);
+
+            let _res = rpc.import_public_key(&public_key, None, Some(true));
+            
+            // todo(ludo): rescan can take time. Find a better approach
+            sleep_ms(1000);
+
+            utxos = match rpc.list_unspent(
+                None, 
+                None,         
+                Some(&filter_addresses[..]), 
+                Some(false), 
+                None) {
+                    Ok(utxos) => utxos,
+                    Err(e) => {
+                        error!("Bitcoin RPC failure: error listing utxos {:?}", e);
+                        panic!();    
+                    }
+            };
+
+            if utxos.len() == 0 {
+                return None
+            }
+        }
 
         // todo(ludo): select the correct utxo (amount)
         let mut result = utxos[0].clone();
@@ -362,7 +295,7 @@ impl BitcoinRegtestController {
         let amount_required = tx_fee + ops_fee;
 
         // Fetch some UTXOs
-        let utxo = match self.get_utxo(&public_key.to_bytes_compressed(), amount_required) {
+        let utxo = match self.get_utxo(&public_key, amount_required) {
             Some(utxo) => utxo,
             None => return None
         };
@@ -449,16 +382,16 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn build_next_block(&self, public_key: &String) {
+    fn build_next_block(&self, public_key_str: &String, num_blocks: u64) {
 
         use super::super::bitcoincore_rpc::bitcoin::{PublicKey, Address, Network};
 
-        let public_key = hex_bytes(public_key).expect("Mining public key byte sequence invalid");
+        let public_key = hex_bytes(public_key_str).expect("Mining public key byte sequence invalid");
         let coinbase_public_key = PublicKey::from_slice(&public_key).expect("Mining public key invalid");
         let address = Address::p2pkh(&coinbase_public_key, Network::Regtest);
 
         let rpc = self.get_rpc_client();
-        match rpc.generate_to_address(1, &address) {
+        match rpc.generate_to_address(num_blocks, &address) {
             Ok(_) => {},
             Err(e) => {
                 error!("Bitcoin RPC failure: error generating block {:?}", e);
@@ -467,6 +400,132 @@ impl BitcoinRegtestController {
         }
     }
 }
+
+impl BurnchainController for BitcoinRegtestController {
+
+    fn burndb_mut(&mut self) -> &mut BurnDB {
+
+        // todo(ludo): revisit this approach
+
+        let network = self.config.burnchain.network.clone();
+        let working_dir = self.config.get_burn_db_path();
+        let burnchain = Burnchain::new(
+            &working_dir,
+            &self.config.burnchain.chain, 
+            &network)
+        .map_err(|e| {
+            error!("Failed to instantiate burn chain driver for {}: {:?}", network, e);
+            e
+        }).unwrap();
+
+        let db = burnchain.open_db(true).unwrap();
+        self.db = Some(db);
+
+        match self.db {
+            Some(ref mut burndb) => burndb,
+            None => {
+                unreachable!()
+            }
+        }
+    }
+    
+    fn get_chain_tip(&mut self) -> BurnchainTip {
+        match &self.chain_tip {
+            Some(chain_tip) => chain_tip.clone(),
+            None => {
+                unreachable!();
+            }
+        }
+    }
+
+
+    fn start(&mut self) -> BurnchainTip {
+        self.receive_blocks()
+    }
+
+    fn sync(&mut self) -> BurnchainTip {
+        if let Some(local_mining_pk) = &self.config.burnchain.local_mining_public_key {
+            sleep_ms(self.config.burnchain.block_time);
+            self.build_next_block(local_mining_pk, 1);
+        }
+
+        self.receive_blocks()
+    }
+
+    fn submit_operation(&mut self, operation: BurnchainOperationType, op_signer: &mut BurnchainOpSigner) {
+
+        let transaction = match operation {
+            BurnchainOperationType::LeaderBlockCommit(payload) 
+                => self.build_leader_block_commit_tx(payload, op_signer),
+            BurnchainOperationType::LeaderKeyRegister(payload) 
+                => self.build_leader_key_register_tx(payload, op_signer),
+            BurnchainOperationType::UserBurnSupport(payload) 
+                => self.build_user_burn_support_tx(payload, op_signer)
+        };
+
+        let transaction = match transaction {
+            Some(tx) => SerializedTx::new(tx),
+            _ => return
+        };
+
+        self.send_transaction(transaction);
+    }
+    
+    #[cfg(test)]
+    fn bootstrap_chain(&mut self) {
+        use super::super::bitcoincore_rpc::bitcoin::{PublicKey, Address, Network};
+
+        if let Some(local_mining_pubkey) = &self.config.burnchain.local_mining_public_key {
+
+            let public_key = hex_bytes(local_mining_pubkey).expect("Mining public key byte sequence invalid");
+            let coinbase_public_key = PublicKey::from_slice(&public_key).expect("Mining public key invalid");
+            let address = Address::p2pkh(&coinbase_public_key, Network::Regtest);
+    
+            let rpc = self.get_rpc_client();
+
+            let _res = rpc.import_public_key(
+                &coinbase_public_key, 
+                None, 
+                Some(true));
+
+            let res = rpc.generate_to_address(
+                201, 
+                &address);
+
+            match res {
+                Ok(_) => {},
+                Err(e) => {
+                    error!("Bitcoin RPC failure: error generating block {:?}", e);
+                    panic!();
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SerializedTx {
+    bytes: Vec<u8>
+}
+
+impl SerializedTx {
+    pub fn new(tx: Transaction) -> SerializedTx {
+        let mut encoder = RawEncoder::new(Cursor::new(vec![]));
+        tx.consensus_encode(&mut encoder).expect("BUG: failed to serialize to a vec");
+        let bytes: Vec<u8> = encoder.into_inner().into_inner(); 
+        SerializedTx {
+            bytes
+        }
+    }
+}
+
+impl RawTx for SerializedTx {
+    fn raw_hex(self) -> String {
+        let formatted_bytes: Vec<String> = self.bytes.iter().map(|b| format!("{:02x}", b)).collect();
+        format!("{}", formatted_bytes.join(""))
+    }
+}
+
 
 #[derive(Debug, Clone)]
 pub struct UTXO {
@@ -482,4 +541,3 @@ pub struct UTXO {
     pub descriptor: Option<String>,
     pub safe: bool,
 }
-
