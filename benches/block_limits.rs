@@ -17,7 +17,7 @@ use std::fmt::Write;
 
 fn test_via_tx(scaling: u32, inner_loop: &str, other_decl: &str) -> ExecutionCost {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(marf);
+    let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 

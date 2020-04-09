@@ -94,6 +94,7 @@ use vm::clarity::{
 };
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
+use vm::costs::ExecutionCost;
 
 use core::CHAINSTATE_VERSION;
 
@@ -712,15 +713,18 @@ impl StacksChainState {
     }
 
     pub fn open(mainnet: bool, chain_id: u32, path_str: &str) -> Result<StacksChainState, Error> {
-        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, |_| {})
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, |_| {}, ExecutionCost::max_value())
     }
 
-    pub fn open_testnet<F>(chain_id: u32, path_str: &str, initial_balances: Option<Vec<(PrincipalData, u64)>>, in_boot_block: F) -> Result<StacksChainState, Error> 
+    pub fn open_testnet<F>(chain_id: u32, path_str: &str, initial_balances: Option<Vec<(PrincipalData, u64)>>,
+                           in_boot_block: F, block_limit: ExecutionCost) -> Result<StacksChainState, Error> 
     where F: FnOnce(&mut ClarityTx) -> () {        
-        StacksChainState::open_and_exec(false, chain_id, path_str, initial_balances, in_boot_block)
+        StacksChainState::open_and_exec(false, chain_id, path_str, initial_balances, in_boot_block, block_limit)
     }
 
-    pub fn open_and_exec<F>(mainnet: bool, chain_id: u32, path_str: &str, initial_balances: Option<Vec<(PrincipalData, u64)>>, in_boot_block: F) -> Result<StacksChainState, Error> 
+    pub fn open_and_exec<F>(mainnet: bool, chain_id: u32, path_str: &str,
+                            initial_balances: Option<Vec<(PrincipalData, u64)>>,
+                            in_boot_block: F, block_limit: ExecutionCost) -> Result<StacksChainState, Error> 
     where F: FnOnce(&mut ClarityTx) -> () {
         let mut path = PathBuf::from(path_str);
 
@@ -779,8 +783,8 @@ impl StacksChainState {
         let vm_state = MarfedKV::open(&clarity_state_index_root, Some(&StacksBlockHeader::make_index_block_hash(&MINER_BLOCK_BURN_HEADER_HASH, &MINER_BLOCK_HEADER_HASH)))
             .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state = ClarityInstance::new(vm_state);
-        
+        let clarity_state = ClarityInstance::new(vm_state, block_limit);
+
         let mut chainstate = StacksChainState {
             mainnet: mainnet,
             chain_id: chain_id,

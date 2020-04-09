@@ -24,7 +24,7 @@ use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbo
 #[test]
 pub fn rollback_log_memory_test() {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(marf);
+    let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
     let EXPLODE_N = 100;
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
@@ -64,7 +64,7 @@ pub fn rollback_log_memory_test() {
 #[test]
 pub fn let_memory_test() {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(marf);
+    let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
     let EXPLODE_N = 100;
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
@@ -105,7 +105,7 @@ pub fn let_memory_test() {
 #[test]
 pub fn argument_memory_test() {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(marf);
+    let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
     let EXPLODE_N = 100;
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
@@ -146,7 +146,7 @@ pub fn argument_memory_test() {
 #[test]
 pub fn fcall_memory_test() {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(marf);
+    let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
     let COUNT_PER_FUNC = 10;
     let FUNCS = 10;
 
@@ -211,7 +211,7 @@ pub fn fcall_memory_test() {
 #[test]
 pub fn ccall_memory_test() {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(marf);
+    let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
     let COUNT_PER_CONTRACT = 20;
     let CONTRACTS = 5;
 
