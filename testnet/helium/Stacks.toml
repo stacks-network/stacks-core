@@ -12,7 +12,7 @@ rpc_ssl = false
 username = "helium-node"
 password = "secret"
 timeout = 30
-local_mining_public_key = "032fd788a3571255ff03839a0f859073d96fc34c4e247699ab3cc18cdd892e9540"
+local_mining_public_key = "04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77"
 burnchain_op_tx_fee = 1000
 
 [mempool]

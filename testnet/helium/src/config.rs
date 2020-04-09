@@ -8,7 +8,7 @@ use stacks::burnchains::{
     MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
 use stacks::net::connection::ConnectionOptions;
-use stacks::util::hash::{to_hex};
+use stacks::util::hash::{to_hex, hex_bytes};
 use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier} ;
 
 
@@ -86,6 +86,10 @@ impl Config {
             Some(node) => {
                 NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
+                    seed: match node.seed {
+                        Some(seed) => hex_bytes(&seed).expect("Seed should be composed of hexadecimals"), // todo(ludo): improve wording
+                        None => default_node_config.seed
+                    },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
                     rpc_bind: node.rpc_bind.unwrap_or(default_node_config.rpc_bind),
                     p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
@@ -317,6 +321,7 @@ pub struct BurnchainConfigFile {
 #[derive(Clone, Default)]
 pub struct NodeConfig {
     pub name: String,
+    pub seed: Vec<u8>,
     pub working_dir: String,
     pub rpc_bind: String,
     pub p2p_bind: String,
@@ -339,6 +344,7 @@ impl NodeConfig {
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
+            seed: vec![0; 32],
             working_dir: format!("/tmp/{}", testnet_id),
             rpc_bind: format!("127.0.0.1:{}", rpc_port),
             p2p_bind: format!("127.0.0.1:{}", p2p_port)
@@ -390,6 +396,7 @@ pub struct ConnectionOptionsFile {
 #[derive(Clone, Default, Deserialize)]
 pub struct NodeConfigFile {
     pub name: Option<String>,
+    pub seed: Option<String>,
     pub working_dir: Option<String>,
     pub rpc_bind: Option<String>,
     pub p2p_bind: Option<String>,

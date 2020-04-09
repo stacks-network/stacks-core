@@ -13,7 +13,6 @@ use stacks::chainstate::stacks::{ StacksBlock, TransactionPayload, StacksAddress
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, BlockHeaderHash};
 use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer } };
-use stacks::util::hash::Sha256Sum;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
@@ -108,9 +107,8 @@ impl Node {
     /// Instantiate and initialize a new node, given a config
     pub fn new<F>(config: Config, boot_block_exec: F) -> Self
     where F: FnOnce(&mut ClarityTx) -> () {
-        
-        let seed = Sha256Sum::from_data(format!("{}", config.node.name).as_bytes());
-        let keychain = Keychain::default(seed.as_bytes().to_vec());
+
+        let keychain = Keychain::default(config.node.seed.clone());
 
         let initial_balances = config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
 
