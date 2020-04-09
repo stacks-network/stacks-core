@@ -1,4 +1,3 @@
-
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use vm::execute as vm_execute;
 use chainstate::burn::BlockHeaderHash;
@@ -12,7 +11,7 @@ use util::hash::hex_bytes;
 use vm::database::{MemoryBackingStore, MarfedKV, NULL_HEADER_DB, ClarityDatabase};
 use vm::clarity::ClarityInstance;
 use vm::ast;
-
+use vm::costs::ExecutionCost;
 use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbols_from_values};
 
 
