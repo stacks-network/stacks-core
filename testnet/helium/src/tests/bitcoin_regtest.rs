@@ -1,6 +1,8 @@
 use std::process::{Command, Stdio, Child};
 
 use super::{Config, RunLoop, MemPool};
+
+use stacks::chainstate::burn::operations::BlockstackOperationType::{LeaderBlockCommit, LeaderKeyRegister};
 use stacks::util::hash::{hex_bytes};
 use stacks::util::sleep_ms;
 
@@ -29,7 +31,7 @@ impl BitcoinCoreController {
         
         let mut command = Command::new("bitcoind");
         command
-            .stdout(Stdio::piped())
+            // .stdout(Stdio::piped())
             .arg("-conf=/dev/null") // todo(ludo): nix only
             .arg("-regtest")
             .arg("-nodebug")
@@ -80,6 +82,7 @@ fn simple_test() {
 
     let mut conf = super::new_test_conf();
     conf.burnchain.block_time = 2000;
+    conf.burnchain.burn_fee_cap = 5000;
     conf.burnchain.network = "regtest".to_string();
     conf.burnchain.peer_host = "127.0.0.1".to_string();
     conf.burnchain.rpc_port = 18443;
@@ -99,6 +102,155 @@ fn simple_test() {
         // todo(ludo): we need to wait for bitcoind to be ready.
         sleep_ms(5000);
         burnchain_controller.bootstrap_chain();
+    });
+
+    run_loop.apply_on_new_burnchain_states(|round, burnchain_tip| {
+        match round {
+            0 => {
+                let block = &burnchain_tip.block_snapshot;
+                assert!(block.block_height == 203);
+                assert!(block.total_burn == 5000);
+                assert!(block.num_sortitions == 1);
+                assert!(block.sortition == true);
+
+                let state_transition = &burnchain_tip.state_transition;
+                assert!(state_transition.accepted_ops.len() == 2);
+                assert!(state_transition.consumed_leader_keys.len() == 1);
+
+                for op in &state_transition.accepted_ops {
+                    match op {
+                        LeaderKeyRegister(op) => {
+                            assert!(op.public_key.to_hex() == "99fe9d43bbb0d36a23e4102cef59accfa983a342ae1e5acedc1b8dcb06b17cd4");
+                        },
+                        LeaderBlockCommit(op) => {
+                            assert!(op.parent_block_ptr == 0);
+                            assert!(op.parent_vtxindex == 0);
+                            assert!(op.burn_fee == 5000);
+                        }
+                        _ => assert!(false)
+                    }
+                }
+            },
+            1 => {
+                let block = &burnchain_tip.block_snapshot;
+                assert!(block.block_height == 204);
+                assert!(block.total_burn == 10000);
+                assert!(block.num_sortitions == 2);
+                assert!(block.sortition == true);
+
+                let state_transition = &burnchain_tip.state_transition;
+                assert!(state_transition.accepted_ops.len() == 2);
+                assert!(state_transition.consumed_leader_keys.len() == 1);
+
+                for op in &state_transition.accepted_ops {
+                    match op {
+                        LeaderKeyRegister(op) => {
+                            assert!(op.public_key.to_hex() == "f6fb508bdbeb8c64faf4a376d773c4b6514874d8e508a30aa9ee4db86c6b7e8e");
+                        },
+                        LeaderBlockCommit(op) => {
+                            assert!(op.parent_block_ptr == 203);
+                            assert!(op.burn_fee == 5000);
+                        }
+                        _ => assert!(false)
+                    }
+                }
+            },
+            2 => {
+                let block = &burnchain_tip.block_snapshot;
+                assert!(block.block_height == 205);
+                assert!(block.total_burn == 15000);
+                assert!(block.num_sortitions == 3);
+                assert!(block.sortition == true);
+
+                let state_transition = &burnchain_tip.state_transition;
+                assert!(state_transition.accepted_ops.len() == 2);
+                assert!(state_transition.consumed_leader_keys.len() == 1);
+
+                for op in &state_transition.accepted_ops {
+                    match op {
+                        LeaderKeyRegister(op) => {
+                            assert!(op.public_key.to_hex() == "e89fc82ea3b5cfeab082e3a3294a6fbc6b9bb9a18d8179898898c2acafe21ab0");
+                        },
+                        LeaderBlockCommit(op) => {
+                            assert!(op.parent_block_ptr == 204);
+                            assert!(op.burn_fee == 5000);
+                        }
+                        _ => assert!(false)
+                    }
+                }            },
+            3 => {
+                let block = &burnchain_tip.block_snapshot;
+                assert!(block.block_height == 206);
+                assert!(block.total_burn == 20000);
+                assert!(block.num_sortitions == 4);
+                assert!(block.sortition == true);
+
+                let state_transition = &burnchain_tip.state_transition;
+                assert!(state_transition.accepted_ops.len() == 2);
+                assert!(state_transition.consumed_leader_keys.len() == 1);
+
+                for op in &state_transition.accepted_ops {
+                    match op {
+                        LeaderKeyRegister(op) => {
+                            assert!(op.public_key.to_hex() == "c44604de9b87ee911db176c8d416c53c6aa046aa4be88333f5bc74d7f7c5a561");
+                        },
+                        LeaderBlockCommit(op) => {
+                            assert!(op.parent_block_ptr == 205);
+                            assert!(op.burn_fee == 5000);
+                        }
+                        _ => assert!(false)
+                    }
+                }            },
+            4 => {
+                let block = &burnchain_tip.block_snapshot;
+                assert!(block.block_height == 207);
+                assert!(block.total_burn == 25000);
+                assert!(block.num_sortitions == 5);
+                assert!(block.sortition == true);
+
+                let state_transition = &burnchain_tip.state_transition;
+                assert!(state_transition.accepted_ops.len() == 2);
+                assert!(state_transition.consumed_leader_keys.len() == 1);
+
+                for op in &state_transition.accepted_ops {
+                    match op {
+                        LeaderKeyRegister(op) => {
+                            assert!(op.public_key.to_hex() == "cb58759fcb51972f98b53d755f5980695e5a0abd0e307002f32e8d73b40c2019");
+                        },
+                        LeaderBlockCommit(op) => {
+                            assert!(op.parent_block_ptr == 206);
+                            assert!(op.burn_fee == 5000);
+                        }
+                        _ => assert!(false)
+                    }
+                }
+            },
+            5 => {
+                let block = &burnchain_tip.block_snapshot;
+                assert!(block.block_height == 208);
+                assert!(block.total_burn == 30000);
+                assert!(block.num_sortitions == 6);
+                assert!(block.sortition == true);
+
+                let state_transition = &burnchain_tip.state_transition;
+                assert!(state_transition.accepted_ops.len() == 2);
+                assert!(state_transition.consumed_leader_keys.len() == 1);
+
+                for op in &state_transition.accepted_ops {
+                    match op {
+                        LeaderKeyRegister(op) => {
+                            assert!(op.public_key.to_hex() == "848a6ec4da123bd44b79e05dd8eb90fcfb92b985812cb54c886987f7dd54ac90");
+                        },
+                        LeaderBlockCommit(op) => {
+                            assert!(op.parent_block_ptr == 207);
+                            assert!(op.burn_fee == 5000);
+                        }
+                        _ => assert!(false)
+                    }
+                }         
+            },
+            _ => {}
+        }
     });
 
     // Use tenure's hook for submitting transactions
