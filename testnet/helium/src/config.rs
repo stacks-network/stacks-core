@@ -104,6 +104,7 @@ impl Config {
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     network: burnchain.network.unwrap_or(default_burnchain_config.network),
+                    burn_fee_cap: burnchain.burn_fee_cap.unwrap_or(default_burnchain_config.burn_fee_cap),
                     block_time: burnchain.block_time.unwrap_or(default_burnchain_config.block_time),
                     peer_host: burnchain.peer_host.unwrap_or(default_burnchain_config.peer_host),
                     peer_port: burnchain.peer_port.unwrap_or(default_burnchain_config.peer_port),
@@ -255,6 +256,7 @@ pub struct BurnchainConfig {
     pub chain: String,
     pub network: String,
     pub block_time: u64,
+    pub burn_fee_cap: u64,
     pub peer_host: String,
     pub peer_port: u16,
     pub rpc_port: u16,
@@ -274,6 +276,7 @@ impl BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
             network: "mock".to_string(),
+            burn_fee_cap: 10000,
             block_time: 5000,
             peer_host: "bitcoin.blockstack.com".to_string(),
             peer_port: 8333,
@@ -302,6 +305,7 @@ impl BurnchainConfig {
 #[derive(Clone, Deserialize)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
+    pub burn_fee_cap: Option<u64>,
     pub network: Option<String>,
     pub block_time: Option<u64>,
     pub peer_host: Option<String>,

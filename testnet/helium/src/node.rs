@@ -323,7 +323,7 @@ impl Node {
         let coinbase_tx = self.generate_coinbase_tx();
 
 
-        let burn_fee_cap = 10000;
+        let burn_fee_cap = self.config.burnchain.burn_fee_cap;
 
         // Construct the upcoming tenure
         let tenure = Tenure::new(
