@@ -30,7 +30,7 @@ impl ConfigFile {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
@@ -212,7 +212,14 @@ impl Config {
         format!("{}/peer_db.sqlite", self.node.working_dir)
     }
 
-    pub fn default() -> Config {
+    pub fn add_initial_balance(&mut self, address: String, amount: u64) {
+        let new_balance = InitialBalance { address: PrincipalData::parse_standard_principal(&address).unwrap().into(), amount };
+        self.initial_balances.push(new_balance);
+    }
+}
+
+impl std::default::Default for Config {
+    fn default() -> Config {
         // Testnet's name
         let node = NodeConfig {
             ..NodeConfig::default()
@@ -227,6 +234,7 @@ impl Config {
         };
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
+        let block_limit = HELIUM_BLOCK_LIMIT.clone();
 
         Config {
             burnchain: burnchain,
@@ -235,12 +243,8 @@ impl Config {
             initial_balances: vec![],
             events_observers: vec![],
             connection_options,
+            block_limit,
         }
-    }
-
-    pub fn add_initial_balance(&mut self, address: String, amount: u64) {
-        let new_balance = InitialBalance { address: PrincipalData::parse_standard_principal(&address).unwrap().into(), amount };
-        self.initial_balances.push(new_balance);
     }
 }
 
