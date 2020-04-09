@@ -1,5 +1,4 @@
 use std::io::{Read, Write};
-use rand::RngCore;
 
 use stacks::burnchains::{BurnchainSigner, PrivateKey};
 use stacks::chainstate::burn::{BlockHeaderHash, ConsensusHash, Opcodes, VRFSeed};
@@ -149,9 +148,6 @@ pub struct BurnchainOpSigner {
 impl BurnchainOpSigner {
 
     pub fn new(secret_key: Secp256k1PrivateKey, is_one_off: bool) -> BurnchainOpSigner {
-        let mut rng = rand::thread_rng();
-        let mut session_id = [0u8; 16];
-        rng.fill_bytes(&mut session_id);
         BurnchainOpSigner {
             secret_key: secret_key,
             usages: 0,
