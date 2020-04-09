@@ -37,7 +37,7 @@ fn main() {
     let argv : Vec<String> = env::args().collect();
 
     let conf = match argv.len() {
-        n if n >= 3 => {
+        n if n >= 2 => {
             println!("Starting testnet with config {}...", argv[1]);
             Config::from_config_file_path(&argv[1])
         },
