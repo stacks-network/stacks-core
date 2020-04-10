@@ -1,6 +1,7 @@
 use std::io::Cursor;
 
-use bitcoincore_rpc::{Auth, Client, RpcApi, RawTx};
+use reqwest::blocking::{Client, RequestBuilder};
+use serde::Serialize;
 
 use secp256k1::{Secp256k1};
 
@@ -10,10 +11,11 @@ use super::super::Config;
 
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
 use stacks::burnchains::bitcoin::spv::SpvClient; 
 use stacks::burnchains::PublicKey;
-use stacks::chainstate::burn::db::burndb::{BurnDB};
+use stacks::chainstate::burn::db::burndb::BurnDB;
 use stacks::deps::bitcoin::blockdata::transaction::{Transaction, TxIn, TxOut, OutPoint};
 use stacks::deps::bitcoin::blockdata::opcodes;
 use stacks::deps::bitcoin::blockdata::script::{Script, Builder};
@@ -22,7 +24,7 @@ use stacks::deps::bitcoin::network::serialize::RawEncoder;
 use stacks::deps::bitcoin::util::hash::Sha256dHash;
 use stacks::net::StacksMessageCodec;
 use stacks::util::hash::{Hash160, hex_bytes};
-use stacks::util::secp256k1::{Secp256k1PublicKey};
+use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
 
 pub struct BitcoinRegtestController {
@@ -87,58 +89,61 @@ impl BitcoinRegtestController {
         (burnchain, burnchain_indexer)
     }
 
+    // todo(ludo): handle neon
     fn receive_blocks(&mut self) -> BurnchainTip {
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
 
         let (block_snapshot, state_transition) = burnchain.sync_with_indexer(&mut burnchain_indexer).unwrap();
 
-        // todo(ludo): revisit this implementation
-        let rest = match &state_transition {
-            None => self.chain_tip.clone().unwrap(),
-            Some(state_transition) => {
+        let rest = match (&state_transition, &self.chain_tip) {
+            (None, Some(chain_tip)) => chain_tip.clone(),
+            (Some(state_transition), _) => {
                 let burnchain_tip = BurnchainTip {
                     block_snapshot: block_snapshot,
                     state_transition: state_transition.clone()
                 };
                 self.chain_tip = Some(burnchain_tip.clone());
                 burnchain_tip
+            },
+            (None, None) => {
+                error!("Unable to sync burnchain");
+                panic!()
             }
         };
         rest
     }
 
-    fn get_rpc_client(&self) -> Client {
-        let auth = match (&self.config.burnchain.username, &self.config.burnchain.password) {
-            (Some(username), Some(password)) => Auth::UserPass(username.clone(), password.clone()),
-            (_, _) => Auth::None
-        };
-
-        let rpc = Client::new(
-            self.config.burnchain.get_rpc_url(),
-            auth
-        ).expect("Bitcoin RPC failure: server unreachable");
-        rpc
+    fn get_rpc_request_builder(&self) -> RequestBuilder {
+        let url = self.config.burnchain.get_rpc_url();
+        let client = Client::new();
+        let builder = client.post(&url);
+        
+        match (&self.config.burnchain.username, &self.config.burnchain.password) {
+            (Some(username), Some(password)) => builder.basic_auth(username, Some(password)),
+            (_, _) => builder
+        }
     }
 
-    fn get_utxo(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<UTXO> {
-
-        use super::super::bitcoincore_rpc::bitcoin::{PublicKey, Address, Network};
-
-        // Init RPC Client
-        let rpc = self.get_rpc_client();
-
+    fn get_utxos(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<Vec<UTXO>> {
+        // todo(ludo): reuse the same client.
         // Configure UTXO filter
-        let public_key = PublicKey::from_slice(&public_key.to_bytes()).unwrap();
-        let address = Address::p2pkh(&public_key, Network::Regtest);
-        let filter_addresses = [address];
+        let pkh = Hash160::from_data(&public_key.to_bytes()).to_bytes().to_vec();
+        let address = BitcoinAddress::from_bytes(
+            BitcoinNetworkType::Regtest,
+            BitcoinAddressType::PublicKeyHash,
+            &pkh)
+            .expect("Public key incorrect");        
+        let filter_addresses = vec![address.to_b58()];
+
+        let request_builder = self.get_rpc_request_builder();
+        let result = BitcoinRPCRequest::list_unspent(
+            request_builder,
+            filter_addresses.clone(), 
+            false, 
+            amount_required);
 
         // Perform request
-        let mut utxos = match rpc.list_unspent(
-            None, 
-            None,         
-            Some(&filter_addresses[..]), 
-            Some(false), 
-            None) {
+        let mut utxos = match result {
                 Ok(utxos) => utxos,
                 Err(e) => {
                     error!("Bitcoin RPC failure: error listing utxos {:?}", e);
@@ -147,19 +152,22 @@ impl BitcoinRegtestController {
         };
 
         if utxos.len() == 0 {
-            println!("Got 0 UTXO. Importing address {}", public_key);
-
-            let _res = rpc.import_public_key(&public_key, None, Some(true));
+            let request_builder = self.get_rpc_request_builder();
+            let _result = BitcoinRPCRequest::import_public_key(
+                request_builder,
+                &public_key.to_hex());
             
-            // todo(ludo): rescan can take time. Find a better approach
+            // todo(ludo): rescan can take time. we should probably add a few retries, with exp backoff.
             sleep_ms(1000);
 
-            utxos = match rpc.list_unspent(
-                None, 
-                None,         
-                Some(&filter_addresses[..]), 
-                Some(false), 
-                None) {
+            let request_builder = self.get_rpc_request_builder();
+            let result = BitcoinRPCRequest::list_unspent(
+                request_builder,
+                filter_addresses, 
+                false, 
+                amount_required);
+
+            utxos = match result {
                     Ok(utxos) => utxos,
                     Err(e) => {
                         error!("Bitcoin RPC failure: error listing utxos {:?}", e);
@@ -172,41 +180,7 @@ impl BitcoinRegtestController {
             }
         }
 
-        // todo(ludo): select the correct utxo (amount)
-        let mut result = utxos[0].clone();
-        
-        let txid = match Sha256dHash::from_hex(&format!("{}", result.txid)) {
-            Ok(txid) => txid,
-            _ => return None
-        };
-
-        let redeem_script: Option<Script> = match result.redeem_script.take() {
-            Some(script) => Some(script.to_bytes().into()),
-            None => None,
-        };
-        
-        let witness_script: Option<Script> = match result.witness_script.take() {
-            Some(script) => Some(script.to_bytes().into()),
-            None => None,
-        };
-
-        let script_pub_key = result.script_pub_key.to_bytes().into();
-
-        let utxo = UTXO {
-            txid: txid,
-            vout: result.vout,
-            redeem_script: redeem_script,
-            witness_script: witness_script,
-            script_pub_key: script_pub_key,
-            amount: result.amount.as_sat(),
-            confirmations: result.confirmations,
-            spendable: result.spendable,
-            solvable: result.solvable,
-            descriptor: result.descriptor,
-            safe: result.safe,
-        };
-
-        Some(utxo)
+        Some(utxos)
     }
 
     fn build_leader_key_register_tx(&mut self, payload: LeaderKeyRegisterPayload, signer: &mut BurnchainOpSigner) -> Option<Transaction> {
@@ -295,32 +269,38 @@ impl BitcoinRegtestController {
         let amount_required = tx_fee + ops_fee;
 
         // Fetch some UTXOs
-        let utxo = match self.get_utxo(&public_key, amount_required) {
-            Some(utxo) => utxo,
+        let utxos = match self.get_utxos(&public_key, amount_required) {
+            Some(utxos) => utxos,
             None => return None
         };
+        
+        let mut inputs = vec![];
 
-        let previous_output = OutPoint {
-            txid: utxo.txid,
-            vout: utxo.vout,
-        };
+        for utxo in utxos.iter() {
+            let previous_output = OutPoint {
+                txid: utxo.get_txid(),
+                vout: utxo.vout,
+            };
+    
+            let input = TxIn {
+                previous_output,
+                script_sig: Script::new(),
+                sequence: 0xFFFFFFFF,
+                witness: vec![],
+            };
 
-        let input = TxIn {
-            previous_output,
-            script_sig: Script::new(),
-            sequence: 0xFFFFFFFF,
-            witness: vec![],
-        };
+            inputs.push(input);
+        }
 
         // Prepare a backbone for the tx
         let transaction = Transaction {
-            input: vec![input],
+            input: inputs,
             output: vec![],
             version: 1,
             lock_time: 0,
         };
 
-        Some((transaction, vec![utxo]))
+        Some((transaction, utxos))
     }
 
     fn finalize_tx(&self, tx: &mut Transaction, total_spent: u64, utxos: Vec<UTXO>, signer: &mut BurnchainOpSigner) {
@@ -328,7 +308,7 @@ impl BitcoinRegtestController {
         let tx_fee = self.config.burnchain.burnchain_op_tx_fee;
 
         // Append the change output
-        let total_unspent: u64 = utxos.iter().map(|o| o.amount).sum();
+        let total_unspent: u64 = utxos.iter().map(|o| o.get_sat_amount()).sum();
         let public_key = signer.get_public_key();
         let change_address_hash = Hash160::from_data(&public_key.to_bytes()).to_bytes();
         let change_output = TxOut {
@@ -345,8 +325,7 @@ impl BitcoinRegtestController {
 
         // Sign the UTXOs
         for (i, utxo) in utxos.iter().enumerate() {
-            let script_pub_key = utxo.script_pub_key.clone().to_bytes().into();
-    
+            let script_pub_key = utxo.get_script_pub_key();
             let sig_hash_all = 0x01;
             let sig_hash = tx.signature_hash(i, &script_pub_key, sig_hash_all);   
     
@@ -371,9 +350,11 @@ impl BitcoinRegtestController {
     }
 
     fn send_transaction(&self, transaction: SerializedTx) -> bool {
-        let rpc = self.get_rpc_client();
-
-        match rpc.send_raw_transaction(transaction) {
+        let request_builder = self.get_rpc_request_builder();
+        let result = BitcoinRPCRequest::send_raw_transaction(
+            request_builder, 
+            transaction.to_hex());
+        match result {
             Ok(_) => true,
             Err(e) =>  {
                 error!("Bitcoin RPC failure: transaction submission failed - {:?}", e);
@@ -382,16 +363,22 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn build_next_block(&self, public_key_str: &String, num_blocks: u64) {
+    fn build_next_block(&self, public_key: &String, num_blocks: u64) {
+        let pk = hex_bytes(&public_key).expect("Invalid byte sequence");
+        let pkh = Hash160::from_data(&pk).to_bytes().to_vec();
+        let address = BitcoinAddress::from_bytes(
+            BitcoinNetworkType::Regtest,
+            BitcoinAddressType::PublicKeyHash,
+            &pkh)
+            .expect("Public key incorrect");
 
-        use super::super::bitcoincore_rpc::bitcoin::{PublicKey, Address, Network};
+        let request_builder = self.get_rpc_request_builder();
+        let result = BitcoinRPCRequest::generate_to_address(
+            request_builder, 
+            num_blocks,
+            address.to_b58());
 
-        let public_key = hex_bytes(public_key_str).expect("Mining public key byte sequence invalid");
-        let coinbase_public_key = PublicKey::from_slice(&public_key).expect("Mining public key invalid");
-        let address = Address::p2pkh(&coinbase_public_key, Network::Regtest);
-
-        let rpc = self.get_rpc_client();
-        match rpc.generate_to_address(num_blocks, &address) {
+        match result {
             Ok(_) => {},
             Err(e) => {
                 error!("Bitcoin RPC failure: error generating block {:?}", e);
@@ -473,26 +460,29 @@ impl BurnchainController for BitcoinRegtestController {
     
     #[cfg(test)]
     fn bootstrap_chain(&mut self) {
-        use super::super::bitcoincore_rpc::bitcoin::{PublicKey, Address, Network};
 
         if let Some(local_mining_pubkey) = &self.config.burnchain.local_mining_public_key {
 
-            let public_key = hex_bytes(local_mining_pubkey).expect("Mining public key byte sequence invalid");
-            let coinbase_public_key = PublicKey::from_slice(&public_key).expect("Mining public key invalid");
-            let address = Address::p2pkh(&coinbase_public_key, Network::Regtest);
+            let pkh = Hash160::from_data(local_mining_pubkey.as_bytes()).to_bytes().to_vec();
+            let address = BitcoinAddress::from_bytes(
+                BitcoinNetworkType::Regtest,
+                BitcoinAddressType::PublicKeyHash,
+                &pkh)
+                .expect("Public key incorrect");
+
+            let request_builder = self.get_rpc_request_builder();
+
+            let _result = BitcoinRPCRequest::import_public_key(
+                request_builder, 
+                local_mining_pubkey);
     
-            let rpc = self.get_rpc_client();
+            let request_builder = self.get_rpc_request_builder();
+            let result = BitcoinRPCRequest::generate_to_address(
+                request_builder, 
+                201,
+                address.to_b58());
 
-            let _res = rpc.import_public_key(
-                &coinbase_public_key, 
-                None, 
-                Some(true));
-
-            let res = rpc.generate_to_address(
-                201, 
-                &address);
-
-            match res {
+            match result {
                 Ok(_) => {},
                 Err(e) => {
                     error!("Bitcoin RPC failure: error generating block {:?}", e);
@@ -517,27 +507,148 @@ impl SerializedTx {
             bytes
         }
     }
-}
 
-impl RawTx for SerializedTx {
-    fn raw_hex(self) -> String {
+    fn to_hex(self) -> String {
         let formatted_bytes: Vec<String> = self.bytes.iter().map(|b| format!("{:02x}", b)).collect();
         format!("{}", formatted_bytes.join(""))
     }
 }
 
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UTXO {
-    pub txid: Sha256dHash,
+    pub txid: String,
     pub vout: u32,
-    pub redeem_script: Option<Script>,
-    pub witness_script: Option<Script>,
-    pub script_pub_key: Script,
-    pub amount: u64,
+    pub script_pub_key: String,
+    pub amount: f64,
     pub confirmations: u32,
     pub spendable: bool,
     pub solvable: bool,
-    pub descriptor: Option<String>,
+    pub desc: Option<String>,
     pub safe: bool,
+}
+
+impl UTXO {
+
+    pub fn get_txid(&self) -> Sha256dHash {
+        let mut txid = hex_bytes(&self.txid).expect("Invalid byte sequence");
+        txid.reverse();
+        Sha256dHash::from(&txid[..])
+    }
+
+    pub fn get_sat_amount(&self) -> u64 {
+        let res = self.amount * 10e7;
+        res as u64
+    }
+
+    pub fn get_script_pub_key(&self) -> Script {
+        let bytes = hex_bytes(&self.script_pub_key).expect("Invalid byte sequence");
+        bytes.into()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct BitcoinRPCRequest {
+    /// The name of the RPC call
+    pub method: String,
+    /// Parameters to the RPC call
+    pub params: Vec<serde_json::Value>,
+    /// Identifier for this Request, which should appear in the response
+    pub id: String,
+    /// jsonrpc field, MUST be "2.0"
+    pub jsonrpc: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+enum RPCError {
+    RPCError(String),
+}
+
+type RPCResult<T> = Result<T, RPCError>;
+
+impl BitcoinRPCRequest {
+
+    pub fn generate_to_address(request_builder: RequestBuilder, num_blocks: u64, address: String) -> RPCResult<()> {
+        let payload = BitcoinRPCRequest {
+            method: "generatetoaddress".to_string(),
+            params: vec![num_blocks.into(), address.into()],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        let body = json!(payload);
+        let res = request_builder.json(&body).send().unwrap().json::<serde_json::Value>().unwrap();
+        Ok(())
+    }
+
+    pub fn list_unspent(request_builder: RequestBuilder, addresses: Vec<String>, include_unsafe: bool, minimum_sum_amount: u64) -> RPCResult<Vec<UTXO>> {
+        let sat_decimals = 8;
+        let real = format!("{:0width$}", minimum_sum_amount, width = sat_decimals);
+        let conv = if real.len() == sat_decimals {
+            format!("0.{}", &real[real.len() - sat_decimals..])
+        } else {
+            format!("{}.{}", &real[0..(real.len() - sat_decimals)], &real[real.len() - sat_decimals..])
+        };
+
+        let payload = BitcoinRPCRequest {
+            method: "listunspent".to_string(),
+            params: vec![
+                0.into(), 
+                9999999.into(), 
+                addresses.into(), 
+                include_unsafe.into(),
+                json!({
+                    "minimumSumAmount": conv
+                })],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        let body = json!(payload);
+        let mut res = request_builder.json(&body).send().unwrap().json::<serde_json::Value>().unwrap();
+        let mut utxos = vec![];
+
+        match res.as_object_mut() {
+            Some(ref mut object) => {
+                match object.get_mut("result") {
+                    Some(serde_json::Value::Array(entries)) => {
+                        while let Some(entry) = entries.pop() {     
+                            let utxo: UTXO = serde_json::from_value(entry).unwrap();
+                            utxos.push(utxo);
+                        }
+                    },
+                    _ => {}
+                }
+            },
+            _ => {}
+        };
+
+        Ok(utxos)
+    }
+
+    pub fn send_raw_transaction(request_builder: RequestBuilder, tx: String) -> RPCResult<()> {
+        let payload = BitcoinRPCRequest {
+            method: "sendrawtransaction".to_string(),
+            params: vec![tx.into()],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        let body = json!(payload);
+        let res = request_builder.json(&body).send().unwrap().json::<serde_json::Value>().unwrap();
+        Ok(())
+    }
+
+    pub fn import_public_key(request_builder: RequestBuilder, public_key: &str) -> RPCResult<()> {
+        let payload = BitcoinRPCRequest {
+            method: "importpubkey".to_string(),
+            params: vec![public_key.into(), "".into(), true.into()],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        let body = json!(payload);
+        let res = request_builder.json(&body).send().unwrap().json::<serde_json::Value>().unwrap();
+        Ok(())
+    }
 }
