@@ -722,6 +722,10 @@ impl StacksChainState {
         StacksChainState::open_and_exec(false, chain_id, path_str, initial_balances, in_boot_block, block_limit)
     }
 
+    pub fn open_with_block_limit(mainnet: bool, chain_id: u32, path_str: &str, block_limit: ExecutionCost) -> Result<StacksChainState, Error> {
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, |_| {}, block_limit)
+    }
+
     pub fn open_and_exec<F>(mainnet: bool, chain_id: u32, path_str: &str,
                             initial_balances: Option<Vec<(PrincipalData, u64)>>,
                             in_boot_block: F, block_limit: ExecutionCost) -> Result<StacksChainState, Error> 

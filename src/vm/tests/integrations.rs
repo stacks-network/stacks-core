@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use util::db::{DBConn, FromRow};
 
 use std::{thread, time};
+use std::fmt::Write;
 
 use testnet;
 use testnet::helium::{
@@ -737,6 +738,101 @@ fn contract_stx_transfer() {
                     98000);
             },
 
+            _ => {},
+        }
+    });
+
+    run_loop.start(num_rounds);
+}
+
+
+lazy_static! {
+    static ref EXPENSIVE_CONTRACT: String = make_expensive_contract(
+        "(define-private (inner-loop (x int)) (begin 
+           (map sha256 list-9)
+           0))", "");
+}
+
+fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
+    let mut contract = "(define-constant list-0 (list 0))".to_string();
+
+    for i in 0..10 {
+        contract.push_str("\n");
+        contract.push_str(
+            &format!("(define-constant list-{} (concat list-{} list-{}))",
+                     i+1, i, i));
+    }
+
+    contract.push_str("\n");
+    contract.push_str(other_decl);
+    contract.push_str("\n");
+    contract.push_str(inner_loop);
+
+    write!(contract, "\n(define-private (outer-loop) (map inner-loop list-5))\n").unwrap();
+    write!(contract, "(define-public (do-it) (begin (outer-loop) (ok 1)))").unwrap();
+
+    contract
+}
+
+#[test]
+#[should_panic(expected = "index out of bounds")]
+fn block_limit_runtime_test() {
+    let mut conf = testnet::helium::tests::new_test_conf();
+
+    conf.burnchain.block_time = 1500;
+
+    // use a shorter runtime limit. the current runtime limit
+    //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+    conf.block_limit.runtime = 1_000_000;
+
+    let num_rounds = 5;
+
+    let mut run_loop = testnet::helium::RunLoop::new(conf);
+    run_loop.apply_on_new_tenures(|round, tenure| {
+        let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+
+        let contract_identifier =
+            QualifiedContractIdentifier::parse(
+                &format!("{}.{}", to_addr(&contract_sk), "hello-contract")).unwrap();
+
+        if round == 0 {
+            let publish_tx = make_contract_publish(&contract_sk, 0, 0, "hello-contract", EXPENSIVE_CONTRACT.as_str());
+            tenure.mem_pool.submit(publish_tx);
+        } else {
+            eprintln!("Begin Round: {}", round);
+            let to_submit = 2 * round;
+
+            for _i in 0..to_submit {
+                let sk = StacksPrivateKey::new();
+                let tx = make_contract_call(&sk, 0, 0, &to_addr(&contract_sk), "hello-contract", "do-it", &[]);
+                tenure.mem_pool.submit(tx);
+            }
+        }
+
+        return
+    });
+
+    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _events| {
+        let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+        let _contract_identifier =
+            QualifiedContractIdentifier::parse(
+                &format!("{}.{}", to_addr(&contract_sk), "hello-contract")).unwrap();
+
+        match round {
+            1 => {
+                // Block #1 should have 3 txs -- coinbase + 2 contract calls...
+                assert!(block.txs.len() == 3);
+            },
+            2 => {
+                // Block 2 should have 5 txs -- coinbase + 4 contract calls...
+                assert!(block.txs.len() == 5);
+            },
+            3 | 4 => {
+                // Blocks > 2 should have 6 txs -- coinbase + 5 contract calls,
+                //   because the _subsequent_ transactions should never have been
+                //   included.
+                assert!(block.txs.len() == 6);
+            },
             _ => {},
         }
     });

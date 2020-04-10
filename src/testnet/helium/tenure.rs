@@ -71,10 +71,11 @@ impl <'a> LeaderTenure {
 
     pub fn run(&mut self) -> Option<(StacksBlock, Vec<StacksMicroblock>, SortitionedBlock)> {
 
-        let mut chain_state = StacksChainState::open(
-            false, 
+        let mut chain_state = StacksChainState::open_with_block_limit(
+            false,
             TESTNET_CHAIN_ID, 
-            &self.config.get_chainstate_path()).unwrap();
+            &self.config.get_chainstate_path(),
+            self.config.block_limit.clone()).unwrap();
 
         let mut clarity_tx = self.block_builder.epoch_begin(&mut chain_state).unwrap();
 
