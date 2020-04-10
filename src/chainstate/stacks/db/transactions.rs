@@ -628,7 +628,8 @@ pub mod test {
         assert_eq!(recv_account.stx_balance, 0);
         assert_eq!(recv_account.nonce, 0);
 
-        StacksChainState::account_credit(&mut conn, &addr.to_account_principal(), 223);
+        conn.connection().as_transaction(
+            |tx| StacksChainState::account_credit(tx, &addr.to_account_principal(), 223));
 
         let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
         
@@ -761,8 +762,9 @@ pub mod test {
         ];
 
         let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
-        StacksChainState::account_credit(&mut conn, &addr.to_account_principal(), 123);
-        
+        conn.connection().as_transaction(
+            |tx| StacksChainState::account_credit(tx, &addr.to_account_principal(), 123));
+
         for (tx_stx_transfer, err_frag) in [tx_stx_transfer_same_receiver, tx_stx_transfer_wrong_network, tx_stx_transfer_wrong_chain_id, tx_stx_transfer_postconditions, tx_stx_transfer_wrong_nonce, tx_stx_transfer_wrong_nonce_sponsored].iter().zip(error_frags) {
             let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
             signer.sign_origin(&privk).unwrap();
@@ -843,7 +845,8 @@ pub mod test {
         assert_eq!(recv_account.stx_balance, 0);
 
         // give the spending account some stx
-        StacksChainState::account_credit(&mut conn, &addr.to_account_principal(), 123);
+        conn.connection().as_transaction(
+            |tx| StacksChainState::account_credit(tx, &addr.to_account_principal(), 123));
 
         let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
         

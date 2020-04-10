@@ -175,53 +175,53 @@ fn test_simple_token_system() {
 
         let contract_ast = ast::build_ast(&contract_identifier, tokens_contract, &mut ()).unwrap();
 
-        block.initialize_smart_contract(&contract_identifier, &contract_ast, tokens_contract, |_, _| false)
-            .unwrap();
+        block.as_transaction(|tx| tx.initialize_smart_contract(&contract_identifier, &contract_ast, tokens_contract, |_, _| false)
+                             .unwrap());
 
         assert!(!is_committed(&
-            block.run_contract_call(&p2, &contract_identifier, "token-transfer",
-                                    &[p1.clone().into(), Value::UInt(210)], |_, _| false).unwrap().0));
+            block.as_transaction(|tx| tx.run_contract_call(&p2, &contract_identifier, "token-transfer",
+                                    &[p1.clone().into(), Value::UInt(210)], |_, _| false)).unwrap().0));
         assert!(is_committed(&
-            block.run_contract_call(&p1, &contract_identifier, "token-transfer",
-                                    &[p2.clone().into(), Value::UInt(9000)], |_, _| false).unwrap().0));
+            block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier, "token-transfer",
+                                    &[p2.clone().into(), Value::UInt(9000)], |_, _| false)).unwrap().0));
 
         assert!(!is_committed(&
-            block.run_contract_call(&p1, &contract_identifier, "token-transfer",
-                                    &[p2.clone().into(), Value::UInt(1001)], |_, _| false).unwrap().0));
+            block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier, "token-transfer",
+                                    &[p2.clone().into(), Value::UInt(1001)], |_, _| false)).unwrap().0));
         assert!(is_committed(& // send to self!
-            block.run_contract_call(&p1, &contract_identifier, "token-transfer",
-                                    &[p1.clone().into(), Value::UInt(1000)], |_, _| false).unwrap().0));
+            block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier, "token-transfer",
+                                    &[p1.clone().into(), Value::UInt(1000)], |_, _| false)).unwrap().0));
 
         assert_eq!(
-            block.eval_read_only(&contract_identifier,
-                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+            block.as_transaction(|tx| tx.eval_read_only(&contract_identifier,
+                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)")).unwrap(),
             Value::UInt(1000));
         assert_eq!(
-            block.eval_read_only(&contract_identifier,
-                                 "(my-get-token-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
+            block.as_transaction(|tx| tx.eval_read_only(&contract_identifier,
+                                 "(my-get-token-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)")).unwrap(),
             Value::UInt(9200));
 
-        assert!(is_committed(&block.run_contract_call(&p1, &contract_identifier,
+        assert!(is_committed(&block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                                       "faucet",
-                                                      &[], |_, _| false).unwrap().0));
+                                                      &[], |_, _| false)).unwrap().0));
 
-        assert!(is_committed(&block.run_contract_call(&p1, &contract_identifier,
+        assert!(is_committed(&block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                                       "faucet",
-                                                      &[], |_, _| false).unwrap().0));
+                                                      &[], |_, _| false)).unwrap().0));
 
-        assert!(is_committed(&block.run_contract_call(&p1, &contract_identifier,
+        assert!(is_committed(&block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                                       "faucet",
-                                                      &[], |_, _| false).unwrap().0));
+                                                      &[], |_, _| false)).unwrap().0));
         
         assert_eq!(
-            block.eval_read_only(&contract_identifier,
-                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+            block.as_transaction(|tx| tx.eval_read_only(&contract_identifier,
+                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)")).unwrap(),
             Value::UInt(1003));
 
         assert!(!is_committed(
-            &block.run_contract_call(&p1, &contract_identifier,
+            &block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                      "mint-after", 
-                                     &[Value::UInt(25)], |_, _| false).unwrap().0));
+                                     &[Value::UInt(25)], |_, _| false)).unwrap().0));
         block.commit_block();
     }
 
@@ -239,23 +239,23 @@ fn test_simple_token_system() {
                                         &test_block_headers(26),
                                         &NULL_HEADER_DB);
         assert!(is_committed(
-            &block.run_contract_call(&p1, &contract_identifier,
+            &block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                      "mint-after", 
-                                     &[Value::UInt(25)], |_, _| false).unwrap().0));
+                                     &[Value::UInt(25)], |_, _| false)).unwrap().0));
         
         assert!(!is_committed(
-            &block.run_contract_call(&p1, &contract_identifier,
+            &block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                      "faucet", 
-                                     &[], |_, _| false).unwrap().0));
+                                     &[], |_, _| false)).unwrap().0));
 
         assert_eq!(
-            block.eval_read_only(&contract_identifier,
-                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+            block.as_transaction(|tx| tx.eval_read_only(&contract_identifier,
+                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)")).unwrap(),
             Value::UInt(1004));
         assert_eq!(
-            block.run_contract_call(&p1, &contract_identifier,
+            block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                     "my-get-token-balance",
-                                    &[p1.clone().into()], |_, _| false).unwrap().0,
+                                    &[p1.clone().into()], |_, _| false)).unwrap().0,
             Value::UInt(1004));
     }
 }

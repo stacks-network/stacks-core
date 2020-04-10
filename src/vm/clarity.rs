@@ -619,12 +619,12 @@ mod tests {
 
             let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
 
-            let _e = conn.analyze_smart_contract(&contract_identifier, &contract)
+            let _e = conn.as_transaction(|tx| tx.analyze_smart_contract(&contract_identifier, &contract))
                 .unwrap_err();
 
             // okay, let's try it again:
 
-            let _e = conn.analyze_smart_contract(&contract_identifier, &contract)
+            let _e = conn.as_transaction(|tx| tx.analyze_smart_contract(&contract_identifier, &contract))
                 .unwrap_err();
 
             conn.commit_block();
@@ -645,14 +645,16 @@ mod tests {
             
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
             
-            let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-            conn.initialize_smart_contract(
-                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
-            conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
-            
+            conn.as_transaction(|conn| {
+                let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+                conn.initialize_smart_contract(
+                    &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
+                conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            });
+
             assert_eq!(
-                conn.run_contract_call(&StandardPrincipalData::transient().into(), &contract_identifier, "foo", &[Value::Int(1)],
-                                       |_, _| false).unwrap().0,
+                conn.as_transaction(|tx| tx.run_contract_call(&StandardPrincipalData::transient().into(), &contract_identifier, "foo", &[Value::Int(1)],
+                                       |_, _| false)).unwrap().0,
                 Value::okay(Value::Int(2)).unwrap());
             
             conn.commit_block();
@@ -674,11 +676,13 @@ mod tests {
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
 
-            let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-            conn.initialize_smart_contract(
-                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
-            conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
-            
+            conn.as_transaction(|conn| {
+                let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+                conn.initialize_smart_contract(
+                    &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
+                conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            });
+
             conn.rollback_block();
         }
 
@@ -711,42 +715,44 @@ mod tests {
             (define-public (set-bar (x int) (y int))
               (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-            let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-            conn.initialize_smart_contract(
-                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
-            conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            conn.as_transaction(|conn| {
+                let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+                conn.initialize_smart_contract(
+                    &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
+                conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            });
 
             assert_eq!(
-                conn.run_contract_call(&sender, &contract_identifier, "get-bar", &[],
-                                       |_, _| false).unwrap().0,
+                conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "get-bar", &[],
+                                       |_, _| false)).unwrap().0,
                 Value::okay(Value::Int(0)).unwrap());
 
             assert_eq!(
-                conn.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(1), Value::Int(1)],
-                                       |_, _| false).unwrap().0,
+                conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(1), Value::Int(1)],
+                                       |_, _| false)).unwrap().0,
                 Value::okay(Value::Int(1)).unwrap());
 
             assert_eq!(
-                conn.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(10), Value::Int(1)],
-                                       |_, _| true).unwrap().0,
+                conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(10), Value::Int(1)],
+                                       |_, _| true)).unwrap().0,
                 Value::okay(Value::Int(10)).unwrap());
 
             // prior transaction should have rolled back due to abort call back!
             assert_eq!(
-                conn.run_contract_call(&sender, &contract_identifier, "get-bar", &[],
-                                       |_, _| false).unwrap().0,
+                conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "get-bar", &[],
+                                       |_, _| false)).unwrap().0,
                 Value::okay(Value::Int(1)).unwrap());
 
             assert!(
                 format!("{:?}",
-                        conn.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(10), Value::Int(0)],
-                                               |_, _| true).unwrap_err())
+                        conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "set-bar", &[Value::Int(10), Value::Int(0)],
+                                               |_, _| true)).unwrap_err())
                     .contains("DivisionByZero"));
 
             // prior transaction should have rolled back due to runtime error
             assert_eq!(
-                conn.run_contract_call(&StandardPrincipalData::transient().into(), &contract_identifier, "get-bar", &[],
-                                       |_, _| false).unwrap().0,
+                conn.as_transaction(|tx| tx.run_contract_call(&StandardPrincipalData::transient().into(), &contract_identifier, "get-bar", &[],
+                                       |_, _| false)).unwrap().0,
                 Value::okay(Value::Int(1)).unwrap());
 
             
@@ -775,10 +781,12 @@ mod tests {
                       (ok (concat list4 list4)))))))
             ";
 
-            let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-            conn.initialize_smart_contract(
-                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
-            conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            conn.as_transaction(|conn| {
+                let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+                conn.initialize_smart_contract(
+                    &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
+                conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            });
 
             conn.commit_block();
         }
@@ -795,8 +803,8 @@ mod tests {
                                                                        runtime: 100
                                                                    });
             assert!(
-                match conn.run_contract_call(&sender, &contract_identifier, "do-expand", &[],
-                                       |_, _| false).unwrap_err() {
+                match conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "do-expand", &[],
+                                       |_, _| false)).unwrap_err() {
                     Error::CostError(total, limit) => {
                         eprintln!("{}, {}", total, limit);
                         (limit.runtime == 100 && total.runtime > 100)

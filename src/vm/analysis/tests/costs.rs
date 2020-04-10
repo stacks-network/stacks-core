@@ -51,11 +51,12 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
         let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
                                                     &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
                                                     &NULL_HEADER_DB);
-
-        let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&other_contract_id, contract_other).unwrap();
-        conn.initialize_smart_contract(
-            &other_contract_id, &ct_ast, contract_other, |_,_| false).unwrap();
-        conn.save_analysis(&other_contract_id, &ct_analysis).unwrap();
+        conn.as_transaction(|conn| {
+            let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&other_contract_id, contract_other).unwrap();
+            conn.initialize_smart_contract(
+                &other_contract_id, &ct_ast, contract_other, |_,_| false).unwrap();
+            conn.save_analysis(&other_contract_id, &ct_analysis).unwrap();
+        });
 
         conn.commit_block();
     }
@@ -65,10 +66,12 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
                                                     &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
                                                     &NULL_HEADER_DB);
 
-        let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&self_contract_id, &contract_self).unwrap();
-        conn.initialize_smart_contract(
-            &self_contract_id, &ct_ast, &contract_self, |_,_| false).unwrap();
-        conn.save_analysis(&self_contract_id, &ct_analysis).unwrap();
+        conn.as_transaction(|conn| {
+            let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&self_contract_id, &contract_self).unwrap();
+            conn.initialize_smart_contract(
+                &self_contract_id, &ct_ast, &contract_self, |_,_| false).unwrap();
+            conn.save_analysis(&self_contract_id, &ct_analysis).unwrap();
+        });
 
         conn.commit_block().get_total()
     }
