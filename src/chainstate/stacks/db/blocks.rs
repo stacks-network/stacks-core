@@ -2524,7 +2524,7 @@ impl StacksChainState {
 
         let miner_reward_total = miner_reward.total();
       
-        clarity_tx.connection().with_clarity_db(|ref mut db| {
+        clarity_tx.connection().as_transaction(|x| { x.with_clarity_db(|ref mut db| {
             // (+ reward (get available (default-to (tuple (available 0) (authorized 'false)) (map-get rewards ((miner))))))
             let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)?;
             let new_miner_status = 
@@ -2570,7 +2570,7 @@ impl StacksChainState {
             debug!("Grant miner {} {} STX", miner_reward.address.to_string(), miner_reward_total);
             db.set_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, miner_principal, new_miner_status)?;
             Ok(())
-        }).map_err(Error::ClarityError)?;
+        })}).map_err(Error::ClarityError)?;
         Ok(())
     }
 

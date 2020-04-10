@@ -1,7 +1,7 @@
 use vm::representations::SymbolicExpression;
 use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use vm::contexts::{OwnedEnvironment, AssetMap, Environment};
-use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection, HeadersDB};
+use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog};
 use vm::analysis::{AnalysisDatabase};
 use vm::errors::{Error as InterpreterError};
 use vm::ast::{ContractAST, errors::ParseError};
@@ -43,6 +43,16 @@ pub struct ClarityBlockConnection<'a> {
     parent: &'a mut ClarityInstance,
     header_db: &'a dyn HeadersDB,
     cost_track: Option<LimitedCostTracker>
+}
+
+///
+/// Interface for Clarity VM interactions within a given transaction.
+///
+pub struct ClarityTransactionConnection<'a> {
+    log: Option<RollbackWrapperPersistedLog>,
+    store: &'a mut MarfedKV,
+    header_db: &'a dyn HeadersDB,
+    cost_track: &'a mut Option<LimitedCostTracker>
 }
 
 pub struct ClarityReadOnlyConnection<'a> {
@@ -327,6 +337,25 @@ impl <'a> ClarityBlockConnection <'a> {
         self.cost_track.unwrap()
     }
 
+    pub fn start_transaction_processing <'b> (&'b mut self) -> ClarityTransactionConnection <'b> {
+        let store = &mut self.datastore;
+        let cost_track = &mut self.cost_track;
+        let header_db = &self.header_db;
+        let mut log = RollbackWrapperPersistedLog::new();
+        log.nest();
+        ClarityTransactionConnection {
+            store, cost_track, header_db, log: Some(log)
+        }
+    }
+
+    pub fn as_transaction <F, R> (&mut self, todo: F) -> R
+    where F: FnOnce(&mut ClarityTransactionConnection) -> R {
+        let mut tx = self.start_transaction_processing();
+        let r = todo(&mut tx);
+        tx.commit();
+        r
+    }
+
     /// Get the MARF root hash
     pub fn get_root_hash(&mut self) -> TrieHash {
         self.datastore.get_root_hash()
@@ -336,46 +365,86 @@ impl <'a> ClarityBlockConnection <'a> {
     pub fn get_marf(&mut self) -> &mut MARF {
         self.datastore.get_marf()
     }
+}
+
+impl ClarityConnection for ClarityTransactionConnection <'_> {
+    /// Do something to the underlying DB that involves only reading.
+    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut ClarityDatabase) -> R {
+        self.with_clarity_db_readonly_owned(|mut db| {
+            (to_do(&mut db), db)
+        })
+    }
+
+    /// Do something with ownership of the underlying DB that involves only reading.
+    fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
+        let log = self.log.take()
+            .expect("BUG: Transaction Connection lost db log connection.");
+        let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+        let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db);
+        db.begin();
+        let (r, mut db) = to_do(db);
+        db.roll_back();
+        self.log.replace(db.destroy().into());
+        r
+    }
+
+    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R {
+        self.inner_with_analysis_db(|mut db| {
+            db.begin();
+            let result = to_do(&mut db);
+            db.roll_back();
+            result
+        })
+    }
+}
+
+impl <'a> ClarityTransactionConnection <'a> {
+    fn inner_with_analysis_db<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R {
+        let log = self.log.take()
+            .expect("BUG: Transaction Connection lost db log connection.");
+        let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+        let mut db = AnalysisDatabase::new_with_rollback_wrapper(rollback_wrapper);
+        let r = to_do(&mut db);
+        self.log.replace(db.destroy().into());
+        r
+    }
 
     /// Do something to the underlying DB that involves writing.
     pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
-        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        let log = self.log.take()
+            .expect("BUG: Transaction Connection lost db log connection.");
+        let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+        let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db);
+
         db.begin();
         let result = to_do(&mut db);
-        match result {
-            Ok(r) => {
-                db.commit();
-                Ok(r)
-            },
-            Err(e) => {
-                db.roll_back();
-                Err(e)
-            }
+        if result.is_ok() {
+            db.commit();
+        } else {
+            db.roll_back();
         }
-    }
-    
-    /// Do something to the underlying DB that involves only reading.
-    pub fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> Result<R, Error>
-    where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
-        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
-        db.begin();
-        let result = to_do(&mut db);
-        db.roll_back();
+
+        self.log.replace(db.destroy().into());
         result
     }
 
     /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
     pub fn analyze_smart_contract(&mut self, identifier: &QualifiedContractIdentifier, contract_content: &str)
                                   -> Result<(ContractAST, ContractAnalysis), Error> {
-        let mut db = AnalysisDatabase::new(&mut self.datastore);
+        let log = self.log.take()
+            .expect("BUG: Transaction Connection lost db log connection.");
+        let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+        let mut db = AnalysisDatabase::new_with_rollback_wrapper(rollback_wrapper);
 
-        let mut contract_ast = ast::build_ast(identifier, contract_content,
-                                              self.cost_track.as_mut()
-                                              .expect("Failed to get ownership of cost tracker"))?;
+        let mut cost_track = self.cost_track.take()
+            .expect("BUG: Transaction connection lost cost tracker connection.");
 
-        let cost_track = self.cost_track.take()
-            .expect("Failed to get ownership of cost tracker in ClarityBlockConnection");
+        let mut contract_ast = ast::build_ast(identifier, contract_content, &mut cost_track)?;
 
         let result = analysis::run_analysis(
             identifier, &mut contract_ast.expressions,
@@ -393,6 +462,7 @@ impl <'a> ClarityBlockConnection <'a> {
 
         cost_track.reset_memory();
         self.cost_track.replace(cost_track);
+        self.log.replace(db.destroy().into());
 
         result
     }
@@ -400,7 +470,11 @@ impl <'a> ClarityBlockConnection <'a> {
     fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), Error>
     where A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
           F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), Error> {
-        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
+        let log = self.log.take()
+            .expect("BUG: Transaction Connection lost db log connection.");
+        let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+        let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db);
+
         // wrap the whole contract-call in a claritydb transaction,
         //   so we can abort on call_back's boolean retun
         db.begin();
@@ -415,7 +489,7 @@ impl <'a> ClarityBlockConnection <'a> {
         cost_track.reset_memory();
         self.cost_track.replace(cost_track);
 
-        match result {
+        let result = match result {
             Ok((value, asset_map, events)) => {
                 if abort_call_back(&asset_map, &mut db) {
                     db.roll_back();
@@ -428,7 +502,10 @@ impl <'a> ClarityBlockConnection <'a> {
                 db.roll_back();
                 Err(e)
             }
-        }
+        };
+
+        self.log.replace(db.destroy().into());
+        result
     }
     
 
@@ -436,19 +513,20 @@ impl <'a> ClarityBlockConnection <'a> {
     /// An error here would indicate that something has gone terribly wrong in the processing of a contract insert.
     ///   the caller should likely abort the whole block or panic
     pub fn save_analysis(&mut self, identifier: &QualifiedContractIdentifier, contract_analysis: &ContractAnalysis) -> Result<(), CheckError> {
-        let mut db = AnalysisDatabase::new(&mut self.datastore);
-        db.begin();
-        let result = db.insert_contract(identifier, contract_analysis);
-        match result {
-            Ok(_) => {
-                db.commit();
-                Ok(())
-            },
-            Err(e) => {
-                db.roll_back();
-                Err(e)
+        self.inner_with_analysis_db(|db| {
+            db.begin();
+            let result = db.insert_contract(identifier, contract_analysis);
+            match result {
+                Ok(_) => {
+                    db.commit();
+                    Ok(())
+                },
+                Err(e) => {
+                    db.roll_back();
+                    Err(e)
+                }
             }
-        }
+        })
     }
 
     /// Execute a contract call in the current block.
@@ -485,6 +563,18 @@ impl <'a> ClarityBlockConnection <'a> {
                        .map_err(Error::from) },
             abort_call_back)?;
         Ok((asset_map, events))
+    }
+
+    /// Commit the changes from the edit log.
+    /// panics if there is more than one open savepoint
+    pub fn commit(mut self) {
+        let log = self.log.take()
+            .expect("BUG: Transaction Connection lost db log connection.");
+        let mut rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+        if rollback_wrapper.depth() != 1 {
+            panic!("Attempted to commit transaction with {} != 1 rollbacks", rollback_wrapper.depth());
+        }
+        rollback_wrapper.commit();
     }
 
     /// Evaluate a raw Clarity snippit

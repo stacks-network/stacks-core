@@ -66,6 +66,7 @@ use vm::types::{
 
 use vm::clarity::{
     ClarityBlockConnection,
+    ClarityTransactionConnection,
     ClarityConnection,
     ClarityInstance
 };
@@ -127,7 +128,7 @@ impl StacksChainState {
     /// Does not touch the account nonce
     /// TODO: the fee paid here isn't the bare fee in the transaction, but is instead the
     /// block-wide STX/compute-unit rate, times the compute units used by this tx.
-    fn pay_transaction_fee<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction, payer_account: &StacksAccount) -> Result<u64, Error> {
+    fn pay_transaction_fee(clarity_tx: &mut ClarityTransactionConnection, tx: &StacksTransaction, payer_account: &StacksAccount) -> Result<u64, Error> {
         if payer_account.stx_balance < tx.get_fee_rate() as u128 {
             return Err(Error::InvalidFee);
         }
@@ -322,7 +323,9 @@ impl StacksChainState {
 
     /// Process a token transfer payload (but pass the transaction that wraps it, in order to do
     /// post-condition checks).
-    fn process_transaction_token_transfer<'a>(clarity_tx: &mut ClarityTx<'a>, txid: &Txid, recipient_principal: &PrincipalData, amount: u64, origin_account: &StacksAccount) -> Result<(), Error> {
+    fn process_transaction_token_transfer(clarity_tx: &mut ClarityTransactionConnection, txid: &Txid,
+                                          recipient_principal: &PrincipalData, amount: u64,
+                                          origin_account: &StacksAccount) -> Result<(), Error> {
         if &origin_account.principal == recipient_principal {
             // not allowed to send to yourself
             let msg = format!("Error validating STX-transfer transaction: address tried to send to itself");
@@ -330,7 +333,7 @@ impl StacksChainState {
             return Err(Error::InvalidStacksTransaction(msg));
         }
 
-        clarity_tx.connection().with_clarity_db(|ref mut db| {
+        clarity_tx.with_clarity_db(|ref mut db| {
             // does the sender have ths amount?
             let cur_balance = db.get_account_stx_balance(&origin_account.principal);
             let recipient_balance = db.get_account_stx_balance(&recipient_principal);
@@ -364,7 +367,8 @@ impl StacksChainState {
 
     /// Process the transaction's payload, and run the post-conditions against the resulting state.
     /// Returns the number of STX burned.
-    pub fn process_transaction_payload<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction, origin_account: &StacksAccount) -> Result<StacksTransactionReceipt, Error> {
+    pub fn process_transaction_payload(clarity_tx: &mut ClarityTransactionConnection, tx: &StacksTransaction,
+                                       origin_account: &StacksAccount) -> Result<StacksTransactionReceipt, Error> {
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref _memo) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
@@ -400,8 +404,13 @@ impl StacksChainState {
                 // transaction is still valid, but no changes will materialize besides debiting the
                 // tx fee.
                 let contract_id = contract_call.to_clarity_contract_id();
-                let (result, asset_map, events) = match clarity_tx.connection().run_contract_call(&origin_account.principal, &contract_id, &contract_call.function_name, &contract_call.function_args,
-                                                                                |asset_map, _| { !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode, origin_account, asset_map) }) {
+                let contract_call_resp = clarity_tx.run_contract_call(
+                    &origin_account.principal, &contract_id, &contract_call.function_name, &contract_call.function_args,
+                    |asset_map, _| {
+                        !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode,
+                                                                            origin_account, asset_map) });
+
+                let (result, asset_map, events) = match contract_call_resp {
                     Ok((return_value, asset_map, events)) => {
                         info!("Contract-call to {}.{:?} args {:?} returned {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &return_value);
                         Ok((return_value, asset_map, events))
@@ -456,7 +465,8 @@ impl StacksChainState {
                 // analysis pass -- if this fails, then the transaction is still accepted, but nothing is stored or processed.
                 // The reason for this is that analyzing the transaction is itself an expensive
                 // operation, and the paying account will need to be debited the fee regardless.
-                let (contract_ast, contract_analysis) = match clarity_tx.connection().analyze_smart_contract(&contract_id, &contract_code_str) {
+                let analysis_resp = clarity_tx.analyze_smart_contract(&contract_id, &contract_code_str);
+                let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok((ast, analysis)) => (ast, analysis),
                     Err(e) => {
                         // this analysis isn't free -- convert to runtime error
@@ -476,9 +486,12 @@ impl StacksChainState {
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).
-                let (asset_map, events) = match clarity_tx.connection().initialize_smart_contract(
+                let initialize_resp = clarity_tx.initialize_smart_contract(
                     &contract_id, &contract_ast, &contract_code_str,
-                    |asset_map, _| { !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode, origin_account, asset_map) }) {
+                    |asset_map, _| {
+                        !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode,
+                                                                            origin_account, asset_map) });
+                let (asset_map, events) = match initialize_resp {
                     Ok((asset_map, events)) => {
                         Ok((asset_map, events))
                     },
@@ -498,7 +511,7 @@ impl StacksChainState {
                 })?;
                 
                 // store analysis -- if this fails, then the have some pretty bad problems
-                clarity_tx.connection().save_analysis(&contract_id, &contract_analysis)
+                clarity_tx.save_analysis(&contract_id, &contract_analysis)
                     .expect("FATAL: failed to store contract analysis");
                 
                 let receipt = StacksTransactionReceipt {
@@ -541,25 +554,28 @@ impl StacksChainState {
     }
 
     /// Process a transaction.  Return the fee, the amount of STX destroyed and the events emitted
-    pub fn process_transaction<'a>(clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(u64, StacksTransactionReceipt), Error> {
+    pub fn process_transaction(clarity_block: &mut ClarityTx, tx: &StacksTransaction) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {}", tx.txid());
 
-        StacksChainState::process_transaction_precheck(&clarity_tx.config, tx)?;
+        StacksChainState::process_transaction_precheck(&clarity_block.config, tx)?;
 
-        let (origin_account, payer_account) = StacksChainState::check_transaction_nonces(clarity_tx, tx)?;
+        let mut transaction = clarity_block.connection().start_transaction_processing();
+        let (origin_account, payer_account) = StacksChainState::check_transaction_nonces(&mut transaction, tx)?;
 
         // pay fee
         // TODO: don't do this here; do it when we know what the STX/compute rate will be, and then
         // debit the account (aborting the _whole block_ if the balance would go negative)
-        let fee = StacksChainState::pay_transaction_fee(clarity_tx, tx, &payer_account)?;
+        let fee = StacksChainState::pay_transaction_fee(&mut transaction, tx, &payer_account)?;
     
-        let tx_receipt = StacksChainState::process_transaction_payload(clarity_tx, tx, &origin_account)?;
+        let tx_receipt = StacksChainState::process_transaction_payload(&mut transaction, tx, &origin_account)?;
 
         // update the account nonces
-        StacksChainState::update_account_nonce(clarity_tx, &origin_account);
+        StacksChainState::update_account_nonce(&mut transaction, &origin_account);
         if origin_account != payer_account {
-            StacksChainState::update_account_nonce(clarity_tx, &payer_account);
+            StacksChainState::update_account_nonce(&mut transaction, &payer_account);
         }
+
+        transaction.commit();
 
         Ok((fee, tx_receipt))
     }

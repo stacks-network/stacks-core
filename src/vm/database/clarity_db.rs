@@ -149,6 +149,10 @@ impl <'a> ClarityDatabase <'a> {
         }
     }
 
+    pub fn new_with_rollback_wrapper(store: RollbackWrapper<'a>, headers_db: &'a dyn HeadersDB) -> ClarityDatabase<'a> {
+        ClarityDatabase { store, headers_db }
+    }
+
     pub fn initialize(&mut self) {
     }
 
@@ -265,6 +269,10 @@ impl <'a> ClarityDatabase <'a> {
         let data = self.fetch_metadata(contract_identifier, &key)?
             .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
         Ok(data)
+    }
+
+    pub fn destroy(self) -> RollbackWrapper<'a> {
+        self.store
     }
 }
 

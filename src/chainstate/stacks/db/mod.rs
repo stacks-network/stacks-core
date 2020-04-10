@@ -638,7 +638,10 @@ impl StacksChainState {
                 );
 
                 let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-                StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+
+                clarity_tx.connection().as_transaction(|clarity| {
+                    StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account)
+                })?;
 
                 boot_code_account.nonce += 1;
             }
@@ -652,15 +655,20 @@ impl StacksChainState {
                 );
 
                 let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-                StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+
+                clarity_tx.connection().as_transaction(|clarity| {
+                    StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account)
+                })?;
                 
                 boot_code_account.nonce += 1;
             }
 
             if let Some(initial_balances) = initial_balances {
                 for (address, amount) in initial_balances {
-                    StacksChainState::account_credit(&mut clarity_tx, &address, amount);
-                }    
+                    clarity_tx.connection().as_transaction(|clarity| {
+                        StacksChainState::account_credit(clarity, &address, amount)
+                    })
+                }
             }
 
             f(&mut clarity_tx);
