@@ -1,4 +1,10 @@
 version: 2
+executors:
+  docker-publisher:
+    environment:
+      IMAGE_NAME: blockstack/subdomain-registrar
+    docker:
+      - image: circleci/buildpack-deps:stretch
 jobs:
   deploy:
     working_directory: /build
@@ -67,6 +73,40 @@ jobs:
           name: Upload to codecov.io
           command: |
             bash <(curl -s https://codecov.io/bash) -f lcov.info;
+  build-docker:
+    executor: docker-publisher
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: build docker image
+          command: docker build . -t $IMAGE_NAME:latest
+      - run:
+          name: save image to workspace
+          command: docker save -o image.tar $IMAGE_NAME:latest
+      - persist_to_workspace:
+          root: .
+          paths:
+            - ./image.tar
+  push-docker-tags:
+    executor: docker-publisher
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - setup_remote_docker
+      - run:
+          name: load docker image
+          command: docker load -i /tmp/workspace/image.tar
+      - run:
+          name: push docker image
+          command: |
+            echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            IMAGE_TAG=${CIRCLE_BRANCH}
+            docker tag $IMAGE_NAME:latest $IMAGE_NAME:$IMAGE_TAG
+            docker push $IMAGE_NAME:$IMAGE_TAG
+            if [ "${CIRCLE_BRANCH}" = "master" ]; then
+               docker push $IMAGE_NAME:latest
+            fi
 workflows:
   version: 2
   build-deploy:
@@ -74,3 +114,20 @@ workflows:
       - cargo_tests
       - test_demo
       - deploy
+      - build-docker:
+          requires:
+            - cargo_tests
+          filters:
+            branches:
+              only:
+                - master
+                - feature/docker-deploy
+      - push-docker-tags:
+          requires:
+            - cargo_tests
+            - build-docker
+          filters:
+            branches:
+              only:
+                - master
+                - feature/docker-deploy
