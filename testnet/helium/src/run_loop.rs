@@ -1,4 +1,4 @@
-use super::{Config, Node, BurnchainController, MockBurnchainController, BitcoinRegtestController, BurnchainTip, Tenure};
+use super::{Config, Node, BurnchainController, MocknetController, BitcoinRegtestController, BurnchainTip, Tenure};
 
 use stacks::chainstate::stacks::db::{StacksHeaderInfo, StacksChainState, ClarityTx};
 use stacks::chainstate::stacks::{StacksBlock, TransactionAuth, TransactionSpendingCondition, TransactionPayload};
@@ -71,7 +71,7 @@ impl RunLoop {
                 BitcoinRegtestController::generic(self.config.clone())
             },
             "mocknet" => {
-                MockBurnchainController::generic(self.config.clone())
+                MocknetController::generic(self.config.clone())
             }
             _ => unimplemented!()
         };

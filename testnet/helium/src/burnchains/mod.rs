@@ -1,7 +1,7 @@
-pub mod mock_burnchain_controller;
+pub mod mocknet_controller;
 pub mod bitcoin_regtest_controller;
 
-pub use self::mock_burnchain_controller::{MockBurnchainController};
+pub use self::mocknet_controller::{MocknetController};
 pub use self::bitcoin_regtest_controller::{BitcoinRegtestController};
 
 use super::operations::{BurnchainOperationType, BurnchainOpSigner};

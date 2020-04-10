@@ -17,8 +17,8 @@ use stacks::chainstate::burn::operations::{
 use stacks::util::hash::Sha256Sum;
 use stacks::util::get_epoch_time_secs;
 
-/// SimBurnchainController is simulating a simplistic burnchain.
-pub struct MockBurnchainController {
+/// MocknetController is simulating a simplistic burnchain.
+pub struct MocknetController {
     config: Config,
     burnchain: Burnchain,
     db: Option<BurnDB>,
@@ -26,7 +26,7 @@ pub struct MockBurnchainController {
     queued_operations: VecDeque<BurnchainOperationType>,
 }
 
-impl MockBurnchainController {
+impl MocknetController {
 
     pub fn generic(config: Config) -> Box<dyn BurnchainController> {
         Box::new(Self::new(config))
@@ -59,7 +59,7 @@ impl MockBurnchainController {
     }
 }
 
-impl BurnchainController for MockBurnchainController {
+impl BurnchainController for MocknetController {
 
     fn burndb_mut(&mut self) -> &mut BurnDB {
         match self.db {
