@@ -122,8 +122,7 @@ impl Config {
                         .collect();
 
                     observers.push(EventObserverConfig {
-                        address: observer.address,
-                        port: observer.port,
+                        endpoint: observer.endpoint,
                         events_keys
                     });
                 }
@@ -326,15 +325,13 @@ pub struct MempoolConfig {
 
 #[derive(Clone, Deserialize)]
 pub struct EventObserverConfigFile {
-    pub port: u16,
-    pub address: String,
+    pub endpoint: String,
     pub events_keys: Vec<String>,
 }
 
 #[derive(Clone, Default)]
 pub struct EventObserverConfig {
-    pub port: u16,
-    pub address: String,
+    pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
 }
 

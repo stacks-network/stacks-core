@@ -1,4 +1,5 @@
 use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainState, EventDispatcher};
+use super::config::{EventObserverConfig, EventKeyType};
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -135,6 +136,17 @@ impl Node {
         let mem_pool = MemPoolFS::new(&config.mempool.path);
 
         let mut event_dispatcher = EventDispatcher::new();
+
+        // check for observer config in env vars
+        match std::env::var("STACKS_EVENT_OBSERVER") {
+            Ok(val) => {
+                event_dispatcher.register_observer(&EventObserverConfig {
+                    endpoint: val,
+                    events_keys: vec![EventKeyType::AnyEvent],
+                });
+            },
+            _ => ()
+        }
 
         for observer in &config.events_observers {
             event_dispatcher.register_observer(observer);
