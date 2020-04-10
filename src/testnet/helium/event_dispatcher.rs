@@ -26,6 +26,8 @@ impl EventObserver {
     pub fn send(&mut self, filtered_events: Vec<&(Txid, &StacksTransactionEvent)>, chain_tip: &StacksBlock, chain_tip_info: &StacksHeaderInfo, receipts: &Vec<StacksTransactionReceipt>) {
         // Initiate a tcp socket, first using std::net TCP connect for smart DNS resolution
         let std_stream = std::net::TcpStream::connect(&self.endpoint).unwrap();
+        info!("Connected to event observer at: {}", std_stream.peer_addr().unwrap());
+
         // Then wrap as mio TCP stream
         let stream = TcpStream::from_stream(std_stream).unwrap();
         // Serialize events to JSON
@@ -178,6 +180,7 @@ impl EventDispatcher {
 
     pub fn register_observer(&mut self, conf: &EventObserverConfig) {
         // let event_observer = EventObserver::new(&conf.address, conf.port);
+        info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver { endpoint: conf.endpoint.clone() };
 
         let observer_index = self.registered_observers.len() as u16;
