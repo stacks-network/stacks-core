@@ -65,9 +65,10 @@ impl RunLoop {
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, expected_num_rounds: u64) {
 
+        // todo(ludo): add enums for network
         // Initialize and start the burnchain.
         let mut burnchain: Box<dyn BurnchainController> = match &self.config.burnchain.network[..] {
-            "regtest" => {
+            "regtest" | "neon" => {
                 BitcoinRegtestController::generic(self.config.clone())
             },
             "mocknet" => {

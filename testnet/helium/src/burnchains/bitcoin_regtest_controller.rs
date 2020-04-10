@@ -68,7 +68,7 @@ impl BitcoinRegtestController {
     }
 
     fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
-        let network = self.config.burnchain.network.clone();
+        let network = "regtest".to_string();
         let working_dir = self.config.get_burn_db_path();
         let burnchain = Burnchain::new(
             &working_dir,

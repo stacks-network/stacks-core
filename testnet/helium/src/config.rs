@@ -278,7 +278,7 @@ impl BurnchainConfig {
             network: "mocknet".to_string(),
             burn_fee_cap: 10000,
             block_time: 5000,
-            peer_host: "bitcoin.blockstack.com".to_string(), // todo(ludo): Update URL
+            peer_host: "127.0.0.1".to_string(),
             peer_port: 8333,
             rpc_port: 8332,
             rpc_ssl: false,
@@ -345,6 +345,13 @@ impl NodeConfig {
         let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap())
             .saturating_add(1024); // use a non-privileged port
 
+        // Private Key          92N23LxafaL2rJT19pFh4fn9bRvySCzktAsyejNoNL9U1mkk1qh
+        // Public Key           04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77
+        // Address              mtFzK54XtpktHj7fKonFExEPEGkUMsiXdy
+        // Format               p2pkh
+        // Network              testnet
+        // Compressed           false
+        // bitcoin-cli importprivkey 92N23LxafaL2rJT19pFh4fn9bRvySCzktAsyejNoNL9U1mkk1qh && bitcoin-cli generatetoaddress 201 mtFzK54XtpktHj7fKonFExEPEGkUMsiXdy
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
