@@ -312,6 +312,18 @@ pub struct ConnectionOptions {
     pub max_inflight_blocks: u64,
     pub read_only_call_limit: ExecutionCost,
     pub maximum_call_argument_size: u32,
+    pub max_block_push_bandwidth: u64,
+    pub max_microblocks_push_bandwidth: u64,
+    pub max_transaction_push_bandwidth: u64,
+    
+    // fault injection
+    pub disable_neighbor_walk: bool,
+    pub disable_chat_neighbors: bool,
+    pub disable_inv_sync: bool,
+    pub disable_block_download: bool,
+    pub disable_network_prune: bool,
+    pub disable_network_bans: bool,
+    pub disable_block_advertisement: bool
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -339,6 +351,18 @@ impl std::default::Default for ConnectionOptions {
                                                   read_length: 100000, read_count: 10,
                                                   runtime: 10000000 },
             maximum_call_argument_size: 20 * BOUND_VALUE_SERIALIZATION_HEX,
+            max_block_push_bandwidth: 0,    // infinite upload bandwidth allowed
+            max_microblocks_push_bandwidth: 0,     // infinite upload bandwidth allowed
+            max_transaction_push_bandwidth: 0,      // infinite upload bandwidth allowed
+
+            // no faults on by default
+            disable_neighbor_walk: false,
+            disable_chat_neighbors: false,
+            disable_inv_sync: false,
+            disable_block_download: false,
+            disable_network_prune: false,
+            disable_network_bans: false,
+            disable_block_advertisement: false
         }
     }
 }
@@ -1109,12 +1133,17 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
         self.inbox.public_key = pubk;
     }
 
-    /// Get the public key 
+    /// Get a copy of the public key 
     pub fn get_public_key(&self) -> Option<Secp256k1PublicKey> {
         match self.inbox.public_key {
             Some(pubk) => Some(pubk.clone()),
             None => None
         }
+    }
+    
+    /// Get a copy of the public key 
+    pub fn ref_public_key(&self) -> Option<&Secp256k1PublicKey> {
+        self.inbox.public_key.as_ref()
     }
 
     /// do we have a public key 
