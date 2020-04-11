@@ -1,4 +1,6 @@
-use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainState, EventDispatcher};
+use super::{Keychain, Config, LeaderTenure, BurnchainState, EventDispatcher};
+
+use core::mempool::*;
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -74,7 +76,7 @@ pub struct Node {
     pub config: Config,
     keychain: Keychain,
     last_sortitioned_block: Option<SortitionedBlock>,
-    mem_pool: MemPoolFS,
+    mem_pool: MemPoolDB,
     event_dispatcher: EventDispatcher,
     nonce: u64,
 }
@@ -93,6 +95,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                     continue;
                 },
             };
+
             let mut chainstate = match StacksChainState::open(
                 false, TESTNET_CHAIN_ID, &stacks_chainstate_path) {
                 Ok(x) => x,
@@ -102,8 +105,10 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                     continue;
                 },
             };
+        
+            let mut mem_pool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &stacks_chainstate_path).expect("FATAL: failed to instantiate mempool");
 
-            this.run(&mut burndb, &mut chainstate, None, poll_timeout)
+            this.run(&mut burndb, &mut chainstate, &mut mem_pool, None, poll_timeout)
                 .unwrap();
         }
     });
@@ -132,7 +137,7 @@ impl Node {
             Err(_) => panic!("Error while opening chain state at path {:?}", config.get_chainstate_path())
         };
 
-        let mem_pool = MemPoolFS::new(&config.mempool.path);
+        let mem_pool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &chain_state.root_path).expect("FATAL: failed to instantiate mempool");
 
         let mut event_dispatcher = EventDispatcher::new();
 
@@ -324,6 +329,8 @@ impl Node {
                 None => unreachable!()
             }
         };
+        
+        let mempool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &self.chain_state.root_path).expect("FATAL: failed to open mempool");
 
         // Constructs the coinbase transaction - 1st txn that should be handled and included in 
         // the upcoming tenure.
@@ -335,7 +342,7 @@ impl Node {
             self.average_block_time,
             coinbase_tx,
             self.config.clone(),
-            self.mem_pool.clone(),
+            mempool,
             microblock_secret_key, 
             sortitioned_block.clone(),
             vrf_proof);
