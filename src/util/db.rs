@@ -74,7 +74,9 @@ pub enum Error {
     /// I/O error
     IOError(IOError),
     /// MARF index error
-    IndexError(MARFError)
+    IndexError(MARFError),
+    /// Other error
+    Other(String)
 }
 
 impl fmt::Display for Error {
@@ -93,6 +95,7 @@ impl fmt::Display for Error {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f),
             Error::IndexError(ref e) => fmt::Display::fmt(e, f),
+            Error::Other(ref s) => fmt::Display::fmt(s, f),
         }
     }
 }
@@ -113,6 +116,7 @@ impl error::Error for Error {
             Error::SqliteError(ref e) => Some(e),
             Error::IOError(ref e) => Some(e),
             Error::IndexError(ref e) => Some(e),
+            Error::Other(ref _s) => None
         }
     }
 }
