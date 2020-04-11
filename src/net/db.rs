@@ -39,6 +39,8 @@ use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
 use util::macros::is_big_endian;
 
+use chainstate::stacks::StacksPublicKey;
+
 use rand::RngCore;
 use rand::Rng;
 use rand::thread_rng;
@@ -48,6 +50,7 @@ use net::asn::ASEntry4;
 use net::PeerAddress;
 use net::Neighbor;
 use net::NeighborKey;
+use net::NeighborAddress;
 use net::ServiceFlags;
 
 use burnchains::PublicKey;
@@ -57,7 +60,7 @@ use core::NETWORK_P2P_PORT;
 
 use util::strings::UrlString;
 
-pub const PEERDB_VERSION : &'static str = "21.0.0.0";
+pub const PEERDB_VERSION : &'static str = "23.0.0.0";
 
 const NUM_SLOTS : usize = 8;
 
@@ -130,6 +133,14 @@ impl LocalPeer {
             port: port,
             services: services as u16,
             data_url: data_url
+        }
+    }
+
+    pub fn to_neighbor_addr(&self) -> NeighborAddress {
+        NeighborAddress {
+            addrbytes: self.addrbytes.clone(),
+            port: self.port, 
+            public_key_hash: Hash160::from_data(&StacksPublicKey::from_private(&self.private_key).to_bytes())
         }
     }
 }
