@@ -260,11 +260,6 @@ pub struct ClarityTx<'a> {
 }
 
 impl ClarityConnection for ClarityTx<'_> {
-    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where F: FnOnce(&mut ClarityDatabase) -> R {
-        ClarityConnection::with_clarity_db_readonly(&mut self.block, to_do)
-    }
-
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
         ClarityConnection::with_clarity_db_readonly_owned(&mut self.block, to_do)

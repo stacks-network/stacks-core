@@ -320,7 +320,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _receipts| {
+    run_loop.apply_on_new_chain_states(|round, _chain_state, block, chain_tip_info, _receipts| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.

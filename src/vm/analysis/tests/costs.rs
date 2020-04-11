@@ -25,7 +25,6 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let mut clarity_instance = ClarityInstance::new(marf);
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
     let p1_principal = match p1 {
         Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),

@@ -194,12 +194,17 @@ impl ClarityInstance {
 
 pub trait ClarityConnection {
     /// Do something to the underlying DB that involves only reading.
-    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where F: FnOnce(&mut ClarityDatabase) -> R;
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase);
     fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(&mut AnalysisDatabase) -> R;
+
+    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut ClarityDatabase) -> R {
+        self.with_clarity_db_readonly_owned(|mut db| {
+            (to_do(&mut db), db)
+        })
+    }
 
     fn with_readonly_clarity_env<F, R>(&mut self, sender: PrincipalData, cost_track: LimitedCostTracker, to_do: F) -> Result<R, InterpreterError>
     where F: FnOnce(&mut Environment) -> Result<R, InterpreterError> {
@@ -215,16 +220,6 @@ pub trait ClarityConnection {
 }
 
 impl ClarityConnection for ClarityBlockConnection <'_> {
-    /// Do something to the underlying DB that involves only reading.
-    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where F: FnOnce(&mut ClarityDatabase) -> R {
-        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
-        db.begin();
-        let result = to_do(&mut db);
-        db.roll_back();
-        result
-    }
-
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
@@ -246,15 +241,6 @@ impl ClarityConnection for ClarityBlockConnection <'_> {
 }
 
 impl ClarityConnection for ClarityReadOnlyConnection <'_> {
-    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where F: FnOnce(&mut ClarityDatabase) -> R {
-        let mut db = ClarityDatabase::new(&mut self.datastore, &self.header_db);
-        db.begin();
-        let result = to_do(&mut db);
-        db.roll_back();
-        result
-    }
-
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
@@ -368,14 +354,6 @@ impl <'a> ClarityBlockConnection <'a> {
 }
 
 impl ClarityConnection for ClarityTransactionConnection <'_> {
-    /// Do something to the underlying DB that involves only reading.
-    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where F: FnOnce(&mut ClarityDatabase) -> R {
-        self.with_clarity_db_readonly_owned(|mut db| {
-            (to_do(&mut db), db)
-        })
-    }
-
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
@@ -436,33 +414,36 @@ impl <'a> ClarityTransactionConnection <'a> {
     /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
     pub fn analyze_smart_contract(&mut self, identifier: &QualifiedContractIdentifier, contract_content: &str)
                                   -> Result<(ContractAST, ContractAnalysis), Error> {
-        let log = self.log.take()
-            .expect("BUG: Transaction Connection lost db log connection.");
-        let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-        let mut db = AnalysisDatabase::new_with_rollback_wrapper(rollback_wrapper);
-
         let mut cost_track = self.cost_track.take()
             .expect("BUG: Transaction connection lost cost tracker connection.");
 
-        let mut contract_ast = ast::build_ast(identifier, contract_content, &mut cost_track)?;
+        let (mut cost_track, result) = self.inner_with_analysis_db(|db| {
+            let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
 
-        let result = analysis::run_analysis(
-            identifier, &mut contract_ast.expressions,
-            &mut db, false, cost_track);
+            let mut contract_ast = match ast_result {
+                Ok(x) => x,
+                Err(e) => {
+                    return (cost_track, Err(e.into()))
+                },
+            };
 
-        let (mut cost_track, result) = match result {
-            Ok(mut contract_analysis) => {
-                let cost_track = contract_analysis.take_contract_cost_tracker();
-                (cost_track, Ok((contract_ast, contract_analysis)))
-            },
-            Err((e, cost_track)) => {
-                (cost_track, Err(e.into()))
+            let result = analysis::run_analysis(
+                identifier, &mut contract_ast.expressions,
+                db, false, cost_track);
+
+            match result {
+                Ok(mut contract_analysis) => {
+                    let cost_track = contract_analysis.take_contract_cost_tracker();
+                    (cost_track, Ok((contract_ast, contract_analysis)))
+                },
+                Err((e, cost_track)) => {
+                    (cost_track, Err(e.into()))
+                }
             }
-        };
+        });
 
         cost_track.reset_memory();
         self.cost_track.replace(cost_track);
-        self.log.replace(db.destroy().into());
 
         result
     }
