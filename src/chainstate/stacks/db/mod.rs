@@ -105,7 +105,8 @@ pub struct StacksChainState {
     pub blocks_db: DBConn,
     pub headers_state_index: MARF,
     pub blocks_path: String,
-    pub clarity_state_index_path: String
+    pub clarity_state_index_path: String,
+    pub root_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -789,7 +790,8 @@ impl StacksChainState {
             blocks_db: blocks_db,
             headers_state_index: headers_state_index,
             blocks_path: blocks_path_root,
-            clarity_state_index_path: clarity_state_index_marf
+            clarity_state_index_path: clarity_state_index_marf,
+            root_path: path_str.to_string(),
         };
 
         if !index_exists {
