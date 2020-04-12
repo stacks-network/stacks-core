@@ -1,6 +1,6 @@
 use vm::execute;
-use vm::errors::{CheckErrors, RuntimeErrorType, Error};
-use vm::types::{Value, TypeSignature, QualifiedContractIdentifier};
+use vm::errors::{CheckErrors, RuntimeErrorType, Error, ShortReturnType};
+use vm::types::{Value, TypeSignature, QualifiedContractIdentifier, ResponseData};
 use vm::ast::build_ast;
 use vm::ast::errors::ParseErrors;
 
@@ -185,6 +185,28 @@ fn test_bad_variables() {
     let test4 = "()";
     let expected = CheckErrors::NonFunctionApplication;
     assert_eq_err(expected, execute(&test4).unwrap_err());
+}
+
+#[test]
+fn test_let_forms() {
+    let test0 = 
+        "(let ((ev 666)) ev (err 0))";
+    let test1 = 
+        "(let ((ev 666)) (err 0) ev)";
+    let test2 = 
+        "(let ((ev 666)) (asserts! (is-eq 1 0) (err 1)) ev)";
+
+    assert_eq!(Some(Value::Response(ResponseData { committed: false, data: Box::new(Value::Int(0)) })), 
+               execute(&test0).unwrap()); 
+                  
+    assert!(match execute(&test1).unwrap_err() {
+        Error::Runtime(RuntimeErrorType::UnwrapFailure, _) => true,
+        _ => false
+    });
+    
+    let fail_response = Value::Response(ResponseData { committed: false, data: Box::new(Value::Int(1)) });
+    assert_eq!(Error::ShortReturn(ShortReturnType::AssertionFailed(fail_response)),
+               execute(&test2).unwrap_err());
 }
 
 #[test]

@@ -171,6 +171,17 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
     }
 }
 
+pub fn eval_all <'a> (body: &[SymbolicExpression], env: &'a mut Environment, context: &LocalContext) -> Result<Value> {
+    let (last, butlast) = body.split_last().unwrap();
+    for expression in butlast {
+        if let Value::Response(data) = eval(&expression, env, &context)? { 
+            if !data.committed {
+                return Err(RuntimeErrorType::UnwrapFailure.into())  
+            }
+        }
+    }
+    eval(last, env, &context)
+}
 
 pub fn is_reserved(name: &str) -> bool {
     if let Some(_result) = functions::lookup_reserved_functions(name) {
@@ -185,7 +196,7 @@ pub fn is_reserved(name: &str) -> bool {
 /* This function evaluates a list of expressions, sharing a global context.
  * It returns the final evaluated result.
  */
-fn eval_all (expressions: &[SymbolicExpression],
+fn eval_toplevel (expressions: &[SymbolicExpression],
              contract_context: &mut ContractContext,
              global_context: &mut GlobalContext) -> Result<Option<Value>> {
     let mut last_executed = None;
@@ -298,7 +309,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?
             .expressions;
-        eval_all(&parsed, &mut contract_context, g)
+        eval_toplevel(&parsed, &mut contract_context, g)
     })
 }
 

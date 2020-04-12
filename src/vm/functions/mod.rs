@@ -12,7 +12,7 @@ use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::{CallableType, NativeHandle};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
 use vm::representations::SymbolicExpressionType::{List, Atom};
-use vm::{LocalContext, Environment, eval};
+use vm::{LocalContext, Environment, eval, eval_all};
 use vm::costs::{cost_functions, MemoryConsumer, CostTracker, constants as cost_constants};
 use util::hash;
 
@@ -336,15 +336,9 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
             inner_context.variables.insert(binding_name.clone(), binding_value);
             Ok(())
         })?;
-
-        // evaluate the let-bodies
-        let mut last_result = None;
-        for body in args[1..].iter() {
-            let body_result = eval(&body, env, &inner_context)?;
-            last_result.replace(body_result);
-        }
-        // last_result should always be Some(...), because of the arg len check above.
-        Ok(last_result.unwrap())
+        
+        let result = eval_all(&args[1..], env, &inner_context)?;        
+        Ok(result)
     })
 }
 
