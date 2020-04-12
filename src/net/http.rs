@@ -62,9 +62,11 @@ use chainstate::stacks::{
 };
 
 use util::log;
+use util::hash::to_hex;
 use util::hash::hex_bytes;
 use util::retry::RetryReader;
 use util::retry::BoundReader;
+use util::retry::LogReader;
 
 use vm::{
     ast::parser::{
@@ -1404,18 +1406,7 @@ impl HttpRequestType {
             return Err(net_error::DeserializeError("Invalid Http request: expected non-zero-length body for PostTransaction".to_string()));
         }
 
-        // content-type must be given, and must be application/octet-stream
-        match preamble.content_type {
-            None => {
-                return Err(net_error::DeserializeError("Missing Content-Type for transaction".to_string()));
-            },
-            Some(ref c) => {
-                if *c != HttpContentType::Bytes {
-                    return Err(net_error::DeserializeError("Wrong Content-Type for transaction; expected application/octet-stream".to_string()));
-                }
-            }
-        };
-
+        // assume application/octet-stream
         let tx = StacksTransaction::consensus_deserialize(fd)?;
         Ok(HttpRequestType::PostTransaction(HttpRequestMetadata::from_preamble(preamble), tx))
     }
@@ -2356,7 +2347,10 @@ impl ProtocolFamily for StacksHttp {
                 let mut cursor = io::Cursor::new(buf);
                 match HttpRequestType::parse(self, http_request_preamble, &mut cursor) {
                     Ok(data_request) => Ok((StacksHttpMessage::Request(data_request), cursor.position() as usize)),
-                    Err(e) => Err(e)
+                    Err(e) => {
+                        info!("Failed to parse HTTP request: {:?}", &e);
+                        Err(e)
+                    }
                 }
             },
             StacksHttpPreamble::Response(ref http_response_preamble) => {
