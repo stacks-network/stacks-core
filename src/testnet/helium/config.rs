@@ -12,7 +12,6 @@ use net::connection::ConnectionOptions;
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
-    pub mempool: Option<MempoolConfig>,
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
@@ -33,7 +32,6 @@ impl ConfigFile {
 pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
-    pub mempool: MempoolConfig,
     pub initial_balances: Vec<InitialBalance>,
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
@@ -98,11 +96,6 @@ impl Config {
             None => default_burnchain_config
         };
 
-        let mempool = match config_file.mempool {
-            Some(mempool) => mempool,
-            None => MempoolConfig { path: node.get_default_mempool_path() }
-        };
-        
         let initial_balances: Vec<InitialBalance> = match config_file.mstx_balance {
             Some(balances) => {
                 balances.iter().map(|balance| {
@@ -172,7 +165,6 @@ impl Config {
         Config {
             node,
             burnchain,
-            mempool,
             initial_balances,
             events_observers,
             connection_options
@@ -201,16 +193,11 @@ impl Config {
             ..BurnchainConfig::default()
         };
 
-        let mempool = MempoolConfig {
-            path: node.get_default_mempool_path(),
-        };
-
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
 
         Config {
             burnchain: burnchain,
             node: node,
-            mempool,
             initial_balances: vec![],
             events_observers: vec![],
             connection_options,
@@ -277,10 +264,6 @@ impl NodeConfig {
             p2p_bind: format!("127.0.0.1:{}", p2p_port)
         }
     }
-
-    pub fn get_default_mempool_path(&self) -> String {
-        format!("{}/mempool/", self.working_dir)
-    }
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -318,11 +301,6 @@ pub struct NodeConfigFile {
     pub working_dir: Option<String>,
     pub rpc_bind: Option<String>,
     pub p2p_bind: Option<String>,
-}
-
-#[derive(Clone, Default, Deserialize)]
-pub struct MempoolConfig {
-    pub path: String,
 }
 
 #[derive(Clone, Deserialize)]
