@@ -251,8 +251,7 @@ fn mempool_setup_chainstate() {
             let mut secret_key = None;
             let conf = super::new_test_conf();
 
-            let seed = Sha256Sum::from_data(format!("{}", conf.node.name).as_bytes());
-            let mut keychain = Keychain::default(seed.as_bytes().to_vec());
+            let mut keychain = Keychain::default(conf.node.seed.clone());
             for _i in 0..4 {
                 let microblock_secret_key = keychain.rotate_microblock_keypair();
                 let mut microblock_pubkey = Secp256k1PublicKey::from_private(&microblock_secret_key);
