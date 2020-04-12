@@ -2,10 +2,12 @@ use testnet;
 use rand::RngCore;
 use util::hash::{to_hex, hex_bytes};
 use testnet::helium::mem_pool::MemPool;
+use chainstate::stacks::{StacksPrivateKey};
 use chainstate::stacks::db::{StacksChainState};
 use chainstate::stacks::events::{StacksTransactionEvent, STXEventType};
 use super::node::{TESTNET_CHAIN_ID};
 use super::config::{InitialBalance};
+use vm::tests::integrations::make_contract_publish;
 
 use chainstate::stacks::{TransactionPayload, CoinbasePayload};
 use vm::types::PrincipalData;
@@ -22,17 +24,25 @@ pub fn new_test_conf() -> testnet::helium::Config {
 }
 
 // $ cat /tmp/out.clar 
-// (define-map store ((key (buff 32))) ((value (buff 32))))
-// (define-public (get-value (key (buff 32)))
-//    (match (map-get? store { key: key })
-//        entry (ok (get value entry))
-//        (ok "")))
-// (define-public (set-value (key (buff 32)) (value (buff 32)))
-//    (begin
-//        (map-set store { key: key } { value: value })
-//        (ok true)))
+const CONTRACT: &str =  r#"(define-map store ((key (buff 32))) ((value (buff 32))))
+ (define-public (get-value (key (buff 32)))
+    (begin
+      (print (concat "Getting key " key))
+      (match (map-get? store { key: key })
+        entry (ok (get value entry))
+        (err 0))))
+ (define-public (set-value (key (buff 32)) (value (buff 32)))
+    (begin
+        (print (concat "Setting key " key))
+        (map-set store { key: key } { value: value })
+        (ok true)))"#;
 // ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
-const PUBLISH_CONTRACT: &str = "8000000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000000000000000000000001010cfc77677d6f916ea46d7dcd1aeeba6dfb83a8fbb4771d3df9426456879c4943249dc4c94ea65e5cdaec4d9f48c27e8be747149321b14f9e855245e75a59ae5f030200000000010573746f72650000015028646566696e652d6d61702073746f72652028286b657920286275666620333229292920282876616c7565202862756666203332292929290a28646566696e652d7075626c696320286765742d76616c756520286b65792028627566662033322929290a202020286d6174636820286d61702d6765743f2073746f7265207b206b65793a206b6579207d290a20202020202020656e74727920286f6b20286765742076616c756520656e74727929290a20202020202020286f6b2022222929290a28646566696e652d7075626c696320287365742d76616c756520286b65792028627566662033322929202876616c75652028627566662033322929290a20202028626567696e0a20202020202020286d61702d7365742073746f7265207b206b65793a206b6579207d207b2076616c75653a2076616c7565207d290a20202020202020286f6b20747275652929290a";
+
+lazy_static! {
+    static ref PUBLISH_CONTRACT: Vec<u8> = make_contract_publish(
+        &StacksPrivateKey::from_hex("043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3").unwrap(),
+        0, 0, "store", CONTRACT);
+}
 
 #[test]
 fn should_succeed_mining_valid_txs() {
@@ -45,8 +55,7 @@ fn should_succeed_mining_valid_txs() {
     run_loop.apply_on_new_tenures(|round, tenure| {
         match round {
             1 => {
-                let publish_contract = PUBLISH_CONTRACT;
-                tenure.mem_pool.submit(hex_bytes(publish_contract).unwrap().to_vec());
+                tenure.mem_pool.submit(PUBLISH_CONTRACT.to_owned());
             },
             2 => {
                 // On round 2, publish a "get:foo" transaction
@@ -174,12 +183,13 @@ fn should_succeed_mining_valid_txs() {
                 
                 // 1 event should have been produced
                 let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
-                assert!(events.len() == 1);
+                assert_eq!(events.len(), 1);
                 assert!(match &events[0] {
                     StacksTransactionEvent::SmartContractEvent(data) => {
-                        format!("{}", data.key.0) == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store" &&
-                        data.key.1 == "print" &&
-                        format!("{}", data.value) == "0x53657474696e67206b657920666f6f" // "Setting key foo" in hexa
+                        assert_eq!(format!("{}", data.key.0), "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store");
+                        assert_eq!(data.key.1, "print");
+                        assert_eq!(format!("{}", data.value), "0x53657474696e67206b657920666f6f"); // "Setting key foo" in hexa
+                        true
                     },
                     _ => false
                 });
@@ -275,8 +285,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
         match round {
             1 => {
                 // On round 1, publish the KV contract
-                let publish_contract = PUBLISH_CONTRACT;
-                tenure.mem_pool.submit(hex_bytes(publish_contract).unwrap().to_vec());
+                tenure.mem_pool.submit(PUBLISH_CONTRACT.to_owned());
             },
             2 => {
                 // On round 2, publish a "get:foo" transaction (mainnet instead of testnet).
