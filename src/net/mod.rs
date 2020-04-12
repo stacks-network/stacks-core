@@ -69,13 +69,24 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::CONSENSUS_HASH_ENCODED_SIZE;
 use chainstate::burn::BlockHeaderHash;
 
-use chainstate::stacks::Error as chain_error;
-use chainstate::stacks::StacksBlock;
-use chainstate::stacks::StacksMicroblock;
-use chainstate::stacks::StacksTransaction;
-use chainstate::stacks::StacksPublicKey;
+use chainstate::stacks::{
+    StacksAddress,
+    StacksBlock,
+    StacksMicroblock,
+    StacksTransaction,
+    StacksPublicKey,
+    Error as chain_error
+};
 
 use chainstate::stacks::Error as chainstate_error;
+
+use vm::{
+    ClarityName,
+    ContractName,
+    Value,
+    types::PrincipalData,
+    analysis::contract_interface_builder::ContractInterface,
+};
 
 use util::hash::Hash160;
 use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
@@ -304,6 +315,12 @@ impl From<chain_error> for Error {
             chain_error::WriteError(e) => Error::WriteError(e),
             _ => Error::ChainstateError(format!("Stacks chainstate error: {:?}", &e))
         }
+    }
+}
+
+impl From<db_error> for Error {
+    fn from(o: db_error) -> Error {
+        Error::DBError(o)
     }
 }
 
@@ -808,6 +825,48 @@ pub struct HttpRequestMetadata {
     pub keep_alive: bool
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MapEntryResponse {
+    pub data: String,
+    #[serde(rename = "proof")]
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    pub marf_proof: Option<String>
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContractSrcResponse {
+    pub source: String,
+    pub publish_height: u32,
+    #[serde(rename = "proof")]
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    pub marf_proof: Option<String>
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CallReadOnlyResponse {
+    pub okay: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    pub result: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    pub cause: Option<String>
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccountEntryResponse {
+    pub balance: String,
+    pub nonce: u64,
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    #[serde(default)]
+    pub balance_proof: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    #[serde(default)]
+    pub nonce_proof: Option<String>
+}
+
 /// Request ID to use or expect from non-Stacks HTTP clients.
 /// In particular, if a HTTP response does not contain the x-request-id header, then it's assumed
 /// to be this value.  This is needed to support fetching immutables like block and microblock data
@@ -840,6 +899,12 @@ impl HttpRequestMetadata {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct CallReadOnlyRequestBody {
+    pub sender: String,
+    pub arguments: Vec<String>,
+}
+
 /// All HTTP request paths we support, and the arguments they carry in their paths
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
@@ -849,7 +914,14 @@ pub enum HttpRequestType {
     GetMicroblocksIndexed(HttpRequestMetadata, BlockHeaderHash),
     GetMicroblocksConfirmed(HttpRequestMetadata, BlockHeaderHash),
     GetMicroblocksUnconfirmed(HttpRequestMetadata, BlockHeaderHash, u16),
-    PostTransaction(HttpRequestMetadata, StacksTransaction)
+    PostTransaction(HttpRequestMetadata, StacksTransaction),
+    GetAccount(HttpRequestMetadata, PrincipalData, bool),
+    GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value, bool),
+    CallReadOnlyFunction(HttpRequestMetadata, StacksAddress, ContractName,
+                         PrincipalData, ClarityName, Vec<Value>),
+    GetTransferCost(HttpRequestMetadata),
+    GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName, bool),
+    GetContractABI(HttpRequestMetadata, StacksAddress, ContractName),
 }
 
 /// The fields that Actually Matter to http responses
@@ -890,6 +962,13 @@ impl HttpResponseMetadata {
     }
 }
 
+impl From<&HttpRequestType> for HttpResponseMetadata {
+    fn from(req: &HttpRequestType) -> HttpResponseMetadata {
+        let metadata = req.metadata();
+        HttpResponseMetadata::new(metadata.version, HttpResponseMetadata::make_request_id(), None, metadata.keep_alive)
+    }
+}
+
 /// All data-plane message types a peer can reply with.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpResponseType {
@@ -900,9 +979,15 @@ pub enum HttpResponseType {
     Microblocks(HttpResponseMetadata, Vec<StacksMicroblock>),
     MicroblockStream(HttpResponseMetadata),
     TransactionID(HttpResponseMetadata, Txid),
-    
+    TokenTransferCost(HttpResponseMetadata, u64),
+    GetMapEntry(HttpResponseMetadata, MapEntryResponse),
+    CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
+    GetAccount(HttpResponseMetadata, AccountEntryResponse),
+    GetContractABI(HttpResponseMetadata, ContractInterface),
+    GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
+    BadRequestJSON(HttpResponseMetadata, HashMap<String, String>),
     Unauthorized(HttpResponseMetadata, String),
     PaymentRequired(HttpResponseMetadata, String),
     Forbidden(HttpResponseMetadata, String),
@@ -1026,11 +1111,11 @@ pub const MAX_MESSAGE_LEN : u32 = (1 + 16 * 1024 * 1024) + (PREAMBLE_ENCODED_SIZ
 
 macro_rules! impl_byte_array_message_codec {
     ($thing:ident, $len:expr) => {
-        impl StacksMessageCodec for $thing {
-            fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+        impl ::net::StacksMessageCodec for $thing {
+            fn consensus_serialize<W: std::io::Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
                 fd.write_all(self.as_bytes()).map_err(::net::Error::WriteError)
             }
-            fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<$thing, ::net::Error> {
+            fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<$thing, ::net::Error> {
                 let mut buf = [0u8; ($len as usize)];
                 fd.read_exact(&mut buf).map_err(::net::Error::ReadError)?;
                 let ret = $thing::from_bytes(&buf).expect("BUG: buffer is not the right size");

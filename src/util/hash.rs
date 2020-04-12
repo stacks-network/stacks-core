@@ -18,6 +18,7 @@
 */
 
 use std::fmt;
+use std::fmt::Write;
 use std::mem;
 use std::char::from_digit;
 
@@ -576,8 +577,11 @@ pub fn hex_bytes(s: &str) -> Result<Vec<u8>, HexError> {
 
 /// Convert a slice of u8 to a hex string
 pub fn to_hex(s: &[u8]) -> String {
-    let r : Vec<String> = s.to_vec().iter().map(|b| format!("{:02x}", b)).collect();
-    return r.join("");
+    let mut r = String::with_capacity(s.len() * 2);
+    for b in s.iter() {
+        write!(r, "{:02x}", b).unwrap();
+    }
+    return r;
 }
 
 /// Convert a vec of u8 to a hex string

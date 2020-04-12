@@ -13,7 +13,7 @@ use util::sleep_ms;
 /// taking turns in producing blocks.
 pub struct RunLoop {
     config: Config,
-    node: Node,
+    pub node: Node,
     new_burnchain_state_callback: Option<fn(u64, &BurnchainState)>,
     new_tenure_callback: Option<fn(u64, &LeaderTenure)>,
     new_chain_state_callback: Option<fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>)>,
@@ -88,6 +88,8 @@ impl RunLoop {
 
         // Update each node with this new block.
         self.node.process_burnchain_state(&state_1);
+
+        self.node.spawn_peer_server();
 
         // Bootstrap the chain: the first node (could be random) will start a new tenure,
         // using the sortition hash from block #1 for generating a VRF.

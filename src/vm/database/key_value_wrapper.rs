@@ -1,7 +1,7 @@
 use super::{MarfedKV, ClarityBackingStore, ClarityDeserializable};
 use vm::Value;
 use vm::errors::{ InterpreterResult as Result };
-use chainstate::burn::BlockHeaderHash;
+use chainstate::{ burn::BlockHeaderHash, stacks::index::proofs::TrieMerkleProof };
 use std::collections::{HashMap};
 use util::hash::{Sha512Trunc256Sum};
 use vm::types::{QualifiedContractIdentifier, TypeSignature};
@@ -186,6 +186,13 @@ impl <'a> RollbackWrapper <'a> {
 
     pub fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
         self.store.set_block_hash(bhh)
+    }
+
+    /// this function will only return commitment proofs for values _already_ materialized
+    ///  in the underlying store. otherwise it returns None.
+    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, TrieMerkleProof)> where T: ClarityDeserializable<T> {
+        self.store.get_with_proof(key)
+            .map(|(value, proof)| (T::deserialize(&value), proof))
     }
 
     pub fn get<T>(&mut self, key: &str) -> Option<T> where T: ClarityDeserializable<T> {

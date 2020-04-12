@@ -3,6 +3,9 @@ use super::{Keychain, MemPool, MemPoolFS, Config, LeaderTenure, BurnchainState, 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::sync::{Arc, Mutex};
+use std::convert::TryFrom;
+use std::{thread, time, thread::JoinHandle};
+use std::net::SocketAddr;
 
 use address::AddressHashMode;
 use burnchains::{Burnchain, BurnchainHeaderHash, Txid};
@@ -12,14 +15,18 @@ use chainstate::stacks::events::StacksTransactionReceipt;
 use chainstate::stacks::{StacksPrivateKey, StacksBlock, TransactionPayload, StacksWorkScore, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, StacksBlockBuilder, TransactionAnchorMode};
 use chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp, LeaderBlockCommitOp};
 use chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, BlockHeaderHash};
-use net::{StacksMessageType, StacksMessageCodec};
+use net::{ StacksMessageType, StacksMessageCodec,
+           p2p::PeerNetwork, connection::ConnectionOptions, Error as NetError,
+           db::{ PeerDB, LocalPeer } };
 
 use util::hash::Sha256Sum;
 use util::vrf::{VRFProof, VRFPublicKey};
 use util::get_epoch_time_secs;
+use util::strings::UrlString;
 use vm::types::PrincipalData;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
+pub const TESTNET_PEER_VERSION: u32 = 0xdead1010;
 
 #[derive(Clone)]
 struct RegisteredKey {
@@ -64,13 +71,45 @@ pub struct Node {
     burnchain_tip: Option<BlockSnapshot>,
     pub chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
-    config: Config,
+    pub config: Config,
     keychain: Keychain,
     last_sortitioned_block: Option<SortitionedBlock>,
     mem_pool: MemPoolFS,
     event_dispatcher: EventDispatcher,
     nonce: u64,
 }
+
+fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAddr,
+              burn_db_path: String, stacks_chainstate_path: String, 
+              poll_timeout: u64) -> Result<JoinHandle<()>, NetError> {
+    this.bind(p2p_sock, rpc_sock).unwrap();
+    let server_thread = thread::spawn(move || {
+        loop {
+            let mut burndb = match BurnDB::open(&burn_db_path, true) {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Error while connecting burnchain db in peer loop: {}", e);
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                },
+            };
+            let mut chainstate = match StacksChainState::open(
+                false, TESTNET_CHAIN_ID, &stacks_chainstate_path) {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Error while connecting chainstate db in peer loop: {}", e);
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                },
+            };
+
+            this.run(&mut burndb, &mut chainstate, None, poll_timeout)
+                .unwrap();
+        }
+    });
+    Ok(server_thread)
+}
+
 
 impl Node {
 
@@ -115,6 +154,46 @@ impl Node {
             nonce: 0,
             event_dispatcher,
         }
+    }
+
+    pub fn spawn_peer_server(&mut self) {
+        // we can call _open_ here rather than _connect_, since connect is first called in
+        //   make_genesis_block
+        let mut burndb = BurnDB::open(&self.config.get_burn_db_path(), true)
+            .expect("Error while instantiating burnchain db");
+
+        let burnchain = Burnchain::new(&self.config.get_burn_db_path(),
+                                       &self.config.burnchain.chain, &self.config.burnchain.mode)
+            .expect("Error while instantiating burnchain");
+
+        let view = {
+            let mut tx = burndb.tx_begin().unwrap();
+            BurnDB::get_burnchain_view(&mut tx, &burnchain).unwrap()
+        };
+
+        // create a new peerdb
+        let data_url = UrlString::try_from(format!("http://{}", self.config.node.rpc_bind)).unwrap();
+
+        let peerdb = PeerDB::connect(
+            &self.config.get_peer_db_path(), true, TESTNET_CHAIN_ID, burnchain.network_id, i64::max_value() as u64,
+            data_url.clone(),
+            &vec![], None).unwrap();
+
+        let local_peer = LocalPeer::new(TESTNET_CHAIN_ID, burnchain.network_id,
+                                        self.config.connection_options.private_key_lifetime.clone(),
+                                        data_url);
+
+        let p2p_net = PeerNetwork::new(peerdb, local_peer, TESTNET_PEER_VERSION, burnchain, view, self.config.connection_options.clone());
+        let rpc_sock = self.config.node.rpc_bind.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
+        let p2p_sock = self.config.node.p2p_bind.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_bind));
+        let _join_handle = spawn_peer(p2p_net, &p2p_sock, &rpc_sock, self.config.get_burn_db_path(),
+                                      self.config.get_chainstate_path(), 5000)
+            .unwrap();
+
+        info!("Bound HTTP server on: {}", &self.config.node.rpc_bind);
+        info!("Bound P2P server on: {}", &self.config.node.p2p_bind);
     }
     
     pub fn setup(&mut self) -> BlockstackOperationType {
