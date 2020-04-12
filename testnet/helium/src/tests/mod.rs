@@ -1,5 +1,6 @@
-// mod integrations;
+mod integrations;
 mod bitcoin_regtest;
+mod mempool;
 
 use stacks::chainstate::stacks::events::{StacksTransactionEvent, STXEventType};
 use stacks::chainstate::stacks::{TransactionPayload};
