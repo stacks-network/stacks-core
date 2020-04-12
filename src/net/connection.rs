@@ -522,7 +522,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 Err(e) => {
                     // will never be valid, even if underflowed, since the premable ought to have
                     // told us the message length
-                    debug!("Invalid message payload: {:?}", &e);
+                    debug!("Invalid message payload: {:?}.  Preamble was {:?}", &e, &preamble);
                     return Err(net_error::InvalidMessage);
                 }
             };
