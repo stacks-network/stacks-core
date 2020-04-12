@@ -106,8 +106,19 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 },
             };
         
-            let mut mem_pool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &stacks_chainstate_path).expect("FATAL: failed to instantiate mempool");
+            let mut mem_pool = match MemPoolDB::open(
+                false, TESTNET_CHAIN_ID, &stacks_chainstate_path) {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Error while connecting to mempool db in peer loop: {}", e);
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                }
+            };
 
+            // TODO: take the NetworkResult this method spits out and feed it into a Relayer
+            // instance running in another thread (which will, in turn, take care of storing the
+            // blocks, processing them, and relaying new data to neighbors).
             this.run(&mut burndb, &mut chainstate, &mut mem_pool, None, poll_timeout)
                 .unwrap();
         }
