@@ -53,7 +53,7 @@ pub fn make_bad_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate:
 fn mempool_setup_chainstate() {
     let mut conf = super::new_test_conf();
 
-    conf.burnchain.block_time = 1500;
+    conf.burnchain.commit_anchor_block_within = 1500;
     
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let contract_addr = to_addr(&contract_sk);

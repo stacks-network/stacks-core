@@ -3,7 +3,6 @@ use super::{Config, Node, BurnchainController, MocknetController, BitcoinRegtest
 use stacks::chainstate::stacks::db::{StacksHeaderInfo, StacksChainState, ClarityTx};
 use stacks::chainstate::stacks::{StacksBlock, TransactionAuth, TransactionSpendingCondition, TransactionPayload};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
-use stacks::util::sleep_ms;
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
@@ -65,7 +64,6 @@ impl RunLoop {
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, expected_num_rounds: u64) {
 
-        // todo(ludo): add enums for network
         // Initialize and start the burnchain.
         let mut burnchain: Box<dyn BurnchainController> = match &self.config.burnchain.network[..] {
             "regtest" | "neon" => {
@@ -74,7 +72,7 @@ impl RunLoop {
             "mocknet" => {
                 MocknetController::generic(self.config.clone())
             }
-            _ => unimplemented!()
+            _ => unreachable!()
         };
 
         RunLoop::handle_burnchain_initialized_cb(
@@ -84,7 +82,7 @@ impl RunLoop {
         let genesis_state = burnchain.start();
 
         // Update each node with the genesis block.
-        self.node.process_burnchain_state(&genesis_state);
+        self.node.process_burnchain_state(genesis_state);
 
         // make first non-genesis block, with initial VRF keys
         self.node.setup(&mut burnchain);
@@ -94,8 +92,8 @@ impl RunLoop {
         let mut round_index: u64 = 0;
 
         // Sync and update node with this new block.
-        let state_1 = burnchain.sync();
-        self.node.process_burnchain_state(&state_1);
+        let burnchain_tip = burnchain.sync();
+        self.node.process_burnchain_state(burnchain_tip.clone());
 
         if self.config.burnchain.network == "mocknet" {
             self.node.spawn_peer_server();
@@ -104,7 +102,7 @@ impl RunLoop {
         // Bootstrap the chain: node will start a new tenure,
         // using the sortition hash from block #1 for generating a VRF.
         let leader = &mut self.node;
-        let mut first_tenure = match leader.initiate_genesis_tenure(&state_1.block_snapshot) {
+        let mut first_tenure = match leader.initiate_genesis_tenure(&burnchain_tip) {
             Some(res) => res,
             None => panic!("Error while initiating genesis tenure")
         };
@@ -127,14 +125,14 @@ impl RunLoop {
             &mut burnchain, 
             artifacts_from_1st_tenure.burn_fee);
 
-        let mut burnchain_state = burnchain.sync();
-        RunLoop::handle_burnchain_state_cb(&self.new_burnchain_state_callback, round_index, &burnchain_state);
+        let mut burnchain_tip = burnchain.sync();
+        RunLoop::handle_burnchain_state_cb(&self.new_burnchain_state_callback, round_index, &burnchain_tip);
 
         let mut leader_tenure = None;
 
         // Have each node process the new block, that should include a sortition thanks to the
         // 1st tenure.
-        let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(&burnchain_state) {
+        let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(burnchain_tip) {
             (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
             (None, _) => panic!("Node should have a sortitioned block")
         };
@@ -144,8 +142,8 @@ impl RunLoop {
 
         let (chain_tip, chain_tip_info, receipts) = self.node.process_tenure(
             &artifacts_from_1st_tenure.anchored_block, 
-            &last_sortitioned_block.burn_header_hash, 
-            &last_sortitioned_block.parent_burn_header_hash, 
+            &last_sortitioned_block.block_snapshot.burn_header_hash, 
+            &last_sortitioned_block.block_snapshot.parent_burn_header_hash, 
             artifacts_from_1st_tenure.microblocks.clone(),
             burnchain.burndb_mut());
 
@@ -153,7 +151,7 @@ impl RunLoop {
 
         // If the node we're looping on won the sortition, initialize and configure the next tenure
         if won_sortition {
-            leader_tenure = self.node.initiate_new_tenure(&last_sortitioned_block);
+            leader_tenure = self.node.initiate_new_tenure();
         }
 
         // Start the runloop
@@ -184,13 +182,13 @@ impl RunLoop {
                 None => {}
             }
 
-            burnchain_state = burnchain.sync();
-            RunLoop::handle_burnchain_state_cb(&self.new_burnchain_state_callback, round_index, &burnchain_state);
+            burnchain_tip = burnchain.sync();
+            RunLoop::handle_burnchain_state_cb(&self.new_burnchain_state_callback, round_index, &burnchain_tip);
     
             leader_tenure = None;
 
             // Have each node process the new block, that can include, or not, a sortition.
-            let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(&burnchain_state) {
+            let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(burnchain_tip) {
                 (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
                 (None, _) => panic!("Node should have a sortitioned block")
             };
@@ -203,8 +201,8 @@ impl RunLoop {
                     // We should have some additional checks here, and ensure that the previous artifacts are legit.
                     let (chain_tip, chain_tip_info, events) = self.node.process_tenure(
                         &artifacts.anchored_block, 
-                        &burnchain_state.block_snapshot.burn_header_hash, 
-                        &burnchain_state.block_snapshot.parent_burn_header_hash,             
+                        &last_sortitioned_block.block_snapshot.burn_header_hash, 
+                        &last_sortitioned_block.block_snapshot.parent_burn_header_hash,             
                         artifacts.microblocks.clone(),
                         burnchain.burndb_mut());
 
@@ -221,12 +219,10 @@ impl RunLoop {
             
             // If the node we're looping on won the sortition, initialize and configure the next tenure
             if won_sortition {
-                leader_tenure = self.node.initiate_new_tenure(&last_sortitioned_block);
+                leader_tenure = self.node.initiate_new_tenure();
             } 
             
             round_index += 1;
-
-            sleep_ms(self.config.burnchain.block_time);
         }
     }
 

@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::time::Instant;
 
 use super::super::{Config};
 use super::{BurnchainController, BurnchainOperationType, BurnchainTip};
@@ -98,6 +99,7 @@ impl BurnchainController for MocknetController {
                 accepted_ops: vec![],
                 consumed_leader_keys: vec![]
             },
+            received_at: Instant::now(),
         };
         self.chain_tip = Some(genesis_state.clone());
 
@@ -191,7 +193,8 @@ impl BurnchainController for MocknetController {
         // Transmit the new state
         let new_state = BurnchainTip {
             block_snapshot,
-            state_transition
+            state_transition,
+            received_at: Instant::now()
         };
         self.chain_tip = Some(new_state.clone());
 

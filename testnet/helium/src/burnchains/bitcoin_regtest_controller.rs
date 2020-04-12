@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::time::Instant;
 
 use reqwest::blocking::{Client, RequestBuilder};
 use serde::Serialize;
@@ -89,7 +90,6 @@ impl BitcoinRegtestController {
         (burnchain, burnchain_indexer)
     }
 
-    // todo(ludo): handle neon
     fn receive_blocks(&mut self) -> BurnchainTip {
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
 
@@ -100,7 +100,8 @@ impl BitcoinRegtestController {
             (Some(state_transition), _) => {
                 let burnchain_tip = BurnchainTip {
                     block_snapshot: block_snapshot,
-                    state_transition: state_transition.clone()
+                    state_transition: state_transition.clone(),
+                    received_at: Instant::now()
                 };
                 self.chain_tip = Some(burnchain_tip.clone());
                 burnchain_tip
@@ -126,6 +127,7 @@ impl BitcoinRegtestController {
 
     fn get_utxos(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<Vec<UTXO>> {
         // todo(ludo): reuse the same client.
+
         // Configure UTXO filter
         let pkh = Hash160::from_data(&public_key.to_bytes()).to_bytes().to_vec();
         let address = BitcoinAddress::from_bytes(
@@ -156,7 +158,7 @@ impl BitcoinRegtestController {
             let _result = BitcoinRPCRequest::import_public_key(
                 request_builder,
                 &public_key.to_hex());
-            
+
             // todo(ludo): rescan can take time. we should probably add a few retries, with exp backoff.
             sleep_ms(1000);
 
@@ -392,14 +394,12 @@ impl BurnchainController for BitcoinRegtestController {
 
     fn burndb_mut(&mut self) -> &mut BurnDB {
 
-        // todo(ludo): revisit this approach
-
         let network = self.config.burnchain.network.clone();
         let working_dir = self.config.get_burn_db_path();
         let burnchain = Burnchain::new(
             &working_dir,
             &self.config.burnchain.chain, 
-            &network)
+            "regtest")
         .map_err(|e| {
             error!("Failed to instantiate burn chain driver for {}: {:?}", network, e);
             e
@@ -430,13 +430,22 @@ impl BurnchainController for BitcoinRegtestController {
         self.receive_blocks()
     }
 
-    fn sync(&mut self) -> BurnchainTip {
+    fn sync(&mut self) -> BurnchainTip {        
         if let Some(local_mining_pk) = &self.config.burnchain.local_mining_public_key {
-            sleep_ms(self.config.burnchain.block_time);
+            // Burnchain is mined by a solo miner / local setup
             self.build_next_block(local_mining_pk, 1);
+            self.receive_blocks()
+        } else {
+            // Burnchain is mined by another miner (neon like)
+            let current_height = self.get_chain_tip().block_snapshot.block_height;
+            loop {
+                let burnchain_tip = self.receive_blocks();
+                if burnchain_tip.block_snapshot.block_height > current_height {
+                    break burnchain_tip;
+                }
+                sleep_ms(500);
+            }
         }
-
-        self.receive_blocks()
     }
 
     fn submit_operation(&mut self, operation: BurnchainOperationType, op_signer: &mut BurnchainOpSigner) {
@@ -463,7 +472,8 @@ impl BurnchainController for BitcoinRegtestController {
 
         if let Some(local_mining_pubkey) = &self.config.burnchain.local_mining_public_key {
 
-            let pkh = Hash160::from_data(local_mining_pubkey.as_bytes()).to_bytes().to_vec();
+            let pk = hex_bytes(&local_mining_pubkey).expect("Invalid byte sequence");
+            let pkh = Hash160::from_data(&pk).to_bytes().to_vec();
             let address = BitcoinAddress::from_bytes(
                 BitcoinNetworkType::Regtest,
                 BitcoinAddressType::PublicKeyHash,

@@ -179,7 +179,7 @@ fn integration_test_get_info() {
         amount: 100300
     });
 
-    conf.burnchain.block_time = 1500;
+    conf.burnchain.commit_anchor_block_within = 1500;
 
     let num_rounds = 4;
 

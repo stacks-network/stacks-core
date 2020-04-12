@@ -87,7 +87,7 @@ impl Config {
                 NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
-                        Some(seed) => hex_bytes(&seed).expect("Seed should be composed of hexadecimals"), // todo(ludo): improve wording
+                        Some(seed) => hex_bytes(&seed).expect("Seed should a hex encoded string"),
                         None => default_node_config.seed
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
@@ -105,7 +105,7 @@ impl Config {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     network: burnchain.network.unwrap_or(default_burnchain_config.network),
                     burn_fee_cap: burnchain.burn_fee_cap.unwrap_or(default_burnchain_config.burn_fee_cap),
-                    block_time: burnchain.block_time.unwrap_or(default_burnchain_config.block_time),
+                    commit_anchor_block_within: burnchain.commit_anchor_block_within.unwrap_or(default_burnchain_config.commit_anchor_block_within),
                     peer_host: burnchain.peer_host.unwrap_or(default_burnchain_config.peer_host),
                     peer_port: burnchain.peer_port.unwrap_or(default_burnchain_config.peer_port),
                     rpc_port: burnchain.rpc_port.unwrap_or(default_burnchain_config.rpc_port),
@@ -122,6 +122,12 @@ impl Config {
             },
             None => default_burnchain_config
         };
+
+        let supported_networks = vec!["mocknet", "regtest", "neon"];
+
+        if !supported_networks.contains(&burnchain.network.as_str())  {
+            panic!("Setting burnchain.network not supported (should be: {})", supported_networks.join(", "))
+        }
 
         let mempool = match config_file.mempool {
             Some(mempool) => mempool,
@@ -225,9 +231,11 @@ impl Config {
             ..NodeConfig::default()
         };
 
-        let burnchain = BurnchainConfig {
+        let mut burnchain = BurnchainConfig {
             ..BurnchainConfig::default()
         };
+
+        burnchain.spv_headers_path = node.get_default_spv_headers_path();
 
         let mempool = MempoolConfig {
             path: node.get_default_mempool_path(),
@@ -236,8 +244,8 @@ impl Config {
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
 
         Config {
-            burnchain: burnchain,
-            node: node,
+            burnchain,
+            node,
             mempool,
             initial_balances: vec![],
             events_observers: vec![],
@@ -255,7 +263,7 @@ impl Config {
 pub struct BurnchainConfig {
     pub chain: String,
     pub network: String,
-    pub block_time: u64,
+    pub commit_anchor_block_within: u64,
     pub burn_fee_cap: u64,
     pub peer_host: String,
     pub peer_port: u16,
@@ -277,7 +285,7 @@ impl BurnchainConfig {
             chain: "bitcoin".to_string(),
             network: "mocknet".to_string(),
             burn_fee_cap: 10000,
-            block_time: 5000,
+            commit_anchor_block_within: 5000,
             peer_host: "127.0.0.1".to_string(),
             peer_port: 8333,
             rpc_port: 8332,
@@ -308,6 +316,7 @@ pub struct BurnchainConfigFile {
     pub burn_fee_cap: Option<u64>,
     pub network: Option<String>,
     pub block_time: Option<u64>,
+    pub commit_anchor_block_within: Option<u64>,
     pub peer_host: Option<String>,
     pub peer_port: Option<u16>,
     pub rpc_port: Option<u16>,

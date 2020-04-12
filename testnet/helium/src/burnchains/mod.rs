@@ -6,6 +6,8 @@ pub use self::bitcoin_regtest_controller::{BitcoinRegtestController};
 
 use super::operations::{BurnchainOperationType, BurnchainOpSigner};
 
+use std::time::Instant;
+
 use stacks::burnchains::{BurnchainStateTransition};
 use stacks::chainstate::burn::db::burndb::{BurnDB};
 use stacks::chainstate::burn::{BlockSnapshot};
@@ -14,6 +16,7 @@ use stacks::chainstate::burn::{BlockSnapshot};
 pub struct BurnchainTip {
     pub block_snapshot: BlockSnapshot,
     pub state_transition: BurnchainStateTransition,
+    pub received_at: Instant,
 }
 
 pub trait BurnchainController {

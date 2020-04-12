@@ -81,7 +81,7 @@ impl Drop for BitcoinCoreController {
 fn simple_test() {
 
     let mut conf = super::new_test_conf();
-    conf.burnchain.block_time = 2000;
+    conf.burnchain.commit_anchor_block_within = 2000;
     conf.burnchain.burn_fee_cap = 5000;
     conf.burnchain.network = "regtest".to_string();
     conf.burnchain.peer_host = "127.0.0.1".to_string();

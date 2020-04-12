@@ -17,7 +17,6 @@ pub fn new_test_conf() -> Config {
 
     let mut conf = Config::default();
     conf.add_initial_balance("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(), 10000);
-    conf.burnchain.spv_headers_path = conf.node.get_default_spv_headers_path(); // todo(ludo): fix
     conf
 }
 

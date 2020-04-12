@@ -5,9 +5,9 @@ rpc_bind = "127.0.0.1:9000"
 ## Settings for local testnet, relying on a local bitcoind server
 ## running with the following bitcoin.conf:
 ##
+##    chain=regtest
 ##    disablewallet=0
 ##    txindex=1
-##    chain=regtest
 ##    server=1
 ##    rpcuser=helium-node
 ##    rpcpassword=secret
@@ -24,6 +24,7 @@ password = "secret"
 timeout = 30
 local_mining_public_key = "04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77"
 burnchain_op_tx_fee = 1000
+commit_anchor_block_within = 3000
 
 ## Settings for public testnet, relying on a remote bitcoind server
 ## hosted by blockstack 
@@ -31,10 +32,11 @@ burnchain_op_tx_fee = 1000
 # [burnchain]
 # chain = "bitcoin"
 # network = "neon"
-# peer_host = "neon.blockstack.com"
+# peer_host = "127.0.0.1"
 # peer_port = 18444
 # rpc_port = 3000
 # burnchain_op_tx_fee = 1000
+# commit_anchor_block_within = 15000
 
 ## Settings for a local testnet simulating a burnchain
 ## Best setup for smart contract development

@@ -5,13 +5,13 @@ use std::convert::TryFrom;
 use std::{thread, time, thread::JoinHandle};
 use std::net::SocketAddr;
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
+use stacks::burnchains::{Burnchain, BurnchainHeaderHash};
 use stacks::chainstate::burn::db::burndb::{BurnDB};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::{ StacksBlock, TransactionPayload, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, TransactionAnchorMode};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
-use stacks::chainstate::burn::{ConsensusHash, SortitionHash, BlockSnapshot, VRFSeed, BlockHeaderHash};
+use stacks::chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash};
 use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer } };
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -27,44 +27,16 @@ struct RegisteredKey {
     vrf_public_key: VRFPublicKey,
 }
 
-#[derive(Clone, Debug)]
-pub struct SortitionedBlock {
-    pub block_height: u16,
-    pub burn_header_hash: BurnchainHeaderHash,
-    consensus_hash: ConsensusHash,
-    op_vtxindex: u16,
-    op_txid: Txid,
-    pub parent_burn_header_hash: BurnchainHeaderHash,
-    sortition_hash: SortitionHash,
-    pub total_burn: u64,
-}
-
-impl SortitionedBlock {
-    pub fn genesis() -> Self {
-        Self {
-            sortition_hash: SortitionHash::initial(),
-            consensus_hash: ConsensusHash::empty(),
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-            parent_burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-            block_height: 1,
-            op_vtxindex: 0,
-            op_txid: Txid([0u8; 32]),
-            total_burn: 0
-        }
-    }
-
-}
-
 /// Node is a structure modelising an active node working on the stacks chain.
 pub struct Node {
     active_registered_key: Option<RegisteredKey>,
     bootstraping_chain: bool,
-    burnchain_tip: Option<BlockSnapshot>,
+    burnchain_tip: Option<BurnchainTip>,
     pub chain_state: StacksChainState,
     chain_tip: Option<StacksHeaderInfo>,
     pub config: Config,
     keychain: Keychain,
-    last_sortitioned_block: Option<SortitionedBlock>,
+    last_sortitioned_block: Option<BurnchainTip>,
     mem_pool: MemPoolFS,
     event_dispatcher: EventDispatcher,
     nonce: u64,
@@ -198,12 +170,11 @@ impl Node {
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
     /// and inspecting if a sortition was won.
-    pub fn process_burnchain_state(&mut self, state: &BurnchainTip) -> (Option<SortitionedBlock>, bool) {
+    pub fn process_burnchain_state(&mut self, burnchain_tip: BurnchainTip) -> (Option<BurnchainTip>, bool) {
         let mut new_key = None;
         let mut last_sortitioned_block = None; 
         let mut won_sortition = false;
-        let chain_tip = state.block_snapshot.clone();
-        let ops = &state.state_transition.accepted_ops;
+        let ops = &burnchain_tip.state_transition.accepted_ops;
 
         for op in ops.iter() {
             match op {
@@ -218,17 +189,8 @@ impl Node {
                     }
                 },
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                    if op.txid == chain_tip.winning_block_txid {
-                        last_sortitioned_block = Some(SortitionedBlock {
-                            block_height: chain_tip.block_height as u16,
-                            op_vtxindex: op.vtxindex as u16,
-                            op_txid: op.txid,
-                            sortition_hash: chain_tip.sortition_hash,
-                            consensus_hash: chain_tip.consensus_hash,
-                            total_burn: chain_tip.total_burn,
-                            burn_header_hash: chain_tip.burn_header_hash,
-                            parent_burn_header_hash: chain_tip.parent_burn_header_hash,
-                        });
+                    if op.txid == burnchain_tip.block_snapshot.winning_block_txid {
+                        last_sortitioned_block = Some(burnchain_tip.clone());
 
                         // Release current registered key if leader won the sortition
                         // This will trigger a new registration
@@ -256,7 +218,7 @@ impl Node {
         }
 
         // Keep a pointer of the burnchain's chain tip.
-        self.burnchain_tip = Some(chain_tip);
+        self.burnchain_tip = Some(burnchain_tip);
 
         (self.last_sortitioned_block.clone(), won_sortition)
     }
@@ -264,32 +226,20 @@ impl Node {
     /// Prepares the node to run a tenure consisting in bootstraping the chain.
     /// 
     /// Will internally call initiate_new_tenure().
-    pub fn initiate_genesis_tenure(&mut self, block: &BlockSnapshot) -> Option<Tenure> {
+    pub fn initiate_genesis_tenure(&mut self, burnchain_tip: &BurnchainTip) -> Option<Tenure> {
         // Set the `bootstraping_chain` flag, that will be unset once the 
         // bootstraping tenure ran successfully (process_tenure).
         self.bootstraping_chain = true;
 
-        // Mock a block, including the expected initial sortition.
-        let block = SortitionedBlock {
-            block_height: block.block_height as u16,
-            op_vtxindex: 0,
-            op_txid: Txid([0u8; 32]),
-            sortition_hash: block.sortition_hash,
-            consensus_hash: block.consensus_hash,
-            total_burn: block.total_burn,
-            burn_header_hash: block.burn_header_hash,
-            parent_burn_header_hash: block.parent_burn_header_hash,
-        };
+        self.last_sortitioned_block = Some(burnchain_tip.clone());
 
-        self.last_sortitioned_block = Some(block.clone());
-
-        self.initiate_new_tenure(&block)
+        self.initiate_new_tenure()
     }
 
     /// Constructs and returns an instance of Tenure, that can be run
     /// on an isolated thread and discarded or canceled without corrupting the
     /// chain state of the node.
-    pub fn initiate_new_tenure(&mut self, sortitioned_block: &SortitionedBlock) -> Option<Tenure> {
+    pub fn initiate_new_tenure(&mut self) -> Option<Tenure> {
         // Get the latest registered key
         let registered_key = match &self.active_registered_key {
             None => {
@@ -300,10 +250,15 @@ impl Node {
             Some(ref key) => key,
         };
 
+        let block_to_build_upon = match &self.last_sortitioned_block {
+            None => unreachable!(),
+            Some(block) => block.clone()
+        };
+
         // Generates a proof out of the sortition hash provided in the params.
         let vrf_proof = self.keychain.generate_proof(
             &registered_key.vrf_public_key, 
-            sortitioned_block.sortition_hash.as_bytes()).unwrap();
+            block_to_build_upon.block_snapshot.sortition_hash.as_bytes()).unwrap();
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
@@ -322,7 +277,6 @@ impl Node {
         // the upcoming tenure.
         let coinbase_tx = self.generate_coinbase_tx();
 
-
         let burn_fee_cap = self.config.burnchain.burn_fee_cap;
 
         // Construct the upcoming tenure
@@ -332,7 +286,7 @@ impl Node {
             self.config.clone(),
             self.mem_pool.clone(),
             microblock_secret_key, 
-            sortitioned_block.clone(),
+            block_to_build_upon,
             vrf_proof,
             burn_fee_cap);
 
@@ -342,7 +296,7 @@ impl Node {
     pub fn commit_artifacts(
         &mut self, 
         anchored_block_from_ongoing_tenure: &StacksBlock, 
-        parent_block: &SortitionedBlock,
+        burnchain_tip: &BurnchainTip,
         burnchain_controller: &mut Box<dyn BurnchainController>,
         burn_fee: u64) 
     {
@@ -351,13 +305,13 @@ impl Node {
 
             let vrf_proof = self.keychain.generate_proof(
                 &registered_key.vrf_public_key, 
-                parent_block.sortition_hash.as_bytes()).unwrap();
+                burnchain_tip.block_snapshot.sortition_hash.as_bytes()).unwrap();
 
             let op = self.generate_block_commit_op(
                 anchored_block_from_ongoing_tenure.header.block_hash(),
                 burn_fee,
                 &registered_key, 
-                &parent_block,
+                &burnchain_tip,
                 VRFSeed::from_proof(&vrf_proof));
 
                 let mut op_signer = self.keychain.generate_op_signer();
@@ -367,7 +321,7 @@ impl Node {
         // Naive implementation: we keep registering new keys
         let burnchain_tip = burnchain_controller.get_chain_tip();
         let vrf_pk = self.keychain.rotate_vrf_keypair(burnchain_tip.block_snapshot.block_height);
-        let burnchain_tip_consensus_hash = self.burnchain_tip.as_ref().unwrap().consensus_hash;
+        let burnchain_tip_consensus_hash = self.burnchain_tip.as_ref().unwrap().block_snapshot.consensus_hash;
         let op = self.generate_leader_key_register_op(vrf_pk, &burnchain_tip_consensus_hash);
 
         let mut one_off_signer = self.keychain.generate_op_signer();
@@ -469,12 +423,22 @@ impl Node {
                                 block_header_hash: BlockHeaderHash,
                                 burn_fee: u64, 
                                 key: &RegisteredKey,
-                                parent_block: &SortitionedBlock,
+                                burnchain_tip: &BurnchainTip,
                                 vrf_seed: VRFSeed) -> BurnchainOperationType {
-        
+
+        let winning_tx_id = burnchain_tip.block_snapshot.winning_block_txid;
+        let mut winning_tx_vtindex = 0;
+        for op in burnchain_tip.state_transition.accepted_ops.iter() {
+            if let BlockstackOperationType::LeaderBlockCommit(op) = op {
+                if op.txid == winning_tx_id {
+                    winning_tx_vtindex = op.vtxindex
+                }
+            } 
+        }                            
+
         let (parent_block_ptr, parent_vtxindex) = match self.bootstraping_chain {
             true => (0, 0), // parent_block_ptr and parent_vtxindex should both be 0 on block #1
-            false => (parent_block.block_height as u32, parent_block.op_vtxindex as u16)
+            false => (burnchain_tip.block_snapshot.block_height as u32, winning_tx_vtindex as u16)
         };
 
         BurnchainOperationType::LeaderBlockCommit(LeaderBlockCommitPayload {
