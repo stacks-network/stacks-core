@@ -1,6 +1,6 @@
 use super::{Keychain, Config, LeaderTenure, BurnchainState, EventDispatcher};
-
 use core::mempool::*;
+use super::config::{EventObserverConfig, EventKeyType};
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
