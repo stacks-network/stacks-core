@@ -1083,6 +1083,8 @@ mod test {
     use vm::database::ClarityDatabase;
     use vm::clarity::ClarityConnection;
 
+    use util::sleep_ms;
+
     #[test]
     fn test_relayer_stats_add_relyed_messages() {
         let mut relay_stats = RelayerStats::new();
@@ -1479,7 +1481,7 @@ mod test {
         }
     }
     
-    fn push_message(peer: &mut TestPeer, dest: &NeighborKey, relay_hints: Vec<RelayData>, msg: StacksMessageType) {
+    fn push_message(peer: &mut TestPeer, dest: &NeighborKey, relay_hints: Vec<RelayData>, msg: StacksMessageType) -> bool {
         let event_id = match peer.network.events.get(dest) {
             Some(evid) => *evid,
             None => {
@@ -1496,22 +1498,35 @@ mod test {
             }
         };
 
-        peer.network.relay_signed_message(dest, relay_msg).unwrap()
+        match peer.network.relay_signed_message(dest, relay_msg.clone()) {
+            Ok(_) => {
+                return true;
+            },
+            Err(net_error::OutboxOverflow) => {
+                test_debug!("{:?} outbox overflow; try again later", &peer.to_neighbor().addr);
+                return false;
+            },
+            Err(e) => {
+                test_debug!("{:?} encountered fatal error when forwarding: {:?}", &peer.to_neighbor().addr, &e);
+                assert!(false);
+                unreachable!();
+            }
+        }
     }
 
-    fn push_block(peer: &mut TestPeer, dest: &NeighborKey, relay_hints: Vec<RelayData>, burn_header_hash: BurnchainHeaderHash, block: StacksBlock) {
+    fn push_block(peer: &mut TestPeer, dest: &NeighborKey, relay_hints: Vec<RelayData>, burn_header_hash: BurnchainHeaderHash, block: StacksBlock) -> bool {
         test_debug!("{:?}: Push block {}/{} to {:?}", peer.to_neighbor().addr, &burn_header_hash, block.block_hash(), dest);
         let msg = StacksMessageType::Blocks(BlocksData { blocks: vec![(burn_header_hash, block)] });
         push_message(peer, dest, relay_hints, msg)
     }
     
-    fn push_microblocks(peer: &mut TestPeer, dest: &NeighborKey, relay_hints: Vec<RelayData>, burn_header_hash: BurnchainHeaderHash, block_hash: BlockHeaderHash, microblocks: Vec<StacksMicroblock>) {
+    fn push_microblocks(peer: &mut TestPeer, dest: &NeighborKey, relay_hints: Vec<RelayData>, burn_header_hash: BurnchainHeaderHash, block_hash: BlockHeaderHash, microblocks: Vec<StacksMicroblock>) -> bool {
         test_debug!("{:?}: Push {} microblocksblock {}/{} to {:?}", peer.to_neighbor().addr, microblocks.len(), &burn_header_hash, &block_hash, dest);
         let msg = StacksMessageType::Microblocks(MicroblocksData { index_anchor_block: StacksBlockHeader::make_index_block_hash(&burn_header_hash, &block_hash), microblocks: microblocks });
         push_message(peer, dest, relay_hints, msg)
     }
 
-    fn push_transaction(peer: &mut TestPeer, dest: &NeighborKey, relay_hints: Vec<RelayData>, tx: StacksTransaction) {
+    fn push_transaction(peer: &mut TestPeer, dest: &NeighborKey, relay_hints: Vec<RelayData>, tx: StacksTransaction) -> bool {
         test_debug!("{:?}: Push tx {} to {:?}", peer.to_neighbor().addr, tx.txid(), dest);
         let msg = StacksMessageType::Transaction(tx);
         push_message(peer, dest, relay_hints, msg)
@@ -1520,6 +1535,9 @@ mod test {
     #[test]
     fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks() {
         let blocks_and_microblocks = RefCell::new(vec![]);
+        let idx = RefCell::new(0);
+        let sent_blocks = RefCell::new(false);
+        let sent_microblocks = RefCell::new(false);
 
         run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks", 4210, 2,
                                        |ref mut peer_configs| {
@@ -1535,8 +1553,8 @@ mod test {
                                            peer_configs[1].connection_opts.disable_block_download = true;
                                            peer_configs[1].connection_opts.disable_block_advertisement = true;
 
-                                           peer_configs[0].connection_opts.outbox_maxlen = 20;
-                                           peer_configs[1].connection_opts.inbox_maxlen = 20;
+                                           peer_configs[0].connection_opts.outbox_maxlen = 30;
+                                           peer_configs[1].connection_opts.inbox_maxlen = 30;
 
                                            let peer_0 = peer_configs[0].to_neighbor();
                                            let peer_1 = peer_configs[1].to_neighbor();
@@ -1581,12 +1599,12 @@ mod test {
                                            }
 
                                            if is_peer_connected(&peers[0], &peer_1_nk) {
-                                               // randomly push a block and/or microblocks to peer 1
+                                               // randomly push a block and/or microblocks to peer 1.
+                                               let mut block_data = blocks_and_microblocks.borrow_mut();
+                                               let mut next_idx = idx.borrow_mut();
                                                let data_to_push = {
-                                                    let mut block_data = blocks_and_microblocks.borrow_mut();
                                                     if block_data.len() > 0 {
-                                                        let idx : usize = thread_rng().gen::<usize>() % block_data.len();
-                                                        let (burn_header_hash, block, microblocks) = block_data.remove(idx);
+                                                        let (burn_header_hash, block, microblocks) = block_data[*next_idx].clone();
                                                         Some((burn_header_hash, block, microblocks))
                                                     }
                                                     else {
@@ -1598,8 +1616,40 @@ mod test {
                                                    test_debug!("Push block {}/{} and microblocks", &burn_header_hash, block.block_hash());
                                                    
                                                    let block_hash = block.block_hash();
-                                                   push_block(&mut peers[0], &peer_1_nk, vec![], burn_header_hash.clone(), block);
-                                                   push_microblocks(&mut peers[0], &peer_1_nk, vec![], burn_header_hash, block_hash, microblocks);
+                                                   let mut sent_blocks = sent_blocks.borrow_mut();
+                                                   let mut sent_microblocks = sent_microblocks.borrow_mut();
+
+                                                   let pushed_block = 
+                                                       if !*sent_blocks {
+                                                           push_block(&mut peers[0], &peer_1_nk, vec![], burn_header_hash.clone(), block)
+                                                       }
+                                                       else {
+                                                           true
+                                                       };
+
+                                                   *sent_blocks = pushed_block;
+
+                                                   if pushed_block {
+                                                      let pushed_microblock = 
+                                                          if !*sent_microblocks {
+                                                              push_microblocks(&mut peers[0], &peer_1_nk, vec![], burn_header_hash, block_hash, microblocks)
+                                                          } 
+                                                          else {
+                                                              true
+                                                          };
+
+                                                      *sent_microblocks = pushed_microblock;
+
+                                                      if pushed_block && pushed_microblock {
+                                                         block_data.remove(*next_idx);
+                                                         if block_data.len() > 0 {
+                                                             *next_idx = thread_rng().gen::<usize>() % block_data.len();
+                                                         }
+                                                         *sent_blocks = false;
+                                                         *sent_microblocks = false;
+                                                      }
+                                                   }
+                                                   test_debug!("{} blocks/microblocks remaining", block_data.len());
                                                }
                                            }
 
