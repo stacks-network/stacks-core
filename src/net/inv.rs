@@ -178,11 +178,11 @@ impl PeerBlocksInv {
 
             let set_idx = (insert_index / 8) as usize;
             let set_bit = insert_index % 8;
-            while set_idx >= self.block_inv.len() {
-                self.block_inv.push(0);
+            if set_idx >= self.block_inv.len() {
+                self.block_inv.resize(set_idx + 1, 0);
             }
-            while set_idx >= self.microblocks_inv.len() {
-                self.microblocks_inv.push(0);
+            if set_idx >= self.microblocks_inv.len() {
+                self.microblocks_inv.resize(set_idx + 1, 0);
             }
 
             if block_set {
