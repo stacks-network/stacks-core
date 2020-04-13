@@ -113,7 +113,7 @@ impl Config {
             None => vec![]
         };
 
-        let events_observers = match config_file.events_observer {
+        let mut events_observers = match config_file.events_observer {
             Some(raw_observers) => {
                 let mut observers = vec![];
                 for observer in raw_observers {
@@ -129,6 +129,17 @@ impl Config {
                 observers
             }
             None => vec![]
+        };
+
+        // check for observer config in env vars
+        match std::env::var("STACKS_EVENT_OBSERVER") {
+            Ok(val) => {
+                events_observers.push(EventObserverConfig {
+                    endpoint: val,
+                    events_keys: vec![EventKeyType::AnyEvent],
+                })
+            },
+            _ => ()
         };
 
         let connection_options = match config_file.connection_options {

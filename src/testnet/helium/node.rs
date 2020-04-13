@@ -137,17 +137,6 @@ impl Node {
 
         let mut event_dispatcher = EventDispatcher::new();
 
-        // check for observer config in env vars
-        match std::env::var("STACKS_EVENT_OBSERVER") {
-            Ok(val) => {
-                event_dispatcher.register_observer(&EventObserverConfig {
-                    endpoint: val,
-                    events_keys: vec![EventKeyType::AnyEvent],
-                });
-            },
-            _ => ()
-        }
-
         for observer in &config.events_observers {
             event_dispatcher.register_observer(observer);
         }
