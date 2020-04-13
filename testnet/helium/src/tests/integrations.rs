@@ -169,7 +169,7 @@ const ADDR_4: &'static str = "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0";
 use std::sync::Mutex;
 
 lazy_static! {
-    static ref http_binding: Mutex<Option<String>> = Mutex::new(None);
+    static ref HTTP_BINDING: Mutex<Option<String>> = Mutex::new(None);
 }
 
 #[test]
@@ -189,7 +189,7 @@ fn integration_test_get_info() {
     let mut run_loop = RunLoop::new(conf);
 
     { 
-        let mut http_opt = http_binding.lock().unwrap();
+        let mut http_opt = HTTP_BINDING.lock().unwrap();
         http_opt.replace(format!("http://{}", &run_loop.node.config.node.rpc_bind));
     }
 
@@ -222,7 +222,7 @@ fn integration_test_get_info() {
             QualifiedContractIdentifier::parse(&format!("{}.{}", &contract_addr, "get-info")).unwrap();
 
         let http_origin = {
-            http_binding.lock().unwrap().clone().unwrap()
+            HTTP_BINDING.lock().unwrap().clone().unwrap()
         };
 
         match round {
