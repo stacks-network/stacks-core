@@ -34,7 +34,7 @@ use rusqlite::NO_PARAMS;
 use rusqlite::Error as sqlite_error;
 use rusqlite::Connection;
 use rusqlite::Row;
-use rusqlite::types::ToSql;
+use rusqlite::types::{ToSql, ToSqlOutput, FromSql, FromSqlResult, FromSqlError, Value as RusqliteValue, ValueRef as RusqliteValueRef};
 
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::TrieHash;
@@ -134,6 +134,62 @@ pub trait FromRow<T> {
 pub trait FromColumn<T> {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<T, Error>;
 }
+
+impl FromRow<u64> for u64 {
+    fn from_row<'a>(row: &'a Row) -> Result<u64, Error> {
+        let x : i64 = row.get(0);
+        if x < 0 {
+            return Err(Error::ParseError);
+        }
+        Ok(x as u64)
+    }
+}
+
+impl FromColumn<u64> for u64 {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<u64, Error> {
+        let x : i64 = row.get(column_name);
+        if x < 0 {
+            return Err(Error::ParseError);
+        }
+        Ok(x as u64)
+    }
+}
+
+impl FromRow<i64> for i64 {
+    fn from_row<'a>(row: &'a Row) -> Result<i64, Error> {
+        let x : i64 = row.get(0);
+        Ok(x)
+    }
+}
+
+impl FromColumn<i64> for i64 {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<i64, Error> {
+        let x : i64 = row.get(column_name);
+        Ok(x)
+    }
+}
+
+/*
+impl ToSql for u64 {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        if *self > (i64::max_value() as u64) {
+            return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(Error::SerializationError("Could not convert u64 to i64".to_string()))));
+        }
+        else {
+            return Ok(ToSqlOutput::Owned(RusqliteValue::Integer(*self as i64)))
+        }
+    }
+}
+
+impl FromSql for u64 {
+    fn column_result(value: RusqliteValueRef) -> FromSqlResult<u64> {
+        match value {
+            RusqliteValueRef::Integer(x) => Ok(x as u64),
+            _ => Err(FromSqlError::InvalidType)
+        }
+    }
+}
+*/
 
 macro_rules! impl_byte_array_from_column {
     ($thing:ident) => {
