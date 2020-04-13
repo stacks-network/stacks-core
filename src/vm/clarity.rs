@@ -118,6 +118,22 @@ impl error::Error for Error {
     }
 }
 
+/// A macro for doing take/replace on a closure.
+///   macro is needed rather than a function definition because
+///   otherwise, we end up breaking the borrow checker when
+///   passing a mutable reference across a function boundary.
+macro_rules! using {
+    ($to_use: expr, $msg: expr, $exec: expr) => {
+        {
+            let object = $to_use.take()
+                .expect(&format!("BUG: Transaction connection lost {} handle.", $msg));
+            let (object, result) = ($exec)(object);
+            $to_use.replace(object);
+            result
+        }
+    }
+}
+
 impl ClarityInstance {
     pub fn new(datastore: MarfedKV) -> ClarityInstance {
         ClarityInstance { datastore: Some(datastore) }
@@ -359,15 +375,14 @@ impl ClarityConnection for ClarityTransactionConnection <'_> {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
-        let log = self.log.take()
-            .expect("BUG: Transaction Connection lost db log connection.");
-        let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-        let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db);
-        db.begin();
-        let (r, mut db) = to_do(db);
-        db.roll_back();
-        self.log.replace(db.destroy().into());
-        r
+        using!(self.log, "log", |log| {
+            let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+            let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db);
+            db.begin();
+            let (r, mut db) = to_do(db);
+            db.roll_back();
+            (db.destroy().into(), r)
+        })
     }
 
     fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
@@ -381,114 +396,110 @@ impl ClarityConnection for ClarityTransactionConnection <'_> {
     }
 }
 
+impl <'a> Drop for ClarityTransactionConnection<'a> {
+    fn drop(&mut self) {
+        self.cost_track.as_mut()
+            .expect("BUG: Transaction connection lost cost_tracker handle.")
+            .reset_memory();
+    }
+}
+
 impl <'a> ClarityTransactionConnection <'a> {
     fn inner_with_analysis_db<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(&mut AnalysisDatabase) -> R {
-        let log = self.log.take()
-            .expect("BUG: Transaction Connection lost db log connection.");
-        let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-        let mut db = AnalysisDatabase::new_with_rollback_wrapper(rollback_wrapper);
-        let r = to_do(&mut db);
-        self.log.replace(db.destroy().into());
-        r
+        using!(self.log, "log", |log| {
+            let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+            let mut db = AnalysisDatabase::new_with_rollback_wrapper(rollback_wrapper);
+            let r = to_do(&mut db);
+            (db.destroy().into(), r)
+        })
     }
 
     /// Do something to the underlying DB that involves writing.
     pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where F: FnOnce(&mut ClarityDatabase) -> Result<R, Error> {
-        let log = self.log.take()
-            .expect("BUG: Transaction Connection lost db log connection.");
-        let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-        let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db);
+        using!(self.log, "log", |log| {
+            let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+            let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db);
 
-        db.begin();
-        let result = to_do(&mut db);
-        if result.is_ok() {
-            db.commit();
-        } else {
-            db.roll_back();
-        }
+            db.begin();
+            let result = to_do(&mut db);
+            if result.is_ok() {
+                db.commit();
+            } else {
+                db.roll_back();
+            }
 
-        self.log.replace(db.destroy().into());
-        result
+            (db.destroy().into(), result)
+        })
     }
 
     /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
     pub fn analyze_smart_contract(&mut self, identifier: &QualifiedContractIdentifier, contract_content: &str)
                                   -> Result<(ContractAST, ContractAnalysis), Error> {
-        let mut cost_track = self.cost_track.take()
-            .expect("BUG: Transaction connection lost cost tracker connection.");
+        using!(self.cost_track, "cost tracker", |mut cost_track| {
+            self.inner_with_analysis_db(|db| {
+                let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
 
-        let (mut cost_track, result) = self.inner_with_analysis_db(|db| {
-            let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
+                let mut contract_ast = match ast_result {
+                    Ok(x) => x,
+                    Err(e) => {
+                        return (cost_track, Err(e.into()))
+                    },
+                };
 
-            let mut contract_ast = match ast_result {
-                Ok(x) => x,
-                Err(e) => {
-                    return (cost_track, Err(e.into()))
-                },
-            };
+                let result = analysis::run_analysis(
+                    identifier, &mut contract_ast.expressions,
+                    db, false, cost_track);
 
-            let result = analysis::run_analysis(
-                identifier, &mut contract_ast.expressions,
-                db, false, cost_track);
-
-            match result {
-                Ok(mut contract_analysis) => {
-                    let cost_track = contract_analysis.take_contract_cost_tracker();
-                    (cost_track, Ok((contract_ast, contract_analysis)))
-                },
-                Err((e, cost_track)) => {
-                    (cost_track, Err(e.into()))
+                match result {
+                    Ok(mut contract_analysis) => {
+                        let cost_track = contract_analysis.take_contract_cost_tracker();
+                        (cost_track, Ok((contract_ast, contract_analysis)))
+                    },
+                    Err((e, cost_track)) => {
+                        (cost_track, Err(e.into()))
+                    }
                 }
-            }
-        });
-
-        cost_track.reset_memory();
-        self.cost_track.replace(cost_track);
-
-        result
+            })
+        })
     }
 
     fn with_abort_callback<F, A, R>(&mut self, to_do: F, abort_call_back: A) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), Error>
     where A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
           F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), Error> {
-        let log = self.log.take()
-            .expect("BUG: Transaction Connection lost db log connection.");
-        let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-        let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db);
+        using!(self.log, "log", |log| {
+            using!(self.cost_track, "cost tracker", |cost_track| {
+                let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+                let mut db = ClarityDatabase::new_with_rollback_wrapper(rollback_wrapper, &self.header_db);
 
-        // wrap the whole contract-call in a claritydb transaction,
-        //   so we can abort on call_back's boolean retun
-        db.begin();
-        let cost_track = self.cost_track.take()
-            .expect("Failed to get ownership of cost tracker in ClarityBlockConnection");
-        let mut vm_env = OwnedEnvironment::new_cost_limited(db, cost_track);
-        let result = to_do(&mut vm_env);
-        let (mut db, mut cost_track) = vm_env.destruct()
-            .expect("Failed to recover database reference after executing transaction");
-        // reset memory usage in cost_track -- this wipes out
-        //   the memory tracking used for the k-v wrapper / replay log 
-        cost_track.reset_memory();
-        self.cost_track.replace(cost_track);
+                // wrap the whole contract-call in a claritydb transaction,
+                //   so we can abort on call_back's boolean retun
+                db.begin();
+                let mut vm_env = OwnedEnvironment::new_cost_limited(db, cost_track);
+                let result = to_do(&mut vm_env);
+                let (mut db, cost_track) = vm_env.destruct()
+                    .expect("Failed to recover database reference after executing transaction");
+                // DO NOT reset memory usage yet -- that should happen only when the TX commits.
 
-        let result = match result {
-            Ok((value, asset_map, events)) => {
-                if abort_call_back(&asset_map, &mut db) {
-                    db.roll_back();
-                } else {
-                    db.commit();
-                }
-                Ok((value, asset_map, events))
-            },
-            Err(e) => {
-                db.roll_back();
-                Err(e)
-            }
-        };
+                let result = match result {
+                    Ok((value, asset_map, events)) => {
+                        if abort_call_back(&asset_map, &mut db) {
+                            db.roll_back();
+                        } else {
+                            db.commit();
+                        }
+                        Ok((value, asset_map, events))
+                    },
+                    Err(e) => {
+                        db.roll_back();
+                        Err(e)
+                    }
+                };
 
-        self.log.replace(db.destroy().into());
-        result
+                (cost_track, (db.destroy().into(), result))
+            })
+        })
     }
     
 
@@ -558,6 +569,10 @@ impl <'a> ClarityTransactionConnection <'a> {
             panic!("Attempted to commit transaction with {} != 1 rollbacks", rollback_wrapper.depth());
         }
         rollback_wrapper.commit();
+        // now we can reset the memory usage for the edit-log
+        self.cost_track.as_mut()
+            .expect("BUG: Transaction connection lost cost tracker connection.")
+            .reset_memory();
     }
 
     /// Evaluate a raw Clarity snippit

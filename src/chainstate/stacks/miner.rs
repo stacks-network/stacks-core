@@ -747,7 +747,7 @@ pub mod test {
                 .expect("FATAL: failed to construct miner principal key"));
 
             let miner_status = clarity_tx.with_clarity_db_readonly(|db| {
-                let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal).unwrap();
+                let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)?;
                 let miner_status = match miner_status_opt {
                     Value::Optional(ref optional_data) => {
                         match optional_data.data {
