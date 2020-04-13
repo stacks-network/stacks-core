@@ -48,6 +48,8 @@ pub struct ClarityBlockConnection<'a> {
 ///
 /// Interface for Clarity VM interactions within a given transaction.
 ///
+///   commit the transaction to the block with .commit()
+///   rollback the transaction by dropping this struct.
 pub struct ClarityTransactionConnection<'a> {
     log: Option<RollbackWrapperPersistedLog>,
     store: &'a mut MarfedKV,
@@ -609,6 +611,65 @@ mod tests {
                 .unwrap_err();
 
             conn.commit_block();
+        }
+    }
+
+
+    #[test]
+    pub fn tx_rollback() {
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(marf);
+
+        let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+        let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
+
+        {
+            let mut conn = clarity_instance.begin_block(&TrieFileStorage::block_sentinel(),
+                                                        &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
+
+            {
+                let mut tx = conn.start_transaction_processing();
+
+                let (ct_ast, ct_analysis) = tx.analyze_smart_contract(&contract_identifier, &contract)
+                    .unwrap();
+                tx.initialize_smart_contract(
+                    &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
+                tx.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+            }
+
+            // okay, let's try it again -- should pass since the prior contract
+            //   publish was unwound
+            {
+                let mut tx = conn.start_transaction_processing();
+
+                let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
+
+                let (ct_ast, ct_analysis) = tx.analyze_smart_contract(&contract_identifier, &contract)
+                    .unwrap();
+                tx.initialize_smart_contract(
+                    &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
+                tx.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+
+                tx.commit();
+            }
+
+            // should fail since the prior contract
+            //   publish committed to the block
+            {
+                let mut tx = conn.start_transaction_processing();
+
+                let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
+
+                let (ct_ast, ct_analysis) = tx.analyze_smart_contract(&contract_identifier, &contract)
+                    .unwrap();
+                assert!(
+                    format!("{}", tx.initialize_smart_contract(
+                        &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
+                        .contains("ContractAlreadyExists"));
+
+                tx.commit();
+            }
         }
     }
 
