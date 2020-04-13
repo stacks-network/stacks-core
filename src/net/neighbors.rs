@@ -1158,7 +1158,7 @@ impl PeerNetwork {
                 Ok(handle)
             },
             Err(e) => {
-                debug!("Not connected: {:?} ({:?}", nk, &e);
+                debug!("Not connected: {:?} ({:?})", nk, &e);
                 walk.result.add_dead(nk.clone());
                 Err(net_error::PeerNotConnected)
             }
