@@ -632,7 +632,9 @@ impl Relayer {
                     }
                 };
                 for mblock in mblock_data.microblocks.iter() {
-                    let need_relay = !StacksChainState::has_staging_microblock(&chainstate.blocks_db, &burn_header_hash, &anchored_block_hash, &mblock.block_hash())?;
+                    let need_relay = !StacksChainState::has_staging_microblock(&chainstate.blocks_db, &burn_header_hash, &anchored_block_hash, &mblock.block_hash())? &&
+                                     !StacksChainState::has_confirmed_microblock(&chainstate.blocks_db, &burn_header_hash, &anchored_block_hash, &mblock.block_hash())?;
+
                     match chainstate.preprocess_streamed_microblock(&burn_header_hash, &anchored_block_hash, mblock) {
                         Ok(_) => {
                             if need_relay {
@@ -1534,6 +1536,7 @@ mod test {
 
     #[test]
     fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks() {
+        let original_blocks_and_microblocks = RefCell::new(vec![]);
         let blocks_and_microblocks = RefCell::new(vec![]);
         let idx = RefCell::new(0);
         let sent_blocks = RefCell::new(false);
@@ -1552,9 +1555,6 @@ mod test {
                                            peer_configs[1].connection_opts.disable_inv_sync = true;
                                            peer_configs[1].connection_opts.disable_block_download = true;
                                            peer_configs[1].connection_opts.disable_block_advertisement = true;
-
-                                           peer_configs[0].connection_opts.outbox_maxlen = 30;
-                                           peer_configs[1].connection_opts.inbox_maxlen = 30;
 
                                            let peer_0 = peer_configs[0].to_neighbor();
                                            let peer_1 = peer_configs[1].to_neighbor();
@@ -1575,7 +1575,9 @@ mod test {
                                                let sn = BurnDB::get_canonical_burn_chain_tip(&peers[0].burndb.as_ref().unwrap().conn()).unwrap();
                                                block_data.push((sn.burn_header_hash.clone(), Some(stacks_block), Some(microblocks)));
                                            }
-                                           *blocks_and_microblocks.borrow_mut() = block_data.clone().drain(..).map(|(bhh, blk_opt, mblocks_opt)| (bhh, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();
+                                           let saved_copy : Vec<(BurnchainHeaderHash, StacksBlock, Vec<StacksMicroblock>)> = block_data.clone().drain(..).map(|(bhh, blk_opt, mblocks_opt)| (bhh, blk_opt.unwrap(), mblocks_opt.unwrap())).collect();
+                                           *blocks_and_microblocks.borrow_mut() = saved_copy.clone();
+                                           *original_blocks_and_microblocks.borrow_mut() = saved_copy;
                                            block_data
                                        },
                                        |ref mut peers| {
@@ -1601,6 +1603,7 @@ mod test {
                                            if is_peer_connected(&peers[0], &peer_1_nk) {
                                                // randomly push a block and/or microblocks to peer 1.
                                                let mut block_data = blocks_and_microblocks.borrow_mut();
+                                               let original_block_data = original_blocks_and_microblocks.borrow();
                                                let mut next_idx = idx.borrow_mut();
                                                let data_to_push = {
                                                     if block_data.len() > 0 {
@@ -1608,7 +1611,13 @@ mod test {
                                                         Some((burn_header_hash, block, microblocks))
                                                     }
                                                     else {
-                                                        None
+                                                        // start over (can happen if a message gets
+                                                        // dropped due to a timeout)
+                                                        test_debug!("Reset block transmission (possible timeout)");
+                                                        *block_data = (*original_block_data).clone();
+                                                        *next_idx = thread_rng().gen::<usize>() % block_data.len();
+                                                        let (burn_header_hash, block, microblocks) = block_data[*next_idx].clone();
+                                                        Some((burn_header_hash, block, microblocks))
                                                     }
                                                };
 
@@ -1883,6 +1892,5 @@ mod test {
 // TODO: test sending invalid blocks-available and microblocks-available (should result in a ban)
 // TODO: test sending invalid transactions (should result in a ban)
 // TODO: test bandwidth limits (sending too much should result in a nack, and then a ban)
-// TODO: transactions!
 }
 
