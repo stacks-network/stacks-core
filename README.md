@@ -129,6 +129,10 @@ With the following arguments:
 cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 0 kv-store ./kv-store.clar --testnet
 ```
 
+The `500` is the transaction fee, denominated in microSTX.  Right now, the
+testnet requires one microSTX per byte minimum, and this transaction should be
+less than 500 bytes.
+
 This command will output the **binary format** of the transaction. In our case, we want to pipe this output and dump it to a file that will be used later in this tutorial.
 
 ```bash
@@ -143,7 +147,17 @@ You can observe the state machine in action locally by running:
 cargo run --bin blockstack-core testnet ./Stacks.toml
 ```
 
-`Stacks.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.
+`Stacks.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.  You can grant an address an initial account balance by adding the following entries:
+
+```
+[[mstx_balance]]
+address = "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
+amount = 100000000
+```
+
+The `address` field is the Stacks testnet address, and the `amount` field is the
+number of microSTX to grant to it in the genesis block.  The addresses of the
+private keys used in the tutorial below are already added.
 
 ### Publish your contract
 
