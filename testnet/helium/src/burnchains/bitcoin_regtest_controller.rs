@@ -365,9 +365,13 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn build_next_block(&self, public_key: &String, num_blocks: u64) {
-        let pk = hex_bytes(&public_key).expect("Invalid byte sequence");
-        let pkh = Hash160::from_data(&pk).to_bytes().to_vec();
+    fn build_next_block(&self, num_blocks: u64) {
+        let public_key = match &self.config.burnchain.local_mining_public_key {
+            Some(public_key) => hex_bytes(public_key).expect("Invalid byte sequence"),
+            None => panic!("Unable to make new block, mining public key"),
+        };
+        
+        let pkh = Hash160::from_data(&public_key).to_bytes().to_vec();
         let address = BitcoinAddress::from_bytes(
             BitcoinNetworkType::Regtest,
             BitcoinAddressType::PublicKeyHash,
@@ -394,14 +398,13 @@ impl BurnchainController for BitcoinRegtestController {
 
     fn burndb_mut(&mut self) -> &mut BurnDB {
 
-        let network = self.config.burnchain.network.clone();
         let working_dir = self.config.get_burn_db_path();
         let burnchain = Burnchain::new(
             &working_dir,
             &self.config.burnchain.chain, 
             "regtest")
         .map_err(|e| {
-            error!("Failed to instantiate burn chain driver for {}: {:?}", network, e);
+            error!("Failed to instantiate burn chain driver for bitcoin/regtest: {:?}", e);
             e
         }).unwrap();
 
@@ -431,12 +434,12 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     fn sync(&mut self) -> BurnchainTip {        
-        if let Some(local_mining_pk) = &self.config.burnchain.local_mining_public_key {
-            // Burnchain is mined by a solo miner / local setup
-            self.build_next_block(local_mining_pk, 1);
+        if self.config.burnchain.mode == "helium" {
+            // Helium: this node is responsible for mining new burnchain blocks
+            self.build_next_block(1);
             self.receive_blocks()
         } else {
-            // Burnchain is mined by another miner (neon like)
+            // Neon: this node is waiting on a block to be produced
             let current_height = self.get_chain_tip().block_snapshot.block_height;
             loop {
                 let burnchain_tip = self.receive_blocks();

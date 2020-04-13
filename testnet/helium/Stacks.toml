@@ -14,7 +14,7 @@ rpc_bind = "127.0.0.1:9000"
 ##
 [burnchain]
 chain = "bitcoin"
-network = "regtest"
+mode = "helium"
 peer_host = "127.0.0.1"
 peer_port = 18444
 rpc_port = 18443
@@ -31,7 +31,7 @@ commit_anchor_block_within = 3000
 ##
 # [burnchain]
 # chain = "bitcoin"
-# network = "neon"
+# mode = "neon"
 # peer_host = "127.0.0.1"
 # peer_port = 18444
 # rpc_port = 3000
@@ -43,7 +43,7 @@ commit_anchor_block_within = 3000
 ##
 # [burnchain]
 # chain = "bitcoin"
-# network = "mocknet"
+# mode = "mocknet"
 # burnchain_op_tx_fee = 1000
 
 [mempool]

@@ -65,8 +65,8 @@ impl RunLoop {
     pub fn start(&mut self, expected_num_rounds: u64) {
 
         // Initialize and start the burnchain.
-        let mut burnchain: Box<dyn BurnchainController> = match &self.config.burnchain.network[..] {
-            "regtest" | "neon" => {
+        let mut burnchain: Box<dyn BurnchainController> = match &self.config.burnchain.mode[..] {
+            "helium" | "neon" => {
                 BitcoinRegtestController::generic(self.config.clone())
             },
             "mocknet" => {
@@ -95,7 +95,7 @@ impl RunLoop {
         let burnchain_tip = burnchain.sync();
         self.node.process_burnchain_state(burnchain_tip.clone());
 
-        if self.config.burnchain.network == "mocknet" {
+        if self.config.burnchain.mode == "mocknet" {
             self.node.spawn_peer_server();
         }
 

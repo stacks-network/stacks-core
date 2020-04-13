@@ -103,7 +103,7 @@ impl Config {
             Some(burnchain) => {
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
-                    network: burnchain.network.unwrap_or(default_burnchain_config.network),
+                    mode: burnchain.mode.unwrap_or(default_burnchain_config.mode),
                     burn_fee_cap: burnchain.burn_fee_cap.unwrap_or(default_burnchain_config.burn_fee_cap),
                     commit_anchor_block_within: burnchain.commit_anchor_block_within.unwrap_or(default_burnchain_config.commit_anchor_block_within),
                     peer_host: burnchain.peer_host.unwrap_or(default_burnchain_config.peer_host),
@@ -123,10 +123,14 @@ impl Config {
             None => default_burnchain_config
         };
 
-        let supported_networks = vec!["mocknet", "regtest", "neon"];
+        let supported_modes = vec!["mocknet", "helium", "neon"];
 
-        if !supported_networks.contains(&burnchain.network.as_str())  {
-            panic!("Setting burnchain.network not supported (should be: {})", supported_networks.join(", "))
+        if !supported_modes.contains(&burnchain.mode.as_str())  {
+            panic!("Setting burnchain.network not supported (should be: {})", supported_modes.join(", "))
+        }
+
+        if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_some() {
+            panic!("The key `local_mining_public_key` is mandatory in helium mode")
         }
 
         let mempool = match config_file.mempool {
@@ -262,7 +266,7 @@ impl Config {
 #[derive(Clone, Default)]
 pub struct BurnchainConfig {
     pub chain: String,
-    pub network: String,
+    pub mode: String,
     pub commit_anchor_block_within: u64,
     pub burn_fee_cap: u64,
     pub peer_host: String,
@@ -283,7 +287,7 @@ impl BurnchainConfig {
     fn default() -> BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
-            network: "mocknet".to_string(),
+            mode: "mocknet".to_string(),
             burn_fee_cap: 10000,
             commit_anchor_block_within: 5000,
             peer_host: "127.0.0.1".to_string(),
@@ -314,7 +318,7 @@ impl BurnchainConfig {
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
-    pub network: Option<String>,
+    pub mode: Option<String>,
     pub block_time: Option<u64>,
     pub commit_anchor_block_within: Option<u64>,
     pub peer_host: Option<String>,

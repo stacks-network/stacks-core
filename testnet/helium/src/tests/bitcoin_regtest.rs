@@ -83,7 +83,7 @@ fn simple_test() {
     let mut conf = super::new_test_conf();
     conf.burnchain.commit_anchor_block_within = 2000;
     conf.burnchain.burn_fee_cap = 5000;
-    conf.burnchain.network = "regtest".to_string();
+    conf.burnchain.mode = "helium".to_string();
     conf.burnchain.peer_host = "127.0.0.1".to_string();
     conf.burnchain.rpc_port = 18443;
     conf.burnchain.username = Some("helium-node".to_string());
