@@ -108,6 +108,23 @@ trait NodeHashReader {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error>;
 }
 
+pub struct TrieSQL {}
+
+impl TrieSQL {
+    pub fn get_block_hash(conn: &Connection, local_id: u32) -> Result<BlockHeaderHash, Error> {
+        match conn.query_row_and_then(
+            "SELECT block_hash FROM marf_data WHERE block_id = ?", &[local_id],
+            |row| BlockHeaderHash::from_column(row, "block_hash")) {
+            Ok(x) => x,
+            Err(Error::SqliteError(SqliteError::QueryReturnedNoRows)) => {
+                error!("Failed to get block header hash of local ID {}", local_id);
+                Error::NotFoundErrror
+            },
+            Err(e) => Error::DBError(e)
+        }
+    }
+}
+
 impl BlockHashMap {
     pub fn new(initial_size: Option<u32>) -> BlockHashMap {
         if let Some(initial_size) = initial_size {
@@ -461,6 +478,20 @@ impl NodeHashReader for fs::File {
     }
 }
 
+pub struct <'a> TrieSqlCursor <'a> {
+    db: &'a Connection,
+    block_id: u32
+}
+
+
+impl NodeHashReader for TrieSqlCursor {
+    fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
+
+        w.write_all(&read_node_hash_bytes(self, ptr)?)?;
+        Ok(())
+    }
+}
+
 // disk-backed Trie.
 // Keeps the last-extended Trie in-RAM and flushes it to disk on either a call to flush() or a call
 // to extend_to_block() with a different block header hash.
@@ -468,10 +499,11 @@ pub struct TrieFileStorage {
     pub dir_path: String,
 
     last_extended: Option<(BlockHeaderHash, TrieRAM)>,
-    
-    cur_block: BlockHeaderHash,
-    cur_block_fd: Option<fs::File>,
-    
+
+    db: Connection,
+    cur_block: Option<BlockHeaderHash>,
+    cur_block_id: Option<u32>,
+
     read_count: u64,
     read_backptr_count: u64,
     read_node_count: u64,
@@ -529,9 +561,7 @@ impl TrieFileStorage {
             dir_path,
 
             last_extended: None,
-
-            cur_block: TrieFileStorage::block_sentinel(),
-            cur_block_fd: None,
+            cur_block: None,
             
             read_count: 0,
             read_backptr_count: 0,
@@ -998,7 +1028,7 @@ impl TrieFileStorage {
     }
 
     pub fn open_block(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
-        if *bhh == self.cur_block && self.cur_block_fd.is_some() {
+        if *bhh == self.cur_block && self.cur_block_id.is_some() {
             // no-op
             return Ok(())
         }
@@ -1006,7 +1036,7 @@ impl TrieFileStorage {
         let sentinel = TrieFileStorage::block_sentinel();
         if *bhh == sentinel {
             // just reset to newly opened state
-            self.cur_block_fd = None;
+            self.cur_block_id = None;
             self.cur_block = sentinel;
             return Ok(());
         }
@@ -1015,30 +1045,15 @@ impl TrieFileStorage {
             if last_extended == bhh {
                 // nothing to do -- we're already ready.
                 // just clear out.
-                self.cur_block_fd = None;
+                self.cur_block_id = None;
                 self.cur_block = bhh.clone();
                 return Ok(());
             }
         }
 
         // opening a different Trie than the one we're extending
-        let block_path = self.cached_block_path(bhh);
-        let fd = fs::OpenOptions::new()
-                    .read(true)
-                    .write(false)
-                    .open(&block_path)
-                    .map_err(|e| {
-                        if e.kind() == io::ErrorKind::NotFound {
-                            debug!("File not found: {:?}", &block_path);
-                            Error::NotFoundError
-                        }
-                        else {
-                            Error::IOError(e)
-                        }
-                    })?;
-
+        self.cur_block_id = Some(self.get_block_identifier(bhh)?);
         self.cur_block = bhh.clone();
-        self.cur_block_fd = Some(fd);
 
         Ok(())
     }
@@ -1050,8 +1065,8 @@ impl TrieFileStorage {
             }
         }
 
-        if let Some(ref mut cur_block_fd) = self.cur_block_fd {
-            TrieFileStorage::read_block_identifier_from_fd(cur_block_fd)
+        if let Some(ref cur_block_id) = self.cur_block_id {
+            *cur_block_id
         } else {
             Err(Error::NotOpenedError)
         }
@@ -1061,12 +1076,8 @@ impl TrieFileStorage {
         self.cur_block.clone()
     }
 
-    pub fn get_block_from_local_id(&self, local_id: u32) -> Result<&BlockHeaderHash, Error> {
-        self.block_map.get_block_header_hash(local_id)
-            .ok_or_else(|| {
-                error!("Failed to get block header hash of local ID {} (only {} present)", local_id, self.block_map.len());
-                Error::NotFoundError
-            })
+    pub fn get_block_from_local_id(&self, local_id: u32) -> Result<BlockHeaderHash, Error> {
+        TrieSQL::get_block_hash(&self.db, local_id)
     }
 
     pub fn root_ptr(&self) -> u32 {
@@ -1136,27 +1147,25 @@ impl TrieFileStorage {
     pub fn write_children_hashes<W: Write>(&mut self, node: &TrieNodeType, w: &mut W) -> Result<(), Error> {
         trace!("get_children_hashes_bytes for {:?}", node);
 
-        let block_map = &self.block_map;
-
         if let Some((ref last_extended, ref mut last_extended_trie)) = self.last_extended {
             if &self.cur_block == last_extended {
                 let hash_reader = last_extended_trie;
-                return TrieFileStorage::inner_write_children_hashes(hash_reader, block_map, node, w)
+                return TrieFileStorage::inner_write_children_hashes(hash_reader, &self.db, node, w)
             }
         }
 
         // otherwise, the current block is open as an FD
-        let hash_reader = self.cur_block_fd.as_mut()
-            .ok_or_else(|| {
-                error!("Failed to get cur block fd as hash reader");
-                Error::NotFoundError
-            })?;
+        let cursor = TrieSqlCursor { db: &self.db,
+                                     block_id: self.cur_block_id.ok_or_else(|| {
+                                         error!("Failed to get cur block as hash reader");
+                                         Error::NotFoundError
+                                     }) };
 
-        TrieFileStorage::inner_write_children_hashes(hash_reader, block_map, node, w)
+        TrieFileStorage::inner_write_children_hashes(cursor, &self.db, node, w)
     }
 
     fn inner_write_children_hashes<W: Write, H: NodeHashReader>(
-        hash_reader: &mut H, block_map: &BlockHashMap, node: &TrieNodeType, w: &mut W) -> Result<(), Error> {
+        hash_reader: &mut H, conn: &Connection, node: &TrieNodeType, w: &mut W) -> Result<(), Error> {
         for ptr in node.ptrs().iter() {
             if ptr.id() == TrieNodeID::Empty {
                 // hash of empty string
@@ -1171,11 +1180,7 @@ impl TrieFileStorage {
                 //   I *think* this is no longer necessary in the fork-table-less construction.
                 //   the back_pointer's consensus bytes uses this block_hash instead of a back_block
                 //   integer. This means that it would _always_ be included the node's hash computation.
-                let block_hash = block_map.get_block_header_hash(ptr.back_block())
-                    .ok_or_else(|| {
-                        error!("Failed to look up block at {}", ptr.back_block());
-                        Error::NotFoundError
-                    })?;
+                let block_hash = TrieSQL::get_block_hash(conn)?;
                 w.write_all(block_hash.as_bytes())?;
             }
         }
