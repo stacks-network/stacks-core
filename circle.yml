@@ -67,6 +67,18 @@ jobs:
           name: Upload to codecov.io
           command: |
             bash <(curl -s https://codecov.io/bash) -f lcov.info;
+  all_tests:
+    docker:
+      - image: rust:1.40-stretch
+    working_directory: ~/blockstack
+    steps:
+      - checkout
+      - run:
+          environment:
+            RUSTFLAGS: -Copt-level=1
+          command: |
+            cargo test && cargo test -- --ignored --test-threads 1
+          no_output_timeout: 60m
 workflows:
   version: 2
   build-deploy:
@@ -74,3 +86,11 @@ workflows:
       - cargo_tests
       - test_demo
       - deploy
+      - all_tests:
+          filters:
+            branches:
+              only:
+                - master
+                - /.*net.*/
+                - /.*marf.*/
+                - feature/ignore-slow-serial-tests
