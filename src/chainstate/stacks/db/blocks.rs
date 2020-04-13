@@ -24,6 +24,7 @@ use std::fmt;
 use std::fs;
 use std::cmp;
 use std::collections::{HashMap, HashSet};
+use std::convert::From;
 
 use rusqlite::Connection;
 use rusqlite::DatabaseName;
@@ -57,6 +58,7 @@ use util::db::{
 use util::strings::StacksString;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
+use util::db::u64_to_sql;
 
 use util::retry::BoundReader;
 
@@ -164,6 +166,12 @@ pub enum MemPoolRejection {
     WrongNetwork,
     DBError(db_error),
     Other(String),
+}
+
+impl From<db_error> for MemPoolRejection {
+    fn from(e: db_error) -> MemPoolRejection {
+        MemPoolRejection::DBError(e)
+    }
 }
 
 // These constants are mempool acceptance heuristics, but
@@ -1102,10 +1110,21 @@ impl StacksChainState {
                    index_block_hash) \
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)";
         let args: &[&dyn ToSql] = &[
-            &block_hash, &block.header.parent_block, &burn_hash, &(burn_header_timestamp as i64), &parent_burn_header_hash,
-            &block.header.parent_microblock, &block.header.parent_microblock_sequence, &block.header.microblock_pubkey_hash,
-            &(block.header.total_work.work as i64), &attacheable, &0, &0, &(commit_burn as i64), &(sortition_burn as i64),
-            &index_block_hash as &dyn ToSql];
+            &block_hash,
+            &block.header.parent_block,
+            &burn_hash,
+            &u64_to_sql(burn_header_timestamp)?,
+            &parent_burn_header_hash,
+            &block.header.parent_microblock,
+            &block.header.parent_microblock_sequence,
+            &block.header.microblock_pubkey_hash,
+            &u64_to_sql(block.header.total_work.work)?,
+            &attacheable,
+            &0,
+            &0,
+            &u64_to_sql(commit_burn)?,
+            &u64_to_sql(sortition_burn)?,
+            &index_block_hash];
 
         tx.execute(&sql, args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1164,7 +1183,7 @@ impl StacksChainState {
 
         for burn_support in burn_supports.iter() {
             let sql = "INSERT OR REPLACE INTO staging_user_burn_support (anchored_block_hash, burn_header_hash, address, burn_amount, vtxindex) VALUES (?1, ?2, ?3, ?4, ?5)";
-            let args: &[&dyn ToSql] = &[&burn_hash, &block_hash, &burn_support.address.to_string(), &(burn_support.burn_fee as i64), &burn_support.vtxindex];
+            let args: &[&dyn ToSql] = &[&burn_hash, &block_hash, &burn_support.address.to_string(), &u64_to_sql(burn_support.burn_fee)?, &burn_support.vtxindex];
 
             tx.execute(&sql, args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;

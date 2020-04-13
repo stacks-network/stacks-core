@@ -43,6 +43,7 @@ use std::io::Read;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use util::db::u64_to_sql;
 use util::db::{DBConn, DBTx, FromRow};
 use util::db::FromColumn;
 use util::db::query_rows;
@@ -83,6 +84,7 @@ pub struct MemPoolTxInfo {
     pub tx: StacksTransaction,
     pub len: u64,
     pub fee: u64,
+    pub nonce: u64,
     pub burn_header_hash: BurnchainHeaderHash,
     pub block_header_hash: BlockHeaderHash,
     pub block_height: u64,
@@ -98,6 +100,7 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
         let fee = u64::from_column(row, "fee")?;
         let height = u64::from_column(row, "height")?;
         let len = u64::from_column(row, "length")?;
+        let nonce = u64::from_column(row, "nonce")?;
         let ts = u64::from_column(row, "accept_time")?;
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(|_e| db_error::ParseError)?;
@@ -110,6 +113,7 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
             tx: tx,
             fee: fee,
             len: len,
+            nonce: nonce,
             burn_header_hash: burn_header_hash,
             block_header_hash: block_header_hash,
             block_height: height,
@@ -122,13 +126,14 @@ const MEMPOOL_SQL : &'static [&'static str] = &[
     r#"
     CREATE TABLE mempool(
         txid TEXT NOT NULL,
-        tx BLOB NOT NULL,
         fee INTEGER NOT NULL,
+        nonce INTEGER NOT NULL,
         length INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
         block_header_hash TEXT NOT NULL,
         height INTEGER NOT NULL,    -- stacks block height
         accept_time INTEGER NOT NULL,
+        tx BLOB NOT NULL,
         PRIMARY KEY(txid)
     );
     "#,
@@ -271,15 +276,8 @@ impl MemPoolDB {
     /// Get a number of transactions after a given timestamp on a given chain tip.
     /// Order the resulting transactions by fee, in decreasing order.
     pub fn get_txs_after(conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash, timestamp: u64, count: u64) -> Result<Vec<MemPoolTxInfo>, db_error> {
-        if timestamp >= (i64::max_value() as u64) {
-            return Err(db_error::ParseError);
-        }
-        if count >= (i64::max_value() as u64) {
-            return Err(db_error::ParseError);
-        }
-
         let sql = "SELECT * FROM mempool WHERE accept_time >= ?1 AND burn_header_hash = ?2 AND block_header_hash = ?3 ORDER BY fee DESC LIMIT ?4";
-        let args : &[&dyn ToSql] = &[&(timestamp as i64), burn_header_hash, block_header_hash, &(count as i64)];
+        let args : &[&dyn ToSql] = &[&u64_to_sql(timestamp)?, burn_header_hash, block_header_hash, &u64_to_sql(count)?];
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
         Ok(rows)
     }
@@ -289,16 +287,8 @@ impl MemPoolDB {
     /// Carry out the mempool admission test before adding.
     /// NOTE: fee is the _total fee_ of the transaction, not the fee rate!
     /// Don't call directly; use submit()
-    fn try_add_tx<'a>(tx: &mut MemPoolTx<'a>, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash, txid: Txid, tx_bytes: Vec<u8>, fee: u64, height: u64) -> Result<(), MemPoolRejection> {
-        if fee > (i64::max_value() as u64) {
-            return Err(MemPoolRejection::DBError(db_error::ParseError));
-        }
-        
-        if height > (i64::max_value() as u64) {
-            return Err(MemPoolRejection::DBError(db_error::ParseError));
-        }
-        
-        let len = tx_bytes.len() as i64;
+    fn try_add_tx<'a>(tx: &mut MemPoolTx<'a>, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash, txid: Txid, tx_bytes: Vec<u8>, fee: u64, nonce: u64, height: u64) -> Result<(), MemPoolRejection> {
+        let len = tx_bytes.len() as u64;
 
         // replace-by-fee
         if let Some(tx_fee) = MemPoolDB::get_tx_fee(&tx, &txid).map_err(MemPoolRejection::DBError)? {
@@ -309,8 +299,8 @@ impl MemPoolDB {
             }
         }
 
-        let sql = "INSERT OR REPLACE INTO mempool (txid, tx, fee, length, burn_header_hash, block_header_hash, height, accept_time) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
-        let args : &[&dyn ToSql] = &[&txid, &tx_bytes, &(fee as i64), &len, burn_header_hash, block_header_hash, &(height as i64), &(get_epoch_time_secs() as i64)];
+        let sql = "INSERT OR REPLACE INTO mempool (txid, fee, nonce, length, burn_header_hash, block_header_hash, height, accept_time, tx) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
+        let args : &[&dyn ToSql] = &[&txid, &u64_to_sql(fee)?, &u64_to_sql(nonce)?, &u64_to_sql(len)?, burn_header_hash, block_header_hash, &u64_to_sql(height)?, &u64_to_sql(get_epoch_time_secs())?, &tx_bytes];
 
         tx.execute(sql, args).map_err(|e| MemPoolRejection::DBError(db_error::SqliteError(e)))?;
         Ok(())
@@ -324,7 +314,7 @@ impl MemPoolDB {
         }
 
         let sql = "DELETE FROM mempool WHERE height < ?1";
-        let args : &[&dyn ToSql] = &[&(min_height as i64)];
+        let args : &[&dyn ToSql] = &[&u64_to_sql(min_height)?];
 
         tx.execute(sql, args).map_err(db_error::SqliteError)?;
         Ok(())
@@ -371,7 +361,7 @@ impl MemPoolDB {
         }
 
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
-        MemPoolDB::try_add_tx(&mut mempool_tx, &burn_header_hash, &block_hash, txid, tx_data, fee, height)?;
+        MemPoolDB::try_add_tx(&mut mempool_tx, &burn_header_hash, &block_hash, txid, tx_data, fee, tx.get_origin_nonce(), height)?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
 
         Ok(())
@@ -760,7 +750,7 @@ mod tests {
 
             assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
-            MemPoolDB::try_add_tx(&mut mempool_tx, &BurnchainHeaderHash([0x1; 32]), &BlockHeaderHash([0x2; 32]), txid, tx_bytes, fee, height).unwrap();
+            MemPoolDB::try_add_tx(&mut mempool_tx, &BurnchainHeaderHash([0x1; 32]), &BlockHeaderHash([0x2; 32]), txid, tx_bytes, fee, 456, height).unwrap();
             
             assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
@@ -770,6 +760,7 @@ mod tests {
             assert_eq!(tx_info.tx, expected_tx);
             assert_eq!(tx_info.len, len);
             assert_eq!(tx_info.fee, fee);
+            assert_eq!(tx_info.nonce, 456);
             assert_eq!(tx_info.burn_header_hash, BurnchainHeaderHash([0x1; 32]));
             assert_eq!(tx_info.block_header_hash, BlockHeaderHash([0x2; 32]));
             assert_eq!(tx_info.block_height, height);

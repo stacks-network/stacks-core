@@ -169,6 +169,13 @@ impl FromColumn<i64> for i64 {
     }
 }
 
+pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
+    if x > (i64::max_value() as u64) {
+        return Err(Error::ParseError);
+    }
+    Ok(x as i64)
+}
+
 /*
 impl ToSql for u64 {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {

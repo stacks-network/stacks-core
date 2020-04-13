@@ -28,7 +28,7 @@ use std::fs;
 use std::convert::From;
 use std::convert::TryFrom;
 
-use util::db::{FromRow, FromColumn, query_rows, query_count};
+use util::db::{FromRow, FromColumn, u64_to_sql, query_rows, query_count};
 use util::db::Error as db_error;
 use util::db::DBConn;
 
@@ -315,9 +315,18 @@ impl PeerDB {
         tx.execute("INSERT INTO db_version (version) VALUES (?1)", &[&PEERDB_VERSION])
             .map_err(db_error::SqliteError)?;
 
-        tx.execute("INSERT INTO local_peer (network_id, parent_network_id, nonce, private_key, private_key_expire, addrbytes, port, services, data_url) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", 
-                   &[&network_id as &dyn ToSql, &parent_network_id as &dyn ToSql, &to_hex(&localpeer.nonce.to_vec()) as &dyn ToSql, &to_hex(&localpeer.private_key.to_bytes()) as &dyn ToSql, &(key_expires as i64) as &dyn ToSql,
-                     &to_hex(&localpeer.addrbytes.as_bytes().to_vec()), &localpeer.port as &dyn ToSql, &(localpeer.services as u16) as &dyn ToSql, &localpeer.data_url.as_str() as &dyn ToSql])
+        let local_peer_args : &[&dyn ToSql] = &[
+            &network_id,
+            &parent_network_id,
+            &to_hex(&localpeer.nonce),
+            &to_hex(&localpeer.private_key.to_bytes()),
+            &u64_to_sql(key_expires)?,
+            &to_hex(localpeer.addrbytes.as_bytes()),
+            &localpeer.port,
+            &localpeer.services,
+            &localpeer.data_url.as_str()];
+
+        tx.execute("INSERT INTO local_peer (network_id, parent_network_id, nonce, private_key, private_key_expire, addrbytes, port, services, data_url) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)", local_peer_args)
             .map_err(db_error::SqliteError)?;
 
         for neighbor in initial_neighbors {
@@ -447,12 +456,8 @@ impl PeerDB {
 
     /// Set local private key and expiry 
     pub fn set_local_private_key<'a>(tx: &mut Transaction<'a>, privkey: &Secp256k1PrivateKey, expire_block: u64) -> Result<(), db_error> {
-        if expire_block > ((1 as u64) << 63) - 1 {
-            return Err(db_error::Overflow);
-        }
-
-        tx.execute("UPDATE local_peer SET private_key = ?1, private_key_expire = ?2",
-                   &[&to_hex(&privkey.to_bytes()), &(expire_block as i64) as &dyn ToSql])
+        let args : &[&dyn ToSql] = &[&to_hex(&privkey.to_bytes()), &u64_to_sql(expire_block)?];
+        tx.execute("UPDATE local_peer SET private_key = ?1, private_key_expire = ?2", args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -547,19 +552,24 @@ impl PeerDB {
 
     /// Insert or replace a neighbor into a given slot 
     pub fn insert_or_replace_peer<'a>(tx: &mut Transaction<'a>, neighbor: &Neighbor, slot: u32) -> Result<(), db_error> {
-        if neighbor.last_contact_time > ((1 as u64) << 63) - 1 {
-            return Err(db_error::Overflow);
-        }
-
-        if neighbor.expire_block > ((1 as u64) << 63) - 1 {
-            return Err(db_error::Overflow);
-        }
+        let neighbor_args : &[&dyn ToSql] = &[
+            &neighbor.addr.peer_version,
+            &neighbor.addr.network_id,
+            &to_hex(neighbor.addr.addrbytes.as_bytes()),
+            &neighbor.addr.port,
+            &to_hex(&neighbor.public_key.to_bytes_compressed()),
+            &u64_to_sql(neighbor.expire_block)?,
+            &u64_to_sql(neighbor.last_contact_time)?,
+            &neighbor.asn,
+            &neighbor.org,
+            &neighbor.whitelisted,
+            &neighbor.blacklisted,
+            &neighbor.in_degree,
+            &neighbor.out_degree,
+            &slot];
 
         tx.execute("INSERT OR REPLACE INTO frontier (peer_version, network_id, addrbytes, port, public_key, expire_block_height, last_contact_time, asn, org, whitelisted, blacklisted, in_degree, out_degree, slot) \
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-                   &[&neighbor.addr.peer_version as &dyn ToSql, &neighbor.addr.network_id as &dyn ToSql, &to_hex(&neighbor.addr.addrbytes.as_bytes().to_vec()) as &dyn ToSql, &neighbor.addr.port,
-                     &to_hex(&neighbor.public_key.to_bytes_compressed()), &(neighbor.expire_block as i64) as &dyn ToSql, &(neighbor.last_contact_time as i64) as &dyn ToSql,
-                     &neighbor.asn, &neighbor.org, &neighbor.whitelisted, &neighbor.blacklisted, &(neighbor.in_degree as i64) as &dyn ToSql, &(neighbor.out_degree as i64) as &dyn ToSql, &slot])
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)", neighbor_args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -587,12 +597,8 @@ impl PeerDB {
     /// Set/unset blacklist flag for a peer
     /// negative values aren't allowed
     pub fn set_blacklist_peer<'a>(tx: &mut Transaction<'a>, network_id: u32, peer_addr: &PeerAddress, peer_port: u16, blacklist_deadline: u64) -> Result<(), db_error> {
-        if blacklist_deadline > ((1 as u64) << 63) - 1 {
-            return Err(db_error::Overflow);
-        }
-
-        tx.execute("UPDATE frontier SET blacklisted = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4",
-                   &[&(blacklist_deadline as i64) as &dyn ToSql, &network_id, &peer_addr.to_hex(), &peer_port])
+        let args : &[&dyn ToSql] = &[&u64_to_sql(blacklist_deadline)?, &network_id, &peer_addr.to_hex(), &peer_port];
+        tx.execute("UPDATE frontier SET blacklisted = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4", args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -600,19 +606,23 @@ impl PeerDB {
 
     /// Update an existing peer's entries.  Does nothing if the peer is not present.
     pub fn update_peer<'a>(tx: &mut Transaction<'a>, neighbor: &Neighbor) -> Result<(), db_error> {
-        if neighbor.last_contact_time > ((1 as u64) << 63) - 1 {
-            return Err(db_error::Overflow);
-        }
-
-        if neighbor.expire_block > ((1 as u64) << 63) - 1 {
-            return Err(db_error::Overflow);
-        }
+        let args : &[&dyn ToSql] = &[
+            &neighbor.addr.peer_version,
+            &to_hex(&neighbor.public_key.to_bytes_compressed()),
+            &u64_to_sql(neighbor.expire_block)?,
+            &u64_to_sql(neighbor.last_contact_time)?,
+            &neighbor.asn,
+            &neighbor.org,
+            &neighbor.whitelisted,
+            &neighbor.blacklisted,
+            &neighbor.in_degree,
+            &neighbor.out_degree,
+            &neighbor.addr.network_id,
+            &to_hex(neighbor.addr.addrbytes.as_bytes()),
+            &neighbor.addr.port];
 
         tx.execute("UPDATE frontier SET peer_version = ?1, public_key = ?2, expire_block_height = ?3, last_contact_time = ?4, asn = ?5, org = ?6, whitelisted = ?7, blacklisted = ?8, in_degree = ?9, out_degree = ?10 \
-                    WHERE network_id = ?11 AND addrbytes = ?12 AND port = ?13",
-                   &[&neighbor.addr.peer_version as &dyn ToSql, &to_hex(&neighbor.public_key.to_bytes_compressed()), &(neighbor.expire_block as i64) as &dyn ToSql, &(neighbor.last_contact_time as i64) as &dyn ToSql,
-                     &neighbor.asn, &neighbor.org, &neighbor.whitelisted, &neighbor.blacklisted, &(neighbor.in_degree as i64) as &dyn ToSql, &(neighbor.out_degree as i64) as &dyn ToSql,
-                     &neighbor.addr.network_id as &dyn ToSql, &to_hex(&neighbor.addr.addrbytes.as_bytes().to_vec()) as &dyn ToSql, &neighbor.addr.port])
+                    WHERE network_id = ?11 AND addrbytes = ?12 AND port = ?13", args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -647,23 +657,16 @@ impl PeerDB {
 
     /// Get random neighbors, optionally always including whitelisted neighbors
     pub fn get_random_neighbors(conn: &DBConn, network_id: u32, count: u32, block_height: u64, always_include_whitelisted: bool) -> Result<Vec<Neighbor>, db_error> {
-        if block_height > ((1 as u64) << 63) - 1 {
-            return Err(db_error::Overflow);
-        }
-
         let mut ret = vec![];
 
         // UTC time 
         let now_secs = util::get_epoch_time_secs();
-        if now_secs > ((1 as u64) << 63) - 1 {
-            return Err(db_error::Overflow);
-        }
 
         if always_include_whitelisted {
             // always include whitelisted neighbors, freshness be damned
             let whitelist_qry = "SELECT * FROM frontier WHERE network_id = ?1 AND blacklisted < ?2 AND (whitelisted < 0 OR ?3 < whitelisted)".to_string();
-            let whitelist_args = [&network_id as &dyn ToSql, &(now_secs as i64) as &dyn ToSql, &(now_secs as i64) as &dyn ToSql];
-            let mut whitelist_rows = query_rows::<Neighbor, _>(conn, &whitelist_qry, &whitelist_args)?;
+            let whitelist_args : &[&dyn ToSql] = &[&network_id, &u64_to_sql(now_secs)?, &u64_to_sql(now_secs)?];
+            let mut whitelist_rows = query_rows::<Neighbor, _>(conn, &whitelist_qry, whitelist_args)?;
 
             if whitelist_rows.len() >= (count as usize) {
                 // return a random subset 
@@ -686,8 +689,8 @@ impl PeerDB {
                  (whitelisted < 0 OR (whitelisted >= 0 AND whitelisted <= ?4)) ORDER BY RANDOM() LIMIT ?5".to_string()
             };
 
-        let random_peers_args = [&network_id as &dyn ToSql, &(block_height as i64) as &dyn ToSql, &(now_secs as i64) as &dyn ToSql, &(now_secs as i64) as &dyn ToSql, &(count - (ret.len() as u32)) as &dyn ToSql];
-        let mut random_peers = query_rows::<Neighbor, _>(conn, &random_peers_qry, &random_peers_args)?;
+        let random_peers_args : &[&dyn ToSql] = &[&network_id, &u64_to_sql(block_height)?, &u64_to_sql(now_secs)?, &u64_to_sql(now_secs)?, &(count - (ret.len() as u32))];
+        let mut random_peers = query_rows::<Neighbor, _>(conn, &random_peers_qry, random_peers_args)?;
     
         ret.append(&mut random_peers);
         Ok(ret)

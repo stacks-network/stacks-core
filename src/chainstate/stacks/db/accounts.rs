@@ -195,24 +195,86 @@ impl StacksChainState {
     pub fn insert_miner_payment_schedule<'a>(tx: &mut StacksDBTx<'a>, block_reward: &MinerPaymentSchedule, user_burns: &Vec<StagingUserBurnSupport>) -> Result<(), Error> {
         assert!(block_reward.burnchain_commit_burn < i64::max_value() as u64);
         assert!(block_reward.burnchain_sortition_burn < i64::max_value() as u64);
+        assert!(block_reward.stacks_block_height < i64::max_value() as u64);
 
         let index_block_hash = StacksBlockHeader::make_index_block_hash(&block_reward.burn_header_hash, &block_reward.block_hash);
 
-        let args: &[&dyn ToSql] = &[&block_reward.address.to_string(), &block_reward.block_hash, &block_reward.burn_header_hash, &block_reward.parent_block_hash, &block_reward.parent_burn_header_hash,
-                    &format!("{}", block_reward.coinbase), &format!("{}", block_reward.tx_fees_anchored), &format!("{}", block_reward.tx_fees_streamed), &format!("{}", block_reward.stx_burns), 
-                    &(block_reward.burnchain_commit_burn as i64) as &dyn ToSql, &(block_reward.burnchain_sortition_burn as i64) as &dyn ToSql, &format!("{}", block_reward.fill), &(block_reward.stacks_block_height as i64) as &dyn ToSql, 
-                    &true as &dyn ToSql, &0i64 as &dyn ToSql, &index_block_hash as &dyn ToSql];
+        let args: &[&dyn ToSql] = &[
+            &block_reward.address.to_string(), 
+            &block_reward.block_hash, 
+            &block_reward.burn_header_hash, 
+            &block_reward.parent_block_hash, 
+            &block_reward.parent_burn_header_hash, 
+            &format!("{}", block_reward.coinbase),
+            &format!("{}", block_reward.tx_fees_anchored),
+            &format!("{}", block_reward.tx_fees_streamed),
+            &format!("{}", block_reward.stx_burns),
+            &u64_to_sql(block_reward.burnchain_commit_burn)?,
+            &u64_to_sql(block_reward.burnchain_sortition_burn)?,
+            &format!("{}", block_reward.fill),
+            &u64_to_sql(block_reward.stacks_block_height)?, 
+            &true,
+            &0i64,
+            &index_block_hash];
 
-        tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex,index_block_hash) \
+        tx.execute("INSERT INTO payments (
+                        address,
+                        block_hash,
+                        burn_header_hash,
+                        parent_block_hash,
+                        parent_burn_header_hash,
+                        coinbase,
+                        tx_fees_anchored,
+                        tx_fees_streamed,
+                        stx_burns,
+                        burnchain_commit_burn,
+                        burnchain_sortition_burn,
+                        fill,
+                        stacks_block_height,
+                        miner,
+                        vtxindex,
+                        index_block_hash) \
                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         for user_support in user_burns.iter() {
-            let args: &[&dyn ToSql] = &[&user_support.address.to_string(), &block_reward.block_hash, &block_reward.burn_header_hash, &block_reward.parent_block_hash, &block_reward.parent_burn_header_hash,
-                        &format!("{}", block_reward.coinbase), &"0".to_string(), &"0".to_string(), &"0".to_string(),
-                        &(user_support.burn_amount as i64) as &dyn ToSql, &(block_reward.burnchain_sortition_burn as i64) as &dyn ToSql, &format!("{}", block_reward.fill), &(block_reward.stacks_block_height as i64) as &dyn ToSql,
-                        &false as &dyn ToSql, &user_support.vtxindex as &dyn ToSql, &index_block_hash as &dyn ToSql];
-            tx.execute("INSERT INTO payments (address,block_hash,burn_header_hash,parent_block_hash,parent_burn_header_hash,coinbase,tx_fees_anchored,tx_fees_streamed,stx_burns,burnchain_commit_burn,burnchain_sortition_burn,fill,stacks_block_height,miner,vtxindex,index_block_hash) \
+            assert!(user_support.burn_amount < i64::max_value() as u64);
+            
+            let args: &[&dyn ToSql] = &[
+                &user_support.address.to_string(),
+                &block_reward.block_hash,
+                &block_reward.burn_header_hash,
+                &block_reward.parent_block_hash,
+                &block_reward.parent_burn_header_hash,
+                &format!("{}", block_reward.coinbase),
+                &"0".to_string(),
+                &"0".to_string(),
+                &"0".to_string(),
+                &u64_to_sql(user_support.burn_amount)?,
+                &u64_to_sql(block_reward.burnchain_sortition_burn)?,
+                &format!("{}", block_reward.fill),
+                &u64_to_sql(block_reward.stacks_block_height)?,
+                &false,
+                &user_support.vtxindex,
+                &index_block_hash];
+
+            tx.execute("INSERT INTO payments (
+                            address,
+                            block_hash,
+                            burn_header_hash,
+                            parent_block_hash,
+                            parent_burn_header_hash,
+                            coinbase,
+                            tx_fees_anchored,
+                            tx_fees_streamed,
+                            stx_burns,
+                            burnchain_commit_burn,
+                            burnchain_sortition_burn,
+                            fill,
+                            stacks_block_height,
+                            miner,
+                            vtxindex,
+                            index_block_hash) \
                         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
                        args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
