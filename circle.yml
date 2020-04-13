@@ -74,11 +74,9 @@ jobs:
     steps:
       - checkout
       - run:
-          environment:
-            RUSTFLAGS: -Copt-level=1
+          no_output_timeout: 60m
           command: |
             cargo test && cargo test -- --ignored --test-threads 1
-          no_output_timeout: 60m
 workflows:
   version: 2
   build-deploy:
