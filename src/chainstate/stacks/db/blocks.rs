@@ -2531,7 +2531,7 @@ impl StacksChainState {
             receipts.push(tx_receipt);
         }
         Ok((fees, burns, receipts))
-}
+    }
 
     /// Process a single matured miner reward.
     /// Grant it STX tokens in the miner trust fund contract from the chain's boot code.
