@@ -9,9 +9,9 @@ pub struct RunLoop {
     config: Config,
     pub node: Node,
     burnchain_initialized_callback: Option<fn(&mut Box<dyn BurnchainController>)>,
-    new_burnchain_state_callback: Option<fn(u64, &BurnchainTip)>,
+    new_burnchain_state_callback: Option<fn(u64, &BurnchainTip, &ChainTip)>,
     new_tenure_callback: Option<fn(u64, &Tenure)>,
-    new_chain_state_callback: Option<fn(u64, &mut StacksChainState, ChainTip)>,
+    new_chain_state_callback: Option<fn(u64, &mut StacksChainState, &ChainTip, &BurnchainTip)>,
 }
 
 macro_rules! info_blue {
@@ -81,7 +81,7 @@ impl RunLoop {
         let genesis_state = burnchain.start();
 
         // Update each node with the genesis block.
-        self.node.process_burnchain_state(genesis_state);
+        self.node.process_burnchain_state(&genesis_state);
 
         // make first non-genesis block, with initial VRF keys
         self.node.setup(&mut burnchain);
@@ -92,7 +92,7 @@ impl RunLoop {
 
         // Sync and update node with this new block.
         let burnchain_tip = burnchain.sync();
-        self.node.process_burnchain_state(burnchain_tip.clone());
+        self.node.process_burnchain_state(&burnchain_tip);
 
         if self.config.burnchain.mode == "mocknet" {
             self.node.spawn_peer_server();
@@ -125,13 +125,18 @@ impl RunLoop {
             artifacts_from_1st_tenure.burn_fee);
 
         let mut burnchain_tip = burnchain.sync();
-        RunLoop::handle_burnchain_state_cb(&self.new_burnchain_state_callback, round_index, &burnchain_tip);
+
+        RunLoop::handle_burnchain_state_cb(
+            &self.new_burnchain_state_callback, 
+            round_index, 
+            &burnchain_tip,
+            &ChainTip::genesis());
 
         let mut leader_tenure = None;
 
         // Have each node process the new block, that should include a sortition thanks to the
         // 1st tenure.
-        let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(burnchain_tip) {
+        let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(&burnchain_tip) {
             (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
             (None, _) => panic!("Node should have a sortitioned block")
         };
@@ -139,7 +144,7 @@ impl RunLoop {
         // Have each node process the previous tenure.
         // We should have some additional checks here, and ensure that the previous artifacts are legit.
 
-        let chain_tip = self.node.process_tenure(
+        let mut chain_tip = self.node.process_tenure(
             &artifacts_from_1st_tenure.anchored_block, 
             &last_sortitioned_block.block_snapshot.burn_header_hash, 
             &last_sortitioned_block.block_snapshot.parent_burn_header_hash, 
@@ -150,7 +155,8 @@ impl RunLoop {
             &self.new_chain_state_callback, 
             round_index, 
             &mut self.node.chain_state, 
-            chain_tip);
+            &chain_tip,
+            &burnchain_tip);
 
         // If the node we're looping on won the sortition, initialize and configure the next tenure
         if won_sortition {
@@ -189,12 +195,13 @@ impl RunLoop {
             RunLoop::handle_burnchain_state_cb(
                 &self.new_burnchain_state_callback, 
                 round_index, 
-                &burnchain_tip);
+                &burnchain_tip,
+                &chain_tip);
     
             leader_tenure = None;
 
             // Have each node process the new block, that can include, or not, a sortition.
-            let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(burnchain_tip) {
+            let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(&burnchain_tip) {
                 (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
                 (None, _) => panic!("Node should have a sortitioned block")
             };
@@ -205,7 +212,7 @@ impl RunLoop {
                 Some(ref artifacts) => {
                     // Have each node process the previous tenure.
                     // We should have some additional checks here, and ensure that the previous artifacts are legit.
-                    let chain_tip = self.node.process_tenure(
+                    chain_tip = self.node.process_tenure(
                         &artifacts.anchored_block, 
                         &last_sortitioned_block.block_snapshot.burn_header_hash, 
                         &last_sortitioned_block.block_snapshot.parent_burn_header_hash,             
@@ -216,7 +223,8 @@ impl RunLoop {
                         &self.new_chain_state_callback, 
                         round_index,
                         &mut self.node.chain_state,
-                        chain_tip
+                        &chain_tip,
+                        &burnchain_tip
                     );
                 },
             };
@@ -234,7 +242,7 @@ impl RunLoop {
         self.burnchain_initialized_callback = Some(f);
     }
 
-    pub fn apply_on_new_burnchain_states(&mut self, f: fn(u64, &BurnchainTip)) {
+    pub fn apply_on_new_burnchain_states(&mut self, f: fn(u64, &BurnchainTip, &ChainTip)) {
         self.new_burnchain_state_callback = Some(f);
     }
 
@@ -242,7 +250,7 @@ impl RunLoop {
         self.new_tenure_callback = Some(f);
     }
     
-    pub fn apply_on_new_chain_states(&mut self, f: fn(u64, &mut StacksChainState, ChainTip)) {
+    pub fn apply_on_new_chain_states(&mut self, f: fn(u64, &mut StacksChainState, &ChainTip, &BurnchainTip)) {
         self.new_chain_state_callback = Some(f);
     }
 
@@ -255,15 +263,21 @@ impl RunLoop {
         new_tenure_callback.map(|cb| cb(round_index, tenure));
     }
 
-    fn handle_burnchain_state_cb(burn_callback: &Option<fn(u64, &BurnchainTip)>,
-                                 round_index: u64, state: &BurnchainTip) {
-        info_blue!("Burnchain block #{} ({}) was produced with sortition #{}", state.block_snapshot.block_height, state.block_snapshot.burn_header_hash, state.block_snapshot.sortition_hash);
-        burn_callback.map(|cb| cb(round_index, state));
+    fn handle_burnchain_state_cb(burn_callback: &Option<fn(u64, &BurnchainTip, & ChainTip)>,
+                                 round_index: u64, burnchain_tip: &BurnchainTip, chain_tip: &ChainTip) {
+        info_blue!("Burnchain block #{} ({}) was produced with sortition #{}", 
+            burnchain_tip.block_snapshot.block_height, 
+            burnchain_tip.block_snapshot.burn_header_hash, 
+            burnchain_tip.block_snapshot.sortition_hash);
+        burn_callback.map(|cb| cb(round_index, burnchain_tip, chain_tip));
     }
 
-    fn handle_new_chain_state_cb(chain_state_callback: &Option<fn(u64, &mut StacksChainState, ChainTip)>,
-                                 round_index: u64, state: &mut StacksChainState, chain_tip: ChainTip) {
-        info_green!("Stacks block #{} ({}) successfully produced, including {} transactions", chain_tip.metadata.block_height, chain_tip.metadata.index_block_hash(), chain_tip.block.txs.len());
+    fn handle_new_chain_state_cb(chain_state_callback: &Option<fn(u64, &mut StacksChainState, &ChainTip, &BurnchainTip)>,
+                                 round_index: u64, state: &mut StacksChainState, chain_tip: &ChainTip, burnchain_tip: &BurnchainTip) {
+        info_green!("Stacks block #{} ({}) successfully produced, including {} transactions", 
+            chain_tip.metadata.block_height, 
+            chain_tip.metadata.index_block_hash(), 
+            chain_tip.block.txs.len());
         for tx in chain_tip.block.txs.iter() {
             match &tx.auth {            
                 TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(auth)) => println!("-> Tx issued by {:?} (fee: {}, nonce: {})", auth.signer, auth.fee_rate, auth.nonce),
@@ -276,7 +290,7 @@ impl RunLoop {
                 _ => println!("   {:?}", tx.payload)
             }
         }
-        chain_state_callback.map(|cb| cb(round_index, state, chain_tip));
+        chain_state_callback.map(|cb| cb(round_index, state, chain_tip, burnchain_tip));
     }
 
 }

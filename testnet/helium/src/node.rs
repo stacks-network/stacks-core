@@ -188,7 +188,7 @@ impl Node {
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
     /// and inspecting if a sortition was won.
-    pub fn process_burnchain_state(&mut self, burnchain_tip: BurnchainTip) -> (Option<BurnchainTip>, bool) {
+    pub fn process_burnchain_state(&mut self, burnchain_tip: &BurnchainTip) -> (Option<BurnchainTip>, bool) {
         let mut new_key = None;
         let mut last_sortitioned_block = None; 
         let mut won_sortition = false;
@@ -236,7 +236,7 @@ impl Node {
         }
 
         // Keep a pointer of the burnchain's chain tip.
-        self.burnchain_tip = Some(burnchain_tip);
+        self.burnchain_tip = Some(burnchain_tip.clone());
 
         (self.last_sortitioned_block.clone(), won_sortition)
     }

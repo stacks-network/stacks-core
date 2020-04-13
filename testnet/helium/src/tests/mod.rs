@@ -79,7 +79,7 @@ fn should_succeed_mining_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, _chain_state, chain_tip| {
+    run_loop.apply_on_new_chain_states(|round, _chain_state, chain_tip, _burnchain_tip| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.
@@ -319,7 +319,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, _chain_state, chain_tip| {
+    run_loop.apply_on_new_chain_states(|round, _chain_state, chain_tip, _burnchain_tip| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.

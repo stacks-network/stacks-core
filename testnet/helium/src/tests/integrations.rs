@@ -213,7 +213,7 @@ fn integration_test_get_info() {
         return
     });
 
-    run_loop.apply_on_new_chain_states(|round, chain_state, chain_tip| {
+    run_loop.apply_on_new_chain_states(|round, chain_state, chain_tip, _burnchain_tip| {
         let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}", &contract_addr, "get-info")).unwrap();

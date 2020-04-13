@@ -104,7 +104,8 @@ fn simple_test() {
         burnchain_controller.bootstrap_chain();
     });
 
-    run_loop.apply_on_new_burnchain_states(|round, burnchain_tip| {
+    // In this serie of tests, the callback is fired post-burnchain-sync, pre-stacks-sync
+    run_loop.apply_on_new_burnchain_states(|round, burnchain_tip, chain_tip| {
         match round {
             0 => {
                 let block = &burnchain_tip.block_snapshot;
@@ -154,6 +155,8 @@ fn simple_test() {
                         _ => assert!(false)
                     }
                 }
+
+                assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
             },
             2 => {
                 let block = &burnchain_tip.block_snapshot;
@@ -177,7 +180,10 @@ fn simple_test() {
                         }
                         _ => assert!(false)
                     }
-                }            },
+                }           
+            
+                assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
+            },
             3 => {
                 let block = &burnchain_tip.block_snapshot;
                 assert!(block.block_height == 206);
@@ -200,7 +206,10 @@ fn simple_test() {
                         }
                         _ => assert!(false)
                     }
-                }            },
+                }            
+
+                assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
+            },
             4 => {
                 let block = &burnchain_tip.block_snapshot;
                 assert!(block.block_height == 207);
@@ -224,6 +233,8 @@ fn simple_test() {
                         _ => assert!(false)
                     }
                 }
+
+                assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
             },
             5 => {
                 let block = &burnchain_tip.block_snapshot;
@@ -247,7 +258,9 @@ fn simple_test() {
                         }
                         _ => assert!(false)
                     }
-                }         
+                }
+                
+                assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
             },
             _ => {}
         }
@@ -305,7 +318,8 @@ fn simple_test() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, _chain_state, chain_tip| {
+    // In this serie of tests, the callback is fired post-burnchain-sync, post-stacks-sync
+    run_loop.apply_on_new_chain_states(|round, _chain_state, chain_tip, burnchain_tip| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.
@@ -314,6 +328,8 @@ fn simple_test() {
                 
                 // Block #1 should only have 0 txs
                 assert!(chain_tip.block.txs.len() == 1);
+
+                assert!(chain_tip.block.header.block_hash() == burnchain_tip.block_snapshot.winning_stacks_block_hash);
             },
             1 => {
                 // Inspecting the chain at round 1.
@@ -322,6 +338,9 @@ fn simple_test() {
                 
                 // Block #2 should only have 2 txs
                 assert!(chain_tip.block.txs.len() == 2);
+
+                assert!(chain_tip.block.header.block_hash() == burnchain_tip.block_snapshot.winning_stacks_block_hash);
+
             },
             2 => {
                 // Inspecting the chain at round 2.
@@ -330,6 +349,9 @@ fn simple_test() {
                 
                 // Block #3 should only have 2 txs
                 assert!(chain_tip.block.txs.len() == 2);
+
+                assert!(chain_tip.block.header.block_hash() == burnchain_tip.block_snapshot.winning_stacks_block_hash);
+
             },
             3 => {
                 // Inspecting the chain at round 3.
@@ -338,6 +360,8 @@ fn simple_test() {
                 
                 // Block #4 should only have 2 txs
                 assert!(chain_tip.block.txs.len() == 2);
+
+                assert!(chain_tip.block.header.block_hash() == burnchain_tip.block_snapshot.winning_stacks_block_hash);
             },
             4 => {
                 // Inspecting the chain at round 4.
@@ -346,6 +370,9 @@ fn simple_test() {
                 
                 // Block #5 should only have 2 txs
                 assert!(chain_tip.block.txs.len() == 2);
+
+                assert!(chain_tip.block.header.block_hash() == burnchain_tip.block_snapshot.winning_stacks_block_hash);
+
             },
             5 => {
                 // Inspecting the chain at round 5.
@@ -354,6 +381,8 @@ fn simple_test() {
                 
                 // Block #6 should only have 2 txs
                 assert!(chain_tip.block.txs.len() == 2);
+
+                assert!(chain_tip.block.header.block_hash() == burnchain_tip.block_snapshot.winning_stacks_block_hash);
             },
             _ => {}
         }
