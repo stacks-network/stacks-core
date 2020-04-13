@@ -952,16 +952,23 @@ impl PeerNetwork {
 
     /// Announce blocks that we have to an outbound peer that doesn't have them.
     /// Only advertize blocks and microblocks we have that the outbound peer doesn't.
-    fn advertize_to_outbound_peer<S>(&mut self, recipient: &NeighborKey, available: &BlocksAvailableMap, msg_builder: S) -> Result<(), net_error>
-    where
-        S: FnMut(BlocksAvailableData) -> StacksMessageType
-    {
+    fn advertize_to_outbound_peer(&mut self, recipient: &NeighborKey, available: &BlocksAvailableMap, microblocks: bool) -> Result<(), net_error> {
         let wanted = PeerNetwork::with_inv_state(self, |ref mut _network, ref mut inv_state| {
             let mut wanted : Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
             if let Some(stats) = inv_state.block_stats.get(recipient) {
                 for (bhh, (block_height, ch)) in available.iter() {
-                    if !stats.inv.has_ith_block(*block_height) {
-                        test_debug!("{:?}: Outbound neighbor {:?} wants data for {}", &_network.local_peer, recipient, bhh);
+                    let has_data = 
+                        if microblocks {
+                            stats.inv.has_ith_microblock_stream(*block_height)
+                        }
+                        else {
+                            stats.inv.has_ith_block(*block_height)
+                        };
+
+                    if !has_data {
+                        test_debug!("{:?}: Outbound neighbor {:?} wants {} data for {}", 
+                                    &_network.local_peer, recipient, if microblocks { "microblock" } else { "block" }, bhh);
+
                         wanted.push(((*ch).clone(), (*bhh).clone()));
                     }
                 }
@@ -969,7 +976,13 @@ impl PeerNetwork {
             Ok(wanted)
         })?;
 
-        self.advertize_to_peer(recipient, &wanted, msg_builder);
+        if microblocks {
+            self.advertize_to_peer(recipient, &wanted, |payload| StacksMessageType::MicroblocksAvailable(payload));
+        }
+        else {
+            self.advertize_to_peer(recipient, &wanted, |payload| StacksMessageType::BlocksAvailable(payload));
+        }
+        
         Ok(())
     }
 
@@ -998,7 +1011,7 @@ impl PeerNetwork {
         let (mut outbound_recipients, mut inbound_recipients) = self.find_block_recipients(&availability_data)?;
         for recipient in outbound_recipients.drain(..) {
             test_debug!("{:?}: Advertize {} blocks to outbound peer {}", &self.local_peer, availability_data.len(), &recipient);
-            self.advertize_to_outbound_peer(&recipient, &availability_data, |payload| StacksMessageType::BlocksAvailable(payload))?;
+            self.advertize_to_outbound_peer(&recipient, &availability_data, false)?;
         }
         for recipient in inbound_recipients.drain(..) {
             test_debug!("{:?}: Advertize {} blocks to inbound peer {}", &self.local_peer, availability_data.len(), &recipient);
@@ -1016,7 +1029,7 @@ impl PeerNetwork {
         let (mut outbound_recipients, mut inbound_recipients) = self.find_block_recipients(&availability_data)?;
         for recipient in outbound_recipients.drain(..) {
             test_debug!("{:?}: Advertize {} confirmed microblock streams to outbound peer {}", &self.local_peer, availability_data.len(), &recipient);
-            self.advertize_to_outbound_peer(&recipient, &availability_data, |payload| StacksMessageType::MicroblocksAvailable(payload))?;
+            self.advertize_to_outbound_peer(&recipient, &availability_data, true)?;
         }
         for recipient in inbound_recipients.drain(..) {
             test_debug!("{:?}: Advertize {} confirmed microblock streams to inbound peer {}", &self.local_peer, availability_data.len(), &recipient);
@@ -1405,6 +1418,11 @@ mod test {
                                            peer_configs[2].connection_opts.disable_chat_neighbors = true;
                                            peer_configs[2].connection_opts.disable_inv_sync = true;
 
+                                           // generous timeouts
+                                           peer_configs[0].connection_opts.timeout = 180;
+                                           peer_configs[1].connection_opts.timeout = 180;
+                                           peer_configs[2].connection_opts.timeout = 180;
+
                                            let peer_0 = peer_configs[0].to_neighbor();
                                            let peer_1 = peer_configs[1].to_neighbor();
                                            let peer_2 = peer_configs[2].to_neighbor();
@@ -1450,10 +1468,9 @@ mod test {
                                                }
                                            }
 
-                                           // peer 2 should never see a GetBlocksInv or BlocksInv
-                                           // message
-                                           for (_, convo) in peers[0].network.peers.iter() {
-                                               assert_eq!(convo.stats.get_message_recv_count(StacksMessageID::GetBlocksInv), 0);
+                                           // peer 2 should never see a BlocksInv
+                                           // message.  That would imply it asked for an inv
+                                           for (_, convo) in peers[2].network.peers.iter() {
                                                assert_eq!(convo.stats.get_message_recv_count(StacksMessageID::BlocksInv), 0);
                                            }
                                        },
