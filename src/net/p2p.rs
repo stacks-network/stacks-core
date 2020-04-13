@@ -1686,18 +1686,26 @@ impl PeerNetwork {
 
     /// Update a peer's inventory state to indicate that the given block is available.
     /// If updated, return the sortition height of the bit in the inv that was set.
-    fn handle_unsolicited_inv_update(&mut self, burndb: &BurnDB, event_id: usize, outbound_neighbor_key: &NeighborKey, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash, bitname: &str, msgname: &str) -> Option<u64> {
+    fn handle_unsolicited_inv_update(&mut self, burndb: &BurnDB, event_id: usize, outbound_neighbor_key: &NeighborKey, consensus_hash: &ConsensusHash, burn_header_hash: &BurnchainHeaderHash, microblocks: bool) -> Option<u64> {
         let block_sortition_height = match self.inv_state {
             Some(ref mut inv) => {
-                match inv.set_block_available(outbound_neighbor_key, burndb, consensus_hash, burn_header_hash) {
+                let res = 
+                    if microblocks {
+                        inv.set_microblocks_available(outbound_neighbor_key, burndb, consensus_hash, burn_header_hash)
+                    }
+                    else {
+                        inv.set_block_available(outbound_neighbor_key, burndb, consensus_hash, burn_header_hash)
+                    };
+
+                match res {
                     Ok(Some(block_height)) => block_height,
                     Ok(None) => {
-                        info!("Peer {:?} already known to have {} for {}", &outbound_neighbor_key, bitname, burn_header_hash);
+                        info!("Peer {:?} already known to have {} for {}", &outbound_neighbor_key, if microblocks { "streamed microblocks" } else { "blocks" }, burn_header_hash);
                         return None;
                     },
                     Err(net_error::InvalidMessage) => {
                         // punish this peer
-                        info!("Peer {:?} sent an invalid {}", &outbound_neighbor_key, msgname);
+                        info!("Peer {:?} sent an invalid update for {}", &outbound_neighbor_key, if microblocks { "streamed microblocks" } else { "blocks" });
                         self.bans.insert(event_id);
 
                         if let Some(outbound_event_id) = self.events.get(&outbound_neighbor_key) {
@@ -1732,7 +1740,7 @@ impl PeerNetwork {
         test_debug!("{:?}: Process BlocksAvailable from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_blocks.available.len());
 
         for (consensus_hash, burn_header_hash) in new_blocks.available.iter() {
-            let block_sortition_height = match self.handle_unsolicited_inv_update(burndb, event_id, &outbound_neighbor_key, consensus_hash, burn_header_hash, "block", "BlocksAvailable") {
+            let block_sortition_height = match self.handle_unsolicited_inv_update(burndb, event_id, &outbound_neighbor_key, consensus_hash, burn_header_hash, false) {
                 Some(bsh) => bsh,
                 None => {
                     continue;
@@ -1763,7 +1771,7 @@ impl PeerNetwork {
         test_debug!("{:?}: Process MicroblocksAvailable from {:?} with {} entries", &self.local_peer, outbound_neighbor_key, new_mblocks.available.len());
 
         for (consensus_hash, burn_header_hash) in new_mblocks.available.iter() {
-            let mblock_sortition_height = match self.handle_unsolicited_inv_update(burndb, event_id, &outbound_neighbor_key, consensus_hash, burn_header_hash, "microblock stream", "MicroblocksAvailable") {
+            let mblock_sortition_height = match self.handle_unsolicited_inv_update(burndb, event_id, &outbound_neighbor_key, consensus_hash, burn_header_hash, true) {
                 Some(bsh) => bsh,
                 None => {
                     continue;
@@ -1811,7 +1819,7 @@ impl PeerNetwork {
                 continue;
             }
 
-            self.handle_unsolicited_inv_update(burndb, event_id, &outbound_neighbor_key, &sn.consensus_hash, burn_header_hash, "pushed block", "BlocksData");
+            self.handle_unsolicited_inv_update(burndb, event_id, &outbound_neighbor_key, &sn.consensus_hash, burn_header_hash, false);
         }
     }
     
