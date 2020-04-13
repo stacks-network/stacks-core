@@ -62,11 +62,9 @@ use chainstate::stacks::{
 };
 
 use util::log;
-use util::hash::to_hex;
 use util::hash::hex_bytes;
 use util::retry::RetryReader;
 use util::retry::BoundReader;
-use util::retry::LogReader;
 
 use vm::{
     ast::parser::{
@@ -1406,7 +1404,18 @@ impl HttpRequestType {
             return Err(net_error::DeserializeError("Invalid Http request: expected non-zero-length body for PostTransaction".to_string()));
         }
 
-        // assume application/octet-stream
+        // content-type must be given, and must be application/octet-stream
+        match preamble.content_type {
+            None => {
+                return Err(net_error::DeserializeError("Missing Content-Type for transaction".to_string()));
+            },
+            Some(ref c) => {
+                if *c != HttpContentType::Bytes {
+                    return Err(net_error::DeserializeError("Wrong Content-Type for transaction; expected application/octet-stream".to_string()));
+                }
+            }
+        };
+
         let tx = StacksTransaction::consensus_deserialize(fd)?;
         Ok(HttpRequestType::PostTransaction(HttpRequestMetadata::from_preamble(preamble), tx))
     }
