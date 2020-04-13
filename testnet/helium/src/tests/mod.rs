@@ -79,30 +79,30 @@ fn should_succeed_mining_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, _chain_state, block, chain_tip_info, receipts| {
+    run_loop.apply_on_new_chain_states(|round, _chain_state, chain_tip| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.
                 // - Chain length should be 1.
-                assert!(chain_tip_info.block_height == 1);
+                assert!(chain_tip.metadata.block_height == 1);
                 
                 // Block #1 should only have 0 txs
-                assert!(block.txs.len() == 1);
+                assert!(chain_tip.block.txs.len() == 1);
 
                 // 0 event should have been produced
-                let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
+                let events: Vec<StacksTransactionEvent> = chain_tip.receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 0);
             },
             1 => {
                 // Inspecting the chain at round 1.
                 // - Chain length should be 2.
-                assert!(chain_tip_info.block_height == 2);
+                assert!(chain_tip.metadata.block_height == 2);
                 
                 // Block #2 should only have 2 txs
-                assert!(block.txs.len() == 2);
+                assert!(chain_tip.block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
-                let coinbase_tx = &block.txs[0];
+                let coinbase_tx = &chain_tip.block.txs[0];
                 assert!(coinbase_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match coinbase_tx.payload {
                     TransactionPayload::Coinbase(_) => true,
@@ -110,7 +110,7 @@ fn should_succeed_mining_valid_txs() {
                 });
 
                 // Transaction #2 should be the smart contract published
-                let contract_tx = &block.txs[1];
+                let contract_tx = &chain_tip.block.txs[1];
                 assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match contract_tx.payload {
                     TransactionPayload::SmartContract(_) => true,
@@ -118,19 +118,19 @@ fn should_succeed_mining_valid_txs() {
                 });
 
                 // 0 event should have been produced
-                let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
+                let events: Vec<StacksTransactionEvent> = chain_tip.receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 0);
             },
             2 => {
                 // Inspecting the chain at round 2.
                 // - Chain length should be 3.
-                assert!(chain_tip_info.block_height == 3);
+                assert!(chain_tip.metadata.block_height == 3);
                 
                 // Block #3 should only have 2 txs
-                assert!(block.txs.len() == 2);
+                assert!(chain_tip.block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
-                let coinbase_tx = &block.txs[0];
+                let coinbase_tx = &chain_tip.block.txs[0];
                 assert!(coinbase_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match coinbase_tx.payload {
                     TransactionPayload::Coinbase(_) => true,
@@ -138,7 +138,7 @@ fn should_succeed_mining_valid_txs() {
                 });
 
                 // Transaction #2 should be the get-value contract-call
-                let contract_tx = &block.txs[1];
+                let contract_tx = &chain_tip.block.txs[1];
                 assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match contract_tx.payload {
                     TransactionPayload::ContractCall(_) => true,
@@ -146,19 +146,19 @@ fn should_succeed_mining_valid_txs() {
                 });
 
                 // 0 event should have been produced
-                let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
+                let events: Vec<StacksTransactionEvent> = chain_tip.receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 0);
             },
             3 => {
                 // Inspecting the chain at round 3.
                 // - Chain length should be 4.
-                assert!(chain_tip_info.block_height == 4);
+                assert!(chain_tip.metadata.block_height == 4);
                 
                 // Block #4 should only have 2 txs
-                assert!(block.txs.len() == 2);
+                assert!(chain_tip.block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
-                let coinbase_tx = &block.txs[0];
+                let coinbase_tx = &chain_tip.block.txs[0];
                 assert!(coinbase_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match coinbase_tx.payload {
                     TransactionPayload::Coinbase(_) => true,
@@ -166,7 +166,7 @@ fn should_succeed_mining_valid_txs() {
                 });
 
                 // Transaction #2 should be the set-value contract-call
-                let contract_tx = &block.txs[1];
+                let contract_tx = &chain_tip.block.txs[1];
                 assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match contract_tx.payload {
                     TransactionPayload::ContractCall(_) => true,
@@ -174,7 +174,7 @@ fn should_succeed_mining_valid_txs() {
                 });
                 
                 // 1 event should have been produced
-                let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
+                let events: Vec<StacksTransactionEvent> = chain_tip.receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 1);
                 assert!(match &events[0] {
                     StacksTransactionEvent::SmartContractEvent(data) => {
@@ -188,13 +188,13 @@ fn should_succeed_mining_valid_txs() {
             4 => {
                 // Inspecting the chain at round 4.
                 // - Chain length should be 5.
-                assert!(chain_tip_info.block_height == 5);
+                assert!(chain_tip.metadata.block_height == 5);
                 
                 // Block #5 should only have 2 txs
-                assert!(block.txs.len() == 2);
+                assert!(chain_tip.block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
-                let coinbase_tx = &block.txs[0];
+                let coinbase_tx = &chain_tip.block.txs[0];
                 assert!(coinbase_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match coinbase_tx.payload {
                     TransactionPayload::Coinbase(_) => true,
@@ -202,7 +202,7 @@ fn should_succeed_mining_valid_txs() {
                 });
 
                 // Transaction #2 should be the get-value contract-call
-                let contract_tx = &block.txs[1];
+                let contract_tx = &chain_tip.block.txs[1];
                 assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match contract_tx.payload {
                     TransactionPayload::ContractCall(_) => true,
@@ -210,7 +210,7 @@ fn should_succeed_mining_valid_txs() {
                 });
 
                 // 1 event should have been produced
-                let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
+                let events: Vec<StacksTransactionEvent> = chain_tip.receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 1);
                 assert!(match &events[0] {
                     StacksTransactionEvent::SmartContractEvent(data) => {
@@ -224,13 +224,13 @@ fn should_succeed_mining_valid_txs() {
             5 => {
                 // Inspecting the chain at round 5.
                 // - Chain length should be 6.
-                assert!(chain_tip_info.block_height == 6);
+                assert!(chain_tip.metadata.block_height == 6);
                 
                 // Block #6 should only have 2 txs
-                assert!(block.txs.len() == 2);
+                assert!(chain_tip.block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
-                let coinbase_tx = &block.txs[0];
+                let coinbase_tx = &chain_tip.block.txs[0];
                 assert!(coinbase_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match coinbase_tx.payload {
                     TransactionPayload::Coinbase(_) => true,
@@ -238,7 +238,7 @@ fn should_succeed_mining_valid_txs() {
                 });
 
                 // Transaction #2 should be the STX transfer
-                let contract_tx = &block.txs[1];
+                let contract_tx = &chain_tip.block.txs[1];
                 assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
 
                 assert!(match contract_tx.payload {
@@ -247,7 +247,7 @@ fn should_succeed_mining_valid_txs() {
                 });
 
                 // 1 event should have been produced
-                let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
+                let events: Vec<StacksTransactionEvent> = chain_tip.receipts.iter().flat_map(|a| a.events.clone()).collect();
                 assert!(events.len() == 1);
                 assert!(match &events[0] {
                     StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event)) => {
@@ -319,18 +319,18 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, _chain_state, block, chain_tip_info, _receipts| {
+    run_loop.apply_on_new_chain_states(|round, _chain_state, chain_tip| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.
                 // - Chain length should be 1.
-                assert!(chain_tip_info.block_height == 1);
+                assert!(chain_tip.metadata.block_height == 1);
                 
                 // Block #1 should only have 1 txs
-                assert!(block.txs.len() == 1);
+                assert!(chain_tip.block.txs.len() == 1);
 
                 // Transaction #1 should be the coinbase from the leader
-                let coinbase_tx = &block.txs[0];
+                let coinbase_tx = &chain_tip.block.txs[0];
                 assert!(coinbase_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match coinbase_tx.payload {
                     TransactionPayload::Coinbase(_) => true,
@@ -340,13 +340,13 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             1 => {
                 // Inspecting the chain at round 1.
                 // - Chain length should be 2.
-                assert!(chain_tip_info.block_height == 2);
+                assert!(chain_tip.metadata.block_height == 2);
                 
                 // Block #2 should only have 2 txs
-                assert!(block.txs.len() == 2);
+                assert!(chain_tip.block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
-                let coinbase_tx = &block.txs[0];
+                let coinbase_tx = &chain_tip.block.txs[0];
                 assert!(coinbase_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match coinbase_tx.payload {
                     TransactionPayload::Coinbase(_) => true,
@@ -354,7 +354,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                 });
 
                 // Transaction #2 should be the smart contract published
-                let contract_tx = &block.txs[1];
+                let contract_tx = &chain_tip.block.txs[1];
                 assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match contract_tx.payload {
                     TransactionPayload::SmartContract(_) => true,
@@ -364,13 +364,13 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             2 => {
                 // Inspecting the chain at round 2.
                 // - Chain length should be 3.
-                assert!(chain_tip_info.block_height == 3);
+                assert!(chain_tip.metadata.block_height == 3);
                 
                 // Block #3 should only have 1 tx (the other being invalid)
-                assert!(block.txs.len() == 1);
+                assert!(chain_tip.block.txs.len() == 1);
 
                 // Transaction #1 should be the coinbase from the leader
-                let coinbase_tx = &block.txs[0];
+                let coinbase_tx = &chain_tip.block.txs[0];
                 assert!(coinbase_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match coinbase_tx.payload {
                     TransactionPayload::Coinbase(_) => true,
@@ -380,13 +380,13 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             3 => {
                 // Inspecting the chain at round 3.
                 // - Chain length should be 4.
-                assert!(chain_tip_info.block_height == 4);
+                assert!(chain_tip.metadata.block_height == 4);
                 
                 // Block #4 should only have 1 tx (the other being invalid)
-                assert!(block.txs.len() == 1);
+                assert!(chain_tip.block.txs.len() == 1);
 
                 // Transaction #1 should be the coinbase from the leader
-                let coinbase_tx = &block.txs[0];
+                let coinbase_tx = &chain_tip.block.txs[0];
                 assert!(coinbase_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match coinbase_tx.payload {
                     TransactionPayload::Coinbase(_) => true,
@@ -396,13 +396,13 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             4 => {
                 // Inspecting the chain at round 4.
                 // - Chain length should be 5.
-                assert!(chain_tip_info.block_height == 5);
+                assert!(chain_tip.metadata.block_height == 5);
                 
                 // Block #5 should only have 2 txs
-                assert!(block.txs.len() == 2);
+                assert!(chain_tip.block.txs.len() == 2);
 
                 // Transaction #1 should be the coinbase from the leader
-                let coinbase_tx = &block.txs[0];
+                let coinbase_tx = &chain_tip.block.txs[0];
                 assert!(coinbase_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match coinbase_tx.payload {
                     TransactionPayload::Coinbase(_) => true,
@@ -410,7 +410,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                 });
 
                 // Transaction #2 should be the contract-call 
-                let contract_tx = &block.txs[1];
+                let contract_tx = &chain_tip.block.txs[1];
                 assert!(contract_tx.chain_id == TESTNET_CHAIN_ID);
                 assert!(match contract_tx.payload {
                     TransactionPayload::ContractCall(_) => true,

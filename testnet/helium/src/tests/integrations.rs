@@ -213,7 +213,7 @@ fn integration_test_get_info() {
         return
     });
 
-    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _events| {
+    run_loop.apply_on_new_chain_states(|round, chain_state, chain_tip| {
         let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}", &contract_addr, "get-info")).unwrap();
@@ -227,13 +227,13 @@ fn integration_test_get_info() {
                 // - Chain length should be 2.
                 let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
-                assert!(chain_tip_info.block_height == 2);
+                assert!(chain_tip.metadata.block_height == 2);
                 
                 // Block #1 should have 3 txs
-                assert!(block.txs.len() == 3);
+                assert!(chain_tip.block.txs.len() == 3);
 
-                let parent = block.header.parent_block;
-                let bhh = &chain_tip_info.index_block_hash();
+                let parent = chain_tip.block.header.parent_block;
+                let bhh = &chain_tip.metadata.index_block_hash();
                 eprintln!("Current Block: {}       Parent Block: {}", bhh, parent);
                 let parent_val = Value::buff_from(parent.as_bytes().to_vec()).unwrap();
 
@@ -322,7 +322,7 @@ fn integration_test_get_info() {
                     
             },
             3 => {
-                let bhh = &chain_tip_info.index_block_hash();
+                let bhh = &chain_tip.metadata.index_block_hash();
 
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
                     bhh, &contract_identifier, "(exotic-block-height u1)"));

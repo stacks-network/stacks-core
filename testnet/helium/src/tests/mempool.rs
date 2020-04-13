@@ -1,26 +1,21 @@
 
 use super::integrations::*;
-use stacks::vm::{
-    database::HeadersDB,
-    types::QualifiedContractIdentifier,
-    Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
-use stacks::chainstate::burn::{VRFSeed, BlockHeaderHash};
-use stacks::burnchains::Address;
+use stacks::vm::Value;
+use stacks::chainstate::burn::{BlockHeaderHash};
 use stacks::address::AddressHashMode;
 use stacks::net::{Error as NetError, StacksMessageCodec};
-use stacks::util::{log, secp256k1::*, strings::StacksString, hash::hex_bytes, hash::to_hex, hash::*};
+use stacks::util::{secp256k1::*, hash::*};
 
 use stacks::chainstate::stacks::{
     StacksBlockHeader,
     Error as ChainstateError,
-    db::blocks::MemPoolRejection, db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    db::blocks::MemPoolRejection,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     StacksMicroblockHeader, StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
     StacksPublicKey, TransactionPayload, StacksTransactionSigner,
-    TokenTransferMemo, CoinbasePayload,
-    StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress };
+    TokenTransferMemo,
+    StacksTransaction, StacksAddress };
 
-use stacks::util::db::{DBConn, FromRow};
 use super::super::{Keychain, MemPool, RunLoop};
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
@@ -72,7 +67,7 @@ fn mempool_setup_chainstate() {
         }
     });
 
-    run_loop.apply_on_new_chain_states(|round, chainstate, block, chain_tip_info, _receipts| {
+    run_loop.apply_on_new_chain_states(|round, chainstate, chain_tip| {
     // run_loop.apply_on_new_chain_states(|round, ref mut chainstate, bhh| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let contract_addr = to_addr(&contract_sk);
@@ -81,7 +76,7 @@ fn mempool_setup_chainstate() {
         let other_addr = to_addr(&other_sk);
 
         if round == 3 {
-            let block_header = chain_tip_info;
+            let block_header = chain_tip.metadata;
             let burn_hash = &block_header.burn_header_hash;
             let block_hash = &block_header.anchored_header.block_hash();
 

@@ -20,6 +20,24 @@ use stacks::util::strings::UrlString;
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xdead1010;
 
+#[derive(Debug, Clone)]
+pub struct ChainTip {
+    pub metadata: StacksHeaderInfo,
+    pub block: StacksBlock,
+    pub receipts: Vec<StacksTransactionReceipt>,
+}
+
+impl ChainTip {
+
+    pub fn genesis() -> ChainTip {
+        ChainTip {
+            metadata: StacksHeaderInfo::genesis(),
+            block: StacksBlock::genesis(),
+            receipts: vec![]
+        }
+    }
+}
+
 #[derive(Clone)]
 struct RegisteredKey {
     block_height: u16,
@@ -29,12 +47,12 @@ struct RegisteredKey {
 
 /// Node is a structure modelising an active node working on the stacks chain.
 pub struct Node {
+    pub chain_state: StacksChainState,
+    pub config: Config,
     active_registered_key: Option<RegisteredKey>,
     bootstraping_chain: bool,
     burnchain_tip: Option<BurnchainTip>,
-    pub chain_state: StacksChainState,
-    chain_tip: Option<StacksHeaderInfo>,
-    pub config: Config,
+    chain_tip: Option<ChainTip>,
     keychain: Keychain,
     last_sortitioned_block: Option<BurnchainTip>,
     mem_pool: MemPoolFS,
@@ -266,7 +284,7 @@ impl Node {
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
-            true => StacksHeaderInfo::genesis(),
+            true => ChainTip::genesis(),
             false => match &self.chain_tip {
                 Some(chain_tip) => chain_tip.clone(),
                 None => unreachable!()
@@ -336,7 +354,7 @@ impl Node {
         burn_header_hash: &BurnchainHeaderHash, 
         parent_burn_header_hash: &BurnchainHeaderHash, 
         microblocks: Vec<StacksMicroblock>, 
-        db: &mut BurnDB) -> (StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>) {
+        db: &mut BurnDB) -> ChainTip {
 
         {
             // let mut db = burn_db.lock().unwrap();
@@ -382,25 +400,31 @@ impl Node {
         
         // Handle events
         let receipts = processed_block.1;
-        let chain_tip_info = processed_block.0;
-        let chain_tip = {
+        let metadata = processed_block.0;
+        let block = {
             let block_path = StacksChainState::get_block_path(
                 &self.chain_state.blocks_path, 
-                &chain_tip_info.burn_header_hash, 
-                &chain_tip_info.anchored_header.block_hash()).unwrap();
+                &metadata.burn_header_hash, 
+                &metadata.anchored_header.block_hash()).unwrap();
             StacksChainState::consensus_load(&block_path).unwrap()
         };
 
-        self.event_dispatcher.process_receipts(&receipts, &chain_tip, &chain_tip_info);
+        let chain_tip = ChainTip {
+            metadata,
+            block,
+            receipts
+        };
 
-        self.chain_tip = Some(chain_tip_info.clone());
+        self.event_dispatcher.process_chain_tip(&chain_tip);
+
+        self.chain_tip = Some(chain_tip.clone());
 
         // Unset the `bootstraping_chain` flag.
         if self.bootstraping_chain {
             self.bootstraping_chain = false;
         }
 
-        (chain_tip, chain_tip_info, receipts)
+        chain_tip
     }
 
     /// Returns the Stacks address of the node

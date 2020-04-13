@@ -1,10 +1,10 @@
 use super::{MemPool, MemPoolFS, Config, BurnchainTip};
-use super::node::{TESTNET_CHAIN_ID};
+use super::node::{TESTNET_CHAIN_ID, ChainTip};
 
 use std::time::{Instant, Duration};
 use std::thread;
 
-use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
+use stacks::chainstate::stacks::db::{StacksChainState, ClarityTx};
 use stacks::chainstate::stacks::{StacksPrivateKey, StacksBlock, StacksWorkScore, StacksTransaction, StacksMicroblock, StacksBlockBuilder};
 use stacks::chainstate::burn::VRFSeed;
 use stacks::util::vrf::VRFProof;
@@ -28,7 +28,7 @@ pub struct Tenure {
 
 impl <'a> Tenure {
 
-    pub fn new(parent_block: StacksHeaderInfo, 
+    pub fn new(parent_block: ChainTip, 
                coinbase_tx: StacksTransaction,
                config: Config,
                mem_pool: MemPoolFS,
@@ -39,12 +39,22 @@ impl <'a> Tenure {
 
         let ratio = StacksWorkScore {
             burn: burnchain_tip.block_snapshot.total_burn,
-            work: parent_block.anchored_header.total_work.work + 1,
+            work: parent_block.metadata.anchored_header.total_work.work + 1,
         };
 
         let block_builder = match burnchain_tip.block_snapshot.total_burn {
-            0 => StacksBlockBuilder::first(1, &parent_block.burn_header_hash, parent_block.burn_header_timestamp, &vrf_proof, &microblock_secret_key),
-            _ => StacksBlockBuilder::from_parent(1, &parent_block, &ratio, &vrf_proof, &microblock_secret_key)
+            0 => StacksBlockBuilder::first(
+                1, 
+                &parent_block.metadata.burn_header_hash, 
+                parent_block.metadata.burn_header_timestamp, 
+                &vrf_proof, 
+                &microblock_secret_key),
+            _ => StacksBlockBuilder::from_parent(
+                1, 
+                &parent_block.metadata, 
+                &ratio, 
+                &vrf_proof, 
+                &microblock_secret_key)
         };
 
         Self {

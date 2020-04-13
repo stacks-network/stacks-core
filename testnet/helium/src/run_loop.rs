@@ -1,8 +1,7 @@
-use super::{Config, Node, BurnchainController, MocknetController, BitcoinRegtestController, BurnchainTip, Tenure};
+use super::{Config, Node, BurnchainController, MocknetController, BitcoinRegtestController, BurnchainTip, ChainTip, Tenure};
 
-use stacks::chainstate::stacks::db::{StacksHeaderInfo, StacksChainState, ClarityTx};
-use stacks::chainstate::stacks::{StacksBlock, TransactionAuth, TransactionSpendingCondition, TransactionPayload};
-use stacks::chainstate::stacks::events::StacksTransactionReceipt;
+use stacks::chainstate::stacks::db::{StacksChainState, ClarityTx};
+use stacks::chainstate::stacks::{TransactionAuth, TransactionSpendingCondition, TransactionPayload};
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
@@ -12,7 +11,7 @@ pub struct RunLoop {
     burnchain_initialized_callback: Option<fn(&mut Box<dyn BurnchainController>)>,
     new_burnchain_state_callback: Option<fn(u64, &BurnchainTip)>,
     new_tenure_callback: Option<fn(u64, &Tenure)>,
-    new_chain_state_callback: Option<fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>)>,
+    new_chain_state_callback: Option<fn(u64, &mut StacksChainState, ChainTip)>,
 }
 
 macro_rules! info_blue {
@@ -140,14 +139,18 @@ impl RunLoop {
         // Have each node process the previous tenure.
         // We should have some additional checks here, and ensure that the previous artifacts are legit.
 
-        let (chain_tip, chain_tip_info, receipts) = self.node.process_tenure(
+        let chain_tip = self.node.process_tenure(
             &artifacts_from_1st_tenure.anchored_block, 
             &last_sortitioned_block.block_snapshot.burn_header_hash, 
             &last_sortitioned_block.block_snapshot.parent_burn_header_hash, 
             artifacts_from_1st_tenure.microblocks.clone(),
             burnchain.burndb_mut());
 
-        RunLoop::handle_new_chain_state_cb(&self.new_chain_state_callback, round_index, &mut self.node.chain_state, chain_tip, chain_tip_info, receipts);
+        RunLoop::handle_new_chain_state_cb(
+            &self.new_chain_state_callback, 
+            round_index, 
+            &mut self.node.chain_state, 
+            chain_tip);
 
         // If the node we're looping on won the sortition, initialize and configure the next tenure
         if won_sortition {
@@ -183,7 +186,10 @@ impl RunLoop {
             }
 
             burnchain_tip = burnchain.sync();
-            RunLoop::handle_burnchain_state_cb(&self.new_burnchain_state_callback, round_index, &burnchain_tip);
+            RunLoop::handle_burnchain_state_cb(
+                &self.new_burnchain_state_callback, 
+                round_index, 
+                &burnchain_tip);
     
             leader_tenure = None;
 
@@ -199,7 +205,7 @@ impl RunLoop {
                 Some(ref artifacts) => {
                     // Have each node process the previous tenure.
                     // We should have some additional checks here, and ensure that the previous artifacts are legit.
-                    let (chain_tip, chain_tip_info, events) = self.node.process_tenure(
+                    let chain_tip = self.node.process_tenure(
                         &artifacts.anchored_block, 
                         &last_sortitioned_block.block_snapshot.burn_header_hash, 
                         &last_sortitioned_block.block_snapshot.parent_burn_header_hash,             
@@ -210,9 +216,7 @@ impl RunLoop {
                         &self.new_chain_state_callback, 
                         round_index,
                         &mut self.node.chain_state,
-                        chain_tip,
-                        chain_tip_info,
-                        events
+                        chain_tip
                     );
                 },
             };
@@ -238,7 +242,7 @@ impl RunLoop {
         self.new_tenure_callback = Some(f);
     }
     
-    pub fn apply_on_new_chain_states(&mut self, f: fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>)) {
+    pub fn apply_on_new_chain_states(&mut self, f: fn(u64, &mut StacksChainState, ChainTip)) {
         self.new_chain_state_callback = Some(f);
     }
 
@@ -257,10 +261,10 @@ impl RunLoop {
         burn_callback.map(|cb| cb(round_index, state));
     }
 
-    fn handle_new_chain_state_cb(chain_state_callback: &Option<fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>)>,
-                                 round_index: u64, state: &mut StacksChainState, chain_tip: StacksBlock, chain_tip_info: StacksHeaderInfo, receipts: Vec<StacksTransactionReceipt>) {
-        info_green!("Stacks block #{} ({}) successfully produced, including {} transactions", chain_tip_info.block_height, chain_tip_info.index_block_hash(), chain_tip.txs.len());
-        for tx in chain_tip.txs.iter() {
+    fn handle_new_chain_state_cb(chain_state_callback: &Option<fn(u64, &mut StacksChainState, ChainTip)>,
+                                 round_index: u64, state: &mut StacksChainState, chain_tip: ChainTip) {
+        info_green!("Stacks block #{} ({}) successfully produced, including {} transactions", chain_tip.metadata.block_height, chain_tip.metadata.index_block_hash(), chain_tip.block.txs.len());
+        for tx in chain_tip.block.txs.iter() {
             match &tx.auth {            
                 TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(auth)) => println!("-> Tx issued by {:?} (fee: {}, nonce: {})", auth.signer, auth.fee_rate, auth.nonce),
                 _ => println!("-> Tx {:?}", tx.auth)
@@ -272,7 +276,7 @@ impl RunLoop {
                 _ => println!("   {:?}", tx.payload)
             }
         }
-        chain_state_callback.map(|cb| cb(round_index, state, chain_tip, chain_tip_info, receipts));
+        chain_state_callback.map(|cb| cb(round_index, state, chain_tip));
     }
 
 }
