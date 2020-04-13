@@ -212,6 +212,15 @@ native_hash_func!(native_sha512trunc256, hash::Sha512Trunc256Sum);
 native_hash_func!(native_keccak256, hash::Keccak256Hash);
 
 fn native_begin(mut args: Vec<Value>) -> Result<Value> {
+    if let Some((_, butlast)) = args.split_last() {
+        for value in butlast {
+            if let Value::Response(data) = value { 
+                if !data.committed {
+                    return Err(RuntimeErrorType::UnwrapFailure.into())  
+                }
+            }
+        }
+    }
     match args.pop() {
         Some(v) => Ok(v),
         None => Err(CheckErrors::RequiresAtLeastArguments(1,0).into())

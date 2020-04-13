@@ -188,13 +188,13 @@ fn test_bad_variables() {
 }
 
 #[test]
-fn test_let_forms() {
+fn test_let_err() {
     let test0 = 
         "(let ((ev 666)) ev (err 0))";
     let test1 = 
         "(let ((ev 666)) (err 0) ev)";
     let test2 = 
-        "(let ((ev 666)) (asserts! (is-eq 1 0) (err 1)) ev)";
+        "(let ((ev 666)) (asserts! (is-eq 1 0) (err 2)) ev)";
 
     assert_eq!(Some(Value::Response(ResponseData { committed: false, data: Box::new(Value::Int(0)) })), 
                execute(&test0).unwrap()); 
@@ -204,7 +204,29 @@ fn test_let_forms() {
         _ => false
     });
     
-    let fail_response = Value::Response(ResponseData { committed: false, data: Box::new(Value::Int(1)) });
+    let fail_response = Value::Response(ResponseData { committed: false, data: Box::new(Value::Int(2)) });
+    assert_eq!(Error::ShortReturn(ShortReturnType::AssertionFailed(fail_response)),
+               execute(&test2).unwrap_err());
+}
+
+#[test]
+fn test_begin_err() {
+    let test0 = 
+        "(begin (err 0))";
+    let test1 = 
+        "(begin (err 0) 666)";
+    let test2 = 
+        "(begin (asserts! (is-eq 1 0) (err 2)) 666)";
+
+    assert_eq!(Some(Value::Response(ResponseData { committed: false, data: Box::new(Value::Int(0)) })), 
+               execute(&test0).unwrap()); 
+                  
+    assert!(match execute(&test1).unwrap_err() {
+        Error::Runtime(RuntimeErrorType::UnwrapFailure, _) => true,
+        _ => false
+    });
+    
+    let fail_response = Value::Response(ResponseData { committed: false, data: Box::new(Value::Int(2)) });
     assert_eq!(Error::ShortReturn(ShortReturnType::AssertionFailed(fail_response)),
                execute(&test2).unwrap_err());
 }
