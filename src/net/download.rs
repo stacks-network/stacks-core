@@ -962,8 +962,6 @@ impl PeerNetwork {
 
                 if downloader.blocks_to_try.len() == 0 && downloader.microblocks_to_try.len() == 0 {
                     // nothing in this range, so advance sortition range to try for next time 
-                    // next_block_sortition_height = (next_block_sortition_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64)) % network.chain_view.burn_block_height;
-                    // next_microblock_sortition_height = (next_microblock_sortition_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64)) % network.chain_view.burn_block_height;
                     next_block_sortition_height = next_block_sortition_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64);
                     next_microblock_sortition_height = next_microblock_sortition_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64);
 
