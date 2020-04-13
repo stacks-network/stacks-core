@@ -190,30 +190,23 @@ impl FromRow<DBConfig> for DBConfig {
 
 impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
     fn from_row<'a>(row: &'a Row) -> Result<StacksHeaderInfo, db_error> {
-        let block_height_i64 : i64 = row.get("block_height");
+        let block_height = u64::from_column(row, "block_height")?;
         let index_root = TrieHash::from_column(row, "index_root")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-        let burn_header_timestamp_i64 : i64 = row.get("burn_header_timestamp");
+        let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let stacks_header = StacksBlockHeader::from_row(row)?;
-        
-        if block_height_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-        if burn_header_timestamp_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
 
-        if block_height_i64 as u64 != stacks_header.total_work.work {
+        if block_height != stacks_header.total_work.work {
             return Err(db_error::ParseError);
         }
 
         Ok(StacksHeaderInfo {
             anchored_header: stacks_header, 
             microblock_tail: None,
-            block_height: block_height_i64 as u64,
+            block_height: block_height,
             index_root: index_root,
             burn_header_hash: burn_header_hash,
-            burn_header_timestamp: burn_header_timestamp_i64 as u64
+            burn_header_timestamp: burn_header_timestamp
         })
     }
 }

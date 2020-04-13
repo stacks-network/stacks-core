@@ -57,25 +57,18 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
         let tx_fees_anchored_text : String = row.get("tx_fees_anchored");
         let tx_fees_streamed_text : String = row.get("tx_fees_streamed");
         let burns_text : String = row.get("stx_burns");
-        let burnchain_commit_burn_i64 : i64 = row.get("burnchain_commit_burn");
-        let burnchain_sortition_burn_i64 : i64 = row.get("burnchain_sortition_burn");
+        let burnchain_commit_burn = u64::from_column(row, "burnchain_commit_burn")?;
+        let burnchain_sortition_burn = u64::from_column(row, "burnchain_sortition_burn")?;
         let fill_text : String = row.get("fill");
         let miner : bool = row.get("miner");
-        let block_height_i64 : i64 = row.get("stacks_block_height");
+        let stacks_block_height = u64::from_column(row, "stacks_block_height")?;
         let vtxindex : u32 = row.get("vtxindex");
-
-        if burnchain_commit_burn_i64 < 0 || burnchain_sortition_burn_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
 
         let coinbase = coinbase_text.parse::<u128>().map_err(|_e| db_error::ParseError)?;
         let tx_fees_anchored = tx_fees_anchored_text.parse::<u128>().map_err(|_e| db_error::ParseError)?;
         let tx_fees_streamed = tx_fees_streamed_text.parse::<u128>().map_err(|_e| db_error::ParseError)?;
         let stx_burns = burns_text.parse::<u128>().map_err(|_e| db_error::ParseError)?;
-        let burnchain_commit_burn = burnchain_commit_burn_i64 as u64;
-        let burnchain_sortition_burn = burnchain_sortition_burn_i64 as u64;
         let fill = fill_text.parse::<u64>().map_err(|_e| db_error::ParseError)?;
-        let stacks_block_height = block_height_i64 as u64;
 
         let payment_data = MinerPaymentSchedule {
             address,

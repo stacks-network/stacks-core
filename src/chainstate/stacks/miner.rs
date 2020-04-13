@@ -689,7 +689,8 @@ pub mod test {
         
         pub fn get_last_accepted_anchored_block(&self, miner: &TestMiner) -> Option<StacksBlock> {
             for bc in miner.block_commits.iter().rev() {
-                if StacksChainState::has_stored_block(&self.chainstate.blocks_db, &self.chainstate.blocks_path, &bc.burn_header_hash, &bc.block_header_hash).unwrap() {
+                if StacksChainState::has_stored_block(&self.chainstate.blocks_db, &self.chainstate.blocks_path, &bc.burn_header_hash, &bc.block_header_hash).unwrap() &&
+                  !StacksChainState::is_block_orphaned(&self.chainstate.blocks_db, &bc.burn_header_hash, &bc.block_header_hash).unwrap() {
                     match self.commit_ops.get(&bc.block_header_hash) {
                         None => {
                             continue;

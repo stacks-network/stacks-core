@@ -105,9 +105,9 @@ impl From<BlockHeaderHash> for BurnchainHeaderHash {
 
 impl FromRow<BlockSnapshot> for BlockSnapshot {
     fn from_row<'a>(row: &'a Row) -> Result<BlockSnapshot, db_error> {
-        let block_height_i64 : i64 = row.get("block_height");
+        let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-        let burn_header_timestamp_i64 : i64 = row.get("burn_header_timestamp");
+        let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let parent_burn_header_hash = BurnchainHeaderHash::from_column(row, "parent_burn_header_hash")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let ops_hash = OpsHash::from_column(row, "ops_hash")?;
@@ -117,26 +117,14 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let winning_block_txid = Txid::from_column(row, "winning_block_txid")?;
         let winning_stacks_block_hash = BlockHeaderHash::from_column(row, "winning_stacks_block_hash")?;
         let index_root = TrieHash::from_column(row, "index_root")?;
-        let num_sortitions_i64 : i64 = row.get("num_sortitions");
-
-        if block_height_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-
-        if num_sortitions_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-
-        if burn_header_timestamp_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
+        let num_sortitions = u64::from_column(row, "num_sortitions")?;
 
         let total_burn = total_burn_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
 
         let snapshot = BlockSnapshot {
-            block_height: block_height_i64 as u64,
-            burn_header_timestamp: burn_header_timestamp_i64 as u64,
+            block_height: block_height,
+            burn_header_timestamp: burn_header_timestamp,
             burn_header_hash: burn_header_hash,
             parent_burn_header_hash: parent_burn_header_hash,
             consensus_hash: consensus_hash,
@@ -147,7 +135,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
             winning_block_txid: winning_block_txid,
             winning_stacks_block_hash: winning_stacks_block_hash,
             index_root: index_root,
-            num_sortitions: num_sortitions_i64 as u64,
+            num_sortitions: num_sortitions,
         };
         Ok(snapshot)
     }
@@ -157,7 +145,7 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
     fn from_row<'a>(row: &'a Row) -> Result<LeaderKeyRegisterOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let vtxindex : u32 = row.get("vtxindex");
-        let block_height : i64 = row.get("block_height");
+        let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let public_key = VRFPublicKey::from_column(row, "public_key")?;
@@ -169,14 +157,10 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
 
         let memo = memo_bytes.to_vec();
 
-        if block_height < 0 {
-            return Err(db_error::ParseError);
-        }
-
         let leader_key_row = LeaderKeyRegisterOp {
             txid: txid,
             vtxindex: vtxindex,
-            block_height: block_height as u64,
+            block_height: block_height,
             burn_header_hash: burn_header_hash,
 
             consensus_hash: consensus_hash,
@@ -193,7 +177,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
     fn from_row<'a>(row: &'a Row) -> Result<LeaderBlockCommitOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let vtxindex : u32 = row.get("vtxindex");
-        let block_height: i64 = row.get("block_height");
+        let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
         let new_seed = VRFSeed::from_column(row, "new_seed")?;
@@ -216,10 +200,6 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let burn_fee = burn_fee_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
 
-        if block_height < 0 {
-            return Err(db_error::ParseError);
-        }
-
         let block_commit = LeaderBlockCommitOp {
             block_header_hash: block_header_hash,
             new_seed: new_seed,
@@ -234,7 +214,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 
             txid: txid,
             vtxindex: vtxindex,
-            block_height: block_height as u64,
+            block_height: block_height,
             burn_header_hash: burn_header_hash,
         };
         Ok(block_commit)
@@ -245,7 +225,7 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
     fn from_row<'a>(row: &'a Row) -> Result<UserBurnSupportOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let vtxindex : u32 = row.get("vtxindex");
-        let block_height : i64 = row.get("block_height");
+        let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
 
         let address = StacksAddress::from_column(row, "address")?;
@@ -260,10 +240,6 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
         let burn_fee = burn_fee_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
 
-        if block_height < 0 {
-            return Err(db_error::ParseError);
-        }
-
         let user_burn = UserBurnSupportOp {
             address: address,
             consensus_hash: consensus_hash,
@@ -275,7 +251,7 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
 
             txid: txid,
             vtxindex: vtxindex,
-            block_height: block_height as u64,
+            block_height: block_height,
             burn_header_hash: burn_header_hash
         };
         Ok(user_burn)

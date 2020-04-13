@@ -151,7 +151,7 @@ impl FromRow<LocalPeer> for LocalPeer {
         let parent_network_id : u32 = row.get("parent_network_id");
         let nonce_hex : String = row.get("nonce");
         let privkey = Secp256k1PrivateKey::from_column(row, "private_key")?;
-        let privkey_expire_i64 : i64 = row.get("private_key_expire");
+        let privkey_expire = u64::from_column(row, "private_key_expire")?;
         let addrbytes : PeerAddress = PeerAddress::from_column(row, "addrbytes")?;
         let port : u16 = row.get("port");
         let services : u16 = row.get("services");
@@ -171,10 +171,6 @@ impl FromRow<LocalPeer> for LocalPeer {
         let mut nonce_buf = [0u8; 32];
         nonce_buf.copy_from_slice(&nonce_bytes[0..32]);
 
-        if privkey_expire_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-
         let data_url = UrlString::try_from(data_url_str).map_err(|_e| db_error::ParseError)?;
 
         Ok(LocalPeer {
@@ -182,7 +178,7 @@ impl FromRow<LocalPeer> for LocalPeer {
             parent_network_id: parent_network_id,
             private_key: privkey,
             nonce: nonce_buf,
-            private_key_expire: privkey_expire_i64 as u64,
+            private_key_expire: privkey_expire,
             addrbytes: addrbytes,
             port: port,
             services: services,
@@ -214,37 +210,14 @@ impl FromRow<Neighbor> for Neighbor {
         let addrbytes : PeerAddress = PeerAddress::from_column(row, "addrbytes")?;
         let port : u16 = row.get("port");
         let public_key : Secp256k1PublicKey = Secp256k1PublicKey::from_column(row, "public_key")?;
-        let expire_block_height_i64 : i64 = row.get("expire_block_height");
-        let last_contact_time_i64 : i64 = row.get("last_contact_time");
+        let expire_block_height = u64::from_column(row, "expire_block_height")?;
+        let last_contact_time = u64::from_column(row, "last_contact_time")?;
         let asn : u32 = row.get("asn");
         let org : u32 = row.get("org");
         let whitelisted : i64 = row.get("whitelisted");
         let blacklisted : i64 = row.get("blacklisted");
-        let in_degree_i64 : i64 = row.get("in_degree");
-        let out_degree_i64 : i64 = row.get("out_degree");
-
-        if expire_block_height_i64 < 0 {
-            error!("Invalid expore block height {}", expire_block_height_i64);
-            return Err(db_error::ParseError);
-        }
-
-        if last_contact_time_i64 < 0 {
-            error!("Invalid last contact time {}", last_contact_time_i64);
-            return Err(db_error::ParseError);
-        }
-
-        if in_degree_i64 < 0 {
-            error!("Invalid in_degree {}", in_degree_i64);
-            return Err(db_error::ParseError);
-        }
-
-        if out_degree_i64 < 0 {
-            error!("Invalid out_degree {}", out_degree_i64);
-            return Err(db_error::ParseError);
-        }
-
-        let expire_block_height = expire_block_height_i64 as u64;
-        let last_contact_time = last_contact_time_i64 as u64;
+        let in_degree : u32 = row.get("in_degree");
+        let out_degree : u32 = row.get("out_degree");
 
         Ok(Neighbor {
             addr: NeighborKey {
@@ -260,8 +233,8 @@ impl FromRow<Neighbor> for Neighbor {
             org: org,
             whitelisted: whitelisted,
             blacklisted: blacklisted,
-            in_degree: in_degree_i64 as u32,
-            out_degree: out_degree_i64 as u32,
+            in_degree: in_degree,
+            out_degree: out_degree,
         })
     }
 }

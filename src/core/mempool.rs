@@ -46,6 +46,7 @@ use std::path::{Path, PathBuf};
 use util::db::{DBConn, DBTx, FromRow};
 use util::db::FromColumn;
 use util::db::query_rows;
+use util::db::query_row;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 
@@ -94,43 +95,10 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
         let tx_bytes : Vec<u8> = row.get("tx");
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
-        let fee_i64 : i64 = row.get("fee");
-        let height_i64 : i64 = row.get("height");
-        let len_i64 : i64 = row.get("length");
-        let ts_i64 : i64 = row.get("accept_time");
-
-        let fee = 
-            if fee_i64 < 0 {
-                return Err(db_error::ParseError);
-            }
-            else {
-                fee_i64 as u64
-            };
-
-        let height =
-            if height_i64 < 0 {
-                return Err(db_error::ParseError);
-            }
-            else {
-                height_i64 as u64
-            };
-
-        let len = 
-            if len_i64 < 0 {
-                return Err(db_error::ParseError);
-            }
-            else {
-                len_i64 as u64
-            };
-
-        let ts = 
-            if ts_i64 < 0 {
-                return Err(db_error::ParseError);
-            }
-            else {
-                ts_i64 as u64
-            };
-          
+        let fee = u64::from_column(row, "fee")?;
+        let height = u64::from_column(row, "height")?;
+        let len = u64::from_column(row, "length")?;
+        let ts = u64::from_column(row, "accept_time")?;
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(|_e| db_error::ParseError)?;
 
@@ -280,50 +248,16 @@ impl MemPoolDB {
     }
 
     fn db_has_tx(conn: &DBConn, txid: &Txid) -> Result<bool, db_error> {
-        let has_tx_opt = conn.query_row("SELECT 1 FROM mempool WHERE txid = ?1", &[txid as &dyn ToSql],
-            |_row| {
-                Ok(true)
-            })
-            .optional()
-            .map_err(db_error::SqliteError)?;
-
-        match has_tx_opt {
-            Some(Ok(b)) => Ok(b),
-            Some(Err(e)) => Err(e),
-            None => Ok(false)
-        }
+        query_row(conn, "SELECT 1 FROM mempool WHERE txid = ?1", &[txid as &dyn ToSql])
+            .and_then(|row_opt: Option<i64>| Ok(row_opt.is_some()))
     }
 
     pub fn get_tx(conn: &DBConn, txid: &Txid) -> Result<Option<MemPoolTxInfo>, db_error> {
-        let tx_opt = conn.query_row("SELECT * FROM mempool WHERE txid = ?1", &[txid as &dyn ToSql],
-            |row| {
-                let mempool_tx = MemPoolTxInfo::from_row(row)?;
-                Ok(mempool_tx)
-            })
-            .optional()
-            .map_err(db_error::SqliteError)?;
-
-        match tx_opt {
-            Some(Ok(tx_row)) => Ok(Some(tx_row)),
-            Some(Err(e)) => Err(e),
-            None => Ok(None)
-        }
+        query_row(conn, "SELECT * FROM mempool WHERE txid = ?1", &[txid as &dyn ToSql])
     }
     
     fn get_tx_fee(conn: &DBConn, txid: &Txid) -> Result<Option<u64>, db_error> {
-        let fee_opt = conn.query_row("SELECT fee FROM mempool WHERE txid = ?1", &[txid as &dyn ToSql],
-            |row| {
-                let fee : i64 = row.get(0);
-                Ok(fee as u64)
-            })
-            .optional()
-            .map_err(db_error::SqliteError)?;
-
-        match fee_opt {
-            Some(Ok(fee_row)) => Ok(Some(fee_row)),
-            Some(Err(e)) => Err(e),
-            None => Ok(None)
-        }
+        query_row(conn, "SELECT fee FROM mempool WHERE txid = ?1", &[txid as &dyn ToSql])
     }
 
     /// Get all transactions across all tips

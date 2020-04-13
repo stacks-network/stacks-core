@@ -47,6 +47,7 @@ use util::db::{
     DBConn,
     FromRow,
     FromColumn,
+    query_row,
     query_rows,
     query_row_columns,
     query_count,
@@ -183,18 +184,13 @@ impl FromRow<StagingMicroblock> for StagingMicroblock {
         let anchored_block_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "anchored_block_hash")?;
         let burn_header_hash : BurnchainHeaderHash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let microblock_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "microblock_hash")?;
-        let sequence_i64 : i64 = row.get("sequence");
+        let sequence : u16 = row.get("sequence");
         let processed_i64 : i64 = row.get("processed");
         let orphaned_i64 : i64 = row.get("orphaned");
         let block_data : Vec<u8> = vec![];
 
-        if sequence_i64 > (u16::max_value() as i64) || sequence_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-
         let processed = if processed_i64 != 0 { true } else { false };
         let orphaned = if orphaned_i64 != 0 { true } else { false };
-        let sequence = sequence_i64 as u16;
 
         Ok(StagingMicroblock {
             burn_header_hash,
@@ -213,40 +209,22 @@ impl FromRow<StagingBlock> for StagingBlock {
         let anchored_block_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "anchored_block_hash")?;
         let parent_anchored_block_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "parent_anchored_block_hash")?;
         let burn_header_hash : BurnchainHeaderHash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-        let burn_header_timestamp_i64 : i64 = row.get("burn_header_timestamp");
+        let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let parent_burn_header_hash: BurnchainHeaderHash = BurnchainHeaderHash::from_column(row, "parent_burn_header_hash")?;
         let parent_microblock_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "parent_microblock_hash")?;
         let parent_microblock_seq : u16 = row.get("parent_microblock_seq");
         let microblock_pubkey_hash : Hash160 = Hash160::from_column(row, "microblock_pubkey_hash")?;
-        let height_i64 : i64 = row.get("height");
+        let height = u64::from_column(row, "height")?;
         let attacheable_i64 : i64 = row.get("attacheable");
         let processed_i64 : i64 = row.get("processed");
         let orphaned_i64 : i64 = row.get("orphaned");
-        let commit_burn_i64 : i64 = row.get("commit_burn");
-        let sortition_burn_i64 : i64 = row.get("sortition_burn");
+        let commit_burn = u64::from_column(row, "commit_burn")?;
+        let sortition_burn = u64::from_column(row, "sortition_burn")?;
         let block_data : Vec<u8> = vec![];
 
-        if height_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-        if commit_burn_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-        if sortition_burn_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-        if burn_header_timestamp_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-
-        let height = height_i64 as u64;
         let processed = if processed_i64 != 0 { true } else { false };
         let attacheable = if attacheable_i64 != 0 { true } else { false };
         let orphaned = if orphaned_i64 == 0 { true } else { false };
-
-        let commit_burn = commit_burn_i64 as u64;
-        let sortition_burn = sortition_burn_i64 as u64;
-        let burn_header_timestamp = burn_header_timestamp_i64 as u64;
 
         Ok(StagingBlock {
             anchored_block_hash,
@@ -273,14 +251,8 @@ impl FromRow<StagingUserBurnSupport> for StagingUserBurnSupport {
         let anchored_block_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "anchored_block_hash")?;
         let burn_header_hash : BurnchainHeaderHash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let address : StacksAddress = StacksAddress::from_column(row, "address")?;
-        let burn_amount_i64 : i64 = row.get("burn_amount");
+        let burn_amount = u64::from_column(row, "burn_amount")?;
         let vtxindex : u32 = row.get("vtxindex");
-
-        if burn_amount_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-
-        let burn_amount = burn_amount_i64 as u64;
 
         Ok(StagingUserBurnSupport {
             anchored_block_hash,
@@ -1660,10 +1632,10 @@ impl StacksChainState {
         let sql = "SELECT microblock_hash,burn_header_hash FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = 0 AND processed = 1 LIMIT 1";
         let args = [&index_anchor_block_hash as &dyn ToSql];
 
-        let row_data_opt = self.blocks_db.query_row(sql, &args, 
+        let row_data_opt = self.blocks_db.query_row(sql, &args,
             |row| {
-                let microblock_hash = BlockHeaderHash::from_column(&row, "microblock_hash").map_err(Error::DBError)?;
-                let burn_header_hash = BurnchainHeaderHash::from_column(&row, "burn_header_hash").map_err(Error::DBError)?;
+                let microblock_hash = BlockHeaderHash::from_column(row, "microblock_hash")?;
+                let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
                 Ok((microblock_hash, burn_header_hash))
             })
             .optional()
@@ -1675,7 +1647,9 @@ impl StacksChainState {
                 trace!("Index microblock hash of anchored block {} is {}", index_anchor_block_hash, &index_microblock_hash);
                 Ok(Some(index_microblock_hash))
             },
-            Some(Err(e)) => Err(e),
+            Some(Err(e)) => {
+                Err(e)
+            },
             None => {
                 // doesn't exist
                 trace!("No confirmed microblocks off of anchored block {}", index_anchor_block_hash);
@@ -1714,18 +1688,18 @@ impl StacksChainState {
     pub fn get_block_header_hashes(&self, index_block_hash: &BlockHeaderHash) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash)>, Error> {
         let sql = "SELECT burn_header_hash,anchored_block_hash FROM staging_blocks WHERE index_block_hash = ?1";
         let args = [index_block_hash as &dyn ToSql];
-        let hashes_opt = self.blocks_db.query_row(sql, &args,
+        
+        let row_data_opt = self.blocks_db.query_row(sql, &args,
             |row| {
-                let anchored_block_hash : BlockHeaderHash = BlockHeaderHash::from_column(row, "anchored_block_hash")?;
-                let burn_header_hash : BurnchainHeaderHash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-                assert_eq!(StacksBlockHeader::make_index_block_hash(&burn_header_hash, &anchored_block_hash), *index_block_hash, "DB CORRUPTION: index block hash not equal to burn/anchored hash");
+                let anchored_block_hash = BlockHeaderHash::from_column(row, "anchored_block_hash")?;
+                let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
                 Ok((burn_header_hash, anchored_block_hash))
             })
             .optional()
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
-        match hashes_opt {
-            Some(Ok((burn_header_hash, anchored_block_hash))) => Ok(Some((burn_header_hash, anchored_block_hash))),
+        match row_data_opt {
+            Some(Ok(x)) => Ok(Some(x)),
             Some(Err(e)) => Err(e),
             None => Ok(None)
         }
@@ -1739,20 +1713,7 @@ impl StacksChainState {
                    ON staging_microblocks.microblock_hash = staging_microblocks_data.block_hash \
                    WHERE staging_microblocks.index_block_hash = ?1 AND staging_microblocks.sequence = ?2";
         let args = [&index_block_hash as &dyn ToSql, &seq as &dyn ToSql];
-        
-        let rowid_opt = blocks_conn.query_row(sql, &args,
-            |row| {
-                let rowid : i64 = row.get(0);
-                Ok(rowid)
-            })
-            .optional()
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        match rowid_opt {
-            Some(Ok(rowid)) => Ok(Some(rowid)),
-            Some(Err(e)) => Err(e),
-            None => Ok(None)
-        }
+        query_row(blocks_conn, sql, &args).map_err(Error::DBError)
     }
 
     /// Load up the metadata on a microblock stream (but don't get the data itself)
@@ -3060,22 +3021,7 @@ impl StacksChainState {
     pub fn get_stacks_block_height(&self, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<u64>, Error> {
         let sql = "SELECT height FROM staging_blocks WHERE burn_header_hash = ?1 AND anchored_block_hash = ?2";
         let args : &[&dyn ToSql] = &[burn_header_hash, block_hash];
-        let row_data_opt = self.blocks_db.query_row(sql, args, 
-            |row| {
-                let height_i64 : i64 = row.get(0);
-                if height_i64 < 0 {
-                    return Err(Error::DBError(db_error::ParseError));
-                }
-                Ok(height_i64 as u64)
-            })
-            .optional()
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        match row_data_opt {
-            Some(Ok(height)) => Ok(Some(height)),
-            Some(Err(e)) => Err(e),
-            None => Ok(None)
-        }
+        query_row(&self.blocks_db, sql, args).map_err(Error::DBError)
     }
 
     /// Check to see if a transaction can be (potentially) appended on top of a given chain tip.
