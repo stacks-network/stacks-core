@@ -151,7 +151,7 @@ impl MarfedKV {
         Ok( MarfedKV { marf, chain_tip, side_store } )
     }
 
-    #[cfg(test)]
+    // used by benchmarks
     pub fn temporary() -> MarfedKV {
         use std::env;
         use rand::Rng;

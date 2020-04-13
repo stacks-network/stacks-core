@@ -2553,7 +2553,7 @@ pub mod test {
         let addr = miner.origin_address().unwrap();
         let mut tx_stx_transfer = StacksTransaction::new(TransactionVersion::Testnet,
                                                           miner.as_transaction_auth().unwrap(),
-                                                          TransactionPayload::TokenTransfer((*recipient).clone(), amount, (*memo).clone()));
+                                                          TransactionPayload::TokenTransfer(recipient.clone().into(), amount, memo.clone()));
         
         tx_stx_transfer.chain_id = 0x80000000;
         tx_stx_transfer.auth.set_origin_nonce(nonce.unwrap_or(miner.get_nonce()));

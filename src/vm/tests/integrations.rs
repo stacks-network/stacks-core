@@ -1,24 +1,30 @@
-use std::collections::HashMap;
-
-use stacks::vm::{
-    database::ClaritySerializable,
+use vm::{
+    database::{ HeadersDB, ClaritySerializable },
     types::{QualifiedContractIdentifier, TupleData, PrincipalData},
     analysis::{mem_type_check, contract_interface_builder::{build_contract_interface, ContractInterface}},
-    Value, ClarityName, ContractName };
-use stacks::chainstate::stacks::{
+    clarity::ClarityConnection,
+    Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
+use chainstate::stacks::{
     db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     StacksMicroblockHeader, StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
     StacksPublicKey, TransactionPayload, StacksTransactionSigner,
     TokenTransferMemo, CoinbasePayload, TransactionPostConditionMode,
     StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress };
-use stacks::chainstate::burn::VRFSeed;
-use stacks::burnchains::Address;
-use stacks::address::AddressHashMode;
-use stacks::net::{StacksMessageCodec, AccountEntryResponse, ContractSrcResponse, CallReadOnlyRequestBody};
-use stacks::util::{strings::StacksString};
-use stacks::vm::clarity::ClarityConnection;
+use chainstate::burn::VRFSeed;
+use burnchains::Address;
+use address::AddressHashMode;
+use net::{Error as NetError, StacksMessageCodec, AccountEntryResponse, ContractSrcResponse, CallReadOnlyRequestBody};
+use util::{log, strings::StacksString, hash::hex_bytes, hash::to_hex};
+use std::collections::HashMap;
+use util::db::{DBConn, FromRow};
 
-use super::super::{MemPool, RunLoop, config::InitialBalance};
+use std::{thread, time};
+
+use testnet;
+use testnet::helium::{
+    mem_pool::MemPool,
+    config::InitialBalance
+};
 
 use reqwest;
 
@@ -174,7 +180,7 @@ lazy_static! {
 
 #[test]
 fn integration_test_get_info() {
-    let mut conf = super::new_test_conf();
+    let mut conf = testnet::helium::tests::new_test_conf();
     let spender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap()).into();
 
     conf.initial_balances.push(InitialBalance { 
@@ -182,11 +188,11 @@ fn integration_test_get_info() {
         amount: 100300
     });
 
-    conf.burnchain.commit_anchor_block_within = 1500;
+    conf.burnchain.block_time = 1500;
 
     let num_rounds = 4;
 
-    let mut run_loop = RunLoop::new(conf);
+    let mut run_loop = testnet::helium::RunLoop::new(conf);
 
     { 
         let mut http_opt = http_binding.lock().unwrap();
@@ -216,7 +222,7 @@ fn integration_test_get_info() {
         return
     });
 
-    run_loop.apply_on_new_chain_states(|round, chain_state, chain_tip, _burnchain_tip| {
+    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _events| {
         let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}", &contract_addr, "get-info")).unwrap();
@@ -230,13 +236,13 @@ fn integration_test_get_info() {
                 // - Chain length should be 2.
                 let mut blocks = StacksChainState::list_blocks(&chain_state.blocks_db).unwrap();
                 blocks.sort();
-                assert!(chain_tip.metadata.block_height == 2);
+                assert!(chain_tip_info.block_height == 2);
                 
                 // Block #1 should have 3 txs
-                assert!(chain_tip.block.txs.len() == 3);
+                assert!(block.txs.len() == 3);
 
-                let parent = chain_tip.block.header.parent_block;
-                let bhh = &chain_tip.metadata.index_block_hash();
+                let parent = block.header.parent_block;
+                let bhh = &chain_tip_info.index_block_hash();
                 eprintln!("Current Block: {}       Parent Block: {}", bhh, parent);
                 let parent_val = Value::buff_from(parent.as_bytes().to_vec()).unwrap();
 
@@ -325,7 +331,7 @@ fn integration_test_get_info() {
                     
             },
             3 => {
-                let bhh = &chain_tip.metadata.index_block_hash();
+                let bhh = &chain_tip_info.index_block_hash();
 
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
                     bhh, &contract_identifier, "(exotic-block-height u1)"));
@@ -595,17 +601,17 @@ const FAUCET_CONTRACT: &'static str = "
 
 #[test]
 fn contract_stx_transfer() {
-    let mut conf = super::new_test_conf();
+    let mut conf = testnet::helium::tests::new_test_conf();
 
     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
     let addr_3 = to_addr(&sk_3);
 
-    conf.burnchain.commit_anchor_block_within = 1500;
+    conf.burnchain.block_time = 1500;
     conf.add_initial_balance(addr_3.to_string(), 100000);
 
     let num_rounds = 5;
 
-    let mut run_loop = RunLoop::new(conf);
+    let mut run_loop = testnet::helium::RunLoop::new(conf);
     run_loop.apply_on_new_tenures(|round, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
@@ -640,7 +646,7 @@ fn contract_stx_transfer() {
         return
     });
 
-    run_loop.apply_on_new_chain_states(|round, chain_state, chain_tip, _burnchain_tip| {
+    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _events| {
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}",
                                                         to_addr(
@@ -649,11 +655,11 @@ fn contract_stx_transfer() {
 
         match round {
             1 => {
-                assert!(chain_tip.metadata.block_height == 2);
+                assert!(chain_tip_info.block_height == 2);
                 // Block #1 should have 2 txs -- coinbase + transfer
-                assert!(chain_tip.block.txs.len() == 2);
+                assert!(block.txs.len() == 2);
 
-                let cur_tip = (chain_tip.metadata.burn_header_hash.clone(), chain_tip.metadata.anchored_header.block_hash());
+                let cur_tip = (chain_tip_info.burn_header_hash.clone(), chain_tip_info.anchored_header.block_hash());
                 // check that 1000 stx _was_ transfered to the contract principal
                 assert_eq!(
                     chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
@@ -674,18 +680,18 @@ fn contract_stx_transfer() {
                     99000);
             },
             2 => {
-                assert!(chain_tip.metadata.block_height == 3);
+                assert!(chain_tip_info.block_height == 3);
                 // Block #2 should have 2 txs -- coinbase + publish
-                assert!(chain_tip.block.txs.len() == 2);
+                assert!(block.txs.len() == 2);
             },
             3 => {
-                assert!(chain_tip.metadata.block_height == 4);
+                assert!(chain_tip_info.block_height == 4);
                 // Block #3 should have 2 txs -- coinbase + contract-call,
                 //   the second publish _should have been rejected_
-                assert!(chain_tip.block.txs.len() == 2);
+                assert!(block.txs.len() == 2);
 
                 // check that 1 stx was transfered to SK_2 via the contract-call
-                let cur_tip = (chain_tip.metadata.burn_header_hash.clone(), chain_tip.metadata.anchored_header.block_hash());
+                let cur_tip = (chain_tip_info.burn_header_hash.clone(), chain_tip_info.anchored_header.block_hash());
 
                 let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
                 let addr_2 = to_addr(&sk_2).into();
@@ -706,10 +712,10 @@ fn contract_stx_transfer() {
                     999);
             },
             4 => {
-                assert!(chain_tip.metadata.block_height == 5);
-                assert!(chain_tip.block.txs.len() == 2);
+                assert!(chain_tip_info.block_height == 5);
+                assert!(block.txs.len() == 2);
 
-                let cur_tip = (chain_tip.metadata.burn_header_hash.clone(), chain_tip.metadata.anchored_header.block_hash());
+                let cur_tip = (chain_tip_info.burn_header_hash.clone(), chain_tip_info.anchored_header.block_hash());
 
                 // check that 1000 stx were sent to the contract
                 assert_eq!(

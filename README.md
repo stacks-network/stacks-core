@@ -210,6 +210,12 @@ cp ./tx4.bin /tmp/mempool
 
 Congratulations, you can now [write your own smart contracts with Clarity](https://docs.blockstack.org/core/smart/overview.html).
 
+## Platform support
+
+Officially supported platforms: `Linux 64-bit`, `MacOS 64-bit`, `Windows 64-bit`.
+
+Platforms with second-tier status _(builds are provided but not tested)_: `Linux ARMv7`, `Linux ARM64`.
+
 ## Community
 
 Beyond this Github project,

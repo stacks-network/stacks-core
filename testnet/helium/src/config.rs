@@ -148,7 +148,7 @@ impl Config {
             None => vec![]
         };
 
-        let events_observers = match config_file.events_observer {
+        let mut events_observers = match config_file.events_observer {
             Some(raw_observers) => {
                 let mut observers = vec![];
                 for observer in raw_observers {
@@ -157,14 +157,24 @@ impl Config {
                         .collect();
 
                     observers.push(EventObserverConfig {
-                        address: observer.address,
-                        port: observer.port,
+                        endpoint: observer.endpoint,
                         events_keys
                     });
                 }
                 observers
             }
             None => vec![]
+        };
+
+        // check for observer config in env vars
+        match std::env::var("STACKS_EVENT_OBSERVER") {
+            Ok(val) => {
+                events_observers.push(EventObserverConfig {
+                    endpoint: val,
+                    events_keys: vec![EventKeyType::AnyEvent],
+                })
+            },
+            _ => ()
         };
 
         let connection_options = match config_file.connection_options {
@@ -433,15 +443,13 @@ pub struct MempoolConfig {
 
 #[derive(Clone, Deserialize)]
 pub struct EventObserverConfigFile {
-    pub port: u16,
-    pub address: String,
+    pub endpoint: String,
     pub events_keys: Vec<String>,
 }
 
 #[derive(Clone, Default)]
 pub struct EventObserverConfig {
-    pub port: u16,
-    pub address: String,
+    pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
 }
 

@@ -1280,10 +1280,11 @@ mod test {
 
         let mut tx_invalid_coinbase = tx_coinbase.clone();
         tx_invalid_coinbase.anchor_mode = TransactionAnchorMode::OffChainOnly;
-        
-        let mut tx_invalid_anchor = StacksTransaction::new(TransactionVersion::Testnet,
-                                                           origin_auth.clone(),
-                                                           TransactionPayload::TokenTransfer(StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 123, TokenTransferMemo([1u8; 34])));
+
+        let stx_address = StacksAddress { version: 0, bytes: Hash160([0u8; 20]) };
+        let mut tx_invalid_anchor = StacksTransaction::new(
+            TransactionVersion::Testnet, origin_auth.clone(),
+            TransactionPayload::TokenTransfer(stx_address.into(), 123, TokenTransferMemo([1u8; 34])));
 
         tx_invalid_anchor.anchor_mode = TransactionAnchorMode::OffChainOnly;
         
@@ -1378,9 +1379,10 @@ mod test {
         let mut tx_coinbase_offchain = tx_coinbase.clone();
         tx_coinbase_offchain.anchor_mode = TransactionAnchorMode::OffChainOnly;
 
-        let mut tx_invalid_anchor = StacksTransaction::new(TransactionVersion::Testnet,
-                                                           origin_auth.clone(),
-                                                           TransactionPayload::TokenTransfer(StacksAddress { version: 0, bytes: Hash160([0u8; 20]) }, 123, TokenTransferMemo([1u8; 34])));
+        let stx_address = StacksAddress { version: 0, bytes: Hash160([0u8; 20]) };
+        let mut tx_invalid_anchor = StacksTransaction::new(
+            TransactionVersion::Testnet, origin_auth.clone(),
+            TransactionPayload::TokenTransfer(stx_address.into(), 123, TokenTransferMemo([1u8; 34])));
 
         tx_invalid_anchor.anchor_mode = TransactionAnchorMode::OnChainOnly;
         
