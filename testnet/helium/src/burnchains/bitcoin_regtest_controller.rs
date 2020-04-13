@@ -182,6 +182,11 @@ impl BitcoinRegtestController {
             }
         }
 
+        let total_unspent: u64 = utxos.iter().map(|o| o.get_sat_amount()).sum();
+        if total_unspent < amount_required {
+            return None
+        }
+
         Some(utxos)
     }
 
@@ -574,7 +579,8 @@ struct BitcoinRPCRequest {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 enum RPCError {
-    RPCError(String),
+    Network(String),
+    Parsing(String)
 }
 
 type RPCResult<T> = Result<T, RPCError>;
@@ -589,36 +595,37 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        let body = json!(payload);
-        let res = request_builder.json(&body).send().unwrap().json::<serde_json::Value>().unwrap();
+        BitcoinRPCRequest::send(request_builder, payload)?;
         Ok(())
     }
 
     pub fn list_unspent(request_builder: RequestBuilder, addresses: Vec<String>, include_unsafe: bool, minimum_sum_amount: u64) -> RPCResult<Vec<UTXO>> {
         let sat_decimals = 8;
-        let real = format!("{:0width$}", minimum_sum_amount, width = sat_decimals);
-        let conv = if real.len() == sat_decimals {
-            format!("0.{}", &real[real.len() - sat_decimals..])
+        // This API endpoint is expecting an amount expressed in BTC (vs satoshi)
+        let fmt = format!("{:0width$}", minimum_sum_amount, width = sat_decimals);
+        let min_sum_amount = if fmt.len() == sat_decimals {
+            format!("0.{}", &fmt[fmt.len() - sat_decimals..])
         } else {
-            format!("{}.{}", &real[0..(real.len() - sat_decimals)], &real[real.len() - sat_decimals..])
+            format!("{}.{}", &fmt[0..(fmt.len() - sat_decimals)], &fmt[fmt.len() - sat_decimals..])
         };
+        let min_conf = 0;
+        let max_conf = 9999999;
 
         let payload = BitcoinRPCRequest {
             method: "listunspent".to_string(),
             params: vec![
-                0.into(), 
-                9999999.into(), 
+                min_conf.into(), 
+                max_conf.into(), 
                 addresses.into(), 
                 include_unsafe.into(),
                 json!({
-                    "minimumSumAmount": conv
+                    "minimumSumAmount": min_sum_amount
                 })],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };
 
-        let body = json!(payload);
-        let mut res = request_builder.json(&body).send().unwrap().json::<serde_json::Value>().unwrap();
+        let mut res = BitcoinRPCRequest::send(request_builder, payload)?;
         let mut utxos = vec![];
 
         match res.as_object_mut() {
@@ -647,21 +654,31 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        let body = json!(payload);
-        let res = request_builder.json(&body).send().unwrap().json::<serde_json::Value>().unwrap();
+        BitcoinRPCRequest::send(request_builder, payload)?;
         Ok(())
     }
 
     pub fn import_public_key(request_builder: RequestBuilder, public_key: &str) -> RPCResult<()> {
+        let rescan = true;
+        let label = "";
         let payload = BitcoinRPCRequest {
             method: "importpubkey".to_string(),
-            params: vec![public_key.into(), "".into(), true.into()],
+            params: vec![public_key.into(), label.into(), rescan.into()],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };
 
-        let body = json!(payload);
-        let res = request_builder.json(&body).send().unwrap().json::<serde_json::Value>().unwrap();
+        BitcoinRPCRequest::send(request_builder, payload)?;
         Ok(())
+    }
+
+    fn send(request_builder: RequestBuilder, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
+        let body = json!(payload);
+        let result = request_builder.json(&body).send();
+        let response = result
+            .map_err(|e| RPCError::Network(format!("RPC Error: {}", e)))?;
+        let payload = response.json::<serde_json::Value>()
+            .map_err(|e| RPCError::Parsing(format!("RPC Error: {}", e)))?;
+        Ok(payload)
     }
 }
