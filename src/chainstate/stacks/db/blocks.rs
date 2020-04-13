@@ -189,8 +189,8 @@ impl FromRow<StagingMicroblock> for StagingMicroblock {
         let orphaned_i64 : i64 = row.get("orphaned");
         let block_data : Vec<u8> = vec![];
 
-        let processed = if processed_i64 != 0 { true } else { false };
-        let orphaned = if orphaned_i64 != 0 { true } else { false };
+        let processed = processed_i64 != 0;
+        let orphaned = orphaned_i64 != 0;
 
         Ok(StagingMicroblock {
             burn_header_hash,
@@ -222,9 +222,9 @@ impl FromRow<StagingBlock> for StagingBlock {
         let sortition_burn = u64::from_column(row, "sortition_burn")?;
         let block_data : Vec<u8> = vec![];
 
-        let processed = if processed_i64 != 0 { true } else { false };
-        let attacheable = if attacheable_i64 != 0 { true } else { false };
-        let orphaned = if orphaned_i64 == 0 { true } else { false };
+        let processed = processed_i64 != 0;
+        let attacheable = attacheable_i64 != 0;
+        let orphaned = orphaned_i64 == 0;
 
         Ok(StagingBlock {
             anchored_block_hash,
@@ -1130,6 +1130,8 @@ impl StacksChainState {
     /// The burn_header_hash and anchored_block_hash correspond to the _parent_ Stacks block.
     /// Microblocks ought to only be stored if they are first confirmed to have been signed.
     fn store_staging_microblock<'a>(tx: &mut BlocksDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, microblock: &StacksMicroblock) -> Result<(), Error> {
+        test_debug!("Store staging microblock {}/{}-{}", burn_header_hash, anchored_block_hash, microblock.block_hash());
+
         let mut microblock_bytes = vec![];
         microblock.consensus_serialize(&mut microblock_bytes).map_err(Error::NetError)?;
 
@@ -1367,6 +1369,14 @@ impl StacksChainState {
     pub fn has_staging_microblock(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<bool, Error> {
         match StacksChainState::get_staging_microblock_status(blocks_conn, burn_hash, block_hash, microblock_hash)? {
             Some(processed) => Ok(!processed),
+            None => Ok(false)
+        }
+    }
+    
+    /// Do we have a confirmed, processed microblock? Return true if the microblock is present and marked as processed; false otherwise
+    pub fn has_confirmed_microblock(blocks_conn: &DBConn, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash, microblock_hash: &BlockHeaderHash) -> Result<bool, Error> {
+        match StacksChainState::get_staging_microblock_status(blocks_conn, burn_hash, block_hash, microblock_hash)? {
+            Some(processed) => Ok(processed),
             None => Ok(false)
         }
     }
@@ -2193,7 +2203,8 @@ impl StacksChainState {
         test_debug!("preprocess microblock {}/{}-{}", burn_header_hash, anchored_block_hash, microblock.block_hash());
 
         // already queued or already processed?
-        if StacksChainState::has_staging_microblock(&self.blocks_db, burn_header_hash, anchored_block_hash, &microblock.block_hash())? {
+        if StacksChainState::has_staging_microblock(&self.blocks_db, burn_header_hash, anchored_block_hash, &microblock.block_hash())? || 
+           StacksChainState::has_confirmed_microblock(&self.blocks_db, burn_header_hash, anchored_block_hash, &microblock.block_hash())? {
             test_debug!("Microblock already stored and/or processed: {}/{} {} {}", burn_header_hash, &anchored_block_hash, microblock.block_hash(), microblock.header.sequence);
 
             // try to process it nevertheless
