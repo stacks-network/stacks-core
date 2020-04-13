@@ -176,28 +176,6 @@ pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
     Ok(x as i64)
 }
 
-/*
-impl ToSql for u64 {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        if *self > (i64::max_value() as u64) {
-            return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(Error::SerializationError("Could not convert u64 to i64".to_string()))));
-        }
-        else {
-            return Ok(ToSqlOutput::Owned(RusqliteValue::Integer(*self as i64)))
-        }
-    }
-}
-
-impl FromSql for u64 {
-    fn column_result(value: RusqliteValueRef) -> FromSqlResult<u64> {
-        match value {
-            RusqliteValueRef::Integer(x) => Ok(x as u64),
-            _ => Err(FromSqlError::InvalidType)
-        }
-    }
-}
-*/
-
 macro_rules! impl_byte_array_from_column {
     ($thing:ident) => {
         impl FromColumn<$thing> for $thing {
