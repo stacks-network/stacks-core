@@ -79,11 +79,12 @@ use chainstate::stacks::index::{
     TrieHash,
     MARFValue,
     TRIEHASH_ENCODED_SIZE,
-    slice_partialeq
+    slice_partialeq,
+    BlockMap
 };
 
 use chainstate::stacks::index::storage::{
-    TrieFileStorage, BlockHashMap
+    TrieFileStorage
 };
 
 use chainstate::stacks::index::trie::{
@@ -124,12 +125,11 @@ impl ConsensusSerializable<()> for ProofTrieNode {
 }
 
 impl ProofTriePtr {
-    fn try_from_trie_ptr(other: &TriePtr, block_map: &BlockHashMap) -> Result<ProofTriePtr, Error> {
+    fn try_from_trie_ptr<M: BlockMap>(other: &TriePtr, block_map: &M) -> Result<ProofTriePtr, Error> {
         let id = other.id;
         let chr = other.chr;
         let back_block = if is_backptr(id) {
-            block_map.get_block_header_hash(other.back_block)
-                .ok_or(Error::NotFoundError)?
+            block_map.get_block_hash(other.back_block)?
                 .clone()
         } else {
             BlockHeaderHash(
@@ -144,7 +144,7 @@ impl ProofTrieNode {
         &self.ptrs
     }
 
-    fn try_from_trie_node<T: TrieNode>(other: &T, block_map: &BlockHashMap) -> Result<ProofTrieNode, Error> {
+    fn try_from_trie_node<T: TrieNode, M: BlockMap>(other: &T, block_map: &M) -> Result<ProofTrieNode, Error> {
         let id = other.id();
         let path = other.path().clone();
         let ptrs: Result<Vec<_>, Error> = other.ptrs().iter()
@@ -394,8 +394,6 @@ impl TrieMerkleProof {
             else {
                 TrieMerkleProof::make_proof_hashes(&node, &all_hashes, prev_chr)?
             };
-
-        let block_map = &storage.block_map;
  
         let proof_node = match node {
             TrieNodeType::Leaf(ref data) => {
@@ -406,28 +404,28 @@ impl TrieMerkleProof {
                 hash_slice.copy_from_slice(&hashes[0..3]);
 
                 TrieMerkleProofType::Node4(
-                    (prev_chr, ProofTrieNode::try_from_trie_node(data, block_map)?, hash_slice))
+                    (prev_chr, ProofTrieNode::try_from_trie_node(data, storage)?, hash_slice))
             },
             TrieNodeType::Node16(ref data) => {
                 let mut hash_slice = [TrieHash::from_data(&[]); 15];
                 hash_slice.copy_from_slice(&hashes[0..15]);
 
                 TrieMerkleProofType::Node16(
-                    (prev_chr, ProofTrieNode::try_from_trie_node(data, block_map)?, hash_slice))
+                    (prev_chr, ProofTrieNode::try_from_trie_node(data, storage)?, hash_slice))
             },
             TrieNodeType::Node48(ref data) => {
                 let mut hash_slice = [TrieHash::from_data(&[]); 47];
                 hash_slice.copy_from_slice(&hashes[0..47]);
 
                 TrieMerkleProofType::Node48(
-                    (prev_chr, ProofTrieNode::try_from_trie_node(data, block_map)?, hash_slice))
+                    (prev_chr, ProofTrieNode::try_from_trie_node(data, storage)?, hash_slice))
             },
             TrieNodeType::Node256(ref data) => {
                 let mut hash_slice = [TrieHash::from_data(&[]); 255];
                 hash_slice.copy_from_slice(&hashes[0..255]);
 
                 TrieMerkleProofType::Node256(      // ancestor hashes to be filled in later
-                    (prev_chr, ProofTrieNode::try_from_trie_node(data, block_map)?, hash_slice))
+                    (prev_chr, ProofTrieNode::try_from_trie_node(data, storage)?, hash_slice))
             }
         };
         Ok(proof_node)
@@ -541,7 +539,7 @@ impl TrieMerkleProof {
                 let root_hash = 
                     if let TrieNodeType::Node256(ref node256) = root_node {
                         let child_hashes = Trie::get_children_hashes(storage, &root_node)?;
-                        let root_hash = get_node_hash(node256, &child_hashes, &storage.block_map);
+                        let root_hash = get_node_hash(node256, &child_hashes, storage);
                         root_hash
                     }
                     else {

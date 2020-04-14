@@ -45,8 +45,6 @@ use chainstate::stacks::index::bits::{
     write_path_to_bytes
 };
 
-use chainstate::stacks::index::storage::{BlockHashMap};
-
 use chainstate::stacks::index::{
     TrieHash,
     TrieHasher,
@@ -54,6 +52,7 @@ use chainstate::stacks::index::{
     slice_partialeq,
     MARFValue, 
     MARF_VALUE_ENCODED_SIZE,
+    BlockMap,
 };
 
 use chainstate::stacks::index::Error as Error;
@@ -122,7 +121,7 @@ fn write_ptrs_to_bytes<W: Write>(ptrs: &[TriePtr], w: &mut W) -> Result<(), Erro
 }
 
 
-fn ptrs_consensus_hash<W: Write>(ptrs: &[TriePtr], map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+fn ptrs_consensus_hash<W: Write, M: BlockMap>(ptrs: &[TriePtr], map: &M, w: &mut W) -> Result<(), Error> {
     for ptr in ptrs.iter() {
         ptr.write_consensus_bytes(map, w)?;
     }
@@ -218,8 +217,8 @@ pub trait ConsensusSerializable <M> {
     }
 }
 
-impl <T: TrieNode> ConsensusSerializable<BlockHashMap> for T {
-    fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+impl <T: TrieNode, M: BlockMap> ConsensusSerializable<M> for T {
+    fn write_consensus_bytes<W: Write>(&self, map: &M, w: &mut W) -> Result<(), Error> {
         w.write_all(&[self.id()])?;
         ptrs_consensus_hash(self.ptrs(), map, w)?;
         write_path_to_bytes(self.path().as_slice(), w)        
@@ -308,12 +307,12 @@ impl TriePtr {
     /// The parts of a child pointer that are relevant for consensus are only its ID, path
     /// character, and referred-to block hash.  The software doesn't care about the details of how/where
     /// nodes are stored.
-    pub fn write_consensus_bytes<W: Write>(&self, block_map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+    pub fn write_consensus_bytes<W: Write, M: BlockMap>(&self, block_map: &M, w: &mut W) -> Result<(), Error> {
         w.write_all(&[self.id(), self.chr()])?;
 
         if is_backptr(self.id()) {
             w.write_all(
-                block_map.get_block_header_hash(self.back_block())
+                block_map.get_block_hash(self.back_block())
                     .expect("Block identifier {} refered to an unknown block. Consensus failure.")
                     .as_bytes())?;
         } else {
@@ -1263,7 +1262,7 @@ impl TrieNodeType {
         with_node!(self, ref data, data.write_bytes(w))
     }
 
-    pub fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+    pub fn write_consensus_bytes<W: Write, M: BlockMap>(&self, map: &M, w: &mut W) -> Result<(), Error> {
         with_node!(self, ref data, data.write_consensus_bytes(map, w))
     }
 

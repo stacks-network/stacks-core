@@ -86,7 +86,7 @@ pub struct Trie {}
 fn get_nodetype_hash(storage: &mut TrieFileStorage, node: &TrieNodeType) -> Result<TrieHash, Error> {
     let mut hasher = TrieHasher::new();
 
-    node.write_consensus_bytes(&storage.block_map, &mut hasher)
+    node.write_consensus_bytes(storage, &mut hasher)
         .expect("IO Failure pushing to hasher.");
 
     storage.write_children_hashes(node, &mut hasher)?;
@@ -301,7 +301,7 @@ impl Trie {
 
         let node4_hash = get_node_hash(&node4_data,
                                        &vec![cur_leaf_hash, new_leaf_hash, TrieHash::from_data(&[]), TrieHash::from_data(&[])],
-                                       &storage.block_map);
+                                       storage);
 
         let node4 = TrieNodeType::Node4(node4_data);
 
@@ -492,7 +492,7 @@ impl Trie {
 
         let new_node_hash = get_node_hash(&new_node4,
                                           &vec![leaf_hash, new_cur_node_hash, TrieHash::from_data(&[]), TrieHash::from_data(&[])],
-                                          &storage.block_map);
+                                          storage);
 
         let (new_node_id, new_node) = 
             if cursor.node_ptrs.len() == 1 {

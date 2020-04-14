@@ -222,6 +222,8 @@ impl MARFValue {
 pub enum Error {
     NotOpenedError,
     IOError(io::Error),
+    SQLError(rusqlite::Error),
+    RequestedIdentifierForExtensionTrie,
     NotFoundError,
     BackptrNotFoundError,
     ExistsError,
@@ -244,10 +246,21 @@ impl From<io::Error> for Error {
     }
 }
 
+impl From<rusqlite::Error> for Error {
+    fn from(err: rusqlite::Error) -> Self {
+        if let rusqlite::Error::QueryReturnedNoRows = err {
+            Error::NotFoundError
+        } else {
+            Error::SQLError(err)
+        }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
+            Error::SQLError(ref e) => fmt::Display::fmt(e, f),
             Error::CorruptionError(ref s) => fmt::Display::fmt(s, f),
             Error::CursorError(ref e) => fmt::Display::fmt(e, f),
             Error::BlockHashMapCorruptionError(ref opt_e) => {
@@ -269,6 +282,7 @@ impl fmt::Display for Error {
             Error::WriteNotBegunError => write!(f, "Write has not begun"),
             Error::RestoreMarfBlockError(_) => write!(f, "Failed to restore previous open block during block header check"),
             Error::NonMatchingForks(_, _) => write!(f, "The supplied blocks are not in the same fork"),
+            Error::RequestedIdentifierForExtensionTrie => write!(f, "BUG: MARF requested the identifier for a RAM trie"),
         }
     }
 }
@@ -277,6 +291,7 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::IOError(ref e) => Some(e),
+            Error::SQLError(ref e) => Some(e),
             Error::RestoreMarfBlockError(ref e) => Some(e),
             Error::BlockHashMapCorruptionError(ref opt_e) => match opt_e {
                 Some(ref e) => Some(e),
@@ -285,6 +300,10 @@ impl error::Error for Error {
             _ => None
         }
     }
+}
+
+pub trait BlockMap {
+    fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error>;
 }
 
 /// PartialEq helper method for slices of arbitrary length.

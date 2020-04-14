@@ -36,9 +36,8 @@ use sha2::Digest;
 use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
+    BlockMap,
 };
-
-use chainstate::stacks::index::storage::{BlockHashMap};
 
 use chainstate::stacks::index::node::{
     clear_backptr,
@@ -232,7 +231,7 @@ pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
 }
 
 #[inline]
-pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
+pub fn get_nodetype_hash_bytes<M: BlockMap>(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &M) -> TrieHash {
     match node {
         TrieNodeType::Node4(ref data) => get_node_hash(data, child_hash_bytes, map),
         TrieNodeType::Node16(ref data) => get_node_hash(data, child_hash_bytes, map),
@@ -244,12 +243,12 @@ pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<TrieH
 
 /// Low-level method for reading a TrieHash into a byte buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
-pub fn read_hash_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
+pub fn read_hash_bytes<F: Read>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
     let mut hashbytes = [0u8; 32];
     f.read_exact(&mut hashbytes)
         .map_err(|e| {
             if e.kind() == ErrorKind::UnexpectedEof {
-                Error::CorruptionError(format!("Failed to read hash in full from {}", f.seek(SeekFrom::Current(0)).unwrap()))
+                Error::CorruptionError(format!("Failed to read hash in full from {}", to_hex(&hashbytes)))
             }
             else {
                 eprintln!("failed: {:?}", &e);
@@ -300,6 +299,12 @@ pub fn count_children(children: &[TriePtr]) -> usize {
     cnt
 }
 
+pub fn read_nodetype<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
+    fseek(f, ptr.ptr() as u64)?;
+    trace!("read_nodetype at {:?}", ptr);
+    read_nodetype_at_head(f, ptr.id())
+}
+
 /// Deserialize a node.
 /// Node wire format:
 /// 0               32 33               33+X         33+X+Y
@@ -308,11 +313,10 @@ pub fn count_children(children: &[TriePtr]) -> usize {
 ///
 /// X is fixed and determined by the TrieNodeType variant.
 /// Y is variable, but no more than TriePath::len()
-pub fn read_nodetype<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
-    trace!("read_nodetype at {:?}", ptr);
-    let h = read_node_hash_bytes(f, ptr)?;
+pub fn read_nodetype_at_head<F: Read>(f: &mut F, ptr_id: TrieNodeID) -> Result<(TrieNodeType, TrieHash), Error> {
+    let h = read_hash_bytes(f)?;
 
-    let node = match ptr.id() {
+    let node = match ptr_id {
         TrieNodeID::Node4 => {
             let node = TrieNode4::from_bytes(f)?;
             TrieNodeType::Node4(node)

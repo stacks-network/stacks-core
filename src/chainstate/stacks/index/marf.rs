@@ -211,7 +211,7 @@ impl MARF {
             trace!("Brand new storage -- start with {:?}", new_bhh);
             storage.extend_to_block(new_bhh)?;
             let node = TrieNode256::new(&vec![]);
-            let hash = get_node_hash(&node, &vec![], &storage.block_map);
+            let hash = get_node_hash(&node, &vec![], storage);
             let root_ptr = storage.root_ptr();
             storage.write_nodetype(root_ptr, &TrieNodeType::Node256(node), hash)
         }
@@ -403,7 +403,7 @@ impl MARF {
         storage.format()?;
         storage.extend_to_block(first_block_hash)?;
         let node = TrieNode256::new(&vec![]);
-        let hash = get_node_hash(&node, &vec![], &storage.block_map);
+        let hash = get_node_hash(&node, &vec![], storage);
         let root_ptr = storage.root_ptr();
         let node_type = TrieNodeType::Node256(node);
         storage.write_nodetype(root_ptr, &node_type, hash)
@@ -864,7 +864,7 @@ impl MARF {
 
     /// Get the path to a block's trie
     pub fn get_block_path(&self, block_hash: &BlockHeaderHash) -> PathBuf {
-        TrieFileStorage::block_path(&self.storage.dir_path, block_hash)
+        panic!("Not here")
     }
 }
 
