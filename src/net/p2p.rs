@@ -141,8 +141,16 @@ impl NetworkHandle {
         if self.result_bufsz > 0 {
             while self.result_buf.len() < self.result_bufsz {
                 match self.chan_out.try_recv() {
-                    Ok(_res) => {
-                        self.result_buf.push_back(Ok(()));
+                    Ok(res) => {
+                        match res {
+                            Ok(handle_opt) => {
+                                assert!(handle_opt.is_none(), "BUG: sending a message unidirectionally resulted in a reply handle");
+                                self.result_buf.push_back(Ok(()));
+                            },
+                            Err(e) => {
+                                self.result_buf.push_back(Err(e));
+                            }
+                        }
                     },
                     Err(TryRecvError::Empty) => {
                         break;
