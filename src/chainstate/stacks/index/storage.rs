@@ -112,12 +112,6 @@ pub fn fseek_end<F: Seek>(f: &mut F) -> Result<u64, Error> {
         .map_err(Error::IOError)
 }
 
-#[derive(Clone)]
-pub struct BlockHashMap {
-    next_identifier: u32,
-    map: Vec<BlockHeaderHash>
-}
-
 trait NodeHashReader {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error>;
 }
@@ -130,7 +124,37 @@ impl BlockMap for TrieFileStorage {
     }
 }
 
+static SQL_MARF_DATA_TABLE: &str = "
+CREATE TABLE IF NOT EXISTS marf_data (
+   block_id INTEGER PRIMARY KEY, 
+   block_hash TEXT UNIQUE NOT NULL,
+   data BLOB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS block_hash_marf_data ON marf_data(block_hash);
+";
+static SQL_CHAIN_TIPS_TABLE: &str = "
+CREATE TABLE IF NOT EXISTS chain_tips (block_hash TEXT UNIQUE NOT NULL);
+
+CREATE INDEX IF NOT EXISTS block_hash_chain_tips ON chain_tips(block_hash);
+";
+static SQL_EXTENSION_LOCKS_TABLE: &str = "
+CREATE TABLE IF NOT EXISTS block_extension_locks (block_hash TEXT UNIQUE NOT NULL);
+
+CREATE INDEX IF NOT EXISTS block_hash_locks ON block_extension_locks(block_hash);
+";
+
 impl TrieSQL {
+    pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
+        let tx = conn.transaction()?;
+
+        tx.execute_batch(SQL_MARF_DATA_TABLE)?;
+        tx.execute_batch(SQL_CHAIN_TIPS_TABLE)?;
+        tx.execute_batch(SQL_EXTENSION_LOCKS_TABLE)?;
+
+        tx.commit().map_err(|e| e.into())
+    }
+
     pub fn get_block_identifier(conn: &Connection, bhh: &BlockHeaderHash) -> Result<u32, Error> {
         conn.query_row("SELECT block_id FROM marf_data WHERE block_hash = ?", &[bhh],
                        |row| row.get("block_id"))
@@ -149,7 +173,7 @@ impl TrieSQL {
 
     pub fn write_trie_blob(conn: &Connection, block_hash: &BlockHeaderHash, data: &[u8]) -> Result<u32, Error> {
         let args: &[&dyn ToSql] = &[block_hash, &data];
-        let mut s = conn.prepare("INSERT INTO marf_data (blok_hash, data) VALUES (?, ?)")?;
+        let mut s = conn.prepare("INSERT INTO marf_data (block_hash, data) VALUES (?, ?)")?;
         let block_id = s.insert(args)?
             .try_into()
             .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
@@ -253,7 +277,7 @@ impl TrieSQL {
             return Ok(false)
         }
 
-        tx.execute("INSERT INTO block_extension_locks VALUES (?)", &[bhh])?;
+        tx.execute("INSERT INTO block_extension_locks (block_hash) VALUES (?)", &[bhh])?;
 
         tx.commit()?;
         Ok(true)
@@ -280,67 +304,6 @@ impl TrieSQL {
         tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
         tx.execute("DELETE FROM chain_tips", NO_PARAMS)?;
         tx.commit().map_err(|e| e.into())
-    }
-}
-
-impl BlockHashMap {
-    pub fn new(initial_size: Option<u32>) -> BlockHashMap {
-        if let Some(initial_size) = initial_size {
-            let mut map = Vec::with_capacity(initial_size as usize);
-            map.resize(initial_size as usize, TrieFileStorage::block_sentinel());
-            BlockHashMap { next_identifier: initial_size,
-                           map }
-        } else {
-            BlockHashMap { next_identifier: 0,
-                           map: Vec::new() }
-        }
-    }
-
-    pub fn add_block(&mut self, block: &BlockHeaderHash) -> u32 {
-        let identifier = self.next_identifier;
-        self.map.push(block.clone());
-        if self.map.len() - 1 != (identifier as usize) {
-            panic!("BlockHashMap corruption!");
-        }
-        self.next_identifier = self.next_identifier.checked_add(1)
-            .expect("Block overflow -- MARF cannot track more than 2**31 - 1 blocks.");
-
-        identifier
-    }
-
-    pub fn set_block(&mut self, block: BlockHeaderHash, identifier: u32) {
-        if identifier >= self.next_identifier || (identifier as usize) >= self.map.len() {
-            panic!("BlockHashMap corruption. Attempted to set block {} to id {}, but map is only length {}.",
-                   &block, &identifier, self.map.len());
-        }
-        self.map[identifier as usize] = block;
-    }
-
-    pub fn iter(&self) -> std::slice::Iter<BlockHeaderHash> {
-        self.map.iter()
-    }
-
-    // TODO: make more efficient with a hash table
-    pub fn find_id(&self, target_bhh: &BlockHeaderHash) -> Option<u32> {
-        for i in 0..self.map.len() {
-            if self.map[i] == *target_bhh {
-                return Some(i as u32);
-            }
-        }
-        return None;
-    }
-
-    pub fn get_block_header_hash(&self, identifier: u32) -> Option<&BlockHeaderHash> {
-        self.map.get(identifier as usize)
-    }
-
-    pub fn len(&self) -> usize {
-        self.map.len()
-    }
-
-    pub fn clear(&mut self) {
-        self.map.clear();
-        self.next_identifier = 0;
     }
 }
 
@@ -680,8 +643,10 @@ pub struct TrieFileStorage {
 
 impl TrieFileStorage {
     pub fn new(dir_path: &str) -> Result<TrieFileStorage, Error> {
-        let db = Connection::open(dir_path)?;
+        let mut db = Connection::open(dir_path)?;
         let dir_path = dir_path.to_string();
+
+        TrieSQL::create_tables_if_needed(&mut db)?;
 
         test_debug!("Opened TrieFileStorage {};", dir_path);
 
@@ -1180,8 +1145,13 @@ impl TrieFileStorage {
     }
 
     pub fn num_blocks(&self) -> usize {
-        TrieSQL::count_blocks(&self.db)
-            .expect("Corruption: SQL Error on a non-fallible query.") as usize
+        let result = if self.last_extended.is_some() {
+            1
+        } else {
+            0
+        };
+        result + (TrieSQL::count_blocks(&self.db)
+                  .expect("Corruption: SQL Error on a non-fallible query.") as usize)
     }
     
     pub fn chain_tips(&self) -> Vec<BlockHeaderHash> {
