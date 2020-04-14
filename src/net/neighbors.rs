@@ -1955,9 +1955,21 @@ mod test {
         // Goal: peer 1 learns about the 10 other neighbors.
         let mut peer_1_config = TestPeerConfig::from_port(32300);
         let mut peer_2_config = TestPeerConfig::from_port(32302);
+
+        peer_1_config.connection_opts.disable_inv_sync = true;
+        peer_1_config.connection_opts.disable_block_download = true;
+
+        peer_2_config.connection_opts.disable_inv_sync = true;
+        peer_2_config.connection_opts.disable_block_download = true;
+
         let mut peer_2_neighbors = vec![];
         for i in 0..10 {
-            let n = TestPeerConfig::from_port(2*i + 4 + 32300);
+            let mut n = TestPeerConfig::from_port(2*i + 4 + 32300);
+            
+            // turn off features we don't use
+            n.connection_opts.disable_inv_sync = true;
+            n.connection_opts.disable_block_download = true;
+            
             peer_2_config.add_neighbor(&n.to_neighbor());
 
             let p = TestPeer::new(n);
@@ -2068,9 +2080,21 @@ mod test {
         // Goal: peer 1 learns about the 5 fresher neighbors.
         let mut peer_1_config = TestPeerConfig::from_port(32400);
         let mut peer_2_config = TestPeerConfig::from_port(32402);
+        
+        peer_1_config.connection_opts.disable_inv_sync = true;
+        peer_1_config.connection_opts.disable_block_download = true;
+
+        peer_2_config.connection_opts.disable_inv_sync = true;
+        peer_2_config.connection_opts.disable_block_download = true;
+
         let mut peer_2_neighbors = vec![];
         for i in 0..10 {
-            let n = TestPeerConfig::from_port(2*i + 4 + 32400);
+            let mut n = TestPeerConfig::from_port(2*i + 4 + 32400);
+            
+            // turn off features we don't use
+            n.connection_opts.disable_inv_sync = true;
+            n.connection_opts.disable_block_download = true;
+            
             peer_2_config.add_neighbor(&n.to_neighbor());
 
             let p = TestPeer::new(n);
@@ -2303,8 +2327,15 @@ mod test {
 
         peer_1_config.whitelisted = -1;
         peer_2_config.whitelisted = -1;
+            
+        // turn off features we don't use
+        peer_1_config.connection_opts.disable_inv_sync = true;
+        peer_1_config.connection_opts.disable_block_download = true;
         
-        let first_block_height = peer_1_config.current_block + 1; // peer_1_config.burnchain.first_block_height + 1;
+        peer_2_config.connection_opts.disable_inv_sync = true;
+        peer_2_config.connection_opts.disable_block_download = true;
+        
+        let first_block_height = peer_1_config.current_block + 1;
 
         // make keys expire soon
         peer_1_config.private_key_expire = first_block_height + 3;
@@ -2948,6 +2979,9 @@ mod test {
         let mut initial_blacklisted : HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
 
         for i in 0..PEER_COUNT {
+            // turn off components we don't need
+            peers[i].config.connection_opts.disable_inv_sync = true;
+            peers[i].config.connection_opts.disable_block_download = true;
             let nk = peers[i].config.to_neighbor().addr.clone();
             for j in 0..peers[i].config.initial_neighbors.len() {
                 let initial = &peers[i].config.initial_neighbors[j];

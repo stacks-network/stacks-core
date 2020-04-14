@@ -1473,7 +1473,7 @@ impl PeerNetwork {
                 self.init_inv_sync(burndb);
             }
             
-            test_debug!("inv sync is disabled");
+            test_debug!("{:?}: inv sync is disabled", &self.local_peer);
             return Ok(true);
         }
 
@@ -1586,6 +1586,7 @@ impl PeerNetwork {
                     },
                     None => {
                         // skip this step -- no DNS client available
+                        test_debug!("{:?}: no DNS client provided; skipping block download", &self.local_peer);
                         self.work_state = PeerNetworkWorkState::Prune;
                     }
                 }
