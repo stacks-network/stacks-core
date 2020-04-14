@@ -6,7 +6,8 @@ use stacks::chainstate::stacks::events::{StacksTransactionEvent, STXEventType};
 use stacks::chainstate::stacks::{TransactionPayload};
 use stacks::util::hash::{hex_bytes};
 
-use super::{MemPool, Config, RunLoop};
+use super::{MemPool, Config};
+use crate::helium::RunLoop;
 use super::node::{TESTNET_CHAIN_ID};
 
 pub fn new_test_conf() -> Config {
@@ -28,7 +29,7 @@ fn should_succeed_mining_valid_txs() {
     let mut run_loop = RunLoop::new(conf);
 
     // Use tenure's hook for submitting transactions
-    run_loop.apply_on_new_tenures(|round, tenure| {
+    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
         match round {
             1 => {
                 // On round 1, publish the KV contract
@@ -79,7 +80,7 @@ fn should_succeed_mining_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, _chain_state, chain_tip, _burnchain_tip| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, _chain_state| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.
@@ -272,7 +273,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     let mut run_loop = RunLoop::new(conf);
 
     // Use tenure's hook for submitting transactions
-    run_loop.apply_on_new_tenures(|round, tenure| {
+    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
         match round {
             1 => {
                 // On round 1, publish the KV contract
@@ -319,7 +320,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
     });
 
     // Use block's hook for asserting expectations
-    run_loop.apply_on_new_chain_states(|round, _chain_state, chain_tip, _burnchain_tip| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, _chain_state| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.

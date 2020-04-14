@@ -1,36 +1,15 @@
-use super::{Config, Node, BurnchainController, MocknetController, BitcoinRegtestController, BurnchainTip, ChainTip, Tenure};
+use crate::{Config, Node, BurnchainController, MocknetController, BitcoinRegtestController, ChainTip};
 
-use stacks::chainstate::stacks::db::{StacksChainState, ClarityTx};
-use stacks::chainstate::stacks::{TransactionAuth, TransactionSpendingCondition, TransactionPayload};
+use stacks::chainstate::stacks::db::ClarityTx;
+
+use super::RunLoopCallbacks;
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
 /// taking turns in producing blocks.
 pub struct RunLoop {
     config: Config,
     pub node: Node,
-    burnchain_initialized_callback: Option<fn(&mut Box<dyn BurnchainController>)>,
-    new_burnchain_state_callback: Option<fn(u64, &BurnchainTip, &ChainTip)>,
-    new_tenure_callback: Option<fn(u64, &Tenure)>,
-    new_chain_state_callback: Option<fn(u64, &mut StacksChainState, &ChainTip, &BurnchainTip)>,
-}
-
-macro_rules! info_blue {
-    ($($arg:tt)*) => ({
-        eprintln!("\x1b[0;96m{}\x1b[0m", format!($($arg)*));
-    })
-}
-
-#[allow(unused_macros)]
-macro_rules! info_yellow {
-    ($($arg:tt)*) => ({
-        eprintln!("\x1b[0;33m{}\x1b[0m", format!($($arg)*));
-    })
-}
-
-macro_rules! info_green {
-    ($($arg:tt)*) => ({
-        eprintln!("\x1b[0;32m{}\x1b[0m", format!($($arg)*));
-    })
+    pub callbacks: RunLoopCallbacks,
 }
 
 impl RunLoop {
@@ -48,10 +27,7 @@ impl RunLoop {
         Self {
             config,
             node,
-            burnchain_initialized_callback: None,
-            new_burnchain_state_callback: None,
-            new_tenure_callback: None,
-            new_chain_state_callback: None,
+            callbacks: RunLoopCallbacks::new(),
         }
     }
 
@@ -65,7 +41,7 @@ impl RunLoop {
 
         // Initialize and start the burnchain.
         let mut burnchain: Box<dyn BurnchainController> = match &self.config.burnchain.mode[..] {
-            "helium" | "neon" => {
+            "helium" => {
                 BitcoinRegtestController::generic(self.config.clone())
             },
             "mocknet" => {
@@ -74,14 +50,12 @@ impl RunLoop {
             _ => unreachable!()
         };
 
-        RunLoop::handle_burnchain_initialized_cb(
-            &self.burnchain_initialized_callback, 
-            &mut burnchain);
+        self.callbacks.invoke_burn_chain_initialized(&mut burnchain);
 
-        let genesis_state = burnchain.start();
+        let initial_state = burnchain.start();
 
         // Update each node with the genesis block.
-        self.node.process_burnchain_state(&genesis_state);
+        self.node.process_burnchain_state(&initial_state);
 
         // make first non-genesis block, with initial VRF keys
         self.node.setup(&mut burnchain);
@@ -92,7 +66,8 @@ impl RunLoop {
 
         // Sync and update node with this new block.
         let burnchain_tip = burnchain.sync();
-        self.node.process_burnchain_state(&burnchain_tip);
+        self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
+        let mut chain_tip = ChainTip::genesis();
 
         if self.config.burnchain.mode == "mocknet" {
             self.node.spawn_peer_server();
@@ -106,7 +81,7 @@ impl RunLoop {
             None => panic!("Error while initiating genesis tenure")
         };
 
-        RunLoop::handle_new_tenure_cb(&self.new_tenure_callback, round_index, &first_tenure);
+        self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &first_tenure);
 
         // Run the tenure, keep the artifacts
         let artifacts_from_1st_tenure = match first_tenure.run() {
@@ -125,38 +100,30 @@ impl RunLoop {
             artifacts_from_1st_tenure.burn_fee);
 
         let mut burnchain_tip = burnchain.sync();
-
-        RunLoop::handle_burnchain_state_cb(
-            &self.new_burnchain_state_callback, 
-            round_index, 
-            &burnchain_tip,
-            &ChainTip::genesis());
+        self.callbacks.invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
 
         let mut leader_tenure = None;
 
-        // Have each node process the new block, that should include a sortition thanks to the
-        // 1st tenure.
         let (last_sortitioned_block, won_sortition) = match self.node.process_burnchain_state(&burnchain_tip) {
             (Some(sortitioned_block), won_sortition) => (sortitioned_block, won_sortition),
             (None, _) => panic!("Node should have a sortitioned block")
         };
         
-        // Have each node process the previous tenure.
+        // Have the node process its own tenure.
         // We should have some additional checks here, and ensure that the previous artifacts are legit.
 
-        let mut chain_tip = self.node.process_tenure(
+        chain_tip = self.node.process_tenure(
             &artifacts_from_1st_tenure.anchored_block, 
             &last_sortitioned_block.block_snapshot.burn_header_hash, 
             &last_sortitioned_block.block_snapshot.parent_burn_header_hash, 
             artifacts_from_1st_tenure.microblocks.clone(),
             burnchain.burndb_mut());
 
-        RunLoop::handle_new_chain_state_cb(
-            &self.new_chain_state_callback, 
+        self.callbacks.invoke_new_stacks_chain_state(
             round_index, 
-            &mut self.node.chain_state, 
-            &chain_tip,
-            &burnchain_tip);
+            &burnchain_tip, 
+            &chain_tip, 
+            &mut self.node.chain_state);
 
         // If the node we're looping on won the sortition, initialize and configure the next tenure
         if won_sortition {
@@ -173,7 +140,7 @@ impl RunLoop {
             // Run the last initialized tenure
             let artifacts_from_tenure = match leader_tenure {
                 Some(mut tenure) => {
-                    RunLoop::handle_new_tenure_cb(&self.new_tenure_callback, round_index, &tenure);
+                    self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &tenure);
                     tenure.run()
                 },
                 None => None
@@ -192,11 +159,7 @@ impl RunLoop {
             }
 
             burnchain_tip = burnchain.sync();
-            RunLoop::handle_burnchain_state_cb(
-                &self.new_burnchain_state_callback, 
-                round_index, 
-                &burnchain_tip,
-                &chain_tip);
+            self.callbacks.invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
     
             leader_tenure = None;
 
@@ -210,7 +173,7 @@ impl RunLoop {
                 // Pass if we're missing the artifacts from the current tenure.
                 None => continue,
                 Some(ref artifacts) => {
-                    // Have each node process the previous tenure.
+                    // Have the node process its tenure.
                     // We should have some additional checks here, and ensure that the previous artifacts are legit.
                     chain_tip = self.node.process_tenure(
                         &artifacts.anchored_block, 
@@ -219,17 +182,15 @@ impl RunLoop {
                         artifacts.microblocks.clone(),
                         burnchain.burndb_mut());
 
-                    RunLoop::handle_new_chain_state_cb(
-                        &self.new_chain_state_callback, 
-                        round_index,
-                        &mut self.node.chain_state,
-                        &chain_tip,
-                        &burnchain_tip
-                    );
+                        self.callbacks.invoke_new_stacks_chain_state(
+                            round_index, 
+                            &burnchain_tip, 
+                            &chain_tip, 
+                            &mut self.node.chain_state);
                 },
             };
             
-            // If the node we're looping on won the sortition, initialize and configure the next tenure
+            // If won sortition, initialize and configure the next tenure
             if won_sortition {
                 leader_tenure = self.node.initiate_new_tenure();
             } 
@@ -237,60 +198,4 @@ impl RunLoop {
             round_index += 1;
         }
     }
-
-    pub fn apply_once_burnchain_initialized(&mut self, f: fn(&mut Box<dyn BurnchainController>)) {
-        self.burnchain_initialized_callback = Some(f);
-    }
-
-    pub fn apply_on_new_burnchain_states(&mut self, f: fn(u64, &BurnchainTip, &ChainTip)) {
-        self.new_burnchain_state_callback = Some(f);
-    }
-
-    pub fn apply_on_new_tenures(&mut self, f: fn(u64, &Tenure)) {
-        self.new_tenure_callback = Some(f);
-    }
-    
-    pub fn apply_on_new_chain_states(&mut self, f: fn(u64, &mut StacksChainState, &ChainTip, &BurnchainTip)) {
-        self.new_chain_state_callback = Some(f);
-    }
-
-    fn handle_burnchain_initialized_cb(burnchain_initialized_callback: &Option<fn(&mut Box<dyn BurnchainController>)>, burnchain_controller: &mut Box<dyn BurnchainController>) {
-        burnchain_initialized_callback.map(|cb| cb(burnchain_controller));
-    }
-
-    fn handle_new_tenure_cb(new_tenure_callback: &Option<fn(u64, &Tenure)>,
-                            round_index: u64, tenure: &Tenure) {
-        new_tenure_callback.map(|cb| cb(round_index, tenure));
-    }
-
-    fn handle_burnchain_state_cb(burn_callback: &Option<fn(u64, &BurnchainTip, & ChainTip)>,
-                                 round_index: u64, burnchain_tip: &BurnchainTip, chain_tip: &ChainTip) {
-        info_blue!("Burnchain block #{} ({}) was produced with sortition #{}", 
-            burnchain_tip.block_snapshot.block_height, 
-            burnchain_tip.block_snapshot.burn_header_hash, 
-            burnchain_tip.block_snapshot.sortition_hash);
-        burn_callback.map(|cb| cb(round_index, burnchain_tip, chain_tip));
-    }
-
-    fn handle_new_chain_state_cb(chain_state_callback: &Option<fn(u64, &mut StacksChainState, &ChainTip, &BurnchainTip)>,
-                                 round_index: u64, state: &mut StacksChainState, chain_tip: &ChainTip, burnchain_tip: &BurnchainTip) {
-        info_green!("Stacks block #{} ({}) successfully produced, including {} transactions", 
-            chain_tip.metadata.block_height, 
-            chain_tip.metadata.index_block_hash(), 
-            chain_tip.block.txs.len());
-        for tx in chain_tip.block.txs.iter() {
-            match &tx.auth {            
-                TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(auth)) => println!("-> Tx issued by {:?} (fee: {}, nonce: {})", auth.signer, auth.fee_rate, auth.nonce),
-                _ => println!("-> Tx {:?}", tx.auth)
-            }
-            match &tx.payload { 
-                TransactionPayload::Coinbase(_) => println!("   Coinbase"),
-                TransactionPayload::SmartContract(contract) => println!("   Publish smart contract\n**************************\n{:?}\n**************************", contract.code_body),
-                TransactionPayload::TokenTransfer(recipent, amount, _) => println!("   Transfering {} µSTX to {}", amount, recipent.to_string()),
-                _ => println!("   {:?}", tx.payload)
-            }
-        }
-        chain_state_callback.map(|cb| cb(round_index, state, chain_tip, burnchain_tip));
-    }
-
 }

@@ -109,7 +109,7 @@ impl Node {
             Some(initial_balances), 
             boot_block_exec) {
             Ok(res) => res,
-            Err(_) => panic!("Error while opening chain state at path {:?}", config.get_chainstate_path())
+            Err(err) => panic!("Error while opening chain state at path {}: {:?}", config.get_chainstate_path(), err)
         };
 
         let mem_pool = MemPoolFS::new(&config.mempool.path);

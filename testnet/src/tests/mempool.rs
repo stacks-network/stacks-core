@@ -16,7 +16,8 @@ use stacks::chainstate::stacks::{
     TokenTransferMemo,
     StacksTransaction, StacksAddress };
 
-use super::super::{Keychain, MemPool, RunLoop};
+use crate::{Keychain, MemPool};
+use crate::helium::RunLoop;
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
@@ -58,7 +59,7 @@ fn mempool_setup_chainstate() {
 
     let mut run_loop = RunLoop::new(conf);
 
-    run_loop.apply_on_new_tenures(|round, tenure| {
+    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         if round == 0 { // block-height = 2
             let publish_tx = make_contract_publish(&contract_sk, 0, 100, "foo_contract", FOO_CONTRACT);
@@ -67,8 +68,8 @@ fn mempool_setup_chainstate() {
         }
     });
 
-    run_loop.apply_on_new_chain_states(|round, chainstate, chain_tip, _burnchain_tip| {
-    // run_loop.apply_on_new_chain_states(|round, ref mut chainstate, bhh| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chainstate| {
+    // run_loop.callbacks.on_new_stacks_chain_state(|round, ref mut chainstate, bhh| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let contract_addr = to_addr(&contract_sk);
 

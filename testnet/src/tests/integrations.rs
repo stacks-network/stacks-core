@@ -18,7 +18,9 @@ use stacks::net::{StacksMessageCodec, AccountEntryResponse, ContractSrcResponse,
 use stacks::util::{strings::StacksString};
 use stacks::vm::clarity::ClarityConnection;
 
-use super::super::{MemPool, RunLoop, config::InitialBalance};
+use crate::{MemPool, config::InitialBalance};
+use crate::helium::RunLoop;
+
 
 use reqwest;
 
@@ -193,7 +195,7 @@ fn integration_test_get_info() {
         http_opt.replace(format!("http://{}", &run_loop.node.config.node.rpc_bind));
     }
 
-    run_loop.apply_on_new_tenures(|round, tenure| {
+    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
         let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
@@ -216,7 +218,7 @@ fn integration_test_get_info() {
         return
     });
 
-    run_loop.apply_on_new_chain_states(|round, chain_state, chain_tip, _burnchain_tip| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state| {
         let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}", &contract_addr, "get-info")).unwrap();
@@ -606,7 +608,7 @@ fn contract_stx_transfer() {
     let num_rounds = 5;
 
     let mut run_loop = RunLoop::new(conf);
-    run_loop.apply_on_new_tenures(|round, tenure| {
+    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
         let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
@@ -640,7 +642,7 @@ fn contract_stx_transfer() {
         return
     });
 
-    run_loop.apply_on_new_chain_states(|round, chain_state, chain_tip, _burnchain_tip| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state| {
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}",
                                                         to_addr(

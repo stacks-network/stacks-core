@@ -1,6 +1,7 @@
 use std::process::{Command, Stdio, Child};
 
-use super::{Config, RunLoop, MemPool};
+use crate::{Config, MemPool};
+use crate::helium::RunLoop;
 
 use stacks::chainstate::burn::operations::BlockstackOperationType::{LeaderBlockCommit, LeaderKeyRegister};
 use stacks::util::hash::{hex_bytes};
@@ -98,14 +99,14 @@ fn simple_test() {
     let num_rounds = 6;
     let mut run_loop = RunLoop::new(conf);
 
-    run_loop.apply_once_burnchain_initialized(|burnchain_controller| {
+    run_loop.callbacks.on_burn_chain_initialized(|burnchain_controller| {
         // todo(ludo): we need to wait for bitcoind to be ready.
         sleep_ms(5000);
         burnchain_controller.bootstrap_chain();
     });
 
     // In this serie of tests, the callback is fired post-burnchain-sync, pre-stacks-sync
-    run_loop.apply_on_new_burnchain_states(|round, burnchain_tip, chain_tip| {
+    run_loop.callbacks.on_new_burn_chain_state(|round, burnchain_tip, chain_tip| {
         match round {
             0 => {
                 let block = &burnchain_tip.block_snapshot;
@@ -267,7 +268,7 @@ fn simple_test() {
     });
 
     // Use tenure's hook for submitting transactions
-    run_loop.apply_on_new_tenures(|round, tenure| {
+    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
         match round {
             1 => {
                 // On round 1, publish the KV contract
@@ -319,7 +320,7 @@ fn simple_test() {
 
     // Use block's hook for asserting expectations
     // In this serie of tests, the callback is fired post-burnchain-sync, post-stacks-sync
-    run_loop.apply_on_new_chain_states(|round, _chain_state, chain_tip, burnchain_tip| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, burnchain_tip, chain_tip, _chain_state| {
         match round {
             0 => {
                 // Inspecting the chain at round 0.

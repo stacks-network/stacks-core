@@ -1,2 +1,2 @@
 [alias]
-testnet = "run --package stacks-helium --"
+testnet = "run --package stacks-testnet --"
