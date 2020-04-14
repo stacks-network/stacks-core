@@ -3918,7 +3918,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attacheable_reversed() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_staging_block_load_store_accept_attacheable");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stx_db_staging_block_load_store_accept_attacheable_r");
         let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
       
         let block_1 = make_empty_coinbase_block(&privk);
@@ -3988,7 +3988,7 @@ pub mod test {
     
     #[test]
     fn stacks_db_staging_block_load_store_accept_attacheable_fork() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_staging_block_load_store_accept_attacheable");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stx_db_staging_block_load_store_accept_attacheable_f");
         let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
       
         let block_1 = make_empty_coinbase_block(&privk);
@@ -4151,7 +4151,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_blocks_orphaned() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_staging_block_load_store_accept_attacheable");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_staging_blocks_orphaned");
         let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
       
         let block_1 = make_empty_coinbase_block(&privk);
@@ -4254,7 +4254,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_drop_staging_microblocks() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_staging_block_load_store_accept_attacheable");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_drop_staging_microblocks_1");
         let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
         
         let block = make_empty_coinbase_block(&privk);
