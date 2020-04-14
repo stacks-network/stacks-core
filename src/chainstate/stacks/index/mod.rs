@@ -306,6 +306,13 @@ pub trait BlockMap {
     fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error>;
 }
 
+#[cfg(test)]
+impl BlockMap for () {
+    fn get_block_hash(&self, _id: u32) -> Result<BlockHeaderHash, Error> {
+        Err(Error::NotFoundError)
+    }
+}
+
 /// PartialEq helper method for slices of arbitrary length.
 pub fn slice_partialeq<T: PartialEq>(s1: &[T], s2: &[T]) -> bool {
     if s1.len() != s2.len() {

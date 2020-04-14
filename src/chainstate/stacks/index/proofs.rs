@@ -1410,7 +1410,6 @@ mod test {
         // the verifier should not allow a proof from k1 to old_v from block_2
         let triepath_2 = TriePath::from_key(&k1);
         let marf_value_2 = MARFValue::from_value(&old_v);
-        let block_map = m.borrow_storage_backend().block_map.clone();
         assert!(!proof_2.verify(&triepath_2, &marf_value_2, &root_hash_2, &root_to_block));
         
         // create a proof from the previous block to the old value.
@@ -1420,7 +1419,6 @@ mod test {
         // the verifier should allow a proof from k1 to old_v from block_1
         let triepath_1 = TriePath::from_key(&k1);
         let marf_value_1 = MARFValue::from_value(&old_v);
-        let block_map = m.borrow_storage_backend().block_map.clone();
         assert!(proof_1.verify(&triepath_1, &marf_value_1, &root_hash_1, &root_to_block));
     }
 }

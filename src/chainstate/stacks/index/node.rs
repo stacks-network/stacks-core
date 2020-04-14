@@ -1115,12 +1115,6 @@ impl TrieLeaf {
 
 }
 
-impl ConsensusSerializable<()> for TrieLeaf {
-    fn write_consensus_bytes<W: Write>(&self, _unused_data: &(), w: &mut W) -> Result<(), Error> {
-        self.write_consensus_bytes_leaf(w)
-    }
-}
-
 impl TrieNode for TrieLeaf {
     fn id(&self) -> u8 {
         TrieNodeID::Leaf
@@ -1390,7 +1384,7 @@ mod test {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
         
-        let buf = node4.to_consensus_bytes(&BlockHashMap::new(None));
+        let buf = node4.to_consensus_bytes(&());
         assert_eq!(to_hex(buf.as_slice()), to_hex(node4_bytes.as_slice()));
     }
     
@@ -1462,7 +1456,7 @@ mod test {
             // path 
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
-        let buf = node16.to_consensus_bytes(&BlockHashMap::new(None));
+        let buf = node16.to_consensus_bytes(&());
         assert_eq!(to_hex(buf.as_slice()), to_hex(node16_bytes.as_slice()));
     }
 
@@ -1634,7 +1628,7 @@ mod test {
             // path 
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
-        let buf = node48.to_consensus_bytes(&BlockHashMap::new(None));
+        let buf = node48.to_consensus_bytes(&());
         assert_eq!(buf, node48_bytes);
     }
     
@@ -1707,7 +1701,7 @@ mod test {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ]);
 
-        let buf = node256.to_consensus_bytes(&BlockHashMap::new(None));
+        let buf = node256.to_consensus_bytes(&());
         assert_eq!(buf, node256_bytes);
     }
 
@@ -1859,7 +1853,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node4_ptr = trie_io.last_ptr().unwrap();
-        let node4_hash = get_node_hash(&node4, &child_hashes, &trie_io.block_map);
+        let node4_hash = get_node_hash(&node4, &child_hashes, &trie_io);
         trie_io.write_node(node4_ptr, &node4, node4_hash).unwrap();
         
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node4(node4)).unwrap();
@@ -1891,7 +1885,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node16_ptr = trie_io.last_ptr().unwrap();
-        let node16_hash = get_node_hash(&node16, &child_hashes, &trie_io.block_map);
+        let node16_hash = get_node_hash(&node16, &child_hashes, &trie_io);
         trie_io.write_node(node16_ptr, &node16, node16_hash).unwrap();
 
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node16(node16)).unwrap();
@@ -1923,7 +1917,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node48_ptr = trie_io.last_ptr().unwrap();
-        let node48_hash = get_node_hash(&node48, &child_hashes, &trie_io.block_map);
+        let node48_hash = get_node_hash(&node48, &child_hashes, &trie_io);
         trie_io.write_node(node48_ptr, &node48, node48_hash).unwrap();
 
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node48(node48)).unwrap();
@@ -1955,7 +1949,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node256_ptr = trie_io.last_ptr().unwrap();
-        let node256_hash = get_node_hash(&node256, &child_hashes, &trie_io.block_map);
+        let node256_hash = get_node_hash(&node256, &child_hashes, &trie_io);
         trie_io.write_node(node256_ptr, &node256, node256_hash).unwrap();
 
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node256(node256)).unwrap();

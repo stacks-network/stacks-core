@@ -863,7 +863,7 @@ impl MARF {
     }
 
     /// Get the path to a block's trie
-    pub fn get_block_path(&self, block_hash: &BlockHeaderHash) -> PathBuf {
+    pub fn get_block_path(&self, _block_hash: &BlockHeaderHash) -> PathBuf {
         panic!("Not here")
     }
 }

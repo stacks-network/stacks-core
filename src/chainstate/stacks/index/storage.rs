@@ -156,6 +156,20 @@ impl TrieSQL {
         Ok(block_id)
     }
 
+    #[cfg(test)]
+    pub fn read_all_block_hashes_and_roots(conn: &Connection) -> Result<Vec<(TrieHash, BlockHeaderHash)>, Error> {
+        let mut s = conn.prepare("SELECT block_hash, data FROM marf_data")?;
+        let rows = s.query_and_then(NO_PARAMS, |row| {
+            let block_hash: BlockHeaderHash = row.get("block_hash");
+            let data = row.get_raw("data")
+                .as_blob().expect("DB Corruption: MARF data is non-blob");
+            let start = TrieFileStorage::root_ptr_disk() as usize;
+            let trie_hash = TrieHash(read_hash_bytes(&mut &data[start..])?);
+            Ok((trie_hash, block_hash))
+        })?;
+        rows.collect()
+    }
+
     pub fn read_node_hash_bytes<W: Write>(conn: &Connection, w: &mut W, block_id: u32, ptr: &TriePtr) -> Result<(), Error> {
         conn.query_row_and_then(
             "SELECT data FROM marf_data WHERE block_id = ?", &[block_id],
@@ -163,7 +177,7 @@ impl TrieSQL {
                 let data = row.get_raw("data")
                     .as_blob().expect("DB Corruption: MARF data is non-blob");
                 let start = ptr.ptr() as usize;
-                w.write(&data[start..start+32])?;
+                w.write(&data[start..start+TRIEHASH_ENCODED_SIZE])?;
                 Ok(())
             })
     }
@@ -175,7 +189,7 @@ impl TrieSQL {
                 let data = row.get_raw("data")
                     .as_blob().expect("DB Corruption: MARF data is non-blob");
                 let start = ptr.ptr() as usize;
-                w.write(&data[start..start+32])?;
+                w.write(&data[start..start+TRIEHASH_ENCODED_SIZE])?;
                 Ok(())
             })
     }
@@ -192,13 +206,13 @@ impl TrieSQL {
     }
 
     pub fn get_node_hash_bytes(conn: &Connection, block_id: u32, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        let mut bytes = [0u8; 32];
+        let mut bytes = [0u8; TRIEHASH_ENCODED_SIZE];
         TrieSQL::read_node_hash_bytes(conn, &mut bytes.as_mut(), block_id, ptr)?;
         Ok(TrieHash(bytes))
     }
 
     pub fn get_node_hash_bytes_by_bhh(conn: &Connection, bhh: &BlockHeaderHash, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        let mut bytes = [0u8; 32];
+        let mut bytes = [0u8; TRIEHASH_ENCODED_SIZE];
         TrieSQL::read_node_hash_bytes_by_bhh(conn, &mut bytes.as_mut(), bhh, ptr)?;
         Ok(TrieHash(bytes))
     }
@@ -226,7 +240,7 @@ impl TrieSQL {
     }
 
     pub fn lock_bhh_for_extension(conn: &mut Connection, bhh: &BlockHeaderHash) -> Result<bool, Error> {
-        let mut tx = conn.transaction()?;
+        let tx = conn.transaction()?;
         let is_bhh_committed = tx.query_row("SELECT 1 FROM marf_data WHERE block_hash = ? LIMIT 1", &[bhh],
                                             |_row| ()).optional()?.is_some();
         if is_bhh_committed {
@@ -261,7 +275,7 @@ impl TrieSQL {
     }
 
     pub fn clear_tables(conn: &mut Connection) -> Result<(), Error> {
-        let mut tx = conn.transaction()?;
+        let tx = conn.transaction()?;
         tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
         tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
         tx.execute("DELETE FROM chain_tips", NO_PARAMS)?;
@@ -669,7 +683,7 @@ impl TrieFileStorage {
         let db = Connection::open(dir_path)?;
         let dir_path = dir_path.to_string();
 
-        test_debug!("Opened TrieFileStorage {}; {} blocks", dir_path, block_map.len());
+        test_debug!("Opened TrieFileStorage {};", dir_path);
 
         let ret = TrieFileStorage {
             dir_path,
@@ -785,33 +799,8 @@ impl TrieFileStorage {
     /// Generate a mapping between Trie root hashes and the blocks that contain them
     #[cfg(test)]
     pub fn read_root_to_block_table(&mut self) -> Result<HashMap<TrieHash, BlockHeaderHash>, Error> {
-        let mut ret = HashMap::new();
-
-        for bhh in self.block_map.iter() {
-            if let Some((ref last_extended, _)) = self.last_extended {
-                if *last_extended == *bhh {
-                    // this hasn't been dumped yet
-                    continue;
-                }
-            }
-
-            if *bhh == TrieFileStorage::block_sentinel() {
-                continue;
-            }
-
-            let root_hash = match self.read_block_root_hash(bhh) {
-                Ok(h) => {
-                    h
-                },
-                Err(e) => {
-                    let h = self.read_tmp_block_root_hash(bhh)?;
-                    trace!("Read {:?} from tmp file for {:?} instead", &h, bhh);
-                    h
-                }
-            };
-
-            ret.insert(root_hash.clone(), bhh.clone());
-        }
+        let mut ret = HashMap::from_iter(TrieSQL::read_all_block_hashes_and_roots(&self.db)?
+                                         .into_iter());
 
         let last_extended = match self.last_extended.take() {
             Some((bhh, trie_ram)) => {
@@ -841,14 +830,14 @@ impl TrieFileStorage {
             None => (1024) // don't try to guess _byte_ allocation here.
         };
 
-        TrieSQL::remove_chain_tip_if_present(&self.db, &self.cur_block);
+        TrieSQL::remove_chain_tip_if_present(&self.db, &self.cur_block)?;
 
         // this *requires* that bhh hasn't been the parent of any prior
         //   extended blocks.
         // this is currently enforced if you use the "public" interfaces
         //   to marfs, but could definitely be violated via raw updates
         //   to trie structures.
-        TrieSQL::add_chain_tip(&self.db, bhh);
+        TrieSQL::add_chain_tip(&self.db, bhh)?;
 
         let trie_buf = TrieRAM::new(bhh, size_hint, &self.cur_block);
 
@@ -910,7 +899,7 @@ impl TrieFileStorage {
     }
 
     pub fn get_cur_block_identifier(&mut self) -> Result<u32, Error> {
-        if let Some((ref last_extended, ref last_extended_trie)) = self.last_extended {
+        if let Some((ref last_extended, _)) = self.last_extended {
             if &self.cur_block == last_extended {
                 return Err(Error::RequestedIdentifierForExtensionTrie)
             }
