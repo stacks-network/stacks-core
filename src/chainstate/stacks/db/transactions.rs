@@ -170,7 +170,7 @@ impl StacksChainState {
 
         Ok(())
     }
-    
+
     /// Apply a post-conditions check.
     /// Return true if they all pass.
     /// Return false if at least one fails.
@@ -225,7 +225,7 @@ impl StacksChainState {
                         info!("Post-condition check failure on fungible asset {:?} owned by {:?}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent);
                         return false;
                     }
-                    
+
                     if let Some(ref mut asset_ids) = checked_fungible_assets.get_mut(&account_principal) {
                         asset_ids.insert(asset_id);
                     }
@@ -509,7 +509,7 @@ impl StacksChainState {
                     info!("Invalid smart-contract transaction {}: {}", &tx.txid(), &e);
                     Error::ClarityError(e)
                 })?;
-                
+
                 // store analysis -- if this fails, then the have some pretty bad problems
                 clarity_tx.save_analysis(&contract_id, &contract_analysis)
                     .expect("FATAL: failed to store contract analysis");
@@ -596,7 +596,7 @@ pub mod test {
     use vm::types::*;
     use vm::representations::ContractName;
     use vm::representations::ClarityName;
-   
+
     #[test]
     fn process_token_transfer_stx_transaction() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-token-transfer-stx-transaction");
@@ -613,7 +613,7 @@ pub mod test {
         tx_stx_transfer.chain_id = 0x80000000;
         tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
         tx_stx_transfer.set_fee_rate(0);
-        
+
         let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
         signer.sign_origin(&privk).unwrap();
 
@@ -632,7 +632,7 @@ pub mod test {
             |tx| StacksChainState::account_credit(tx, &addr.to_account_principal(), 223));
 
         let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
-        
+
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account_after.nonce, 1);
         assert_eq!(account_after.stx_balance, 100);
@@ -682,7 +682,7 @@ pub mod test {
 
         conn.commit_block();
     }
-    
+
     #[test]
     fn process_token_transfer_stx_transaction_invalid() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-token-transfer-stx-transaction-invalid");
@@ -694,7 +694,7 @@ pub mod test {
         let addr = auth.origin().address_testnet();
         let sponsor_addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk_sponsor)]).unwrap();
         let recv_addr = addr.clone();       // shouldn't be allowed
-        
+
         let auth_sponsored = {
             let auth_origin = TransactionAuth::from_p2pkh(&privk).unwrap();
             let auth_sponsor = TransactionAuth::from_p2pkh(&privk_sponsor).unwrap();
@@ -718,7 +718,7 @@ pub mod test {
             TransactionPayload::TokenTransfer(sponsor_addr.clone().into(), 123, TokenTransferMemo([0u8; 34])));
 
         tx_stx_transfer_postconditions.add_post_condition(TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentGt, 0));
-        
+
         let mut wrong_nonce_auth = auth.clone();
         wrong_nonce_auth.set_origin_nonce(1);
         let mut tx_stx_transfer_wrong_nonce = StacksTransaction::new(
@@ -768,7 +768,7 @@ pub mod test {
         for (tx_stx_transfer, err_frag) in [tx_stx_transfer_same_receiver, tx_stx_transfer_wrong_network, tx_stx_transfer_wrong_chain_id, tx_stx_transfer_postconditions, tx_stx_transfer_wrong_nonce, tx_stx_transfer_wrong_nonce_sponsored].iter().zip(error_frags) {
             let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
             signer.sign_origin(&privk).unwrap();
-            
+
             if tx_stx_transfer.auth.is_sponsored() {
                 signer.sign_sponsor(&privk_sponsor).unwrap();
             }
@@ -783,7 +783,7 @@ pub mod test {
 
             let res = StacksChainState::process_transaction(&mut conn, &signed_tx);
             assert!(res.is_err());
-            
+
             match res {
                 Err(Error::InvalidStacksTransaction(msg)) => {
                     assert!(msg.contains(&err_frag), err_frag);
@@ -793,7 +793,7 @@ pub mod test {
                     assert!(false);
                 }
             }
-        
+
             let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
             assert_eq!(account_after.stx_balance, 123);
             assert_eq!(account_after.nonce, 0);
@@ -825,7 +825,7 @@ pub mod test {
         tx_stx_transfer.chain_id = 0x80000000;
         tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
         tx_stx_transfer.set_fee_rate(0);
-        
+
         let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
         signer.sign_origin(&privk_origin).unwrap();
         signer.sign_sponsor(&privk_sponsor).unwrap();
@@ -849,7 +849,7 @@ pub mod test {
             |tx| StacksChainState::account_credit(tx, &addr.to_account_principal(), 123));
 
         let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
-        
+
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account_after.nonce, 1);
         assert_eq!(account_after.stx_balance, 0);
@@ -861,12 +861,12 @@ pub mod test {
         let recv_account_after = StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
         assert_eq!(recv_account_after.nonce, 0);
         assert_eq!(recv_account_after.stx_balance, 123);
-        
+
         conn.commit_block();
 
         assert_eq!(fee, 0);
     }
-     
+
     #[test]
     fn process_smart_contract_transaction() {
         let contract = "
@@ -880,7 +880,7 @@ pub mod test {
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
-        
+
         let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
                                                           auth.clone(),
                                                           TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
@@ -908,7 +908,7 @@ pub mod test {
         assert_eq!(account.nonce, 1);
 
         let contract_res = StacksChainState::get_contract(&mut conn, &contract_id);
-        
+
         conn.commit_block();
 
         assert_eq!(fee, 0);
@@ -934,9 +934,9 @@ pub mod test {
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
-        
+
         let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
-        
+
         let contracts = vec![
             contract_correct.clone(),
             contract_correct.clone(),
@@ -954,12 +954,12 @@ pub mod test {
             "hello-world-0",
             "hello-world-1",
         ];
-        
+
         let mut next_nonce = 0;
         for i in 0..contracts.len() {
             let contract_name = contract_names[i].to_string();
             let contract = contracts[i].to_string();
-            
+
             test_debug!("\ninstantiate contract\n{}\n", &contracts[i]);
 
             let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
@@ -992,7 +992,7 @@ pub mod test {
             }
             else {
                 assert!(res.is_err());
-                
+
                 // account nonce should NOT increment
                 let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
                 assert_eq!(account.nonce, next_nonce);
@@ -1000,7 +1000,7 @@ pub mod test {
             }
         }
     }
-   
+
     #[test]
     fn process_smart_contract_transaction_runtime_error() {
         let contract_correct = "
@@ -1008,13 +1008,13 @@ pub mod test {
         (define-public (get-bar) (ok (var-get bar)))
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
-        
+
         let contract_runtime_error_definition = "
         (define-data-var bar int (/ 1 0))   ;; divide-by-zero
         (define-public (get-bar) (ok (var-get bar)))
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
-        
+
         let contract_runtime_error_bare_code = "
         (define-data-var bar int 0)
         (define-public (get-bar) (ok (var-get bar)))
@@ -1027,9 +1027,9 @@ pub mod test {
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
-        
+
         let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
-       
+
         let contracts = vec![
             contract_correct,
             contract_runtime_error_definition,
@@ -1041,7 +1041,7 @@ pub mod test {
             "hello-world-1",
             "hello-world-2"
         ];
-            
+
         for i in 0..contracts.len() {
             let contract_name = contract_names[i].to_string();
             let contract = contracts[i].to_string();
@@ -1077,7 +1077,7 @@ pub mod test {
             let contract_res = StacksChainState::get_contract(&mut conn, &contract_id);
             assert!(contract_res.is_ok());
         }
-        
+
         conn.commit_block();
     }
 
@@ -1101,7 +1101,7 @@ pub mod test {
 
         let addr = auth.origin().address_testnet();
         let addr_sponsor = auth.sponsor().unwrap().address_testnet();
-        
+
         let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
                                                           auth.clone(),
                                                           TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
@@ -1131,18 +1131,18 @@ pub mod test {
 
         let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account.nonce, 1);
-        
+
         let account_sponsor = StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
         assert_eq!(account_sponsor.nonce, 1);
 
         let contract_res = StacksChainState::get_contract(&mut conn, &contract_id);
-        
+
         conn.commit_block();
 
         assert_eq!(fee, 0);
         assert!(contract_res.is_ok());
     }
-    
+
     #[test]
     fn process_smart_contract_contract_call_transaction() {
         let contract = "
@@ -1157,7 +1157,7 @@ pub mod test {
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
-        
+
         let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                      auth.clone(),
                                                      TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
@@ -1174,7 +1174,7 @@ pub mod test {
         let privk_2 = StacksPrivateKey::from_hex("d2c340ebcc0794b6fabdd8ac8b1c983e363b05dc8adcdf7e30db205a3fa54c1601").unwrap();
         let auth_2 = TransactionAuth::from_p2pkh(&privk_2).unwrap();
         let addr_2 = auth.origin().address_testnet();
-        
+
         let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
                                                           auth_2.clone(),
                                                           TransactionPayload::new_contract_call(addr.clone(), "hello-world", "set-bar", vec![Value::Int(6), Value::Int(2)]).unwrap());
@@ -1184,7 +1184,7 @@ pub mod test {
 
         let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
         signer_2.sign_origin(&privk_2).unwrap();
-       
+
         let signed_tx_2 = signer_2.get_tx().unwrap();
 
         // process both
@@ -1192,10 +1192,10 @@ pub mod test {
 
         let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account.nonce, 0);
-        
+
         let account_2 = StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
         assert_eq!(account_2.nonce, 0);
-        
+
         let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from("hello-world"));
         let contract_before_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
         assert!(contract_before_res.is_none());
@@ -1212,13 +1212,13 @@ pub mod test {
 
         let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account.nonce, 1);
-        
+
         let account_2 = StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
         assert_eq!(account_2.nonce, 1);
 
         let contract_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
         let var_res = StacksChainState::get_data_var(&mut conn, &contract_id, "bar").unwrap();
-        
+
         conn.commit_block();
 
         assert_eq!(fee, 0);
@@ -1227,7 +1227,7 @@ pub mod test {
         assert!(var_res.is_some());
         assert_eq!(var_res, Some(Value::Int(3)));
     }
-    
+
     #[test]
     fn process_smart_contract_contract_call_runtime_error() {
         let contract = "
@@ -1243,7 +1243,7 @@ pub mod test {
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
-        
+
         let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                      auth.clone(),
                                                      TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
@@ -1255,9 +1255,9 @@ pub mod test {
         signer.sign_origin(&privk).unwrap();
 
         let signed_tx = signer.get_tx().unwrap();
-        
+
         let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
-        
+
         let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from("hello-world"));
         let (_fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
 
@@ -1286,9 +1286,9 @@ pub mod test {
 
             let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
             signer_2.sign_origin(&privk_2).unwrap();
-           
+
             let signed_tx_2 = signer_2.get_tx().unwrap();
-        
+
             let account_2 = StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
             assert_eq!(account_2.nonce, next_nonce);
         
@@ -1306,7 +1306,7 @@ pub mod test {
         }
         conn.commit_block();
     }
-    
+
     #[test]
     fn process_smart_contract_contract_call_invalid() {
         let contract = "
@@ -1322,12 +1322,12 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
         let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr.clone()), ContractName::from("hello-world"));
-        
+
         // for contract-calls
         let privk_2 = StacksPrivateKey::from_hex("d2c340ebcc0794b6fabdd8ac8b1c983e363b05dc8adcdf7e30db205a3fa54c1601").unwrap();
         let auth_2 = TransactionAuth::from_p2pkh(&privk_2).unwrap();
         let addr_2 = auth_2.origin().address_testnet();
-        
+
         let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                      auth.clone(),
                                                      TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
@@ -1339,7 +1339,7 @@ pub mod test {
         signer.sign_origin(&privk).unwrap();
 
         let signed_tx = signer.get_tx().unwrap();
-        
+
         let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
         let (_fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
 
@@ -1367,12 +1367,12 @@ pub mod test {
 
             let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
             signer_2.sign_origin(&privk_2).unwrap();
-           
+
             let signed_tx_2 = signer_2.get_tx().unwrap();
-        
+
             let account_2 = StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
             assert_eq!(account_2.nonce, next_nonce);
-       
+
             // transaction is invalid, and won't be mined
             let res = StacksChainState::process_transaction(&mut conn, &signed_tx_2);
             assert!(res.is_err());
@@ -1388,7 +1388,7 @@ pub mod test {
         }
         conn.commit_block();
     }
-    
+
     #[test]
     fn process_smart_contract_contract_call_sponsored_transaction() {
         let contract = "
@@ -1403,7 +1403,7 @@ pub mod test {
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr_publisher = auth.origin().address_testnet();
-        
+
         let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                      auth.clone(),
                                                      TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
@@ -1438,7 +1438,7 @@ pub mod test {
         let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
         signer_2.sign_origin(&privk_origin).unwrap();
         signer_2.sign_sponsor(&privk_sponsor).unwrap();
-       
+
         let signed_tx_2 = signer_2.get_tx().unwrap();
 
         // process both
@@ -1449,10 +1449,10 @@ pub mod test {
 
         let account_origin = StacksChainState::get_account(&mut conn, &addr_origin.to_account_principal());
         assert_eq!(account_origin.nonce, 0);
-        
+
         let account_sponsor = StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
         assert_eq!(account_sponsor.nonce, 0);
-        
+
         let contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(addr_publisher.clone()), ContractName::from("hello-world"));
         let contract_before_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
         assert!(contract_before_res.is_none());
@@ -1461,7 +1461,7 @@ pub mod test {
         assert!(var_before_res.is_none());
 
         let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx).unwrap();
-        
+
         let account_publisher = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
         assert_eq!(account_publisher.nonce, 1);
 
@@ -1469,16 +1469,16 @@ pub mod test {
         assert_eq!(var_before_set_res, Some(Value::Int(0)));
 
         let (fee_2, _) = StacksChainState::process_transaction(&mut conn, &signed_tx_2).unwrap();
-        
+
         let account_origin = StacksChainState::get_account(&mut conn, &addr_origin.to_account_principal());
         assert_eq!(account_origin.nonce, 1);
-        
+
         let account_sponsor = StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
         assert_eq!(account_sponsor.nonce, 1);
 
         let contract_res = StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
         let var_res = StacksChainState::get_data_var(&mut conn, &contract_id, "bar").unwrap();
-        
+
         conn.commit_block();
 
         assert_eq!(fee, 0);
@@ -1495,32 +1495,32 @@ pub mod test {
         (define-fungible-token stackaroos)
         (define-non-fungible-token names (buff 50))
         (define-public (send-stackaroos (recipient principal))
-          (begin 
+          (begin
              (as-contract  ;; used to test post-conditions on contract principal
                (begin (unwrap-panic (ft-mint? stackaroos u100 tx-sender))
                       (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
-                      (ok 'true))
+                      (ok true))
              )
            )
         )
         (define-public (send-name (name (buff 50)) (recipient principal))
-          (begin 
+          (begin
             (as-contract   ;; used to test post-conditions on contract principal
               (begin (unwrap-panic (nft-mint? names name tx-sender))
                      (unwrap-panic (nft-transfer? names name tx-sender recipient))
-                     (ok 'true))
+                     (ok true))
             )
           )
         )
         (define-public (user-send-stackaroos (recipient principal))
           (begin
              (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
-             (ok 'true))
+             (ok true))
         )
         (define-public (user-send-name (name (buff 50)) (recipient principal))
           (begin
              (unwrap-panic (nft-transfer? names name tx-sender recipient))
-             (ok 'true))
+             (ok true))
         )
         (define-public (send-stackaroos-and-name (name (buff 50)) (recipient principal))
           (begin
@@ -1529,7 +1529,7 @@ pub mod test {
                       (unwrap-panic (nft-transfer? names name tx-sender recipient))
                       (unwrap-panic (ft-mint? stackaroos u100 tx-sender))
                       (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
-                      (ok 'true))
+                      (ok true))
              )
           )
         )
@@ -1537,7 +1537,7 @@ pub mod test {
            (begin
              (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
              (unwrap-panic (nft-transfer? names name tx-sender recipient))
-             (ok 'true))
+             (ok true))
         )
         (define-public (get-bar) (ok (var-get bar)))
         (define-public (set-bar (x int) (y int))
@@ -1562,13 +1562,13 @@ pub mod test {
             contract_name: contract_name.clone(),
             asset_name: ClarityName::try_from("stackaroos").unwrap(),
         };
-        
+
         let name_asset_info = AssetInfo {
             contract_address: addr_publisher.clone(),
             contract_name: contract_name.clone(),
             asset_name: ClarityName::try_from("names").unwrap(),
         };
-        
+
         let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                      auth_origin.clone(),
                                                      TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
@@ -1578,7 +1578,7 @@ pub mod test {
 
         let mut signer = StacksTransactionSigner::new(&tx_contract);
         signer.sign_origin(&privk_origin).unwrap();
-        
+
         let signed_contract_tx = signer.get_tx().unwrap();
 
         let mut post_conditions_pass = vec![];
@@ -1612,7 +1612,7 @@ pub mod test {
 
             nonce += 1;
         }
-        
+
         // mint 100 stackaroos to recv_addr, and set a post-condition on the contract-principal
         // to check it.
         // assert contract sent >= or > 99 stackaroos
@@ -1624,10 +1624,10 @@ pub mod test {
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_pass);
             signer.sign_origin(&privk_origin).unwrap();
             post_conditions_pass.push(signer.get_tx().unwrap());
-            
+
             nonce += 1;
         }
-        
+
         // mint 100 stackaroos to recv_addr, and set a post-condition on the contract-principal
         // to check it.
         // assert contract sent <= or < 101 stackaroos
@@ -1639,10 +1639,10 @@ pub mod test {
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_pass);
             signer.sign_origin(&privk_origin).unwrap();
             post_conditions_pass.push(signer.get_tx().unwrap());
-            
+
             nonce += 1;
         }
-        
+
         // give recv_addr 100 more stackaroos so we can test failure-to-send-back
         {
             let mut tx_contract_call_pass = tx_contract_call_stackaroos.clone();
@@ -1652,7 +1652,7 @@ pub mod test {
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_pass);
             signer.sign_origin(&privk_origin).unwrap();
             post_conditions_pass.push(signer.get_tx().unwrap());
-            
+
             nonce += 1;
         }
 
@@ -1662,7 +1662,7 @@ pub mod test {
 
         tx_contract_call_user_stackaroos.chain_id = 0x80000000;
         tx_contract_call_user_stackaroos.set_fee_rate(0);
-        
+
         // recv_addr sends 100 stackaroos back to addr_publisher.
         // assert recv_addr sent ==, <=, or >= 100 stackaroos
         for pass_condition in [FungibleConditionCode::SentEq, FungibleConditionCode::SentGe, FungibleConditionCode::SentLe].iter() {
@@ -1676,7 +1676,7 @@ pub mod test {
 
             recv_nonce += 1;
         }
-        
+
         // recv_addr sends 100 stackaroos back to addr_publisher.
         // assert recv_addr sent >= or > 99 stackaroos
         for pass_condition in [FungibleConditionCode::SentGe, FungibleConditionCode::SentGt].iter() {
@@ -1743,7 +1743,7 @@ pub mod test {
 
             nonce += 1;
         }
-        
+
         // mint 100 stackaroos to recv_addr, and set a post-condition on the contract-principal
         // to check it.
         // assert contract sent <= or < 99 stackaroos (should fail)
@@ -1758,7 +1758,7 @@ pub mod test {
 
             nonce += 1;
         }
-        
+
         // mint 100 stackaroos to recv_addr, and set a post-condition on the contract-principal
         // to check it.
         // assert contract sent > or >= 101 stackaroos (should fail)
@@ -1787,7 +1787,7 @@ pub mod test {
 
             recv_nonce += 1;
         }
-        
+
         // mint names to recv_addr, and set a post-condition on the contract-principal to check it.
         // assert contract still possesses the name (should fail)
         for (_i, fail_condition) in [NonfungibleConditionCode::NotSent].iter().enumerate() {
@@ -1823,7 +1823,7 @@ pub mod test {
 
         // publish contract
         let _ = StacksChainState::process_transaction(&mut conn, &signed_contract_tx).unwrap();
-        
+
         // no initial stackaroos balance
         let account_stackaroos_balance = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
         assert_eq!(account_stackaroos_balance, 0);
@@ -1845,7 +1845,7 @@ pub mod test {
             let account_publisher_after = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
             assert_eq!(account_publisher_after.nonce, expected_nonce);
         }
-        
+
         for tx_pass in post_conditions_pass_payback.iter() {
             let (_fee, _) = StacksChainState::process_transaction(&mut conn, &tx_pass).unwrap();
             expected_stackaroos_balance -= 100;
@@ -1854,13 +1854,13 @@ pub mod test {
 
             let account_recipient_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
             assert_eq!(account_recipient_stackaroos_after, expected_stackaroos_balance);
-            
+
             let account_pub_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &addr_principal).unwrap();
             assert_eq!(account_pub_stackaroos_after, expected_payback_stackaroos_balance);
 
             let account_publisher_after = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
             assert_eq!(account_publisher_after.nonce, expected_nonce);
-            
+
             let account_recv_publisher_after = StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
             assert_eq!(account_recv_publisher_after.nonce, expected_recv_nonce);
         }
@@ -1882,34 +1882,34 @@ pub mod test {
         for tx_fail in post_conditions_fail.iter() {
             let (_fee, _) = StacksChainState::process_transaction(&mut conn, &tx_fail).unwrap();
             expected_nonce += 1;
-            
+
             // no change in balance
             let account_recipient_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
             assert_eq!(account_recipient_stackaroos_after, expected_stackaroos_balance);
-            
+
             let account_pub_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &addr_principal).unwrap();
             assert_eq!(account_pub_stackaroos_after, expected_payback_stackaroos_balance);
-            
+
             // but nonce _does_ change
             let account_publisher_after = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
             assert_eq!(account_publisher_after.nonce, expected_nonce);
         }
-        
+
         for tx_fail in post_conditions_fail_payback.iter() {
             let (_fee, _) = StacksChainState::process_transaction(&mut conn, &tx_fail).unwrap();
             expected_recv_nonce += 1;
-            
+
             // no change in balance
             let account_recipient_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
             assert_eq!(account_recipient_stackaroos_after, expected_stackaroos_balance);
-            
+
             let account_pub_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &addr_principal).unwrap();
             assert_eq!(account_pub_stackaroos_after, expected_payback_stackaroos_balance);
-            
+
             // nonce for publisher doesn't change
             let account_publisher_after = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
             assert_eq!(account_publisher_after.nonce, expected_nonce);
-            
+
             // but nonce _does_ change for reciever, who sent back
             let account_publisher_after = StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
             assert_eq!(account_publisher_after.nonce, expected_recv_nonce);
@@ -1918,22 +1918,22 @@ pub mod test {
         for (_i, tx_fail) in post_conditions_fail_nft.iter().enumerate() {
             let (_fee, _) = StacksChainState::process_transaction(&mut conn, &tx_fail).unwrap();
             expected_nonce += 1;
-           
+
             // nft shouldn't exist -- the nft-mint! should have been rolled back
             let expected_value = Value::buff_from(expected_next_name.to_be_bytes().to_vec()).unwrap();
             expected_next_name += 1;
 
             let res = StacksChainState::get_account_nft(&mut conn, &contract_id, "names", &expected_value);
             assert!(res.is_err());
-            
+
             // but nonce _does_ change
             let account_publisher_after = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
             assert_eq!(account_publisher_after.nonce, expected_nonce);
         }
-        
+
         conn.commit_block();
     }
-    
+
     #[test]
     fn process_post_conditions_tokens_deny() {
         let contract = "
@@ -1941,32 +1941,32 @@ pub mod test {
         (define-fungible-token stackaroos)
         (define-non-fungible-token names (buff 50))
         (define-public (send-stackaroos (recipient principal))
-          (begin 
+          (begin
              (as-contract  ;; used to test post-conditions on contract principal
                (begin (unwrap-panic (ft-mint? stackaroos u100 tx-sender))
                       (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
-                      (ok 'true))
+                      (ok true))
              )
            )
         )
         (define-public (send-name (name (buff 50)) (recipient principal))
-          (begin 
+          (begin
             (as-contract   ;; used to test post-conditions on contract principal
               (begin (unwrap-panic (nft-mint? names name tx-sender))
                      (unwrap-panic (nft-transfer? names name tx-sender recipient))
-                     (ok 'true))
+                     (ok true))
             )
           )
         )
         (define-public (user-send-stackaroos (recipient principal))
           (begin
              (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
-             (ok 'true))
+             (ok true))
         )
         (define-public (user-send-name (name (buff 50)) (recipient principal))
           (begin
              (unwrap-panic (nft-transfer? names name tx-sender recipient))
-             (ok 'true))
+             (ok true))
         )
         (define-public (send-stackaroos-and-name (name (buff 50)) (recipient principal))
           (begin
@@ -1975,7 +1975,7 @@ pub mod test {
                       (unwrap-panic (nft-transfer? names name tx-sender recipient))
                       (unwrap-panic (ft-mint? stackaroos u100 tx-sender))
                       (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
-                      (ok 'true))
+                      (ok true))
              )
           )
         )
@@ -1983,7 +1983,7 @@ pub mod test {
            (begin
              (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
              (unwrap-panic (nft-transfer? names name tx-sender recipient))
-             (ok 'true))
+             (ok true))
         )
         (define-public (get-bar) (ok (var-get bar)))
         (define-public (set-bar (x int) (y int))
@@ -2008,13 +2008,13 @@ pub mod test {
             contract_name: contract_name.clone(),
             asset_name: ClarityName::try_from("stackaroos").unwrap(),
         };
-        
+
         let name_asset_info = AssetInfo {
             contract_address: addr_publisher.clone(),
             contract_name: contract_name.clone(),
             asset_name: ClarityName::try_from("names").unwrap(),
         };
-        
+
         let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                      auth_origin.clone(),
                                                      TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract.to_string()).unwrap());
@@ -2024,7 +2024,7 @@ pub mod test {
 
         let mut signer = StacksTransactionSigner::new(&tx_contract);
         signer.sign_origin(&privk_origin).unwrap();
-        
+
         let signed_contract_tx = signer.get_tx().unwrap();
 
         let mut post_conditions_pass = vec![];
@@ -2050,7 +2050,7 @@ pub mod test {
             tx_contract_call_both.chain_id = 0x80000000;
             tx_contract_call_both.set_fee_rate(0);
             tx_contract_call_both.set_origin_nonce(nonce);
-            
+
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), asset_info.clone(), *pass_condition, 100));
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
@@ -2061,7 +2061,7 @@ pub mod test {
 
             nonce += 1;
         }
-        
+
         // give recv_addr 100 more stackaroos so we can test failure-to-send-back
         {
             let name = Value::buff_from(next_name.to_be_bytes().to_vec()).unwrap();
@@ -2079,12 +2079,12 @@ pub mod test {
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_origin).unwrap();
             post_conditions_pass.push(signer.get_tx().unwrap());
-            
+
             nonce += 1;
         }
 
         assert_eq!(next_name, final_recv_name + 1);
-        
+
         // recv_addr sends 100 stackaroos and name back to addr_publisher.
         // assert recv_addr sent ==, <=, or >= 100 stackaroos
         for (_i, pass_condition) in [FungibleConditionCode::SentEq, FungibleConditionCode::SentGe, FungibleConditionCode::SentLe].iter().enumerate() {
@@ -2098,18 +2098,18 @@ pub mod test {
             tx_contract_call_both.chain_id = 0x80000000;
             tx_contract_call_both.set_fee_rate(0);
             tx_contract_call_both.set_origin_nonce(recv_nonce);
-            
+
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info.clone(), *pass_condition, 100));
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
-            
+
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_recipient).unwrap();
             post_conditions_pass_payback.push(signer.get_tx().unwrap());
 
             recv_nonce += 1;
         }
-        
+
         // mint 100 stackaroos and the name to recv_addr, but neglect to set a fungible post-condition.
         // assert contract sent ==, <=, or >= 100 stackaroos, and that the name was removed from
         // the contract
@@ -2124,7 +2124,7 @@ pub mod test {
             tx_contract_call_both.chain_id = 0x80000000;
             tx_contract_call_both.set_fee_rate(0);
             tx_contract_call_both.set_origin_nonce(nonce);
-            
+
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             // tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), asset_info.clone(), *fail_condition, 100));
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
@@ -2150,7 +2150,7 @@ pub mod test {
             tx_contract_call_both.chain_id = 0x80000000;
             tx_contract_call_both.set_fee_rate(0);
             tx_contract_call_both.set_origin_nonce(nonce);
-            
+
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), asset_info.clone(), *fail_condition, 100));
             // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
@@ -2161,7 +2161,7 @@ pub mod test {
 
             nonce += 1;
         }
-        
+
         // recv_addr sends 100 stackaroos and name back to addr_publisher, but forgets a fungible
         // post-condition.
         // assert recv_addr sent ==, <=, or >= 100 stackaroos
@@ -2175,11 +2175,11 @@ pub mod test {
             tx_contract_call_both.chain_id = 0x80000000;
             tx_contract_call_both.set_fee_rate(0);
             tx_contract_call_both.set_origin_nonce(recv_nonce);
-            
+
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             // tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info.clone(), *fail_condition, 100));
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
-            
+
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_recipient).unwrap();
             post_conditions_fail_payback.push(signer.get_tx().unwrap());
@@ -2202,18 +2202,18 @@ pub mod test {
             tx_contract_call_both.chain_id = 0x80000000;
             tx_contract_call_both.set_fee_rate(0);
             tx_contract_call_both.set_origin_nonce(recv_nonce);
-            
+
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info.clone(), *fail_condition, 100));
             // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
-            
+
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_recipient).unwrap();
             post_conditions_fail_payback.push(signer.get_tx().unwrap());
 
             recv_nonce += 1;
         }
-        
+
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-post-conditions");
         let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
 
@@ -2225,7 +2225,7 @@ pub mod test {
 
         // publish contract
         let _ = StacksChainState::process_transaction(&mut conn, &signed_contract_tx).unwrap();
-        
+
         // no initial stackaroos balance
         let account_stackaroos_balance = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
         assert_eq!(account_stackaroos_balance, 0);
@@ -2267,11 +2267,11 @@ pub mod test {
             // recipient should have sent stackaroos
             let account_recipient_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
             assert_eq!(account_recipient_stackaroos_after, expected_stackaroos_balance);
-            
+
             // publisher should have gotten them
             let account_pub_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &addr_principal).unwrap();
             assert_eq!(account_pub_stackaroos_after, expected_payback_stackaroos_balance);
-            
+
             // should have gotten name we created here
             let expected_value = match tx_pass.payload {
                 TransactionPayload::ContractCall(ref cc) => cc.function_args[0].clone(),
@@ -2284,7 +2284,7 @@ pub mod test {
             // no change in nonce
             let account_publisher_after = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
             assert_eq!(account_publisher_after.nonce, expected_nonce);
-            
+
             // receiver nonce changed
             let account_recv_publisher_after = StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
             assert_eq!(account_recv_publisher_after.nonce, expected_recv_nonce);
@@ -2293,11 +2293,11 @@ pub mod test {
         for (_i, tx_fail) in post_conditions_fail.iter().enumerate() {
             let (_fee, _) = StacksChainState::process_transaction(&mut conn, &tx_fail).unwrap();
             expected_nonce += 1;
-           
+
             // no change in balance
             let account_recipient_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
             assert_eq!(account_recipient_stackaroos_after, expected_stackaroos_balance);
-            
+
             let account_pub_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &addr_principal).unwrap();
             assert_eq!(account_pub_stackaroos_after, expected_payback_stackaroos_balance);
 
@@ -2319,14 +2319,14 @@ pub mod test {
             eprintln!("tx fail {:?}", &tx_fail);
             let (_fee, _) = StacksChainState::process_transaction(&mut conn, &tx_fail).unwrap();
             expected_recv_nonce += 1;
-           
+
             // no change in balance
             let account_recipient_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &recv_principal).unwrap();
             assert_eq!(account_recipient_stackaroos_after, expected_stackaroos_balance);
-            
+
             let account_pub_stackaroos_after = StacksChainState::get_account_ft(&mut conn, &contract_id, "stackaroos", &addr_principal).unwrap();
             assert_eq!(account_pub_stackaroos_after, expected_payback_stackaroos_balance);
-            
+
             // name we tried to send back is still owned by recv_addr
             let expected_value = match tx_fail.payload {
                 TransactionPayload::ContractCall(ref cc) => cc.function_args[0].clone(),
@@ -2341,7 +2341,7 @@ pub mod test {
             // nonce for publisher doesn't change
             let account_publisher_after = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
             assert_eq!(account_publisher_after.nonce, expected_nonce);
-            
+
             // but nonce _does_ change for reciever, who sent back
             let account_publisher_after = StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
             assert_eq!(account_publisher_after.nonce, expected_recv_nonce);
@@ -2372,13 +2372,13 @@ pub mod test {
             contract_name: ContractName::try_from("hello-world").unwrap(),
             asset_name: ClarityName::try_from("test-asset-1").unwrap(),
         };
-        
+
         let asset_info_2 = AssetInfo {
             contract_address: contract_addr.clone(),
             contract_name: ContractName::try_from("hello-world").unwrap(),
             asset_name: ClarityName::try_from("test-asset-2").unwrap(),
         };
-        
+
         let asset_info_3 = AssetInfo {
             contract_address: contract_addr.clone(),
             contract_name: ContractName::try_from("hello-world").unwrap(),
@@ -2389,7 +2389,7 @@ pub mod test {
             contract_identifier: QualifiedContractIdentifier::new(StandardPrincipalData::from(asset_info_1.contract_address), asset_info_1.contract_name.clone()),
             asset_name: asset_info_1.asset_name.clone()
         };
-        
+
         let asset_id_2 = AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(StandardPrincipalData::from(asset_info_2.contract_address), asset_info_2.contract_name.clone()),
             asset_name: asset_info_2.asset_name.clone()
@@ -2421,7 +2421,7 @@ pub mod test {
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_1.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-            
+
              // two post-conditions on origin in allow mode
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_1.clone(), FungibleConditionCode::SentEq, 123),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_2.clone(), FungibleConditionCode::SentEq, 123)],
@@ -2438,7 +2438,7 @@ pub mod test {
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_1.clone(), FungibleConditionCode::SentGt, 122),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_2.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-             
+
              // three post-conditions on origin in allow mode, one with sending 0 tokens
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_1.clone(), FungibleConditionCode::SentEq, 123),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_3.clone(), FungibleConditionCode::SentEq, 0),
@@ -2460,7 +2460,7 @@ pub mod test {
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_3.clone(), FungibleConditionCode::SentEq, 0),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_2.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-             
+
              // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
              // an unchecked address and a vacuous amount
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_1.clone(), FungibleConditionCode::SentEq, 123),
@@ -2488,7 +2488,7 @@ pub mod test {
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentEq, 0),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_2.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-            
+
              // one post-condition on origin in allow mode, explicit origin
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentEq, 123)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
@@ -2500,7 +2500,7 @@ pub mod test {
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-            
+
              // two post-conditions on origin in allow mode, explicit origin
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentEq, 123),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_2.clone(), FungibleConditionCode::SentEq, 123)],
@@ -2517,7 +2517,7 @@ pub mod test {
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentGt, 122),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_2.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-             
+
              // three post-conditions on origin in allow mode, one with sending 0 tokens, explicit
              // origin
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentEq, 123),
@@ -2540,7 +2540,7 @@ pub mod test {
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_3.clone(), FungibleConditionCode::SentEq, 0),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_2.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-             
+
              // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
              // an unchecked address and a vacuous amount, explicit origin
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentEq, 123),
@@ -2568,7 +2568,7 @@ pub mod test {
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentEq, 0),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_2.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-            
+
              // no-postconditions in deny mode
             (false, vec![],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
@@ -2584,7 +2584,7 @@ pub mod test {
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
             (false, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_1.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
-            
+
              // two post-conditions on origin in allow mode
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_1.clone(), FungibleConditionCode::SentEq, 123),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_2.clone(), FungibleConditionCode::SentEq, 123)],
@@ -2601,7 +2601,7 @@ pub mod test {
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_1.clone(), FungibleConditionCode::SentGt, 122),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_2.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
-             
+
              // three post-conditions on origin in allow mode, one with sending 0 tokens
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_1.clone(), FungibleConditionCode::SentEq, 123),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_3.clone(), FungibleConditionCode::SentEq, 0),
@@ -2623,7 +2623,7 @@ pub mod test {
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_3.clone(), FungibleConditionCode::SentEq, 0),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_2.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
-             
+
              // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
              // an unchecked address and a vacuous amount
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_1.clone(), FungibleConditionCode::SentEq, 123),
@@ -2651,7 +2651,7 @@ pub mod test {
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentEq, 0),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Origin, asset_info_2.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
-            
+
              // one post-condition on origin in allow mode, explicit origin
             (false, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentEq, 123)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
@@ -2663,7 +2663,7 @@ pub mod test {
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
             (false, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
-            
+
              // two post-conditions on origin in allow mode, explicit origin
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentEq, 123),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_2.clone(), FungibleConditionCode::SentEq, 123)],
@@ -2680,7 +2680,7 @@ pub mod test {
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentGt, 122),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_2.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
-             
+
              // three post-conditions on origin in allow mode, one with sending 0 tokens, explicit
              // origin
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentEq, 123),
@@ -2703,7 +2703,7 @@ pub mod test {
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_3.clone(), FungibleConditionCode::SentEq, 0),
                         TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_2.clone(), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
-             
+
              // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
              // an unchecked address and a vacuous amount, explicit origin
             (true, vec![TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(addr.clone()), asset_info_1.clone(), FungibleConditionCode::SentEq, 123),
@@ -2746,7 +2746,7 @@ pub mod test {
             }
         }
     }
-        
+
 
     #[test]
     fn test_check_postconditions_multiple_nfts() {
@@ -2788,13 +2788,13 @@ pub mod test {
             (true, vec![TransactionPostCondition::Nonfungible(PostConditionPrincipal::Origin, asset_info.clone(), Value::Int(1), NonfungibleConditionCode::Sent),
                         TransactionPostCondition::Nonfungible(PostConditionPrincipal::Origin, asset_info.clone(), Value::Int(2), NonfungibleConditionCode::Sent)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-            
+
              // post-condition on a non-sent asset
             (true, vec![TransactionPostCondition::Nonfungible(PostConditionPrincipal::Origin, asset_info.clone(), Value::Int(1), NonfungibleConditionCode::Sent),
                         TransactionPostCondition::Nonfungible(PostConditionPrincipal::Origin, asset_info.clone(), Value::Int(2), NonfungibleConditionCode::Sent),
                         TransactionPostCondition::Nonfungible(PostConditionPrincipal::Origin, asset_info.clone(), Value::Int(3), NonfungibleConditionCode::NotSent)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-            
+
              // one post-condition on origin in allow mode, explicit origin
             (true, vec![TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(addr.clone()), asset_info.clone(), Value::Int(1), NonfungibleConditionCode::Sent)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
@@ -2805,13 +2805,13 @@ pub mod test {
             (true, vec![TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(addr.clone()), asset_info.clone(), Value::Int(1), NonfungibleConditionCode::Sent),
                         TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(addr.clone()), asset_info.clone(), Value::Int(2), NonfungibleConditionCode::Sent)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-            
+
              // post-condition on a non-sent asset, explicit origin
             (true, vec![TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(addr.clone()), asset_info.clone(), Value::Int(1), NonfungibleConditionCode::Sent),
                         TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(addr.clone()), asset_info.clone(), Value::Int(2), NonfungibleConditionCode::Sent),
                         TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(addr.clone()), asset_info.clone(), Value::Int(3), NonfungibleConditionCode::NotSent)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-            
+
             // no post-conditions in deny mode
             (false, vec![],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
@@ -2826,13 +2826,13 @@ pub mod test {
             (true, vec![TransactionPostCondition::Nonfungible(PostConditionPrincipal::Origin, asset_info.clone(), Value::Int(1), NonfungibleConditionCode::Sent),
                         TransactionPostCondition::Nonfungible(PostConditionPrincipal::Origin, asset_info.clone(), Value::Int(2), NonfungibleConditionCode::Sent)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-            
+
              // post-condition on a non-sent asset
             (true, vec![TransactionPostCondition::Nonfungible(PostConditionPrincipal::Origin, asset_info.clone(), Value::Int(1), NonfungibleConditionCode::Sent),
                         TransactionPostCondition::Nonfungible(PostConditionPrincipal::Origin, asset_info.clone(), Value::Int(2), NonfungibleConditionCode::Sent),
                         TransactionPostCondition::Nonfungible(PostConditionPrincipal::Origin, asset_info.clone(), Value::Int(3), NonfungibleConditionCode::NotSent)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
-            
+
             // one post-condition on origin in deny mode, explicit origin
             (false, vec![TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(addr.clone()), asset_info.clone(), Value::Int(1), NonfungibleConditionCode::Sent)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),
@@ -2843,7 +2843,7 @@ pub mod test {
             (true, vec![TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(addr.clone()), asset_info.clone(), Value::Int(1), NonfungibleConditionCode::Sent),
                         TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(addr.clone()), asset_info.clone(), Value::Int(2), NonfungibleConditionCode::Sent)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),
-            
+
              // post-condition on a non-sent asset, explicit origin
             (true, vec![TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(addr.clone()), asset_info.clone(), Value::Int(1), NonfungibleConditionCode::Sent),
                         TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(addr.clone()), asset_info.clone(), Value::Int(2), NonfungibleConditionCode::Sent),
@@ -2888,7 +2888,7 @@ pub mod test {
 
         let tests = vec![
             // no post-conditions in allow mode
-            (true, vec![], 
+            (true, vec![],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),       // should pass
 
             // post-conditions on origin in allow mode
@@ -2902,7 +2902,7 @@ pub mod test {
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),       // should pass
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),       // should pass
-            
+
             // post-conditions with an explicitly-set address in allow mode
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Standard(addr.clone()), FungibleConditionCode::SentEq, 123)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),       // should pass
@@ -2914,7 +2914,7 @@ pub mod test {
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),       // should pass
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Standard(addr.clone()), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),       // should pass
-            
+
             // post-conditions with an unrelated contract address in allow mode
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Contract(addr.clone(), ContractName::try_from("hello-world").unwrap()), FungibleConditionCode::SentEq, 0)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),       // should pass
@@ -2924,7 +2924,7 @@ pub mod test {
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),       // should pass
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Contract(addr.clone(), ContractName::try_from("hello-world").unwrap()), FungibleConditionCode::SentLt, 1)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),       // should pass
-            
+
             // post-conditions with both the origin and an unrelated contract address in allow mode
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Contract(addr.clone(), ContractName::try_from("hello-world").unwrap()), FungibleConditionCode::SentEq, 0),
                         TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentEq, 123)],
@@ -2950,10 +2950,10 @@ pub mod test {
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),       // should fail
             (false, vec![TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentGt, 124)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),       // should fail
-            
+
 
             // no post-conditions in deny mode (should fail)
-            (false, vec![], 
+            (false, vec![],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),       // should fail
 
             // post-conditions on origin in deny mode (should all pass since origin is specified
@@ -2967,7 +2967,7 @@ pub mod test {
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),       // should pass
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),       // should pass
-            
+
             // post-conditions with an explicitly-set address in deny mode (should all pass since
             // address matches the address in the asset map)
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Standard(addr.clone()), FungibleConditionCode::SentEq, 123)],
@@ -2980,7 +2980,7 @@ pub mod test {
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),       // should pass
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Standard(addr.clone()), FungibleConditionCode::SentGt, 122)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),       // should pass
-            
+
             // post-conditions with an unrelated contract address in allow mode, with check on
             // origin (should all pass)
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Contract(addr.clone(), ContractName::try_from("hello-world").unwrap()), FungibleConditionCode::SentEq, 0),
@@ -2995,9 +2995,9 @@ pub mod test {
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Contract(addr.clone(), ContractName::try_from("hello-world").unwrap()), FungibleConditionCode::SentLt, 1),
                          TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentEq, 123)],
              TransactionPostConditionMode::Allow, make_account(&origin, 1, 123)),       // should fail
-            
+
             // post-conditions with an unrelated contract address in deny mode (should all fail
-            // since stx-transfer isn't covered) 
+            // since stx-transfer isn't covered)
             (false, vec![TransactionPostCondition::STX(PostConditionPrincipal::Contract(addr.clone(), ContractName::try_from("hello-world").unwrap()), FungibleConditionCode::SentEq, 0)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),       // should fail
             (false, vec![TransactionPostCondition::STX(PostConditionPrincipal::Contract(addr.clone(), ContractName::try_from("hello-world").unwrap()), FungibleConditionCode::SentLe, 0)],
@@ -3006,7 +3006,7 @@ pub mod test {
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),       // should fail
             (false, vec![TransactionPostCondition::STX(PostConditionPrincipal::Contract(addr.clone(), ContractName::try_from("hello-world").unwrap()), FungibleConditionCode::SentLt, 1)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),       // should fail
-            
+
             // post-conditions with an unrelated contract address in deny mode, with check on
             // origin (should all pass)
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Contract(addr.clone(), ContractName::try_from("hello-world").unwrap()), FungibleConditionCode::SentEq, 0),
@@ -3021,7 +3021,7 @@ pub mod test {
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Contract(addr.clone(), ContractName::try_from("hello-world").unwrap()), FungibleConditionCode::SentLt, 1),
                          TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentEq, 123)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),       // should fail
-            
+
              // post-conditions with both the origin and an unrelated contract address in deny mode (should all pass)
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Contract(addr.clone(), ContractName::try_from("hello-world").unwrap()), FungibleConditionCode::SentEq, 0),
                         TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentEq, 123)],
@@ -3035,7 +3035,7 @@ pub mod test {
             (true, vec![TransactionPostCondition::STX(PostConditionPrincipal::Contract(addr.clone(), ContractName::try_from("hello-world").unwrap()), FungibleConditionCode::SentLt, 1),
                         TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentLt, 124)],
              TransactionPostConditionMode::Deny, make_account(&origin, 1, 123)),       // should pass
-            
+
             // post-conditions that fail since the amount is wrong, even though all principals are
             // covered
             (false, vec![TransactionPostCondition::STX(PostConditionPrincipal::Origin, FungibleConditionCode::SentEq, 124)],

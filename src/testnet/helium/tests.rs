@@ -2,10 +2,12 @@ use testnet;
 use rand::RngCore;
 use util::hash::{to_hex, hex_bytes};
 use testnet::helium::mem_pool::MemPool;
+use chainstate::stacks::{StacksPrivateKey};
 use chainstate::stacks::db::{StacksChainState};
 use chainstate::stacks::events::{StacksTransactionEvent, STXEventType};
 use super::node::{TESTNET_CHAIN_ID};
 use super::config::{InitialBalance};
+use vm::tests::integrations::make_contract_publish;
 
 use chainstate::stacks::{TransactionPayload, CoinbasePayload};
 use vm::types::PrincipalData;
@@ -21,6 +23,27 @@ pub fn new_test_conf() -> testnet::helium::Config {
     conf
 }
 
+// $ cat /tmp/out.clar 
+const CONTRACT: &str =  r#"(define-map store ((key (buff 32))) ((value (buff 32))))
+ (define-public (get-value (key (buff 32)))
+    (begin
+      (print (concat "Getting key " key))
+      (match (map-get? store { key: key })
+        entry (ok (get value entry))
+        (err 0))))
+ (define-public (set-value (key (buff 32)) (value (buff 32)))
+    (begin
+        (print (concat "Setting key " key))
+        (map-set store { key: key } { value: value })
+        (ok true)))"#;
+// ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
+
+lazy_static! {
+    static ref PUBLISH_CONTRACT: Vec<u8> = make_contract_publish(
+        &StacksPrivateKey::from_hex("043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3").unwrap(),
+        0, 0, "store", CONTRACT);
+}
+
 #[test]
 fn should_succeed_mining_valid_txs() {
     let conf = new_test_conf();
@@ -32,23 +55,7 @@ fn should_succeed_mining_valid_txs() {
     run_loop.apply_on_new_tenures(|round, tenure| {
         match round {
             1 => {
-                // On round 1, publish the KV contract
-                // $ cat /tmp/out.clar 
-                // (define-map store ((key (buff 32))) ((value (buff 32))))
-                // (define-public (get-value (key (buff 32)))
-                //     (begin
-                //         (print (concat "Getting key " key))
-                //         (match (map-get? store ((key key)))
-                //             entry (ok (get value entry))
-                //             (err 0))))
-                // (define-public (set-value (key (buff 32)) (value (buff 32)))
-                //     (begin
-                //         (print (concat "Setting key " key))
-                //         (map-set store ((key key)) ((value value)))
-                //         (ok 'true)))
-                // ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
-                let publish_contract = "8000000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000000000000000000000100cdb7ba3165e8f05b043592837b3bceb96acb3a8c5d945620964a63d08c9e9f714cd628a91ad950c4a4885c0a63ae722049cf7bb9de110faec8a0b37531aef422030200000000010573746f7265000001c528646566696e652d6d61702073746f72652028286b657920286275666620333229292920282876616c7565202862756666203332292929290a0a28646566696e652d7075626c696320286765742d76616c756520286b65792028627566662033322929290a2020202028626567696e0a2020202020202020287072696e742028636f6e636174202247657474696e67206b65792022206b657929290a2020202020202020286d6174636820286d61702d6765743f2073746f72652028286b6579206b65792929290a202020202020202020202020656e74727920286f6b20286765742076616c756520656e74727929290a202020202020202020202020286572722030292929290a0a28646566696e652d7075626c696320287365742d76616c756520286b65792028627566662033322929202876616c75652028627566662033322929290a2020202028626567696e0a2020202020202020287072696e742028636f6e636174202253657474696e67206b65792022206b657929290a2020202020202020286d61702d7365742073746f72652028286b6579206b6579292920282876616c75652076616c75652929290a2020202020202020286f6b202774727565292929";
-                tenure.mem_pool.submit(hex_bytes(publish_contract).unwrap().to_vec());
+                tenure.mem_pool.submit(PUBLISH_CONTRACT.to_owned());
             },
             2 => {
                 // On round 2, publish a "get:foo" transaction
@@ -176,12 +183,13 @@ fn should_succeed_mining_valid_txs() {
                 
                 // 1 event should have been produced
                 let events: Vec<StacksTransactionEvent> = receipts.iter().flat_map(|a| a.events.clone()).collect();
-                assert!(events.len() == 1);
+                assert_eq!(events.len(), 1);
                 assert!(match &events[0] {
                     StacksTransactionEvent::SmartContractEvent(data) => {
-                        format!("{}", data.key.0) == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store" &&
-                        data.key.1 == "print" &&
-                        format!("{}", data.value) == "0x53657474696e67206b657920666f6f" // "Setting key foo" in hexa
+                        assert_eq!(format!("{}", data.key.0), "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store");
+                        assert_eq!(data.key.1, "print");
+                        assert_eq!(format!("{}", data.value), "0x53657474696e67206b657920666f6f"); // "Setting key foo" in hexa
+                        true
                     },
                     _ => false
                 });
@@ -277,22 +285,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
         match round {
             1 => {
                 // On round 1, publish the KV contract
-                // $ cat /tmp/out.clar 
-                // (define-map store ((key (buff 32))) ((value (buff 32))))
-                // (define-public (get-value (key (buff 32)))
-                //     (begin
-                //         (print (concat "Getting key " key))
-                //         (match (map-get? store ((key key)))
-                //             entry (ok (get value entry))
-                //             (err 0))))
-                // (define-public (set-value (key (buff 32)) (value (buff 32)))
-                //     (begin
-                //         (print (concat "Setting key " key))
-                //         (map-set store ((key key)) ((value value)))
-                //         (ok 'true)))
-                // ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
-                let publish_contract = "8000000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000000000000000000000100cdb7ba3165e8f05b043592837b3bceb96acb3a8c5d945620964a63d08c9e9f714cd628a91ad950c4a4885c0a63ae722049cf7bb9de110faec8a0b37531aef422030200000000010573746f7265000001c528646566696e652d6d61702073746f72652028286b657920286275666620333229292920282876616c7565202862756666203332292929290a0a28646566696e652d7075626c696320286765742d76616c756520286b65792028627566662033322929290a2020202028626567696e0a2020202020202020287072696e742028636f6e636174202247657474696e67206b65792022206b657929290a2020202020202020286d6174636820286d61702d6765743f2073746f72652028286b6579206b65792929290a202020202020202020202020656e74727920286f6b20286765742076616c756520656e74727929290a202020202020202020202020286572722030292929290a0a28646566696e652d7075626c696320287365742d76616c756520286b65792028627566662033322929202876616c75652028627566662033322929290a2020202028626567696e0a2020202020202020287072696e742028636f6e636174202253657474696e67206b65792022206b657929290a2020202020202020286d61702d7365742073746f72652028286b6579206b6579292920282876616c75652076616c75652929290a2020202020202020286f6b202774727565292929";
-                tenure.mem_pool.submit(hex_bytes(publish_contract).unwrap().to_vec());
+                tenure.mem_pool.submit(PUBLISH_CONTRACT.to_owned());
             },
             2 => {
                 // On round 2, publish a "get:foo" transaction (mainnet instead of testnet).
