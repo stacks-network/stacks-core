@@ -56,7 +56,7 @@ fn should_succeed_mining_valid_txs() {
         match round {
             1 => {
                 let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
-                tenure.mem_pool.submit_raw(burn_header_hash, block_hash, hex_bytes(PUBLISH_CONTRACT.to_owned()).unwrap().to_vec()).unwrap();
+                tenure.mem_pool.submit_raw(burn_header_hash, block_hash, PUBLISH_CONTRACT.to_owned()).unwrap();
             },
             2 => {
                 // On round 2, publish a "get:foo" transaction
@@ -291,7 +291,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             1 => {
                 // On round 1, publish the KV contract
                 let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
-                tenure.mem_pool.submit_raw(burn_header_hash, block_hash, hex_bytes(PUBLISH_CONTRACT.to_owned()).unwrap().to_vec()).unwrap();
+                tenure.mem_pool.submit_raw(burn_header_hash, block_hash, PUBLISH_CONTRACT.to_owned()).unwrap();
             },
             2 => {
                 // On round 2, publish a "get:foo" transaction (mainnet instead of testnet).

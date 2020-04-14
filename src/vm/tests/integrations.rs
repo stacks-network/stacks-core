@@ -687,7 +687,9 @@ fn contract_stx_transfer() {
         } else if round == 3 {
             // try to publish again
             let publish_tx = make_contract_publish(&contract_sk, 1, 0, "faucet", FAUCET_CONTRACT);
-            tenure.mem_pool.submit(publish_tx);
+            
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
 
             let tx = make_contract_call(&sk_2, 0, 0, &to_addr(&contract_sk), "faucet", "spout", &[]);
             
@@ -829,16 +831,21 @@ fn bad_contract_tx_rollback() {
 
         if round == 1 { // block-height = 2
             let xfer_to_contract = make_stacks_transfer(&sk_3, 0, 0, &contract_identifier.into(), 1000);
-            tenure.mem_pool.submit(xfer_to_contract);
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
         } else if round == 2 { // block-height = 3
             let xfer_to_contract = make_stacks_transfer(&sk_3, 1, 0, &addr_2.into(), 1000);
-            tenure.mem_pool.submit(xfer_to_contract);
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
+            
             let xfer_to_contract = make_stacks_transfer(&sk_3, 2, 0, &addr_2.into(), 1500);
-            tenure.mem_pool.submit(xfer_to_contract);
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
+            
             let publish_tx = make_contract_publish(&contract_sk, 0, 0, "faucet", FAUCET_CONTRACT);
-            tenure.mem_pool.submit(publish_tx);
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
+            
             let publish_tx = make_contract_publish(&contract_sk, 1, 0, "faucet", FAUCET_CONTRACT);
-            tenure.mem_pool.submit(publish_tx);
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
         }
 
         return
