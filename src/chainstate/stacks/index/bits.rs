@@ -69,6 +69,7 @@ use chainstate::stacks::index::Error;
 use chainstate::burn::BLOCK_HEADER_HASH_ENCODED_SIZE;
 
 use util::log;
+use util::hash::to_hex;
 use util::macros::is_trace;
 
 /// Get the size of a Trie path (note that a Trie path is 32 bytes long, and can definitely _not_
@@ -313,7 +314,7 @@ pub fn read_nodetype<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNo
 ///
 /// X is fixed and determined by the TrieNodeType variant.
 /// Y is variable, but no more than TriePath::len()
-pub fn read_nodetype_at_head<F: Read>(f: &mut F, ptr_id: TrieNodeID) -> Result<(TrieNodeType, TrieHash), Error> {
+pub fn read_nodetype_at_head<F: Read>(f: &mut F, ptr_id: u8) -> Result<(TrieNodeType, TrieHash), Error> {
     let h = read_hash_bytes(f)?;
 
     let node = match ptr_id {
@@ -338,7 +339,7 @@ pub fn read_nodetype_at_head<F: Read>(f: &mut F, ptr_id: TrieNodeID) -> Result<(
             TrieNodeType::Leaf(node)
         },
         _ => {
-            return Err(Error::CorruptionError(format!("read_node_type: Unknown trie node type {}", ptr.id())));
+            return Err(Error::CorruptionError(format!("read_node_type: Unknown trie node type {}", ptr_id)));
         }
     };
 

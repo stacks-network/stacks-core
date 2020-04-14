@@ -87,6 +87,7 @@ impl error::Error for CursorError {
 /// All numeric values of a Trie node when encoded.
 /// They are all 7-bit numbers -- the 8th bit is used to indicate whether or not the value
 /// identifies a back-pointer to be followed.
+// TODO: this should be a define_u8_enum.
 pub mod TrieNodeID {
     pub const Empty : u8 = 0;
     pub const Leaf: u8 = 1;

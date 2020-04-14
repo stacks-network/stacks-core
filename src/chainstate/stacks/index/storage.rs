@@ -149,7 +149,7 @@ impl TrieSQL {
 
     pub fn write_trie_blob(conn: &Connection, block_hash: &BlockHeaderHash, data: &[u8]) -> Result<u32, Error> {
         let args: &[&dyn ToSql] = &[block_hash, &data];
-        let s = conn.prepare("INSERT INTO marf_data (blok_hash, data) VALUES (?, ?)")?;
+        let mut s = conn.prepare("INSERT INTO marf_data (blok_hash, data) VALUES (?, ?)")?;
         let block_id = s.insert(args)?
             .try_into()
             .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
@@ -204,7 +204,7 @@ impl TrieSQL {
     }
 
     pub fn get_chain_tips(conn: &Connection) -> Result<Vec<BlockHeaderHash>, Error> {
-        let s = conn.prepare("SELECT block_hash FROM chain_tips")?;
+        let mut s = conn.prepare("SELECT block_hash FROM chain_tips")?;
         let rows = s.query_map(NO_PARAMS, |row| row.get("block_hash"))?;
         rows.map(|i| i.map_err(|e| e.into())).collect()
     }
@@ -225,8 +225,8 @@ impl TrieSQL {
         Ok(())
     }
 
-    pub fn lock_bhh_for_extension(conn: &Connection, bhh: &BlockHeaderHash) -> Result<bool, Error> {
-        let tx = conn.transaction()?;
+    pub fn lock_bhh_for_extension(conn: &mut Connection, bhh: &BlockHeaderHash) -> Result<bool, Error> {
+        let mut tx = conn.transaction()?;
         let is_bhh_committed = tx.query_row("SELECT 1 FROM marf_data WHERE block_hash = ? LIMIT 1", &[bhh],
                                             |_row| ()).optional()?.is_some();
         if is_bhh_committed {
@@ -251,7 +251,7 @@ impl TrieSQL {
     }
 
     pub fn drop_lock(conn: &Connection, bhh: &BlockHeaderHash) -> Result<(), Error> {
-        conn.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
+        conn.execute("DELETE FROM block_extension_locks WHERE block_hash = ?", &[bhh])?;
         Ok(())
     }
 
@@ -260,8 +260,8 @@ impl TrieSQL {
         Ok(())
     }
 
-    pub fn clear_tables(conn: &Connection) -> Result<(), Error> {
-        let tx = conn.transaction()?;
+    pub fn clear_tables(conn: &mut Connection) -> Result<(), Error> {
+        let mut tx = conn.transaction()?;
         tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
         tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
         tx.execute("DELETE FROM chain_tips", NO_PARAMS)?;
@@ -853,7 +853,7 @@ impl TrieFileStorage {
         let trie_buf = TrieRAM::new(bhh, size_hint, &self.cur_block);
 
         // place a lock on this block, so we can't extend to it again
-        if !TrieSQL::lock_bhh_for_extension(&self.db, bhh)? {
+        if !TrieSQL::lock_bhh_for_extension(&mut self.db, bhh)? {
             warn!("Block already extended: {}", &bhh);
             return Err(Error::ExistsError);
         }
@@ -951,7 +951,7 @@ impl TrieFileStorage {
         debug!("Format TrieFileStorage {}", &self.dir_path);
 
         // blow away db
-        TrieSQL::clear_tables(&self.db)?;
+        TrieSQL::clear_tables(&mut self.db)?;
 
         match self.last_extended {
             Some((_, ref mut trie_storage)) => trie_storage.format()?,
