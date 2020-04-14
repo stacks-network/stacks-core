@@ -254,11 +254,6 @@ pub struct ClarityTx<'a> {
 }
 
 impl ClarityConnection for ClarityTx<'_> {
-    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where F: FnOnce(&mut ClarityDatabase) -> R {
-        ClarityConnection::with_clarity_db_readonly(&mut self.block, to_do)
-    }
-
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
         ClarityConnection::with_clarity_db_readonly_owned(&mut self.block, to_do)
@@ -454,7 +449,7 @@ const STACKS_BOOT_CODE : &'static [&'static str] = &[
         ((available uint) (authorized bool))
     )
     (define-private (get-participant-info (participant principal))
-        (default-to (tuple (available u0) (authorized 'false)) (map-get? rewards ((participant participant)))))
+        (default-to {available: u0, authorized: false} (map-get? rewards {participant participant})))
 
     (define-public (get-participant-reward (participant principal))
         (ok (get available (get-participant-info participant))))
@@ -632,7 +627,10 @@ impl StacksChainState {
                 );
 
                 let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-                StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+
+                clarity_tx.connection().as_transaction(|clarity| {
+                    StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account)
+                })?;
 
                 boot_code_account.nonce += 1;
             }
@@ -646,15 +644,20 @@ impl StacksChainState {
                 );
 
                 let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-                StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+
+                clarity_tx.connection().as_transaction(|clarity| {
+                    StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account)
+                })?;
                 
                 boot_code_account.nonce += 1;
             }
 
             if let Some(initial_balances) = initial_balances {
                 for (address, amount) in initial_balances {
-                    StacksChainState::account_credit(&mut clarity_tx, &address, amount);
-                }    
+                    clarity_tx.connection().as_transaction(|clarity| {
+                        StacksChainState::account_credit(clarity, &address, amount)
+                    })
+                }
             }
 
             f(&mut clarity_tx);
@@ -756,7 +759,7 @@ impl StacksChainState {
 
         headers_path.pop();
         headers_path.pop();
-        
+
         headers_path.push("index");
         let header_index_root = headers_path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
 
@@ -1035,4 +1038,3 @@ pub mod test {
         }
     }
 }
-

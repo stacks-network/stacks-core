@@ -111,7 +111,7 @@ We will interact with the following simple contract `kv-store`. In our examples,
 (define-public (set-value (key (buff 32)) (value (buff 32)))
     (begin
         (map-set store {key: key} {value: value})
-        (ok 'true)))
+        (ok true)))
 ```
 
 We want to publish this contract on chain, then issue some transactions that interact with it by setting some keys and getting some values, so we can observe read and writes.

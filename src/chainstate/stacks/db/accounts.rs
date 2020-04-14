@@ -28,7 +28,7 @@ use chainstate::stacks::db::*;
 use chainstate::stacks::db::blocks::*;
 use vm::database::*;
 use vm::database::marf::*;
-use vm::clarity::ClarityConnection;
+use vm::clarity::{ClarityConnection, ClarityTransactionConnection};
 use vm::types::*;
 
 use util::db::*;
@@ -153,8 +153,8 @@ impl StacksChainState {
     /// Called each time a transaction is invoked from this principal, to e.g.
     /// debit the STX-denominated tx fee or transfer/burn STX.
     /// DOES NOT UPDATE THE NONCE
-    pub fn account_debit<'a>(clarity_tx: &mut ClarityTx<'a>, principal: &PrincipalData, amount: u64) {
-        clarity_tx.connection().with_clarity_db(|ref mut db| {
+    pub fn account_debit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
+        clarity_tx.with_clarity_db(|ref mut db| {
             let cur_balance = db.get_account_stx_balance(principal);
             
             // last line of defense: if we don't have sufficient funds, panic.
@@ -171,8 +171,8 @@ impl StacksChainState {
 
     /// Called each time a transaction sends STX to this principal.
     /// No nonce update is needed, since the transfer action is not taken by the principal.
-    pub fn account_credit<'a>(clarity_tx: &mut ClarityTx<'a>, principal: &PrincipalData, amount: u64) {
-        clarity_tx.connection().with_clarity_db(|ref mut db| {
+    pub fn account_credit(clarity_tx: &mut ClarityTransactionConnection, principal: &PrincipalData, amount: u64) {
+        clarity_tx.with_clarity_db(|ref mut db| {
             let cur_balance = db.get_account_stx_balance(principal);
             let final_balance = cur_balance.checked_add(amount as u128).expect("FATAL: account balance overflow");
             db.set_account_stx_balance(principal, final_balance as u128);
@@ -182,8 +182,8 @@ impl StacksChainState {
     }
    
     /// Increment an account's nonce
-    pub fn update_account_nonce<'a>(clarity_tx: &mut ClarityTx<'a>, account: &StacksAccount) {
-        clarity_tx.connection().with_clarity_db(|ref mut db| {
+    pub fn update_account_nonce(clarity_tx: &mut ClarityTransactionConnection, account: &StacksAccount) {
+        clarity_tx.with_clarity_db(|ref mut db| {
             let next_nonce = account.nonce.checked_add(1).expect("OUT OF NONCES");
             db.set_account_nonce(&account.principal, next_nonce);
             Ok(())

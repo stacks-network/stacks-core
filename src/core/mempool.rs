@@ -595,7 +595,7 @@ mod tests {
             }
         });
 
-        run_loop.apply_on_new_chain_states(|round, chainstate, block, chain_tip_info, _receipts| {
+        run_loop.apply_on_new_chain_states(|round, ref mut chainstate, _block, chain_tip_info, _receipts| {
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let contract_addr = to_addr(&contract_sk);
 

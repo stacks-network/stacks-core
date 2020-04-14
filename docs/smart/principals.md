@@ -25,8 +25,8 @@ The following user-defined function transfers an asset, in this case, tokens, be
         (not (eq? sender recipient))
         (debit-balance! sender amount)
         (credit-balance! recipient amount))
-    'true
-    'false))
+    true
+    false))
 ```
 
 The principal's signature is not checked by the smart contract, but by the virtual machine.
@@ -51,7 +51,7 @@ For example, a smart contract that implements something like a "token faucet" co
   (if (is-none? (fetch-entry claimed-before (tuple (sender tx-sender))))
       (let ((requester tx-sender)) ;; set a local variable requester = tx-sender
         (begin
-            (insert-entry! claimed-before (tuple (sender requester)) (tuple (claimed 'true)))
+            (insert-entry! claimed-before {sender: requester} {claimed: true})
             (as-contract (stacks-transfer! requester 1)))))
       (err 1))
 ```
