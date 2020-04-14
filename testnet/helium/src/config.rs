@@ -129,8 +129,8 @@ impl Config {
             panic!("Setting burnchain.network not supported (should be: {})", supported_modes.join(", "))
         }
 
-        if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_some() {
-            panic!("The key `local_mining_public_key` is mandatory in helium mode")
+        if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
+            panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
         }
 
         let mempool = match config_file.mempool {
