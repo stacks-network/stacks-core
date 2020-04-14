@@ -31,6 +31,7 @@ use chainstate::burn::BlockHeaderHash;
 use net::StacksMessageCodec;
 use net::Error as net_error;
 use net::codec::{read_next, write_next};
+use vm::clarity::ClarityConnection;
 
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
@@ -745,8 +746,9 @@ pub mod test {
                     (miner_participant_principal, Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(addr.clone()))))])
                 .expect("FATAL: failed to construct miner principal key"));
 
-            let miner_status = clarity_tx.connection().with_clarity_db_readonly(|ref mut db| {
-                let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)?;
+            let miner_status = clarity_tx.with_clarity_db_readonly(|db| {
+                let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)
+                    .expect("FATAL: Clarity DB Error");
                 let miner_status = match miner_status_opt {
                     Value::Optional(ref optional_data) => {
                         match optional_data.data {
@@ -782,8 +784,8 @@ pub mod test {
                     }
                 };
             
-                Ok(miner_status)
-            }).unwrap();
+                miner_status
+            });
 
             miner_status
         }
