@@ -24,6 +24,7 @@ use chainstate::burn::BlockHeaderHash;
 use util::log;
 
 pub mod mempool;
+pub use self::mempool::MemPoolDB;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
 pub const SYSTEM_FORK_SET_VERSION : [u8; 4] = [23u8, 0u8, 0u8, 0u8];
