@@ -17,6 +17,8 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::mem;
+
 use net::PeerAddress;
 use net::Neighbor;
 use net::NeighborKey;
@@ -26,6 +28,7 @@ use net::asn::ASEntry4;
 
 use net::*;
 use net::codec::*;
+use net::relay::*;
 
 use net::StacksMessage;
 use net::StacksP2P;
@@ -44,11 +47,14 @@ use util::db::DBConn;
 use util::secp256k1::Secp256k1PublicKey;
 use util::secp256k1::Secp256k1PrivateKey;
 
+use burnchains::PublicKey;
+
 use chainstate::burn::db::burndb;
 use chainstate::burn::db::burndb::BurnDB;
 
 use chainstate::stacks::db::StacksChainState;
-
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksPublicKey;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
 
@@ -56,6 +62,7 @@ use std::net::SocketAddr;
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::collections::HashSet;
 
 use std::io::Read;
 use std::io::Write;
@@ -85,6 +92,36 @@ impl Default for NeighborHealthPoint {
 pub const NUM_HEALTH_POINTS : usize = 32;
 pub const HEALTH_POINT_LIFETIME : u64 = 12 * 3600;  // 12 hours
 
+pub const NUM_BLOCK_POINTS : usize = 32;
+pub const BLOCK_POINT_LIFETIME : u64 = 600;
+
+/// Statistics on relayer hints in Stacks messages.  Used to deduce network choke points.
+#[derive(Debug, Clone)]
+pub struct RelayStats {
+    pub num_messages: u64,      // how many messages a relayer has pushed to this neighbor 
+    pub num_bytes: u64,         // how many bytes a relayer has pushed to this neighbor
+    pub last_seen: u64,         // the last time (in seconds) since we've seen this relayer
+}
+
+impl RelayStats {
+    pub fn new() -> RelayStats {
+        RelayStats {
+            num_messages: 0,
+            num_bytes: 0,
+            last_seen: 0
+        }
+    }
+
+    /// Combine two relayers' stats
+    pub fn merge(&mut self, other: RelayStats) {
+        if other.last_seen > self.last_seen {
+            self.num_messages += other.num_messages;
+            self.num_bytes += other.num_bytes;
+            self.last_seen = get_epoch_time_secs();
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct NeighborStats {
     pub outbound: bool,
@@ -100,9 +137,11 @@ pub struct NeighborStats {
     pub msgs_rx_unsolicited: u64,
     pub msgs_err: u64,
     pub healthpoints: VecDeque<NeighborHealthPoint>,
-    pub peer_resets: u64,
-    pub last_reset_time: u64,
     pub msg_rx_counts: HashMap<StacksMessageID, u64>,
+    pub block_push_rx_counts: VecDeque<(u64, u64)>,         // (count, num bytes)
+    pub microblocks_push_rx_counts: VecDeque<(u64, u64)>,   // (count, num bytes)
+    pub transaction_push_rx_counts: VecDeque<(u64, u64)>,   // (count, num bytes)
+    pub relayed_messages: HashMap<NeighborAddress, RelayStats>
 }
 
 impl NeighborStats {
@@ -121,9 +160,11 @@ impl NeighborStats {
             msgs_rx_unsolicited: 0,
             msgs_err: 0,
             healthpoints: VecDeque::new(),
-            peer_resets: 0,
-            last_reset_time: 0,
-            msg_rx_counts: HashMap::new()
+            msg_rx_counts: HashMap::new(),
+            block_push_rx_counts: VecDeque::new(),
+            microblocks_push_rx_counts: VecDeque::new(),
+            transaction_push_rx_counts: VecDeque::new(),
+            relayed_messages: HashMap::new(),
         }
     }
     
@@ -136,6 +177,48 @@ impl NeighborStats {
         while self.healthpoints.len() > NUM_HEALTH_POINTS {
             self.healthpoints.pop_front();
         }
+    }
+
+    pub fn add_block_push(&mut self, message_size: u64) -> () {
+        self.block_push_rx_counts.push_back((get_epoch_time_secs(), message_size));
+        while self.block_push_rx_counts.len() > NUM_BLOCK_POINTS {
+            self.block_push_rx_counts.pop_front();
+        }
+    }
+    
+    pub fn add_microblocks_push(&mut self, message_size: u64) -> () {
+        self.microblocks_push_rx_counts.push_back((get_epoch_time_secs(), message_size));
+        while self.microblocks_push_rx_counts.len() > NUM_BLOCK_POINTS {
+            self.microblocks_push_rx_counts.pop_front();
+        }
+    }
+    
+    pub fn add_transaction_push(&mut self, message_size: u64) -> () {
+        self.transaction_push_rx_counts.push_back((get_epoch_time_secs(), message_size));
+        while self.transaction_push_rx_counts.len() > NUM_BLOCK_POINTS {
+            self.transaction_push_rx_counts.pop_front();
+        }
+    }
+
+    pub fn add_relayer(&mut self, addr: NeighborAddress, num_bytes: u64) -> () {
+        if let Some(stats) = self.relayed_messages.get_mut(&addr) {
+            stats.num_messages += 1;
+            stats.num_bytes += num_bytes;
+            stats.last_seen = get_epoch_time_secs();
+        }
+        else {
+            let info = RelayStats {
+                num_messages: 1,
+                num_bytes: num_bytes,
+                last_seen: get_epoch_time_secs(),
+            };
+            self.relayed_messages.insert(addr, info);
+        }
+    }
+
+    pub fn take_relayers(&mut self) -> HashMap<NeighborAddress, RelayStats> {
+        let ret = mem::replace(&mut self.relayed_messages, HashMap::new());
+        ret
     }
 
     /// Get a peer's perceived health -- the last $NUM_HEALTH_POINTS successful messages divided by
@@ -157,7 +240,51 @@ impl NeighborStats {
             total += 1;
         }
         (successful as f64) / (total as f64)
-    }    
+    }
+
+    fn get_bandwidth(rx_counts: &VecDeque<(u64, u64)>, lifetime: u64) -> f64 {
+        if rx_counts.len() < 2 {
+            return 0.0;
+        }
+
+        let elapsed_time_start = rx_counts.front().unwrap().0;
+        let elapsed_time_end = rx_counts.back().unwrap().0;
+        let now = get_epoch_time_secs();
+
+        let mut total_bytes = 0;
+        for (time, size) in rx_counts.iter() {
+            if now < time + lifetime {
+                total_bytes += size;
+            }
+        }
+
+        if elapsed_time_start == elapsed_time_end {
+            (total_bytes as f64)
+        }
+        else {
+            (total_bytes as f64) / ((elapsed_time_end - elapsed_time_start) as f64)
+        }
+    }
+
+    /// Get a peer's total block-push bandwidth usage.
+    pub fn get_block_push_bandwidth(&self) -> f64 {
+        NeighborStats::get_bandwidth(&self.block_push_rx_counts, BLOCK_POINT_LIFETIME)
+    }
+    
+    /// Get a peer's total microblock-push bandwidth usage.
+    pub fn get_microblocks_push_bandwidth(&self) -> f64 {
+        NeighborStats::get_bandwidth(&self.microblocks_push_rx_counts, BLOCK_POINT_LIFETIME)
+    }
+
+    /// Get a peer's total transaction-push bandwidth usage
+    pub fn get_transaction_push_bandwidth(&self) -> f64 {
+        NeighborStats::get_bandwidth(&self.transaction_push_rx_counts, BLOCK_POINT_LIFETIME)
+    }
+
+    /// Determine how many of a particular message this peer has received
+    pub fn get_message_recv_count(&self, msg_id: StacksMessageID) -> u64 {
+        *(self.msg_rx_counts.get(&msg_id).unwrap_or(&0))
+    }
 }
 
 /// P2P ongoing conversation with another Stacks peer
@@ -363,7 +490,15 @@ impl ConversationP2P {
     }
 
     pub fn is_authenticated(&self) -> bool {
-        self.connection.get_public_key().is_some()
+        self.connection.has_public_key()
+    }
+
+    pub fn get_public_key(&self) -> Option<StacksPublicKey> {
+        self.connection.get_public_key()
+    }
+    
+    pub fn ref_public_key(&self) -> Option<&StacksPublicKey> {
+        self.connection.ref_public_key()
     }
     
     /// Determine whether or not a given (height, consensus_hash) pair _disagrees_ with our
@@ -389,17 +524,17 @@ impl ConversationP2P {
     ///     violation of the protocol
     pub fn is_preamble_valid(&self, msg: &StacksMessage, chain_view: &BurnchainView) -> Result<bool, net_error> {
         if msg.preamble.network_id != self.network_id {
-            // not on our network -- potentially blacklist this peer
+            // not on our network
             test_debug!("wrong network ID: {:x} != {:x}", msg.preamble.network_id, self.network_id);
             return Err(net_error::InvalidMessage);
         }
         if (msg.preamble.peer_version & 0xff000000) != (self.version & 0xff000000) {
-            // major version mismatch -- potentially blacklist this peer
+            // major version mismatch
             test_debug!("wrong peer version: {:x} != {:x}", msg.preamble.peer_version, self.version);
             return Err(net_error::InvalidMessage);
         }
         if msg.preamble.burn_stable_block_height.checked_add(self.burnchain.stable_confirmations as u64) != Some(msg.preamble.burn_block_height) {
-            // invalid message -- potentially blacklist this peer
+            // invalid message
             test_debug!("wrong stable block height: {:?} != {}", msg.preamble.burn_stable_block_height.checked_add(self.burnchain.stable_confirmations as u64), msg.preamble.burn_block_height);
             return Err(net_error::InvalidMessage);
         }
@@ -447,11 +582,54 @@ impl ConversationP2P {
         Ok(msg)
     }
     
+    /// Generate a signed forwarded message for this conversation.
+    /// Include ourselves as the latest relayer.
+    pub fn sign_relay_message(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, mut relay_hints: Vec<RelayData>, payload: StacksMessageType) -> Result<StacksMessage, net_error> {
+        let mut msg = StacksMessage::from_chain_view(self.version, self.network_id, chain_view, payload);
+        msg.relayers.append(&mut relay_hints);
+        msg.sign_relay(&local_peer.private_key, self.next_seq(), &local_peer.to_neighbor_addr())?;
+        Ok(msg)
+    }
+    
     /// Generate a signed reply for this conversation 
     pub fn sign_reply(&mut self, chain_view: &BurnchainView, private_key: &Secp256k1PrivateKey, payload: StacksMessageType, seq: u32) -> Result<StacksMessage, net_error> {
         let mut msg = StacksMessage::from_chain_view(self.version, self.network_id, chain_view, payload);
         msg.sign(seq, private_key)?;
         Ok(msg)
+    }
+
+    /// sign and reply a message
+    fn sign_and_reply(&mut self, local_peer: &LocalPeer, burnchain_view: &BurnchainView, request_preamble: &Preamble, reply_message: StacksMessageType) -> Result<ReplyHandleP2P, net_error> {
+        let _msgtype = reply_message.get_message_name().to_owned();
+        let reply = self.sign_reply(burnchain_view, &local_peer.private_key, reply_message, request_preamble.seq)?;
+        let reply_handle = self.relay_signed_message(reply)
+            .map_err(|e| {
+                debug!("Unable to reply a {}: {:?}", _msgtype, &e);
+                e
+            })?;
+
+        self.stats.msgs_tx += 1;
+        Ok(reply_handle)
+    }
+
+    /// Sign and forward a message
+    pub fn sign_and_forward(&mut self, local_peer: &LocalPeer, burnchain_view: &BurnchainView, relay_hints: Vec<RelayData>, forward_message: StacksMessageType) -> Result<ReplyHandleP2P, net_error> {
+        let _msgtype = forward_message.get_message_name().to_owned();
+        let fwd = self.sign_relay_message(local_peer, burnchain_view, relay_hints, forward_message)?;
+        let fwd_handle = self.relay_signed_message(fwd)
+            .map_err(|e| {
+                debug!("Unable to forward a {}: {:?}", _msgtype, &e);
+                e
+            })?;
+
+        self.stats.msgs_tx += 1;
+        Ok(fwd_handle)
+    }
+
+    /// Reply a NACK
+    fn reply_nack(&mut self, local_peer: &LocalPeer, burnchain_view: &BurnchainView, preamble: &Preamble, nack_code: u32) -> Result<ReplyHandleP2P, net_error> {
+        let nack_payload = StacksMessageType::Nack(NackData::new(nack_code));
+        self.sign_and_reply(local_peer, burnchain_view, preamble, nack_payload)
     }
 
     /// Queue up this message to this peer, and update our stats.
@@ -474,17 +652,6 @@ impl ConversationP2P {
 
         self.stats.msgs_tx += 1;
         Ok(handle)
-    }
-
-    /// Reply to a ping with a pong.
-    /// Called from the p2p network thread.
-    fn handle_ping(&mut self, chain_view: &BurnchainView, message: &mut StacksMessage) -> Result<Option<StacksMessage>, net_error> {
-        let ping_data = match message.payload {
-            StacksMessageType::Ping(ref data) => data,
-            _ => panic!("Message is not a ping")
-        };
-        let pong_data = PongData::from_ping(&ping_data);
-        Ok(Some(StacksMessage::from_chain_view(self.version, self.network_id, chain_view, StacksMessageType::Pong(pong_data))))
     }
 
     /// Validate a handshake request.
@@ -566,7 +733,7 @@ impl ConversationP2P {
 
         Ok(updated)
     }
-
+    
     /// Handle an inbound handshake request, and generate either a HandshakeAccept or a HandshakeReject
     /// payload to send back.
     /// A handshake will only be accepted if we do not yet know the public key of this remote peer,
@@ -629,12 +796,29 @@ impl ConversationP2P {
                     &to_hex(&handshake_accept.handshake.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_accept.handshake.expire_block_height, self.peer_heartbeat);
         Ok(())
     }
+    
+    /// Reply to a ping with a pong.
+    /// Called from the p2p network thread.
+    fn handle_ping(&mut self, chain_view: &BurnchainView, message: &mut StacksMessage) -> Result<Option<StacksMessage>, net_error> {
+        let ping_data = match message.payload {
+            StacksMessageType::Ping(ref data) => data,
+            _ => panic!("Message is not a ping")
+        };
+        let pong_data = PongData::from_ping(&ping_data);
+        Ok(Some(StacksMessage::from_chain_view(self.version, self.network_id, chain_view, StacksMessageType::Pong(pong_data))))
+    }
 
     /// Handle an inbound GetNeighbors request.
     fn handle_getneighbors(&mut self, peer_dbconn: &DBConn, local_peer: &LocalPeer, chain_view: &BurnchainView, preamble: &Preamble) -> Result<ReplyHandleP2P, net_error> {
         // get neighbors at random as long as they're fresh
-        let neighbors = PeerDB::get_random_neighbors(peer_dbconn, self.network_id, MAX_NEIGHBORS_DATA_LEN, chain_view.burn_block_height, false)
+        let mut neighbors = PeerDB::get_random_neighbors(peer_dbconn, self.network_id, MAX_NEIGHBORS_DATA_LEN, chain_view.burn_block_height, false)
             .map_err(net_error::DBError)?;
+        
+        if cfg!(test) && self.connection.options.disable_chat_neighbors {
+            // never report neighbors if this is disabled by a test
+            test_debug!("{:?}: Neighbor crawl is disabled; reporting 0 neighbors", &local_peer);
+            neighbors.clear();
+        }
 
         let neighbor_addrs : Vec<NeighborAddress> = neighbors
             .iter()
@@ -652,25 +836,6 @@ impl ConversationP2P {
             })?;
 
         Ok(reply_handle)
-    }
-
-    /// sign and relay a message
-    fn sign_and_reply(&mut self, local_peer: &LocalPeer, burnchain_view: &BurnchainView, request_preamble: &Preamble, reply_message: StacksMessageType) -> Result<ReplyHandleP2P, net_error> {
-        let _msgtype = reply_message.get_message_name().to_owned();
-        let reply = self.sign_reply(burnchain_view, &local_peer.private_key, reply_message, request_preamble.seq)?;
-        let reply_handle = self.relay_signed_message(reply)
-            .map_err(|e| {
-                debug!("Unable to reply a {}: {:?}", _msgtype, &e);
-                e
-            })?;
-
-        Ok(reply_handle)
-    }
-
-    /// Reply a NACK
-    fn reply_nack(&mut self, local_peer: &LocalPeer, burnchain_view: &BurnchainView, preamble: &Preamble, nack_code: u32) -> Result<ReplyHandleP2P, net_error> {
-        let nack_payload = StacksMessageType::Nack(NackData::new(nack_code));
-        self.sign_and_reply(local_peer, burnchain_view, preamble, nack_payload)
     }
 
     /// Handle an inbound GetBlocksInv request.
@@ -707,26 +872,167 @@ impl ConversationP2P {
         let blocks_inv_payload = StacksMessageType::BlocksInv(blocks_inv_data);
         self.sign_and_reply(local_peer, burnchain_view, preamble, blocks_inv_payload)
     }
+
+    /// Verify that there are no cycles in our relayers list.
+    /// Identify relayers by public key hash
+    fn check_relayer_cycles(relayers: &Vec<RelayData>) -> bool {
+        let mut addrs = HashSet::new();
+        for r in relayers.iter() {
+            if addrs.contains(&r.peer.public_key_hash) {
+                return false;
+            }
+            addrs.insert(r.peer.public_key_hash.clone());
+        }
+        true
+    }
+
+    /// Verify that we aren't in this relayers list
+    fn check_relayers_remote(local_peer: &LocalPeer, relayers: &Vec<RelayData>) -> bool {
+        let addr = local_peer.to_neighbor_addr();
+        for r in relayers.iter() {
+            if r.peer == addr {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// Check that a message was properly relayed.
+    /// * there are no relay cycles
+    /// * we didn't send this
+    /// Update relayer statistics for this conversation
+    fn process_relayers(&mut self, local_peer: &LocalPeer, preamble: &Preamble, mut relayers: Vec<RelayData>) -> bool {
+        if !ConversationP2P::check_relayer_cycles(&relayers) {
+            debug!("Message from {:?} contains a cycle", self.to_neighbor_key());
+            return false;
+        }
+
+        if !ConversationP2P::check_relayers_remote(local_peer, &relayers) {
+            debug!("Message originates from us ({})", local_peer.to_neighbor_addr());
+            return false;
+        }
+   
+        for relayer in relayers.drain(..) {
+            self.stats.add_relayer(relayer.peer, (preamble.payload_len - 1) as u64);
+        }
+        
+        return true;
+    }
+
+    /// Validate pushed blocks.
+    /// Make sure the peer doesn't send us too much at once, though.
+    fn validate_blocks_push(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, preamble: &Preamble, relayers: Vec<RelayData>) -> Result<Option<ReplyHandleP2P>, net_error> {
+        assert!(preamble.payload_len > 5);          // don't count 1-byte type prefix + 4 byte vector length
+
+        if !self.process_relayers(local_peer, preamble, relayers) {
+            self.stats.msgs_err += 1;
+            return Err(net_error::InvalidMessage);
+        }
+
+        self.stats.add_block_push((preamble.payload_len as u64) - 5);
+
+        if self.connection.options.max_block_push_bandwidth > 0 && self.stats.get_block_push_bandwidth() > (self.connection.options.max_block_push_bandwidth as f64) {
+            debug!("Neighbor {:?} exceeded max block-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_block_push_bandwidth, self.stats.get_block_push_bandwidth());
+            return self.reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
+                .and_then(|handle| Ok(Some(handle)));
+        }
+        Ok(None)
+    }
+    
+    /// Validate pushed microblocks.
+    /// Not much we can do to see if they're semantically correct, but we can at least throttle a
+    /// peer that sends us too many at once.
+    fn validate_microblocks_push(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, preamble: &Preamble, relayers: Vec<RelayData>) -> Result<Option<ReplyHandleP2P>, net_error> {
+        assert!(preamble.payload_len > 5);          // don't count 1-byte type prefix + 4 byte vector length
+        
+        if !self.process_relayers(local_peer, preamble, relayers) {
+            self.stats.msgs_err += 1;
+            return Err(net_error::InvalidMessage);
+        }
+
+        self.stats.add_microblocks_push((preamble.payload_len as u64) - 5);
+
+        if self.connection.options.max_microblocks_push_bandwidth > 0 && self.stats.get_microblocks_push_bandwidth() > (self.connection.options.max_microblocks_push_bandwidth as f64) {
+            debug!("Neighbor {:?} exceeded max microblocks-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_microblocks_push_bandwidth, self.stats.get_microblocks_push_bandwidth());
+            return self.reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
+                .and_then(|handle| Ok(Some(handle)));
+        }
+        Ok(None)
+    }
+
+    /// Validate a pushed transaction.
+    /// Update bandwidth accounting, but forward the transaction along.
+    fn validate_transaction_push(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, preamble: &Preamble, relayers: Vec<RelayData>) -> Result<Option<ReplyHandleP2P>, net_error> {
+        assert!(preamble.payload_len > 1);          // don't count 1-byte type prefix
+
+        if !self.process_relayers(local_peer, preamble, relayers) {
+            self.stats.msgs_err += 1;
+            return Err(net_error::InvalidMessage);
+        }
+
+        self.stats.add_transaction_push((preamble.payload_len as u64) - 1);
+
+        if self.connection.options.max_transaction_push_bandwidth > 0 && self.stats.get_transaction_push_bandwidth() > (self.connection.options.max_transaction_push_bandwidth as f64) {
+            debug!("Neighbor {:?} exceeded max transaction-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_transaction_push_bandwidth, self.stats.get_transaction_push_bandwidth());
+            return self.reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
+                .and_then(|handle| Ok(Some(handle)));
+        }
+        Ok(None)
+    }
     
     /// Handle an inbound authenticated p2p data-plane message.
-    /// Return true if handled
-    fn handle_data_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burndb: &mut BurnDB, chainstate: &mut StacksChainState, chain_view: &BurnchainView, msg: &StacksMessage) -> Result<bool, net_error> {
+    /// Return the message if not handled
+    fn handle_data_message(&mut self, local_peer: &LocalPeer, peerdb: &mut PeerDB, burndb: &mut BurnDB, chainstate: &mut StacksChainState, chain_view: &BurnchainView, msg: StacksMessage) -> Result<Option<StacksMessage>, net_error> {
         let res = match msg.payload {
             StacksMessageType::GetNeighbors => self.handle_getneighbors(peerdb.conn(), local_peer, chain_view, &msg.preamble),
             StacksMessageType::GetBlocksInv(ref get_blocks_inv) => self.handle_getblocksinv(local_peer, burndb, chainstate, chain_view, &msg.preamble, get_blocks_inv),
+            StacksMessageType::Blocks(_) => {
+                // not handled here, but do some accounting -- we can't receive blocks too often,
+                // so close this conversation if we do.
+                match self.validate_blocks_push(local_peer, chain_view, &msg.preamble, msg.relayers.clone())? {
+                    Some(handle) => Ok(handle),
+                    None => {
+                        // will forward upstream
+                        return Ok(Some(msg))
+                    }
+                }
+            },
+            StacksMessageType::Microblocks(_) => {
+                // not handled here, but do some accounting -- we can't receive too many
+                // unconfirmed microblocks per second
+                match self.validate_microblocks_push(local_peer, chain_view, &msg.preamble, msg.relayers.clone())? {
+                    Some(handle) => Ok(handle),
+                    None => {
+                        // will forward upstream
+                        return Ok(Some(msg))
+                    }
+                }
+            },
+            StacksMessageType::Transaction(_) => {
+                // not handled here, but do some accounting -- we can't receive too many
+                // unconfirmed transactions per second
+                match self.validate_transaction_push(local_peer, chain_view, &msg.preamble, msg.relayers.clone())? {
+                    Some(handle) => Ok(handle),
+                    None => {
+                        // will forward upstream
+                        return Ok(Some(msg))
+                    }
+                }
+            },
             _ => {
-                return Ok(false);
+                // all else will forward upstream
+                return Ok(Some(msg));
             }
         };
 
         match res {
             Ok(handle) => {
                 self.reply_handles.push_back(handle);
-                Ok(true)
+                Ok(None)
             }
             Err(e) => {
                 debug!("Failed to handle messsage: {:?}", &e);
-                Ok(false)
+                Ok(Some(msg))
             }
         }
     }
@@ -1016,13 +1322,15 @@ impl ConversationP2P {
                     }
                     else {
                         test_debug!("{:?}: Try handling message (type {})", &self, _msgtype);
-                        let handled = self.handle_data_message(local_peer, peerdb, burndb, chainstate, burnchain_view, &msg)?;
-                        if !handled {
-                            test_debug!("{:?}: Did not handle message (type {}); passing upstream", &self, _msgtype);
-                            unsolicited.push(msg);
-                        }
-                        else {
-                            test_debug!("{:?}: Handled message {}", &self, _msgtype);
+                        let msg_opt = self.handle_data_message(local_peer, peerdb, burndb, chainstate, burnchain_view, msg)?;
+                        match msg_opt {
+                            Some(msg) => {
+                                test_debug!("{:?}: Did not handle message (type {}); passing upstream", &self, _msgtype);
+                                unsolicited.push(msg);
+                            },
+                            None => {
+                                test_debug!("{:?}: Handled message {}", &self, _msgtype);
+                            }
                         }
                     }
                 }
@@ -1043,6 +1351,11 @@ impl ConversationP2P {
     /// Get a ref to the conversation stats 
     pub fn get_stats(&self) -> &NeighborStats {
         &self.stats
+    }
+    
+    /// Get a mut ref to the conversation stats 
+    pub fn get_stats_mut(&mut self) -> &mut NeighborStats {
+        &mut self.stats
     }
 }
 
@@ -1071,10 +1384,33 @@ mod test {
     use std::io::prelude::*;
     use std::io::Read;
     use std::io::Write;
+    use std::fs;
 
     use net::test::*;
 
     use core::PEER_VERSION;
+
+    fn make_test_chain_dbs(testname: &str, burnchain: &Burnchain, network_id: u32, key_expires: u64, data_url: UrlString, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> (PeerDB, BurnDB, StacksChainState) {
+        let test_path = format!("/tmp/blockstack-test-databases-{}", testname);
+        match fs::metadata(&test_path) {
+            Ok(_) => {
+                fs::remove_dir_all(&test_path).unwrap();
+            },
+            Err(_) => {}
+        };
+
+        fs::create_dir_all(&test_path).unwrap();
+
+        let burndb_path = format!("{}/burn", &test_path);
+        let peerdb_path = format!("{}/peers.db", &test_path);
+        let chainstate_path = format!("{}/chainstate", &test_path);
+
+        let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, key_expires, data_url.clone(), &asn4_entries, Some(&initial_neighbors)).unwrap();
+        let burndb = BurnDB::connect(&burndb_path, burnchain.first_block_height, &burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
+        let chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
+
+        (peerdb, burndb, chainstate)
+    }
 
     fn convo_send_recv(sender: &mut ConversationP2P, mut sender_handles: Vec<&mut ReplyHandleP2P>, receiver: &mut ConversationP2P) -> () {
         let (mut pipe_read, mut pipe_write) = Pipe::new();
@@ -2075,4 +2411,91 @@ mod test {
             assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Err(net_error::InvalidMessage));
         }
     }
+
+    #[test]
+    fn convo_process_relayers() {
+        let conn_opts = ConnectionOptions::default();
+        let socketaddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8090);
+        
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let burnchain = Burnchain {
+            peer_version: PEER_VERSION,
+            network_id: 0,
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            first_block_height: 12300,
+            first_block_hash: first_burn_hash.clone(),
+        };
+        
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+            burn_stable_block_height: 12341,
+            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+            last_consensus_hashes: HashMap::new()
+        };
+        chain_view.make_test_data();
+
+        let local_peer = LocalPeer::new(123, burnchain.network_id, get_epoch_time_secs() + 123456, UrlString::try_from("http://foo.com").unwrap());
+        let mut convo = ConversationP2P::new(123, 456, &burnchain, &socketaddr, &conn_opts, true, 0);
+
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+        let msg = convo.sign_reply(&chain_view, &local_peer.private_key, payload, 123).unwrap();
+
+        // cycles
+        let relay_cycles = vec![
+            RelayData {
+                peer: NeighborAddress { addrbytes: PeerAddress([0u8; 16]), port: 123, public_key_hash: Hash160([0u8; 20]) },
+                seq: 123,
+            },
+            RelayData {
+                peer: NeighborAddress { addrbytes: PeerAddress([1u8; 16]), port: 456, public_key_hash: Hash160([0u8; 20]) },
+                seq: 456,
+            }
+        ];
+
+        // contains localpeer 
+        let self_sent = vec![
+            RelayData {
+                peer: NeighborAddress { addrbytes: local_peer.addrbytes.clone(), port: local_peer.port, public_key_hash: Hash160::from_data(&StacksPublicKey::from_private(&local_peer.private_key).to_bytes()) },
+                seq: 789
+            }
+        ];
+
+        // allowed
+        let mut relayers = vec![
+            RelayData {
+                peer: NeighborAddress { addrbytes: PeerAddress([0u8; 16]), port: 123, public_key_hash: Hash160([0u8; 20]) },
+                seq: 123,
+            },
+            RelayData {
+                peer: NeighborAddress { addrbytes: PeerAddress([1u8; 16]), port: 456, public_key_hash: Hash160([1u8; 20]) },
+                seq: 456,
+            },
+        ];
+
+        assert!(!convo.process_relayers(&local_peer, &msg.preamble, relay_cycles));
+        assert!(!convo.process_relayers(&local_peer, &msg.preamble, self_sent));
+
+        assert!(convo.process_relayers(&local_peer, &msg.preamble, relayers.clone()));
+       
+        // stats updated
+        assert_eq!(convo.stats.relayed_messages.len(), 2);
+        let relayer_map = convo.stats.take_relayers();
+        assert_eq!(convo.stats.relayed_messages.len(), 0);
+
+        for r in relayers.drain(..) {
+            assert!(relayer_map.contains_key(&r.peer));
+            
+            let stats = relayer_map.get(&r.peer).unwrap();
+            assert_eq!(stats.num_messages, 1);
+            assert_eq!(stats.num_bytes, (msg.preamble.payload_len - 1) as u64);
+        }
+    }
 }
+
+// TODO: test bandwidth limits

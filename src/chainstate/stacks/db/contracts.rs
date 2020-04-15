@@ -63,8 +63,7 @@ use vm::types::{
 };
 
 use vm::clarity::{
-    ClarityBlockConnection,
-    ClarityInstance
+    ClarityConnection
 };
 
 pub use vm::analysis::errors::CheckErrors;
@@ -75,52 +74,23 @@ use vm::database::ClarityDatabase;
 use vm::contracts::Contract;
 
 impl StacksChainState {
-    pub fn get_contract<'a>(clarity_tx: &mut ClarityTx<'a>, contract_id: &QualifiedContractIdentifier) -> Result<Option<Contract>, Error> {
-        clarity_tx.block.with_clarity_db_readonly(|ref mut db| {
+    pub fn get_contract<T: ClarityConnection>(clarity_tx: &mut T, contract_id: &QualifiedContractIdentifier) -> Result<Option<Contract>, Error> {
+        clarity_tx.with_clarity_db_readonly(|ref mut db| {
             match db.get_contract(contract_id) {
-                Ok(c) => {
-                    return Ok(Some(c));
-                },
-                Err(e) => {
-                    match e {
-                        clarity_vm_error::Unchecked(ref ce) => {
-                            match ce {
-                                CheckErrors::NoSuchContract(_) => {
-                                    return Ok(None);
-                                },
-                                _ => {}
-                            }
-                        },
-                        _ => {}
-                    }
-                    return Err(clarity_error::Interpreter(e));
-                }
+                Ok(c) => Ok(Some(c)),
+                Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchContract(_))) => Ok(None),
+                Err(e) => Err(clarity_error::Interpreter(e)),
             }
         }).map_err(Error::ClarityError)
     }
     
-    pub fn get_data_var<'a>(clarity_tx: &mut ClarityTx<'a>, contract_id: &QualifiedContractIdentifier, data_var: &str) -> Result<Option<Value>, Error> {
-        clarity_tx.block.with_clarity_db_readonly(|ref mut db| {
+    pub fn get_data_var<T: ClarityConnection>(clarity_tx: &mut T, contract_id: &QualifiedContractIdentifier, data_var: &str) -> Result<Option<Value>, Error> {
+        clarity_tx.with_clarity_db_readonly(|ref mut db| {
             match db.lookup_variable(contract_id, data_var) {
-                Ok(v) => {
-                    return Ok(Some(v));
-                },
-                Err(e) => {
-                    match e {
-                        clarity_vm_error::Unchecked(ref ce) => {
-                            match ce {
-                                CheckErrors::NoSuchDataVariable(_) => {
-                                    return Ok(None);
-                                },
-                                _ => {}
-                            }
-                        },
-                        _ => {}
-                    }
-                    return Err(clarity_error::Interpreter(e));
-                }
+                Ok(c) => Ok(Some(c)),
+                Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchDataVariable(_))) => Ok(None),
+                Err(e) => Err(clarity_error::Interpreter(e)),
             }
         }).map_err(Error::ClarityError)
     }
 }
-
