@@ -1132,8 +1132,14 @@ impl TrieFileStorage {
 
     pub fn drop_extending_trie(&mut self) {
         if let Some((ref bhh, _)) = self.last_extended.take() {
-            TrieSQL::drop_lock(&self.db, bhh)
+            let tx = self.db.transaction()
+                .expect("Corruption: Failed to obtain db transaction");
+            TrieSQL::remove_chain_tip_if_present(&tx, bhh)
+                .expect("Corruption: Failed to drop the extended trie from chain tips");
+            TrieSQL::drop_lock(&tx, bhh)
                 .expect("Corruption: Failed to drop the extended trie lock");
+            tx.commit()
+                .expect("Corruption: Failed to drop the extended trie");
         }
 
         self.last_extended = None;
