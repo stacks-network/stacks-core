@@ -46,14 +46,19 @@ fn main() {
             Config::default()
         }
     };
+
+    println!("Transactions can be posted on the endpoint:");
+    println!("POST http://{}/v2/transactions", conf.node.rpc_bind);
     
     let num_round: u64 = 0; // Infinite number of rounds
-    if conf.burnchain.mode == "helium" {
+    if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
         let mut run_loop = helium::RunLoop::new(conf);
         run_loop.start(num_round);
     } else if conf.burnchain.mode == "neon" {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(num_round);
+    } else {
+        println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
     }
     return
 }

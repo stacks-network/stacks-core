@@ -45,7 +45,7 @@ See [SIP 000](https://github.com/blockstack/stacks-blockchain/blob/master/sip/si
 
 - [ ] **Neon** is the upcoming version of our public testnet, that we're anticipating will ship in Q2 2020. This testnet will ship with SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
 
-- [ ] **Mainet** is the fully functional version, that we're intending to ship in Q3 2020.
+- [ ] **Mainnet** is the fully functional version, that we're intending to ship in Q3 2020.
 
 ## Getting started
 
