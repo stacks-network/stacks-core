@@ -1357,15 +1357,7 @@ mod test {
         use std::env;
         env::set_var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID", "1");
 
-        let path = "/tmp/rust_marf_verifier_catches_stale_proof".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-
-        let mut m = MARF::from_path(&path, None).unwrap();
+        let mut m = MARF::from_path(":memory:", None).unwrap();
 
         let sentinel_block = TrieFileStorage::block_sentinel();
         let block_0 = BlockHeaderHash([0u8; 32]);

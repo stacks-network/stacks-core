@@ -1913,13 +1913,7 @@ mod test {
         // create 256 forks organized as a binary tree, and insert 128 values into each one.
         // make sure we can read them all from each chain tip, and make sure we can generate merkle
         // proofs of each one's value.
-        let path = "/tmp/rust_marf_insert_get_128_fork_256".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
+        let path = ":memory:".to_string();
 
         let mut m = MARF::from_path(&path, None).unwrap();
         let mut fork_headers = vec![];

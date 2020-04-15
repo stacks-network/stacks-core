@@ -841,8 +841,10 @@ impl TrieFileStorage {
         let sentinel = TrieFileStorage::block_sentinel();
         if *bhh == sentinel {
             // just reset to newly opened state
-            self.cur_block_id = None;
             self.cur_block = sentinel;
+            // did we write to the sentinel ?
+            self.cur_block_id = TrieSQL::get_block_identifier(&self.db, bhh)
+                .ok();
             return Ok(());
         }
 
@@ -870,7 +872,9 @@ impl TrieFileStorage {
             }
         }
 
-        self.cur_block_id.ok_or(Error::NotOpenedError)
+        self.cur_block_id.ok_or_else(|| {
+            Error::NotOpenedError
+        })
     }
     
     pub fn get_cur_block(&self) -> BlockHeaderHash {
