@@ -148,7 +148,7 @@ fn test_emit_nested_print_nok() {
                 (err u1)))
         (define-public (emit-event-ok)
             (begin
-                (emit-event-nok)
+                (is-ok (emit-event-nok))
                 (print \"foo\")
                 (ok u1)))";                
 

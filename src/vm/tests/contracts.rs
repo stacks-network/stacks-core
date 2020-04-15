@@ -61,8 +61,8 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
            (if (>= block-height block-to-release)
                (faucet)
                (err \"must be in the future\")))
-         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
-                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200)
+         (begin (is-ok (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000))
+                (is-ok (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200))
                 (token-credit! .tokens u4))";
 
 
@@ -534,7 +534,7 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
     let contract_2 ="
 (define-public (fail-in-other)
   (begin
-    (contract-call? .contract-1 modify-data 100 101)
+    (is-ok (contract-call? .contract-1 modify-data 100 101))
     (ok 1)))
 
 (define-public (fail-in-self)
