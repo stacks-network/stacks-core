@@ -39,14 +39,14 @@ fn test_accept_options() {
     let tests = [
         format!("{} {}", defun, "(f none)"),
         format!("{} {}", defun, "(f (some 1))"),
-        format!("{} {}", defun, "(f (some 'true))") ];
+        format!("{} {}", defun, "(f (some true))") ];
     let expectations: &[Result<_, Error>] = &[
         Ok(Some(Value::Int(0))),
         Ok(Some(Value::Int(10))),
         Err(CheckErrors::TypeValueError(TypeSignature::from("(optional int)"),
                                         Value::some(Value::Bool(true)).unwrap()).into()),
     ];
-    
+
     for (test, expect) in tests.iter().zip(expectations.iter()) {
         assert_eq!(*expect, execute(test));
     }
