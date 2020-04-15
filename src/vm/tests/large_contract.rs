@@ -51,11 +51,13 @@ pub fn rollback_log_memory_test() {
             contract.push_str(&exploder);
         }
 
-        let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-        assert!(format!("{:?}",
-                        conn.initialize_smart_contract(
-                            &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
-                .contains("MemoryBalanceExceeded"));
+        conn.as_transaction(|conn| {
+            let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+            assert!(format!("{:?}",
+                            conn.initialize_smart_contract(
+                                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
+                    .contains("MemoryBalanceExceeded"));
+        });
     }
 }
 
@@ -94,11 +96,13 @@ pub fn let_memory_test() {
 
         contract.push_str(") 1)");
 
-        let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-        assert!(format!("{:?}",
-                        conn.initialize_smart_contract(
-                            &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
-                .contains("MemoryBalanceExceeded"));
+        conn.as_transaction(|conn| {
+            let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+            assert!(format!("{:?}",
+                            conn.initialize_smart_contract(
+                                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
+                    .contains("MemoryBalanceExceeded"));
+        });
     }
 }
 
@@ -135,11 +139,13 @@ pub fn argument_memory_test() {
 
         contract.push_str(")");
 
-        let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-        assert!(format!("{:?}",
-                        conn.initialize_smart_contract(
-                            &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
-                .contains("MemoryBalanceExceeded"));
+        conn.as_transaction(|conn| {
+            let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+            assert!(format!("{:?}",
+                            conn.initialize_smart_contract(
+                                &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
+                    .contains("MemoryBalanceExceeded"));
+        });
     }
 }
 
@@ -195,16 +201,20 @@ pub fn fcall_memory_test() {
         eprintln!("{}", contract_ok);
         eprintln!("{}", contract_err);
 
-        let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract_ok).unwrap();
-        conn.initialize_smart_contract(
-            // initialize the ok contract without errs, but still abort.
-            &contract_identifier, &ct_ast, &contract_ok, |_,_| true).unwrap();
+        conn.as_transaction(|conn| {
+            let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract_ok).unwrap();
+            conn.initialize_smart_contract(
+                // initialize the ok contract without errs, but still abort.
+                &contract_identifier, &ct_ast, &contract_ok, |_,_| true).unwrap();
+        });
 
-        let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract_err).unwrap();
-        assert!(format!("{:?}",
-                        conn.initialize_smart_contract(
-                            &contract_identifier, &ct_ast, &contract_err, |_,_| false).unwrap_err())
-                .contains("MemoryBalanceExceeded"));
+        conn.as_transaction(|conn| {
+            let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract_err).unwrap();
+            assert!(format!("{:?}",
+                            conn.initialize_smart_contract(
+                                &contract_identifier, &ct_ast, &contract_err, |_,_| false).unwrap_err())
+                    .contains("MemoryBalanceExceeded"));
+        });
     }
 }
 
@@ -254,16 +264,20 @@ pub fn ccall_memory_test() {
             let contract_identifier = QualifiedContractIdentifier::local(&contract_name).unwrap();
 
             if i < (CONTRACTS-1) {
-                let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-                conn.initialize_smart_contract(
-                    &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
-                conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+                conn.as_transaction(|conn| {
+                    let (ct_ast, ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+                    conn.initialize_smart_contract(
+                        &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap();
+                    conn.save_analysis(&contract_identifier, &ct_analysis).unwrap();
+                });
             } else {
-                let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
-                assert!(format!("{:?}",
-                                conn.initialize_smart_contract(
-                            &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
-                        .contains("MemoryBalanceExceeded"));
+                conn.as_transaction(|conn| {
+                    let (ct_ast, _ct_analysis) = conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+                    assert!(format!("{:?}",
+                                    conn.initialize_smart_contract(
+                                        &contract_identifier, &ct_ast, &contract, |_,_| false).unwrap_err())
+                            .contains("MemoryBalanceExceeded"));
+                });
             }
         }
     }

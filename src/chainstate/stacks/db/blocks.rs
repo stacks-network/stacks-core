@@ -2288,22 +2288,22 @@ impl StacksChainState {
     /// TODO: calculate how full the block was.
     /// TODO: tx_fees needs to be normalized _a priori_ to be equal to the block-determined fee
     /// rate, times the fraction of the block's total utilization.
-    fn make_scheduled_miner_reward(mainnet: bool, 
-                                   parent_block_hash: &BlockHeaderHash, 
-                                   parent_burn_header_hash: &BurnchainHeaderHash, 
-                                   block: &StacksBlock, 
-                                   block_burn_header_hash: &BurnchainHeaderHash, 
-                                   block_height: u64, 
-                                   tx_fees: u128, 
-                                   streamed_fees: u128, 
+    fn make_scheduled_miner_reward(mainnet: bool,
+                                   parent_block_hash: &BlockHeaderHash,
+                                   parent_burn_header_hash: &BurnchainHeaderHash,
+                                   block: &StacksBlock,
+                                   block_burn_header_hash: &BurnchainHeaderHash,
+                                   block_height: u64,
+                                   tx_fees: u128,
+                                   streamed_fees: u128,
                                    stx_burns: u128,
                                    burnchain_commit_burn: u64,
                                    burnchain_sortition_burn: u64,
-                                   fill: u64) -> Result<MinerPaymentSchedule, Error> 
+                                   fill: u64) -> Result<MinerPaymentSchedule, Error>
     {
         let coinbase_tx = block.get_coinbase_tx().ok_or(Error::InvalidStacksBlock("No coinbase transaction".to_string()))?;
         let miner_auth = coinbase_tx.get_origin();
-        let miner_addr = 
+        let miner_addr =
             if mainnet {
                 miner_auth.address_mainnet()
             }
@@ -2513,21 +2513,21 @@ impl StacksChainState {
     fn process_matured_miner_reward<'a>(clarity_tx: &mut ClarityTx<'a>, miner_reward: &MinerReward) -> Result<(), Error> {
         let boot_code_address = StacksAddress::from_string(&STACKS_BOOT_CODE_CONTRACT_ADDRESS.to_string()).unwrap();
         let miner_contract_id = QualifiedContractIdentifier::new(StandardPrincipalData::from(boot_code_address.clone()), ContractName::try_from(BOOT_CODE_MINER_CONTRACT_NAME.to_string()).unwrap());
-        
+
         let miner_participant_principal = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_PARTICIPANT.to_string()).unwrap();
         let miner_available_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AVAILABLE.to_string()).unwrap();
         let miner_authorized_name = ClarityName::try_from(BOOT_CODE_MINER_REWARDS_AUTHORIZED.to_string()).unwrap();
-        
+
         let miner_principal = Value::Tuple(TupleData::from_data(vec![
                 (miner_participant_principal, Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(miner_reward.address.clone()))))])
             .expect("FATAL: failed to construct miner principal key"));
 
         let miner_reward_total = miner_reward.total();
       
-        clarity_tx.connection().with_clarity_db(|ref mut db| {
-            // (+ reward (get available (default-to (tuple (available 0) (authorized 'false)) (map-get rewards ((miner))))))
+        clarity_tx.connection().as_transaction(|x| { x.with_clarity_db(|ref mut db| {
+            // (+ reward (get available (default-to {available: 0, authorized: false} (map-get rewards ((miner))))))
             let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)?;
-            let new_miner_status = 
+            let new_miner_status =
                 match miner_status_opt {
                     Value::Optional(ref optional_data) => {
                         match optional_data.data {
@@ -2570,7 +2570,7 @@ impl StacksChainState {
             debug!("Grant miner {} {} STX", miner_reward.address.to_string(), miner_reward_total);
             db.set_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, miner_principal, new_miner_status)?;
             Ok(())
-        }).map_err(Error::ClarityError)?;
+        })}).map_err(Error::ClarityError)?;
         Ok(())
     }
 
@@ -2719,20 +2719,20 @@ impl StacksChainState {
 
             (scheduled_miner_reward, txs_receipts)
         };
-       
+
         let microblock_tail_opt = match microblocks.len() {
             0 => None,
             x => Some(microblocks[x - 1].header.clone())
         };
 
-        let new_tip = StacksChainState::advance_tip(&mut chainstate_tx.headers_tx, 
-                                                    &parent_chain_tip.anchored_header, 
-                                                    &parent_chain_tip.burn_header_hash, 
+        let new_tip = StacksChainState::advance_tip(&mut chainstate_tx.headers_tx,
+                                                    &parent_chain_tip.anchored_header,
+                                                    &parent_chain_tip.burn_header_hash,
                                                     &block.header,
-                                                    chain_tip_burn_header_hash, 
+                                                    chain_tip_burn_header_hash,
                                                     chain_tip_burn_header_timestamp,
                                                     microblock_tail_opt,
-                                                    &scheduled_miner_reward, 
+                                                    &scheduled_miner_reward,
                                                     user_burns)
             .expect("FATAL: failed to advance chain tip");
 
@@ -2871,10 +2871,10 @@ impl StacksChainState {
                                                                   &parent_block_header_info, 
                                                                   &next_staging_block.burn_header_hash, 
                                                                   next_staging_block.burn_header_timestamp,
-                                                                  &block, 
-                                                                  &next_microblocks, 
-                                                                  next_staging_block.commit_burn, 
-                                                                  next_staging_block.sortition_burn, 
+                                                                  &block,
+                                                                  &next_microblocks,
+                                                                  next_staging_block.commit_burn,
+                                                                  next_staging_block.sortition_burn,
                                                                   &user_supports) {
             Ok(next_chain_tip) => next_chain_tip,
             Err(e) => {
@@ -3136,7 +3136,7 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
-        
+
         let mut tx_coinbase = StacksTransaction::new(TransactionVersion::Testnet, auth, TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
@@ -3266,16 +3266,16 @@ pub mod test {
         assert!(!StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap());
         assert_eq!(StacksChainState::load_staging_block_pubkey_hash(&chainstate.blocks_db, burn_header, &block.block_hash()).unwrap().unwrap(), block.header.microblock_pubkey_hash);
     }
-    
+
     fn assert_block_stored_rejected(chainstate: &mut StacksChainState, burn_header: &BurnchainHeaderHash, block: &StacksBlock) -> () {
         assert!(StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap());
         assert!(StacksChainState::load_block(&chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().is_none());
         assert!(StacksChainState::load_block_header(&chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().is_none());
         assert!(StacksChainState::load_staging_block_pubkey_hash(&chainstate.blocks_db, burn_header, &block.block_hash()).unwrap().is_none());
-        
+
         assert_eq!(StacksChainState::get_staging_block_status(&chainstate.blocks_db, burn_header, &block.block_hash()).unwrap().unwrap(), true);
         assert!(StacksChainState::load_staging_block_data(&chainstate.blocks_db, &chainstate.blocks_path, burn_header, &block.block_hash()).unwrap().is_none());
-        
+
         let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header, &block.block_hash());
         assert!(StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash).unwrap());
     }
@@ -3363,17 +3363,17 @@ pub mod test {
         tx.commit().unwrap();
         res
     }
-   
+
     fn drop_staging_microblocks(chainstate: &mut StacksChainState, burn_hash: &BurnchainHeaderHash, anchored_block_hash: &BlockHeaderHash, invalid_microblock: &BlockHeaderHash) {
         let mut tx = chainstate.blocks_tx_begin().unwrap();
         StacksChainState::drop_staging_microblocks(&mut tx, burn_hash, anchored_block_hash, invalid_microblock).unwrap();
         tx.commit().unwrap();
     }
-    
+
     #[test]
     fn stacks_db_block_load_store_empty() {
         let chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_block_load_store_empty");
-       
+
         let path = StacksChainState::get_block_path(&chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([2u8; 32])).unwrap();
         assert!(fs::metadata(&path).is_err());
         assert!(!StacksChainState::has_stored_block(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([2u8; 32])).unwrap());
@@ -3534,20 +3534,20 @@ pub mod test {
             assert!(StacksChainState::get_staging_microblock_status(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &mb.block_hash()).unwrap().is_some());
             assert_eq!(StacksChainState::get_staging_microblock_status(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &mb.block_hash()).unwrap().unwrap(), true);
         }
-        
+
         // but we should still load the full stream if asked
         assert!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().is_some());
         assert_eq!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().unwrap(), microblocks);
     }
-    
+
     #[test]
     fn stacks_db_staging_microblock_stream_load_store_partial_confirm() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_staging_microblock_stream_load_store_reject");
         let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
-      
+
         let block = make_empty_coinbase_block(&privk);
         let microblocks = make_sample_microblock_stream(&privk, &block.block_hash());
-        
+
         assert!(StacksChainState::load_staging_microblock(&chainstate.blocks_db, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), &microblocks[0].block_hash()).unwrap().is_none());
         assert!(StacksChainState::load_staging_microblock_stream(&chainstate.blocks_db, &chainstate.blocks_path, &BurnchainHeaderHash([2u8; 32]), &block.block_hash(), u16::max_value()).unwrap().is_none());
 
@@ -3845,12 +3845,12 @@ pub mod test {
             }
         }
     }
-    
+
     #[test]
     fn stacks_db_staging_block_load_store_accept_attacheable() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_staging_block_load_store_accept_attacheable");
         let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
-      
+
         let block_1 = make_empty_coinbase_block(&privk);
         let mut block_2 = make_empty_coinbase_block(&privk);
         let mut block_3 = make_empty_coinbase_block(&privk);
@@ -4153,12 +4153,12 @@ pub mod test {
     fn stacks_db_staging_blocks_orphaned() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_staging_block_load_store_accept_attacheable");
         let privk = StacksPrivateKey::from_hex("eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01").unwrap();
-      
+
         let block_1 = make_empty_coinbase_block(&privk);
         let block_2 = make_empty_coinbase_block(&privk);
         let block_3 = make_empty_coinbase_block(&privk);
         let block_4 = make_empty_coinbase_block(&privk);
-        
+
         let mut blocks = vec![
             block_1,
             block_2,

@@ -26,7 +26,7 @@ fn test_at_block_violations() {
            (at-block (sha256 0)
              (var-set foo 0)))",
         // make sure that short-circuit evaluation isn't happening.
-        // i.e., once (foo-bar) is known to be writing, `(at-block ..)` 
+        // i.e., once (foo-bar) is known to be writing, `(at-block ..)`
         //  should trigger an error.
         "(define-data-var foo int 1)
          (define-private (foo-bar)
@@ -60,7 +60,7 @@ fn test_simple_read_only_violations() {
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (not-reading-only)
             (or (map-insert tokens (tuple (account tx-sender))
-                                             (tuple (balance 10))) 'false))",
+                                   {balance 10}) false))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (not-reading-only)
             (tuple (result (map-delete tokens (tuple (account tx-sender))))))",
@@ -105,7 +105,7 @@ fn test_simple_read_only_violations() {
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (not-reading-only)
             (asserts! (map-insert tokens (tuple (account tx-sender))
-                                             (tuple (balance 10))) 'false))",
+                                             (tuple (balance 10))) false))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (func1) (begin (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) (list 1 2)))
          (define-read-only (not-reading-only)
@@ -145,12 +145,12 @@ fn test_contract_call_read_only_violations() {
               (map-set tokens (tuple (account tx-sender))
                                               (tuple (balance 10)))
               (ok 1)))";
-    let bad_caller = 
+    let bad_caller =
         "(define-read-only (not-reading-only)
             (contract-call? .contract1 mint))";
     let ok_caller =
         "(define-read-only (is-reading-only)
-            (is-eq 0 (unwrap! (contract-call? .contract1 get-token-balance) 'false)))";
+            (is-eq 0 (unwrap! (contract-call? .contract1 get-token-balance) false)))";
 
     let contract_1_id = QualifiedContractIdentifier::local("contract1").unwrap();
     let contract_bad_caller_id = QualifiedContractIdentifier::local("bad_caller").unwrap();
