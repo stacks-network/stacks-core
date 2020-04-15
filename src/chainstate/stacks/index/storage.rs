@@ -61,7 +61,6 @@ use chainstate::stacks::index::bits::{
     read_block_identifier,
     read_node_hash_bytes,
     read_nodetype,
-    read_nodetype_at_head,
     get_node_hash,
 };
 
@@ -121,6 +120,26 @@ pub struct TrieSQL {}
 impl BlockMap for TrieFileStorage {
     fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error> {
         TrieSQL::get_block_hash(&self.db, id)
+    }
+
+    fn get_block_hash_caching(&mut self, id: u32) -> Result<&BlockHeaderHash, Error> {
+        if !self.block_hash_cache.contains_key(&id) {
+            self.block_hash_cache.insert(id, self.get_block_hash(id)?);
+        }
+        Ok(&self.block_hash_cache[&id])
+    }
+}
+
+impl BlockMap for TrieSqlHashMapCursor<'_> {
+    fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error> {
+        TrieSQL::get_block_hash(&self.db, id)
+    }
+
+    fn get_block_hash_caching(&mut self, id: u32) -> Result<&BlockHeaderHash, Error> {
+        if !self.cache.contains_key(&id) {
+            self.cache.insert(id, self.get_block_hash(id)?);
+        }
+        Ok(&self.cache[&id])
     }
 }
 
@@ -195,50 +214,44 @@ impl TrieSQL {
     }
 
     pub fn read_node_hash_bytes<W: Write>(conn: &Connection, w: &mut W, block_id: u32, ptr: &TriePtr) -> Result<(), Error> {
-        conn.query_row_and_then(
-            "SELECT data FROM marf_data WHERE block_id = ?", &[block_id],
-            |row| {
-                let data = row.get_raw("data")
-                    .as_blob().expect("DB Corruption: MARF data is non-blob");
-                let start = ptr.ptr() as usize;
-                w.write(&data[start..start+TRIEHASH_ENCODED_SIZE])?;
-                Ok(())
-            })
+        let row_id: i64 = conn.query_row("SELECT block_id FROM marf_data WHERE block_id = ?",
+                                         &[block_id], |r| r.get("block_id"))?;
+        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", row_id, true)?;
+        let hash_buff = read_node_hash_bytes(&mut blob, ptr)?;
+        w.write_all(&hash_buff)
+            .map_err(|e| e.into())
     }
 
     pub fn read_node_hash_bytes_by_bhh<W: Write>(conn: &Connection, w: &mut W, bhh: &BlockHeaderHash, ptr: &TriePtr) -> Result<(), Error> {
-        conn.query_row_and_then(
-            "SELECT data FROM marf_data WHERE block_hash = ?", &[bhh],
-            |row| {
-                let data = row.get_raw("data")
-                    .as_blob().expect("DB Corruption: MARF data is non-blob");
-                let start = ptr.ptr() as usize;
-                w.write(&data[start..start+TRIEHASH_ENCODED_SIZE])?;
-                Ok(())
-            })
+        let row_id: i64 = conn.query_row("SELECT block_id FROM marf_data WHERE block_hash = ?",
+                                         &[bhh], |r| r.get("block_id"))?;
+        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", row_id, true)?;
+        let hash_buff = read_node_hash_bytes(&mut blob, ptr)?;
+        w.write_all(&hash_buff)
+            .map_err(|e| e.into())
     }
 
     pub fn read_node_type(conn: &Connection, block_id: u32, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
-        conn.query_row_and_then(
-            "SELECT data FROM marf_data WHERE block_id = ?", &[block_id],
-            |row| {
-                let data = row.get_raw("data")
-                    .as_blob().expect("DB Corruption: MARF data is non-blob");
-                let start = ptr.ptr() as usize;
-                read_nodetype_at_head(&mut &data[start..], ptr.id())
-            })
+        let row_id: i64 = conn.query_row("SELECT block_id FROM marf_data WHERE block_id = ?",
+                                         &[block_id], |r| r.get("block_id"))?;
+        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", row_id, true)?;
+        read_nodetype(&mut blob, ptr)
     }
 
     pub fn get_node_hash_bytes(conn: &Connection, block_id: u32, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        let mut bytes = [0u8; TRIEHASH_ENCODED_SIZE];
-        TrieSQL::read_node_hash_bytes(conn, &mut bytes.as_mut(), block_id, ptr)?;
-        Ok(TrieHash(bytes))
+        let row_id: i64 = conn.query_row("SELECT block_id FROM marf_data WHERE block_id = ?",
+                                         &[block_id], |r| r.get("block_id"))?;
+        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", row_id, true)?;
+        let hash_buff = read_node_hash_bytes(&mut blob, ptr)?;
+        Ok(TrieHash(hash_buff))
     }
 
     pub fn get_node_hash_bytes_by_bhh(conn: &Connection, bhh: &BlockHeaderHash, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        let mut bytes = [0u8; TRIEHASH_ENCODED_SIZE];
-        TrieSQL::read_node_hash_bytes_by_bhh(conn, &mut bytes.as_mut(), bhh, ptr)?;
-        Ok(TrieHash(bytes))
+        let row_id: i64 = conn.query_row("SELECT block_id FROM marf_data WHERE block_hash = ?",
+                                         &[bhh], |r| r.get("block_id"))?;
+        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", row_id, true)?;
+        let hash_buff = read_node_hash_bytes(&mut blob, ptr)?;
+        Ok(TrieHash(hash_buff))
     }
 
     pub fn get_chain_tips(conn: &Connection) -> Result<Vec<BlockHeaderHash>, Error> {
@@ -603,6 +616,10 @@ pub struct TrieSqlCursor <'a> {
     block_id: u32
 }
 
+pub struct TrieSqlHashMapCursor <'a> {
+    db: &'a Connection,
+    cache: &'a mut HashMap<u32, BlockHeaderHash>
+}
 
 impl NodeHashReader for TrieSqlCursor<'_> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
@@ -634,6 +651,8 @@ pub struct TrieFileStorage {
     pub trie_ancestor_hash_bytes_cache: Option<(BlockHeaderHash, Vec<TrieHash>)>,
 
     miner_tip: Option<BlockHeaderHash>,
+
+    block_hash_cache: HashMap<u32, BlockHeaderHash>,
 
     // used in testing in order to short-circuit block-height lookups
     //   when the trie struct is tested outside of marf.rs usage
@@ -668,6 +687,7 @@ impl TrieFileStorage {
             write_leaf_count: 0,
 
             trie_ancestor_hash_bytes_cache: None,
+            block_hash_cache: HashMap::new(),
   
             miner_tip: None,
             
@@ -881,8 +901,8 @@ impl TrieFileStorage {
         self.cur_block.clone()
     }
 
-    pub fn get_block_from_local_id(&self, local_id: u32) -> Result<BlockHeaderHash, Error> {
-        TrieSQL::get_block_hash(&self.db, local_id)
+    pub fn get_block_from_local_id(&mut self, local_id: u32) -> Result<&BlockHeaderHash, Error> {
+        self.get_block_hash_caching(local_id)
     }
 
     pub fn root_ptr(&self) -> u32 {
@@ -945,10 +965,13 @@ impl TrieFileStorage {
     pub fn write_children_hashes<W: Write>(&mut self, node: &TrieNodeType, w: &mut W) -> Result<(), Error> {
         trace!("get_children_hashes_bytes for {:?}", node);
 
+        let mut map = TrieSqlHashMapCursor { db: &self.db,
+                                             cache: &mut self.block_hash_cache };
+
         if let Some((ref last_extended, ref mut last_extended_trie)) = self.last_extended {
             if &self.cur_block == last_extended {
                 let hash_reader = last_extended_trie;
-                return TrieFileStorage::inner_write_children_hashes(hash_reader, &self.db, node, w)
+                return TrieFileStorage::inner_write_children_hashes(hash_reader, &mut map, node, w)
             }
         }
 
@@ -959,11 +982,11 @@ impl TrieFileStorage {
                                              Error::NotFoundError
                                          })? };
 
-        TrieFileStorage::inner_write_children_hashes(&mut cursor, &self.db, node, w)
+        TrieFileStorage::inner_write_children_hashes(&mut cursor, &mut map, node, w)
     }
 
-    fn inner_write_children_hashes<W: Write, H: NodeHashReader>(
-        hash_reader: &mut H, conn: &Connection, node: &TrieNodeType, w: &mut W) -> Result<(), Error> {
+    fn inner_write_children_hashes<W: Write, H: NodeHashReader, M: BlockMap>(
+        hash_reader: &mut H, map: &mut M, node: &TrieNodeType, w: &mut W) -> Result<(), Error> {
         for ptr in node.ptrs().iter() {
             if ptr.id() == TrieNodeID::Empty {
                 // hash of empty string
@@ -978,7 +1001,7 @@ impl TrieFileStorage {
                 //   I *think* this is no longer necessary in the fork-table-less construction.
                 //   the back_pointer's consensus bytes uses this block_hash instead of a back_block
                 //   integer. This means that it would _always_ be included the node's hash computation.
-                let block_hash = TrieSQL::get_block_hash(conn, ptr.back_block())?;
+                let block_hash = map.get_block_hash_caching(ptr.back_block())?;
                 w.write_all(block_hash.as_bytes())?;
             }
         }

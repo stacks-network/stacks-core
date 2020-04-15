@@ -10,18 +10,8 @@ use criterion::Criterion;
 use rand::prelude::*;
 use std::fs;
 
-fn new_overwrite(dir_path: &str) -> TrieFileStorage {
-    match fs::metadata(dir_path) {
-        Ok(_) => {
-            fs::remove_dir_all(dir_path).unwrap();
-        },
-        Err(_e) => {}
-    };
-    TrieFileStorage::new(dir_path).unwrap()
-}
-
 fn benchmark_marf_usage(filename: &str, blocks: u32, writes_per_block: u32, reads_per_block: u32, batch: bool) {
-    let f = new_overwrite(filename);
+    let f = TrieFileStorage::new(":memory:").unwrap();
     let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
     let mut marf = MARF::from_storage(f);
     marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();

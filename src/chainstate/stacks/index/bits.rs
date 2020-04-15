@@ -197,7 +197,7 @@ pub fn ptrs_from_bytes<R: Read>(node_id: u8, r: &mut R, ptrs_buf: &mut [TriePtr]
 }
 
 /// Calculate the hash of a TrieNode, given its childrens' hashes.
-pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>, map: &M) -> TrieHash {
+pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>, map: &mut M) -> TrieHash {
     let mut hasher = TrieHasher::new();
 
     node.write_consensus_bytes(map, &mut hasher)
@@ -232,7 +232,7 @@ pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
 }
 
 #[inline]
-pub fn get_nodetype_hash_bytes<M: BlockMap>(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &M) -> TrieHash {
+pub fn get_nodetype_hash_bytes<M: BlockMap>(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &mut M) -> TrieHash {
     match node {
         TrieNodeType::Node4(ref data) => get_node_hash(data, child_hash_bytes, map),
         TrieNodeType::Node16(ref data) => get_node_hash(data, child_hash_bytes, map),

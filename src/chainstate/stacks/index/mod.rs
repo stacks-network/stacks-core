@@ -304,11 +304,15 @@ impl error::Error for Error {
 
 pub trait BlockMap {
     fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error>;
+    fn get_block_hash_caching(&mut self, id: u32) -> Result<&BlockHeaderHash, Error>;
 }
 
 #[cfg(test)]
 impl BlockMap for () {
     fn get_block_hash(&self, _id: u32) -> Result<BlockHeaderHash, Error> {
+        Err(Error::NotFoundError)
+    }
+    fn get_block_hash_caching(&mut self, _id: u32) -> Result<&BlockHeaderHash, Error> {
         Err(Error::NotFoundError)
     }
 }

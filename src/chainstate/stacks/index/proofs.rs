@@ -114,7 +114,7 @@ pub struct ProofTrieNode {
 }
 
 impl ConsensusSerializable<()> for ProofTrieNode {
-    fn write_consensus_bytes<W: Write>(&self, _additional_data: &(), w: &mut W) -> Result<(), Error> {
+    fn write_consensus_bytes<W: Write>(&self, _additional_data: &mut (), w: &mut W) -> Result<(), Error> {
         w.write_all(&[self.id])?;
         for ptr in self.ptrs.iter() {
             w.write_all(&[ptr.id, ptr.chr])?;
@@ -125,11 +125,11 @@ impl ConsensusSerializable<()> for ProofTrieNode {
 }
 
 impl ProofTriePtr {
-    fn try_from_trie_ptr<M: BlockMap>(other: &TriePtr, block_map: &M) -> Result<ProofTriePtr, Error> {
+    fn try_from_trie_ptr<M: BlockMap>(other: &TriePtr, block_map: &mut M) -> Result<ProofTriePtr, Error> {
         let id = other.id;
         let chr = other.chr;
         let back_block = if is_backptr(id) {
-            block_map.get_block_hash(other.back_block)?
+            block_map.get_block_hash_caching(other.back_block)?
                 .clone()
         } else {
             BlockHeaderHash(
@@ -144,7 +144,7 @@ impl ProofTrieNode {
         &self.ptrs
     }
 
-    fn try_from_trie_node<T: TrieNode, M: BlockMap>(other: &T, block_map: &M) -> Result<ProofTrieNode, Error> {
+    fn try_from_trie_node<T: TrieNode, M: BlockMap>(other: &T, block_map: &mut M) -> Result<ProofTrieNode, Error> {
         let id = other.id();
         let path = other.path().clone();
         let ptrs: Result<Vec<_>, Error> = other.ptrs().iter()
@@ -781,7 +781,7 @@ impl TrieMerkleProof {
                 return None
             }
 
-            Some(get_node_hash(node, &all_hashes, &()))
+            Some(get_node_hash(node, &all_hashes, &mut ()))
         }
 
         let mut hash = node_hash.clone();
