@@ -11,7 +11,6 @@ extern crate serde;
 pub use stacks::util;
 
 pub mod run_loop; 
-pub mod mem_pool;
 pub mod keychain;
 pub mod node;
 pub mod tenure;
@@ -20,7 +19,6 @@ pub mod event_dispatcher;
 pub mod operations;
 pub mod burnchains;
 
-pub use self::mem_pool::{MemPool, MemPoolFS};
 pub use self::keychain::{Keychain};
 pub use self::node::{Node, ChainTip};
 pub use self::burnchains::{MocknetController, BitcoinRegtestController, BurnchainTip, BurnchainController};
@@ -48,21 +46,6 @@ fn main() {
             Config::default()
         }
     };
-
-    println!("*** Mempool path: {}", conf.mempool.path);
-
-
-    // ^C2020-04-14T15:36:48Z tor: Thread interrupt
-    // 2020-04-14T15:36:48Z torcontrol thread exit
-    // 2020-04-14T15:36:48Z opencon thread exit
-    // 2020-04-14T15:36:48Z addcon thread exit
-    // 2020-04-14T15:36:48Z Shutdown: In progress...
-    // 2020-04-14T15:36:48Z net thread exit
-    // 2020-04-14T15:36:48Z msghand thread exit
-    // 2020-04-14T15:36:48Z scheduler thread interrupt
-    // 2020-04-14T15:36:48Z Dumped mempool: 9e-06s to copy, 0.002823s to dump
-    // 2020-04-14T15:36:48Z [default wallet] Releasing wallet
-    // 2020-04-14T15:36:48Z Shutdown: done
     
     let num_round: u64 = 0; // Infinite number of rounds
     if conf.burnchain.mode == "helium" {

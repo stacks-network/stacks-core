@@ -29,7 +29,7 @@ pub struct RunLoopCallbacks {
     on_burn_chain_initialized: Option<fn(&mut Box<dyn BurnchainController>)>,
     on_new_burn_chain_state: Option<fn(u64, &BurnchainTip, &ChainTip)>,
     on_new_stacks_chain_state: Option<fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState)>,
-    on_new_tenure: Option<fn(u64, &BurnchainTip, &ChainTip, &Tenure)>,
+    on_new_tenure: Option<fn(u64, &BurnchainTip, &ChainTip, &mut Tenure)>,
 }
 
 impl RunLoopCallbacks {
@@ -54,7 +54,7 @@ impl RunLoopCallbacks {
         self.on_new_stacks_chain_state = Some(callback);
     }
 
-    pub fn on_new_tenure(&mut self, callback: fn(u64, &BurnchainTip, &ChainTip, &Tenure)) {
+    pub fn on_new_tenure(&mut self, callback: fn(u64, &BurnchainTip, &ChainTip, &mut Tenure)) {
         self.on_new_tenure = Some(callback);
     }
 
@@ -98,7 +98,7 @@ impl RunLoopCallbacks {
         }
     }
 
-    pub fn invoke_new_tenure(&self, round: u64, burnchain_tip: &BurnchainTip, chain_tip: &ChainTip, tenure: &Tenure) {
+    pub fn invoke_new_tenure(&self, round: u64, burnchain_tip: &BurnchainTip, chain_tip: &ChainTip, tenure: &mut Tenure) {
         if let Some(cb) = self.on_new_tenure {
             cb(round, burnchain_tip, chain_tip, tenure);
         }

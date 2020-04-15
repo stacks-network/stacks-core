@@ -68,7 +68,7 @@ impl RunLoop {
             // Run the last initialized tenure
             let artifacts_from_tenure = match leader_tenure {
                 Some(mut tenure) => {
-                    self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &tenure);
+                    self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &mut tenure);
                     tenure.run()
                 },
                 None => None

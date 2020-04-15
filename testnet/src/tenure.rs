@@ -1,4 +1,4 @@
-use super::{MemPool, MemPoolFS, Config, BurnchainTip};
+use super::{Config, BurnchainTip};
 use super::node::{TESTNET_CHAIN_ID, ChainTip};
 
 use std::time::{Instant, Duration};
@@ -7,6 +7,7 @@ use std::thread;
 use stacks::chainstate::stacks::db::{StacksChainState, ClarityTx};
 use stacks::chainstate::stacks::{StacksPrivateKey, StacksBlock, StacksWorkScore, StacksTransaction, StacksMicroblock, StacksBlockBuilder};
 use stacks::chainstate::burn::VRFSeed;
+use stacks::core::mempool::MemPoolDB;
 use stacks::util::vrf::VRFProof;
 
 pub struct TenureArtifacts {
@@ -20,8 +21,9 @@ pub struct Tenure {
     block_builder: StacksBlockBuilder,
     coinbase_tx: StacksTransaction,
     config: Config,
-    burnchain_tip: BurnchainTip,
-    pub mem_pool: MemPoolFS,
+    pub burnchain_tip: BurnchainTip,
+    pub parent_block: ChainTip, 
+    pub mem_pool: MemPoolDB,
     pub vrf_seed: VRFSeed,
     burn_fee_cap: u64,
 }
@@ -31,7 +33,7 @@ impl <'a> Tenure {
     pub fn new(parent_block: ChainTip, 
                coinbase_tx: StacksTransaction,
                config: Config,
-               mem_pool: MemPoolFS,
+               mem_pool: MemPoolDB,
                microblock_secret_key: StacksPrivateKey,  
                burnchain_tip: BurnchainTip,
                vrf_proof: VRFProof,
@@ -63,6 +65,7 @@ impl <'a> Tenure {
             config,
             burnchain_tip,
             mem_pool,
+            parent_block,
             vrf_seed: VRFSeed::from_proof(&vrf_proof),
             burn_fee_cap,
         }
@@ -86,6 +89,9 @@ impl <'a> Tenure {
             TESTNET_CHAIN_ID, 
             &self.config.get_chainstate_path()).unwrap();
 
+        let burn_header_hash = self.parent_block.metadata.burn_header_hash;
+        let block_hash= self.parent_block.block.block_hash();
+
         let mut clarity_tx = self.block_builder.epoch_begin(&mut chain_state).unwrap();
 
         self.handle_txs(&mut clarity_tx, vec![self.coinbase_tx.clone()]);
@@ -94,7 +100,7 @@ impl <'a> Tenure {
         let mut elapsed = Instant::now().duration_since(self.burnchain_tip.received_at);
 
         while duration_left.saturating_sub(elapsed.as_millis()) > 0 {
-            let txs = self.mem_pool.poll();
+            let txs = self.mem_pool.poll(&burn_header_hash, &block_hash);
             self.handle_txs(&mut clarity_tx, txs);
             thread::sleep(Duration::from_millis(1000));
             elapsed = Instant::now().duration_since(self.burnchain_tip.received_at);

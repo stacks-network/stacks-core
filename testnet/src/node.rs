@@ -1,4 +1,4 @@
-use super::{Keychain, MemPoolFS, Config, Tenure, BurnchainController, BurnchainTip, EventDispatcher};
+use super::{Keychain, Config, Tenure, BurnchainController, BurnchainTip, EventDispatcher};
 use super::operations::{BurnchainOperationType, LeaderBlockCommitPayload, LeaderKeyRegisterPayload};
 
 use std::convert::TryFrom;
@@ -12,6 +12,7 @@ use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::{ StacksBlock, TransactionPayload, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, TransactionAnchorMode};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash};
+use stacks::core::mempool::MemPoolDB;
 use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer } };
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -55,7 +56,6 @@ pub struct Node {
     chain_tip: Option<ChainTip>,
     keychain: Keychain,
     last_sortitioned_block: Option<BurnchainTip>,
-    mem_pool: MemPoolFS,
     event_dispatcher: EventDispatcher,
     nonce: u64,
 }
@@ -84,7 +84,17 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 },
             };
 
-            this.run(&mut burndb, &mut chainstate, None, poll_timeout)
+            let mut mem_pool = match MemPoolDB::open(
+                false, TESTNET_CHAIN_ID, &stacks_chainstate_path) {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Error while connecting to mempool db in peer loop: {}", e);
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                }
+            };
+
+            this.run(&mut burndb, &mut chainstate, &mut mem_pool, None, poll_timeout)
                 .unwrap();
         }
     });
@@ -111,9 +121,6 @@ impl Node {
             Ok(res) => res,
             Err(err) => panic!("Error while opening chain state at path {}: {:?}", config.get_chainstate_path(), err)
         };
-
-        let mem_pool = MemPoolFS::new(&config.mempool.path);
-
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
@@ -127,7 +134,6 @@ impl Node {
             chain_tip: None,
             keychain,
             last_sortitioned_block: None,
-            mem_pool,
             config,
             burnchain_tip: None,
             nonce: 0,
@@ -291,6 +297,8 @@ impl Node {
             }
         };
 
+        let mem_pool = MemPoolDB::open(false, TESTNET_CHAIN_ID, &self.chain_state.root_path).expect("FATAL: failed to open mempool");
+
         // Construct the coinbase transaction - 1st txn that should be handled and included in 
         // the upcoming tenure.
         let coinbase_tx = self.generate_coinbase_tx();
@@ -302,7 +310,7 @@ impl Node {
             chain_tip, 
             coinbase_tx,
             self.config.clone(),
-            self.mem_pool.clone(),
+            mem_pool,
             microblock_secret_key, 
             block_to_build_upon,
             vrf_proof,

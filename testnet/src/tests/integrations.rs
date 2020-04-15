@@ -2,95 +2,22 @@ use std::collections::HashMap;
 
 use stacks::vm::{
     database::ClaritySerializable,
-    types::{QualifiedContractIdentifier, TupleData, PrincipalData},
+    types::{QualifiedContractIdentifier, TupleData},
     analysis::{mem_type_check, contract_interface_builder::{build_contract_interface, ContractInterface}},
-    Value, ClarityName, ContractName };
+    Value };
 use stacks::chainstate::stacks::{
-    db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    StacksMicroblockHeader, StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
-    StacksPublicKey, TransactionPayload, StacksTransactionSigner,
-    TokenTransferMemo, CoinbasePayload, TransactionPostConditionMode,
-    StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress };
+    db::StacksChainState, StacksPrivateKey, StacksAddress };
 use stacks::chainstate::burn::VRFSeed;
 use stacks::burnchains::Address;
-use stacks::address::AddressHashMode;
-use stacks::net::{StacksMessageCodec, AccountEntryResponse, ContractSrcResponse, CallReadOnlyRequestBody};
-use stacks::util::{strings::StacksString};
+use stacks::net::{AccountEntryResponse, ContractSrcResponse, CallReadOnlyRequestBody};
 use stacks::vm::clarity::ClarityConnection;
 
-use crate::{MemPool, config::InitialBalance};
+use crate::config::InitialBalance;
 use crate::helium::RunLoop;
 
+use super::{make_contract_publish, make_contract_call, make_stacks_transfer, SK_1, SK_2, SK_3, ADDR_4, to_addr};
 
 use reqwest;
-
-pub fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
-                                         sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> Vec<u8> {
-    let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
-        .expect("Failed to create p2pkh spending condition from public key.");
-    spending_condition.set_nonce(nonce);
-    spending_condition.set_fee_rate(fee_rate);
-    let auth = TransactionAuth::Standard(spending_condition);
-    let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
-    unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
-
-    let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
-    tx_signer.sign_origin(sender).unwrap();
-
-    let mut buf = vec![];
-    tx_signer.get_tx().unwrap().consensus_serialize(&mut buf).unwrap();
-    buf
-}
-
-pub fn make_contract_publish(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
-                             contract_name: &str, contract_content: &str) -> Vec<u8> {
-    let name = ContractName::from(contract_name);
-    let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
-
-    let payload = TransactionSmartContract { name, code_body };
-
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
-}
-
-pub fn make_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
-                            recipient: &PrincipalData, amount: u64) -> Vec<u8> {
-    let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
-}
-
-pub fn make_poison(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
-                   header_1: StacksMicroblockHeader, header_2: StacksMicroblockHeader) -> Vec<u8> {
-    let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
-}
-
-pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> Vec<u8> {
-    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]));
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
-}
-
-pub fn make_contract_call(
-    sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
-    contract_addr: &StacksAddress, contract_name: &str,
-    function_name: &str, function_args: &[Value]) -> Vec<u8> {
-
-    let contract_name = ContractName::from(contract_name);
-    let function_name = ClarityName::from(function_name);
-
-    let payload = TransactionContractCall {
-        address: contract_addr.clone(),
-        contract_name, function_name,
-        function_args: function_args.iter().map(|x| x.clone()).collect()
-    };
-
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
-}
-
-pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
-    StacksAddress::from_public_keys(
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(sk)])
-        .unwrap()
-}
 
 const GET_INFO_CONTRACT: &'static str = "
         (define-map block-data 
@@ -162,11 +89,6 @@ const GET_INFO_CONTRACT: &'static str = "
             (inner-update-info (- block-height u1))))
        ";
 
-const SK_1: &'static str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
-const SK_2: &'static str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
-const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
-
-const ADDR_4: &'static str = "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0";
 
 use std::sync::Mutex;
 
@@ -195,24 +117,26 @@ fn integration_test_get_info() {
         http_opt.replace(format!("http://{}", &run_loop.node.config.node.rpc_bind));
     }
 
-    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
+    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
         let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
+        let header_hash = chain_tip.block.block_hash();
+        let burn_header_hash = chain_tip.metadata.burn_header_hash;
 
         if round == 1 { // block-height = 2
             let publish_tx = make_contract_publish(&contract_sk, 0, 0, "get-info", GET_INFO_CONTRACT);
             eprintln!("Tenure in 1 started!");
-            tenure.mem_pool.submit(publish_tx);
+            tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,publish_tx).unwrap();
         } else if round >= 2 { // block-height > 2
             let tx = make_contract_call(&principal_sk, (round - 2).into(), 0, &to_addr(&contract_sk), "get-info", "update-info", &[]);
-            tenure.mem_pool.submit(tx);
+            tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,tx).unwrap();
         }
 
         if round >= 1 {
             let tx_xfer = make_stacks_transfer(&spender_sk, (round - 1).into(), 0,
                                                &StacksAddress::from_string(ADDR_4).unwrap().into(), 100);
-            tenure.mem_pool.submit(tx_xfer);
+            tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,tx_xfer).unwrap();
         }
 
         return
@@ -608,10 +532,12 @@ fn contract_stx_transfer() {
     let num_rounds = 5;
 
     let mut run_loop = RunLoop::new(conf);
-    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
+    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
         let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+        let header_hash = chain_tip.block.block_hash();
+        let burn_header_hash = chain_tip.metadata.burn_header_hash;
 
         let contract_identifier =
             QualifiedContractIdentifier::parse(&format!("{}.{}",
@@ -621,10 +547,10 @@ fn contract_stx_transfer() {
 
         if round == 1 { // block-height = 2
             let xfer_to_contract = make_stacks_transfer(&sk_3, 0, 0, &contract_identifier.into(), 1000);
-            tenure.mem_pool.submit(xfer_to_contract);
+            tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,xfer_to_contract).unwrap();
         } else if round == 2 { // block-height > 2
             let publish_tx = make_contract_publish(&contract_sk, 0, 0, "faucet", FAUCET_CONTRACT);
-            tenure.mem_pool.submit(publish_tx);
+            tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,publish_tx).unwrap();
         } else if round == 3 {
             // try to publish again
             //   TODO: disabled, pending resolution of issue #1376
@@ -632,11 +558,11 @@ fn contract_stx_transfer() {
             // tenure.mem_pool.submit(publish_tx);
 
             let tx = make_contract_call(&sk_2, 0, 0, &to_addr(&contract_sk), "faucet", "spout", &[]);
-            tenure.mem_pool.submit(tx);
+            tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,tx).unwrap();
         } else if round == 4 {
             // transfer to the contract again.
             let xfer_to_contract = make_stacks_transfer(&sk_3, 1, 0, &contract_identifier.into(), 1000);
-            tenure.mem_pool.submit(xfer_to_contract);
+            tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,xfer_to_contract).unwrap();
         }
 
         return

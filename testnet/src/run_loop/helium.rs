@@ -81,7 +81,7 @@ impl RunLoop {
             None => panic!("Error while initiating genesis tenure")
         };
 
-        self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &first_tenure);
+        self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &mut first_tenure);
 
         // Run the tenure, keep the artifacts
         let artifacts_from_1st_tenure = match first_tenure.run() {
@@ -140,7 +140,7 @@ impl RunLoop {
             // Run the last initialized tenure
             let artifacts_from_tenure = match leader_tenure {
                 Some(mut tenure) => {
-                    self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &tenure);
+                    self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &mut tenure);
                     tenure.run()
                 },
                 None => None

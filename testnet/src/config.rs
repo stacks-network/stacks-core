@@ -16,7 +16,6 @@ use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentif
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
-    pub mempool: Option<MempoolConfig>,
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
@@ -41,7 +40,6 @@ impl ConfigFile {
 pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
-    pub mempool: MempoolConfig,
     pub initial_balances: Vec<InitialBalance>,
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
@@ -132,11 +130,6 @@ impl Config {
         if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
             panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
         }
-
-        let mempool = match config_file.mempool {
-            Some(mempool) => mempool,
-            None => MempoolConfig { path: node.get_default_mempool_path() }
-        };
         
         let initial_balances: Vec<InitialBalance> = match config_file.mstx_balance {
             Some(balances) => {
@@ -206,6 +199,7 @@ impl Config {
                     dns_timeout: opts.dns_timeout.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone()),
                     max_inflight_blocks: opts.max_inflight_blocks.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_inflight_blocks.clone()),
                     maximum_call_argument_size: opts.maximum_call_argument_size.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.maximum_call_argument_size.clone()),
+                    ..ConnectionOptions::default() 
                 }
             },
             None => {
@@ -216,7 +210,6 @@ impl Config {
         Config {
             node,
             burnchain,
-            mempool,
             initial_balances,
             events_observers,
             connection_options
@@ -251,16 +244,11 @@ impl Config {
 
         burnchain.spv_headers_path = node.get_default_spv_headers_path();
 
-        let mempool = MempoolConfig {
-            path: node.get_default_mempool_path(),
-        };
-
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
 
         Config {
             burnchain,
             node,
-            mempool,
             initial_balances: vec![],
             events_observers: vec![],
             connection_options,
@@ -385,10 +373,6 @@ impl NodeConfig {
         }
     }
 
-    pub fn get_default_mempool_path(&self) -> String {
-        format!("{}/mempool/", self.working_dir)
-    }
-
     pub fn get_burnchain_path(&self) -> String {
         format!("{}/burnchain", self.working_dir)
     }
@@ -434,11 +418,6 @@ pub struct NodeConfigFile {
     pub working_dir: Option<String>,
     pub rpc_bind: Option<String>,
     pub p2p_bind: Option<String>,
-}
-
-#[derive(Clone, Default, Deserialize)]
-pub struct MempoolConfig {
-    pub path: String,
 }
 
 #[derive(Clone, Deserialize)]
