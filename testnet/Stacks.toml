@@ -33,9 +33,11 @@ commit_anchor_block_within = 3000
 # [burnchain]
 # chain = "bitcoin"
 # mode = "neon"
-# peer_host = "neon.blockstack.org" // todo(ludo): update URL
+# peer_host = "127.0.0.1" # todo(ludo): update URL with neon.blockstack.org when deployed
 # burnchain_op_tx_fee = 1000
-# commit_anchor_block_within = 15000
+# commit_anchor_block_within = 10000
+# rpc_port = 3000
+# peer_port = 18444
 
 ## Settings for a local testnet simulating a burnchain
 ## Best setup for smart contract development
