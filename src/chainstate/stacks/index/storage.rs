@@ -214,9 +214,7 @@ impl TrieSQL {
     }
 
     pub fn read_node_hash_bytes<W: Write>(conn: &Connection, w: &mut W, block_id: u32, ptr: &TriePtr) -> Result<(), Error> {
-        let row_id: i64 = conn.query_row("SELECT block_id FROM marf_data WHERE block_id = ?",
-                                         &[block_id], |r| r.get("block_id"))?;
-        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", row_id, true)?;
+        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", block_id.into(), true)?;
         let hash_buff = read_node_hash_bytes(&mut blob, ptr)?;
         w.write_all(&hash_buff)
             .map_err(|e| e.into())
@@ -232,16 +230,12 @@ impl TrieSQL {
     }
 
     pub fn read_node_type(conn: &Connection, block_id: u32, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
-        let row_id: i64 = conn.query_row("SELECT block_id FROM marf_data WHERE block_id = ?",
-                                         &[block_id], |r| r.get("block_id"))?;
-        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", row_id, true)?;
+        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", block_id.into(), true)?;
         read_nodetype(&mut blob, ptr)
     }
 
     pub fn get_node_hash_bytes(conn: &Connection, block_id: u32, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        let row_id: i64 = conn.query_row("SELECT block_id FROM marf_data WHERE block_id = ?",
-                                         &[block_id], |r| r.get("block_id"))?;
-        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", row_id, true)?;
+        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", block_id.into(), true)?;
         let hash_buff = read_node_hash_bytes(&mut blob, ptr)?;
         Ok(TrieHash(hash_buff))
     }
