@@ -43,8 +43,14 @@ impl BitcoinRegtestController {
 
     pub fn new(config: Config) -> Self {
         
-        std::fs::create_dir_all(&config.node.get_burnchain_path()).unwrap();
-        SpvClient::init_block_headers(&config.burnchain.spv_headers_path, BitcoinNetworkType::Regtest).unwrap();
+        std::fs::create_dir_all(&config.node.get_burnchain_path())
+            .expect("Unable to create workdir");
+        
+        let res = SpvClient::init_block_headers(&config.burnchain.spv_headers_path, BitcoinNetworkType::Regtest);
+        if let Err(err) = res {
+            error!("Unable to init block headers: {}", err);
+            panic!()
+        }
 
         let indexer_config = {
             let burnchain_config = config.burnchain.clone();
@@ -73,14 +79,13 @@ impl BitcoinRegtestController {
     fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
         let network = "regtest".to_string();
         let working_dir = self.config.get_burn_db_path();
-        let burnchain = Burnchain::new(
-            &working_dir,
-            &self.config.burnchain.chain, 
-            &network)
-        .map_err(|e| {
-            error!("Failed to instantiate burn chain driver for {}: {:?}", network, e);
-            e
-        }).unwrap();
+        let burnchain = match Burnchain::new(&working_dir,  &self.config.burnchain.chain, &network) {
+            Ok(burnchain) => burnchain,
+            Err(e) => {
+                error!("Failed to instantiate burnchain: {}", e);
+                panic!()    
+            }
+        };
 
         let indexer_runtime = BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest);
         let burnchain_indexer = BitcoinIndexer {
@@ -93,7 +98,13 @@ impl BitcoinRegtestController {
     fn receive_blocks(&mut self) -> BurnchainTip {
         let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
 
-        let (block_snapshot, state_transition) = burnchain.sync_with_indexer(&mut burnchain_indexer).unwrap();
+        let (block_snapshot, state_transition) = match burnchain.sync_with_indexer(&mut burnchain_indexer) {
+            Ok(res) => res,
+            Err(e) => {
+                error!("Unable to sync burnchain: {}", e);
+                panic!()
+            }
+        };
 
         let rest = match (&state_transition, &self.chain_tip) {
             (None, Some(chain_tip)) => chain_tip.clone(),
@@ -194,7 +205,7 @@ impl BitcoinRegtestController {
         
         let public_key = signer.get_public_key();
 
-        let (mut tx, utxos) = self.prepare_tx(&public_key, 0).unwrap();
+        let (mut tx, utxos) = self.prepare_tx(&public_key, 0)?;
 
         // Serialize the payload
         let op_bytes = {
@@ -228,7 +239,7 @@ impl BitcoinRegtestController {
 
         let public_key = signer.get_public_key();
 
-        let (mut tx, utxos) = self.prepare_tx(&public_key, payload.burn_fee).unwrap();
+        let (mut tx, utxos) = self.prepare_tx(&public_key, payload.burn_fee)?;
 
         // Serialize the payload
         let op_bytes = {
@@ -338,8 +349,12 @@ impl BitcoinRegtestController {
     
             let mut sig1_der = {
                 let secp = Secp256k1::new();
-                let message = signer.sign_message(sig_hash.as_bytes()).unwrap();
-                let der = message.to_secp256k1_recoverable().unwrap().to_standard(&secp).serialize_der(&secp);
+                let message = signer.sign_message(sig_hash.as_bytes())
+                    .expect("Unable to sign message");
+                let der = message.to_secp256k1_recoverable()
+                    .expect("Unable to get recoverable signature")
+                    .to_standard(&secp)
+                    .serialize_der(&secp);
                 der
             };
             sig1_der.push(sig_hash_all as u8);
@@ -402,16 +417,15 @@ impl BitcoinRegtestController {
 impl BurnchainController for BitcoinRegtestController {
 
     fn burndb_mut(&mut self) -> &mut BurnDB {
-
+        let network = "regtest".to_string();
         let working_dir = self.config.get_burn_db_path();
-        let burnchain = Burnchain::new(
-            &working_dir,
-            &self.config.burnchain.chain, 
-            "regtest")
-        .map_err(|e| {
-            error!("Failed to instantiate burn chain driver for bitcoin/regtest: {:?}", e);
-            e
-        }).unwrap();
+        let burnchain = match Burnchain::new(&working_dir,  &self.config.burnchain.chain, &network) {
+            Ok(burnchain) => burnchain,
+            Err(e) => {
+                error!("Failed to instantiate burnchain: {}", e);
+                panic!()    
+            }
+        };
 
         let db = burnchain.open_db(true).unwrap();
         self.db = Some(db);
@@ -632,9 +646,10 @@ impl BitcoinRPCRequest {
             Some(ref mut object) => {
                 match object.get_mut("result") {
                     Some(serde_json::Value::Array(entries)) => {
-                        while let Some(entry) = entries.pop() {     
-                            let utxo: UTXO = serde_json::from_value(entry).unwrap();
-                            utxos.push(utxo);
+                        while let Some(entry) = entries.pop() {    
+                            if let Ok(utxo) = serde_json::from_value(entry) {
+                                utxos.push(utxo);
+                            }
                         }
                     },
                     _ => {}

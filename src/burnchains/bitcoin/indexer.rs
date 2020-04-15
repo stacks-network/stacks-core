@@ -484,25 +484,13 @@ impl BitcoinIndexer {
             panic!("Headers is at block {}, but database is at block {}", canonical_end_block, db_height);
         }
         
-        let mut start_block = 
-            if db_height < REORG_BATCH_SIZE {
-                0 
-            }
-            else {
-                db_height - REORG_BATCH_SIZE
-            };
+        let mut start_block = db_height.saturating_sub(REORG_BATCH_SIZE);
 
         while start_block > 0 && !found {
             debug!("Search for reorg'ed headers from {} - {}", start_block, start_block + REORG_BATCH_SIZE);
 
             // copy over the head of the existing headers so we can fetch to the .reorg file
-            let copy_height_start = 
-                if start_block < REORG_BATCH_SIZE - 1 {
-                    0
-                }
-                else {
-                    start_block - REORG_BATCH_SIZE
-                };
+            let copy_height_start = start_block.saturating_sub(REORG_BATCH_SIZE);
 
             let existing_headers = self.read_spv_headers(&headers_path, copy_height_start + 1, start_block + 1)?;
 
