@@ -236,7 +236,7 @@ faucet" could be implemented as so:
 (define-public (claim-from-faucet)
   (if (is-none? (map-get claimed-before (tuple (sender tx-sender))))
       (let ((requester tx-sender)) ;; set a local variable requester = tx-sender
-        (map-insert! claimed-before (tuple (sender requester)) (tuple (claimed 'true)))
+        (map-insert! claimed-before (tuple (sender requester)) (tuple (claimed true)))
         (as-contract (stacks-transfer! requester 1))))
       (err 1))
 ```
@@ -608,7 +608,7 @@ super type. The type system contains the following types:
 * `(buff max-len)` := byte buffer or maximum length `max-len`.
 * `principal` := object representing a principal (whether a contract principal
   or standard principal).
-* `bool` := boolean value (`'true` or `'false`)
+* `bool` := boolean value (`true` or `false`)
 * `int`  := signed 128-bit integer
 * `uint` := unsigned 128-bit integer
 
@@ -648,7 +648,7 @@ control path in the function. For example:
 (define-private (if-types (input bool))
   (if input
      (ok 1)
-     (err 'false)))
+     (err false)))
 ```
 
 The return type of `if-types` is the least common supertype of `(ok

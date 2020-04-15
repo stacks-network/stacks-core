@@ -455,6 +455,7 @@ pub mod test {
         pub burnchain: Burnchain
     }
 
+    #[derive(Debug, Clone)]
     pub struct TestMiner {
         pub burnchain: Burnchain,
         pub privks: Vec<StacksPrivateKey>,

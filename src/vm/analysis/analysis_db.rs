@@ -32,6 +32,9 @@ impl <'a> AnalysisDatabase <'a> {
             store: RollbackWrapper::new(store)
         }
     }
+    pub fn new_with_rollback_wrapper(store: RollbackWrapper<'a>) -> AnalysisDatabase<'a> {
+        AnalysisDatabase { store }
+    }
 
     pub fn execute <F, T, E> (&mut self, f: F) -> Result<T,E> where F: FnOnce(&mut Self) -> Result<T,E>, {
         self.begin();
@@ -136,6 +139,10 @@ impl <'a> AnalysisDatabase <'a> {
         let map_type = contract.get_map_type(map_name)
             .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
         Ok(map_type.clone())
+    }
+
+    pub fn destroy(self) -> RollbackWrapper<'a> {
+        self.store
     }
 
 }

@@ -33,7 +33,7 @@ enum TokenType {
     LParens, RParens,
     LCurly, RCurly,
     StringLiteral, HexStringLiteral,
-    UIntLiteral, IntLiteral, QuoteLiteral,
+    UIntLiteral, IntLiteral,
     Variable, TraitReferenceLiteral, PrincipalLiteral,
     SugaredContractIdentifierLiteral,
     FullyQualifiedContractIdentifierLiteral,
@@ -109,7 +109,6 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
-        LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
         LexMatcher::new(&format!(r#"'(?P<value>{}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
                                  *CONTRACT_PRINCIPAL_REGEX, MAX_STRING_LEN), TokenType::FullyQualifiedFieldIdentifierLiteral),
         LexMatcher::new(&format!(r#"(?P<value>(\.){}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
@@ -202,15 +201,6 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         } else {
                             Ok(LexItem::Variable(value))
                         }
-                    },
-                    TokenType::QuoteLiteral => {
-                        let str_value = get_value_or_err(current_slice, captures)?;
-                        let value = match str_value.as_str() {
-                            "true" => Ok(Value::Bool(true)),
-                            "false" => Ok(Value::Bool(false)),
-                            _ => Err(ParseError::new(ParseErrors::UnknownQuotedValue(str_value.clone())))
-                        }?;
-                        Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
                     TokenType::UIntLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
@@ -680,6 +670,7 @@ r#"z (let ((x 1) (y 2))
         let tuple_literal_colon_after_comma = "{ a: b, :b a}";
         let empty_tuple_literal_comma = "{,}";
         let empty_tuple_literal_colon = "{:}";
+        let legacy_boolean_literals = "(and 'true 'false)";
         let function_with_CR = "(define (foo (x y)) \n (+ 1 2 3) \r (- 1 2 3))";
         let function_with_CRLF = "(define (foo (x y)) \n (+ 1 2 3) \n\r (- 1 2 3))";
         let function_with_NEL = "(define (foo (x y)) \u{0085} (+ 1 2 3) \u{0085} (- 1 2 3))";
@@ -736,6 +727,9 @@ r#"z (let ((x 1) (y 2))
         assert!(match ast::parser::parse(&empty_tuple_literal_colon).unwrap_err().err {
             ParseErrors::ColonSeparatorUnexpected => true, _ => false });
 
+        assert!(match ast::parser::parse(&legacy_boolean_literals).unwrap_err().err {
+            ParseErrors::FailedParsingRemainder(_) => true, _ => false });
+            
         assert!(match ast::parser::parse(&function_with_CR).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
         assert!(match ast::parser::parse(&function_with_CRLF).unwrap_err().err {

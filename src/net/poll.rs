@@ -164,7 +164,7 @@ impl NetworkState {
         sock.shutdown(Shutdown::Both)
             .map_err(|_e| net_error::SocketError)?;
 
-        test_debug!("Socket deregisterd: {:?}", sock);
+        test_debug!("Socket deregistered: {:?}", sock);
         Ok(())
     }
 
