@@ -1,3 +1,0 @@
-[submodule "blockstack-consensus-data"]
-	path = legacy/integration_tests/blockstack-consensus-data
-	url = https://github.com/blockstack/blockstack-consensus-data

@@ -1,5 +1,4 @@
 pub mod run_loop; 
-pub mod mem_pool;
 pub mod keychain;
 pub mod burnchain;
 pub mod node;
@@ -7,8 +6,8 @@ pub mod tenure;
 pub mod config;
 pub mod event_dispatcher;
 
+pub use core::mempool::MemPoolDB;
 pub use self::run_loop::{RunLoop};
-pub use self::mem_pool::{MemPool, MemPoolFS};
 pub use self::keychain::{Keychain};
 pub use self::node::{Node, SortitionedBlock};
 pub use self::burnchain::{BurnchainSimulator, BurnchainState};
