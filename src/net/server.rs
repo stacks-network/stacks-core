@@ -850,6 +850,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_http_slow_client() {
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.timeout = 3;      // kill a connection after 3 seconds of idling
