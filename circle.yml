@@ -33,55 +33,19 @@ jobs:
           command: |
             echo "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)" | blockstack-core local eval S1G2081040G2081040G2081040G208105NK8PE5.tokens db
   cargo_tests:
-    docker:
-      - image: circleci/rust
+    machine: true
     working_directory: ~/blockstack
     steps:
       - checkout
       - run:
-          name: Install lcov reqs
+          name: Coverage via tarpaulin
           command: |
-            sudo apt-get update -y && sudo apt-get -y install lcov ruby
-      - run:
-          name: rust nightly
-          command: |
-            rustup install nightly
-      - run:
-          name: cargo install grcov
-          command: |
-            sudo gem install coveralls-lcov
-            cargo install grcov
-      - restore_cache:
-          keys:
-            - v1-cargo-lock-{{ checksum "Cargo.lock" }}
-      - run:
-          name: build
-          environment:
-            CARGO_INCREMENTAL: 0
-            RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
-          command: cargo +nightly build -j 1 --verbose
-      - save_cache:
-          key: v1-cargo-lock-{{ checksum "Cargo.lock" }}
-          paths:
-            - "/usr/local/cargo/registry"
-            - "target"
-      - run:
-          name: Test
-          command: |
-            cargo +nightly test -j 1
-          environment:
-            CARGO_INCREMENTAL: 0
-            RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
-          no_output_timeout: 30m
-      - run:
-          name: Collect debug outputs
-          command: |
-            zip -0 ccov.zip `find . \( -name "blockstack_*.gc*" \) -print` &&
-            ./grcov ccov.zip -s . -t lcov --llvm --ignore-not-existing --ignore "/*" -o lcov.info;
+            docker run --security-opt seccomp=unconfined -v "${PWD}:/volume" xd009642/tarpaulin \
+            bash -c "cargo tarpaulin -v --workspace -t 240 -o Xml"
       - run:
           name: Upload to codecov.io
           command: |
-            bash <(curl -s https://codecov.io/bash) -f lcov.info;
+            bash <(curl -s https://codecov.io/bash)
   all_tests:
     docker:
       - image: rust:1.40-stretch
