@@ -496,15 +496,10 @@ impl Node {
                                 burnchain_tip: &BurnchainTip,
                                 vrf_seed: VRFSeed) -> BurnchainOperationType {
 
-        let winning_tx_id = burnchain_tip.block_snapshot.winning_block_txid;
-        let mut winning_tx_vtindex = 0;
-        for op in burnchain_tip.state_transition.accepted_ops.iter() {
-            if let BlockstackOperationType::LeaderBlockCommit(op) = op {
-                if op.txid == winning_tx_id {
-                    winning_tx_vtindex = op.vtxindex
-                }
-            } 
-        }                            
+        let winning_tx_vtindex = match burnchain_tip.get_winning_tx_index() {
+            Some(winning_tx_id) => winning_tx_id,
+            None => unreachable!()
+        };
 
         let (parent_block_ptr, parent_vtxindex) = match self.bootstraping_chain {
             true => (0, 0), // parent_block_ptr and parent_vtxindex should both be 0 on block #1
