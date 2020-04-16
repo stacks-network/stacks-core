@@ -549,15 +549,15 @@ impl SerializedTx {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UTXO {
-    pub txid: String,
-    pub vout: u32,
-    pub script_pub_key: String,
-    pub amount: f64,
-    pub confirmations: u32,
-    pub spendable: bool,
-    pub solvable: bool,
-    pub desc: Option<String>,
-    pub safe: bool,
+    txid: String,
+    vout: u32,
+    script_pub_key: String,
+    amount: f64,
+    confirmations: u32,
+    spendable: bool,
+    solvable: bool,
+    desc: Option<String>,
+    safe: bool,
 }
 
 impl UTXO {
