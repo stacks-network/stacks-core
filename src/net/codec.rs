@@ -21,6 +21,7 @@ use std::io;
 use std::io::prelude::*;
 use std::io::Read;
 use std::convert::TryFrom;
+use std::collections::HashSet;
 
 use burnchains::BurnchainHeaderHash;
 use burnchains::PrivateKey;
@@ -31,8 +32,11 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::BlockHeaderHash;
 
 use chainstate::stacks::StacksBlock;
+use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksMicroblock;
 use chainstate::stacks::StacksTransaction;
+
+use chainstate::stacks::MAX_BLOCK_LEN;
 
 use chainstate::stacks::StacksPublicKey;
 
@@ -402,6 +406,82 @@ impl BlocksInvData {
     }
 }
 
+impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.0)?;
+        write_next(fd, &self.1)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<(ConsensusHash, BurnchainHeaderHash), net_error> {
+        let consensus_hash : ConsensusHash = read_next(fd)?;
+        let burn_header_hash: BurnchainHeaderHash = read_next(fd)?;
+        Ok((consensus_hash, burn_header_hash))
+    }
+}
+
+impl StacksMessageCodec for BlocksAvailableData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.available)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlocksAvailableData, net_error> {
+        let available : Vec<(ConsensusHash, BurnchainHeaderHash)> = read_next_at_most::<_, (ConsensusHash, BurnchainHeaderHash)>(fd, BLOCKS_AVAILABLE_MAX_LEN)?;
+        Ok(BlocksAvailableData {
+            available: available
+        })
+    }
+}
+
+impl BlocksAvailableData {
+    pub fn new() -> BlocksAvailableData {
+        BlocksAvailableData {
+            available: vec![]
+        }
+    }
+
+    pub fn try_push(&mut self, ch: ConsensusHash, bhh: BurnchainHeaderHash) -> Result<(), net_error> {
+        if self.available.len() < BLOCKS_AVAILABLE_MAX_LEN as usize {
+            self.available.push((ch, bhh));
+            return Ok(())
+        }
+        else {
+            return Err(net_error::InvalidMessage);
+        }
+    }
+}
+
+impl StacksMessageCodec for (BurnchainHeaderHash, StacksBlock) {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.0)?;
+        write_next(fd, &self.1)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<(BurnchainHeaderHash, StacksBlock), net_error> {
+        let bhh : BurnchainHeaderHash = read_next(fd)?;
+        let block = {
+            let mut bound_read = BoundReader::from_reader(fd, MAX_BLOCK_LEN as u64);
+            read_next(&mut bound_read)
+        }?;
+
+        Ok((bhh, block))
+    }
+}
+
+impl BlocksData {
+    pub fn new() -> BlocksData {
+        BlocksData {
+            blocks: vec![]
+        }
+    }
+
+    pub fn push(&mut self, bhh: BurnchainHeaderHash, block: StacksBlock) -> () {
+        self.blocks.push((bhh, block))
+    }
+}
+
 impl StacksMessageCodec for BlocksData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &self.blocks)?;
@@ -409,11 +489,23 @@ impl StacksMessageCodec for BlocksData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlocksData, net_error> {
-        let blocks : Vec<StacksBlock> = {
+        let blocks : Vec<(BurnchainHeaderHash, StacksBlock)> = {
             // loose upper-bound
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            read_next(&mut bound_read)
+            read_next_at_most::<_, (BurnchainHeaderHash, StacksBlock)>(&mut bound_read, BLOCKS_PUSHED_MAX)
         }?;
+
+        // only valid if there are no dups
+        let mut present = HashSet::new();
+        for (burn_header_hash, block) in blocks.iter() {
+            let idx_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, &block.block_hash());
+            if present.contains(&idx_hash) {
+                // no dups allowed
+                return Err(net_error::DeserializeError("Invalid BlocksData: duplicate block".to_string()));
+            }
+
+            present.insert(idx_hash);
+        }
 
         Ok(BlocksData {
             blocks
@@ -423,11 +515,13 @@ impl StacksMessageCodec for BlocksData {
 
 impl StacksMessageCodec for MicroblocksData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &self.index_anchor_block)?;
         write_next(fd, &self.microblocks)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R)-> Result<MicroblocksData, net_error> {
+        let index_anchor_block : BlockHeaderHash = read_next(fd)?;
         let microblocks : Vec<StacksMicroblock> = {
             // loose upper-bound
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
@@ -435,6 +529,7 @@ impl StacksMessageCodec for MicroblocksData {
         }?;
         
         Ok(MicroblocksData {
+            index_anchor_block,
             microblocks
         })
     }
@@ -626,18 +721,15 @@ impl StacksMessageCodec for RelayData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
         write_next(fd, &self.peer)?;
         write_next(fd, &self.seq)?;
-        write_next(fd, &self.signature)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<RelayData, net_error> {
         let peer : NeighborAddress          = read_next(fd)?;
         let seq : u32                       = read_next(fd)?;
-        let signature : MessageSignature    = read_next(fd)?;
         Ok(RelayData {
             peer,
             seq,
-            signature
         })
     }
 }
@@ -652,6 +744,8 @@ impl StacksMessageType {
             StacksMessageType::Neighbors(ref _m) => StacksMessageID::Neighbors,
             StacksMessageType::GetBlocksInv(ref _m) => StacksMessageID::GetBlocksInv,
             StacksMessageType::BlocksInv(ref _m) => StacksMessageID::BlocksInv,
+            StacksMessageType::BlocksAvailable(ref _m) => StacksMessageID::BlocksAvailable,
+            StacksMessageType::MicroblocksAvailable(ref _m) => StacksMessageID::MicroblocksAvailable,
             StacksMessageType::Blocks(ref _m) => StacksMessageID::Blocks,
             StacksMessageType::Microblocks(ref _m) => StacksMessageID::Microblocks,
             StacksMessageType::Transaction(ref _m) => StacksMessageID::Transaction,
@@ -670,6 +764,8 @@ impl StacksMessageType {
             StacksMessageType::Neighbors(ref _m) => "Neighbors",
             StacksMessageType::GetBlocksInv(ref _m) => "GetBlocksInv",
             StacksMessageType::BlocksInv(ref _m) => "BlocksInv",
+            StacksMessageType::BlocksAvailable(ref _m) => "BlocksAvailable",
+            StacksMessageType::MicroblocksAvailable(ref _m) => "MicroblocksAvailable",
             StacksMessageType::Blocks(ref _m) => "Blocks",
             StacksMessageType::Microblocks(ref _m) => "Microblocks",
             StacksMessageType::Transaction(ref _m) => "Transaction",
@@ -695,6 +791,8 @@ impl StacksMessageCodec for StacksMessageID {
             x if x == StacksMessageID::Neighbors as u8 => StacksMessageID::Neighbors,
             x if x == StacksMessageID::GetBlocksInv as u8 => StacksMessageID::GetBlocksInv,
             x if x == StacksMessageID::BlocksInv as u8 => StacksMessageID::BlocksInv,
+            x if x == StacksMessageID::BlocksAvailable as u8 => StacksMessageID::BlocksAvailable,
+            x if x == StacksMessageID::MicroblocksAvailable as u8 => StacksMessageID::MicroblocksAvailable,
             x if x == StacksMessageID::Blocks as u8 => StacksMessageID::Blocks,
             x if x == StacksMessageID::Microblocks as u8 => StacksMessageID::Microblocks,
             x if x == StacksMessageID::Transaction as u8 => StacksMessageID::Transaction,
@@ -718,6 +816,8 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::Neighbors(ref m) => write_next(fd, m)?,
             StacksMessageType::GetBlocksInv(ref m) => write_next(fd, m)?,
             StacksMessageType::BlocksInv(ref m) => write_next(fd, m)?,
+            StacksMessageType::BlocksAvailable(ref m) => write_next(fd, m)?,
+            StacksMessageType::MicroblocksAvailable(ref m) => write_next(fd, m)?,
             StacksMessageType::Blocks(ref m) => write_next(fd, m)?,
             StacksMessageType::Microblocks(ref m) => write_next(fd, m)?,
             StacksMessageType::Transaction(ref m) => write_next(fd, m)?,
@@ -738,6 +838,8 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageID::Neighbors => { let m : NeighborsData = read_next(fd)?; StacksMessageType::Neighbors(m) },
             StacksMessageID::GetBlocksInv => { let m : GetBlocksInv = read_next(fd)?; StacksMessageType::GetBlocksInv(m) },
             StacksMessageID::BlocksInv => { let m : BlocksInvData = read_next(fd)?; StacksMessageType::BlocksInv(m) },
+            StacksMessageID::BlocksAvailable => { let m : BlocksAvailableData = read_next(fd)?; StacksMessageType::BlocksAvailable(m) },
+            StacksMessageID::MicroblocksAvailable => { let m : BlocksAvailableData = read_next(fd)?; StacksMessageType::MicroblocksAvailable(m) },
             StacksMessageID::Blocks => { let m : BlocksData = read_next(fd)?; StacksMessageType::Blocks(m) },
             StacksMessageID::Microblocks => { let m : MicroblocksData = read_next(fd)?; StacksMessageType::Microblocks(m) },
             StacksMessageID::Transaction => { let m : StacksTransaction = read_next(fd)?; StacksMessageType::Transaction(m) },
@@ -823,10 +925,10 @@ impl StacksMessage {
     }
 
     /// Sign the StacksMessage and add ourselves as a relayer.
-    /// Fails if the relayers vector would be too long 
     pub fn sign_relay(&mut self, private_key: &Secp256k1PrivateKey, our_seq: u32, our_addr: &NeighborAddress) -> Result<(), net_error> {
-        if self.relayers.len() >= (MAX_RELAYERS_LEN as usize) {
-            return Err(net_error::InvalidMessage);
+        while self.relayers.len() >= (MAX_RELAYERS_LEN as usize) {
+            // remove (old) nodes at the front
+            self.relayers.remove(0);
         }
         
         // don't sign if signed more than once 
@@ -840,7 +942,6 @@ impl StacksMessage {
         let our_relay = RelayData {
             peer: our_addr.clone(),
             seq: self.preamble.seq,
-            signature: self.preamble.signature.clone()
         };
 
         self.relayers.push(our_relay);
@@ -1392,7 +1493,6 @@ pub mod test {
                 public_key_hash: Hash160::from_bytes(&hex_bytes("1111111111111111111111111111111111111111").unwrap()).unwrap(),
             },
             seq: 0x01020304,
-            signature: MessageSignature::from_raw(&vec![0x44; 65]),
         };
         let bytes = vec![
             // peer.addrbytes
@@ -1403,14 +1503,28 @@ pub mod test {
             0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
             // seq
             0x01, 0x02, 0x03, 0x04,
-            // signature
-            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
-            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
-            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
-            0x44, 0x44, 0x44, 0x44, 0x44
         ];
 
         check_codec_and_corruption::<RelayData>(&data, &bytes);
+    }
+
+    #[test]
+    fn codec_BlocksAvailable() {
+        let data = BlocksAvailableData {
+            available: vec![(ConsensusHash([0x11; 20]), BurnchainHeaderHash([0x22; 32])), (ConsensusHash([0x33; 20]), BurnchainHeaderHash([0x44; 32]))]
+        };
+        let bytes = vec![
+            // length
+            0x00, 0x00, 0x00, 0x02,
+            // first tuple
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
+            // second tuple
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+        ];
+
+        check_codec_and_corruption::<BlocksAvailableData>(&data, &bytes);
     }
 
     #[test]
@@ -1460,6 +1574,12 @@ pub mod test {
                 block_bitvec: vec![0x03],
                 microblocks_bitvec: vec![0x03],
             }),
+            StacksMessageType::BlocksAvailable(BlocksAvailableData {
+                available: vec![(ConsensusHash([0x11; 20]), BurnchainHeaderHash([0x22; 32])), (ConsensusHash([0x33; 20]), BurnchainHeaderHash([0x44; 32]))]
+            }),
+            StacksMessageType::MicroblocksAvailable(BlocksAvailableData {
+                available: vec![(ConsensusHash([0x11; 20]), BurnchainHeaderHash([0x22; 32])), (ConsensusHash([0x33; 20]), BurnchainHeaderHash([0x44; 32]))]
+            }),
             // TODO: Blocks
             // TODO: Microblocks
             // TODO: Transaction
@@ -1484,7 +1604,6 @@ pub mod test {
                     public_key_hash: Hash160::from_bytes(&hex_bytes("1111111111111111111111111111111111111111").unwrap()).unwrap(),
                 },
                 seq: 0x01020304 + i,
-                signature: MessageSignature::from_raw(&vec![0x44; 65]),
             };
             too_many_relayers.push(next_relayer.clone());
             maximal_relayers.push(next_relayer);
@@ -1496,7 +1615,6 @@ pub mod test {
                 public_key_hash: Hash160::from_bytes(&hex_bytes("1111111111111111111111111111111111111111").unwrap()).unwrap(),
             },
             seq: 0x010203ff,
-            signature: MessageSignature::from_raw(&vec![0x44; 65]),
         });
 
         let mut relayers_bytes : Vec<u8> = vec![];

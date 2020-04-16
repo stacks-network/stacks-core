@@ -29,10 +29,11 @@ To unpack this definition:
 
 - [x] [SIP 001: Burn Election](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-001-burn-election.md)
 - [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-002-smart-contract-language.md)
+- [X] [SIP 003: Peer Network](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-003-peer-network.md)
 - [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-004-materialized-view.md)
 - [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-005-blocks-and-transactions.md)
-- [ ] [SIP 003: Peer Network](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-003-peer-network.md) (Q1 2020)
-- [ ] SIP 006: Clarity Execution Cost Assessment (Q1 2020)
+- [ ] SIP 006: Clarity Execution Cost Assessment (Q2 2020)
+- [ ] SIP 007: Stacking Consensus (Q2 2020)
 
 Stacks improvement proposals (SIPs) are aimed at describing the implementation of the Stacks blockchain, as well as proposing improvements. They should contain concise technical specifications of features or standards and the rationale behind it. SIPs are intended to be the primary medium for proposing new features, for collecting community input on a system-wide issue, and for documenting design decisions.
 
@@ -125,13 +126,17 @@ cargo run --bin blockstack-cli publish --help
 With the following arguments:
 
 ```bash
-cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 0 kv-store ./kv-store.clar --testnet
+cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 0 kv-store ./kv-store.clar --testnet
 ```
+
+The `500` is the transaction fee, denominated in microSTX.  Right now, the
+testnet requires one microSTX per byte minimum, and this transaction should be
+less than 500 bytes.
 
 This command will output the **binary format** of the transaction. In our case, we want to pipe this output and dump it to a file that will be used later in this tutorial.
 
 ```bash
-cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 0 kv-store ./kv-store.clar --testnet | xxd -r -p > tx1.bin
+cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 0 kv-store ./kv-store.clar --testnet | xxd -r -p > tx1.bin
 ```
 
 ### Run the testnet
@@ -142,9 +147,17 @@ You can observe the state machine in action locally by running:
 cargo run --bin blockstack-core testnet ./Stacks.toml
 ```
 
-`Stacks.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.
+`Stacks.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.  You can grant an address an initial account balance by adding the following entries:
 
-The testnet is watching the directory specified by the key `mempool.path`. The transactions, materialized as files, will be decoded and ingested. This mechanism is a shortcut for simulating a mempool. A RPC server will soon be integrated.
+```
+[[mstx_balance]]
+address = "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
+amount = 100000000
+```
+
+The `address` field is the Stacks testnet address, and the `amount` field is the
+number of microSTX to grant to it in the genesis block.  The addresses of the
+private keys used in the tutorial below are already added.
 
 ### Publish your contract
 
@@ -153,7 +166,7 @@ Assuming that the testnet is running, we can publish our `kv-store` contract.
 In another terminal (or file explorer), you can move the `tx1.bin` generated earlier, to the mempool:
 
 ```bash
-cp ./tx1.bin /tmp/mempool
+curl -X POST -H "Content-Type: application/octet-stream" --data-binary @./tx1.bin http://localhost:9000/v2/transactions
 ```
 
 In the terminal window running the testnet, you can observe the state machine's reactions.
@@ -172,7 +185,7 @@ cargo run --bin blockstack-cli contract-call --help
 With the following arguments:
 
 ```bash
-cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 1 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store get-value -e \"foo\" --testnet | xxd -r -p > tx2.bin
+cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 1 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store get-value -e \"foo\" --testnet | xxd -r -p > tx2.bin
 ```
 
 `contract-call` generates and signs a contract-call transaction.
@@ -181,31 +194,31 @@ Note: the third argument `1` is a nonce, that must be increased monotonically wi
 We can submit the transaction by moving it to the mempool path:
 
 ```bash
-cp ./tx2.bin /tmp/mempool
+curl -X POST -H "Content-Type: application/octet-stream" --data-binary @./tx2.bin http://localhost:9000/v2/transactions
 ```
 
 Similarly, we can generate a transaction that would be setting the key `foo` to the value `bar`:
 
 ```bash
-cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 2 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store set-value -e \"foo\" -e \"bar\" --testnet | xxd -r -p > tx3.bin
+cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 2 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store set-value -e \"foo\" -e \"bar\" --testnet | xxd -r -p > tx3.bin
 ```
 
 And submit it by moving it to the mempool path:
 
 ```bash
-cp ./tx3.bin /tmp/mempool
+curl -X POST -H "Content-Type: application/octet-stream" --data-binary @./tx3.bin http://localhost:9000/v2/transactions
 ```
 
 Finally, we can issue a third transaction, reading the key `foo` again, for ensuring that the previous transaction has successfully updated the state machine:
 
 ```bash
-cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 3 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store get-value -e \"foo\" --testnet | xxd -r -p > tx4.bin
+cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 3 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store get-value -e \"foo\" --testnet | xxd -r -p > tx4.bin
 ```
 
 And submit this last transaction by moving it to the mempool path:
 
 ```bash
-cp ./tx4.bin /tmp/mempool
+curl -X POST -H "Content-Type: application/octet-stream" --data-binary @./tx4.bin http://localhost:9000/v2/transactions
 ```
 
 Congratulations, you can now [write your own smart contracts with Clarity](https://docs.blockstack.org/core/smart/overview.html).
@@ -246,6 +259,19 @@ You can also read peer-reviewed Blockstack papers:
 - ["Extending Existing Blockchains with Virtualchain"](https://www.zurich.ibm.com/dccl/papers/nelson_dccl.pdf), Distributed Cryptocurrencies and Consensus Ledgers ([DCCL '16](https://www.zurich.ibm.com/dccl/) workshop, at [ACM PODC 2016](https://www.podc.org/podc2016/)), July 2016
 
 If you have high-level questions about Blockstack, try [searching our forum](https://forum.blockstack.org) and start a new question if your question is not answered there.
+
+## Contributing
+
+PRs must include test coverage. However, if your PR includes large tests or tests which cannot run in parallel
+(which is the default operation of the `cargo test` command), these tests should be decorated with `#[ignore]`.
+If you add `#[ignore]` tests, you should add your branch to the filters for the `all_tests` job in our circle.yml
+(or if you are working on net code or marf code, your branch should be named such that it matches the existing
+filters there).
+
+A test should be marked `#[ignore]` if:
+
+1. It does not _always_ pass `cargo test` in a vanilla environment (i.e., it does not need to run with `--test-threads 1`).
+2. Or, it runs for over a minute via a normal `cargo test` execution (the `cargo test` command will warn if this is not the case).
 
 ## Copyright and License
 
