@@ -23,6 +23,7 @@ pub mod node;
 pub mod proofs;
 pub mod storage;
 pub mod trie;
+pub mod trie_sql;
 
 use std::fmt;
 use std::error;

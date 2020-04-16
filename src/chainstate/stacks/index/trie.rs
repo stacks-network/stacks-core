@@ -170,7 +170,7 @@ impl Trie {
         else {
             // ptr is a backptr -- find the block
             let back_block_hash = storage.get_block_from_local_id(ptr.back_block())?.clone();
-            storage.open_block(&back_block_hash)?;
+            storage.open_block_known_id(&back_block_hash, ptr.back_block())?;
 
             let backptr = ptr.from_backptr();
             let (node, node_hash) = storage.read_nodetype(&backptr)?;
@@ -602,7 +602,7 @@ impl Trie {
     /// Calculate the byte vector of the ancestor root hashes of this trie.
     /// s must point to the block that contains the trie's root.
     pub fn get_trie_ancestor_hashes_bytes(storage: &mut TrieFileStorage) -> Result<Vec<TrieHash>, Error> {        
-        let cur_block_header = storage.get_cur_block();
+        let (cur_block_header, cur_block_id) = storage.get_cur_block_and_id();
         if let Some(cached_ancestor_hashes_bytes) = storage.check_cached_ancestor_hashes_bytes(&cur_block_header) {
             Ok(cached_ancestor_hashes_bytes)
         } 
@@ -613,7 +613,7 @@ impl Trie {
             }
 
             // restore
-            storage.open_block(&cur_block_header)?;
+            storage.open_block_maybe_id(&cur_block_header, cur_block_id)?;
             result
         }
     }

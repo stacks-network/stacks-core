@@ -52,6 +52,7 @@ use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
     BlockMap,
+    trie_sql
 };
 
 use chainstate::stacks::index::bits::{
@@ -84,7 +85,8 @@ use rusqlite::{
     Connection, OptionalExtension,
     types::{ FromSql,
              ToSql },
-    NO_PARAMS
+    NO_PARAMS,
+    Error as SqliteError
 };
 
 use std::convert::{
@@ -115,11 +117,9 @@ trait NodeHashReader {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error>;
 }
 
-pub struct TrieSQL {}
-
 impl BlockMap for TrieFileStorage {
     fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error> {
-        TrieSQL::get_block_hash(&self.db, id)
+        trie_sql::get_block_hash(&self.db, id)
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&BlockHeaderHash, Error> {
@@ -132,7 +132,7 @@ impl BlockMap for TrieFileStorage {
 
 impl BlockMap for TrieSqlHashMapCursor<'_> {
     fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error> {
-        TrieSQL::get_block_hash(&self.db, id)
+        trie_sql::get_block_hash(&self.db, id)
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&BlockHeaderHash, Error> {
@@ -142,199 +142,6 @@ impl BlockMap for TrieSqlHashMapCursor<'_> {
         Ok(&self.cache[&id])
     }
 }
-
-static SQL_MARF_DATA_TABLE: &str = "
-CREATE TABLE IF NOT EXISTS marf_data (
-   block_id INTEGER PRIMARY KEY, 
-   block_hash TEXT UNIQUE NOT NULL,
-   data BLOB NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS block_hash_marf_data ON marf_data(block_hash);
-";
-static SQL_MARF_MINED_TABLE: &str = "
-CREATE TABLE IF NOT EXISTS mined_blocks (
-   block_id INTEGER PRIMARY KEY, 
-   block_hash TEXT UNIQUE NOT NULL,
-   data BLOB NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS block_hash_mined_blocks ON mined_blocks(block_hash);
-";
-static SQL_CHAIN_TIPS_TABLE: &str = "
-CREATE TABLE IF NOT EXISTS chain_tips (block_hash TEXT UNIQUE NOT NULL);
-
-CREATE INDEX IF NOT EXISTS block_hash_chain_tips ON chain_tips(block_hash);
-";
-static SQL_EXTENSION_LOCKS_TABLE: &str = "
-CREATE TABLE IF NOT EXISTS block_extension_locks (block_hash TEXT UNIQUE NOT NULL);
-
-CREATE INDEX IF NOT EXISTS block_hash_locks ON block_extension_locks(block_hash);
-";
-
-impl TrieSQL {
-    pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
-        let tx = conn.transaction()?;
-
-        tx.execute_batch(SQL_MARF_DATA_TABLE)?;
-        tx.execute_batch(SQL_MARF_MINED_TABLE)?;
-        tx.execute_batch(SQL_CHAIN_TIPS_TABLE)?;
-        tx.execute_batch(SQL_EXTENSION_LOCKS_TABLE)?;
-
-        tx.commit().map_err(|e| e.into())
-    }
-
-    pub fn get_block_identifier(conn: &Connection, bhh: &BlockHeaderHash) -> Result<u32, Error> {
-        conn.query_row("SELECT block_id FROM marf_data WHERE block_hash = ?", &[bhh],
-                       |row| row.get("block_id"))
-            .map_err(|e| e.into())
-    }
-
-    pub fn get_block_hash(conn: &Connection, local_id: u32) -> Result<BlockHeaderHash, Error> {
-        let result = conn.query_row("SELECT block_hash FROM marf_data WHERE block_id = ?", &[local_id],
-                                    |row| row.get("block_hash"))
-            .optional()?;
-        result.ok_or_else(|| {
-            error!("Failed to get block header hash of local ID {}", local_id);
-            Error::NotFoundError
-        })
-    }
-
-    pub fn write_trie_blob(conn: &Connection, block_hash: &BlockHeaderHash, data: &[u8]) -> Result<u32, Error> {
-        let args: &[&dyn ToSql] = &[block_hash, &data];
-        let mut s = conn.prepare("INSERT INTO marf_data (block_hash, data) VALUES (?, ?)")?;
-        let block_id = s.insert(args)?
-            .try_into()
-            .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
-        Ok(block_id)
-    }
-
-    pub fn write_trie_blob_to_mined(conn: &Connection, block_hash: &BlockHeaderHash, data: &[u8]) -> Result<u32, Error> {
-        let args: &[&dyn ToSql] = &[block_hash, &data];
-        debug!("{}", block_hash);
-        let mut s = conn.prepare("INSERT OR REPLACE INTO mined_blocks (block_hash, data) VALUES (?, ?)")?;
-        let block_id = s.insert(args)?
-            .try_into()
-            .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
-        Ok(block_id)
-    }
-
-    #[cfg(test)]
-    pub fn read_all_block_hashes_and_roots(conn: &Connection) -> Result<Vec<(TrieHash, BlockHeaderHash)>, Error> {
-        let mut s = conn.prepare("SELECT block_hash, data FROM marf_data")?;
-        let rows = s.query_and_then(NO_PARAMS, |row| {
-            let block_hash: BlockHeaderHash = row.get("block_hash");
-            let data = row.get_raw("data")
-                .as_blob().expect("DB Corruption: MARF data is non-blob");
-            let start = TrieFileStorage::root_ptr_disk() as usize;
-            let trie_hash = TrieHash(read_hash_bytes(&mut &data[start..])?);
-            Ok((trie_hash, block_hash))
-        })?;
-        rows.collect()
-    }
-
-    pub fn read_node_hash_bytes<W: Write>(conn: &Connection, w: &mut W, block_id: u32, ptr: &TriePtr) -> Result<(), Error> {
-        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", block_id.into(), true)?;
-        let hash_buff = read_node_hash_bytes(&mut blob, ptr)?;
-        w.write_all(&hash_buff)
-            .map_err(|e| e.into())
-    }
-
-    pub fn read_node_hash_bytes_by_bhh<W: Write>(conn: &Connection, w: &mut W, bhh: &BlockHeaderHash, ptr: &TriePtr) -> Result<(), Error> {
-        let row_id: i64 = conn.query_row("SELECT block_id FROM marf_data WHERE block_hash = ?",
-                                         &[bhh], |r| r.get("block_id"))?;
-        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", row_id, true)?;
-        let hash_buff = read_node_hash_bytes(&mut blob, ptr)?;
-        w.write_all(&hash_buff)
-            .map_err(|e| e.into())
-    }
-
-    pub fn read_node_type(conn: &Connection, block_id: u32, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
-        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", block_id.into(), true)?;
-        read_nodetype(&mut blob, ptr)
-    }
-
-    pub fn get_node_hash_bytes(conn: &Connection, block_id: u32, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", block_id.into(), true)?;
-        let hash_buff = read_node_hash_bytes(&mut blob, ptr)?;
-        Ok(TrieHash(hash_buff))
-    }
-
-    pub fn get_node_hash_bytes_by_bhh(conn: &Connection, bhh: &BlockHeaderHash, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        let row_id: i64 = conn.query_row("SELECT block_id FROM marf_data WHERE block_hash = ?",
-                                         &[bhh], |r| r.get("block_id"))?;
-        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "marf_data", "data", row_id, true)?;
-        let hash_buff = read_node_hash_bytes(&mut blob, ptr)?;
-        Ok(TrieHash(hash_buff))
-    }
-
-    pub fn get_chain_tips(conn: &Connection) -> Result<Vec<BlockHeaderHash>, Error> {
-        let mut s = conn.prepare("SELECT block_hash FROM chain_tips")?;
-        let rows = s.query_map(NO_PARAMS, |row| row.get("block_hash"))?;
-        rows.map(|i| i.map_err(|e| e.into())).collect()
-    }
-
-    pub fn remove_chain_tip_if_present(conn: &Connection, bhh: &BlockHeaderHash) -> Result<(), Error> {
-        conn.execute("DELETE FROM chain_tips WHERE block_hash = ?", &[bhh])?;
-        Ok(())
-    }
-
-    pub fn add_chain_tip(conn: &Connection, bhh: &BlockHeaderHash) -> Result<(), Error> {
-        conn.execute("INSERT INTO chain_tips (block_hash) VALUES (?)", &[bhh])?;
-        Ok(())
-    }
-
-    pub fn retarget_chain_tip_entry(conn: &Connection, from: &BlockHeaderHash, to: &BlockHeaderHash) -> Result<(), Error> {
-        conn.execute("UPDATE chain_tips SET block_hash = ? WHERE block_hash = ?",
-                     &[to, from])?;
-        Ok(())
-    }
-
-    pub fn lock_bhh_for_extension(conn: &mut Connection, bhh: &BlockHeaderHash) -> Result<bool, Error> {
-        let tx = conn.transaction()?;
-        let is_bhh_committed = tx.query_row("SELECT 1 FROM marf_data WHERE block_hash = ? LIMIT 1", &[bhh],
-                                            |_row| ()).optional()?.is_some();
-        if is_bhh_committed {
-            return Ok(false)
-        }
-
-        let is_bhh_locked = tx.query_row("SELECT 1 FROM block_extension_locks WHERE block_hash = ? LIMIT 1", &[bhh],
-                                         |_row| ()).optional()?.is_some();
-        if is_bhh_locked {
-            return Ok(false)
-        }
-
-        tx.execute("INSERT INTO block_extension_locks (block_hash) VALUES (?)", &[bhh])?;
-
-        tx.commit()?;
-        Ok(true)
-    }
-
-    pub fn count_blocks(conn: &Connection) -> Result<u32, Error> {
-        let result = conn.query_row("SELECT COUNT(1) AS count FROM marf_data", NO_PARAMS, |row| row.get("count"))?;
-        Ok(result)
-    }
-
-    pub fn drop_lock(conn: &Connection, bhh: &BlockHeaderHash) -> Result<(), Error> {
-        conn.execute("DELETE FROM block_extension_locks WHERE block_hash = ?", &[bhh])?;
-        Ok(())
-    }
-
-    pub fn clear_lock_data(conn: &Connection) -> Result<(), Error> {
-        conn.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
-        Ok(())
-    }
-
-    pub fn clear_tables(conn: &mut Connection) -> Result<(), Error> {
-        let tx = conn.transaction()?;
-        tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
-        tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
-        tx.execute("DELETE FROM chain_tips", NO_PARAMS)?;
-        tx.execute("DELETE FROM mined_blocks", NO_PARAMS)?;
-        tx.commit().map_err(|e| e.into())
-    }
-}
-
 
 enum FlushOptions<'a> {
     CurrentHeader,
@@ -432,8 +239,8 @@ impl TrieRAM {
         (lr, lw)
     }
 
-    pub fn write_trie_file<F: Write + Seek>(f: &mut F, node_data: &[(TrieNodeType, TrieHash)], offsets: &[u32],
-                                            parent_hash: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn write_trie<F: Write + Seek>(f: &mut F, node_data: &[(TrieNodeType, TrieHash)], offsets: &[u32],
+                                       parent_hash: &BlockHeaderHash) -> Result<(), Error> {
         assert_eq!(node_data.len(), offsets.len());
 
         // write parent block ptr
@@ -519,7 +326,7 @@ impl TrieRAM {
         }
 
         // step 3: write out each node (now that they have the write ptrs)
-        TrieRAM::write_trie_file(f, node_data.as_slice(), offsets.as_slice(), &self.parent)?;
+        TrieRAM::write_trie(f, node_data.as_slice(), offsets.as_slice(), &self.parent)?;
 
         Ok(ptr)
     }
@@ -648,7 +455,7 @@ pub struct TrieSqlHashMapCursor <'a> {
 
 impl NodeHashReader for TrieSqlCursor<'_> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
-        TrieSQL::read_node_hash_bytes(self.db, w, self.block_id, ptr)
+        trie_sql::read_node_hash_bytes(self.db, w, self.block_id, ptr)
     }
 }
 
@@ -690,7 +497,7 @@ impl TrieFileStorage {
         let mut db = Connection::open(dir_path)?;
         let dir_path = dir_path.to_string();
 
-        TrieSQL::create_tables_if_needed(&mut db)?;
+        trie_sql::create_tables_if_needed(&mut db)?;
 
         test_debug!("Opened TrieFileStorage {};", dir_path);
 
@@ -794,7 +601,7 @@ impl TrieFileStorage {
     /// Doesn't get called automatically.
     pub fn recover(dir_path: &String) -> Result<(), Error> {
         let conn = Connection::open(dir_path)?;
-        TrieSQL::clear_lock_data(&conn)
+        trie_sql::clear_lock_data(&conn)
     }
 
     /// Read the Trie root node's hash from the block table.
@@ -802,13 +609,13 @@ impl TrieFileStorage {
     pub fn read_block_root_hash(&self, bhh: &BlockHeaderHash) -> Result<TrieHash, Error> {
         let root_hash_ptr =
             TriePtr::new(TrieNodeID::Node256, 0, TrieFileStorage::root_ptr_disk());
-        TrieSQL::get_node_hash_bytes_by_bhh(&self.db, bhh, &root_hash_ptr)
+        trie_sql::get_node_hash_bytes_by_bhh(&self.db, bhh, &root_hash_ptr)
     }
 
     /// Generate a mapping between Trie root hashes and the blocks that contain them
     #[cfg(test)]
     pub fn read_root_to_block_table(&mut self) -> Result<HashMap<TrieHash, BlockHeaderHash>, Error> {
-        let mut ret = HashMap::from_iter(TrieSQL::read_all_block_hashes_and_roots(&self.db)?
+        let mut ret = HashMap::from_iter(trie_sql::read_all_block_hashes_and_roots(&self.db)?
                                          .into_iter());
 
         let last_extended = match self.last_extended.take() {
@@ -839,19 +646,19 @@ impl TrieFileStorage {
             None => (1024) // don't try to guess _byte_ allocation here.
         };
 
-        TrieSQL::remove_chain_tip_if_present(&self.db, &self.cur_block)?;
+        trie_sql::remove_chain_tip_if_present(&self.db, &self.cur_block)?;
 
         // this *requires* that bhh hasn't been the parent of any prior
         //   extended blocks.
         // this is currently enforced if you use the "public" interfaces
         //   to marfs, but could definitely be violated via raw updates
         //   to trie structures.
-        TrieSQL::add_chain_tip(&self.db, bhh)?;
+        trie_sql::add_chain_tip(&self.db, bhh)?;
 
         let trie_buf = TrieRAM::new(bhh, size_hint, &self.cur_block);
 
         // place a lock on this block, so we can't extend to it again
-        if !TrieSQL::lock_bhh_for_extension(&mut self.db, bhh)? {
+        if !trie_sql::lock_bhh_for_extension(&mut self.db, bhh)? {
             warn!("Block already extended: {}", &bhh);
             return Err(Error::ExistsError);
         }
@@ -876,6 +683,37 @@ impl TrieFileStorage {
         Ok(())
     }
 
+    // used for providing a option<block identifier> when re-opening a block --
+    //   because the previously open block may have been the last_extended block,
+    //   id may have been None.
+    pub fn open_block_maybe_id(&mut self, bhh: &BlockHeaderHash, id: Option<u32>) -> Result<(), Error> {
+        match id {
+            Some(id) => self.open_block_known_id(bhh, id),
+            None => self.open_block(bhh)
+        }
+    }
+
+    // used for providing a block identifier when opening a block -- usually used
+    //   when following a backptr, which stores the block identifier directly.
+    pub fn open_block_known_id(&mut self, bhh: &BlockHeaderHash, id: u32) -> Result<(), Error> {
+        if *bhh == self.cur_block && self.cur_block_id.is_some() {
+            // no-op
+            return Ok(())
+        }
+
+        if let Some((ref last_extended, _)) = self.last_extended {
+            if last_extended == bhh {
+                panic!("BUG: passed id of a currently building block");
+            }
+        }
+
+        // opening a different Trie than the one we're extending
+        self.cur_block_id = Some(id);
+        self.cur_block = bhh.clone();
+
+        Ok(())
+    }
+
     pub fn open_block(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
         if *bhh == self.cur_block && self.cur_block_id.is_some() {
             // no-op
@@ -887,7 +725,7 @@ impl TrieFileStorage {
             // just reset to newly opened state
             self.cur_block = sentinel;
             // did we write to the sentinel ?
-            self.cur_block_id = TrieSQL::get_block_identifier(&self.db, bhh)
+            self.cur_block_id = trie_sql::get_block_identifier(&self.db, bhh)
                 .ok();
             return Ok(());
         }
@@ -903,10 +741,14 @@ impl TrieFileStorage {
         }
 
         // opening a different Trie than the one we're extending
-        self.cur_block_id = Some(TrieSQL::get_block_identifier(&self.db, bhh)?);
+        self.cur_block_id = Some(trie_sql::get_block_identifier(&self.db, bhh)?);
         self.cur_block = bhh.clone();
 
         Ok(())
+    }
+
+    pub fn get_block_identifier(&self, bhh: &BlockHeaderHash) -> Option<u32> {
+        trie_sql::get_block_identifier(&self.db, bhh).ok()
     }
 
     pub fn get_cur_block_identifier(&mut self) -> Result<u32, Error> {
@@ -923,6 +765,10 @@ impl TrieFileStorage {
     
     pub fn get_cur_block(&self) -> BlockHeaderHash {
         self.cur_block.clone()
+    }
+
+    pub fn get_cur_block_and_id(&self) -> (BlockHeaderHash, Option<u32>) {
+        (self.cur_block.clone(), self.cur_block_id.clone())
     }
 
     pub fn get_block_from_local_id(&mut self, local_id: u32) -> Result<&BlockHeaderHash, Error> {
@@ -953,7 +799,7 @@ impl TrieFileStorage {
         debug!("Format TrieFileStorage {}", &self.dir_path);
 
         // blow away db
-        TrieSQL::clear_tables(&mut self.db)?;
+        trie_sql::clear_tables(&mut self.db)?;
 
         match self.last_extended {
             Some((_, ref mut trie_storage)) => trie_storage.format()?,
@@ -1044,7 +890,7 @@ impl TrieFileStorage {
         // some other block or ptr, or cache miss
         match self.cur_block_id {
             Some(block_id) => {
-                TrieSQL::get_node_hash_bytes(&self.db, block_id, ptr)
+                trie_sql::get_node_hash_bytes(&self.db, block_id, ptr)
             },
             None => {
                 error!("Not found (no file is open)");
@@ -1079,7 +925,7 @@ impl TrieFileStorage {
 
         // some other block
         match self.cur_block_id {
-            Some(id) => TrieSQL::read_node_type(&self.db, id, &clear_ptr),
+            Some(id) => trie_sql::read_node_type(&self.db, id, &clear_ptr),
             None => {
                 error!("Not found (no file is open)");
                 Err(Error::NotFoundError)
@@ -1114,25 +960,6 @@ impl TrieFileStorage {
         let node_type = node.as_trie_node_type();
         self.write_nodetype(ptr, &node_type, hash)
     }
-
-    /// If we opened a block with a given hash, but want to store it as a block with a *different*
-    /// hash, then call this method to update the internal storage state to make it so.  This is
-    /// necessary for validating blocks in the blockchain, since the miner will always build a
-    /// block whose hash is all 0's (since it can't know the final block hash).  As such, a peer
-    /// will process a block as if it's hash is all 0's (in order to validate the state root), and
-    /// then use this method to switch over the block hash to the "real" block hash.
-    fn block_retarget(&mut self, cur_bhh: &BlockHeaderHash, new_bhh: &BlockHeaderHash) -> Result<(), Error> {
-        debug!("Retarget block {} to {}", cur_bhh, new_bhh);
-
-        // switch over state
-        // make it as if we had inserted this block the whole time
-        TrieSQL::retarget_chain_tip_entry(&self.db, cur_bhh, new_bhh)?;
-
-        self.trie_ancestor_hash_bytes_cache = None;
-
-        self.cur_block = new_bhh.clone();
-        Ok(())
-    }
     
     fn inner_flush(&mut self, flush_options: FlushOptions) -> Result<(), Error> {
         // save the currently-bufferred Trie to disk, and atomically put it into place (possibly to
@@ -1153,33 +980,39 @@ impl TrieFileStorage {
 
             debug!("Flush: {} to {}", bhh, flush_options);
 
+            let tx = self.db.transaction()?;
             let block_id = match flush_options {
                 FlushOptions::CurrentHeader => {
-                    let tx = self.db.transaction()?;
-                    let block_id = TrieSQL::write_trie_blob(&tx, bhh, &buffer)?;
-                    TrieSQL::drop_lock(&tx, bhh)?;
-                    tx.commit()?;
-                    block_id
+                    trie_sql::write_trie_blob(&tx, bhh, &buffer)?
                 },
                 FlushOptions::NewHeader(real_bhh) => {
+                    // If we opened a block with a given hash, but want to store it as a block with a *different*
+                    // hash, then call this method to update the internal storage state to make it so.  This is
+                    // necessary for validating blocks in the blockchain, since the miner will always build a
+                    // block whose hash is all 0's (since it can't know the final block hash).  As such, a peer
+                    // will process a block as if it's hash is all 0's (in order to validate the state root), and
+                    // then use this method to switch over the block hash to the "real" block hash.
                     if real_bhh != bhh {
-                        self.block_retarget(bhh, real_bhh)?;
+                        // note: this was moved from the block_retarget function
+                        //  to avoid stepping on the borrow checker.
+                        debug!("Retarget block {} to {}", bhh, real_bhh);
+                        // switch over state
+                        // make it as if we had inserted this block the whole time
+                        trie_sql::retarget_chain_tip_entry(&tx, bhh, real_bhh)?;
+                        self.trie_ancestor_hash_bytes_cache = None;
+                        self.cur_block = real_bhh.clone();
                     }
-                    let tx = self.db.transaction()?;
-                    let block_id = TrieSQL::write_trie_blob(&tx, real_bhh, &buffer)?;
-                    TrieSQL::drop_lock(&tx, bhh)?;
-                    tx.commit()?;
-                    block_id
+                    trie_sql::write_trie_blob(&tx, real_bhh, &buffer)?
                 },
                 FlushOptions::MinedTable(real_bhh) => {
-                    let tx = self.db.transaction()?;
-                    let block_id = TrieSQL::write_trie_blob_to_mined(&tx, real_bhh, &buffer)?;
-                    TrieSQL::remove_chain_tip_if_present(&tx, bhh)?;
-                    TrieSQL::drop_lock(&tx, bhh)?;
-                    tx.commit()?;
+                    let block_id = trie_sql::write_trie_blob_to_mined(&tx, real_bhh, &buffer)?;
+                    trie_sql::remove_chain_tip_if_present(&tx, bhh)?;
                     block_id
                 },
             };
+
+            trie_sql::drop_lock(&tx, bhh)?;
+            tx.commit()?;
 
             debug!("Flush: identifier of {} is {}", flush_options, block_id);
         }
@@ -1203,9 +1036,9 @@ impl TrieFileStorage {
         if let Some((ref bhh, _)) = self.last_extended.take() {
             let tx = self.db.transaction()
                 .expect("Corruption: Failed to obtain db transaction");
-            TrieSQL::remove_chain_tip_if_present(&tx, bhh)
+            trie_sql::remove_chain_tip_if_present(&tx, bhh)
                 .expect("Corruption: Failed to drop the extended trie from chain tips");
-            TrieSQL::drop_lock(&tx, bhh)
+            trie_sql::drop_lock(&tx, bhh)
                 .expect("Corruption: Failed to drop the extended trie lock");
             tx.commit()
                 .expect("Corruption: Failed to drop the extended trie");
@@ -1229,12 +1062,12 @@ impl TrieFileStorage {
         } else {
             0
         };
-        result + (TrieSQL::count_blocks(&self.db)
+        result + (trie_sql::count_blocks(&self.db)
                   .expect("Corruption: SQL Error on a non-fallible query.") as usize)
     }
     
     pub fn chain_tips(&self) -> Vec<BlockHeaderHash> {
-        TrieSQL::get_chain_tips(&self.db)
+        trie_sql::get_chain_tips(&self.db)
             .expect("Corruption: SQL Error on a non-fallible query.")
     }
 }

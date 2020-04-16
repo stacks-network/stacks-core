@@ -163,18 +163,18 @@ impl MARF {
     fn node_child_copy(storage: &mut TrieFileStorage, node: &TrieNodeType, chr: u8, cursor: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr, BlockHeaderHash), Error> {
         trace!("Copy to {:?} child {:x} of {:?}", storage.get_cur_block(), chr, node);
 
-        let cur_block_hash = storage.get_cur_block();
+        let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
         let (mut child_node, _, child_ptr, _) = MARF::walk_backptr(storage, node, chr, cursor)?;
         let child_block_hash = storage.get_cur_block();
         let child_block_identifier = storage.get_cur_block_identifier()?;
 
         // update child_node with new ptrs and hashes
-        storage.open_block(&cur_block_hash)?;
+        storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
         let child_hash = MARF::node_copy_update(&mut child_node, child_block_identifier)
             .map_err(|e| Error::BlockHashMapCorruptionError(Some(Box::new(e))))?;
 
         // store it in this trie
-        storage.open_block(&cur_block_hash)?;
+        storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
         let child_disk_ptr = storage.last_ptr()?;
         let child_ptr = TriePtr::new(child_ptr.id(), chr, child_disk_ptr);
         storage.write_nodetype(child_disk_ptr, &child_node, child_hash.clone())?;
@@ -186,14 +186,14 @@ impl MARF {
     /// Copy the root node from the previous Trie to this Trie, updating its ptrs.
     /// s must point to the target Trie
     fn root_copy(storage: &mut TrieFileStorage, prev_block_hash: &BlockHeaderHash) -> Result<(), Error> {
-        let cur_block_hash = storage.get_cur_block();
+        let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
         storage.open_block(prev_block_hash)?;
         let prev_block_identifier = storage.get_cur_block_identifier()?;
         
         let (mut prev_root, _) = Trie::read_root(storage)?;
         let new_root_hash = MARF::node_copy_update(&mut prev_root, prev_block_identifier)?;
         
-        storage.open_block(&cur_block_hash)?;
+        storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
         
         let root_ptr = storage.root_ptr();
         storage.write_nodetype(root_ptr, &prev_root, new_root_hash)?;
@@ -205,8 +205,8 @@ impl MARF {
     /// has back pointers to its immediate children in the current trie.
     /// On Ok, s will point to new_bhh and will be open for reading
     pub fn extend_trie(storage: &mut TrieFileStorage, new_bhh: &BlockHeaderHash) -> Result<(), Error> {
-        let cur_bhh = storage.get_cur_block();
-        if storage.num_blocks() == 0 {
+        let (cur_bhh, cur_block_id) = storage.get_cur_block_and_id();
+             if storage.num_blocks() == 0 {
             // brand new storage
             trace!("Brand new storage -- start with {:?}", new_bhh);
             storage.extend_to_block(new_bhh)?;
@@ -227,7 +227,7 @@ impl MARF {
                         Error::NotFoundError => {
                             // bring root forward
                             debug!("Extend {:?} to {:?}", &cur_bhh, new_bhh);
-                            storage.open_block(&cur_bhh)?;
+                            storage.open_block_maybe_id(&cur_bhh, cur_block_id)?;
                             storage.extend_to_block(new_bhh)?;
                             MARF::root_copy(storage, &cur_bhh)?;
                             storage.open_block(new_bhh)?;
@@ -246,6 +246,7 @@ impl MARF {
     /// s must point to the last filled-in Trie -- i.e. block_hash points to the _new_ Trie that is
     /// being filled in.
     fn walk_cow(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<TrieCursor, Error> {
+        let block_id = storage.get_block_identifier(block_hash);
         MARF::extend_trie(storage, block_hash)?;
 
         let mut cursor = TrieCursor::new(path, storage.root_trieptr());
@@ -273,7 +274,7 @@ impl MARF {
                             }
 
                             trace!("Out of path in {:?} -- we're done. Node at {:?}", storage.get_cur_block(), &node_ptr);
-                            storage.open_block(block_hash)?;
+                            storage.open_block_maybe_id(block_hash, block_id)?;
                             return Ok(cursor);
                         }
                     }
@@ -286,19 +287,19 @@ impl MARF {
                                     // we're done -- path diverged.  Will need to copy-on-write
                                     // some nodes over.
                                     trace!("Path diverged -- we're done.");
-                                    storage.open_block(block_hash)?;
+                                    storage.open_block_maybe_id(block_hash, block_id)?;
                                     return Ok(cursor);
                                 },
                                 CursorError::ChrNotFound => {
                                     // end-of-node-path but no such child -- not even a backptr.
                                     trace!("ChrNotFound encountered at {:?} -- we're done (node not found)", storage.get_cur_block());
-                                    storage.open_block(block_hash)?;
+                                    storage.open_block_maybe_id(block_hash, block_id)?;
                                     return Ok(cursor);
                                 },
                                 CursorError::BackptrEncountered(ptr) => {
                                     // at intermediate node whose child is not present in this trie.
                                     // bring the child forward and take the step, if possible.
-                                    storage.open_block(block_hash)?;
+                                    storage.open_block_maybe_id(block_hash, block_id)?;
                                     let (next_node, _, next_node_ptr, next_node_block_hash) = MARF::node_child_copy(storage, &node, ptr.chr(), &mut cursor)?;
 
                                     // finish taking the step
@@ -308,7 +309,7 @@ impl MARF {
                                     node = next_node;
                                     node_ptr = next_node_ptr;
                                     
-                                    storage.open_block(block_hash)?;
+                                    storage.open_block_maybe_id(block_hash, block_id)?;
                                 }
                             }
                         },
@@ -523,7 +524,7 @@ impl MARF {
     }
 
     pub fn get_by_key(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<MARFValue>, Error> {
-        let cur_block_hash = storage.get_cur_block();
+        let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
         let path = TriePath::from_key(key);
 
@@ -534,7 +535,7 @@ impl MARF {
             });
 
         // restore
-        storage.open_block(&cur_block_hash)?;
+        storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
 
         result.map(|option_result| option_result.map(|leaf| {
             leaf.data
@@ -650,12 +651,12 @@ impl MARF {
                 Err(Error::WriteNotBegunError)
             },
             Some(WriteChainTip{ ref block_hash, .. }) => {
-                let cur_block_hash = self.storage.get_cur_block();
+                let (cur_block_hash, cur_block_id) = self.storage.get_cur_block_and_id();
 
                 let result = MARF::insert_leaf(&mut self.storage, block_hash, &path, &marf_leaf);
                 
                 // restore
-                self.storage.open_block(&cur_block_hash)?;
+                self.storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
                 
                 result
             }
@@ -680,7 +681,7 @@ impl MARF {
             return Ok(());
         }
         
-        let cur_block_hash = self.storage.get_cur_block();
+        let (cur_block_hash, cur_block_id) = self.storage.get_cur_block_and_id();
                 
         let last = keys.len() - 1;
         
@@ -700,7 +701,7 @@ impl MARF {
         }
 
         // restore
-        self.storage.open_block(&cur_block_hash)?;
+        self.storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
 
         result
     }
