@@ -1400,6 +1400,7 @@ mod test {
     use util::get_epoch_time_secs;
 
     use address::*;
+    use vm::costs::ExecutionCost;
 
     use std::net::*;
     use std::io;
@@ -1734,7 +1735,7 @@ mod test {
 
             let mut peerdb = PeerDB::connect(&peerdb_path, true, config.network_id, config.burnchain.network_id, config.private_key_expire, config.data_url.clone(), &config.asn4_entries, Some(&config.initial_neighbors)).unwrap();
             let mut burndb = BurnDB::connect(&burndb_path, config.burnchain.first_block_height, &config.burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
-            let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), |_| {}).unwrap();
+            let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), |_| {}, ExecutionCost::max_value()).unwrap();
             
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
 
