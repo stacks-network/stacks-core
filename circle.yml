@@ -57,6 +57,7 @@ jobs:
       - run:
           name: build
           environment:
+            CARGO_INCREMENTAL: 0
             RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
           command: cargo +nightly build --verbose
       - save_cache:
@@ -69,6 +70,7 @@ jobs:
           command: |
             cargo +nightly test
           environment:
+            CARGO_INCREMENTAL: 0
             RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
           no_output_timeout: 30m
       - run:
