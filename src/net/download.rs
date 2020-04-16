@@ -1020,33 +1020,27 @@ impl PeerNetwork {
         })
     }
 
-    pub fn connect_or_send_http_request(&mut self, data_url: UrlString, addr: SocketAddr, request: HttpRequestType) -> Result<usize, net_error> {
-        match self.http {
-            Some(ref mut http) => {
-                match http.connect_http(data_url.clone(), addr.clone(), Some(request.clone())) {
-                    Ok(event_id) => Ok(event_id),
-                    Err(net_error::AlreadyConnected(event_id)) => {
-                        match http.get_conversation(event_id) {
-                            Some(ref mut convo) => {
-                                convo.send_request(request)?;
-                                Ok(event_id)
-                            },
-                            None => {
-                                debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
-                                Err(net_error::PeerNotConnected)
-                            }
+    fn connect_or_send_http_request(&mut self, data_url: UrlString, addr: SocketAddr, request: HttpRequestType) -> Result<usize, net_error> {
+        PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
+            match network.http.connect_http(network_state, data_url.clone(), addr.clone(), Some(request.clone())) {
+                Ok(event_id) => Ok(event_id),
+                Err(net_error::AlreadyConnected(event_id)) => {
+                    match network.http.get_conversation(event_id) {
+                        Some(ref mut convo) => {
+                            convo.send_request(request)?;
+                            Ok(event_id)
+                        },
+                        None => {
+                            debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
+                            Err(net_error::PeerNotConnected)
                         }
-                    },
-                    Err(e) => {
-                        return Err(e);
                     }
+                },
+                Err(e) => {
+                    return Err(e);
                 }
-            },
-            None => {
-                test_debug!("{:?}: HTTP not connected", &self.local_peer);
-                Err(net_error::NotConnected)
             }
-        }
+        })
     }
 
     /// Start a request, given the list of request keys to consider.  Use the given request_factory to
@@ -1104,11 +1098,6 @@ impl PeerNetwork {
     pub fn block_getblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            if network.http.is_none() {
-                test_debug!("{:?}: HTTP not connected", &network.local_peer);
-                return Err(net_error::NotConnected);
-            }
-
             let mut priority = PeerNetwork::prioritize_requests(&downloader.blocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
@@ -1136,15 +1125,7 @@ impl PeerNetwork {
     pub fn block_getblocks_try_finish(&mut self) -> Result<bool, net_error> {
         test_debug!("{:?}: block_getblocks_try_finish", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            match network.http {
-                Some(ref mut http) => {
-                    downloader.getblocks_try_finish(http)
-                },
-                None => {
-                    test_debug!("{:?}: HTTP not connected", &network.local_peer);
-                    Err(net_error::NotConnected)
-                }
-            }
+            downloader.getblocks_try_finish(&mut network.http)
         })
     }
 
@@ -1152,11 +1133,6 @@ impl PeerNetwork {
     pub fn block_getmicroblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            if network.http.is_none() {
-                test_debug!("{:?}: HTTP not connected", &network.local_peer);
-                return Err(net_error::NotConnected);
-            }
-
             let mut priority = PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
@@ -1184,15 +1160,7 @@ impl PeerNetwork {
     pub fn block_getmicroblocks_try_finish(&mut self) -> Result<bool, net_error> {
         test_debug!("{:?}: block_getmicroblocks_try_finish", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            match network.http {
-                Some(ref mut http) => {
-                    downloader.getmicroblocks_try_finish(http)
-                },
-                None => {
-                    test_debug!("{:?}: HTTP not connected", &network.local_peer);
-                    Err(net_error::NotConnected)
-                }
-            }
+            downloader.getmicroblocks_try_finish(&mut network.http)
         })
     }
 
@@ -1334,11 +1302,6 @@ impl PeerNetwork {
     /// Returns true/false if we're done, as well as any blocks and microblocks we got, as well as
     /// broken http and p2p neighbors we encountered (so the main loop can disconnect them)
     pub fn download_blocks(&mut self, burndb: &mut BurnDB, chainstate: &mut StacksChainState, dns_client: &mut DNSClient) -> Result<(bool, Vec<(BurnchainHeaderHash, StacksBlock)>, Vec<(BurnchainHeaderHash, Vec<StacksMicroblock>)>, Vec<usize>, Vec<NeighborKey>), net_error> {
-        if self.http.is_none() {
-            test_debug!("{:?}: HTTP not connected yet", &self.local_peer);
-            return Err(net_error::NotConnected);
-        }
-
         if self.inv_state.is_none() {
             test_debug!("{:?}: Inv state not initialized yet", &self.local_peer);
             return Err(net_error::NotConnected);
