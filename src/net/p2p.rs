@@ -2106,6 +2106,7 @@ mod test {
 
     // tests connect_peer() and relay_signed_message()
     #[test]
+    #[ignore]
     fn test_dispatch_requests_connect_and_message_relay() {
         let neighbor = make_test_neighbor(2100);
 
@@ -2203,6 +2204,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_dispatch_requests_connect_and_ban() {
         let neighbor = make_test_neighbor(2200);
 

@@ -1631,6 +1631,7 @@ mod test {
     const TEST_IN_OUT_DEGREES : u64 = 0x1;
 
     #[test]
+    #[ignore]
     fn test_step_walk_1_neighbor_plain() {
         let mut peer_1_config = TestPeerConfig::from_port(31990);
         let peer_2_config = TestPeerConfig::from_port(31992);
@@ -1706,6 +1707,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_step_walk_1_neighbor_heartbeat_ping() {
         let mut peer_1_config = TestPeerConfig::from_port(31992);
         let mut peer_2_config = TestPeerConfig::from_port(31994);
@@ -1797,6 +1799,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_step_walk_1_neighbor_bootstrapping() {
         let mut peer_1_config = TestPeerConfig::from_port(32100);
         let peer_2_config = TestPeerConfig::from_port(32102);
@@ -1865,6 +1868,7 @@ mod test {
     }
    
     #[test]
+    #[ignore]
     fn test_step_walk_1_neighbor_behind() {
         let mut peer_1_config = TestPeerConfig::from_port(32200);
         let peer_2_config = TestPeerConfig::from_port(32202);
@@ -1949,6 +1953,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_step_walk_10_neighbors_of_neighbor_plain() {
         // peer 1 has peer 2 as its neighbor.
         // peer 2 has 10 other neighbors.
@@ -2074,6 +2079,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
         // peer 1 has peer 2 as its neighbor.
         // peer 2 has 10 other neighbors, 5 of which are too far behind peer 1.
@@ -2511,6 +2517,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_walk_ring_whitelist_20() {
         // all initial peers are whitelisted
         let mut peer_configs = vec![];
@@ -2530,6 +2537,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_walk_ring_20_plain() {
         // initial peers are neither white- nor blacklisted
         let mut peer_configs = vec![];
@@ -2549,6 +2557,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_walk_ring_20_org_biased() {
         // one outlier peer has a different org than the others.
         use std::env;
@@ -2640,6 +2649,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_walk_line_whitelisted_20() {
         // initial peers are neither white- nor blacklisted
         let mut peer_configs = vec![];
@@ -2659,6 +2669,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_walk_line_20_plain() {
         // initial peers are neither white- nor blacklisted
         let mut peer_configs = vec![];
@@ -2678,6 +2689,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_walk_line_20_org_biased() {
         // one outlier peer has a different org than the others.
         use std::env;
@@ -2769,6 +2781,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_walk_star_whitelisted_20() {
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 20;
@@ -2786,6 +2799,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_walk_star_20_plain() {
         let mut peer_configs = vec![];
         let PEER_COUNT : usize = 20;
@@ -2803,6 +2817,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_walk_star_20_org_biased() {
         // one outlier peer has a different org than the others.
         use std::env;

@@ -717,6 +717,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_http_10_threads_getinfo() {
         test_http_server("test_http_10_threads_getinfo", 51010, 51011, ConnectionOptions::default(), 10, 0,
                         |client_id, _| {
@@ -769,6 +770,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_http_10_threads_getblock() {
         test_http_server("test_http_getblock", 51030, 51031, ConnectionOptions::default(), 10, 0,
                         |client_id, ref mut peer_server| {
@@ -803,6 +805,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_http_too_many_clients() {
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.num_clients = 1;
@@ -847,6 +850,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_http_slow_client() {
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.timeout = 3;      // kill a connection after 3 seconds of idling

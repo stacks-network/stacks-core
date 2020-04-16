@@ -1713,6 +1713,7 @@ pub mod test {
     }
 
     #[test]
+    #[ignore]
     pub fn test_get_blocks_and_microblocks_2_peers() {
         run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_2_peers", 3200, 2,
                                        |ref mut peer_configs| {
@@ -1766,6 +1767,7 @@ pub mod test {
     }
     
     #[test]
+    #[ignore]
     pub fn test_get_blocks_and_microblocks_5_peers_star() {
         run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_5_peers_star", 3210, 5,
                                        |ref mut peer_configs| {
@@ -1822,6 +1824,7 @@ pub mod test {
     }
 
     #[test]
+    #[ignore]
     pub fn test_get_blocks_and_microblocks_5_peers_line() {
         run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_5_peers_line", 3220, 5,
                                        |ref mut peer_configs| {
@@ -1877,6 +1880,7 @@ pub mod test {
     }
     
     #[test]
+    #[ignore]
     pub fn test_get_blocks_and_microblocks_overwhelmed() {
         run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed", 3220, 5,
                                        |ref mut peer_configs| {

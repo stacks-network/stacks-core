@@ -1484,6 +1484,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn convo_handshake_accept() {
         let conn_opts = ConnectionOptions::default();
 
@@ -2134,6 +2135,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn convo_handshake_getblocksinv() {
         let conn_opts = ConnectionOptions::default();
 
