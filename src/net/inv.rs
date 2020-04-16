@@ -1426,6 +1426,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_sync_inv_2_peers_plain() {
         let mut peer_1_config = TestPeerConfig::new("test_sync_inv_2_peers_plain", 31992, 41992);
         let mut peer_2_config = TestPeerConfig::new("test_sync_inv_2_peers_plain", 31993, 41993);
@@ -1528,6 +1529,7 @@ mod test {
     }
    
     #[test]
+    #[ignore]
     fn test_sync_inv_2_peers_stale() {
         let mut peer_1_config = TestPeerConfig::new("test_sync_inv_2_peers_stale", 31994, 41995);
         let mut peer_2_config = TestPeerConfig::new("test_sync_inv_2_peers_stale", 31995, 41996);
@@ -1629,6 +1631,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn test_sync_inv_2_peers_unstable() {
         let mut peer_1_config = TestPeerConfig::new("test_sync_inv_2_peers_unstable", 31996, 41997);
         let mut peer_2_config = TestPeerConfig::new("test_sync_inv_2_peers_unstable", 31997, 41998);

@@ -1312,6 +1312,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn marf_walk_cow_4_reversed() {
         marf_walk_cow_4_test("/tmp/rust_marf_walk_cow_node4_20_reversed", |i, mut p| {
             p[31-i as usize] = 32;
@@ -1446,6 +1447,7 @@ mod test {
     // insert a range of 4096 consecutive keys (forcing node promotions) by varying the low-order bits.
     // every 128 keys, make a new trie
     #[test]
+        #[ignore]
     fn marf_insert_4096_128_seq_low() {
         marf_insert("/tmp/rust_marf_insert_4096_128_seq_low", |i| {
             let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29, (i / 256) as u8, (i % 256) as u8];
@@ -1462,6 +1464,7 @@ mod test {
     // insert a range of 4096 consecutive keys (forcing node promotions) by varying the high-order bits.
     // every 128 keys, make a new trie
     #[test]
+    #[ignore]
     fn marf_insert_4096_128_seq_high() {
         marf_insert("/tmp/rust_marf_insert_4096_128_seq_high", |i| {
             let i0 = i / 256;
@@ -1535,6 +1538,7 @@ mod test {
     //   walk_cow via `MARF::extend_trie`.
 
     #[test]
+    #[ignore]
     fn marf_insert_random_65536_2048() {
         let filename = "/tmp/rust_marf_insert_random_65536_2048";
         let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
@@ -1683,6 +1687,7 @@ mod test {
     // Do merkle tests each key/value inserted -- both immediately after the batch containing them
     // is inserted, and once all inserts complete.
     #[test]
+    #[ignore]
     fn marf_insert_random_4096_128_file_storage_merkle_proof() {
         let path = "/tmp/rust_marf_insert_4096_128_file_storage_merkle_proof";
         let f = TrieFileStorage::new_memory().unwrap();
@@ -1865,6 +1870,7 @@ mod test {
     // every 128 keys, make a new trie.
     // Use the TrieFileStorage backend
     #[test]
+    #[ignore]
     fn marf_insert_4096_128_file_storage() {
         let mut marf = marf_insert("/tmp/rust_marf_insert_4096_128_file_storage", |i| {
             let i0 = i / 256;
@@ -1916,6 +1922,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn marf_insert_get_128_fork_256() {
         // create 256 forks organized as a binary tree, and insert 128 values into each one.
         // make sure we can read them all from each chain tip, and make sure we can generate merkle
@@ -1998,6 +2005,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn marf_insert_flush_to_different_block() {
         let path = "/tmp/marf_insert_flush_to_different_block".to_string();
         let mut f = TrieFileStorage::new_memory().unwrap();

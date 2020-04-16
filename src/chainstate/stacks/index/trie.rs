@@ -1764,6 +1764,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn insert_65536_random_deterministic() {
         // deterministic random insert of 65536 keys
         let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
