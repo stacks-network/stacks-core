@@ -1114,8 +1114,8 @@ The following type IDs indicate the following values:
 * 0x00: 128-bit signed integer
 * 0x01: 128-bit unsigned integer
 * 0x02: buffer
-* 0x03: boolean `'true`
-* 0x04: boolean `'false`
+* 0x03: boolean `true`
+* 0x04: boolean `false`
 * 0x05: standard principal
 * 0x06: contract principal
 * 0x07: Ok response
@@ -1140,11 +1140,11 @@ The following 16 bytes are a big-endian 128-bit unsigned integer
 The following 4 bytes are the buffer length, encoded as a 32-bit unsigned big-endian
 integer.  The remaining bytes are the buffer data.
 
-**Boolean `'true`**
+**Boolean `true`**
 
 No bytes follow.
 
-**Boolean `'false`**
+**Boolean `false`**
 
 No bytes follow.
 

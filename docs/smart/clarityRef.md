@@ -56,11 +56,11 @@ The integer type in the Clarity language is a 16-byte signed integer, which allo
 
 ### Bool type
 
-Supports values of `'true` or `'false`. 
+Takes values of the constants `true` and `false`.
 
 ### Buffer type
 
-Buffer types represent fixed-length byte buffers. Currently, the only way to construct a Buffer is using string literals, for example `"alice.id"` or `hash160("bob.id")` 
+Buffer types represent fixed-length byte buffers. Currently, the only way to construct a Buffer is using string literals, for example `"alice.id"` or `hash160("bob.id")`
 
 All of the hash functions return buffers:
 

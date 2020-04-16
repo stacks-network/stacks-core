@@ -62,7 +62,7 @@ const BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
 const CONTRACT_CALLER_KEYWORD: KeywordAPI = KeywordAPI {
     name: "contract-caller",
     output_type: "principal",
-    description: "Returns the caller of the current contract context. If this contract is the first one called by a signed transaction, 
+    description: "Returns the caller of the current contract context. If this contract is the first one called by a signed transaction,
 the caller will be equal to the signing principal. If `contract-call?` was used to invoke a function from a new contract, `contract-caller`
 changes to the _calling_ contract's principal. If `as-contract` is used to change the `tx-sender` context, `contract-caller` _also_ changes
 to the same contract principal.",
@@ -90,6 +90,27 @@ const NONE_KEYWORD: KeywordAPI = KeywordAPI {
 (only-if-positive (- 3)) ;; Returns none
 "
 };
+
+const TRUE_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "true",
+    output_type: "bool",
+    description: "Boolean true constant.",
+    example: "
+(and true false) ;; Evaluates to false
+(or false true)  ;; Evaluates to true
+"
+};
+
+const FALSE_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "false",
+    output_type: "bool",
+    description: "Boolean false constant.",
+    example: "
+(and true false) ;; Evaluates to false
+(or false true)  ;; Evaluates to true
+"
+};
+
 
 const TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
@@ -174,9 +195,9 @@ const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(and b1 b2 ...)",
     description: "Returns `true` if all boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
-    example: "(and 'true 'false) ;; Returns 'false
-(and (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns 'false
-(and (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns 'true
+    example: "(and true false) ;; Returns false
+(and (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns false
+(and (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns true
 "
 };
 
@@ -184,10 +205,10 @@ const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(or b1 b2 ...)",
     description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
-    example: "(or 'true 'false) ;; Returns 'true
-(or (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns 'true
-(or (is-eq (+ 1 2) 1) (is-eq 3 4)) ;; Returns 'false
-(or (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns 'true
+    example: "(or true false) ;; Returns true
+(or (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns true
+(or (is-eq (+ 1 2) 1) (is-eq 3 4)) ;; Returns false
+(or (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns true
 "
 };
 
@@ -195,8 +216,8 @@ const NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(not b1)",
     description: "Returns the inverse of the boolean input.",
-    example: "(not 'true) ;; Returns 'false
-(not (is-eq 1 2)) ;; Returns 'true
+    example: "(not true) ;; Returns false
+(not (is-eq 1 2)) ;; Returns true
 "
 };
 
@@ -204,8 +225,8 @@ const GEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some(">= (greater than or equal)"),
     signature: "(>= i1 i2)",
     description: "Compares two integers, returning `true` if `i1` is greater than or equal to `i2` and `false` otherwise.",
-    example: "(>= 1 1) ;; Returns 'true
-(>= 5 2) ;; Returns 'true
+    example: "(>= 1 1) ;; Returns true
+(>= 5 2) ;; Returns true
 "
 };
 
@@ -213,8 +234,8 @@ const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("<= (less than or equal)"),
     signature: "(<= i1 i2)",
     description: "Compares two integers, returning true if `i1` is less than or equal to `i2` and `false` otherwise.",
-    example: "(<= 1 1) ;; Returns 'true
-(<= 5 2) ;; Returns 'false
+    example: "(<= 1 1) ;; Returns true
+(<= 5 2) ;; Returns false
 "
 };
 
@@ -222,8 +243,8 @@ const GREATER_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("> (greater than)"),
     signature: "(> i1 i2)",
     description: "Compares two integers, returning `true` if `i1` is greater than `i2` and false otherwise.",
-    example: "(> 1 2) ;; Returns 'false
-(> 5 2) ;; Returns 'true
+    example: "(> 1 2) ;; Returns false
+(> 5 2) ;; Returns true
 "
 };
 
@@ -231,8 +252,8 @@ const LESS_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("< (less than)"),
     signature: "(< i1 i2)",
     description: "Compares two integers, returning `true` if `i1` is less than `i2` and `false` otherwise.",
-    example: "(< 1 2) ;; Returns 'true
-(< 5 2) ;; Returns 'false
+    example: "(< 1 2) ;; Returns true
+(< 5 2) ;; Returns false
 "
 };
 
@@ -282,9 +303,9 @@ const EQUALS_API: SpecialAPI = SpecialAPI {
     output_type: "bool",
     signature: "(is-eq v1 v2...)",
     description: "Compares the inputted values, returning `true` if they are all equal. Note that _unlike_ the `(and ...)` function, `(is-eq ...)` will _not_ short-circuit.",
-    example: "(is-eq 1 1) ;; Returns 'true
-(is-eq 1 'false) ;; Returns 'false
-(is-eq \"abc\" 234 234) ;; Returns 'false
+    example: "(is-eq 1 1) ;; Returns true
+(is-eq 1 false) ;; Returns false
+(is-eq \"abc\" 234 234) ;; Returns false
 "
 };
 
@@ -292,7 +313,7 @@ const IF_API: SpecialAPI = SpecialAPI {
     input_type: "bool, A, A",
     output_type: "A",
     signature: "(if bool1 expr1 expr2)",
-    description: "The `if` function admits a boolean argument and two expressions 
+    description: "The `if` function admits a boolean argument and two expressions
 which must return the same type. In the case that the boolean input is `true`, the
 `if` function evaluates and returns `expr1`. If the boolean input is `false`, the
 `if` function evaluates and returns `expr2`.",
@@ -300,7 +321,7 @@ which must return the same type. In the case that the boolean input is `true`, t
 (if (> 1 2) 1 2) ;; Returns 2"
 };
 
-const LET_API: SpecialAPI = SpecialAPI { 
+const LET_API: SpecialAPI = SpecialAPI {
     input_type: "((name2 AnyType) (name2 AnyType) ...), AnyType, ... A",
     output_type: "A",
     signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body1 expr-body2 ... expr-body-last)",
@@ -310,7 +331,7 @@ created by this set of bindings is used for evaluating its body expressions. The
     example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20"
 };
 
-const FETCH_VAR_API: SpecialAPI = SpecialAPI { 
+const FETCH_VAR_API: SpecialAPI = SpecialAPI {
     input_type: "VarName",
     output_type: "A",
     signature: "(var-get var-name)",
@@ -319,13 +340,13 @@ The value is looked up using `var-name`.",
     example: "(var-get cursor) ;; Returns cursor"
 };
 
-const SET_VAR_API: SpecialAPI = SpecialAPI { 
+const SET_VAR_API: SpecialAPI = SpecialAPI {
     input_type: "VarName, AnyType",
     output_type: "bool",
     signature: "(var-set var-name expr1)",
-    description: "The `var-set` function sets the value associated with the input variable to the 
+    description: "The `var-set` function sets the value associated with the input variable to the
 inputted value.",
-    example: "(var-set cursor (+ cursor 1)) ;; Returns 'true"
+    example: "(var-set cursor (+ cursor 1)) ;; Returns true"
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
@@ -334,7 +355,7 @@ const MAP_API: SpecialAPI = SpecialAPI {
     signature: "(map func list)",
     description: "The `map` function applies the input function `func` to each element of the
 input list, and outputs a list containing the _outputs_ from those function applications.",
-    example: "(map not (list true false true false)) ;; Returns 'false true false true"
+    example: "(map not (list true false true false)) ;; Returns false true false true"
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
@@ -353,7 +374,7 @@ const FOLD_API: SpecialAPI = SpecialAPI {
     description: "The `fold` special form applies the input function `func` to each element of the
 input list _and_ the output of the previous application of the `fold` function. When invoked on
 the first list element, it uses the `initial-value` as the second input. `fold` returns the last
-value returned by the successive applications. Note that the first argument is not evaluated thus 
+value returned by the successive applications. Note that the first argument is not evaluated thus
 has to be a literal function name.",
     example: "(fold * (list 2 2 2) 1) ;; Returns 8
 (fold * (list 2 2 2) 0) ;; Returns 0
@@ -366,7 +387,7 @@ const CONCAT_API: SpecialAPI = SpecialAPI {
     input_type: "(buff, buff)|(list, list)",
     output_type: "buff|list",
     signature: "(concat buff-a buff-b)",
-    description: "The `concat` function takes two buffers or two lists with the same entry type, 
+    description: "The `concat` function takes two buffers or two lists with the same entry type,
 and returns a concatenated buffer or list of the same entry type, with max_len = max_len_a + max_len_b.",
     example: "(concat \"hello \" \"world\") ;; Returns \"hello world\""
 };
@@ -375,7 +396,7 @@ const APPEND_API: SpecialAPI = SpecialAPI {
     input_type: "list A, A",
     output_type: "list",
     signature: "(append (list 1 2 3 4) 5)",
-    description: "The `append` function takes a list and another value with the same entry type, 
+    description: "The `append` function takes a list and another value with the same entry type,
 or a buffer and another buffer of length 1 and outputs a buffer or a list of the same type with max_len += 1.",
     example: "(append (list 1 2 3 4) 5) ;; Returns (list 1 2 3 4 5)"
 };
@@ -384,8 +405,8 @@ const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     input_type: "buff|list, uint",
     output_type: "(optional buff|list)",
     signature: "(as-max-len? buffer 10)",
-    description: "The `as-max-len?` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list 
-or buffer of length M and outputs that same list or buffer, but typed with max length N. 
+    description: "The `as-max-len?` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list
+or buffer of length M and outputs that same list or buffer, but typed with max length N.
 At runtime, a check is performed, which if it fails, returns a (none) option.",
     example: "(as-max-len? (list 2 2 2) 3) ;; Returns (some (list 2 2 2))"
 };
@@ -444,13 +465,13 @@ const SET_ENTRY_API: SpecialAPI = SpecialAPI {
     input_type: "MapName, tuple_A, tuple_B",
     output_type: "bool",
     signature: "(map-set map-name key-tuple value-tuple)",
-    description: "The `map-set` function sets the value associated with the input key to the 
+    description: "The `map-set` function sets the value associated with the input key to the
 inputted value. This function performs a _blind_ update; whether or not a value is already associated
 with the key, the function overwrites that existing association.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(map-set names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
+    example: "(map-set names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns true
 (map-set names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
@@ -459,15 +480,15 @@ const INSERT_ENTRY_API: SpecialAPI = SpecialAPI {
     input_type: "MapName, tuple_A, tuple_B",
     output_type: "bool",
     signature: "(map-insert map-name key-tuple value-tuple)",
-    description: "The `map-insert` function sets the value associated with the input key to the 
+    description: "The `map-insert` function sets the value associated with the input key to the
 inputted value if and only if there is not already a value associated with the key in the map.
 If an insert occurs, the function returns `true`. If a value already existed for
 this key in the data map, the function returns `false`.
 
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
-    example: "(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
-(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'false
+    example: "(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns true
+(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns false
 (map-insert names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
@@ -479,8 +500,8 @@ const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
     description: "The `map-delete` function removes the value associated with the input key for
 the given map. If an item exists and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
-    example: "(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns 'true
-(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns 'false
+    example: "(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns true
+(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns false
 (map-delete names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
@@ -555,7 +576,7 @@ const KECCAK256_API: SpecialAPI = SpecialAPI {
     output_type: "(buff 32)",
     signature: "(keccak256 value)",
     description: "The `keccak256` function computes `KECCAK256(value)` of the inputted value.
-Note that this differs from the `NIST SHA-3` (that is, FIPS 202) standard. If an integer (128 bit) 
+Note that this differs from the `NIST SHA-3` (that is, FIPS 202) standard. If an integer (128 bit)
 is supplied the hash is computed over the little-endian representation of the integer.",
     example: "(keccak256 0) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4"
 };
@@ -587,13 +608,13 @@ The function returns the result of evaluating `expr`.
     example: "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 (var-get data))
 (at-block (get-block-info? id-header-hash (- block-height u10)) (var-get data))"
 };
-        
+
 
 const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
     input_type: "A",
     output_type: "A",
     signature: "(as-contract expr)",
-    description: "The `as-contract` function switches the current context's `tx-origin` value to the _contract's_ 
+    description: "The `as-contract` function switches the current context's `tx-origin` value to the _contract's_
 principal and executes `expr` with that context. It returns the resulting value of `expr`.",
     example: "(as-contract (print tx-sender)) ;; Returns 'CTcontract.name"
 };
@@ -602,11 +623,11 @@ const ASSERTS_API: SpecialAPI = SpecialAPI {
     input_type: "bool, C",
     output_type: "bool",
     signature: "(asserts! bool-expr thrown-value)",
-    description: "The `asserts!` function admits a boolean argument and asserts its evaluation: 
-if bool-expr is `true`, `asserts!` returns `true` and proceeds in the program execution. 
-If the supplied argument is returning a 'false value, `asserts!` _returns_ `thrown-value` and exits the current 
+    description: "The `asserts!` function admits a boolean argument and asserts its evaluation:
+if bool-expr is `true`, `asserts!` returns `true` and proceeds in the program execution.
+If the supplied argument is returning a false value, `asserts!` _returns_ `thrown-value` and exits the current
 control-flow.",
-    example: "(asserts! (is-eq 1 1) (err 1)) ;; Returns 'true",
+    example: "(asserts! (is-eq 1 1) (err 1)) ;; Returns true",
 };
 
 const EXPECTS_API: SpecialAPI = SpecialAPI {
@@ -632,13 +653,13 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
 `try!` _returns_ either `none` or the `(err ...)` value from the current function and exits the current control-flow.",
     example: "(try! (map-get? names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
 (define-private (checked-even (x int))
-  (if (is-eq (mod x 2) 0) 
+  (if (is-eq (mod x 2) 0)
       (ok x)
-      (err 'false)))
+      (err false)))
 (define-private (double-if-even (x int))
   (ok (* 2 (try! (checked-even x)))))
 (double-if-even 10) ;; Returns (ok 20)
-(double-if-even 3) ;; Returns (err 'false)
+(double-if-even 3) ;; Returns (err false)
 ",
 };
 
@@ -673,7 +694,7 @@ const EXPECTS_ERR_API: SpecialAPI = SpecialAPI {
 is an `(err ...)` response, `unwrap-err!` returns the inner value of the `err`.
 If the supplied argument is an `(ok ...)` value,
 `unwrap-err!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
-    example: "(unwrap-err! (err 1) 'false) ;; Returns 1",
+    example: "(unwrap-err! (err 1) false) ;; Returns 1",
 };
 
 const MATCH_API: SpecialAPI = SpecialAPI {
@@ -688,7 +709,7 @@ If the `input` is an optional, it tests whether the provided
 `none-branch` in each respective case.
 
 Within the `some-branch`, the _contained value_ of the `input`
-argument is bound to the provided `some-binding-name` name. 
+argument is bound to the provided `some-binding-name` name.
 
 Only _one_ of the branches will be evaluated (similar to `if` statements).
 
@@ -752,7 +773,7 @@ const CONS_ERR_API: SpecialAPI = SpecialAPI {
     description: "The `err` function constructs a response type from the input value. Use `err` for
 creating return values in public functions. An _err_ value indicates that any database changes during
 the processing of the function should be rolled back.",
-    example: "(err 'true) ;; Returns (err 'true)",
+    example: "(err true) ;; Returns (err true)",
 };
 
 const CONS_SOME_API: SpecialAPI = SpecialAPI {
@@ -761,7 +782,7 @@ const CONS_SOME_API: SpecialAPI = SpecialAPI {
     signature: "(some value)",
     description: "The `some` function constructs a `optional` type from the input value.",
     example: "(some 1) ;; Returns (some 1)
-(is-none (some 2)) ;; Returns 'false",
+(is-none (some 2)) ;; Returns false",
 };
 
 const IS_OK_API: SpecialAPI = SpecialAPI {
@@ -770,8 +791,8 @@ const IS_OK_API: SpecialAPI = SpecialAPI {
     signature: "(is-ok value)",
     description: "`is-ok` tests a supplied response value, returning `true` if the response was `ok`,
 and `false` if it was an `err`.",
-    example: "(is-ok (ok 1)) ;; Returns 'true
-(is-ok (err 1)) ;; Returns 'false",
+    example: "(is-ok (ok 1)) ;; Returns true
+(is-ok (err 1)) ;; Returns false",
 };
 
 const IS_NONE_API: SpecialAPI = SpecialAPI {
@@ -780,8 +801,8 @@ const IS_NONE_API: SpecialAPI = SpecialAPI {
     signature: "(is-none value)",
     description: "`is-none` tests a supplied option value, returning `true` if the option value is `(none)`,
 and `false` if it is a `(some ...)`.",
-    example: "(is-none (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 'false
-(is-none (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 'true"
+    example: "(is-none (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns false
+(is-none (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns true"
 };
 
 const IS_ERR_API: SpecialAPI = SpecialAPI {
@@ -790,8 +811,8 @@ const IS_ERR_API: SpecialAPI = SpecialAPI {
     signature: "(is-err? value)",
     description: "`is-err?` tests a supplied response value, returning `true` if the response was an `err`,
 and `false` if it was an `ok`.",
-    example: "(is-err? (ok 1)) ;; Returns 'false
-(is-err? (err 1)) ;; Returns 'true",
+    example: "(is-err? (ok 1)) ;; Returns false
+(is-err? (err 1)) ;; Returns true",
 };
 
 const IS_SOME_API: SpecialAPI = SpecialAPI {
@@ -800,24 +821,24 @@ const IS_SOME_API: SpecialAPI = SpecialAPI {
     signature: "(is-some? value)",
     description: "`is-some?` tests a supplied option value, returning `true` if the option value is `(some ...)`,
 and `false` if it is a `none`.",
-    example: "(is-some? (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 'true
-(is-some? (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 'false"
+    example: "(is-some? (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns true
+(is-some? (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns false"
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "BlockInfoPropertyName, BlockHeightInt",
     output_type: "(optional buff) | (optional uint)",
     signature: "(get-block-info? prop-name block-height-expr)",
-    description: "The `get-block-info?` function fetches data for a block of the given block height. The 
+    description: "The `get-block-info?` function fetches data for a block of the given block height. The
 value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `BlockHeightInt` does
-not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names 
-are `time`, `header-hash`, `burnchain-header-hash`, `id-header-hash`, `miner-address`, and `vrf-seed`. 
+not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
+are `time`, `header-hash`, `burnchain-header-hash`, `id-header-hash`, `miner-address`, and `vrf-seed`.
 
-The `time` property returns an integer value of the block header time field. This is a Unix epoch timestamp in seconds 
+The `time` property returns an integer value of the block header time field. This is a Unix epoch timestamp in seconds
 which roughly corresponds to when the block was mined. **Warning**: this does not increase monotonically with each block
-and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information. 
+and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
 
-The `header-hash`, `burnchain-header-hash`, `id-header-hash`, and `vrf-seed` properties return a 32-byte buffer. 
+The `header-hash`, `burnchain-header-hash`, `id-header-hash`, and `vrf-seed` properties return a 32-byte buffer.
 
 The `miner-address` property returns a `principal` corresponding to the miner of the given block.
 
@@ -941,7 +962,7 @@ perform such modifications. This is enforced both during type checks and during
 the execution of the function. Public read-only functions may
 be invoked by other contracts via `contract-call?`.",
     example: "
-(define-read-only (just-return-one-hundred) 
+(define-read-only (just-return-one-hundred)
   (* 10 10))"
 };
 
@@ -994,8 +1015,8 @@ const DEFINE_TRAIT_API: DefineAPI = DefineAPI {
     input_type: "VarName, [MethodSignature]",
     output_type: "Not Applicable",
     signature: "(define-trait trait-name ((func1-name (arg1-type arg2-type ...) (return-type))))",
-    description: "`define-trait` is used to define a new trait definition for use in a smart contract. Other contracts 
-can implement a given trait and then have their contract identifier being passed as function arguments in order to be called 
+    description: "`define-trait` is used to define a new trait definition for use in a smart contract. Other contracts
+can implement a given trait and then have their contract identifier being passed as function arguments in order to be called
 dynamically with `contract-call?`.
 
 Traits are defined with a name, and a list functions defined with a name, a list of argument types, and return type.
@@ -1014,10 +1035,10 @@ const USE_TRAIT_API: DefineAPI = DefineAPI {
     input_type: "VarName, TraitIdentifier",
     output_type: "Not Applicable",
     signature: "(use-trait trait-alias trait-identifier)",
-    description: "`use-trait` is used to bring a trait, defined in another contract, to the current contract. Subsequent 
+    description: "`use-trait` is used to bring a trait, defined in another contract, to the current contract. Subsequent
 references to an imported trait are signaled with the syntax <trait-alias>.
 
-Traits import are defined with a name, used as an alias, and a trait identifier. Trait identifiers can either be 
+Traits import are defined with a name, used as an alias, and a trait identifier. Trait identifiers can either be
 using the sugared syntax (.token-a.token-trait), or be fully qualified ('SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait).
 
 Like other kinds of definition statements, `use-trait` may only be used at the top level of a smart contract
@@ -1035,11 +1056,11 @@ const IMPL_TRAIT_API: DefineAPI = DefineAPI {
     input_type: "TraitIdentifier",
     output_type: "Not Applicable",
     signature: "(impl-trait trait-identifier)",
-    description: "`impl-trait` can be use for asserting that a contract is fully implementing a given trait. 
+    description: "`impl-trait` can be use for asserting that a contract is fully implementing a given trait.
 Additional checks are being performed when the contract is being published, rejecting the deployment if the
 contract is violating the trait specification.
 
-Trait identifiers can either be using the sugared syntax (.token-a.token-trait), or be fully qualified 
+Trait identifiers can either be using the sugared syntax (.token-a.token-trait), or be fully qualified
 ('SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait).
 
 Like other kinds of definition statements, `impl-trait` may only be used at the top level of a smart contract
@@ -1059,7 +1080,7 @@ type defined using `define-fungible-token`. The increased token balance is _not_
 rather minted.
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
-returns `(ok 'true 1)`.
+returns `(ok true 1)`.
 ",
     example: "
 (define-fungible-token stackaroo)
@@ -1079,7 +1100,7 @@ If an asset identified by `asset-identifier` _already exists_, this function wil
 
 `(err 1)`
 
-Otherwise, on successfuly mint, it returns `(ok 'true 1)`.
+Otherwise, on successfuly mint, it returns `(ok true 1)`.
 ",
     example: "
 (define-non-fungible-token stackaroo (buff 40))
@@ -1162,7 +1183,7 @@ one of the following error codes:
 const STX_TRANSFER: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(stx-transfer? amount sender recipient)",
-    description: "`stx-transfer?` is used to increase the STX balance for the `recipient` principal 
+    description: "`stx-transfer?` is used to increase the STX balance for the `recipient` principal
 by debiting the `sender` principal. The `sender` principal _must_ be equal to the current context's `tx-sender`.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
@@ -1279,6 +1300,8 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::TxSender => Some(TX_SENDER_KEYWORD.clone()),
         NativeVariables::ContractCaller => Some(CONTRACT_CALLER_KEYWORD.clone()),
         NativeVariables::NativeNone => Some(NONE_KEYWORD.clone()),
+        NativeVariables::NativeTrue => Some(TRUE_KEYWORD.clone()),
+        NativeVariables::NativeFalse => Some(FALSE_KEYWORD.clone()),
         NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
         NativeVariables::BurnBlockHeight => None,
     }

@@ -106,7 +106,8 @@ pub struct StacksChainState {
     pub blocks_db: DBConn,
     pub headers_state_index: MARF,
     pub blocks_path: String,
-    pub clarity_state_index_path: String
+    pub clarity_state_index_path: String,
+    pub root_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -190,30 +191,23 @@ impl FromRow<DBConfig> for DBConfig {
 
 impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
     fn from_row<'a>(row: &'a Row) -> Result<StacksHeaderInfo, db_error> {
-        let block_height_i64 : i64 = row.get("block_height");
+        let block_height = u64::from_column(row, "block_height")?;
         let index_root = TrieHash::from_column(row, "index_root")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-        let burn_header_timestamp_i64 : i64 = row.get("burn_header_timestamp");
+        let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let stacks_header = StacksBlockHeader::from_row(row)?;
-        
-        if block_height_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-        if burn_header_timestamp_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
 
-        if block_height_i64 as u64 != stacks_header.total_work.work {
+        if block_height != stacks_header.total_work.work {
             return Err(db_error::ParseError);
         }
 
         Ok(StacksHeaderInfo {
             anchored_header: stacks_header, 
             microblock_tail: None,
-            block_height: block_height_i64 as u64,
+            block_height: block_height,
             index_root: index_root,
             burn_header_hash: burn_header_hash,
-            burn_header_timestamp: burn_header_timestamp_i64 as u64
+            burn_header_timestamp: burn_header_timestamp
         })
     }
 }
@@ -261,11 +255,6 @@ pub struct ClarityTx<'a> {
 }
 
 impl ClarityConnection for ClarityTx<'_> {
-    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where F: FnOnce(&mut ClarityDatabase) -> R {
-        ClarityConnection::with_clarity_db_readonly(&mut self.block, to_do)
-    }
-
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
         ClarityConnection::with_clarity_db_readonly_owned(&mut self.block, to_do)
@@ -461,7 +450,7 @@ const STACKS_BOOT_CODE : &'static [&'static str] = &[
         ((available uint) (authorized bool))
     )
     (define-private (get-participant-info (participant principal))
-        (default-to (tuple (available u0) (authorized 'false)) (map-get? rewards ((participant participant)))))
+        (default-to {available: u0, authorized: false} (map-get? rewards {participant participant})))
 
     (define-public (get-participant-reward (participant principal))
         (ok (get available (get-participant-info participant))))
@@ -639,7 +628,10 @@ impl StacksChainState {
                 );
 
                 let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-                StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+
+                clarity_tx.connection().as_transaction(|clarity| {
+                    StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account)
+                })?;
 
                 boot_code_account.nonce += 1;
             }
@@ -653,15 +645,20 @@ impl StacksChainState {
                 );
 
                 let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-                StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+
+                clarity_tx.connection().as_transaction(|clarity| {
+                    StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account)
+                })?;
                 
                 boot_code_account.nonce += 1;
             }
 
             if let Some(initial_balances) = initial_balances {
                 for (address, amount) in initial_balances {
-                    StacksChainState::account_credit(&mut clarity_tx, &address, amount);
-                }    
+                    clarity_tx.connection().as_transaction(|clarity| {
+                        StacksChainState::account_credit(clarity, &address, amount)
+                    })
+                }
             }
 
             f(&mut clarity_tx);
@@ -770,7 +767,7 @@ impl StacksChainState {
 
         headers_path.pop();
         headers_path.pop();
-        
+
         headers_path.push("index");
         let header_index_root = headers_path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
 
@@ -797,7 +794,8 @@ impl StacksChainState {
             blocks_db: blocks_db,
             headers_state_index: headers_state_index,
             blocks_path: blocks_path_root,
-            clarity_state_index_path: clarity_state_index_marf
+            clarity_state_index_path: clarity_state_index_marf,
+            root_path: path_str.to_string(),
         };
 
         if !index_exists {
@@ -1048,4 +1046,3 @@ pub mod test {
         }
     }
 }
-

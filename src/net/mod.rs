@@ -31,6 +31,7 @@ pub mod p2p;
 pub mod poll;
 pub mod prune;
 pub mod rpc;
+pub mod relay;
 pub mod server;
 
 use std::fmt;
@@ -53,6 +54,7 @@ use std::ops::Deref;
 use std::borrow::Borrow;
 
 use url;
+use rusqlite;
 
 use rand::RngCore;
 use rand::thread_rng;
@@ -61,6 +63,8 @@ use serde_json;
 use serde::{Serialize, Deserialize};
 
 use regex::Regex;
+
+use core::mempool::*;
 
 use burnchains::BurnchainHeaderHash;
 use burnchains::Txid;
@@ -77,6 +81,7 @@ use chainstate::stacks::{
     StacksPublicKey,
     Error as chain_error
 };
+use chainstate::stacks::db::blocks::MemPoolRejection;
 
 use chainstate::stacks::Error as chainstate_error;
 
@@ -101,6 +106,8 @@ use util::secp256k1::Secp256k1PublicKey;
 use util::secp256k1::MessageSignature;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 use util::strings::UrlString;
+
+use util::get_epoch_time_secs;
 
 use serde::ser::Error as ser_Error;
 use serde::de::Error as de_Error;
@@ -188,8 +195,12 @@ pub enum Error {
     AlreadyConnected(usize),
     /// Message already in progress
     InProgress,
+    /// Peer is blacklisted
+    Blacklisted,
     /// Data URL is not known
     NoDataUrl,
+    /// Peer is transmitting too fast
+    PeerThrottled,
     /// Error resolving a DNS name
     LookupError(String),
     /// MARF error, percolated up from chainstate
@@ -241,7 +252,9 @@ impl fmt::Display for Error {
             Error::TooManyPeers => write!(f, "Too many peer connections open"),
             Error::AlreadyConnected(ref _id) => write!(f, "Peer already connected"),
             Error::InProgress => write!(f, "Message already in progress"),
+            Error::Blacklisted => write!(f, "Peer is blacklisted"),
             Error::NoDataUrl => write!(f, "No data URL available"),
+            Error::PeerThrottled => write!(f, "Peer is transmitting too fast"),
             Error::LookupError(ref s) => fmt::Display::fmt(s, f),
             Error::ChainstateError(ref s) => fmt::Display::fmt(s, f),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
@@ -291,7 +304,9 @@ impl error::Error for Error {
             Error::TooManyPeers => None,
             Error::AlreadyConnected(ref _id) => None,
             Error::InProgress => None,
+            Error::Blacklisted => None,
             Error::NoDataUrl => None,
+            Error::PeerThrottled => None,
             Error::LookupError(ref _s) => None,
             Error::ChainstateError(ref _s) => None,
             Error::ClarityError(ref e) => Some(e),
@@ -319,8 +334,14 @@ impl From<chain_error> for Error {
 }
 
 impl From<db_error> for Error {
-    fn from(o: db_error) -> Error {
-        Error::DBError(o)
+    fn from(e: db_error) -> Error {
+        Error::DBError(e)
+    }
+}
+
+impl From<rusqlite::Error> for Error {
+    fn from(e: rusqlite::Error) -> Error {
+        Error::DBError(db_error::SqliteError(e))
     }
 }
 
@@ -581,20 +602,27 @@ pub struct BlocksInvData {
     pub microblocks_bitvec: Vec<u8>,            // bitmap of which confirmed micrblocks the peer has, in sortition order.  microblocks_bitvec[i] & (1 << j) != 0 means that this peer has the microblocks produced by sortition 8*i + j
 }
 
-/// List of blocks pushed
+/// Blocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksData {
-    pub blocks: Vec<StacksBlock>
+    pub blocks: Vec<(BurnchainHeaderHash, StacksBlock)>
 }
 
 /// Microblocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct MicroblocksData {
+    pub index_anchor_block: BlockHeaderHash,
     pub microblocks: Vec<StacksMicroblock>
 }
 
+/// Block available hint
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlocksAvailableData {
+    pub available: Vec<(ConsensusHash, BurnchainHeaderHash)>,
+}
+
 /// A descriptor of a peer
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NeighborAddress {
     #[serde(rename = "ip")]
     pub addrbytes: PeerAddress,
@@ -611,6 +639,20 @@ impl fmt::Display for NeighborAddress {
 impl fmt::Debug for NeighborAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}://{:?}", &self.public_key_hash, &self.addrbytes.to_socketaddr(self.port))
+    }
+}
+
+impl NeighborAddress {
+    pub fn clear_public_key(&mut self) -> () {
+        self.public_key_hash = Hash160([0u8; 20]);
+    }
+
+    pub fn from_neighbor_key(nk: NeighborKey, pkh: Hash160) -> NeighborAddress {
+        NeighborAddress {
+            addrbytes: nk.addrbytes,
+            port: nk.port,
+            public_key_hash: pkh
+        }
     }
 }
 
@@ -661,6 +703,7 @@ pub struct NackData {
 pub mod NackErrorCodes {
     pub const HandshakeRequired : u32 = 1;
     pub const NoSuchBurnchainBlock : u32 = 2;
+    pub const Throttled : u32 = 3;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -673,17 +716,13 @@ pub struct PongData {
     pub nonce: u32
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RelayData {
     pub peer: NeighborAddress,
     pub seq: u32,
-    pub signature: MessageSignature
 }
 
-pub const RELAY_DATA_ENCODED_SIZE : u32 =
-    NEIGHBOR_ADDRESS_ENCODED_SIZE +
-    4 +
-    MESSAGE_SIGNATURE_ENCODED_SIZE;
+pub const RELAY_DATA_ENCODED_SIZE : u32 = NEIGHBOR_ADDRESS_ENCODED_SIZE + 4;
 
 /// All P2P message types
 #[derive(Debug, Clone, PartialEq)]
@@ -695,14 +734,14 @@ pub enum StacksMessageType {
     Neighbors(NeighborsData),
     GetBlocksInv(GetBlocksInv),
     BlocksInv(BlocksInvData),
+    BlocksAvailable(BlocksAvailableData),
+    MicroblocksAvailable(BlocksAvailableData),
     Blocks(BlocksData),
     Microblocks(MicroblocksData),
     Transaction(StacksTransaction),
     Nack(NackData),
     Ping(PingData),
     Pong(PongData),
-    // TODO: get unconfirmed transactions
-    // TODO: get unconfirmed microblocks
 }
 
 /// Peer address variants
@@ -1013,12 +1052,14 @@ pub enum StacksMessageID {
     Neighbors = 4,
     GetBlocksInv = 5,
     BlocksInv = 6,
-    Blocks = 7,
-    Microblocks = 8,
-    Transaction = 9,
-    Nack = 10,
-    Ping = 11,
-    Pong = 12,
+    BlocksAvailable = 7,
+    MicroblocksAvailable = 8,
+    Blocks = 9,
+    Microblocks = 10,
+    Transaction = 11,
+    Nack = 12,
+    Ping = 13,
+    Pong = 14,
     Reserved = 255
 }
 
@@ -1098,16 +1139,29 @@ pub const ARRAY_MAX_LEN : u32 = u32::max_value();
 // maximum number of neighbors in a NeighborsData
 pub const MAX_NEIGHBORS_DATA_LEN : u32 = 128;
 
-// maximum number of relayers -- will be an upper bound on the peer graph diameter
+// maximum number of relayers that can be included in a message
 pub const MAX_RELAYERS_LEN : u32 = 16;
 
+// number of peers to relay to, depending on outbound or inbound 
+pub const MAX_BROADCAST_OUTBOUND_RECEIVERS : usize = 8;
+pub const MAX_BROADCAST_INBOUND_RECEIVERS : usize = 16;
+
 // messages can't be bigger than 16MB plus the preamble and relayers
-pub const MAX_MESSAGE_LEN : u32 = (1 + 16 * 1024 * 1024) + (PREAMBLE_ENCODED_SIZE + MAX_RELAYERS_LEN * RELAY_DATA_ENCODED_SIZE);
+pub const MAX_PAYLOAD_LEN : u32 = (1 + 16 * 1024 * 1024);
+pub const MAX_MESSAGE_LEN : u32 = MAX_PAYLOAD_LEN + (PREAMBLE_ENCODED_SIZE + MAX_RELAYERS_LEN * RELAY_DATA_ENCODED_SIZE);
 
 // maximum value of a blocks's inv data bitlen.
 // NOTE: This needs to be a multiple of 8
 #[cfg(test)] pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 32;
-#[cfg(not(test))] pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 65536;
+#[cfg(not(test))] pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 4096;
+
+// maximum number of blocks that can be announced as available
+pub const BLOCKS_AVAILABLE_MAX_LEN : u32 = 32;
+
+// maximum number of blocks that can be pushed at once (even if the entire message is undersized).
+// This bound is needed since it bounds the amount of I/O a peer can be asked to do to validate the
+// message.
+pub const BLOCKS_PUSHED_MAX : u32 = 32;
 
 macro_rules! impl_byte_array_message_codec {
     ($thing:ident, $len:expr) => {
@@ -1135,7 +1189,7 @@ impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
 impl_byte_array_serde!(ConsensusHash);
 
 /// neighbor identifier 
-#[derive(Clone, Eq)]
+#[derive(Clone, Eq, PartialOrd, Ord)]
 pub struct NeighborKey {
     pub peer_version: u32,
     pub network_id: u32,
@@ -1204,18 +1258,36 @@ pub struct Neighbor {
     pub out_degree: u32,        // number of neighbors this peer has
 }
 
+impl Neighbor {
+    pub fn is_whitelisted(&self) -> bool {
+        self.whitelisted < 0 || (self.whitelisted as u64) > get_epoch_time_secs()
+    }
+
+    pub fn is_blacklisted(&self) -> bool {
+        self.blacklisted < 0 || (self.blacklisted as u64) > get_epoch_time_secs()
+    }
+}
+
 pub const NUM_NEIGHBORS : usize = 32;
 
 // maximum number of unconfirmed microblocks can get streamed to us
 pub const MAX_MICROBLOCKS_UNCONFIRMED : usize = 1024;
 
+// how long a peer will be blacklisted for if it misbehaves
+#[cfg(test)] pub const BLACKLIST_BAN_DURATION : u64 = 30;           // seconds
+#[cfg(not(test))] pub const BLACKLIST_BAN_DURATION : u64 = 86400;   // seconds (1 day)
+
+pub const BLACKLIST_MIN_BAN_DURATION : u64 = 2;
+
 /// Result of doing network work
 pub struct NetworkResult {
-    pub unhandled_messages: HashMap<usize, Vec<StacksMessage>>,
-    pub blocks: Vec<StacksBlock>,
-    pub confirmed_microblocks: Vec<Vec<StacksMicroblock>>,
-    pub unconfirmed_microblocks: Vec<StacksMicroblock>,
-    pub transactions: Vec<StacksTransaction>
+    pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
+    pub blocks: Vec<(BurnchainHeaderHash, StacksBlock)>,                                                       // blocks we downloaded
+    pub confirmed_microblocks: Vec<(BurnchainHeaderHash, Vec<StacksMicroblock>)>,                              // confiremd microblocks we downloaded
+    pub pushed_transactions: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>,                   // all transactions pushed to us and their message relay hints
+    pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>,                                                  // all blocks pushed to us
+    pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>,                      // all microblocks pushed to us, and the relay hints from the message
+    pub uploaded_transactions: Vec<StacksTransaction>,                                                         // transactions sent to us by the http server
 }
 
 impl NetworkResult {
@@ -1224,8 +1296,66 @@ impl NetworkResult {
             unhandled_messages: HashMap::new(),
             blocks: vec![],
             confirmed_microblocks: vec![],
-            unconfirmed_microblocks: vec![],
-            transactions: vec![]
+            pushed_transactions: HashMap::new(),
+            pushed_blocks: HashMap::new(),
+            pushed_microblocks: HashMap::new(),
+            uploaded_transactions: vec![],
+        }
+    }
+
+    pub fn consume_unsolicited(&mut self, mut unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>) -> () {
+        for (neighbor_key, mut messages) in unhandled_messages.drain() {
+            for message in messages.drain(..) {
+                match message.payload {
+                    StacksMessageType::Blocks(block_data) => {
+                        if let Some(blocks_msgs) = self.pushed_blocks.get_mut(&neighbor_key) {
+                            blocks_msgs.push(block_data);
+                        }
+                        else {
+                            self.pushed_blocks.insert(neighbor_key.clone(), vec![block_data]);
+                        }
+                    },
+                    StacksMessageType::Microblocks(mblock_data) => {
+                        if let Some(mblocks_msgs) = self.pushed_microblocks.get_mut(&neighbor_key) {
+                            mblocks_msgs.push((message.relayers, mblock_data));
+                        }
+                        else {
+                            self.pushed_microblocks.insert(neighbor_key.clone(), vec![(message.relayers, mblock_data)]);
+                        }
+                    },
+                    StacksMessageType::Transaction(tx_data) => {
+                        if let Some(tx_msgs) = self.pushed_transactions.get_mut(&neighbor_key) {
+                            tx_msgs.push((message.relayers, tx_data));
+                        }
+                        else {
+                            self.pushed_transactions.insert(neighbor_key.clone(), vec![(message.relayers, tx_data)]);
+                        }
+                    },
+                    _ => {
+                        // forward along 
+                        if let Some(messages) = self.unhandled_messages.get_mut(&neighbor_key) {
+                            messages.push(message);
+                        }
+                        else {
+                            self.unhandled_messages.insert(neighbor_key.clone(), vec![message]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn consume_http_uploads(&mut self, mut msgs: Vec<StacksMessageType>) -> () {
+        for msg in msgs.drain(..) {
+            match msg {
+                StacksMessageType::Transaction(tx_data) => {
+                    self.uploaded_transactions.push(tx_data);
+                },
+                _ => {
+                    // drop
+                    warn!("Dropping unknown HTTP message");
+                }
+            }
         }
     }
 }
@@ -1241,6 +1371,7 @@ mod test {
     use net::neighbors::*;
     use net::p2p::*;
     use net::poll::*;
+    use net::relay::*;
     use net::Error as net_error;
 
     use chainstate::burn::*;
@@ -1472,6 +1603,8 @@ mod test {
         pub blacklisted: i64,
         pub data_url: UrlString,
         pub test_name: String,
+        pub initial_balances: Vec<(PrincipalData, u64)>,
+        pub spending_account: TestMiner,
     }
 
     impl TestPeerConfig {
@@ -1479,6 +1612,8 @@ mod test {
             let conn_opts = ConnectionOptions::default();
             let start_block = 1;
             let burnchain = Burnchain::default_unittest(start_block, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap());
+            let spending_account = TestMinerFactory::new().next_miner(&burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+
             TestPeerConfig {
                 network_id: 0x80000000,
                 peer_version: 0x01020304,
@@ -1496,7 +1631,9 @@ mod test {
                 whitelisted: 0,
                 blacklisted: 0,
                 data_url: "".into(),
-                test_name: "".into()
+                test_name: "".into(),
+                initial_balances: vec![],
+                spending_account: spending_account
             }
         }
 
@@ -1552,28 +1689,6 @@ mod test {
         }
     }
 
-    pub fn make_test_chain_dbs(testname: &str, burnchain: &Burnchain, network_id: u32, key_expires: u64, data_url: UrlString, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> (PeerDB, BurnDB, StacksChainState) {
-        let test_path = format!("/tmp/blockstack-test-databases-{}", testname);
-        match fs::metadata(&test_path) {
-            Ok(_) => {
-                fs::remove_dir_all(&test_path).unwrap();
-            },
-            Err(_) => {}
-        };
-
-        fs::create_dir_all(&test_path).unwrap();
-
-        let burndb_path = format!("{}/burn", &test_path);
-        let peerdb_path = format!("{}/peers.db", &test_path);
-        let chainstate_path = format!("{}/chainstate", &test_path);
-
-        let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, key_expires, data_url.clone(), &asn4_entries, Some(&initial_neighbors)).unwrap();
-        let burndb = BurnDB::connect(&burndb_path, burnchain.first_block_height, &burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
-        let chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
-
-        (peerdb, burndb, chainstate)
-    }
-
     pub fn dns_thread_start(max_inflight: u64) -> (DNSClient, thread::JoinHandle<()>) {
         let (mut resolver, client) = DNSResolver::new(max_inflight);
         let jh = thread::spawn(move || {
@@ -1593,6 +1708,8 @@ mod test {
         pub burndb: Option<BurnDB>,
         pub miner: TestMiner,
         pub stacks_node: Option<TestStacksNode>,
+        pub relayer: Relayer,
+        pub mempool: Option<MemPoolDB>,
         chainstate_path: String,
     }
 
@@ -1617,7 +1734,8 @@ mod test {
 
             let mut peerdb = PeerDB::connect(&peerdb_path, true, config.network_id, config.burnchain.network_id, config.private_key_expire, config.data_url.clone(), &config.asn4_entries, Some(&config.initial_neighbors)).unwrap();
             let mut burndb = BurnDB::connect(&burndb_path, config.burnchain.first_block_height, &config.burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
-            let chainstate = StacksChainState::open(false, config.network_id, &chainstate_path).unwrap();
+            let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), |_| {}).unwrap();
+            
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
 
             {
@@ -1660,6 +1778,8 @@ mod test {
             let mut peer_network = PeerNetwork::new(peerdb, local_peer, config.peer_version, config.burnchain.clone(), burnchain_view, config.connection_opts.clone());
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
+            let relayer = Relayer::from_p2p(&mut peer_network);
+            let mempool = MemPoolDB::open(false, config.network_id, &chainstate_path).unwrap();
             
             TestPeer {
                 config: config,
@@ -1667,6 +1787,8 @@ mod test {
                 burndb: Some(burndb),
                 miner: miner,
                 stacks_node: Some(stacks_node),
+                relayer: relayer,
+                mempool: Some(mempool),
                 chainstate_path: chainstate_path
             }
         }
@@ -1694,11 +1816,13 @@ mod test {
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
             let mut burndb = self.burndb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, None, 10);
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, 10);
 
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);
+            self.mempool = Some(mempool);
 
             ret
         }
@@ -1706,12 +1830,26 @@ mod test {
         pub fn step_dns(&mut self, dns_client: &mut DNSClient) -> Result<NetworkResult, net_error> {
             let mut burndb = self.burndb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
 
-            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, Some(dns_client), 10);
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), 10);
 
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);
+            self.mempool = Some(mempool);
 
+            ret
+        }
+
+        pub fn for_each_convo_p2p<F, R>(&mut self, mut f: F) -> Vec<Result<R, net_error>> 
+        where
+            F: FnMut(usize, &mut ConversationP2P) -> Result<R, net_error>
+        {
+            let mut ret = vec![];
+            for (event_id, convo) in self.network.peers.iter_mut() {
+                let res = f(*event_id, convo);
+                ret.push(res);
+            }
             ret
         }
 
@@ -1862,6 +2000,38 @@ mod test {
 
         pub fn chainstate(&mut self) -> &mut StacksChainState {
             &mut self.stacks_node.as_mut().unwrap().chainstate
+        }
+
+        pub fn burndb(&mut self) -> &mut BurnDB {
+            self.burndb.as_mut().unwrap()
+        }
+
+        pub fn with_db_state<F, R>(&mut self, f: F) -> Result<R, net_error>
+        where
+            F: FnOnce(&mut BurnDB, &mut StacksChainState, &mut Relayer, &mut MemPoolDB) -> Result<R, net_error>
+        {
+            let mut burndb = self.burndb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+
+            let res = f(&mut burndb, &mut stacks_node.chainstate, &mut self.relayer, &mut mempool);
+
+            self.stacks_node = Some(stacks_node);
+            self.burndb = Some(burndb);
+            self.mempool = Some(mempool);
+            res
+        }
+
+        pub fn with_mining_state<F, R>(&mut self, f: F) -> Result<R, net_error>
+        where
+            F: FnOnce(&mut BurnDB, &mut TestMiner, &mut TestMiner, &mut TestStacksNode) -> Result<R, net_error>
+        {
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut burndb = self.burndb.take().unwrap();
+            let res = f(&mut burndb, &mut self.miner, &mut self.config.spending_account, &mut stacks_node);
+            self.burndb = Some(burndb);
+            self.stacks_node = Some(stacks_node);
+            res
         }
 
         // have this peer produce an anchored block and microblock tail using its internal miner.
