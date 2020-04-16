@@ -311,7 +311,7 @@ impl StacksBlockBuilder {
     }
 
     /// Finish up mining an epoch's transactions
-    pub fn epoch_finish<'a>(self, mut tx: ClarityTx<'a>) {
+    pub fn epoch_finish<'a>(self, tx: ClarityTx<'a>) {
         let new_burn_hash = MINER_BLOCK_BURN_HEADER_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
         
@@ -319,22 +319,12 @@ impl StacksBlockBuilder {
 
         // clear out the block trie we just created, so the block validator logic doesn't step all
         // over it.
-        let moved_filename = format!("{}.mined", index_block_hash);
-        let block_pathbuf = tx.get_block_path(&new_burn_hash, &new_block_hash);
-        let mut mined_block_pathbuf = block_pathbuf.clone();
-        mined_block_pathbuf.set_file_name(&moved_filename);
+        //        let moved_name = format!("{}.mined", index_block_hash);
 
         // write out the trie...
-        tx.commit_block_will_move(&moved_filename);
+        tx.commit_mined_block(&index_block_hash);
 
-        // ...and move it (possibly overwriting)
-        // TODO: this is atomic but _not_ crash-consistent!
-        fs::rename(&block_pathbuf, &mined_block_pathbuf)
-            .expect(&format!("FATAL: failed to rename {:?} to {:?}", &block_pathbuf, &mined_block_pathbuf));
-
-        debug!("Moved {:?} -> {:?}", &block_pathbuf, &mined_block_pathbuf);
-
-        test_debug!("\n\nMiner {}: Finished mining child of {}/{}. Trie is in {:?}\n", self.miner_id, self.chain_tip.burn_header_hash, self.chain_tip.anchored_header.block_hash(), &mined_block_pathbuf);
+        test_debug!("\n\nMiner {}: Finished mining child of {}/{}. Trie is in mined_blocks table.\n", self.miner_id, self.chain_tip.burn_header_hash, self.chain_tip.anchored_header.block_hash());
     }
 }
 
@@ -2795,6 +2785,7 @@ pub mod test {
     }
     
     #[test]
+    #[ignore]
     fn mine_anchored_smart_contract_block_contract_call_microblock_stacks_fork_random() {
         let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-stacks-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock, mine_smart_contract_block_contract_call_microblock);
         miner_trace_replay_randomized(&mut miner_trace);
@@ -2850,6 +2841,7 @@ pub mod test {
     }
     
     #[test]
+    #[ignore]
     fn mine_anchored_smart_contract_block_contract_call_microblock_exception_stacks_fork_random() {
         let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-exception-stacks-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception, mine_smart_contract_block_contract_call_microblock_exception);
         miner_trace_replay_randomized(&mut miner_trace);

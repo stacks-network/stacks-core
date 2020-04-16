@@ -331,9 +331,9 @@ impl <'a> ClarityBlockConnection <'a> {
     ///    before this saves, it updates the metadata headers in
     ///    the sidestore so that they don't get stepped on after
     ///    a miner re-executes a constructed block.
-    pub fn commit_block_will_move(mut self, will_move: &str) -> LimitedCostTracker {
-        debug!("Commit Clarity datastore to {}", will_move);
-        self.datastore.commit_for_move(will_move);
+    pub fn commit_mined_block(mut self, bhh: &BlockHeaderHash) -> LimitedCostTracker {
+        debug!("Commit mined Clarity datastore to {}", bhh);
+        self.datastore.commit_mined_block(bhh);
 
         self.parent.datastore.replace(self.datastore);
 

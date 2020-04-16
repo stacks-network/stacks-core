@@ -86,7 +86,7 @@ pub struct Trie {}
 fn get_nodetype_hash(storage: &mut TrieFileStorage, node: &TrieNodeType) -> Result<TrieHash, Error> {
     let mut hasher = TrieHasher::new();
 
-    node.write_consensus_bytes(&storage.block_map, &mut hasher)
+    node.write_consensus_bytes(storage, &mut hasher)
         .expect("IO Failure pushing to hasher.");
 
     storage.write_children_hashes(node, &mut hasher)?;
@@ -170,7 +170,7 @@ impl Trie {
         else {
             // ptr is a backptr -- find the block
             let back_block_hash = storage.get_block_from_local_id(ptr.back_block())?.clone();
-            storage.open_block(&back_block_hash)?;
+            storage.open_block_known_id(&back_block_hash, ptr.back_block())?;
 
             let backptr = ptr.from_backptr();
             let (node, node_hash) = storage.read_nodetype(&backptr)?;
@@ -301,7 +301,7 @@ impl Trie {
 
         let node4_hash = get_node_hash(&node4_data,
                                        &vec![cur_leaf_hash, new_leaf_hash, TrieHash::from_data(&[]), TrieHash::from_data(&[])],
-                                       &storage.block_map);
+                                       storage);
 
         let node4 = TrieNodeType::Node4(node4_data);
 
@@ -492,7 +492,7 @@ impl Trie {
 
         let new_node_hash = get_node_hash(&new_node4,
                                           &vec![leaf_hash, new_cur_node_hash, TrieHash::from_data(&[]), TrieHash::from_data(&[])],
-                                          &storage.block_map);
+                                          storage);
 
         let (new_node_id, new_node) = 
             if cursor.node_ptrs.len() == 1 {
@@ -602,7 +602,7 @@ impl Trie {
     /// Calculate the byte vector of the ancestor root hashes of this trie.
     /// s must point to the block that contains the trie's root.
     pub fn get_trie_ancestor_hashes_bytes(storage: &mut TrieFileStorage) -> Result<Vec<TrieHash>, Error> {        
-        let cur_block_header = storage.get_cur_block();
+        let (cur_block_header, cur_block_id) = storage.get_cur_block_and_id();
         if let Some(cached_ancestor_hashes_bytes) = storage.check_cached_ancestor_hashes_bytes(&cur_block_header) {
             Ok(cached_ancestor_hashes_bytes)
         } 
@@ -613,7 +613,7 @@ impl Trie {
             }
 
             // restore
-            storage.open_block(&cur_block_header)?;
+            storage.open_block_maybe_id(&cur_block_header, cur_block_id)?;
             result
         }
     }
@@ -829,7 +829,7 @@ mod test {
     #[test]
     fn trie_cursor_try_attach_leaf() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
-            let mut f = TrieFileStorage::new_overwrite(&format!("/tmp/rust_marf_trie_cursor_try_attach_leaf_{}", node_id)).unwrap();
+            let mut f = TrieFileStorage::new_memory().unwrap();
 
             let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
             MARF::format(&mut f, &block_header).unwrap();
@@ -956,7 +956,7 @@ mod test {
 
     #[test]
     fn trie_cursor_promote_leaf_to_node4() {
-        let mut f = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_promote_leaf_to_node4".to_string()).unwrap();
+        let mut f = TrieFileStorage::new_memory().unwrap();
 
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
@@ -1054,7 +1054,7 @@ mod test {
 
     #[test]
     fn trie_cursor_promote_node4_to_node16() {
-        let mut f = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_promote_node4_to_node16".to_string()).unwrap();
+        let mut f = TrieFileStorage::new_memory().unwrap();
         
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
@@ -1167,7 +1167,7 @@ mod test {
 
     #[test]
     fn trie_cursor_promote_node16_to_node48() {
-        let mut f = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_promote_node16_to_node48".to_string()).unwrap();
+        let mut f = TrieFileStorage::new_memory().unwrap();
         
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
@@ -1347,7 +1347,7 @@ mod test {
 
     #[test]
     fn trie_cursor_promote_node48_to_node256() {
-        let mut f = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_promote_node48_to_node256".to_string()).unwrap();
+        let mut f = TrieFileStorage::new_memory().unwrap();
         
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
@@ -1590,7 +1590,7 @@ mod test {
     #[test]
     fn trie_cursor_splice_leaf_4() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
-            let mut f = TrieFileStorage::new_overwrite(&format!("/tmp/rust_marf_trie_cursor_splice_leaf_4_{}", node_id)).unwrap();
+            let mut f = TrieFileStorage::new_memory().unwrap();
 
             let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
             MARF::format(&mut f, &block_header).unwrap();
@@ -1647,7 +1647,7 @@ mod test {
     #[test]
     fn trie_cursor_splice_leaf_2() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
-            let mut f = TrieFileStorage::new_overwrite(&format!("/tmp/rust_marf_trie_cursor_splice_leaf_2_{}", node_id)).unwrap();
+            let mut f = TrieFileStorage::new_memory().unwrap();
         
             let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
             MARF::format(&mut f, &block_header).unwrap();
@@ -1704,7 +1704,7 @@ mod test {
 
     fn insert_n_test<F>(filename: &str, merkle_check: bool, count: u32, mut path_gen: F)
         where F: FnMut(u32) -> [u8; 32] {
-        let f = TrieFileStorage::new_overwrite(filename).unwrap();
+        let f = TrieFileStorage::new_memory().unwrap();
 
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
@@ -1764,6 +1764,7 @@ mod test {
     }
     
     #[test]
+    #[ignore]
     fn insert_65536_random_deterministic() {
         // deterministic random insert of 65536 keys
         let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();

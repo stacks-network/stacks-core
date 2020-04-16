@@ -45,8 +45,6 @@ use chainstate::stacks::index::bits::{
     write_path_to_bytes
 };
 
-use chainstate::stacks::index::storage::{BlockHashMap};
-
 use chainstate::stacks::index::{
     TrieHash,
     TrieHasher,
@@ -54,6 +52,7 @@ use chainstate::stacks::index::{
     slice_partialeq,
     MARFValue, 
     MARF_VALUE_ENCODED_SIZE,
+    BlockMap,
 };
 
 use chainstate::stacks::index::Error as Error;
@@ -88,6 +87,7 @@ impl error::Error for CursorError {
 /// All numeric values of a Trie node when encoded.
 /// They are all 7-bit numbers -- the 8th bit is used to indicate whether or not the value
 /// identifies a back-pointer to be followed.
+// TODO: this should be a define_u8_enum.
 pub mod TrieNodeID {
     pub const Empty : u8 = 0;
     pub const Leaf: u8 = 1;
@@ -122,7 +122,7 @@ fn write_ptrs_to_bytes<W: Write>(ptrs: &[TriePtr], w: &mut W) -> Result<(), Erro
 }
 
 
-fn ptrs_consensus_hash<W: Write>(ptrs: &[TriePtr], map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+fn ptrs_consensus_hash<W: Write, M: BlockMap>(ptrs: &[TriePtr], map: &mut M, w: &mut W) -> Result<(), Error> {
     for ptr in ptrs.iter() {
         ptr.write_consensus_bytes(map, w)?;
     }
@@ -207,10 +207,10 @@ pub trait TrieNode {
 ///   (BlockHashMap for TrieNode and () for ProofTrieNode)
 pub trait ConsensusSerializable <M> {
     /// Encode the consensus-relevant bytes of this node and write it to w.
-    fn write_consensus_bytes<W: Write>(&self, additional_data: &M, w: &mut W) -> Result<(), Error>;
+    fn write_consensus_bytes<W: Write>(&self, additional_data: &mut M, w: &mut W) -> Result<(), Error>;
 
     #[cfg(test)]
-    fn to_consensus_bytes(&self, additional_data: &M) -> Vec<u8> {
+    fn to_consensus_bytes(&self, additional_data: &mut M) -> Vec<u8> {
         let mut r = Vec::new();
         self.write_consensus_bytes(additional_data, &mut r)
             .expect("Failed to write to byte buffer");
@@ -218,8 +218,8 @@ pub trait ConsensusSerializable <M> {
     }
 }
 
-impl <T: TrieNode> ConsensusSerializable<BlockHashMap> for T {
-    fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+impl <T: TrieNode, M: BlockMap> ConsensusSerializable<M> for T {
+    fn write_consensus_bytes<W: Write>(&self, map: &mut M, w: &mut W) -> Result<(), Error> {
         w.write_all(&[self.id()])?;
         ptrs_consensus_hash(self.ptrs(), map, w)?;
         write_path_to_bytes(self.path().as_slice(), w)        
@@ -308,12 +308,12 @@ impl TriePtr {
     /// The parts of a child pointer that are relevant for consensus are only its ID, path
     /// character, and referred-to block hash.  The software doesn't care about the details of how/where
     /// nodes are stored.
-    pub fn write_consensus_bytes<W: Write>(&self, block_map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+    pub fn write_consensus_bytes<W: Write, M: BlockMap>(&self, block_map: &mut M, w: &mut W) -> Result<(), Error> {
         w.write_all(&[self.id(), self.chr()])?;
 
         if is_backptr(self.id()) {
             w.write_all(
-                block_map.get_block_header_hash(self.back_block())
+                block_map.get_block_hash_caching(self.back_block())
                     .expect("Block identifier {} refered to an unknown block. Consensus failure.")
                     .as_bytes())?;
         } else {
@@ -1115,12 +1115,6 @@ impl TrieLeaf {
 
 }
 
-impl ConsensusSerializable<()> for TrieLeaf {
-    fn write_consensus_bytes<W: Write>(&self, _unused_data: &(), w: &mut W) -> Result<(), Error> {
-        self.write_consensus_bytes_leaf(w)
-    }
-}
-
 impl TrieNode for TrieLeaf {
     fn id(&self) -> u8 {
         TrieNodeID::Leaf
@@ -1263,7 +1257,7 @@ impl TrieNodeType {
         with_node!(self, ref data, data.write_bytes(w))
     }
 
-    pub fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+    pub fn write_consensus_bytes<W: Write, M: BlockMap>(&self, map: &mut M, w: &mut W) -> Result<(), Error> {
         with_node!(self, ref data, data.write_consensus_bytes(map, w))
     }
 
@@ -1390,7 +1384,7 @@ mod test {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
         
-        let buf = node4.to_consensus_bytes(&BlockHashMap::new(None));
+        let buf = node4.to_consensus_bytes(&mut ());
         assert_eq!(to_hex(buf.as_slice()), to_hex(node4_bytes.as_slice()));
     }
     
@@ -1462,7 +1456,7 @@ mod test {
             // path 
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
-        let buf = node16.to_consensus_bytes(&BlockHashMap::new(None));
+        let buf = node16.to_consensus_bytes(&mut ());
         assert_eq!(to_hex(buf.as_slice()), to_hex(node16_bytes.as_slice()));
     }
 
@@ -1634,7 +1628,7 @@ mod test {
             // path 
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
-        let buf = node48.to_consensus_bytes(&BlockHashMap::new(None));
+        let buf = node48.to_consensus_bytes(&mut ());
         assert_eq!(buf, node48_bytes);
     }
     
@@ -1707,7 +1701,7 @@ mod test {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ]);
 
-        let buf = node256.to_consensus_bytes(&BlockHashMap::new(None));
+        let buf = node256.to_consensus_bytes(&mut ());
         assert_eq!(buf, node256_bytes);
     }
 
@@ -1740,7 +1734,7 @@ mod test {
         for i in 0..3 {
             assert!(node4.insert(&TriePtr::new(TrieNodeID::Node16, (i+1) as u8, (i+2) as u32)));
         }
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node4".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let hash = TrieHash::from_data(&[0u8; 32]);
@@ -1760,7 +1754,7 @@ mod test {
             assert!(node16.insert(&TriePtr::new(TrieNodeID::Node48, (i+1) as u8, (i+2) as u32)));
         }
         
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node16".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let hash = TrieHash::from_data(&[0u8; 32]);
@@ -1781,7 +1775,7 @@ mod test {
             assert!(node48.insert(&TriePtr::new(TrieNodeID::Node256, (i+1) as u8, (i+2) as u32)));
         }
         
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node48".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let hash = TrieHash::from_data(&[0u8; 32]);
@@ -1802,7 +1796,7 @@ mod test {
         }
         
         let hash = TrieHash::from_data(&[0u8; 32]);
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node256".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let wres = trie_io.write_nodetype(0, &TrieNodeType::Node256(node256.clone()), hash.clone());
@@ -1822,7 +1816,7 @@ mod test {
             &vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39]
         );
 
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_leaf".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let hash = TrieHash::from_data(&[0u8; 32]);
@@ -1837,7 +1831,7 @@ mod test {
 
     #[test]
     fn read_write_node4_hashes() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node4_hashes".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let mut node4 = TrieNode4::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]);
@@ -1859,7 +1853,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node4_ptr = trie_io.last_ptr().unwrap();
-        let node4_hash = get_node_hash(&node4, &child_hashes, &trie_io.block_map);
+        let node4_hash = get_node_hash(&node4, &child_hashes, &mut trie_io);
         trie_io.write_node(node4_ptr, &node4, node4_hash).unwrap();
         
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node4(node4)).unwrap();
@@ -1869,7 +1863,7 @@ mod test {
 
     #[test]
     fn read_write_node16_hashes() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node16_hashes".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let mut node16 = TrieNode16::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]);
@@ -1891,7 +1885,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node16_ptr = trie_io.last_ptr().unwrap();
-        let node16_hash = get_node_hash(&node16, &child_hashes, &trie_io.block_map);
+        let node16_hash = get_node_hash(&node16, &child_hashes, &mut trie_io);
         trie_io.write_node(node16_ptr, &node16, node16_hash).unwrap();
 
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node16(node16)).unwrap();
@@ -1901,7 +1895,7 @@ mod test {
 
     #[test]
     fn read_write_node48_hashes() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node48_hashes".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let mut node48 = TrieNode48::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]);
@@ -1923,7 +1917,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node48_ptr = trie_io.last_ptr().unwrap();
-        let node48_hash = get_node_hash(&node48, &child_hashes, &trie_io.block_map);
+        let node48_hash = get_node_hash(&node48, &child_hashes, &mut trie_io);
         trie_io.write_node(node48_ptr, &node48, node48_hash).unwrap();
 
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node48(node48)).unwrap();
@@ -1933,7 +1927,7 @@ mod test {
 
     #[test]
     fn read_write_node256_hashes() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node256_hashes".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let mut node256 = TrieNode256::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]);
@@ -1955,7 +1949,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node256_ptr = trie_io.last_ptr().unwrap();
-        let node256_hash = get_node_hash(&node256, &child_hashes, &trie_io.block_map);
+        let node256_hash = get_node_hash(&node256, &child_hashes, &mut trie_io);
         trie_io.write_node(node256_ptr, &node256, node256_hash).unwrap();
 
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node256(node256)).unwrap();
@@ -1965,7 +1959,7 @@ mod test {
  
     #[test]
     fn trie_cursor_walk_full() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_full".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2065,7 +2059,7 @@ mod test {
     
     #[test]
     fn trie_cursor_walk_1() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_1".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2149,7 +2143,7 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_2() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_2".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2228,7 +2222,7 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_3() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_3".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2304,7 +2298,7 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_4() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_4".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2379,7 +2373,7 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_5() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_5".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2453,7 +2447,7 @@ mod test {
     
     #[test]
     fn trie_cursor_walk_6() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_6".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2526,7 +2520,7 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_10() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_10".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2597,7 +2591,7 @@ mod test {
    
     #[test]
     fn trie_cursor_walk_20() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_20".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2667,7 +2661,7 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_32() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_32".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
