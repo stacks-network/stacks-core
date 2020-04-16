@@ -110,11 +110,12 @@ fn integration_test_get_info() {
 
     let num_rounds = 4;
 
+    let rpc_bind = conf.node.rpc_bind.clone();
     let mut run_loop = RunLoop::new(conf);
 
     { 
         let mut http_opt = HTTP_BINDING.lock().unwrap();
-        http_opt.replace(format!("http://{}", &run_loop.node.config.node.rpc_bind));
+        http_opt.replace(format!("http://{}", &rpc_bind));
     }
 
     run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {

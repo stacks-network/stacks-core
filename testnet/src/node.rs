@@ -52,8 +52,8 @@ pub struct Node {
     pub config: Config,
     active_registered_key: Option<RegisteredKey>,
     bootstraping_chain: bool,
-    burnchain_tip: Option<BurnchainTip>,
-    chain_tip: Option<ChainTip>,
+    pub burnchain_tip: Option<BurnchainTip>,
+    pub chain_tip: Option<ChainTip>,
     keychain: Keychain,
     last_sortitioned_block: Option<BurnchainTip>,
     event_dispatcher: EventDispatcher,
@@ -139,6 +139,44 @@ impl Node {
             nonce: 0,
             event_dispatcher,
         }
+    }
+
+    pub fn init_and_sync(config: Config, burnchain_controller: &mut Box<dyn BurnchainController>) -> Self {
+
+        let burnchain_tip = burnchain_controller.get_chain_tip();
+        
+        let keychain = Keychain::default(config.node.seed.clone());
+
+        let mut event_dispatcher = EventDispatcher::new();
+
+        for observer in &config.events_observers {
+            event_dispatcher.register_observer(observer);
+        }
+
+        // todo(ludo): progress on that front is blocked by # 
+        
+        // In a nutshell, in this scenario we want to:
+        // 
+        // Block on rebuilding the chain_state
+
+        // Retrieve latest sortitioned block
+
+        // Retrieve latest registered key, if any
+
+        // Self {
+        //     active_registered_key: None,
+        //     bootstraping_chain: false,
+        //     chain_state,
+        //     chain_tip,
+        //     keychain,
+        //     last_sortitioned_block: None,
+        //     config,
+        //     burnchain_tip: Some(burnchain_tip),
+        //     nonce: 0,
+        //     event_dispatcher,
+        // }
+
+        unimplemented!()
     }
 
     pub fn spawn_peer_server(&mut self) {
