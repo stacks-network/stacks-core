@@ -45,8 +45,8 @@ efficiency is acceptable if it makes encoding and decoding simpler.
 * **Unstructured reachability**.  The peer network's routing algorithm
   prioritizes building a _random_ peer graph such that there are many
 _distinct_ paths between any two peers.  A random (unstructured) graph is
-preferred to a structured graph (like a DHT) in order to maximize the number of neighbor peers that
-a given peer will consider in its frontier.  When choosing neighbors, a peer
+preferred to a structured graph (like a DHT) in order to maximize the number of next-hop
+(neighbor) peers that a given peer will consider in its frontier.  When choosing neighbors, a peer
 will prefer to maximize the number of _distinct_ autonomous systems represented
 in its frontier in order to help keep as many networks on the Internet connected
 to the Stacks peer network.
@@ -56,8 +56,7 @@ to the Stacks peer network.
 The following subsections describe the data structures and protocols for the
 Stacks peer network.  In particular, this document discusses _only_ the peer
 network message sturcture and protocols.  It does _not_ document the structure
-of Stacks transactions and blocks.  These structures will be defined in a future
-SIP.
+of Stacks transactions and blocks.  These structures are defined in SIP 005.
 
 ### Encoding Conventions
 
@@ -175,32 +174,14 @@ cc dd                            # msg.payload_list[0].aa, where msg.payload_lis
 The following byte buffers are used within Stacks peer messsages:
 
 ```
-pub struct MessageSignature([u8; 80]);
+pub struct MessageSignature([u8; 65]);
 ```
 
-This is a fixed-length container for storing a cryptographic signature.
-Not all bytes will be used, since signatures may have a variable length.
-Unused bytes are at the highest addresses (on the "right").  For example, 
-if the encoded signature data is `0x12 0x34 0x56 0x78`, then the `MessageSignature`
-would be represented as
-
-```
-12 34 56 78             # the actual data
-00 00 00 00 ...         # padding
-```
-
-Any value can be used as padding.
-
-Each signature scheme will have its own way of using these bytes.  The encoding
-scheme for a secp256k1 signature is described below, since it is used to help
-make neighbor selections:
-
-1. Encode the secp256k1 signature as a DER-encoded byte string
-2. Set `MessageSignature[0]` to be the length fo the DER-encoded string
-3. Copy the DER-encoded string to `MessageSignature[1..80]`
-
-Any high-address unused bytes beyond the length of the DER-encoded string
-will be ignored.
+This is a fixed-length container for storing a recoverable secp256k1
+signature.  The first byte is the recovery code; the next 32 bytes are the `r`
+parameter, and the last 32 bytes are the `s` parameter.  Because there are up to
+two valid signature values for a secp256k1 curve, only the signature with the _lower_
+value for `s` will be accepted.
 
 ```
 pub struct PeerAddress([u8; 16]);
@@ -242,6 +223,27 @@ pub struct DoubleSha256([u8; 32]);
 
 This is a SHA256 hash applied twice to some data.
 
+```
+pub struct Sha512Trunc256([u8; 32]);
+```
+
+This is a container for a SHA512/256 hash.
+
+```
+pub struct TrieHash([u8; 32]);
+```
+
+This is a container for a MARF merkle hash (see SIP-004).
+
+```
+pub struct UrlString(Vec<u8>);
+```
+
+This is a container for an ASCII string that encodes a URL.  It is encoded as
+follows:
+* A 1-byte length prefix
+* The string's bytes, as-is.
+
 ### Common Data Structures
 
 This section details common data structures used in multiple messages.
@@ -278,10 +280,6 @@ pub struct RelayData {
 
     /// The sequence number of that message (see the Preamble structure below)
     pub seq: u32,
-
-    /// The peer's original signature over the message, including the relay
-    /// metadata.
-    pub signature: MessageSignature
 }
 ```
 
@@ -373,9 +371,9 @@ pub enum StacksMessageType {
     Neighbors(NeighborsData),
     GetBlocksInv(GetBlocksData),
     BlocksInv(BlocksInvData),
-    GetBlocks(GetBlocksData),
+    BlocksAvailable(BlocksAvailableData),
+    MicroblocksAvailable(MicroblocksAvailableData),
     Blocks(BlocksData),
-    GetMicroblocks(GetMicroblocksData),
     Microblocks(MicroblocksData),
     Transaction(StacksTransaction),
     Nack(NackData),
@@ -408,7 +406,10 @@ pub struct HandshakeData {
     pub node_public_key: Secp256k1PublicKey,
 
     /// Burn chain block height at which this key will expire
-    pub expire_block_height: u64
+    pub expire_block_height: u64,
+
+    /// HTTP(S) URL to where this peer's block data can be fetched
+    pub data_url: UrlString
 }
 ```
 
@@ -463,28 +464,19 @@ Type identifier: 5
 Structure:
 
 ```
-pub struct GetBlocksData {
-    /// Start height over which to query for blocks (inclusive)
-    pub burn_height_start: u64,
-
-    /// The hash of the burn chain header at the start height above.
-    pub burn_header_hash_start: BurnchainHeaderHash,
-
-    /// End height over which to query for blocks (exclusive)
-    pub burn_height_end: u64,
-
-    /// The hash of the burn chain header at the end height above.
-    pub burn_header_hash_end: BurnchainHeaderHash
+pub struct GetBlocksInv {
+    /// The consensus hash at the _end_ of the requested block range
+    pub consensus_hash: ConsensusHash, 
+    /// The number of blocks _prior_ to this consensus hash, including the block
+    /// that corresponds to this consensus hash.
+    pub num_blocks: u16 
 }
 ```
 
 Notes:
 
 * Expected reply is a `BlocksInvData`.
-* `burn_height_end` can't be more than `burn_height_start + 4096`
-* A `BlocksInvData` reply may not cover the entire range if it cannot fit into
-  the maximum message size, or if `burn_height_end` exceeds the burn chain
-height.
+* `num_blocks` cannot be more than 4096.
 
 **BlocksInv**
 
@@ -496,8 +488,6 @@ Structure:
 pub struct BlocksInvData {
     /// Number of bits represented in the bit vector below.
     /// Represents the number of blocks in this inventory.
-    /// This will be at most burn_height_end - burn_height_start from the
-    /// GetBlocksData, but it may be fewer if the message would be too big.
     pub bitlen: u16,
 
     /// A bit vector of which blocks this peer has.  bitvec[i]
@@ -506,33 +496,59 @@ pub struct BlocksInvData {
     /// bitvec[i] & 0x80 represents the availability of the (8*i+7)th block.
     /// Each bit corresponds to a sortition on the burn chain, and will be set
     /// if this peer has the winning block data
-    pub bitvec: Vec<u8>,
+    pub block_bitvec: Vec<u8>,
 
-    /// A list of microblocks this peer has data for.
-    /// Has length equal to bitlen, and entries are in order by block --
-    /// the ith bit in bitvec corresponds to the ith entry in this vector.
-    pub microblocks_inventory: Vec<MicroblocksInvData>
-}
-
-pub struct MicroblocksInvData {
-    // the "tail" of the last anchored block's microblock stream
-    pub last_microblock_hash: BlockHeaderHash,
-    pub last_sequence: u8
+    /// A bit vector for which confirmed microblock streams this peer has.
+    /// The ith bit represents the presence/absence of the ith confirmed
+    /// microblock stream.  It is in 1-to-1 correspondance with block_bitvec.
+    pub microblocks_bitvec: Vec<u8>
 }
 ```
 
 Notes:
 
 * `BlocksInvData.bitlen` will never exceed 4096
-* `BlocksInvData.bitvec` will have length `ceil(BlocksInvData.bitlen / 8)`
-* `BlocksInvData.microblocks_inventory` will never have more than 256 elements.
+* `BlocksInvData.block_bitvec` will have length `ceil(BlocksInvData.bitlen / 8)`
+* `BlocksInvData.microblocks_bitvec` will have length `ceil(BlocksInvData.bitlen / 8)`
 
-**GetBlocks**
+**BlocksAvailable**
 
 Type identifier: 7
 
-Structure: Same as **GetBlocksInv**
+Structure:
 
+```
+pub struct BlocksAvailableData {
+    pub available: Vec<(ConsensusHash, BurnchainHeaderHash)>,
+}
+```
+
+Notes:
+
+* Each entry in `available` corresponds to the availability of an anchored
+  Stacks block from the sender.
+* `BlocksAvailableData.available.len()` will never exceed 32.
+* Each `ConsensusHash` in `BlocksAvailableData.available` must be the consensus
+  hash calculated by the sender for the burn chain block identified by
+`BurnchainHeaderHash`.
+
+**MicroblocksAvailable**
+
+Type identifier: 8
+
+Structure:
+
+```
+// Same as BlocksAvailable
+```
+
+Notes:
+
+* Each entry in `available` corresponds to the availability of a confirmed
+  microblock stream from the sender.
+* The same rules and limits apply to the `available` list as in
+  `BlocksAvailable`.
+   
 **Blocks**
 
 Type identifier: 8
@@ -541,80 +557,47 @@ Structure:
 
 ```
 pub struct BlocksData {
-    /// The list of Stacks blocks requested.  At most 32MB of data will
-    /// be sent with this message.  The peer requesting the blocks will
-    /// need to send successive GetBlocksData messages.
+    /// A list of blocks pushed
     pub blocks: Vec<StacksBlock>
 }
 
 pub struct StacksBlock {
-   /// Omitted for a future SIP
+   /// Omitted for brevity; see SIP 005
 }
 ```
 
-**GetMicroblocks**
+**Microblocks**
 
 Type identifier: 9
 
 Structure:
 
 ```
-pub struct GetMicroblocksData {
-    /// The burn chain block height at which the microblocks' on-chain parent is
-    /// anchored.
-    pub burn_header_height: u64,
+pub struct MicroblocksData {
+    /// A contiguous sequence of microblocks.
+    pub microblocks: Vec<StacksMicroblock>
+}
 
-    /// The hash of the burn chain block at the given height.
-    pub burn_header_hash: BurnchainHeaderHash,
-
-    /// The hash of the on-chain Stacks block whose parent is the
-    /// last microblock in a chain of microblocks in-between itself
-    /// and the previous on-chain Stacks block.
-    pub block_header_hash: BlockHeaderHash,
-
-    /// The hash of the microblock header to request
-    pub microblock_header_hash: BlockHeaderHash
+pub struct StacksMicroblock {
+   /// Omited for brevity; see SIP 005
 }
 ```
 
-**Microblocks**
+**Transaction**
 
 Type identifier: 10
 
 Structure:
 
 ```
-pub struct MicroblocksData {
-    /// A contiguous sequence of microblocks.
-    /// The _last_ item in this list has a header whose hash is equal to
-    /// the requesting GetMicroblocksData's microblock_header_hash.
-    /// At least one microblock must be present.  Over successive requests,
-    /// the _first_ item of one of these messages will have a parent block
-    /// hash that matches the on-chain block just before the on-chain block
-    /// to which this microblock was appended.
-    pub microblocks: Vec<StacksMicroblock>
-}
-
-pub struct StacksMicroblock {
-   /// Omitted for a future SIP
-}
-```
-
-**Transaction**
-
-Type identifier: 11
-
-Structure:
-
-```
 pub struct StacksTransaction {
-   /// Omitted for a future SIP
+   /// Omitted for brevity; see SIP 005
 }
 ```
 
 **Nack**
 
-Type identifier: 12
+Type identifier: 11
 
 Structure:
 
@@ -627,15 +610,33 @@ pub struct NackData {
 
 **Ping**
 
-Type identifier: 13
+Type identifier: 12
 
-Structure: [empty]
+Structure:
+
+```
+pub struct PingData {
+   /// Random number
+   nonce: u32
+}
+```
 
 **Pong**
 
-Type identifier: 14
+Type identifier: 13
 
-Structure: [empty]
+Structure:
+
+```
+pub struct PongData {
+   /// Random number
+   nonce: u32
+}
+```
+
+Notes:
+* The `nonce` field in a `PongData` should match the `nonce` field sent by the
+  corresponding `Ping`.
 
 
 ## Protocol Description
@@ -644,14 +645,37 @@ This section describes the algorithms that make up the Stacks peer-to-peer
 network.  In these descriptions, there is a distinct **sender peer** and a
 distinct **receiver peer**.
 
-### Creating a Message
+### Network Overview
 
-All messages start with a `Preamble`.  This allows peers to identify other peers
+The Stacks peer network has a dedicated _control plane_ and _data plane_.  They
+listen on different ports, use different encodings, and fulfill different roles.
+
+The control-plane is implemented via sending messages using the encoding
+described above.  It is concerned with the following tasks:
+* Identifying and connecting with other Stacks peer nodes
+* Crawling the peer graph to discover a diverse set of neighbors
+* Discovering peers' data-plane endpoints
+* Synchronizing block and microblock inventories with other peers.
+
+The data-plane is implemented via HTTP(S), and is concerned with both fetching
+and relaying blocks, microblocks, and transactions.
+
+Each Stacks node implements the control-plane protocol in order to help other
+nodes discover where they can fetch blocks.  However, Stacks nodes do _not_ need
+to implement the data plane.  They can instead offload some or all of this responsibility to
+other Stacks nodes, Gaia hubs, and vanilla HTTP servers.  The reason for this is
+to **preserve compatibility with existing Web infrastructure** like cloud
+storage and CDNs for doing the "heavy lifting" for propagating the blockchain
+state.
+
+### Creating a Control-Plane Message
+
+All control-plane messages start with a `Preamble`.  This allows peers to identify other peers
 who (1) have an up-to-date view of the underlying burn chain, and (2) are part
 of the same fork set.  In addition, the `Preamble` allows peers to authenticate
 incoming messages and verify that they are not stale.
 
-All messages are signed with the node's session private key using ECDSA on the
+All control-plane messages are signed with the node's session private key using ECDSA on the
 secp256k1 curve.  To sign a `StacksMessage`, a peer uses the following algorithm:
 
 1. Serialize the `payload` to a byte string.
@@ -660,16 +684,12 @@ secp256k1 curve.  To sign a `StacksMessage`, a peer uses the following algorithm
    this peer so far.
 4. Set the `preamble.signature` field to all 0's
 5. Serialize the `preamble` to a byte string.
-6. Calculate the SHA256 over the `preamble` and `payload` byte strings
-7. Calculate the (variable-length) secp256k1 signature from the SHA256
-8. Encode the secp256k1 signature as a DER byte string
-9. Copy the DER-encoded signature into `preamble.signature` as follows:
-   a. Set `preamble.signature[0]` to the number of bytes in the DER-encoded string
-   b. Copy the DER-encoded bytes into the `preamble.signature[1..80]` slice
+6. Calculate the SHA512/256 over the `preamble` and `payload` byte strings
+7. Calculate the recoverable secp256k1 signature from the SHA256
 
-### Receiving a Message
+### Receiving a Control-Plane Message
 
-Because all messages start with a fixed-length `Preamble`, a peer receives a
+Because all control-plane messages start with a fixed-length `Preamble`, a peer receives a
 message by first receiving the `Preamble`'s bytes and decoding it.  If the bytes
 decode successfully, the peer _then_ receives the serialized payload, using the
 `payload_len` field in the `Preamble` to determine how much data to read.  To
@@ -680,7 +700,7 @@ verifies the message as follows:
 
 1. Calculate the SHA256 hash over the serialized `preamble` and the payload
    bytes
-2. Extract the DER-encoded signature from `preamble.signature`
+2. Extract the recoverable signature from `preamble.signature`
 3. Verify the signature against the sender peer's public key.
 4. Verify that the `seq` field of the payload is greater than any
    previously-seen `seq` value for this peer.
@@ -693,35 +713,36 @@ with a `Nack` message with an appropriate error code.  Depending on the error,
 the sender should try again, close the socket and re-establish the connection, or
 drop the peer from its neighbor set altogether.  In particular, if a peer
 receives an _invalid_ message from a sender, the peer should blacklist the remote
-peer for a time.
+peer for a time (i.e. ignore any future messages from it).
 
-Different aspects of the protocols will reply with different error codes to
+Different aspects of the control-plane protocol will reply with different error codes to
 convey exactly what went wrong.  However, in all cases, if the preamble is
 well-formed but identifies a different network ID, a version field
 with a different major version than the local peer, or different stable
-consensus hash values, then both the sender and receiver peers should blacklist each other.
+consensus hash values, then both the sender and receiver peers should blacklist each other, 
+with one exception:  if the peer is sending a missing reward window anchor
+block (see SIP-007), then it will be considered even if it is paired with an unrecognized
+consensus hash.  This is because the arrival of a missing reward window anchor
+block can change all subsequent consensus hashes due to a chain reorganization.
 
 Because peers process the burn chain up to its chain tip, it is possible for
 peers to temporarily be on different fork sets (i.e. they will have different
 consensus hashes for the given chain tip, but will have the same values for
 the locally-calculated consensus hashes at each other's `stable_block_height`'s).
-If a peer detects this, then it should reply with a `Nack` indicating that they have different views of the
-burn chain tip.  In this case, both peers should take it as a hint to first check
+In this case, both peers should take it as a hint to first check
 that their view of the burn chain is consistent (if they have not done so
-recently), and the sender peer should try the request again.  If the sender
-peer detects that its view of the burn chain is unchanged, then it
-should execute a randomized exponential back-off when re-trying the request,
-checking its view of the burn chain before each subsequent attempt.
+recently).  They may otherwise process and react to each other's messages
+without penalty.
 
 Peers are expected to be both parsimonious and expedient in their communication.
 If a remote peer sends too many valid messages too quickly, the peer
 may throttle or blacklist the remote peer.  If a remote peer
-is sending data too slowly, the recipient may terminate the connection and
-optionally blacklist the remote peer.
+is sending data too slowly, the recipient may terminate the connection in order
+to free resources for serving more-active peers.
 
-### Connecting to a Peer
+### Connecting to a Peer's Control Plane
 
-Connecting to a peer is done in a single round as follows:
+Connecting to a peer's control-plane is done in a single round as follows:
 
 1.  The sender peer creates a `Handshake` message with its address, services,
     and public key and sends it to the receiver.
@@ -746,14 +767,18 @@ When executing a handshake, a peer should _not_ include any other peers in the
 ### Checking a Peer's Liveness
 
 A sender peer can check that a peer is still alive by sending it a `Ping`
-message.  The receiver should reply with a `Pong` message.  Both the sender
+message on the control-plane.  The receiver should reply with a `Pong` message.  Both the sender
 and receiver peers would update their metrics for measuring each other's
-resposniveness, but they do _not_ alter any information about each other's
+responsiveness, but they do _not_ alter any information about each other's
 public keys and expirations.
+
+Peers will ping each other periodically this way to prove that they are still alive.
+This reduces the likelihood that they will be removed from each other's
+frontiers (see below).
 
 ### Exchanging Neighbors
 
-Peers exchange knowledge about their neighbors as follows:
+Peers exchange knowledge about their neighbors on the control-plane as follows:
 
 1. The sender peer creates a `GetNeighbors` message and sends it to the
    receiver.
@@ -785,131 +810,93 @@ The receiver may reply with a `Nack` if it does not wish to divulge its
 neighbors.  In such case, the sender should not ask this receiver for neighbors
 again for a time.
 
-### Requesting Blocks
+### Requesting Blocks on the Data-Plane
 
-Peers exchange blocks in a 2-round protocol:  the sender first queries the
-receiver for the blocks it has, and then queries for ranges of blocks.
+Peers exchange blocks in a 2-process protocol:  the sender first queries the
+receiver for the blocks it has via the control-plane,
+and then queries individual blocks and microblocks on the data-plane.
+
+On the control-plane, the sender builds up a locally-cached inventory of which
+blocks the receiver has.  To do so, the sender and receiver do the following:
 
 1.  The sender creates a `GetBlocksInv` message for a range of blocks it wants,
     and sends it to the receiver.
 2.  If the receiver has processed the range of blocks represented by the `GetBlocksInv` 
     block range, then the receiver creates a `BlocksInv` message and replies
-with it.  The receiver's inventory bit vector may be _shorter_ than the
-requested range if it won't fit into a single message.  If so, the sender should
-repeat step (1) to fetch the rest of the inventory until it has a full list of
-what blocks the receiver possesses.
-3. Once the sender knows which blocks the receiver possesses, the sender sends a
-   `GetBlocksData` message to fetch a range of blocks.
-4. On receipt of the `GetBlocksData` message, the receiver replies with a
-   _contiguous_ range of blocks in a `BlocksData` reply.  If the receiver is
-unable to send all blocks requested in one message. the receiver replies with as
-many blocks as possible starting from the `GetBlocksData` payload's
-`burn_height_start` / `burn_header_hash_start` locator.  In such case,
-the sender repeats step (3) with a more recent `burn_height_start` /
-`burn_header_hash_start` locator to keep requesting the blocks it wants.
+with it.  The receiver's inventory bit vectors may be _shorter_ than the
+requested range if the request refers to blocks at the burn chain tip.  The
+receiver sets the ith bit in the blocks inventory if it has the corresponding
+block, and sets the ith bit in the microblocks inventory if it has the
+corresponding _confirmed_ microblock stream.
 
-On success, the sender receives the block data between two points in time on the
-burn chain, as identified by a (height, header hash) pair.  In addition, for
-each Stacks block received, the sender will obtain the hash calculated from the
-root of a Merkle tree generated from all of a Stacks block's associated
-microblocks.  This is used to subsequently request microblocks "in between" two
-Stacks blocks, and determine that they are all present.
-
-The receiver peer may reply with a `BlocksInv` or a `BlocksData` with as few
+The receiver peer may reply with a `BlocksInv` with as few
 block inventory bits or block contents as it wants, but it must reply with at
 least one inventory bit or at least one block.  If the receiver does not do so,
 the sender should terminate the connection to the receiver and refrain from
 contacting it for a time.
 
-A receiver should reply with a Stacks block if it has it, even if it does not
-have its parent block or is still missing some of its associated microblocks.
-If it is missing some of its microblocks, the `complete` field will be 0 in the
-microblocks inventory vector for the associated block.  Nevertheless, the
-receiver will set the `merkle_root` field in the `MicroblocksInvData` structure
-to be the hash of a Merkle tree composed of all Stacks microblock headers the
-receiver has for this on-chain Stacks block. 
+While synchronizing the receiver's block inventory, the sender will fetch blocks and microblocks
+on the data-plane once it knows that the receiver has them.
+To do so, the sender and receiver do the following:
 
-If the receiver cannot fulfill the request because it does not have the block
-data, or has not processed the burn chain to the height requested by the sender,
-then it should reply with a `Nack` message indicating as such.  If the sender
-keeps asking for block data the receiver does not have, the receiver may
-terminate the connection and blacklist the sender for a time.
+1.  The sender looks up the `data_url` from the receiver's `HandshakeAccept` message
+    and issues a HTTP GET request for each anchored block marked as present in
+the inventory.
+2.  The receiver replies to each HTTP GET request with the anchored blocks.
+3.  Once the sender has received a parent and child anchor block, it will ask
+    for the microblock stream confirmed by the _child_ by asking for the
+microblocks built off of the _parent_.  It uses the _index hash_ of the parent
+anchored block to do so.
+4.  The receiver replies to each HTTP GET request with the confirmed microblock
+    streams.
+5.  As blocks and microblock streams arrive, the sender processes them to build
+    up its view of the chain.
 
-### Requesting Microblocks
+When the sender receives a block or microblock stream, it validates them against
+the burn chain state.  It ensures that the block hashes to a block-commit
+message that won sortition (see SIP-001), and it ensures that a confirmed
+microblock stream connects a known parent and child anchored block.  This means
+that the sender **does not need to trust the receiver** to validate block data
+-- it can receive block data from any HTTP endpoint on the web.
 
-Microblocks are appended to Stacks blocks by block leaders (see SIP 001), and a
-Stacks block may list a microblock as its block parent.  A peer will need to
-fetch all microblocks "in between" two consecutive on-chain Stacks blocks in order to
-provide the complete chain history between them.  A peer can tell whether or not
-the set of microblocks between to consecutive on-chain blocks and microblocks is
-complete by confirming that each microblock contains the hash of its immediate 
-ancestor microblock, or the earlier on-chain block.  The microblocks in-between
-two on-chain blocks must form a linear hash chain --- if two microblocks share
-the same ancestor, both will be rejected.
+The receiver should reply blocks and confirmed microblock streams if it had
+previously announced their availability in a `BlocksInv` message.
+If the sender receives no data (i.e. a HTTP 404)
+for blocks the receiver claimed to have, or if the sender receives invalid data or 
+an incomplete microblock stream, then the sender disconnects from the receiver
+and blacklists it on the control-plane.
 
-A sender can ask for microblocks once it knows the hash of the last microblock's
-header in a chain of microblocks.  This hash is obtained from a valid
-on-chain Stacks block -- an on-chain Stacks block contains pointers both to the
-previous on-chain Stacks block and to the last microblock mined on top of it.
+The sender may not be contracting a peer node when it fetches blocks and
+microblocks -- the receiver may send the URL to a Gaia hub in its
+`HandshakeAcceptData`'s `data_url` field.  In doing so, the receiver can direct
+the sender to fetch blocks and microblocks from a well-provisioned,
+always-online network endpoint that is more reliable than the receiver node.
 
-To ask for microblocks between two consecutive on-chain blocks, a sender and
-receiver execute the following steps:
+### Announcing New Data
 
-1. The sender creates and sends a `GetMicroblocksData` message with a pointer to the block
-   containing the ancestor of all the microblocks in the sequence, as well as
-the earliest known microblock header hash in the sequence.  This is initially
-obtained from the on-chain Stacks block whose ancestor is the last microblock.
-2. The receiver replies with a `MicroblocksData` message with a vector of
-   microblocks.  The last microblock in the vector must have a header whose hash
-is equal to the sender's microblock header hash.
+In addition to synchronizing inventories, peers announce to one another
+when a new block or confirmed microblock stream is available.  If peer A has
+crawled peer B's inventories, and peer A downloads or is forwarded a block or
+confirmed microblock stream that peer B does not have, then peer A will send a
+`BlocksAvailable` (or `MicroblocksAvailable`) message to peer B to inform it
+that it can fetch the data from peer A's data plane.  When peer B receives one
+of these messages, it updates its copy of peer A's inventory and proceeds to
+fetch the blocks and microblocks from peer A.  If peer A serves invalid data, or
+returns a HTTP 404, then peer B disconnects from peer A (since this indicates
+that peer A is misbehaving).
 
-A sender and receiver peer iteratively execute steps 1 and 2 until the sender
-has a copy of all microblocks in between two consecutive on-chain Stacks blocks.
-The receiver replies with as many consecutive microblocks as it wants, but it
-must reply at least one block in order for the sender to consider the
-conversation successful.
+Peers do not forward blocks or confirmed microblocks to one another.  Instead,
+they only announce that they are available.  This minimizes the aggregate
+network bandwidth required to propagate a block -- a block is only downloaded
+by the peers that need it.
 
-If the receiver does not have any of the requested microblocks, it replies with a `Nack`
-indicating as such.  The sender may try again later, such as with an exponential
-back-off.
-
-If the receiver replies with non-contiguous microblocks, the sender terminates
-the connection and blacklists the receiver.
-
-### Forwarding Data
-
-The Stacks peer network implements a flooding network for blocks and
-transactions in order to ensure that all peers receive a full copy of the chain
-state as it arrives on the network.  Chain data may be forwarded to other
-peers without requesting them.  In such
-case, a peer receives an unsolicited and un-asked-for `BlocksData`, `MicroblocksData`,
-or `Transaction` message.  Per the `Handshake` documentation, note that a downstream 
-peer will only accept a relayed message if the relayer had set the
-`SERVICE_RELAY` bit in its handshake's `services` bitfield.
-
-If the data has not been seen before by the peer, and the data is valid, then the peer
-forwards it to a subset of its neighbors (excluding the one that sent the data). 
-If it has seen the data before, it does not forward
-it.  The process for determining whether or not a block or transaction is valid
-will be discussed in a future SIP.  However, at a high level, the following
-policies hold:
-
-* A `StacksBlock` can only be valid if it corresponds to block commit
-  transaction on the burn chain that won sortition.  A peer may cache a
-`StacksBlock` if it determines that it has not yet processed the sortition that
-makes it valid, but in such cases, the peer will _not_ relay the data.
-* A `StacksMicroblock` can only be valid if it corresponds to a valid
-  `StacksBlock` or a previously-accepted `StacksMicroblock`.  A peer may cache a
-`StacksMicroblock` if it determines that a yet-to-arrive `StacksBlock` or
-`StacksMicroblock` could make it valid in the near, but in such cases, the peer will _not_
-relay the data.
-* A `Transaction` can only be valid if it encodes a legal state transition on
-  top of a Stacks blockchain tip.  A peer will _neither_ cache _nor_ relay a
-`Transaction` message if it cannot determine that it is valid.
+Unconfirmed microblocks and transactions are always forwarded to other peers in order to
+ensure that the whole peer network quickly has a full copy.  This helps maximize
+the number of transactions that can be included in a leader's microblock stream.
 
 ### Choosing Neighbors
 
-The core design principle of the Stacks peer network is to maximize the entropy
+The core design principle of the Stacks peer network control-plane is to maximize the entropy
 of the peer graph.  Doing so helps ensure that the network's connectivity
 avoids depending too much on a small number of popular peers and network edges.
 While this may slow down message propagation relative to more structured peer graphs,
@@ -917,6 +904,9 @@ the _lack of_ structure is the key to making the Stacks peer network
 resilient.
 
 This principle is realized through a randomized neighbor selection algorithm.
+This algorithm curates the peer's outbound connections to other peers; inbound
+connections are handled separately.
+
 The neighbor selection algorithm is designed to be able to address the following
 concerns:
 
@@ -929,7 +919,7 @@ messages, or sets of paths through particular IP blocks no longer being taken.
 which helps a peer route around hostile networks that would delay, block, or
 track the messages.
 
-To achieve this, the Stacks peer network is structured as a K-regular random graph,
+To achieve this, the Stacks peer network control-plane is structured as a K-regular random graph,
 where _any_ peer may be chosen as a peer's neighbor.  The network forms
 a _reachability_ network, with the intention of being "maximally difficult" for a
 network adversary to disrupt by way of censoring individual nodes and network
@@ -1005,7 +995,7 @@ empty, the peer is added to the frontier.
 As more peers are discovered, it becomes possible that a newly-discovered peer cannot be inserted
 determinstically.  This will become more likely than not to happen once the
 frontier set has `8 * sqrt(F)` slots full, where `F` is the maximum size of
-the frontier.  In such cases, a random existing peer in one of the slots is
+the frontier (due to the birthday paradox).  In such cases, a random existing peer in one of the slots is
 chosen for possible eviction, but only if it is offline.  The peer will attempt
 to handshake with the existing peer before evicting it, and if it responds with
 a `HandshakeAccept`, the new node is discarded and no eviction takes place.
@@ -1026,10 +1016,10 @@ graph.  This information is encoded in the `relayers` vector in each message.
 When relaying data, the relaying peer must re-sign the message preamble and update its
 sequence number to match each recipient peer's expectations on what the signature 
 and message sequence will be.  In addition, the relaying peer appends the
-upstream peer's message signature and previous sequence number in the
-message's `relayers` vector.  In doing so, the recipient peers learn about the
-_path_ that a message took through the peer network.  This information will be
-used over time to promote message route diversity (see below).
+upstream peer's address and previous sequence number in the
+message's `relayers` vector.  Because the `relayers` vector grows each time a
+message is forwarded, the peer uses it to determine the message's time-to-live:
+if the `relayers` vector becomes too long, the message is dropped.
 
 A peer that relays messages _must_ include itself at the end of the
 `relayers` vector when it forwards a message.
@@ -1062,34 +1052,23 @@ violates the protocol by advertising their `SERVICE_RELAY` bit and not
 updating the `relayers` vector should be blacklisted by downstream
 peers.
 
-A peer must not forward messages with invalid `relayers` vectors.  At a minimum,
-the peer should authenticate the upstream peer's signature on the last entry of
-the `relayers` vector.  If the message is invalid, then the message must not be
-forwarded (and the sender may be throttled).  In addition, 
-a peer that receives a message from an upstream peer without the
- `SERVICE_RELAY` bit that includes a `relayers` vector _must not_ forward it.
-A peer that receives a message that contains duplicate entries in the `relayers`
-vector (or sees itself in the `relayers` vector) _must not_ forward the message
-either, since the message has been passed in a cycle.
+A peer must not forward messages with invalid `relayers` vectors.  In
+particular, if a peer detects that its address (specicifically, it's public key
+hash) is present in the `relayers` vector, or if the vector contains a cycle,
+then the message _must_ be dropped.  In addition, a peer that receives a message
+from an upstream peer without the `SERVICE_RELAY` bit set that includes a
+`relayers` vector _must_ drop the message.
 
 **Promoting Route Diversity**
 
-Over time, the peer will measure the routes taken by messages to determine
-whether or not the network is _implicitly_ structured -- that is, whether
-or not network reachability has come to rely 
-on substantially fewer nodes and edges than would be expected in a random peer
-graph.  This is used to inform the graph walk algorithm and the
-forwarding algorithm to select _against_ frequently-used nodes and edges, so
-that alternative network paths will be maintained by the peer network.
-
-The peer network employs two heuristics to prevent the network from becoming
-implicitly structured:
+The peer network employs two heuristics to help prevent choke points from
+arising:
 
 * Considering the AS-degree:  the graph walk algorithm will consider a peer's
 connectivity to different _autonomous systems_
 (ASs) when considering adding it to the neighbor set.
 
-* Relaying in rarest-AS-first order:  the relay algorithm will probabilistically
+* Sending data in rarest-AS-first order:  the relay algorithm will probabilistically
   rank its neighbors in order by how rare their AS is in the fresh frontier set.
 
 When building up its K neighbors, a peer has the opportunity to select neighbors
@@ -1109,40 +1088,28 @@ Internet.
 
 The rarest-AS-first heuristic is implemented as follows:
 
-1. The peer examines the `relayers` vector and attempts to handshake with a 
-   peer if it is not in the fresh frontier set.  Any peers that fail the handshake, or have
-public keys that differ from the relayer entry's public key hash will be dropped
-from consideration.  This lets the peer add nodes in as-of-yet-unreached ASs to its
-frontier, and lets the peer build up the set `AuthAS` of autonomous systems
-represented by the authenticated portions of the `relayers` vector.
-2. The peer builds a table `N[AS]` that maps its fresh frontier set's ASs to the list of peers
-   contained within.  `len(N[AS])` is the number of fresh frontier peers in `AS`.
-3. The peer assigns each neighbor a probability of being selected to receive the
-   message next.  The probability depends on whether or not the neighbor is in
-   one of the ASs in `AuthAS`:  the probability is
-   `1 - len(N[AS]) / K` if `AS` is not in `AuthAS`, 
-   `1 - (len(N[AS]) + 1) / K` if `AS` is present in `AuthAS`.
-4.  The peer selects a neighbor according to the distribution, forwards the message to it, and
-    removes the neighbor from consideration for this message.  The peer repeats step 3 until all neighbors have
+1. The peer builds a table `N[AS]` that maps its fresh frontier set's ASs to the list of peers
+   contained within.  `len(N[AS])` is the number of fresh frontier peers in `AS`, and 
+   `sum(len(N[AS]))` for all `AS` is `K`.
+2. The peer assigns each neighbor a probability of being selected to receive the
+   message next.  The probability depends on `len(N[AS])`, where `AS` is the
+   autonomous system ID the peer resides in.  The probability that a peer is
+   selected to receive the message is proportional to `1 - (len(N[AS]) + 1) / K`.
+3.  The peer selects a neighbor according to the distribution, forwards the message to it, and
+    removes the neighbor from consideration for this message.  The peer repeats step 2 until all neighbors have
     been sent the message.
-
-The probability distribution in step 3 ensures that ASs that are less
-well-represented by this peer are more likely to receive the message next.  The
-`relayers` vector serves to decrease the chance of a neighbor being selected if
-it is in an AS that has already been visited.  Nevertheless, the probability
-distribution helps ensure that as a message is relayed more and more times,
-peers will become increasingly prone to sending the message to
-neighbors in ASs that have not yet seen the message.
 
 A full empirical evaluation on the effectiveness of these heuristics at encouraging
 route diversity will be carried out before this SIP is accepted.
 
-**Miner-Assisted Peer Discovery**
+**Proposal for Miner-Assisted Peer Discovery**
 
 Stacks miners are already incentivized to maintain good connectivity with one
 another and with the peer network in order to ensure that they work on the
-canonical fork.  As such, a correct miner may include the root of a Merkle tree of a set
-of "reputable" peers that are known by the miner to be well-connected.  Other
+canonical fork.  As such, a correct miner may, in the future, help the
+control-plane network remain connected by broadcasting the root of a Merkle tree of a set
+of "reputable" peers that are known by the miner to be well-connected, e.g. by
+writing it to its block's coinbase payload.  Other
 peers in the peer network would include these reputable nodes in their frontiers
 by default.
 
@@ -1156,6 +1123,80 @@ process and may be presumed "safe" to include in the frontier set.
 
 A recommended peer would not be evicted from the frontier set unless it could
 not be contacted, or unless overridden by a local configuration option.
+
+### Forwarding Data
+
+The Stacks peer network propagates blocks, microblocks, and
+transactions by flooding them.  In particular, a peer can send other peers
+an unsolicited `BlocksAvailable`, `MicroblocksAvailable`, `BlocksData`, `MicroblocksData`,
+and `Transaction` message.
+
+If the message has not been seen before by the peer, and the data is valid, then the peer
+forwards it to a subset of its neighbors (excluding the one that sent the data). 
+If it has seen the data before, it does not forward
+it.  The process for determining whether or not a block or transaction is valid
+is discussed in SIP 005.  However, at a high level, the following
+policies hold:
+
+* A `StacksBlock` can only be valid if it corresponds to block commit
+  transaction on the burn chain that won sortition.  A peer may cache a
+`StacksBlock` if it determines that it has not yet processed the sortition that
+makes it valid.  A `StacksBlock` is never forwarded by the recipient;
+instead, the recipient peer sends a `BlocksAvailable` message to its neighbors.
+* A `StacksMicroblock` can only be valid if it corresponds to a valid
+  `StacksBlock` or a previously-accepted `StacksMicroblock`.  A peer may cache a
+`StacksMicroblock` if it determines that a yet-to-arrive `StacksBlock` or
+`StacksMicroblock` could make it valid in the near-term, but if the
+`StacksMicroblock`'s parent `StacksBlock` is unknown, the
+`StacksMicroblock` will _not_ be forwarded.
+* A `Transaction` can only be valid if it encodes a legal state transition on
+  top of the peer's currently-known canonical Stacks blockchain tip. 
+A peer will _neither_ cache _nor_ relay a `Transaction` message if it cannot 
+determine that it is valid.
+
+#### Client Peers
+
+Messages can be forwarded to both outbound connections to other neighbors and to inbound
+connections from clients -- i.e. remote peers that have this peer as a next-hop
+neighbor.  Per the above text, outbound neighbors are selected as the
+next message recipients based on how rare their AS is in the frontier.
+
+Inbound peers are handled separately.  In particular, a peer does not crawl
+remote inbound connections, nor does it synchronize their peers' block inventories.
+Inbound peers tend to be un-routable peers, such as those running behind NATs on
+private, home networks.  However, such peers can still send
+unsolicited blocks, microblocks, and transactions to publicly-routable
+peers, and those publicly-routable peers will need to forward them to both its
+outbound neighbors as well as its own inbound peers.  To do the latter, 
+a peer will selectively forward data to its inbound peers in a way that is
+expected to minimize the number of _duplicate_ messages the other peers will
+receive.
+
+To do this, each peer uses the `relayers` vector in each message
+it receives from an inbound peer to keep track of which peers have forwarded 
+the same messages.  It will then choose inbound peers to receive a forwarded message
+based on how _infrequently_ the inbound recipient has sent duplicate messages.
+
+The intuition is that if an inbound peer forwards many messages 
+that this peer has already seen, then it is likely that the inbound per is also 
+connected to a (unknown) peer that is already able to forward it data.
+That is, if peer B has an inbound connectino to peer A, and
+peer A observes that peer B sends it messeges that it has already seen recently,
+then peer A can infer that there exists an unknown peer C that is forwarding
+messages to peer B before peer A can do so.  Therefore, when selecting inbound
+peers to receive a message, peer A can de-prioritize peer B based on the
+expectation that peer B will be serviced by unknown peer C.
+
+To make these deductions, each peer maintains a short-lived (i.e. 10 minutes)
+set of recently-seen message digests, as well as the list of which peers have sent 
+each message.  Then, when selecting inbound peers to receive a message, the peer
+calculates for each inbound peer a "duplicate rank" equal to the number of times
+it sent an already-seen message.  The peer then samples the inbound peers
+proportional to `1 - duplicate_rank / num_messages_seen`.
+
+It is predicted that there will be more NAT'ed peers than public peers.
+Therefore, when forwarding a message, a peer will select more inbound peers
+(e.g. 16) than outbound peers (e.g. 8) when forwarding a new message.
 
 ## Reference Implementation
 

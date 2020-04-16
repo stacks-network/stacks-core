@@ -55,7 +55,7 @@ fn test_dynamic_dispatch_by_defining_trait(owned_env: &mut OwnedEnvironment) {
         let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap(),
             Value::okay(Value::UInt(1)).unwrap());
     }
 }
@@ -81,7 +81,7 @@ fn test_dynamic_dispatch_intra_contract_call(owned_env: &mut OwnedEnvironment) {
     {
         let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("dispatching-contract").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
-        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap_err();
+        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::CircularReference(_)) => {},
             _ => {
@@ -116,7 +116,7 @@ fn test_dynamic_dispatch_by_implementing_imported_trait(owned_env: &mut OwnedEnv
         let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap(),
             Value::okay(Value::UInt(1)).unwrap());
     }
 }
@@ -148,7 +148,7 @@ fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(owned_env: &mu
         let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap(),
             Value::okay(Value::UInt(1)).unwrap());
     }
 }
@@ -177,7 +177,7 @@ fn test_dynamic_dispatch_by_importing_trait(owned_env: &mut OwnedEnvironment) {
         let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap(),
             Value::okay(Value::UInt(1)).unwrap());
     }
 }
@@ -218,7 +218,7 @@ fn test_dynamic_dispatch_including_nested_trait(owned_env: &mut OwnedEnvironment
         let target_nested_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-nested-contract").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract, target_nested_contract])).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract, target_nested_contract]), false).unwrap(),
             Value::okay(Value::UInt(99)).unwrap());
     }
 }
@@ -243,7 +243,7 @@ fn test_dynamic_dispatch_mismatched_args(owned_env: &mut OwnedEnvironment) {
     {
         let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
-        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap_err();
+        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::BadTraitImplementation(_, _)) => {},
             _ => {
@@ -273,7 +273,7 @@ fn test_dynamic_dispatch_mismatched_returned(owned_env: &mut OwnedEnvironment) {
     {
         let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
-        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap_err();
+        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::ReturnTypesMustMatch(_, _)) => {},
             _ => {
@@ -305,7 +305,7 @@ fn test_reentrant_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
     {
         let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
-        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap_err();
+        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::CircularReference(_)) => {},
             _ => {
@@ -335,7 +335,7 @@ fn test_readwrite_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
     {
         let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
-        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap_err();
+        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::TraitBasedContractCallInReadOnly) => {},
             _ => {
@@ -366,7 +366,7 @@ fn test_readwrite_violation_dynamic_dispatch(owned_env: &mut OwnedEnvironment) {
     {
         let target_contract = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("target-contract").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
-        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract])).unwrap_err();
+        let err_result = env.execute_contract(&QualifiedContractIdentifier::local("dispatching-contract").unwrap(), "wrapped-get-1", &symbols_from_values(vec![target_contract]), false).unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::TraitBasedContractCallInReadOnly) => {},
             _ => {
@@ -407,7 +407,7 @@ fn test_bad_call_with_trait(owned_env: &mut OwnedEnvironment) {
     {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("call").unwrap(), "foo-bar", &symbols_from_values(vec![])).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("call").unwrap(), "foo-bar", &symbols_from_values(vec![]), false).unwrap(),
             Value::okay(Value::UInt(99)).unwrap());
     }
 }
@@ -440,7 +440,7 @@ fn test_good_call_with_trait(owned_env: &mut OwnedEnvironment) {
     {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("call").unwrap(), "foo-bar", &symbols_from_values(vec![])).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("call").unwrap(), "foo-bar", &symbols_from_values(vec![]), false).unwrap(),
             Value::okay(Value::UInt(99)).unwrap());
     }
 }
@@ -477,7 +477,7 @@ fn test_good_call_2_with_trait(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
 
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("call").unwrap(), "foo-bar", &symbols_from_values(vec![target_contract])).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("call").unwrap(), "foo-bar", &symbols_from_values(vec![target_contract]), false).unwrap(),
             Value::okay(Value::UInt(99)).unwrap());
     }
 }

@@ -22,12 +22,16 @@ pub mod chat;
 pub mod codec;
 pub mod connection;
 pub mod db;
+pub mod dns;
+pub mod download;
 pub mod http;
+pub mod inv;
 pub mod neighbors;
 pub mod p2p;
 pub mod poll;
 pub mod prune;
 pub mod rpc;
+pub mod relay;
 pub mod server;
 
 use std::fmt;
@@ -45,8 +49,12 @@ use std::io::{Read, Write};
 use std::str::FromStr;
 use std::cmp::PartialEq;
 use std::convert::TryFrom;
+use std::convert::From;
 use std::ops::Deref;
 use std::borrow::Borrow;
+
+use url;
+use rusqlite;
 
 use rand::RngCore;
 use rand::thread_rng;
@@ -56,6 +64,8 @@ use serde::{Serialize, Deserialize};
 
 use regex::Regex;
 
+use core::mempool::*;
+
 use burnchains::BurnchainHeaderHash;
 use burnchains::Txid;
 
@@ -63,12 +73,25 @@ use chainstate::burn::ConsensusHash;
 use chainstate::burn::CONSENSUS_HASH_ENCODED_SIZE;
 use chainstate::burn::BlockHeaderHash;
 
-use chainstate::stacks::StacksBlock;
-use chainstate::stacks::StacksMicroblock;
-use chainstate::stacks::StacksTransaction;
-use chainstate::stacks::StacksPublicKey;
+use chainstate::stacks::{
+    StacksAddress,
+    StacksBlock,
+    StacksMicroblock,
+    StacksTransaction,
+    StacksPublicKey,
+    Error as chain_error
+};
+use chainstate::stacks::db::blocks::MemPoolRejection;
 
 use chainstate::stacks::Error as chainstate_error;
+
+use vm::{
+    ClarityName,
+    ContractName,
+    Value,
+    types::PrincipalData,
+    analysis::contract_interface_builder::ContractInterface,
+};
 
 use util::hash::Hash160;
 use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
@@ -84,8 +107,15 @@ use util::secp256k1::MessageSignature;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 use util::strings::UrlString;
 
+use util::get_epoch_time_secs;
+
 use serde::ser::Error as ser_Error;
 use serde::de::Error as de_Error;
+
+use vm::clarity::Error as clarity_error;
+use chainstate::stacks::index::Error as marf_error;
+
+use self::dns::*;
 
 #[derive(Debug)]
 pub enum Error {
@@ -162,9 +192,23 @@ pub enum Error {
     /// Too many peers
     TooManyPeers,
     /// Peer already connected 
-    AlreadyConnected,
+    AlreadyConnected(usize),
     /// Message already in progress
     InProgress,
+    /// Peer is blacklisted
+    Blacklisted,
+    /// Data URL is not known
+    NoDataUrl,
+    /// Peer is transmitting too fast
+    PeerThrottled,
+    /// Error resolving a DNS name
+    LookupError(String),
+    /// MARF error, percolated up from chainstate
+    MARFError(marf_error),
+    /// Clarity VM error, percolated up from chainstate
+    ClarityError(clarity_error),
+    /// Catch-all for chainstate errors that don't map cleanly into network errors
+    ChainstateError(String),
 }
 
 impl fmt::Display for Error {
@@ -206,8 +250,15 @@ impl fmt::Display for Error {
             Error::NotConnected => write!(f, "Not connected to peer network"),
             Error::PeerNotConnected => write!(f, "Remote peer is not connected to us"),
             Error::TooManyPeers => write!(f, "Too many peer connections open"),
-            Error::AlreadyConnected => write!(f, "Peer already connected"),
+            Error::AlreadyConnected(ref _id) => write!(f, "Peer already connected"),
             Error::InProgress => write!(f, "Message already in progress"),
+            Error::Blacklisted => write!(f, "Peer is blacklisted"),
+            Error::NoDataUrl => write!(f, "No data URL available"),
+            Error::PeerThrottled => write!(f, "Peer is transmitting too fast"),
+            Error::LookupError(ref s) => fmt::Display::fmt(s, f),
+            Error::ChainstateError(ref s) => fmt::Display::fmt(s, f),
+            Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
+            Error::MARFError(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
@@ -251,9 +302,46 @@ impl error::Error for Error {
             Error::NotConnected => None,
             Error::PeerNotConnected => None,
             Error::TooManyPeers => None,
-            Error::AlreadyConnected => None,
+            Error::AlreadyConnected(ref _id) => None,
             Error::InProgress => None,
+            Error::Blacklisted => None,
+            Error::NoDataUrl => None,
+            Error::PeerThrottled => None,
+            Error::LookupError(ref _s) => None,
+            Error::ChainstateError(ref _s) => None,
+            Error::ClarityError(ref e) => Some(e),
+            Error::MARFError(ref e) => Some(e),
         }
+    }
+}
+
+impl From<chain_error> for Error {
+    fn from(e: chain_error) -> Error {
+        match e {
+            chain_error::InvalidStacksBlock(s) => Error::ChainstateError(format!("Invalid stacks block: {}", s)),
+            chain_error::InvalidStacksMicroblock(msg, hash) => Error::ChainstateError(format!("Invalid stacks microblock {:?}: {}", hash, msg)),
+            chain_error::InvalidStacksTransaction(s) => Error::ChainstateError(format!("Invalid stacks transaction: {}", s)),
+            chain_error::PostConditionFailed(s) => Error::ChainstateError(format!("Postcondition failed: {}", s)),
+            chain_error::ClarityError(e) => Error::ClarityError(e),
+            chain_error::DBError(e) => Error::DBError(e),
+            chain_error::NetError(e) => e,
+            chain_error::MARFError(e) => Error::MARFError(e),
+            chain_error::ReadError(e) => Error::ReadError(e),
+            chain_error::WriteError(e) => Error::WriteError(e),
+            _ => Error::ChainstateError(format!("Stacks chainstate error: {:?}", &e))
+        }
+    }
+}
+
+impl From<db_error> for Error {
+    fn from(e: db_error) -> Error {
+        Error::DBError(e)
+    }
+}
+
+impl From<rusqlite::Error> for Error {
+    fn from(e: rusqlite::Error) -> Error {
+        Error::DBError(db_error::SqliteError(e))
     }
 }
 
@@ -498,54 +586,43 @@ pub const PREAMBLE_ENCODED_SIZE: u32 =
     MESSAGE_SIGNATURE_ENCODED_SIZE +
     4;
 
-/// Request for a block inventory or a list of blocks
+/// Request for a block inventory or a list of blocks.
 #[derive(Debug, Clone, PartialEq)]
-pub struct GetBlocksData {
-    pub burn_height_start: u64,
-    pub burn_header_hash_start: BurnchainHeaderHash,
-    pub burn_height_end: u64,
-    pub burn_header_hash_end: BurnchainHeaderHash
-}
-
-/// The "stream tip" information about a block's trailer microblocks.
-#[derive(Debug, Clone, PartialEq)]
-pub struct MicroblocksInvData {
-    pub last_microblock_hash: BlockHeaderHash,
-    pub last_sequence: u16
+pub struct GetBlocksInv {
+    pub consensus_hash: ConsensusHash,               // _last_ consensus hash.  Look backwards in time from this consensus hash
+    pub num_blocks: u16                              // number of _prior_ blocks to ask for, starting at this burn header hash (not to exceed BLOCKS_INV_DATA_MAX_BITLEN)
 }
 
 /// A bit vector that describes which block and microblock data node has data for in a given burn
-/// chain block range.  Sent in reply to a GetBlocksData.
+/// chain block range.  Sent in reply to a GetBlocksInv.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksInvData {
-    pub bitlen: u16,                            // number of bits represented in bitvec (not to exceed BLOCKS_INV_DATA_MAX_BITLEN)
-    pub bitvec: Vec<u8>,                        // bitvec[0] & 0x01 is the _earliest_ block.  Has length = ceil(bitlen / 8)
-    pub microblocks_inventory: Vec<MicroblocksInvData>  // each block's microblock inventories.  Has length = bitlen
+    pub bitlen: u16,                            // number of bits represented in bitvec (not to exceed BLOCKS_INV_DATA_MAX_BITLEN).  Bits correspond to sortitions on the canonical burn chain fork.
+    pub block_bitvec: Vec<u8>,                  // bitmap of which blocks the peer has, in sortition order.  block_bitvec[i] & (1 << j) != 0 means that this peer has the block for sortition 8*i + j
+    pub microblocks_bitvec: Vec<u8>,            // bitmap of which confirmed micrblocks the peer has, in sortition order.  microblocks_bitvec[i] & (1 << j) != 0 means that this peer has the microblocks produced by sortition 8*i + j
 }
 
-/// List of blocks returned
+/// Blocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksData {
-    pub blocks: Vec<StacksBlock>
+    pub blocks: Vec<(BurnchainHeaderHash, StacksBlock)>
 }
 
-/// Get a batch of microblocks 
-#[derive(Debug, Clone, PartialEq)]
-pub struct GetMicroblocksData {
-    pub burn_header_height: u64,
-    pub burn_header_hash: BurnchainHeaderHash,
-    pub block_header_hash: BlockHeaderHash,
-    pub microblocks_header_hash: BlockHeaderHash
-}
-
-/// Microblocks batch (reply to GetMicroblcoks)
+/// Microblocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct MicroblocksData {
+    pub index_anchor_block: BlockHeaderHash,
     pub microblocks: Vec<StacksMicroblock>
 }
 
+/// Block available hint
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlocksAvailableData {
+    pub available: Vec<(ConsensusHash, BurnchainHeaderHash)>,
+}
+
 /// A descriptor of a peer
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NeighborAddress {
     #[serde(rename = "ip")]
     pub addrbytes: PeerAddress,
@@ -562,6 +639,20 @@ impl fmt::Display for NeighborAddress {
 impl fmt::Debug for NeighborAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}://{:?}", &self.public_key_hash, &self.addrbytes.to_socketaddr(self.port))
+    }
+}
+
+impl NeighborAddress {
+    pub fn clear_public_key(&mut self) -> () {
+        self.public_key_hash = Hash160([0u8; 20]);
+    }
+
+    pub fn from_neighbor_key(nk: NeighborKey, pkh: Hash160) -> NeighborAddress {
+        NeighborAddress {
+            addrbytes: nk.addrbytes,
+            port: nk.port,
+            public_key_hash: pkh
+        }
     }
 }
 
@@ -611,6 +702,8 @@ pub struct NackData {
 }
 pub mod NackErrorCodes {
     pub const HandshakeRequired : u32 = 1;
+    pub const NoSuchBurnchainBlock : u32 = 2;
+    pub const Throttled : u32 = 3;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -623,17 +716,13 @@ pub struct PongData {
     pub nonce: u32
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RelayData {
     pub peer: NeighborAddress,
     pub seq: u32,
-    pub signature: MessageSignature
 }
 
-pub const RELAY_DATA_ENCODED_SIZE : u32 =
-    NEIGHBOR_ADDRESS_ENCODED_SIZE +
-    4 +
-    MESSAGE_SIGNATURE_ENCODED_SIZE;
+pub const RELAY_DATA_ENCODED_SIZE : u32 = NEIGHBOR_ADDRESS_ENCODED_SIZE + 4;
 
 /// All P2P message types
 #[derive(Debug, Clone, PartialEq)]
@@ -643,16 +732,16 @@ pub enum StacksMessageType {
     HandshakeReject,
     GetNeighbors,
     Neighbors(NeighborsData),
-    GetBlocksInv(GetBlocksData),
+    GetBlocksInv(GetBlocksInv),
     BlocksInv(BlocksInvData),
-    GetBlocks(GetBlocksData),
+    BlocksAvailable(BlocksAvailableData),
+    MicroblocksAvailable(BlocksAvailableData),
     Blocks(BlocksData),
-    GetMicroblocks(GetMicroblocksData),
     Microblocks(MicroblocksData),
     Transaction(StacksTransaction),
     Nack(NackData),
     Ping(PingData),
-    Pong(PongData)
+    Pong(PongData),
 }
 
 /// Peer address variants
@@ -723,6 +812,29 @@ impl PeerHost {
     pub fn from_socketaddr(socketaddr: &SocketAddr) -> PeerHost {
         PeerHost::IP(PeerAddress::from_socketaddr(socketaddr), socketaddr.port())
     }
+
+    pub fn try_from_url(url_str: &UrlString) -> Option<PeerHost> {
+        let url = match url_str.parse_to_block_url() {
+            Ok(url) => url,
+            Err(_e) => {
+                return None;
+            }
+        };
+
+        let port = match url.port_or_known_default() {
+            Some(port) => port,
+            None => {
+                return None;
+            }
+        };
+
+        match url.host() {
+            Some(url::Host::Domain(name)) => Some(PeerHost::DNS(name.to_string(), port)),
+            Some(url::Host::Ipv4(addr)) => Some(PeerHost::from_socketaddr(&SocketAddr::new(IpAddr::V4(addr), port))),
+            Some(url::Host::Ipv6(addr)) => Some(PeerHost::from_socketaddr(&SocketAddr::new(IpAddr::V6(addr), port))),
+            None => None
+        }
+    }
 }
 
 /// The data we return on GET /v2/info
@@ -750,6 +862,48 @@ pub struct HttpRequestMetadata {
     pub version: HttpVersion,
     pub peer: PeerHost,
     pub keep_alive: bool
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MapEntryResponse {
+    pub data: String,
+    #[serde(rename = "proof")]
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    pub marf_proof: Option<String>
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContractSrcResponse {
+    pub source: String,
+    pub publish_height: u32,
+    #[serde(rename = "proof")]
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    pub marf_proof: Option<String>
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CallReadOnlyResponse {
+    pub okay: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    pub result: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    pub cause: Option<String>
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccountEntryResponse {
+    pub balance: String,
+    pub nonce: u64,
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    #[serde(default)]
+    pub balance_proof: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")] 
+    #[serde(default)]
+    pub nonce_proof: Option<String>
 }
 
 /// Request ID to use or expect from non-Stacks HTTP clients.
@@ -784,15 +938,29 @@ impl HttpRequestMetadata {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct CallReadOnlyRequestBody {
+    pub sender: String,
+    pub arguments: Vec<String>,
+}
+
 /// All HTTP request paths we support, and the arguments they carry in their paths
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
     GetInfo(HttpRequestMetadata),
     GetNeighbors(HttpRequestMetadata),
     GetBlock(HttpRequestMetadata, BlockHeaderHash),
-    GetMicroblocks(HttpRequestMetadata, BlockHeaderHash),
+    GetMicroblocksIndexed(HttpRequestMetadata, BlockHeaderHash),
+    GetMicroblocksConfirmed(HttpRequestMetadata, BlockHeaderHash),
     GetMicroblocksUnconfirmed(HttpRequestMetadata, BlockHeaderHash, u16),
-    PostTransaction(HttpRequestMetadata, StacksTransaction)
+    PostTransaction(HttpRequestMetadata, StacksTransaction),
+    GetAccount(HttpRequestMetadata, PrincipalData, bool),
+    GetMapEntry(HttpRequestMetadata, StacksAddress, ContractName, ClarityName, Value, bool),
+    CallReadOnlyFunction(HttpRequestMetadata, StacksAddress, ContractName,
+                         PrincipalData, ClarityName, Vec<Value>),
+    GetTransferCost(HttpRequestMetadata),
+    GetContractSrc(HttpRequestMetadata, StacksAddress, ContractName, bool),
+    GetContractABI(HttpRequestMetadata, StacksAddress, ContractName),
 }
 
 /// The fields that Actually Matter to http responses
@@ -833,6 +1001,13 @@ impl HttpResponseMetadata {
     }
 }
 
+impl From<&HttpRequestType> for HttpResponseMetadata {
+    fn from(req: &HttpRequestType) -> HttpResponseMetadata {
+        let metadata = req.metadata();
+        HttpResponseMetadata::new(metadata.version, HttpResponseMetadata::make_request_id(), None, metadata.keep_alive)
+    }
+}
+
 /// All data-plane message types a peer can reply with.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpResponseType {
@@ -843,9 +1018,15 @@ pub enum HttpResponseType {
     Microblocks(HttpResponseMetadata, Vec<StacksMicroblock>),
     MicroblockStream(HttpResponseMetadata),
     TransactionID(HttpResponseMetadata, Txid),
-    
+    TokenTransferCost(HttpResponseMetadata, u64),
+    GetMapEntry(HttpResponseMetadata, MapEntryResponse),
+    CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
+    GetAccount(HttpResponseMetadata, AccountEntryResponse),
+    GetContractABI(HttpResponseMetadata, ContractInterface),
+    GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
+    BadRequestJSON(HttpResponseMetadata, HashMap<String, String>),
     Unauthorized(HttpResponseMetadata, String),
     PaymentRequired(HttpResponseMetadata, String),
     Forbidden(HttpResponseMetadata, String),
@@ -853,6 +1034,12 @@ pub enum HttpResponseType {
     ServerError(HttpResponseMetadata, String),
     ServiceUnavailable(HttpResponseMetadata, String),
     Error(HttpResponseMetadata, u16, String)
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum UrlScheme {
+    Http,
+    Https
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -865,9 +1052,9 @@ pub enum StacksMessageID {
     Neighbors = 4,
     GetBlocksInv = 5,
     BlocksInv = 6,
-    GetBlocks = 7,
-    Blocks = 8,
-    GetMicroblocks = 9,
+    BlocksAvailable = 7,
+    MicroblocksAvailable = 8,
+    Blocks = 9,
     Microblocks = 10,
     Transaction = 11,
     Nack = 12,
@@ -952,25 +1139,37 @@ pub const ARRAY_MAX_LEN : u32 = u32::max_value();
 // maximum number of neighbors in a NeighborsData
 pub const MAX_NEIGHBORS_DATA_LEN : u32 = 128;
 
-// maximum number of relayers -- will be an upper bound on the peer graph diameter
+// maximum number of relayers that can be included in a message
 pub const MAX_RELAYERS_LEN : u32 = 16;
 
+// number of peers to relay to, depending on outbound or inbound 
+pub const MAX_BROADCAST_OUTBOUND_RECEIVERS : usize = 8;
+pub const MAX_BROADCAST_INBOUND_RECEIVERS : usize = 16;
+
 // messages can't be bigger than 16MB plus the preamble and relayers
-pub const MAX_MESSAGE_LEN : u32 = (1 + 16 * 1024 * 1024) + (PREAMBLE_ENCODED_SIZE + MAX_RELAYERS_LEN * RELAY_DATA_ENCODED_SIZE);
+pub const MAX_PAYLOAD_LEN : u32 = (1 + 16 * 1024 * 1024);
+pub const MAX_MESSAGE_LEN : u32 = MAX_PAYLOAD_LEN + (PREAMBLE_ENCODED_SIZE + MAX_RELAYERS_LEN * RELAY_DATA_ENCODED_SIZE);
 
-// maximum length of a microblock's hash list
-pub const MICROBLOCKS_INV_DATA_MAX_HASHES : u32 = 4096;
+// maximum value of a blocks's inv data bitlen.
+// NOTE: This needs to be a multiple of 8
+#[cfg(test)] pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 32;
+#[cfg(not(test))] pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 4096;
 
-// maximum value of a blocks's inv data bitlen 
-pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 4096;
+// maximum number of blocks that can be announced as available
+pub const BLOCKS_AVAILABLE_MAX_LEN : u32 = 32;
+
+// maximum number of blocks that can be pushed at once (even if the entire message is undersized).
+// This bound is needed since it bounds the amount of I/O a peer can be asked to do to validate the
+// message.
+pub const BLOCKS_PUSHED_MAX : u32 = 32;
 
 macro_rules! impl_byte_array_message_codec {
     ($thing:ident, $len:expr) => {
-        impl StacksMessageCodec for $thing {
-            fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+        impl ::net::StacksMessageCodec for $thing {
+            fn consensus_serialize<W: std::io::Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
                 fd.write_all(self.as_bytes()).map_err(::net::Error::WriteError)
             }
-            fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<$thing, ::net::Error> {
+            fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<$thing, ::net::Error> {
                 let mut buf = [0u8; ($len as usize)];
                 fd.read_exact(&mut buf).map_err(::net::Error::ReadError)?;
                 let ret = $thing::from_bytes(&buf).expect("BUG: buffer is not the right size");
@@ -990,7 +1189,7 @@ impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
 impl_byte_array_serde!(ConsensusHash);
 
 /// neighbor identifier 
-#[derive(Clone, Eq)]
+#[derive(Clone, Eq, PartialOrd, Ord)]
 pub struct NeighborKey {
     pub peer_version: u32,
     pub network_id: u32,
@@ -1059,10 +1258,107 @@ pub struct Neighbor {
     pub out_degree: u32,        // number of neighbors this peer has
 }
 
+impl Neighbor {
+    pub fn is_whitelisted(&self) -> bool {
+        self.whitelisted < 0 || (self.whitelisted as u64) > get_epoch_time_secs()
+    }
+
+    pub fn is_blacklisted(&self) -> bool {
+        self.blacklisted < 0 || (self.blacklisted as u64) > get_epoch_time_secs()
+    }
+}
+
 pub const NUM_NEIGHBORS : usize = 32;
 
 // maximum number of unconfirmed microblocks can get streamed to us
 pub const MAX_MICROBLOCKS_UNCONFIRMED : usize = 1024;
+
+// how long a peer will be blacklisted for if it misbehaves
+#[cfg(test)] pub const BLACKLIST_BAN_DURATION : u64 = 30;           // seconds
+#[cfg(not(test))] pub const BLACKLIST_BAN_DURATION : u64 = 86400;   // seconds (1 day)
+
+pub const BLACKLIST_MIN_BAN_DURATION : u64 = 2;
+
+/// Result of doing network work
+pub struct NetworkResult {
+    pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
+    pub blocks: Vec<(BurnchainHeaderHash, StacksBlock)>,                                                       // blocks we downloaded
+    pub confirmed_microblocks: Vec<(BurnchainHeaderHash, Vec<StacksMicroblock>)>,                              // confiremd microblocks we downloaded
+    pub pushed_transactions: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>,                   // all transactions pushed to us and their message relay hints
+    pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>,                                                  // all blocks pushed to us
+    pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>,                      // all microblocks pushed to us, and the relay hints from the message
+    pub uploaded_transactions: Vec<StacksTransaction>,                                                         // transactions sent to us by the http server
+}
+
+impl NetworkResult {
+    pub fn new() -> NetworkResult {
+        NetworkResult {
+            unhandled_messages: HashMap::new(),
+            blocks: vec![],
+            confirmed_microblocks: vec![],
+            pushed_transactions: HashMap::new(),
+            pushed_blocks: HashMap::new(),
+            pushed_microblocks: HashMap::new(),
+            uploaded_transactions: vec![],
+        }
+    }
+
+    pub fn consume_unsolicited(&mut self, mut unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>) -> () {
+        for (neighbor_key, mut messages) in unhandled_messages.drain() {
+            for message in messages.drain(..) {
+                match message.payload {
+                    StacksMessageType::Blocks(block_data) => {
+                        if let Some(blocks_msgs) = self.pushed_blocks.get_mut(&neighbor_key) {
+                            blocks_msgs.push(block_data);
+                        }
+                        else {
+                            self.pushed_blocks.insert(neighbor_key.clone(), vec![block_data]);
+                        }
+                    },
+                    StacksMessageType::Microblocks(mblock_data) => {
+                        if let Some(mblocks_msgs) = self.pushed_microblocks.get_mut(&neighbor_key) {
+                            mblocks_msgs.push((message.relayers, mblock_data));
+                        }
+                        else {
+                            self.pushed_microblocks.insert(neighbor_key.clone(), vec![(message.relayers, mblock_data)]);
+                        }
+                    },
+                    StacksMessageType::Transaction(tx_data) => {
+                        if let Some(tx_msgs) = self.pushed_transactions.get_mut(&neighbor_key) {
+                            tx_msgs.push((message.relayers, tx_data));
+                        }
+                        else {
+                            self.pushed_transactions.insert(neighbor_key.clone(), vec![(message.relayers, tx_data)]);
+                        }
+                    },
+                    _ => {
+                        // forward along 
+                        if let Some(messages) = self.unhandled_messages.get_mut(&neighbor_key) {
+                            messages.push(message);
+                        }
+                        else {
+                            self.unhandled_messages.insert(neighbor_key.clone(), vec![message]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn consume_http_uploads(&mut self, mut msgs: Vec<StacksMessageType>) -> () {
+        for msg in msgs.drain(..) {
+            match msg {
+                StacksMessageType::Transaction(tx_data) => {
+                    self.uploaded_transactions.push(tx_data);
+                },
+                _ => {
+                    // drop
+                    warn!("Dropping unknown HTTP message");
+                }
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -1075,17 +1371,24 @@ mod test {
     use net::neighbors::*;
     use net::p2p::*;
     use net::poll::*;
+    use net::relay::*;
     use net::Error as net_error;
 
     use chainstate::burn::*;
+    use chainstate::burn::operations::*;
     use chainstate::burn::db::burndb;
     use chainstate::burn::db::burndb::*;
     use chainstate::*;
+    use chainstate::stacks::miner::*;
+    use chainstate::stacks::miner::test::*;
 
     use chainstate::stacks::db::StacksChainState;
 
+    use chainstate::stacks::index::TrieHash;
+
     use burnchains::*;
     use burnchains::burnchain::*;
+    use burnchains::test::*;
 
     use burnchains::bitcoin::*;
     use burnchains::bitcoin::address::*;
@@ -1096,6 +1399,8 @@ mod test {
     use util::uint::*;
     use util::get_epoch_time_secs;
 
+    use address::*;
+
     use std::net::*;
     use std::io;
     use std::io::Read;
@@ -1105,6 +1410,7 @@ mod test {
     use std::ops::Deref;
     use std::ops::DerefMut;
     use std::collections::HashMap;
+    use std::thread;
 
     use std::fs;
     
@@ -1297,6 +1603,8 @@ mod test {
         pub blacklisted: i64,
         pub data_url: UrlString,
         pub test_name: String,
+        pub initial_balances: Vec<(PrincipalData, u64)>,
+        pub spending_account: TestMiner,
     }
 
     impl TestPeerConfig {
@@ -1304,8 +1612,10 @@ mod test {
             let conn_opts = ConnectionOptions::default();
             let start_block = 1;
             let burnchain = Burnchain::default_unittest(start_block, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap());
+            let spending_account = TestMinerFactory::new().next_miner(&burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+
             TestPeerConfig {
-                network_id: 0xfffefdfc,
+                network_id: 0x80000000,
                 peer_version: 0x01020304,
                 current_block: start_block + (burnchain.consensus_hash_lifetime + 1) as u64,
                 private_key: Secp256k1PrivateKey::new(),
@@ -1321,24 +1631,31 @@ mod test {
                 whitelisted: 0,
                 blacklisted: 0,
                 data_url: "".into(),
-                test_name: "".into()
+                test_name: "".into(),
+                initial_balances: vec![],
+                spending_account: spending_account
             }
         }
 
         pub fn from_port(p: u16) -> TestPeerConfig {
-            TestPeerConfig {
+            let mut config = TestPeerConfig {
                 server_port: p,
+                http_port: p + 1,
                 ..TestPeerConfig::default()
-            }
+            };
+            config.data_url = UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str()).unwrap();
+            config
         }
         
         pub fn new(test_name: &str, p2p_port: u16, rpc_port: u16) -> TestPeerConfig {
-            TestPeerConfig {
+            let mut config = TestPeerConfig {
                 test_name: test_name.into(),
                 server_port: p2p_port,
                 http_port: rpc_port,
                 ..TestPeerConfig::default()
-            }
+            };
+            config.data_url = UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str()).unwrap();
+            config
         }
 
         pub fn add_neighbor(&mut self, n: &Neighbor) -> () {
@@ -1372,11 +1689,28 @@ mod test {
         }
     }
 
+    pub fn dns_thread_start(max_inflight: u64) -> (DNSClient, thread::JoinHandle<()>) {
+        let (mut resolver, client) = DNSResolver::new(max_inflight);
+        let jh = thread::spawn(move || {
+            resolver.thread_main();
+        });
+        (client, jh)
+    }
+
+    pub fn dns_thread_shutdown(dns_client: DNSClient, thread_handle: thread::JoinHandle<()>) {
+        drop(dns_client);
+        thread_handle.join().unwrap();
+    }
+
     pub struct TestPeer {
         pub config: TestPeerConfig,
         pub network: PeerNetwork,
         pub burndb: Option<BurnDB>,
-        pub chainstate: Option<StacksChainState>,
+        pub miner: TestMiner,
+        pub stacks_node: Option<TestStacksNode>,
+        pub relayer: Relayer,
+        pub mempool: Option<MemPoolDB>,
+        chainstate_path: String,
     }
 
     impl TestPeer {
@@ -1391,44 +1725,41 @@ mod test {
 
             fs::create_dir_all(&test_path).unwrap();
 
+            let mut miner_factory = TestMinerFactory::new();
+            let mut miner = miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+
             let burndb_path = format!("{}/burn", &test_path);
             let peerdb_path = format!("{}/peers.db", &test_path);
             let chainstate_path = format!("{}/chainstate", &test_path);
 
-            let mut burndb = BurnDB::connect(&burndb_path, config.burnchain.first_block_height, &config.burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
             let mut peerdb = PeerDB::connect(&peerdb_path, true, config.network_id, config.burnchain.network_id, config.private_key_expire, config.data_url.clone(), &config.asn4_entries, Some(&config.initial_neighbors)).unwrap();
-            let chainstate = StacksChainState::open(false, config.network_id, &chainstate_path).unwrap();
+            let mut burndb = BurnDB::connect(&burndb_path, config.burnchain.first_block_height, &config.burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
+            let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), |_| {}).unwrap();
+            
+            let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
 
             {
-                let mut tx = burndb.tx_begin().unwrap();
-                let mut prev_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
+                let prev_snapshot = {
+                    let tx = burndb.tx_begin().unwrap();
+                    BurnDB::get_first_block_snapshot(&tx).unwrap()
+                };
+
+                let mut fork = TestBurnchainFork::new(prev_snapshot.block_height, &prev_snapshot.burn_header_hash, &prev_snapshot.index_root, 0);
                 for i in prev_snapshot.block_height..config.current_block {
-                    let mut next_snapshot = prev_snapshot.clone();
-
-                    next_snapshot.block_height += 1;
+                    let burn_block = {
+                        let mut tx = burndb.tx_begin().unwrap();
+                        let mut burn_block = fork.next_block(&mut tx);
+                        stacks_node.add_key_register(&mut burn_block, &mut miner);
+                        burn_block
+                    };
+                    fork.append_block(burn_block);
                     
-                    let big_i = Uint256::from_u64(i as u64);
-                    let mut big_i_bytes_32 = [0u8; 32];
-                    big_i_bytes_32.copy_from_slice(&big_i.to_u8_slice());
-
-                    next_snapshot.consensus_hash = ConsensusHash(Hash160::from_sha256(&big_i_bytes_32).into_bytes());
-
-                    next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
-                    next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
-                    next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
-                    next_snapshot.total_burn += 1;
-                    next_snapshot.num_sortitions += 1;
-                    next_snapshot.sortition = true;
-                    next_snapshot.sortition_hash = next_snapshot.sortition_hash.mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
-
-                    let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
-                    next_snapshot.index_root = next_index_root;
-                    prev_snapshot = next_snapshot;
+                    fork.mine_pending_blocks(&mut burndb, &config.burnchain);
                 }
-                tx.commit().unwrap();
             }
 
             let local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), config.server_port);
+            let http_local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), config.http_port);
 
             {
                 let mut tx = peerdb.tx_begin().unwrap();
@@ -1446,13 +1777,19 @@ mod test {
             };
             let mut peer_network = PeerNetwork::new(peerdb, local_peer, config.peer_version, config.burnchain.clone(), burnchain_view, config.connection_opts.clone());
 
-            peer_network.bind(&local_addr).unwrap();
+            peer_network.bind(&local_addr, &http_local_addr).unwrap();
+            let relayer = Relayer::from_p2p(&mut peer_network);
+            let mempool = MemPoolDB::open(false, config.network_id, &chainstate_path).unwrap();
             
             TestPeer {
                 config: config,
                 network: peer_network,
                 burndb: Some(burndb),
-                chainstate: Some(chainstate)
+                miner: miner,
+                stacks_node: Some(stacks_node),
+                relayer: relayer,
+                mempool: Some(mempool),
+                chainstate_path: chainstate_path
             }
         }
 
@@ -1476,18 +1813,47 @@ mod test {
             Ok(())
         }
 
-        pub fn step(&mut self) -> Result<HashMap<usize, Vec<StacksMessage>>, net_error> {
+        pub fn step(&mut self) -> Result<NetworkResult, net_error> {
             let mut burndb = self.burndb.take().unwrap();
-            let mut chainstate = self.chainstate.take().unwrap();
-            
-            let ret = self.network.run(&mut burndb, &mut chainstate, 1);
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, None, 10);
 
             self.burndb = Some(burndb);
-            self.chainstate = Some(chainstate);
+            self.stacks_node = Some(stacks_node);
+            self.mempool = Some(mempool);
+
+            ret
+        }
+        
+        pub fn step_dns(&mut self, dns_client: &mut DNSClient) -> Result<NetworkResult, net_error> {
+            let mut burndb = self.burndb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+
+            let ret = self.network.run(&mut burndb, &mut stacks_node.chainstate, &mut mempool, Some(dns_client), 10);
+
+            self.burndb = Some(burndb);
+            self.stacks_node = Some(stacks_node);
+            self.mempool = Some(mempool);
 
             ret
         }
 
+        pub fn for_each_convo_p2p<F, R>(&mut self, mut f: F) -> Vec<Result<R, net_error>> 
+        where
+            F: FnMut(usize, &mut ConversationP2P) -> Result<R, net_error>
+        {
+            let mut ret = vec![];
+            for (event_id, convo) in self.network.peers.iter_mut() {
+                let res = f(*event_id, convo);
+                ret.push(res);
+            }
+            ret
+        }
+
+        // this is a fake block -- don't try inserting it
         pub fn empty_burnchain_block(&self, block_height: u64) -> BurnchainBlock {
             assert!(block_height + 1 >= self.config.burnchain.first_block_height);
             let prev_block_height = block_height - 1;
@@ -1509,13 +1875,7 @@ mod test {
             })
         }
 
-        pub fn next_burnchain_block(&mut self, block: &BurnchainBlock) -> () {
-            let mut burndb = self.burndb.take().unwrap();
-            Burnchain::process_block(&mut burndb, &self.config.burnchain, block).unwrap();
-            self.burndb = Some(burndb);
-        }
-
-        pub fn add_empty_burnchain_block(&mut self) -> u64 {
+        fn make_empty_burnchain_block(&mut self) -> BurnchainBlock {
             let empty_block = {
                 let burndb = self.burndb.take().unwrap();
                 let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();
@@ -1523,8 +1883,190 @@ mod test {
                 self.burndb = Some(burndb);
                 empty_block
             };
-            self.next_burnchain_block(&empty_block);
-            empty_block.block_height()
+            empty_block
+        }
+
+        pub fn next_burnchain_block(&mut self, mut blockstack_ops: Vec<BlockstackOperationType>) -> u64 {
+            let mut burndb = self.burndb.take().unwrap();
+            let block_height = {
+                let mut tx = burndb.tx_begin().unwrap();
+                let tip = BurnDB::get_canonical_burn_chain_tip(&tx).unwrap();
+                let block_header = BurnchainBlockHeader::from_parent_snapshot(&tip, BurnchainHeaderHash::from_test_data(tip.block_height + 1, &TrieHash([0u8; 32]), 12345), blockstack_ops.len() as u64);
+
+                for op in blockstack_ops.iter_mut() {
+                    match op {
+                        BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
+                            data.burn_header_hash = block_header.block_hash.clone();
+                            data.consensus_hash = tip.consensus_hash.clone();
+                        },
+                        BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
+                            data.burn_header_hash = block_header.block_hash.clone();
+                        },
+                        BlockstackOperationType::UserBurnSupport(ref mut data) => {
+                            data.burn_header_hash = block_header.block_hash.clone();
+                            data.consensus_hash = tip.consensus_hash.clone();
+                        }
+                    }
+                }
+                        
+                Burnchain::process_block_txs(&mut tx, &tip, &block_header, &self.config.burnchain, blockstack_ops).unwrap();
+                tx.commit().unwrap();
+                block_header.block_height
+            };
+            self.burndb = Some(burndb);
+            block_height
+        }
+
+        pub fn preprocess_stacks_block(&mut self, block: &StacksBlock) -> Result<bool, String> {
+            let mut burndb = self.burndb.take().unwrap();
+            let mut node = self.stacks_node.take().unwrap();
+            let res = {
+                let mut tx = burndb.tx_begin().unwrap();
+                let tip = BurnDB::get_canonical_burn_chain_tip(&tx).unwrap();
+                let sn_opt = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &tip.burn_header_hash, &block.block_hash()).unwrap();
+                if sn_opt.is_none() {
+                    return Err(format!("No such block in canonical burn fork: {}", &block.block_hash()));
+                }
+                let sn = sn_opt.unwrap();
+                node.chainstate.preprocess_anchored_block(&mut tx, &sn.burn_header_hash, sn.burn_header_timestamp, block, &sn.parent_burn_header_hash)
+                    .map_err(|e| format!("Failed to preprocess anchored block: {:?}", &e))
+            };
+            self.burndb = Some(burndb);
+            self.stacks_node = Some(node);
+            res
+        }
+        
+        pub fn preprocess_stacks_microblocks(&mut self, microblocks: &Vec<StacksMicroblock>) -> Result<bool, String> {
+            assert!(microblocks.len() > 0);
+            let mut burndb = self.burndb.take().unwrap();
+            let mut node = self.stacks_node.take().unwrap();
+            let res = {
+                let mut tx = burndb.tx_begin().unwrap();
+                let tip = BurnDB::get_canonical_burn_chain_tip(&tx).unwrap();
+                let anchor_block_hash = microblocks[0].header.prev_block.clone();
+                let sn_opt = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &tip.burn_header_hash, &anchor_block_hash).unwrap();
+                if sn_opt.is_none() {
+                    return Err(format!("No such anchor block in canonical burn fork: {:?}", anchor_block_hash));
+                }
+                let sn = sn_opt.unwrap();
+                let mut res = Ok(true);
+                for mblock in microblocks.iter() {
+                    res = node.chainstate.preprocess_streamed_microblock(&sn.burn_header_hash, &anchor_block_hash, mblock)
+                        .map_err(|e| format!("Failed to preprocess microblock: {:?}", &e));
+
+                    if res.is_err() {
+                        break;
+                    }
+                }
+                res
+            };
+            
+            self.burndb = Some(burndb);
+            self.stacks_node = Some(node);
+            res
+        }
+
+        pub fn process_stacks_epoch_at_tip(&mut self, block: &StacksBlock, microblocks: &Vec<StacksMicroblock>) -> () {
+            let mut burndb = self.burndb.take().unwrap();
+            let mut node = self.stacks_node.take().unwrap();
+            {
+                let mut tx = burndb.tx_begin().unwrap();
+                let tip = BurnDB::get_canonical_burn_chain_tip(&tx).unwrap();
+                node.chainstate.preprocess_stacks_epoch(&mut tx, &tip, block, microblocks).unwrap();
+            }
+    
+            loop {
+                let processed = node.chainstate.process_blocks(1).unwrap();
+                if processed.len() == 0 {
+                    break;
+                }
+                match processed[0] {
+                    (Some(ref header_info), _) => {
+                        continue;
+                    },
+                    (None, _) => {
+                        break;
+                    }
+                }
+            }
+
+            self.burndb = Some(burndb);
+            self.stacks_node = Some(node);
+        }
+
+        pub fn add_empty_burnchain_block(&mut self) -> u64 {
+            self.next_burnchain_block(vec![])
+        }
+
+        pub fn chainstate(&mut self) -> &mut StacksChainState {
+            &mut self.stacks_node.as_mut().unwrap().chainstate
+        }
+
+        pub fn burndb(&mut self) -> &mut BurnDB {
+            self.burndb.as_mut().unwrap()
+        }
+
+        pub fn with_db_state<F, R>(&mut self, f: F) -> Result<R, net_error>
+        where
+            F: FnOnce(&mut BurnDB, &mut StacksChainState, &mut Relayer, &mut MemPoolDB) -> Result<R, net_error>
+        {
+            let mut burndb = self.burndb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+
+            let res = f(&mut burndb, &mut stacks_node.chainstate, &mut self.relayer, &mut mempool);
+
+            self.stacks_node = Some(stacks_node);
+            self.burndb = Some(burndb);
+            self.mempool = Some(mempool);
+            res
+        }
+
+        pub fn with_mining_state<F, R>(&mut self, f: F) -> Result<R, net_error>
+        where
+            F: FnOnce(&mut BurnDB, &mut TestMiner, &mut TestMiner, &mut TestStacksNode) -> Result<R, net_error>
+        {
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut burndb = self.burndb.take().unwrap();
+            let res = f(&mut burndb, &mut self.miner, &mut self.config.spending_account, &mut stacks_node);
+            self.burndb = Some(burndb);
+            self.stacks_node = Some(stacks_node);
+            res
+        }
+
+        // have this peer produce an anchored block and microblock tail using its internal miner.
+        pub fn make_default_tenure(&mut self) -> (Vec<BlockstackOperationType>, StacksBlock, Vec<StacksMicroblock>) {
+            let mut burndb = self.burndb.take().unwrap();
+            let mut burn_block = {
+                let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();
+                TestBurnchainBlock::new(&sn, 0)
+            };
+          
+            let mut stacks_node = self.stacks_node.take().unwrap();
+
+            let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
+            let parent_microblock_header_opt = get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
+            let last_key = stacks_node.get_last_key(&self.miner);
+
+            let network_id = self.config.network_id;
+            let chainstate_path = self.chainstate_path.clone();
+            let burn_block_height = burn_block.block_height;
+
+            let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(&mut burndb, &mut self.miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+                let mut miner_chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
+                let mut epoch = builder.epoch_begin(&mut miner_chainstate).unwrap();
+
+                let (stacks_block, microblocks) = mine_smart_contract_block_contract_call_microblock(&mut epoch, &mut builder, miner, burn_block_height as usize, parent_microblock_header_opt.as_ref());
+
+                builder.epoch_finish(epoch);
+                (stacks_block, microblocks)
+            });
+            
+            let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
+
+            self.stacks_node = Some(stacks_node);
+            self.burndb = Some(burndb);
+            (vec![BlockstackOperationType::LeaderKeyRegister(leader_key_op), BlockstackOperationType::LeaderBlockCommit(block_commit_op)], stacks_block, microblocks)
         }
 
         pub fn to_neighbor(&self) -> Neighbor {

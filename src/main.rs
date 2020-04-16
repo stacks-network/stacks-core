@@ -38,6 +38,7 @@ extern crate regex;
 extern crate time;
 extern crate byteorder;
 extern crate mio;
+extern crate url;
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;
@@ -197,8 +198,6 @@ fn main() {
                 testnet::helium::Config::default()
             }
         };
-
-        println!("*** Mempool path: {}", conf.mempool.path);
 
         let mut run_loop = testnet::helium::RunLoop::new(conf);
         let num_round: u64 = 0; // Infinite number of rounds

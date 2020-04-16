@@ -1,23 +1,33 @@
 use vm::{
-    database::HeadersDB,
-    types::QualifiedContractIdentifier,
+    database::{ HeadersDB, ClaritySerializable },
+    types::{QualifiedContractIdentifier, TupleData, PrincipalData},
+    analysis::{mem_type_check, contract_interface_builder::{build_contract_interface, ContractInterface}},
+    clarity::ClarityConnection,
     Value, ClarityName, ContractName, errors::RuntimeErrorType, errors::Error as ClarityError };
 use chainstate::stacks::{
     db::StacksChainState, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     StacksMicroblockHeader, StacksPrivateKey, TransactionSpendingCondition, TransactionAuth, TransactionVersion,
     StacksPublicKey, TransactionPayload, StacksTransactionSigner,
-    TokenTransferMemo, CoinbasePayload,
+    TokenTransferMemo, CoinbasePayload, TransactionPostConditionMode,
     StacksTransaction, TransactionSmartContract, TransactionContractCall, StacksAddress };
 use chainstate::burn::VRFSeed;
 use burnchains::Address;
 use address::AddressHashMode;
-use net::{Error as NetError, StacksMessageCodec};
+use net::{Error as NetError, StacksMessageCodec, AccountEntryResponse, ContractSrcResponse, CallReadOnlyRequestBody};
 use util::{log, strings::StacksString, hash::hex_bytes, hash::to_hex};
-
+use std::collections::HashMap;
 use util::db::{DBConn, FromRow};
 
+use std::{thread, time};
+
 use testnet;
-use testnet::helium::mem_pool::MemPool;
+use testnet::helium::{
+    config::InitialBalance
+};
+
+use core::mempool::MemPoolDB;
+
+use reqwest;
 
 pub fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
                                          sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> Vec<u8> {
@@ -26,7 +36,9 @@ pub fn serialize_sign_standard_single_sig_tx(payload: TransactionPayload,
     spending_condition.set_nonce(nonce);
     spending_condition.set_fee_rate(fee_rate);
     let auth = TransactionAuth::Standard(spending_condition);
-    let unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+    let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+    unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
     tx_signer.sign_origin(sender).unwrap();
 
@@ -46,7 +58,7 @@ pub fn make_contract_publish(sender: &StacksPrivateKey, nonce: u64, fee_rate: u6
 }
 
 pub fn make_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
-                            recipient: &StacksAddress, amount: u64) -> Vec<u8> {
+                            recipient: &PrincipalData, amount: u64) -> Vec<u8> {
     let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, fee_rate)
 }
@@ -115,6 +127,8 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-private (exotic-block-height (height uint))
           (is-eq (at-block (get-block-id-hash height) block-height)
                  height))
+        (define-read-only (get-exotic-data-info (height uint))
+          (unwrap-panic (map-get? block-data { height: height })))
 
         (define-private (exotic-data-checks (height uint))
           (let ((block-to-check (unwrap-panic (get-block-info? id-header-hash height)))
@@ -157,39 +171,72 @@ const SK_1: &'static str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f8235
 const SK_2: &'static str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
 const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
 
+const ADDR_4: &'static str = "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96";
+
+use std::sync::Mutex;
+
+lazy_static! {
+    static ref http_binding: Mutex<Option<String>> = Mutex::new(None);
+}
+
 #[test]
 fn integration_test_get_info() {
     let mut conf = testnet::helium::tests::new_test_conf();
+    let spender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap()).into();
+
+    conf.initial_balances.push(InitialBalance { 
+        address: spender_addr,
+        amount: 100300
+    });
 
     conf.burnchain.block_time = 1500;
-
-    let contract_sk = StacksPrivateKey::new();
 
     let num_rounds = 4;
 
     let mut run_loop = testnet::helium::RunLoop::new(conf);
+
+    { 
+        let mut http_opt = http_binding.lock().unwrap();
+        http_opt.replace(format!("http://{}", &run_loop.node.config.node.rpc_bind));
+    }
+
     run_loop.apply_on_new_tenures(|round, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
+        let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
 
         if round == 1 { // block-height = 2
             let publish_tx = make_contract_publish(&contract_sk, 0, 0, "get-info", GET_INFO_CONTRACT);
             eprintln!("Tenure in 1 started!");
-            tenure.mem_pool.submit(publish_tx);
+            
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
         } else if round >= 2 { // block-height > 2
             let tx = make_contract_call(&principal_sk, (round - 2).into(), 0, &to_addr(&contract_sk), "get-info", "update-info", &[]);
-            tenure.mem_pool.submit(tx);
+            
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, tx).unwrap();
+        }
+
+        if round >= 1 {
+            let tx_xfer = make_stacks_transfer(&spender_sk, (round - 1).into(), 0,
+                                               &StacksAddress::from_string(ADDR_4).unwrap().into(), 100);
+            
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, tx_xfer).unwrap();
         }
 
         return
     });
 
     run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _events| {
+        let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
         let contract_identifier =
-            QualifiedContractIdentifier::parse(&format!("{}.{}",
-                                                        to_addr(
-                                                            &StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
-                                                        "get-info")).unwrap();
+            QualifiedContractIdentifier::parse(&format!("{}.{}", &contract_addr, "get-info")).unwrap();
+
+        let http_origin = {
+            http_binding.lock().unwrap().clone().unwrap()
+        };
 
         match round {
             1 => {
@@ -198,8 +245,8 @@ fn integration_test_get_info() {
                 blocks.sort();
                 assert!(chain_tip_info.block_height == 2);
                 
-                // Block #1 should only have 2 txs
-                assert!(block.txs.len() == 2);
+                // Block #1 should have 3 txs
+                assert!(block.txs.len() == 3);
 
                 let parent = block.header.parent_block;
                 let bhh = &chain_tip_info.index_block_hash();
@@ -305,6 +352,542 @@ fn integration_test_get_info() {
                 assert_eq!(Value::Bool(true), chain_state.clarity_eval_read_only(
                     bhh, &contract_identifier, "(exotic-data-checks u3)"));
 
+                let client = reqwest::blocking::Client::new();
+
+                let path = format!("{}/v2/map_entry/{}/{}/{}",
+                                   &http_origin, &contract_addr, "get-info", "block-data");
+
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(1))])
+                    .unwrap().into();
+
+                eprintln!("Test: POST {}", path);
+                let res = client.post(&path)
+                    .json(&key.serialize())
+                    .send()
+                    .unwrap().json::<HashMap<String, String>>().unwrap();
+                let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
+                let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
+                                                                       "(some (get-exotic-data-info u1))");
+                assert!(res.get("proof").is_some());
+
+                assert_eq!(result_data, expected_data);
+
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(100))])
+                    .unwrap().into();
+
+                eprintln!("Test: POST {}", path);
+                let res = client.post(&path)
+                    .json(&key.serialize())
+                    .send()
+                    .unwrap().json::<HashMap<String, String>>().unwrap();
+                let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
+                assert_eq!(result_data, Value::none());
+
+                let sender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap());
+
+                // now, let's use a query string to get data without a proof
+                let path = format!("{}/v2/map_entry/{}/{}/{}?proof=0",
+                                   &http_origin, &contract_addr, "get-info", "block-data");
+
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(1))])
+                    .unwrap().into();
+
+                eprintln!("Test: POST {}", path);
+                let res = client.post(&path)
+                    .json(&key.serialize())
+                    .send()
+                    .unwrap().json::<HashMap<String, String>>().unwrap();
+
+                assert!(res.get("proof").is_none());
+                let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
+                let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
+                                                                       "(some (get-exotic-data-info u1))");
+                eprintln!("{}", serde_json::to_string(&res).unwrap());
+
+                assert_eq!(result_data, expected_data);
+
+                // now, let's use a query string to get data _with_ a proof
+                let path = format!("{}/v2/map_entry/{}/{}/{}?proof=1",
+                                   &http_origin, &contract_addr, "get-info", "block-data");
+
+                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(1))])
+                    .unwrap().into();
+
+                eprintln!("Test: POST {}", path);
+                let res = client.post(&path)
+                    .json(&key.serialize())
+                    .send()
+                    .unwrap().json::<HashMap<String, String>>().unwrap();
+
+                assert!(res.get("proof").is_some());
+                let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
+                let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
+                                                                       "(some (get-exotic-data-info u1))");
+                eprintln!("{}", serde_json::to_string(&res).unwrap());
+
+                assert_eq!(result_data, expected_data);
+
+                // account with a nonce entry + a balance entry
+                let path = format!("{}/v2/accounts/{}",
+                                   &http_origin, &sender_addr);
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 100000);
+                assert_eq!(res.nonce, 3);
+                assert!(res.nonce_proof.is_some());
+                assert!(res.balance_proof.is_some());
+
+                // account with a nonce entry but not a balance entry
+                let path = format!("{}/v2/accounts/{}",
+                                   &http_origin, &contract_addr);
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+                assert_eq!(res.nonce, 1);
+                assert!(res.nonce_proof.is_some());
+                assert!(res.balance_proof.is_some());
+
+                // account with a balance entry but not a nonce entry
+                let path = format!("{}/v2/accounts/{}",
+                                   &http_origin, ADDR_4);
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
+                assert_eq!(res.nonce, 0);
+                assert!(res.nonce_proof.is_some());
+                assert!(res.balance_proof.is_some());
+
+                // account with neither!
+                let path = format!("{}/v2/accounts/{}.get-info",
+                                   &http_origin, &contract_addr);
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
+                assert_eq!(res.nonce, 0);
+                assert!(res.nonce_proof.is_some());
+                assert!(res.balance_proof.is_some());
+
+                let path = format!("{}/v2/accounts/{}?proof=0",
+                                   &http_origin, ADDR_4);
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
+                assert_eq!(res.nonce, 0);
+                assert!(res.nonce_proof.is_none());
+                assert!(res.balance_proof.is_none());
+
+                let path = format!("{}/v2/accounts/{}?proof=1",
+                                   &http_origin, ADDR_4);
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 300);
+                assert_eq!(res.nonce, 0);
+                assert!(res.nonce_proof.is_some());
+                assert!(res.balance_proof.is_some());
+
+                // let's try getting the transfer cost
+                let path = format!("{}/v2/fees/transfer", &http_origin);
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<u64>().unwrap();
+                assert!(res > 0);
+
+                // let's get a contract ABI
+
+                let path = format!("{}/v2/contracts/interface/{}/{}", &http_origin, &contract_addr, "get-info");
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<ContractInterface>().unwrap();
+
+                let contract_analysis = mem_type_check(GET_INFO_CONTRACT).unwrap().1;
+                let expected_interface = build_contract_interface(&contract_analysis);
+
+                eprintln!("{}", serde_json::to_string(&expected_interface).unwrap());
+
+                assert_eq!(res, expected_interface);
+
+                // a missing one?
+
+                let path = format!("{}/v2/contracts/interface/{}/{}", &http_origin, &contract_addr, "not-there");
+                eprintln!("Test: GET {}", path);
+                assert_eq!(client.get(&path).send().unwrap().status(), 404);
+
+                // let's get a contract SRC
+
+                let path = format!("{}/v2/contracts/source/{}/{}", &http_origin, &contract_addr, "get-info");
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<ContractSrcResponse>().unwrap();
+
+                assert_eq!(res.source, GET_INFO_CONTRACT);
+                assert_eq!(res.publish_height, 2);
+                assert!(res.marf_proof.is_some());
+
+
+                let path = format!("{}/v2/contracts/source/{}/{}?proof=0", &http_origin, &contract_addr, "get-info");
+                eprintln!("Test: GET {}", path);
+                let res = client.get(&path).send().unwrap().json::<ContractSrcResponse>().unwrap();
+
+                assert_eq!(res.source, GET_INFO_CONTRACT);
+                assert_eq!(res.publish_height, 2);
+                assert!(res.marf_proof.is_none());
+
+                // a missing one?
+
+                let path = format!("{}/v2/contracts/source/{}/{}", &http_origin, &contract_addr, "not-there");
+                eprintln!("Test: GET {}", path);
+                assert_eq!(client.get(&path).send().unwrap().status(), 404);
+
+
+                // how about a read-only function call!
+                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info", "get-exotic-data-info");
+                eprintln!("Test: POST {}", path);
+
+                let body = CallReadOnlyRequestBody {
+                    sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    arguments: vec![Value::UInt(1).serialize()]
+                };
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .unwrap().json::<serde_json::Value>().unwrap();
+                assert!(res.get("cause").is_none());
+                assert!(res["okay"].as_bool().unwrap());
+
+                let result_data = Value::try_deserialize_hex_untyped(&res["result"].as_str().unwrap()[2..]).unwrap();
+                let expected_data = chain_state.clarity_eval_read_only(bhh, &contract_identifier,
+                                                                       "(get-exotic-data-info u1)");
+                assert_eq!(result_data, expected_data);
+
+                // let's have a runtime error!
+                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info", "get-exotic-data-info");
+                eprintln!("Test: POST {}", path);
+
+                let body = CallReadOnlyRequestBody {
+                    sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    arguments: vec![Value::UInt(100).serialize()]
+                };
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .unwrap().json::<serde_json::Value>().unwrap();
+
+                assert!(res.get("result").is_none());
+                assert!(!res["okay"].as_bool().unwrap());
+                assert!(res["cause"].as_str().unwrap().contains("UnwrapFailure"));
+
+                // let's have a runtime error!
+                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info", "update-info");
+                eprintln!("Test: POST {}", path);
+
+                let body = CallReadOnlyRequestBody {
+                    sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    arguments: vec![]
+                };
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .unwrap().json::<serde_json::Value>().unwrap();
+
+                eprintln!("{}", res["cause"].as_str().unwrap());
+                assert!(res.get("result").is_none());
+                assert!(!res["okay"].as_bool().unwrap());
+                assert!(res["cause"].as_str().unwrap().contains("NotReadOnly"));
+
+                // let's submit a valid transaction!
+                let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
+                let path = format!("{}/v2/transactions", &http_origin);
+                eprintln!("Test: POST {} (valid)", path);
+
+                // tx_xfer is 180 bytes long
+                let tx_xfer = make_stacks_transfer(&spender_sk, round.into(), 200,
+                                                   &StacksAddress::from_string(ADDR_4).unwrap().into(), 123);
+
+                let res = client.post(&path)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(tx_xfer.clone())
+                    .send()
+                    .unwrap()
+                    .text()
+                    .unwrap();
+
+                eprintln!("{}", res);
+                assert_eq!(res, format!("{}", StacksTransaction::consensus_deserialize(&mut &tx_xfer[..]).unwrap().txid()));
+                
+                // let's submit an invalid transaction!
+                let path = format!("{}/v2/transactions", &http_origin);
+                eprintln!("Test: POST {} (invalid)", path);
+
+                // tx_xfer_invalid is 180 bytes long
+                let tx_xfer_invalid = make_stacks_transfer(&spender_sk, (round + 10).into(), 200,     // bad nonce
+                                                           &StacksAddress::from_string(ADDR_4).unwrap().into(), 456);
+
+                let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
+
+                let res = client.post(&path)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(tx_xfer_invalid.clone())
+                    .send()
+                    .unwrap()
+                    .json::<serde_json::Value>()
+                    .unwrap();
+
+                eprintln!("{}", res);
+                assert_eq!(res.get("txid").unwrap().as_str().unwrap(), format!("{}", tx_xfer_invalid_tx.txid()));
+                assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
+                assert!(res.get("reason").is_some());
+            },
+            _ => {},
+        }
+    });
+
+    run_loop.start(num_rounds);
+}
+
+const FAUCET_CONTRACT: &'static str = "
+  (define-public (spout)
+    (let ((recipient tx-sender))
+      (print (as-contract (stx-transfer? u1 .faucet recipient)))))
+";
+
+#[test]
+fn contract_stx_transfer() {
+    let mut conf = testnet::helium::tests::new_test_conf();
+
+    let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+    let addr_3 = to_addr(&sk_3);
+
+    conf.burnchain.block_time = 1500;
+    conf.add_initial_balance(addr_3.to_string(), 100000);
+
+    let num_rounds = 5;
+
+    let mut run_loop = testnet::helium::RunLoop::new(conf);
+    run_loop.apply_on_new_tenures(|round, tenure| {
+        let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+        let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
+        let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+
+        let contract_identifier =
+            QualifiedContractIdentifier::parse(&format!("{}.{}",
+                                                        to_addr(
+                                                            &StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
+                                                        "faucet")).unwrap();
+
+        if round == 1 { // block-height = 2
+            let xfer_to_contract = make_stacks_transfer(&sk_3, 0, 0, &contract_identifier.into(), 1000);
+            
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
+        } else if round == 2 { // block-height > 2
+            let publish_tx = make_contract_publish(&contract_sk, 0, 0, "faucet", FAUCET_CONTRACT);
+            
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
+        } else if round == 3 {
+            // try to publish again
+            let publish_tx = make_contract_publish(&contract_sk, 1, 0, "faucet", FAUCET_CONTRACT);
+            
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
+
+            let tx = make_contract_call(&sk_2, 0, 0, &to_addr(&contract_sk), "faucet", "spout", &[]);
+            
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, tx).unwrap();
+        } else if round == 4 {
+            // transfer to the contract again.
+            let xfer_to_contract = make_stacks_transfer(&sk_3, 1, 0, &contract_identifier.into(), 1000);
+            
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
+        }
+
+        return
+    });
+
+    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _events| {
+        let contract_identifier =
+            QualifiedContractIdentifier::parse(&format!("{}.{}",
+                                                        to_addr(
+                                                            &StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
+                                                        "faucet")).unwrap();
+
+        match round {
+            1 => {
+                assert!(chain_tip_info.block_height == 2);
+                // Block #1 should have 2 txs -- coinbase + transfer
+                assert!(block.txs.len() == 2);
+
+                let cur_tip = (chain_tip_info.burn_header_hash.clone(), chain_tip_info.anchored_header.block_hash());
+                // check that 1000 stx _was_ transfered to the contract principal
+                assert_eq!(
+                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_account_stx_balance(&contract_identifier.clone().into())
+                        })
+                    }),
+                    1000);
+                // check that 1000 stx _was_ debited from SK_3
+                let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+                let addr_3 = to_addr(&sk_3).into();
+                assert_eq!(
+                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_account_stx_balance(&addr_3)
+                        })
+                    }),
+                    99000);
+            },
+            2 => {
+                assert!(chain_tip_info.block_height == 3);
+                // Block #2 should have 2 txs -- coinbase + publish
+                assert!(block.txs.len() == 2);
+            },
+            3 => {
+                assert!(chain_tip_info.block_height == 4);
+                // Block #3 should have 2 txs -- coinbase + contract-call,
+                //   the second publish _should have been rejected_
+                assert!(block.txs.len() == 2);
+
+                // check that 1 stx was transfered to SK_2 via the contract-call
+                let cur_tip = (chain_tip_info.burn_header_hash.clone(), chain_tip_info.anchored_header.block_hash());
+
+                let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
+                let addr_2 = to_addr(&sk_2).into();
+                assert_eq!(
+                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_account_stx_balance(&addr_2)
+                        })
+                    }),
+                    1);
+
+                assert_eq!(
+                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_account_stx_balance(&contract_identifier.clone().into())
+                        })
+                    }),
+                    999);
+            },
+            4 => {
+                assert!(chain_tip_info.block_height == 5);
+                assert!(block.txs.len() == 2);
+
+                let cur_tip = (chain_tip_info.burn_header_hash.clone(), chain_tip_info.anchored_header.block_hash());
+
+                // check that 1000 stx were sent to the contract
+                assert_eq!(
+                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_account_stx_balance(&contract_identifier.clone().into())
+                        })
+                    }),
+                    1999);
+                // check that 1000 stx _was_ debited from SK_3
+                let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+                let addr_3 = to_addr(&sk_3).into();
+                assert_eq!(
+                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_account_stx_balance(&addr_3)
+                        })
+                    }),
+                    98000);
+            },
+
+            _ => {},
+        }
+    });
+
+    run_loop.start(num_rounds);
+}
+
+#[test]
+fn bad_contract_tx_rollback() {
+    let mut conf = testnet::helium::tests::new_test_conf();
+
+    let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+    let addr_3 = to_addr(&sk_3);
+
+    conf.burnchain.block_time = 1500;
+    conf.add_initial_balance(addr_3.to_string(), 100000);
+
+    let num_rounds = 3;
+
+    let mut run_loop = testnet::helium::RunLoop::new(conf);
+    run_loop.apply_on_new_tenures(|round, tenure| {
+        let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+        let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
+        let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+        let addr_2 = to_addr(&sk_2);
+
+        let contract_identifier =
+            QualifiedContractIdentifier::parse(&format!("{}.{}",
+                                                        to_addr(
+                                                            &StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
+                                                        "faucet")).unwrap();
+
+        if round == 1 { // block-height = 2
+            let xfer_to_contract = make_stacks_transfer(&sk_3, 0, 0, &contract_identifier.into(), 1000);
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
+        } else if round == 2 { // block-height = 3
+            let xfer_to_contract = make_stacks_transfer(&sk_3, 1, 0, &addr_2.into(), 1000);
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
+            
+            let xfer_to_contract = make_stacks_transfer(&sk_3, 2, 0, &addr_2.into(), 1500);
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
+            
+            let publish_tx = make_contract_publish(&contract_sk, 0, 0, "faucet", FAUCET_CONTRACT);
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
+            
+            let publish_tx = make_contract_publish(&contract_sk, 1, 0, "faucet", FAUCET_CONTRACT);
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
+        }
+
+        return
+    });
+
+    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _events| {
+        let contract_identifier =
+            QualifiedContractIdentifier::parse(&format!("{}.{}",
+                                                        to_addr(
+                                                            &StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
+                                                        "faucet")).unwrap();
+
+        match round {
+            1 => {
+                assert!(chain_tip_info.block_height == 2);
+                // Block #1 should have 2 txs -- coinbase + transfer
+                assert!(block.txs.len() == 2);
+
+                let cur_tip = (chain_tip_info.burn_header_hash.clone(), chain_tip_info.anchored_header.block_hash());
+                // check that 1000 stx _was_ transfered to the contract principal
+                assert_eq!(
+                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_account_stx_balance(&contract_identifier.clone().into())
+                        })
+                    }),
+                    1000);
+                // check that 1000 stx _was_ debited from SK_3
+                let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+                let addr_3 = to_addr(&sk_3).into();
+                assert_eq!(
+                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_account_stx_balance(&addr_3)
+                        })
+                    }),
+                    99000);
+            },
+            2 => {
+                assert_eq!(chain_tip_info.block_height, 3);
+                // Block #2 should have 4 txs -- coinbase + 2 transfers + 1 publish
+                assert_eq!(block.txs.len(), 4);
             },
             _ => {},
         }

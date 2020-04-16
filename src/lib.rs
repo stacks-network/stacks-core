@@ -38,6 +38,7 @@ extern crate regex;
 extern crate time;
 extern crate byteorder;
 extern crate mio;
+extern crate url;
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;
@@ -45,6 +46,9 @@ extern crate mio;
 #[cfg(test)]
 #[macro_use]
 extern crate assert_json_diff;
+
+#[cfg(test)]
+extern crate reqwest;
 
 #[macro_use]
 pub mod util;

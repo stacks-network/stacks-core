@@ -34,7 +34,7 @@ use rusqlite::NO_PARAMS;
 use rusqlite::Error as sqlite_error;
 use rusqlite::Connection;
 use rusqlite::Row;
-use rusqlite::types::ToSql;
+use rusqlite::types::{ToSql, ToSqlOutput, FromSql, FromSqlResult, FromSqlError, Value as RusqliteValue, ValueRef as RusqliteValueRef};
 
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::TrieHash;
@@ -74,7 +74,9 @@ pub enum Error {
     /// I/O error
     IOError(IOError),
     /// MARF index error
-    IndexError(MARFError)
+    IndexError(MARFError),
+    /// Other error
+    Other(String)
 }
 
 impl fmt::Display for Error {
@@ -93,6 +95,7 @@ impl fmt::Display for Error {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f),
             Error::IndexError(ref e) => fmt::Display::fmt(e, f),
+            Error::Other(ref s) => fmt::Display::fmt(s, f),
         }
     }
 }
@@ -113,7 +116,14 @@ impl error::Error for Error {
             Error::SqliteError(ref e) => Some(e),
             Error::IOError(ref e) => Some(e),
             Error::IndexError(ref e) => Some(e),
+            Error::Other(ref _s) => None
         }
+    }
+}
+
+impl From<sqlite_error> for Error {
+    fn from(e: sqlite_error) -> Error {
+        Error::SqliteError(e)
     }
 }
 
@@ -123,6 +133,47 @@ pub trait FromRow<T> {
 
 pub trait FromColumn<T> {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<T, Error>;
+}
+
+impl FromRow<u64> for u64 {
+    fn from_row<'a>(row: &'a Row) -> Result<u64, Error> {
+        let x : i64 = row.get(0);
+        if x < 0 {
+            return Err(Error::ParseError);
+        }
+        Ok(x as u64)
+    }
+}
+
+impl FromColumn<u64> for u64 {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<u64, Error> {
+        let x : i64 = row.get(column_name);
+        if x < 0 {
+            return Err(Error::ParseError);
+        }
+        Ok(x as u64)
+    }
+}
+
+impl FromRow<i64> for i64 {
+    fn from_row<'a>(row: &'a Row) -> Result<i64, Error> {
+        let x : i64 = row.get(0);
+        Ok(x)
+    }
+}
+
+impl FromColumn<i64> for i64 {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<i64, Error> {
+        let x : i64 = row.get(column_name);
+        Ok(x)
+    }
+}
+
+pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
+    if x > (i64::max_value() as u64) {
+        return Err(Error::ParseError);
+    }
+    Ok(x as i64)
 }
 
 macro_rules! impl_byte_array_from_column {
@@ -154,28 +205,47 @@ where
     P::Item: ToSql,
     T: FromRow<T>
 {
-    let mut stmt = conn.prepare(sql_query)
-        .map_err(Error::SqliteError)?;
+    let mut stmt = conn.prepare(sql_query)?;
+    let result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
 
-    let mut rows = stmt.query(sql_args)
-        .map_err(Error::SqliteError)?;
-
-    // gather 
-    let mut row_data = vec![];
-    while let Some(row_res) = rows.next() {
-        match row_res {
-            Ok(row) => {
-                let next_row = T::from_row(&row)?;
-                row_data.push(next_row);
-            },
-            Err(e) => {
-                return Err(Error::SqliteError(e));
-            }
-        };
-    }
-
-    Ok(row_data)
+    result.collect()
 }
+
+/// boilerplate code for querying a single row
+///   if more than 1 row is returned, excess rows are ignored.
+pub fn query_row<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Option<T>, Error>
+where
+    P: IntoIterator,
+    P::Item: ToSql,
+    T: FromRow<T>
+{
+    let query_result = conn.query_row_and_then(sql_query, sql_args, |row| T::from_row(row));
+    match query_result {
+        Ok(x) => Ok(Some(x)),
+        Err(Error::SqliteError(sqlite_error::QueryReturnedNoRows)) => Ok(None),
+        Err(e) => Err(e)
+    }
+}
+
+/// boilerplate code for querying a single row
+///   if more than 1 row is returned, panic
+pub fn query_expect_row<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Option<T>, Error>
+where
+    P: IntoIterator,
+    P::Item: ToSql,
+    T: FromRow<T>
+{
+    let mut stmt = conn.prepare(sql_query)?;
+    let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
+    let mut return_value = None;
+    if let Some(value) = result.next() {
+        return_value = Some(value?);
+    }
+    assert!(result.next().is_none(),
+            "FATAL: Multiple values returned for query that expected a single result:\n {}", sql_query);
+    Ok(return_value)
+}
+
 
 /// boilerplate code for querying a column out of a sequence of rows
 pub fn query_row_columns<T, P>(conn: &Connection, sql_query: &String, sql_args: P, column_name: &str) -> Result<Vec<T>, Error>

@@ -24,14 +24,14 @@ build_sdk () {
 fetch_extract_sdk() {
   wget -nc "https://github.com/blockstackpbc/osxcross/releases/download/v1/osxcross-e0a1718_xcode-v10.2.1.tar.xz"
   echo "Extracting osxcross package..."
-  tar --checkpoint=1000 -xf  "osxcross-e0a1718_xcode-v10.2.1.tar.xz"
+  tar --checkpoint=25000 -xf  "osxcross-e0a1718_xcode-v10.2.1.tar.xz" -C /tmp
 }
 
 fetch_extract_sdk
 rustup target add x86_64-apple-darwin
 
-PATH="$(pwd)/osxcross/bin:$PATH" \
-LD_LIBRARY_PATH="$(pwd)/osxcross/lib:$LD_LIBRARY_PATH" \
+PATH="/tmp/osxcross/bin:$PATH" \
+LD_LIBRARY_PATH="/tmp/osxcross/lib:$LD_LIBRARY_PATH" \
 CC=o64-clang \
 CXX=o64-clang++ \
 LIBZ_SYS_STATIC=1 \

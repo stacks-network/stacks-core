@@ -39,6 +39,8 @@ use vm::ast::parser::{lex, LexItem, CONTRACT_MIN_NAME_LENGTH, CONTRACT_MAX_NAME_
 
 pub use vm::representations::UrlString;
 
+use url;
+
 use vm::types::{
     Value,
     PrincipalData,
@@ -170,6 +172,10 @@ impl StacksMessageCodec for UrlString {
         if self.as_bytes().len() > CLARITY_MAX_STRING_LENGTH as usize {
             return Err(net_error::SerializeError("Failed to serialize URL string: too long".to_string()));
         }
+        
+        // must be a valid block URL
+        let _ = self.parse_to_block_url()?;
+
         write_next(fd, &(self.as_bytes().len() as u8))?;
         fd.write_all(self.as_bytes()).map_err(net_error::WriteError)?;
         Ok(())
@@ -189,6 +195,9 @@ impl StacksMessageCodec for UrlString {
 
         // must decode to a URL
         let url = UrlString::try_from(s).map_err(|e| net_error::DeserializeError(format!("Failed to parse URL string: {:?}", e)))?;
+        
+        // must be a valid block URL
+        let _ = url.parse_to_block_url()?;
         Ok(url)
     }
 }
@@ -270,6 +279,39 @@ impl StacksString {
     }
 }
 
+impl UrlString {
+    /// Determine that the UrlString parses to something that can be used to fetch blocks via HTTP(S). 
+    /// A block URL must be an HTTP(S) URL without a query or fragment, and without a login.
+    pub fn parse_to_block_url(&self) -> Result<url::Url, net_error> {
+        // even though this code uses from_utf8_unchecked() internally, we've already verified that
+        // the bytes in this string are all ASCII.
+        let url = url::Url::parse(&self.to_string())
+            .map_err(|e| net_error::DeserializeError(format!("Invalid URL: {:?}", &e)))?;
+
+        if url.scheme() != "http" && url.scheme() != "https" {
+            return Err(net_error::DeserializeError(format!("Invalid URL: invalid scheme '{}'", url.scheme())));
+        }
+
+        if url.username().len() > 0 || url.password().is_some() {
+            return Err(net_error::DeserializeError("Invalid URL: must not contain a username/password".to_string()));
+        }
+
+        if url.host_str().is_none() {
+            return Err(net_error::DeserializeError("Invalid URL: no host string".to_string()));
+        }
+
+        if url.query().is_some() {
+            return Err(net_error::DeserializeError("Invalid URL: query strings not supported for block URLs".to_string()));
+        }
+
+        if url.fragment().is_some() {
+            return Err(net_error::DeserializeError("Invalid URL: fragments are not supported for block URLs".to_string()));
+        }
+
+        Ok(url)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -277,6 +319,8 @@ mod test {
     use net::*;
     use net::codec::*;
     use net::codec::test::check_codec_and_corruption;
+
+    use std::error::Error;
 
     #[test]
     fn tx_stacks_strings_codec() {
@@ -329,6 +373,24 @@ mod test {
         s_payload.extend_from_slice(&s_body);
 
         assert!(ContractName::consensus_deserialize(&mut &s_payload[..]).is_err());
+    }
+
+    #[test]
+    fn test_url_parse() {
+        assert!(UrlString::try_from("asdfjkl;").unwrap().parse_to_block_url().unwrap_err().to_string().find("Invalid URL").is_some());
+        assert!(UrlString::try_from("http://").unwrap().parse_to_block_url().unwrap_err().to_string().find("Invalid URL").is_some());
+        assert!(UrlString::try_from("ftp://ftp.google.com").unwrap().parse_to_block_url().unwrap_err().to_string().find("invalid scheme").is_some());
+        assert!(UrlString::try_from("http://jude@google.com").unwrap().parse_to_block_url().unwrap_err().to_string().find("must not contain a username/password").is_some());
+        assert!(UrlString::try_from("http://jude:pw@google.com").unwrap().parse_to_block_url().unwrap_err().to_string().find("must not contain a username/password").is_some());
+        assert!(UrlString::try_from("http://www.google.com/foo/bar?baz=goo").unwrap().parse_to_block_url().unwrap_err().to_string().find("query strings not supported").is_some());
+        assert!(UrlString::try_from("http://www.google.com/foo/bar#baz").unwrap().parse_to_block_url().unwrap_err().to_string().find("fragments are not supported").is_some());
+
+        // don't need to cover the happy path too much, since the rust-url package already tests it.
+        let url = UrlString::try_from("http://127.0.0.1:1234/v2/info").unwrap().parse_to_block_url().unwrap();
+        assert_eq!(url.host_str(), Some("127.0.0.1"));
+        assert_eq!(url.port(), Some(1234));
+        assert_eq!(url.path(), "/v2/info");
+        assert_eq!(url.scheme(), "http");
     }
 }
 

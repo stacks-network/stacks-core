@@ -29,10 +29,11 @@ To unpack this definition:
 
 - [x] [SIP 001: Burn Election](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-001-burn-election.md)
 - [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-002-smart-contract-language.md)
+- [X] [SIP 003: Peer Network](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-003-peer-network.md)
 - [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-004-materialized-view.md)
 - [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-005-blocks-and-transactions.md)
-- [ ] [SIP 003: Peer Network](https://github.com/blockstack/stacks-blockchain/blob/master/sip/sip-003-peer-network.md) (Q1 2020)
-- [ ] SIP 006: Clarity Execution Cost Assessment (Q1 2020)
+- [ ] SIP 006: Clarity Execution Cost Assessment (Q2 2020)
+- [ ] SIP 007: Stacking Consensus (Q2 2020)
 
 Stacks improvement proposals (SIPs) are aimed at describing the implementation of the Stacks blockchain, as well as proposing improvements. They should contain concise technical specifications of features or standards and the rationale behind it. SIPs are intended to be the primary medium for proposing new features, for collecting community input on a system-wide issue, and for documenting design decisions.
 
@@ -42,9 +43,9 @@ See [SIP 000](https://github.com/blockstack/stacks-blockchain/blob/master/sip/si
 
 - [x] **Local Testnet** is a developer local setup, mono-node, assembling SIP 001, SIP 002, SIP 004 and SIP 005. With this version, developers can not only run Stacks 2.0 on their development machines, but also write, execute, and test smart contracts. See the instructions below for more details.
 
-- [ ] **Open Testnet** is the upcoming version of our public testnet, that we're anticipating will ship in Q1 2020. This testnet will ship with SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
+- [ ] **Open Testnet** is the upcoming version of our public testnet, that we're anticipating will ship in Q2 2020. This testnet will ship with SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
 
-- [ ] **Mainet** is the fully functional version, that we're intending to ship in Q2 2020.
+- [ ] **Mainet** is the fully functional version, that we're intending to ship in Q3 2020.
 
 ## Getting started
 
@@ -110,7 +111,7 @@ We will interact with the following simple contract `kv-store`. In our examples,
 (define-public (set-value (key (buff 32)) (value (buff 32)))
     (begin
         (map-set store {key: key} {value: value})
-        (ok 'true)))
+        (ok true)))
 ```
 
 We want to publish this contract on chain, then issue some transactions that interact with it by setting some keys and getting some values, so we can observe read and writes.
@@ -125,13 +126,17 @@ cargo run --bin blockstack-cli publish --help
 With the following arguments:
 
 ```bash
-cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 0 kv-store ./kv-store.clar --testnet
+cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 0 kv-store ./kv-store.clar --testnet
 ```
+
+The `500` is the transaction fee, denominated in microSTX.  Right now, the
+testnet requires one microSTX per byte minimum, and this transaction should be
+less than 500 bytes.
 
 This command will output the **binary format** of the transaction. In our case, we want to pipe this output and dump it to a file that will be used later in this tutorial.
 
 ```bash
-cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 0 kv-store ./kv-store.clar --testnet | xxd -r -p > tx1.bin
+cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 0 kv-store ./kv-store.clar --testnet | xxd -r -p > tx1.bin
 ```
 
 ### Run the testnet
@@ -139,16 +144,20 @@ cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d
 You can observe the state machine in action locally by running:
 
 ```bash
-cargo run --bin blockstack-core testnet
+cargo run --bin blockstack-core testnet ./Stacks.toml
 ```
 
-In your console, you should observe an output with a similar:
+`Stacks.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.  You can grant an address an initial account balance by adding the following entries:
 
-```bash
-*** mempool path: /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+```
+[[mstx_balance]]
+address = "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
+amount = 100000000
 ```
 
-The testnet is watching this directory, decoding and ingesting the transactions materialized as files. This mechanism is a shortcut for simulating a mempool. A RPC server will soon be integrated.
+The `address` field is the Stacks testnet address, and the `amount` field is the
+number of microSTX to grant to it in the genesis block.  The addresses of the
+private keys used in the tutorial below are already added.
 
 ### Publish your contract
 
@@ -157,7 +166,7 @@ Assuming that the testnet is running, we can publish our `kv-store` contract.
 In another terminal (or file explorer), you can move the `tx1.bin` generated earlier, to the mempool:
 
 ```bash
-cp ./tx1.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+curl -X POST -H "Content-Type: application/octet-stream" --data-binary @./tx1.bin http://localhost:9000/v2/transactions
 ```
 
 In the terminal window running the testnet, you can observe the state machine's reactions.
@@ -176,7 +185,7 @@ cargo run --bin blockstack-cli contract-call --help
 With the following arguments:
 
 ```bash
-cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 1 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store get-value -e \"foo\" --testnet | xxd -r -p > tx2.bin
+cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 1 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store get-value -e \"foo\" --testnet | xxd -r -p > tx2.bin
 ```
 
 `contract-call` generates and signs a contract-call transaction.
@@ -185,34 +194,40 @@ Note: the third argument `1` is a nonce, that must be increased monotonically wi
 We can submit the transaction by moving it to the mempool path:
 
 ```bash
-cp ./tx2.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+curl -X POST -H "Content-Type: application/octet-stream" --data-binary @./tx2.bin http://localhost:9000/v2/transactions
 ```
 
 Similarly, we can generate a transaction that would be setting the key `foo` to the value `bar`:
 
 ```bash
-cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 2 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store set-value -e \"foo\" -e \"bar\" --testnet | xxd -r -p > tx3.bin
+cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 2 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store set-value -e \"foo\" -e \"bar\" --testnet | xxd -r -p > tx3.bin
 ```
 
 And submit it by moving it to the mempool path:
 
 ```bash
-cp ./tx3.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+curl -X POST -H "Content-Type: application/octet-stream" --data-binary @./tx3.bin http://localhost:9000/v2/transactions
 ```
 
 Finally, we can issue a third transaction, reading the key `foo` again, for ensuring that the previous transaction has successfully updated the state machine:
 
 ```bash
-cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 0 3 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store get-value -e \"foo\" --testnet | xxd -r -p > tx4.bin
+cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 3 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store get-value -e \"foo\" --testnet | xxd -r -p > tx4.bin
 ```
 
 And submit this last transaction by moving it to the mempool path:
 
 ```bash
-cp ./tx4.bin /tmp/stacks-testnet-5fc814cf78dc0636/L1/mempool
+curl -X POST -H "Content-Type: application/octet-stream" --data-binary @./tx4.bin http://localhost:9000/v2/transactions
 ```
 
 Congratulations, you can now [write your own smart contracts with Clarity](https://docs.blockstack.org/core/smart/overview.html).
+
+## Platform support
+
+Officially supported platforms: `Linux 64-bit`, `MacOS 64-bit`, `Windows 64-bit`.
+
+Platforms with second-tier status _(builds are provided but not tested)_: `Linux ARMv7`, `Linux ARM64`.
 
 ## Community
 

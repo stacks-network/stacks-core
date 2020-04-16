@@ -13,9 +13,9 @@ use util::sleep_ms;
 /// taking turns in producing blocks.
 pub struct RunLoop {
     config: Config,
-    node: Node,
+    pub node: Node,
     new_burnchain_state_callback: Option<fn(u64, &BurnchainState)>,
-    new_tenure_callback: Option<fn(u64, &LeaderTenure)>,
+    new_tenure_callback: Option<fn(u64, &mut LeaderTenure)>,
     new_chain_state_callback: Option<fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>)>,
 }
 
@@ -89,6 +89,8 @@ impl RunLoop {
         // Update each node with this new block.
         self.node.process_burnchain_state(&state_1);
 
+        self.node.spawn_peer_server();
+
         // Bootstrap the chain: the first node (could be random) will start a new tenure,
         // using the sortition hash from block #1 for generating a VRF.
         let leader = &mut self.node;
@@ -97,7 +99,7 @@ impl RunLoop {
             None => panic!("Error while initiating genesis tenure")
         };
 
-        RunLoop::handle_new_tenure_cb(&self.new_tenure_callback, round_index, &first_tenure);
+        RunLoop::handle_new_tenure_cb(&self.new_tenure_callback, round_index, &mut first_tenure);
 
         // Run the tenure, keep the artifacts
         let artifacts_from_1st_tenure = match first_tenure.run() {
@@ -152,7 +154,7 @@ impl RunLoop {
             // Run the last initialized tenure
             let artifacts_from_tenure = match leader_tenure {
                 Some(mut tenure) => {
-                    RunLoop::handle_new_tenure_cb(&self.new_tenure_callback, round_index, &tenure);
+                    RunLoop::handle_new_tenure_cb(&self.new_tenure_callback, round_index, &mut tenure);
                     tenure.run()
                 },
                 None => None
@@ -221,7 +223,7 @@ impl RunLoop {
         self.new_burnchain_state_callback = Some(f);
     }
 
-    pub fn apply_on_new_tenures(&mut self, f: fn(u64, &LeaderTenure)) {
+    pub fn apply_on_new_tenures(&mut self, f: fn(u64, &mut LeaderTenure)) {
         self.new_tenure_callback = Some(f);
     }
     
@@ -229,15 +231,15 @@ impl RunLoop {
         self.new_chain_state_callback = Some(f);
     }
 
-    fn handle_new_tenure_cb(new_tenure_callback: &Option<fn(u64, &LeaderTenure)>,
-                            round_index: u64, tenure: &LeaderTenure) {
+    fn handle_new_tenure_cb(new_tenure_callback: &Option<fn(u64, &mut LeaderTenure)>,
+                            round_index: u64, tenure: &mut LeaderTenure) {
         info_yellow!("Node starting new tenure with VRF {:?}", tenure.vrf_seed);
         new_tenure_callback.map(|cb| cb(round_index, tenure));
     }
 
     fn handle_burnchain_state_cb(burn_callback: &Option<fn(u64, &BurnchainState)>,
                                  round_index: u64, state: &BurnchainState) {
-        info_yellow!("Burnchain block #{} ({}) was produced with sortition #{}", state.chain_tip.block_height, state.chain_tip.burn_header_hash, state.chain_tip.sortition_hash);
+        info_blue!("Burnchain block #{} ({}) was produced with sortition #{}", state.chain_tip.block_height, state.chain_tip.burn_header_hash, state.chain_tip.sortition_hash);
         burn_callback.map(|cb| cb(round_index, state));
     }
 

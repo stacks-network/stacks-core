@@ -6,6 +6,7 @@ use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, StandardPrincipalData, QualifiedContractIdentifier, NONE};
 
+use chainstate::stacks::index::proofs::TrieMerkleProof;
 use chainstate::stacks::db::{StacksHeaderInfo, MinerPaymentSchedule};
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -23,6 +24,8 @@ use chainstate::stacks::StacksAddress;
 use vm::costs::CostOverflowingMath;
 
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
+
+pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
 #[repr(u8)]
 pub enum StoreType {
@@ -146,6 +149,10 @@ impl <'a> ClarityDatabase <'a> {
         }
     }
 
+    pub fn new_with_rollback_wrapper(store: RollbackWrapper<'a>, headers_db: &'a dyn HeadersDB) -> ClarityDatabase<'a> {
+        ClarityDatabase { store, headers_db }
+    }
+
     pub fn initialize(&mut self) {
     }
 
@@ -177,6 +184,10 @@ impl <'a> ClarityDatabase <'a> {
         self.store.get_value(key, expected)
     }
 
+    pub fn get_with_proof <T> (&mut self, key: &str) -> Option<(T, TrieMerkleProof)> where T: ClarityDeserializable<T> {
+        self.store.get_with_proof(key)
+    }
+
     pub fn make_key_for_trip(contract_identifier: &QualifiedContractIdentifier, data: StoreType, var_name: &str) -> String {
         format!("vm::{}::{}::{}", contract_identifier, data as u8, var_name)
     }
@@ -196,7 +207,18 @@ impl <'a> ClarityDatabase <'a> {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
         self.insert_metadata(contract_identifier, &key,
                              &(contract_content.len() as u64));
+
+        // insert contract-src
+        if STORE_CONTRACT_SRC_INTERFACE {
+            let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
+            self.insert_metadata(contract_identifier, &key, &contract_content.to_string());
+        }
         Ok(())
+    }
+
+    pub fn get_contract_src(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<String> {
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
+        self.fetch_metadata(contract_identifier, &key).ok().flatten()
     }
 
     fn insert_metadata <T: ClaritySerializable> (&mut self, contract_identifier: &QualifiedContractIdentifier, key: &str, data: &T) {
@@ -242,11 +264,20 @@ impl <'a> ClarityDatabase <'a> {
         self.insert_metadata(contract_identifier, &key, &contract);
     }
 
+    pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
+        self.store.has_metadata_entry(contract_identifier, &key)
+    }
+
     pub fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Contract> {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
         let data = self.fetch_metadata(contract_identifier, &key)?
             .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
         Ok(data)
+    }
+
+    pub fn destroy(self) -> RollbackWrapper<'a> {
+        self.store
     }
 }
 
@@ -369,13 +400,17 @@ impl <'a> ClarityDatabase <'a> {
             .ok_or(CheckErrors::NoSuchMap(map_name.to_string()).into())
     }
 
+    pub fn make_key_for_data_map_entry(contract_identifier: &QualifiedContractIdentifier, map_name: &str, key_value: &Value) -> String {
+        ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize())
+    }
+
     pub fn fetch_entry(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str, key_value: &Value) -> Result<Value> {
         let map_descriptor = self.load_map(contract_identifier, map_name)?;
         if !map_descriptor.key_type.admits(key_value) {
             return Err(CheckErrors::TypeValueError(map_descriptor.key_type, (*key_value).clone()).into())
         }
 
-        let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
+        let key = ClarityDatabase::make_key_for_data_map_entry(contract_identifier, map_name, key_value);
 
         let stored_type = TypeSignature::new_option(map_descriptor.value_type)?;
         let result = self.get_value(&key, &stored_type);

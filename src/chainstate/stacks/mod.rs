@@ -58,6 +58,8 @@ use chainstate::stacks::index::Error as marf_error;
 use chainstate::stacks::db::StacksHeaderInfo;
 use chainstate::stacks::db::accounts::MinerReward;
 
+use chainstate::stacks::db::blocks::MemPoolRejection;
+
 use net::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
@@ -86,7 +88,8 @@ pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21;        // N
 pub const STACKS_BLOCK_VERSION: u8 = 0;
 pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 
-pub const MAX_TRANSACTION_LEN: u32 = MAX_MESSAGE_LEN;
+pub const MAX_TRANSACTION_LEN: u32 = MAX_MESSAGE_LEN;       // TODO: shrink
+pub const MAX_BLOCK_LEN: u32 = MAX_MESSAGE_LEN;             // TODO: shrink
 
 impl From<StacksAddress> for StandardPrincipalData {
     fn from(addr: StacksAddress) -> StandardPrincipalData {
@@ -134,7 +137,8 @@ pub enum Error {
     NetError(net_error),
     MARFError(marf_error),
     ReadError(io::Error),
-    WriteError(io::Error)
+    WriteError(io::Error),
+    MemPoolError(String),
 }
 
 impl fmt::Display for Error {
@@ -156,6 +160,7 @@ impl fmt::Display for Error {
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
             Error::ReadError(ref e) => fmt::Display::fmt(e, f),
             Error::WriteError(ref e) => fmt::Display::fmt(e, f),
+            Error::MemPoolError(ref s) => fmt::Display::fmt(s, f),
         }
     }
 }
@@ -179,7 +184,14 @@ impl error::Error for Error {
             Error::MARFError(ref e) => Some(e),
             Error::ReadError(ref e) => Some(e),
             Error::WriteError(ref e) => Some(e),
+            Error::MemPoolError(ref _s) => None,
         }
+    }
+}
+
+impl From<db_error> for Error {
+    fn from(e: db_error) -> Error {
+        Error::DBError(e)
     }
 }
 
@@ -441,7 +453,7 @@ pub const TOKEN_TRANSFER_MEMO_LENGTH : usize = 34;      // same as it is in Stac
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionPayload {
-    TokenTransfer(StacksAddress, u64, TokenTransferMemo),
+    TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
     SmartContract(TransactionSmartContract),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),       // the previous epoch leader sent two microblocks with the same sequence, and this is proof
@@ -624,14 +636,14 @@ pub struct StacksTransactionSigner {
 }
 
 /// How much work has gone into this chain so far?
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StacksWorkScore {
     pub burn: u64,      // number of burn tokens destroyed
     pub work: u64       // in Stacks, "work" == the length of the fork
 }
 
 /// The header for an on-chain-anchored Stacks block
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StacksBlockHeader {
     pub version: u8,
     pub total_work: StacksWorkScore,            // NOTE: this is the work done on the chain tip this block builds on (i.e. take this from the parent)
@@ -871,8 +883,14 @@ pub mod test {
             ]);
         }
 
+        let stx_address = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
         let tx_payloads = vec![
-            TransactionPayload::TokenTransfer(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, 123, TokenTransferMemo([0u8; 34])),
+            TransactionPayload::TokenTransfer(
+                stx_address.into(), 123, TokenTransferMemo([0u8; 34])),
+            TransactionPayload::TokenTransfer(
+                PrincipalData::from(QualifiedContractIdentifier {
+                    issuer: stx_address.into(),
+                    name: "hello-contract-name".into() }), 123, TokenTransferMemo([0u8; 34])),
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress { version: 4, bytes: Hash160([0xfc; 20]) },
                 contract_name: ContractName::try_from("hello-contract-name").unwrap(),

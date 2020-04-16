@@ -31,6 +31,7 @@ use chainstate::burn::BlockHeaderHash;
 use net::StacksMessageCodec;
 use net::Error as net_error;
 use net::codec::{read_next, write_next};
+use vm::clarity::ClarityConnection;
 
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
@@ -102,6 +103,7 @@ impl StacksBlockBuilder {
     }
 
     /// Append a transaction if doing so won't exceed the epoch data size.
+    /// Errors out if we exceed budget (TODO), or the transaction is invalid.
     pub fn try_mine_tx<'a>(&mut self, clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(), Error> {
         let mut tx_bytes = vec![];
         tx.consensus_serialize(&mut tx_bytes).map_err(Error::NetError)?;
@@ -136,7 +138,7 @@ impl StacksBlockBuilder {
         self.bytes_so_far += tx_len;
         Ok(())
     }
-
+    
     /// Append a transaction if doing so won't exceed the epoch data size.
     /// Does not check for errors
     #[cfg(test)]
@@ -169,7 +171,7 @@ impl StacksBlockBuilder {
 
         self.bytes_so_far += tx_len;
         Ok(())
-    }    
+    }
 
     /// Finish building the anchored block.
     /// TODO: expand to deny mining a block whose anchored static checks fail (and allow the caller
@@ -248,10 +250,6 @@ impl StacksBlockBuilder {
         Ok(microblock)
     }
 
-    pub fn will_admit_mempool_tx<R: Read>(&self, chainstate: &mut StacksChainState, fd: &mut R) -> Result<StacksTransaction, MemPoolRejection> {
-        chainstate.will_admit_mempool_tx(&self.chain_tip.burn_header_hash, &self.header.parent_block, fd)
-    }
-    
     /// Begin mining an epoch's transactions.
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
     /// transaction can't query information about the _current_ block (i.e. information that is not
@@ -572,7 +570,8 @@ pub mod test {
         pub anchored_blocks: Vec<StacksBlock>,
         pub microblocks: Vec<Vec<StacksMicroblock>>,
         pub commit_ops: HashMap<BlockHeaderHash, usize>,
-        pub test_name: String
+        pub test_name: String,
+        forkable: bool
     }
 
     impl TestStacksNode {
@@ -585,7 +584,8 @@ pub mod test {
                 anchored_blocks: vec![],
                 microblocks: vec![],
                 commit_ops: HashMap::new(),
-                test_name: test_name.to_string()
+                test_name: test_name.to_string(),
+                forkable: true
             }
         }
         
@@ -598,11 +598,30 @@ pub mod test {
                 anchored_blocks: vec![],
                 microblocks: vec![],
                 commit_ops: HashMap::new(),
-                test_name: test_name.to_string()
+                test_name: test_name.to_string(),
+                forkable: true,
             }
         }
 
+        pub fn from_chainstate(chainstate: StacksChainState) -> TestStacksNode {
+            TestStacksNode {
+                chainstate: chainstate,
+                prev_keys: vec![],
+                key_ops: HashMap::new(),
+                anchored_blocks: vec![],
+                microblocks: vec![],
+                commit_ops: HashMap::new(),
+                test_name: "".to_string(),
+                forkable: false
+            }
+        }
+
+        // NOTE: can't do this if instatniated via from_chainstate()
         pub fn fork(&self, new_test_name: &str) -> TestStacksNode {
+            if !self.forkable {
+                panic!("Tried to fork an unforkable chainstate instance");
+            }
+            
             match fs::metadata(&chainstate_path(new_test_name)) {
                 Ok(_) => {
                     fs::remove_dir_all(&chainstate_path(new_test_name)).unwrap();
@@ -619,13 +638,14 @@ pub mod test {
                 anchored_blocks: self.anchored_blocks.clone(),
                 microblocks: self.microblocks.clone(),
                 commit_ops: self.commit_ops.clone(),
-                test_name: new_test_name.to_string()
+                test_name: new_test_name.to_string(),
+                forkable: true
             }
         }
 
-        pub fn next_burn_block(burn_node: &mut TestBurnchainNode, fork: &mut TestBurnchainFork) -> TestBurnchainBlock {
+        pub fn next_burn_block(burndb: &mut BurnDB, fork: &mut TestBurnchainFork) -> TestBurnchainBlock {
             let burn_block = {
-                let mut tx = burn_node.burndb.tx_begin().unwrap();
+                let mut tx = burndb.tx_begin().unwrap();
                 fork.next_block(&mut tx)
             };
             burn_block
@@ -638,9 +658,14 @@ pub mod test {
             key_register_op
         }
 
-        pub fn add_block_commit(burn_node: &mut TestBurnchainNode, burn_block: &mut TestBurnchainBlock, miner: &mut TestMiner, block_hash: &BlockHeaderHash, burn_amount: u64, key_op: &LeaderKeyRegisterOp, parent_block_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp {
+        pub fn add_key_register_op(&mut self, op: &LeaderKeyRegisterOp) -> () {
+            self.prev_keys.push(op.clone());
+            self.key_ops.insert(op.public_key.clone(), self.prev_keys.len()-1);
+        }
+
+        pub fn add_block_commit(burndb: &mut BurnDB, burn_block: &mut TestBurnchainBlock, miner: &mut TestMiner, block_hash: &BlockHeaderHash, burn_amount: u64, key_op: &LeaderKeyRegisterOp, parent_block_snapshot: Option<&BlockSnapshot>) -> LeaderBlockCommitOp {
             let block_commit_op = {
-                let mut tx = burn_node.burndb.tx_begin().unwrap();
+                let mut tx = burndb.tx_begin().unwrap();
                 let parent_snapshot = burn_block.parent_snapshot.clone();
                 burn_block.add_leader_block_commit(&mut tx, miner, block_hash, burn_amount, key_op, Some(&parent_snapshot), parent_block_snapshot)
             };
@@ -662,7 +687,7 @@ pub mod test {
                 }
             }
         }
-
+        
         pub fn get_last_accepted_anchored_block(&self, miner: &TestMiner) -> Option<StacksBlock> {
             for bc in miner.block_commits.iter().rev() {
                 if StacksChainState::has_stored_block(&self.chainstate.blocks_db, &self.chainstate.blocks_path, &bc.burn_header_hash, &bc.block_header_hash).unwrap() &&
@@ -678,7 +703,7 @@ pub mod test {
                 }
             }
             return None;
-        }        
+        }
 
         pub fn get_microblock_stream(&self, miner: &TestMiner, block_hash: &BlockHeaderHash) -> Option<Vec<StacksMicroblock>> {
             match self.commit_ops.get(block_hash) {
@@ -718,8 +743,9 @@ pub mod test {
                     (miner_participant_principal, Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(addr.clone()))))])
                 .expect("FATAL: failed to construct miner principal key"));
 
-            let miner_status = clarity_tx.connection().with_clarity_db_readonly(|ref mut db| {
-                let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)?;
+            let miner_status = clarity_tx.with_clarity_db_readonly(|db| {
+                let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)
+                    .expect("FATAL: Clarity DB Error");
                 let miner_status = match miner_status_opt {
                     Value::Optional(ref optional_data) => {
                         match optional_data.data {
@@ -755,20 +781,20 @@ pub mod test {
                     }
                 };
             
-                Ok(miner_status)
-            }).unwrap();
+                miner_status
+            });
 
             miner_status
         }
 
-        fn mine_stacks_block<F>(&mut self,
-                                burn_node: &mut TestBurnchainNode,
-                                miner: &mut TestMiner, 
-                                burn_block: &mut TestBurnchainBlock, 
-                                miner_key: &LeaderKeyRegisterOp, 
-                                parent_stacks_block: Option<&StacksBlock>, 
-                                burn_amount: u64,
-                                block_assembler: F) -> (StacksBlock, Vec<StacksMicroblock>, LeaderBlockCommitOp) 
+        pub fn mine_stacks_block<F>(&mut self,
+                                    burndb: &mut BurnDB,
+                                    miner: &mut TestMiner, 
+                                    burn_block: &mut TestBurnchainBlock, 
+                                    miner_key: &LeaderKeyRegisterOp, 
+                                    parent_stacks_block: Option<&StacksBlock>, 
+                                    burn_amount: u64,
+                                    block_assembler: F) -> (StacksBlock, Vec<StacksMicroblock>, LeaderBlockCommitOp) 
         where
             F: FnOnce(StacksBlockBuilder, &mut TestMiner) -> (StacksBlock, Vec<StacksMicroblock>)
         {
@@ -784,7 +810,7 @@ pub mod test {
                 Some(parent_stacks_block) => {
                     // building off an existing stacks block
                     let parent_stacks_block_snapshot = {
-                        let mut tx = burn_node.burndb.tx_begin().unwrap();
+                        let mut tx = burndb.tx_begin().unwrap();
                         let parent_stacks_block_snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &burn_block.parent_snapshot.burn_header_hash, &parent_stacks_block.block_hash()).unwrap().unwrap();
                         let burned_last = BurnDB::get_block_burn_amount(&mut tx, burn_block.parent_snapshot.block_height, &burn_block.parent_snapshot.burn_header_hash).unwrap();
                         parent_stacks_block_snapshot
@@ -812,7 +838,9 @@ pub mod test {
             test_debug!("Miner {}: Commit to stacks block {} (work {},{})", miner.id, stacks_block.block_hash(), stacks_block.header.total_work.burn, stacks_block.header.total_work.work);
 
             // send block commit for this block
-            let block_commit_op = TestStacksNode::add_block_commit(burn_node, burn_block, miner, &stacks_block.block_hash(), burn_amount, miner_key, parent_block_snapshot_opt.as_ref());
+            let block_commit_op = TestStacksNode::add_block_commit(burndb, burn_block, miner, &stacks_block.block_hash(), burn_amount, miner_key, parent_block_snapshot_opt.as_ref());
+            
+            test_debug!("Miner {}: Block commit transaction builds on {},{} (parent snapshot is {:?})", miner.id, block_commit_op.parent_block_ptr, block_commit_op.parent_vtxindex, &parent_block_snapshot_opt);
             self.commit_ops.insert(block_commit_op.block_header_hash.clone(), self.anchored_blocks.len()-1);
 
             (stacks_block, microblocks, block_commit_op)
@@ -904,7 +932,7 @@ pub mod test {
         }
     }
 
-    fn get_last_microblock_header(node: &TestStacksNode, miner: &TestMiner, parent_block_opt: Option<&StacksBlock>) -> Option<StacksMicroblockHeader> {
+    pub fn get_last_microblock_header(node: &TestStacksNode, miner: &TestMiner, parent_block_opt: Option<&StacksBlock>) -> Option<StacksMicroblockHeader> {
         let last_microblocks_opt = match parent_block_opt {
             Some(ref block) => node.get_microblock_stream(&miner, &block.block_hash()),
             None => None
@@ -975,7 +1003,7 @@ pub mod test {
         let first_snapshot = BurnDB::get_first_block_snapshot(burn_node.burndb.conn()).unwrap();
         let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         
-        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node, &mut fork);
+        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.burndb, &mut fork);
 
         // first, register a VRF key
         node.add_key_register(&mut first_burn_block, &mut miner);
@@ -1001,7 +1029,7 @@ pub mod test {
             // next key
             node.add_key_register(&mut burn_block, &mut miner);
 
-            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut burn_node, &mut miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1028,7 +1056,7 @@ pub mod test {
             let tip_info_list = node.chainstate.process_blocks(1).unwrap();
 
             let expect_success = check_oracle(&stacks_block, &microblocks);
-            if expect_success {            
+            if expect_success {
                 // processed _this_ block
                 assert_eq!(tip_info_list.len(), 1);
                 let (chain_tip_opt, poison_opt) = tip_info_list[0].clone();
@@ -1071,7 +1099,7 @@ pub mod test {
         let first_snapshot = BurnDB::get_first_block_snapshot(burn_node.burndb.conn()).unwrap();
         let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         
-        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node, &mut fork);
+        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.burndb, &mut fork);
 
         // first, register a VRF key
         node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -1098,7 +1126,7 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
 
-            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut burn_node, &mut miner_1, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block, &last_key, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1157,7 +1185,7 @@ pub mod test {
             let last_key_2 = node.get_last_key(&miner_2);
 
             let last_winning_snapshot = {
-                let first_block_height= burn_node.burndb.first_block_height;
+                let first_block_height = burn_node.burndb.first_block_height;
                 let mut tx = burn_node.burndb.tx_begin().unwrap();
                 let chain_tip = fork.get_tip(&mut tx);
                 BurnDB::get_last_snapshot_with_sortition(&mut tx, first_block_height + (i as u64) + 1, &chain_tip.burn_header_hash).expect("FATAL: no prior snapshot with sortition")
@@ -1174,7 +1202,7 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
             
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1189,7 +1217,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1282,7 +1310,7 @@ pub mod test {
         let first_snapshot = BurnDB::get_first_block_snapshot(burn_node.burndb.conn()).unwrap();
         let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         
-        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node, &mut fork);
+        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.burndb, &mut fork);
 
         // first, register a VRF key
         node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -1331,7 +1359,7 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
             
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1346,7 +1374,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1469,7 +1497,7 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node_2.add_key_register(&mut burn_block, &mut miner_2);
             
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Miner {}: Produce anchored stacks block in stacks fork 1 via {}", miner.id, miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1484,7 +1512,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node_2.mine_stacks_block(&mut burn_node, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node_2.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Miner {}: Produce anchored stacks block in stacks fork 2 via {}", miner.id, miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name_2);
@@ -1582,7 +1610,7 @@ pub mod test {
         let first_snapshot = BurnDB::get_first_block_snapshot(burn_node.burndb.conn()).unwrap();
         let mut fork_1 = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         
-        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node, &mut fork_1);
+        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.burndb, &mut fork_1);
 
         // first, register a VRF key
         node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -1631,7 +1659,7 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
 
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block from miner 1");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1646,7 +1674,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block from miner 2");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1748,7 +1776,7 @@ pub mod test {
             let last_microblock_header_opt_1 = get_last_microblock_header(&node, &miner_1, parent_block_opt_1.as_ref());
             let last_microblock_header_opt_2 = get_last_microblock_header(&node, &miner_2, parent_block_opt_2.as_ref());
 
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node, &mut miner_1, &mut burn_block_1, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block_1, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1763,7 +1791,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node, &mut miner_2, &mut burn_block_2, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block_2, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1862,7 +1890,7 @@ pub mod test {
         let first_snapshot = BurnDB::get_first_block_snapshot(burn_node.burndb.conn()).unwrap();
         let mut fork_1 = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.burn_header_hash, &first_snapshot.index_root, 0);
         
-        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node, &mut fork_1);
+        let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.burndb, &mut fork_1);
 
         // first, register a VRF key
         node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -1910,7 +1938,7 @@ pub mod test {
             node.add_key_register(&mut burn_block, &mut miner_1);
             node.add_key_register(&mut burn_block, &mut miner_2);
 
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -1925,7 +1953,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block");
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -2033,7 +2061,7 @@ pub mod test {
             let last_microblock_header_opt_1 = get_last_microblock_header(&node, &miner_1, parent_block_opt_1.as_ref());
             let last_microblock_header_opt_2 = get_last_microblock_header(&node, &miner_2, parent_block_opt_2.as_ref());
 
-            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node, &mut miner_1, &mut burn_block_1, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_1, &mut burn_block_1, &last_key_1, parent_block_opt_1.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 1 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -2048,7 +2076,7 @@ pub mod test {
                 (stacks_block, microblocks)
             });
             
-            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node, &mut miner_2, &mut burn_block_2, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
+            let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(&mut burn_node.burndb, &mut miner_2, &mut burn_block_2, &last_key_2, parent_block_opt_2.as_ref(), 1000, |mut builder, ref mut miner| {
                 test_debug!("Produce anchored stacks block in stacks fork 2 via {}", miner.origin_address().unwrap().to_string());
 
                 let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
@@ -2324,7 +2352,7 @@ pub mod test {
         }
     }
 
-    fn mine_coinbase<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize) -> StacksTransaction {
+    pub fn mine_coinbase<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize) -> StacksTransaction {
         // make a coinbase for this miner
         let mut tx_coinbase = StacksTransaction::new(TransactionVersion::Testnet, miner.as_transaction_auth().unwrap(), TransactionPayload::Coinbase(CoinbasePayload([(burnchain_height % 256) as u8; 32])));
         tx_coinbase.chain_id = 0x80000000;
@@ -2337,7 +2365,7 @@ pub mod test {
         tx_coinbase_signed
     }
 
-    fn mine_empty_anchored_block<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
+    pub fn mine_empty_anchored_block<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
         let miner_account = StacksChainState::get_account(clarity_tx, &miner.origin_address().unwrap().to_account_principal());
         miner.set_nonce(miner_account.nonce);
 
@@ -2352,7 +2380,7 @@ pub mod test {
         (stacks_block, vec![])
     }
     
-    fn make_smart_contract<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize) -> StacksTransaction {
+    pub fn make_smart_contract<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize) -> StacksTransaction {
         // make a smart contract
         let contract = "
         (define-data-var bar int 0)
@@ -2378,7 +2406,7 @@ pub mod test {
     }
 
     /// paired with make_smart_contract
-    fn make_contract_call<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, arg1: i128, arg2: i128) -> StacksTransaction {
+    pub fn make_contract_call<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, arg1: i128, arg2: i128) -> StacksTransaction {
         let addr = miner.origin_address().unwrap();
         let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
                                                           miner.as_transaction_auth().unwrap(),
@@ -2393,10 +2421,55 @@ pub mod test {
         let tx_contract_call_signed = tx_signer.get_tx().unwrap();
         tx_contract_call_signed
     }
+
+    /// make a token transfer
+    pub fn make_token_transfer<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, nonce: Option<u64>, recipient: &StacksAddress, amount: u64, memo: &TokenTransferMemo) -> StacksTransaction {
+        let addr = miner.origin_address().unwrap();
+        let mut tx_stx_transfer = StacksTransaction::new(TransactionVersion::Testnet,
+                                                          miner.as_transaction_auth().unwrap(),
+                                                          TransactionPayload::TokenTransfer((*recipient).clone().into(), amount, (*memo).clone()));
+        
+        tx_stx_transfer.chain_id = 0x80000000;
+        tx_stx_transfer.auth.set_origin_nonce(nonce.unwrap_or(miner.get_nonce()));
+        tx_stx_transfer.set_fee_rate(0);
+        
+        let mut tx_signer = StacksTransactionSigner::new(&tx_stx_transfer);
+        miner.sign_as_origin(&mut tx_signer);
+        let tx_stx_transfer_signed = tx_signer.get_tx().unwrap();
+        tx_stx_transfer_signed
+    }
+
+    /// Mine invalid token transfers
+    pub fn mine_invalid_token_transfers_block<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
+        let miner_account = StacksChainState::get_account(clarity_tx, &miner.origin_address().unwrap().to_account_principal());
+        miner.set_nonce(miner_account.nonce);
+        
+        // make a coinbase for this miner
+        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
+        builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
+
+        let recipient = StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20]));
+        let tx1 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(1), &recipient, 11111, &TokenTransferMemo([1u8; 34]));
+        builder.force_mine_tx(clarity_tx, &tx1).unwrap();
+
+        let tx2 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(2), &recipient, 22222, &TokenTransferMemo([2u8; 34]));
+        builder.force_mine_tx(clarity_tx, &tx2).unwrap();
+        
+        let tx3 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(1), &recipient, 33333, &TokenTransferMemo([3u8; 34]));
+        builder.force_mine_tx(clarity_tx, &tx3).unwrap();
+
+        let tx4 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(2), &recipient, 44444, &TokenTransferMemo([4u8; 34]));
+        builder.force_mine_tx(clarity_tx, &tx4).unwrap();
+
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
+
+        test_debug!("Produce anchored stacks block {} with invalid token transfers at burnchain height {} stacks height {}", stacks_block.block_hash(), burnchain_height, stacks_block.header.total_work.work);
+        (stacks_block, vec![])
+    }
     
     /// mine a smart contract in an anchored block, and mine a contract-call in the same anchored
     /// block
-    fn mine_smart_contract_contract_call_block<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
+    pub fn mine_smart_contract_contract_call_block<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
         let miner_account = StacksChainState::get_account(clarity_tx, &miner.origin_address().unwrap().to_account_principal());
         miner.set_nonce(miner_account.nonce);
 
@@ -2421,7 +2494,7 @@ pub mod test {
     }
     
     /// mine a smart contract in an anchored block, and mine some contract-calls to it in a microblock tail
-    fn mine_smart_contract_block_contract_call_microblock<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
+    pub fn mine_smart_contract_block_contract_call_microblock<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
         if burnchain_height > 0 && builder.chain_tip.anchored_header.total_work.work > 0 {
             // find previous contract in this fork
             for i in (0..burnchain_height).rev() {
@@ -2470,7 +2543,7 @@ pub mod test {
     /// mine a smart contract in an anchored block, and mine a contract-call to it in a microblock.
     /// Make it so all microblocks throw a runtime exception, but confirm that they are still mined
     /// anyway.
-    fn mine_smart_contract_block_contract_call_microblock_exception<'a>(clarity_tx: &mut ClarityTx<'a>, 
+    pub fn mine_smart_contract_block_contract_call_microblock_exception<'a>(clarity_tx: &mut ClarityTx<'a>, 
                                                                         builder: &mut StacksBlockBuilder, 
                                                                         miner: &mut TestMiner, 
                                                                         burnchain_height: usize, 
@@ -2519,51 +2592,6 @@ pub mod test {
                     stacks_block.block_hash(), microblocks.len(), burnchain_height, stacks_block.header.total_work.work);
 
         (stacks_block, microblocks)
-    }
-
-    /// make a token transfer
-    pub fn make_token_transfer<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, nonce: Option<u64>, recipient: &StacksAddress, amount: u64, memo: &TokenTransferMemo) -> StacksTransaction {
-        let addr = miner.origin_address().unwrap();
-        let mut tx_stx_transfer = StacksTransaction::new(TransactionVersion::Testnet,
-                                                          miner.as_transaction_auth().unwrap(),
-                                                          TransactionPayload::TokenTransfer((*recipient).clone(), amount, (*memo).clone()));
-        
-        tx_stx_transfer.chain_id = 0x80000000;
-        tx_stx_transfer.auth.set_origin_nonce(nonce.unwrap_or(miner.get_nonce()));
-        tx_stx_transfer.set_fee_rate(0);
-        
-        let mut tx_signer = StacksTransactionSigner::new(&tx_stx_transfer);
-        miner.sign_as_origin(&mut tx_signer);
-        let tx_stx_transfer_signed = tx_signer.get_tx().unwrap();
-        tx_stx_transfer_signed
-    }    
-
-    /// Mine invalid token transfers
-    pub fn mine_invalid_token_transfers_block<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
-        let miner_account = StacksChainState::get_account(clarity_tx, &miner.origin_address().unwrap().to_account_principal());
-        miner.set_nonce(miner_account.nonce);
-        
-        // make a coinbase for this miner
-        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
-        builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
-
-        let recipient = StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20]));
-        let tx1 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(1), &recipient, 11111, &TokenTransferMemo([1u8; 34]));
-        builder.force_mine_tx(clarity_tx, &tx1).unwrap();
-
-        let tx2 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(2), &recipient, 22222, &TokenTransferMemo([2u8; 34]));
-        builder.force_mine_tx(clarity_tx, &tx2).unwrap();
-        
-        let tx3 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(1), &recipient, 33333, &TokenTransferMemo([3u8; 34]));
-        builder.force_mine_tx(clarity_tx, &tx3).unwrap();
-
-        let tx4 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(2), &recipient, 44444, &TokenTransferMemo([4u8; 34]));
-        builder.force_mine_tx(clarity_tx, &tx4).unwrap();
-
-        let stacks_block = builder.mine_anchored_block(clarity_tx);
-
-        test_debug!("Produce anchored stacks block {} with invalid token transfers at burnchain height {} stacks height {}", stacks_block.block_hash(), burnchain_height, stacks_block.header.total_work.work);
-        (stacks_block, vec![])
     }
 
     /*

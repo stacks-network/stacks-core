@@ -25,7 +25,7 @@ use std::io::{
     Write,
     Seek,
     SeekFrom,
-    Cursor
+    Cursor,
 };
 
 use std::char::from_digit;
@@ -92,7 +92,8 @@ use chainstate::stacks::index::trie::{
 
 use chainstate::stacks::index::Error as Error;
 
-use util::log;
+use net::{StacksMessageCodec, codec::read_next};
+use util::{log, hash::to_hex};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProofTriePtr {
@@ -163,6 +164,11 @@ pub enum TrieMerkleProofType {
     Shunt((i64, Vec<TrieHash>))
 }
 
+
+define_u8_enum!( TrieMerkleProofTypeIndicator {
+    Node4, Node16, Node48, Node256, Leaf, Shunt,
+});
+
 pub fn hashes_fmt(hashes: &[TrieHash]) -> String {
     let mut strs = vec![];
     if hashes.len() < 48 {
@@ -219,7 +225,7 @@ impl PartialEq for TrieMerkleProofType {
 }
 
 #[derive(Debug)]
-pub struct TrieMerkleProof(Vec<TrieMerkleProofType>);
+pub struct TrieMerkleProof(pub Vec<TrieMerkleProofType>);
 
 impl Deref for TrieMerkleProof {
     type Target = Vec<TrieMerkleProofType>;
@@ -228,7 +234,129 @@ impl Deref for TrieMerkleProof {
     }
 }
 
+fn serialize_id_hash_node<W: Write>(fd: &mut W, id: &u8, node: &ProofTrieNode, hashes: &[TrieHash]) -> Result<(), ::net::Error> {
+    id.consensus_serialize(fd)?;
+    node.consensus_serialize(fd)?;
+    for hash in hashes.iter() {
+        hash.consensus_serialize(fd)?;
+    }
+    Ok(())
+}
+
+macro_rules! deserialize_id_hash_node {
+    ($fd:expr, $HashesArray:expr) => {
+        {
+            let id = read_next($fd)?;
+            let node = read_next($fd)?;
+            let mut array = $HashesArray;
+            for i in 0..array.len() {
+                array[i] = read_next($fd)?;
+            }
+            (id, node, array)
+        }
+    }
+}
+
+impl StacksMessageCodec for ProofTriePtr {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+        self.id.consensus_serialize(fd)?;
+        self.chr.consensus_serialize(fd)?;
+        self.back_block.consensus_serialize(fd)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ProofTriePtr, ::net::Error> {
+        let id = read_next(fd)?;
+        let chr = read_next(fd)?;
+        let back_block = read_next(fd)?;
+
+        Ok(ProofTriePtr { id, chr, back_block })
+    }
+}
+
+impl StacksMessageCodec for ProofTrieNode {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+        self.id.consensus_serialize(fd)?;
+        self.path.consensus_serialize(fd)?;
+        self.ptrs.consensus_serialize(fd)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ProofTrieNode, ::net::Error> {
+        let id = read_next(fd)?;
+        let path = read_next(fd)?;
+        let ptrs = read_next(fd)?;
+
+        Ok(ProofTrieNode { id, path, ptrs })
+    }
+}
+
+impl StacksMessageCodec for TrieMerkleProofType {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), ::net::Error> {
+        let type_byte = match self {
+            TrieMerkleProofType::Node4(_) => TrieMerkleProofTypeIndicator::Node4,
+            TrieMerkleProofType::Node16(_) => TrieMerkleProofTypeIndicator::Node16,
+            TrieMerkleProofType::Node48(_) => TrieMerkleProofTypeIndicator::Node48,
+            TrieMerkleProofType::Node256(_) => TrieMerkleProofTypeIndicator::Node256,
+            TrieMerkleProofType::Leaf(_) => TrieMerkleProofTypeIndicator::Leaf,
+            TrieMerkleProofType::Shunt(_) => TrieMerkleProofTypeIndicator::Shunt
+        } as u8;
+
+        type_byte.consensus_serialize(fd)?;
+
+        match self {
+            TrieMerkleProofType::Node4((id, proof_node, hashes)) => serialize_id_hash_node(fd, id, proof_node, hashes),
+            TrieMerkleProofType::Node16((id, proof_node, hashes)) => serialize_id_hash_node(fd, id, proof_node, hashes),
+            TrieMerkleProofType::Node48((id, proof_node, hashes)) => serialize_id_hash_node(fd, id, proof_node, hashes),
+            TrieMerkleProofType::Node256((id, proof_node, hashes)) => serialize_id_hash_node(fd, id, proof_node, hashes),
+            TrieMerkleProofType::Leaf((id, leaf_node)) => {
+                id.consensus_serialize(fd)?;
+                leaf_node.consensus_serialize(fd)
+            },
+            TrieMerkleProofType::Shunt((id, hashes)) => {
+                id.consensus_serialize(fd)?;
+                hashes.consensus_serialize(fd)
+            },
+        }
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TrieMerkleProofType, ::net::Error> {
+        let type_byte = TrieMerkleProofTypeIndicator::from_u8(read_next(fd)?)
+            .ok_or_else(|| ::net::Error::DeserializeError("Bad type byte in Trie Merkle Proof".into()))?;
+
+        let codec = match type_byte {
+            TrieMerkleProofTypeIndicator::Node4 => {
+                TrieMerkleProofType::Node4(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 3]))
+            },
+            TrieMerkleProofTypeIndicator::Node16 => {
+                TrieMerkleProofType::Node16(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 15]))
+            },
+            TrieMerkleProofTypeIndicator::Node48 => {
+                TrieMerkleProofType::Node48(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 47]))
+            },
+            TrieMerkleProofTypeIndicator::Node256 => {
+                TrieMerkleProofType::Node256(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 255]))
+            },
+            TrieMerkleProofTypeIndicator::Leaf => {
+                let id = read_next(fd)?;
+                let leaf_node = read_next(fd)?;
+                TrieMerkleProofType::Leaf((id, leaf_node))
+            },
+            TrieMerkleProofTypeIndicator::Shunt => {
+                let id = read_next(fd)?;
+                let hashes = read_next(fd)?;
+                TrieMerkleProofType::Shunt((id, hashes))
+            },
+        };
+
+        Ok(codec)
+    }
+}
+
 impl TrieMerkleProof {
+    pub fn to_hex(&self) -> String {
+        let mut marf_proof = vec![];
+        self.consensus_serialize(&mut marf_proof).expect("Write error on memory buffer");
+        to_hex(&marf_proof)
+    }
 
     fn make_proof_hashes(node: &TrieNodeType, all_hashes: &Vec<TrieHash>, chr: u8) -> Result<Vec<TrieHash>, Error> {
         let mut hashes = vec![];
@@ -1211,6 +1339,11 @@ impl TrieMerkleProof {
         let marf_value = MARFValue::from_value(value);
         let path = TriePath::from_key(key);
         TrieMerkleProof::from_path(storage, &path, &marf_value, root_block_header)
+    }
+
+    pub fn from_raw_entry(storage: &mut TrieFileStorage, key: &str, value: &MARFValue, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
+        let path = TriePath::from_key(key);
+        TrieMerkleProof::from_path(storage, &path, value, root_block_header)
     }
 }
 

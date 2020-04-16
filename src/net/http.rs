@@ -49,28 +49,68 @@ use net::HttpRequestMetadata;
 use net::HttpResponseMetadata;
 use net::NeighborsData;
 use net::NeighborAddress;
+use net::CallReadOnlyRequestBody;
 use net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
 use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::HTTP_REQUEST_ID_RESERVED;
 
 use chainstate::burn::BlockHeaderHash;
-use burnchains::Txid;
-use chainstate::stacks::StacksTransaction;
-use chainstate::stacks::StacksBlock;
-use chainstate::stacks::StacksMicroblock;
-use chainstate::stacks::StacksPublicKey;
+use burnchains::{ Txid, Address };
+use chainstate::stacks::{
+    StacksAddress, StacksTransaction, StacksBlock, StacksMicroblock, StacksPublicKey
+};
 
 use util::log;
 use util::hash::hex_bytes;
 use util::retry::RetryReader;
 use util::retry::BoundReader;
 
-use regex::Regex;
+use vm::{
+    ast::parser::{
+        STANDARD_PRINCIPAL_REGEX, PRINCIPAL_DATA_REGEX, CLARITY_NAME_REGEX, CONTRACT_NAME_REGEX
+    },
+    types::{ PrincipalData, BOUND_VALUE_SERIALIZATION_HEX },
+    ClarityName, ContractName, Value
+};
+
+use std::convert::TryFrom;
+
+use regex::{
+    Regex,
+    Captures
+};
+
+use url::{ Url, form_urlencoded };
 
 use deps::httparse;
 use time;
 use std::time::SystemTime;
+
+lazy_static! {
+    static ref PATH_GETINFO : Regex = Regex::new(r#"^/v2/info$"#).unwrap();
+    static ref PATH_GETNEIGHBORS : Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
+    static ref PATH_GETBLOCK : Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
+    static ref PATH_GETMICROBLOCKS_INDEXED : Regex = Regex::new(r#"^/v2/microblocks/([0-9a-f]{64})$"#).unwrap();
+    static ref PATH_GETMICROBLOCKS_CONFIRMED : Regex = Regex::new(r#"^/v2/microblocks/confirmed/([0-9a-f]{64})$"#).unwrap();
+    static ref PATH_GETMICROBLOCKS_UNCONFIRMED : Regex = Regex::new(r#"^/v2/microblocks/unconfirmed/([0-9a-f]{64})/([0-9]{1,5})$"#).unwrap();
+    static ref PATH_POSTTRANSACTION : Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
+    static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!(
+        "^/v2/accounts/(?P<principal>{})$", *PRINCIPAL_DATA_REGEX)).unwrap();
+    static ref PATH_GET_MAP_ENTRY: Regex = Regex::new(&format!(
+        "^/v2/map_entry/(?P<address>{})/(?P<contract>{})/(?P<map>{})$",
+        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX)).unwrap();
+    static ref PATH_POST_CALL_READ_ONLY: Regex = Regex::new(&format!(
+        "^/v2/contracts/call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})$",
+        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX)).unwrap();
+    static ref PATH_GET_CONTRACT_SRC: Regex = Regex::new(&format!(
+        "^/v2/contracts/source/(?P<address>{})/(?P<contract>{})$",
+        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX)).unwrap();
+    static ref PATH_GET_CONTRACT_ABI: Regex = Regex::new(&format!(
+        "^/v2/contracts/interface/(?P<address>{})/(?P<contract>{})$",
+        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX)).unwrap();
+    static ref PATH_GET_TRANSFER_COST: Regex = Regex::new("^/v2/fees/transfer$").unwrap();
+}
 
 /// HTTP headers that we really care about
 #[derive(Debug, Clone, PartialEq)]
@@ -875,7 +915,12 @@ impl HttpResponsePreamble {
             headers: HashMap::new()
         }
     }
-    
+
+    pub fn ok_JSON_from_md<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result<(), net_error> {
+        HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON,
+                                             md.request_id, |ref mut fd| keep_alive_headers(fd, md))
+    }
+
     pub fn new_serialized<W: Write, F>(fd: &mut W, status_code: u16, reason: &str, content_length: Option<u32>, content_type: &HttpContentType, request_id: u32, mut write_headers: F) -> Result<(), net_error>
     where 
         F: FnMut(&mut W) -> Result<(), net_error>
@@ -1091,40 +1136,52 @@ impl StacksMessageCodec for HttpResponsePreamble {
 }
 
 impl HttpRequestType {
-    fn try_parse<R: Read, F>(protocol: &mut StacksHttp, verb: &str, regex: &Regex, preamble: &HttpRequestPreamble, fd: &mut R, parser: F) -> Result<Option<HttpRequestType>, net_error>
+    fn try_parse<R: Read, F>(protocol: &mut StacksHttp, verb: &str, regex: &Regex, preamble: &HttpRequestPreamble,
+                             path: &str, query: Option<&str>, fd: &mut R, parser: F) -> Result<Option<HttpRequestType>, net_error>
     where
-        F: Fn(&mut StacksHttp, &HttpRequestPreamble, &Regex, &mut R) -> Result<HttpRequestType, net_error>
+        F: Fn(&mut StacksHttp, &HttpRequestPreamble, &Captures, Option<&str>, &mut R) -> Result<HttpRequestType, net_error>
     {
-        if preamble.verb == verb && regex.is_match(&preamble.path) {
-            let payload = parser(protocol, preamble, regex, fd)?;
-            Ok(Some(payload))
+        if preamble.verb == verb {
+            if let Some(ref captures) = regex.captures(path) {
+                let payload = parser(protocol, preamble, captures, query, fd)?;
+                return Ok(Some(payload))
+            }
         }
-        else {
-            Ok(None)
-        }
+
+        Ok(None)
     }
 
     pub fn parse<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, fd: &mut R) -> Result<HttpRequestType, net_error> {
         // TODO: make this static somehow
-        let REQUEST_METHODS : [(&str, &Regex, &dyn Fn(&mut StacksHttp, &HttpRequestPreamble, &Regex, &mut R) -> Result<HttpRequestType, net_error>); 6] = [
+        let REQUEST_METHODS: &[(&str, &Regex, &dyn Fn(&mut StacksHttp, &HttpRequestPreamble, &Captures, Option<&str>, &mut R) -> Result<HttpRequestType, net_error>)] = &[
             ("GET", &PATH_GETINFO, &HttpRequestType::parse_getinfo),
             ("GET", &PATH_GETNEIGHBORS, &HttpRequestType::parse_getneighbors),
             ("GET", &PATH_GETBLOCK, &HttpRequestType::parse_getblock),
-            ("GET", &PATH_GETMICROBLOCKS, &HttpRequestType::parse_getmicroblocks),
+            ("GET", &PATH_GETMICROBLOCKS_INDEXED, &HttpRequestType::parse_getmicroblocks_indexed),
+            ("GET", &PATH_GETMICROBLOCKS_CONFIRMED, &HttpRequestType::parse_getmicroblocks_confirmed),
             ("GET", &PATH_GETMICROBLOCKS_UNCONFIRMED, &HttpRequestType::parse_getmicroblocks_unconfirmed),
-            ("POST", &PATH_POSTTRANSACTION, &HttpRequestType::parse_posttransaction)
+            ("POST", &PATH_POSTTRANSACTION, &HttpRequestType::parse_posttransaction),
+            ("GET", &PATH_GET_ACCOUNT, &HttpRequestType::parse_get_account),
+            ("POST", &PATH_GET_MAP_ENTRY, &HttpRequestType::parse_get_map_entry),
+            ("GET", &PATH_GET_TRANSFER_COST, &HttpRequestType::parse_get_transfer_cost),
+            ("GET", &PATH_GET_CONTRACT_SRC, &HttpRequestType::parse_get_contract_source),
+            ("GET", &PATH_GET_CONTRACT_ABI, &HttpRequestType::parse_get_contract_abi),
+            ("POST", &PATH_POST_CALL_READ_ONLY, &HttpRequestType::parse_call_read_only),
         ];
 
+        // use url::Url to parse path and query string
+        //   Url will refuse to parse just a path, so create a dummy URL
+        let local_url = format!("http://local{}", &preamble.path);
+        let url = Url::parse(&local_url)
+            .map_err(|_e| net_error::DeserializeError("Http request path could not be parsed".to_string()))?;
+
         for (verb, regex, parser) in REQUEST_METHODS.iter() {
-            match HttpRequestType::try_parse(protocol, verb, regex, preamble, fd, parser) {
-                Ok(Some(request)) => {
+            match HttpRequestType::try_parse(protocol, verb, regex, preamble, url.path(), url.query(), fd, parser)? {
+                Some(request) => {
                     return Ok(request);
                 },
-                Ok(None) => {
+                None => {
                     continue;
-                },
-                Err(e) => {
-                    return Err(e);
                 }
             }
         }
@@ -1132,7 +1189,7 @@ impl HttpRequestType {
         return Err(net_error::DeserializeError("Http request could not be parsed".to_string()));
     }
 
-    fn parse_getinfo<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_getinfo<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetInfo".to_string()));
         }
@@ -1140,7 +1197,7 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetInfo(HttpRequestMetadata::from_preamble(preamble)))
     }
     
-    fn parse_getneighbors<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_getneighbors<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetNeighbors".to_string()));
         }
@@ -1148,12 +1205,134 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetNeighbors(HttpRequestMetadata::from_preamble(preamble)))
     }
 
-    fn parse_getblock<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_get_transfer_cost<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetTransferCost".to_string()));
+        }
+
+        Ok(HttpRequestType::GetTransferCost(HttpRequestMetadata::from_preamble(preamble)))
+    }
+
+    /// check whether the given option query string
+    ///   sets proof=0 (setting proof to false).
+    /// Defaults to _true_
+    fn get_proof_query(query: Option<&str>) -> bool {
+        let no_proof = if let Some(query_string) = query {
+            form_urlencoded::parse(query_string.as_bytes())
+                .find(|(key, _v)| key == "proof")
+                .map(|(_k, value)| value == "0")
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        !no_proof
+    }
+
+    fn parse_get_account<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetAccount".to_string()));
+        }
+
+        let principal = PrincipalData::parse(&captures["principal"])
+            .map_err(|_e| net_error::DeserializeError("Failed to parse account principal".into()))?;
+
+        let with_proof = HttpRequestType::get_proof_query(query);
+
+        Ok(HttpRequestType::GetAccount(HttpRequestMetadata::from_preamble(preamble), principal, with_proof))
+    }
+
+    fn parse_get_map_entry<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, query: Option<&str>, fd: &mut R) -> Result<HttpRequestType, net_error> {
+        let content_len = preamble.get_content_length();
+        if !(content_len > 0 && content_len < (BOUND_VALUE_SERIALIZATION_HEX)) {
+            return Err(net_error::DeserializeError("Invalid Http request: invalid body length for GetMapEntry".to_string()));
+        }
+
+        if preamble.content_type != Some(HttpContentType::JSON) {
+            return Err(net_error::DeserializeError("Invalid content-type: expected application/json".into()));
+        }
+
+
+        let contract_addr =  StacksAddress::from_string(&captures["address"])
+            .ok_or_else(|| net_error::DeserializeError("Failed to parse contract address".into()))?;
+        let contract_name = ContractName::try_from(captures["contract"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+        let map_name = ClarityName::try_from(captures["map"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+
+        let value_hex: String = serde_json::from_reader(fd)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse JSON body".into()))?;
+
+        let value = Value::try_deserialize_hex_untyped(&value_hex)
+            .map_err(|_e| net_error::DeserializeError("Failed to deserialize key value".into()))?;
+
+        let with_proof = HttpRequestType::get_proof_query(query);
+
+        Ok(HttpRequestType::GetMapEntry(HttpRequestMetadata::from_preamble(preamble), contract_addr, contract_name, map_name, value, with_proof))
+    }
+
+    fn parse_call_read_only<R: Read>(protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _query: Option<&str>, fd: &mut R) -> Result<HttpRequestType, net_error> {
+        let content_len = preamble.get_content_length();
+        if !(content_len > 0 && content_len < protocol.maximum_call_argument_size) {
+            return Err(net_error::DeserializeError("Invalid Http request: invalid body length for GetMapEntry".to_string()));
+        }
+
+        if preamble.content_type != Some(HttpContentType::JSON) {
+            return Err(net_error::DeserializeError("Invalid content-type: expected application/json".to_string()));
+        }
+
+        let contract_addr =  StacksAddress::from_string(&captures["address"])
+            .ok_or_else(|| net_error::DeserializeError("Failed to parse contract address".into()))?;
+        let contract_name = ContractName::try_from(captures["contract"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+        let func_name = ClarityName::try_from(captures["function"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+
+        let body: CallReadOnlyRequestBody = serde_json::from_reader(fd)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse JSON body".into()))?;
+
+        let sender = PrincipalData::parse(&body.sender)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse sender principal".into()))?;
+
+        let arguments = body.arguments.into_iter()
+            .map(|hex| Value::try_deserialize_hex_untyped(&hex).ok())
+            .collect::<Option<Vec<Value>>>()
+            .ok_or_else(|| net_error::DeserializeError("Failed to deserialize argument value".into()))?;
+
+        Ok(HttpRequestType::CallReadOnlyFunction(
+            HttpRequestMetadata::from_preamble(preamble),
+            contract_addr, contract_name, sender, func_name, arguments))
+    }
+
+    fn parse_get_contract_arguments(preamble: &HttpRequestPreamble, captures: &Captures) -> Result<(HttpRequestMetadata, StacksAddress, ContractName), net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body".to_string()));
+        }
+
+        let contract_addr =  StacksAddress::from_string(&captures["address"])
+            .ok_or_else(|| net_error::DeserializeError("Failed to parse contract address".into()))?;
+        let contract_name = ContractName::try_from(captures["contract"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+
+        Ok((HttpRequestMetadata::from_preamble(preamble), contract_addr, contract_name))
+    }
+
+    fn parse_get_contract_abi<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        HttpRequestType::parse_get_contract_arguments(preamble, captures)
+            .map(|(preamble, addr, name)| HttpRequestType::GetContractABI(preamble, addr, name))
+    }
+
+    fn parse_get_contract_source<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        let with_proof = HttpRequestType::get_proof_query(query);
+        HttpRequestType::parse_get_contract_arguments(preamble, captures)
+            .map(|(preamble, addr, name)| HttpRequestType::GetContractSrc(preamble, addr, name, with_proof))
+    }
+
+    fn parse_getblock<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetBlock".to_string()));
         }
 
-        let captures = regex.captures(&preamble.path).ok_or(net_error::DeserializeError("Failed to match path to block hash".to_string()))?;
         let block_hash_str = captures
             .get(1)
             .ok_or(net_error::DeserializeError("Failed to match path to block hash group".to_string()))?
@@ -1165,12 +1344,11 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetBlock(HttpRequestMetadata::from_preamble(preamble), block_hash))
     }
 
-    fn parse_getmicroblocks<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_getmicroblocks_indexed<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
-            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicrolocks".to_string()));
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicroblocksIndexed".to_string()));
         }
 
-        let captures = regex.captures(&preamble.path).ok_or(net_error::DeserializeError("Failed to match path to microblock hash".to_string()))?;
         let block_hash_str = captures
             .get(1)
             .ok_or(net_error::DeserializeError("Failed to match path to microblock hash group".to_string()))?
@@ -1179,15 +1357,30 @@ impl HttpRequestType {
         let block_hash = BlockHeaderHash::from_hex(block_hash_str)
             .map_err(|_e| net_error::DeserializeError("Failed to parse microblock hash".to_string()))?;
 
-        Ok(HttpRequestType::GetMicroblocks(HttpRequestMetadata::from_preamble(preamble), block_hash))
+        Ok(HttpRequestType::GetMicroblocksIndexed(HttpRequestMetadata::from_preamble(preamble), block_hash))
     }
     
-    fn parse_getmicroblocks_unconfirmed<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, regex: &Regex, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_getmicroblocks_confirmed<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicrolocks".to_string()));
+        }
+
+        let block_hash_str = captures
+            .get(1)
+            .ok_or(net_error::DeserializeError("Failed to match path to microblock hash group".to_string()))?
+            .as_str();
+
+        let block_hash = BlockHeaderHash::from_hex(block_hash_str)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse microblock hash".to_string()))?;
+
+        Ok(HttpRequestType::GetMicroblocksConfirmed(HttpRequestMetadata::from_preamble(preamble), block_hash))
+    }
+    
+    fn parse_getmicroblocks_unconfirmed<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, captures: &Captures, _query: Option<&str>, _fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected 0-length body for GetMicrolocksUnconfirmed".to_string()));
         }
 
-        let captures = regex.captures(&preamble.path).ok_or(net_error::DeserializeError("Failed to match path to microblock hash or minimum sequence".to_string()))?;
         let block_hash_str = captures
             .get(1)
             .ok_or(net_error::DeserializeError("Failed to match path to microblock hash group".to_string()))?
@@ -1206,7 +1399,7 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetMicroblocksUnconfirmed(HttpRequestMetadata::from_preamble(preamble), block_hash, min_seq))
     }
 
-    fn parse_posttransaction<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Regex, fd: &mut R) -> Result<HttpRequestType, net_error> {
+    fn parse_posttransaction<R: Read>(_protocol: &mut StacksHttp, preamble: &HttpRequestPreamble, _regex: &Captures, _query: Option<&str>, fd: &mut R) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() == 0 {
             return Err(net_error::DeserializeError("Invalid Http request: expected non-zero-length body for PostTransaction".to_string()));
         }
@@ -1232,9 +1425,16 @@ impl HttpRequestType {
             HttpRequestType::GetInfo(ref md) => md,
             HttpRequestType::GetNeighbors(ref md) => md,
             HttpRequestType::GetBlock(ref md, _) => md,
-            HttpRequestType::GetMicroblocks(ref md, _) => md,
+            HttpRequestType::GetMicroblocksIndexed(ref md, _) => md,
+            HttpRequestType::GetMicroblocksConfirmed(ref md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref md, _, _) => md,
             HttpRequestType::PostTransaction(ref md, _) => md,
+            HttpRequestType::GetAccount(ref md, ..) => md,
+            HttpRequestType::GetMapEntry(ref md, ..) => md,
+            HttpRequestType::GetTransferCost(ref md) => md,
+            HttpRequestType::GetContractABI(ref md, ..) => md,
+            HttpRequestType::GetContractSrc(ref md, ..) => md,
+            HttpRequestType::CallReadOnlyFunction(ref md, ..) => md,
         }
     }
     
@@ -1243,46 +1443,57 @@ impl HttpRequestType {
             HttpRequestType::GetInfo(ref mut md) => md,
             HttpRequestType::GetNeighbors(ref mut md) => md,
             HttpRequestType::GetBlock(ref mut md, _) => md,
-            HttpRequestType::GetMicroblocks(ref mut md, _) => md,
+            HttpRequestType::GetMicroblocksIndexed(ref mut md, _) => md,
+            HttpRequestType::GetMicroblocksConfirmed(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref mut md, _, _) => md,
             HttpRequestType::PostTransaction(ref mut md, _) => md,
+            HttpRequestType::GetAccount(ref mut md, ..) => md,
+            HttpRequestType::GetMapEntry(ref mut md, ..) => md,
+            HttpRequestType::GetTransferCost(ref mut md) => md,
+            HttpRequestType::GetContractABI(ref mut md, ..) => md,
+            HttpRequestType::GetContractSrc(ref mut md, ..) => md,
+            HttpRequestType::CallReadOnlyFunction(ref mut md, ..) => md,
         }
     }
 
     pub fn request_path(&self) -> String {
-        match *self {
-            HttpRequestType::GetInfo(ref _md) => "/v2/info".to_string(),
-            HttpRequestType::GetNeighbors(ref _md) => "/v2/neighbors".to_string(),
-            HttpRequestType::GetBlock(ref _md, ref block_hash) => format!("/v2/blocks/{}", block_hash.to_hex()),
-            HttpRequestType::GetMicroblocks(ref _md, ref block_hash) => format!("/v2/microblocks/{}", block_hash.to_hex()),
-            HttpRequestType::GetMicroblocksUnconfirmed(ref _md, ref block_hash, ref min_seq) => format!("/v2/microblocks/unconfirmed/{}/{}", block_hash.to_hex(), min_seq),
-            HttpRequestType::PostTransaction(ref _md, ref _tx) => "/v2/transactions".to_string()
+        match self {
+            HttpRequestType::GetInfo(_md) => "/v2/info".to_string(),
+            HttpRequestType::GetNeighbors(_md) => "/v2/neighbors".to_string(),
+            HttpRequestType::GetBlock(_md, block_hash) => format!("/v2/blocks/{}", block_hash.to_hex()),
+            HttpRequestType::GetMicroblocksIndexed(_md, block_hash) => format!("/v2/microblocks/{}", block_hash.to_hex()),
+            HttpRequestType::GetMicroblocksConfirmed(_md, block_hash) => format!("/v2/microblocks/confirmed/{}", block_hash.to_hex()),
+            HttpRequestType::GetMicroblocksUnconfirmed(_md, block_hash, min_seq) => format!("/v2/microblocks/unconfirmed/{}/{}", block_hash.to_hex(), min_seq),
+            HttpRequestType::PostTransaction(_md, _tx) => "/v2/transactions".to_string(),
+            HttpRequestType::GetAccount(_md, principal, _with_proof) => 
+                format!("/v2/accounts/{}", &principal.to_string()[1..]),
+            HttpRequestType::GetMapEntry(_md, contract_addr, contract_name, map_name, _key, _with_proof) =>
+                format!("/v2/map_entry/{}/{}/{}",
+                        contract_addr, contract_name.as_str(), map_name.as_str()),
+            HttpRequestType::GetTransferCost(_md) => "/v2/fees/transfer".into(),
+            HttpRequestType::GetContractABI(_, contract_addr, contract_name) =>
+                format!("/v2/contracts/interface/{}/{}", contract_addr, contract_name.as_str()),
+            HttpRequestType::GetContractSrc(_, contract_addr, contract_name, _with_proof) => 
+                format!("/v2/contracts/source/{}/{}", contract_addr, contract_name.as_str()),
+            HttpRequestType::CallReadOnlyFunction(_, contract_addr, contract_name, _, func_name, ..) => {
+                format!("/v2/contracts/call-read/{}/{}/{}", contract_addr, contract_name.as_str(), func_name.as_str())
+            }
         }
     }
 
     pub fn send<W: Write>(&self, _protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
-        match *self {
-            HttpRequestType::GetInfo(ref md) => {
-                HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
-            },
-            HttpRequestType::GetNeighbors(ref md) => {
-                HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
-            },
-            HttpRequestType::GetBlock(ref md, ref _block_hash) => {
-                HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
-            },
-            HttpRequestType::GetMicroblocks(ref md, ref _block_hash) => {
-                HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
-            },
-            HttpRequestType::GetMicroblocksUnconfirmed(ref md, ref _block_hash, ref _min_seq) => {
-                HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &self.request_path(), &md.peer, md.keep_alive, None, None, empty_headers)?;
-            },
-            HttpRequestType::PostTransaction(ref md, ref tx) => {
+        match self {
+            HttpRequestType::PostTransaction(md, tx) => {
                 let mut tx_bytes = vec![];
                 write_next(&mut tx_bytes, tx)?;
 
                 HttpRequestPreamble::new_serialized(fd, &md.version, "POST", &self.request_path(), &md.peer, md.keep_alive, Some(tx_bytes.len() as u32), Some(&HttpContentType::Bytes), empty_headers)?;
                 fd.write_all(&tx_bytes).map_err(net_error::WriteError)?;
+            },
+            other_type => {
+                let md = other_type.metadata();
+                let request_path = other_type.request_path();
+                HttpRequestPreamble::new_serialized(fd, &md.version, "GET", &request_path, &md.peer, md.keep_alive, None, None, empty_headers)?;
             }
         }
         Ok(())
@@ -1445,11 +1656,12 @@ impl HttpResponseType {
         }
 
         // TODO: make this static somehow
-        let RESPONSE_METHODS : [(&Regex, &dyn Fn(&mut StacksHttp, HttpVersion, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>); 6] = [
+        let RESPONSE_METHODS : [(&Regex, &dyn Fn(&mut StacksHttp, HttpVersion, &HttpResponsePreamble, &mut R, Option<usize>) -> Result<HttpResponseType, net_error>); 7] = [
             (&PATH_GETINFO, &HttpResponseType::parse_peerinfo),
             (&PATH_GETNEIGHBORS, &HttpResponseType::parse_neighbors),
             (&PATH_GETBLOCK, &HttpResponseType::parse_block),
-            (&PATH_GETMICROBLOCKS, &HttpResponseType::parse_microblocks),
+            (&PATH_GETMICROBLOCKS_INDEXED, &HttpResponseType::parse_microblocks),
+            (&PATH_GETMICROBLOCKS_CONFIRMED, &HttpResponseType::parse_microblocks),
             (&PATH_GETMICROBLOCKS_UNCONFIRMED, &HttpResponseType::parse_microblocks_unconfirmed),
             (&PATH_POSTTRANSACTION, &HttpResponseType::parse_txid)
         ];
@@ -1565,7 +1777,14 @@ impl HttpResponseType {
             HttpResponseType::Microblocks(ref md, _) => md,
             HttpResponseType::MicroblockStream(ref md) => md,
             HttpResponseType::TransactionID(ref md, _) => md,
+            HttpResponseType::TokenTransferCost(ref md, _) => md,
+            HttpResponseType::GetMapEntry(ref md, _) => md,
+            HttpResponseType::GetAccount(ref md, _) => md,
+            HttpResponseType::GetContractABI(ref md, _) => md,
+            HttpResponseType::GetContractSrc(ref md, _) => md,
+            HttpResponseType::CallReadOnlyFunction(ref md, _) => md,
             // errors
+            HttpResponseType::BadRequestJSON(ref md, _) => md,
             HttpResponseType::BadRequest(ref md, _) => md,
             HttpResponseType::Unauthorized(ref md, _) => md,
             HttpResponseType::PaymentRequired(ref md, _) => md,
@@ -1576,7 +1795,7 @@ impl HttpResponseType {
             HttpResponseType::Error(ref md, _, _) => md,
         }
     }
-
+    
     fn send_bytestream<W: Write, T: StacksMessageCodec>(protocol: &mut StacksHttp, md: &HttpResponseMetadata, fd: &mut W, message: &T) -> Result<(), net_error> {
         if md.content_length.is_some() {
             // have explicit content-length, so we can send as-is
@@ -1624,12 +1843,36 @@ impl HttpResponseType {
 
     pub fn send<W: Write>(&self, protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
         match *self {
+            HttpResponseType::GetAccount(ref md, ref account_data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, account_data)?;
+            },
+            HttpResponseType::GetContractABI(ref md, ref data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
+            },
+            HttpResponseType::GetContractSrc(ref md, ref data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
+            },
+            HttpResponseType::TokenTransferCost(ref md, ref cost) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, cost)?;
+            },
+            HttpResponseType::CallReadOnlyFunction(ref md, ref data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
+            },
+            HttpResponseType::GetMapEntry(ref md, ref map_data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, map_data)?;
+            },
             HttpResponseType::PeerInfo(ref md, ref peer_info) => {
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, peer_info)?;
             },
             HttpResponseType::Neighbors(ref md, ref neighbor_data) => {
-                HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, neighbor_data)?;
             },
             HttpResponseType::Block(ref md, ref block) => {
@@ -1655,6 +1898,10 @@ impl HttpResponseType {
                 HttpResponsePreamble::new_serialized(fd, 200, "OK", md.content_length.clone(), &HttpContentType::Text, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
                 HttpResponseType::send_text(protocol, md, fd, &txid_bytes)?;
             },
+            HttpResponseType::BadRequestJSON(ref md, ref data) => {
+                HttpResponsePreamble::new_serialized(fd, 400, HttpResponseType::error_reason(400), md.content_length.clone(), &HttpContentType::JSON, md.request_id, |ref mut fd| keep_alive_headers(fd, md))?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
+            },
             HttpResponseType::BadRequest(_, ref msg) => self.error_response(fd, 400, msg)?,
             HttpResponseType::Unauthorized(_, ref msg) => self.error_response(fd, 401, msg)?,
             HttpResponseType::PaymentRequired(_, ref msg) => self.error_response(fd, 402, msg)?,
@@ -1666,15 +1913,6 @@ impl HttpResponseType {
         };
         Ok(())
     }
-}
-
-lazy_static! {
-    static ref PATH_GETINFO : Regex = Regex::new(r#"^/v[12]/info$"#).unwrap();
-    static ref PATH_GETNEIGHBORS : Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
-    static ref PATH_GETBLOCK : Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
-    static ref PATH_GETMICROBLOCKS : Regex = Regex::new(r#"^/v2/microblocks/([0-9a-f]{64})$"#).unwrap();
-    static ref PATH_GETMICROBLOCKS_UNCONFIRMED : Regex = Regex::new(r#"^/v2/microblocks/unconfirmed/([0-9a-f]{64})/([0-9]{1,5})$"#).unwrap();
-    static ref PATH_POSTTRANSACTION : Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
 }
 
 impl StacksMessageCodec for StacksHttpPreamble {
@@ -1729,11 +1967,24 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetInfo(_) => "HTTP(GetInfo)",
                 HttpRequestType::GetNeighbors(_) => "HTTP(GetNeighbors)",
                 HttpRequestType::GetBlock(_, _) => "HTTP(GetBlock)",
-                HttpRequestType::GetMicroblocks(_, _) => "HTTP(GetMicroblocks)",
+                HttpRequestType::GetMicroblocksIndexed(_, _) => "HTTP(GetMicroblocksIndexed)",
+                HttpRequestType::GetMicroblocksConfirmed(_, _) => "HTTP(GetMicroblocksConfirmed)",
                 HttpRequestType::GetMicroblocksUnconfirmed(_, _, _) => "HTTP(GetMicroblocksUnconfirmed)",
-                HttpRequestType::PostTransaction(_, _) => "HTTP(PostTransaction)"
+                HttpRequestType::PostTransaction(_, _) => "HTTP(PostTransaction)",
+                HttpRequestType::GetAccount(..) => "HTTP(GetAccount)",
+                HttpRequestType::GetMapEntry(..) => "HTTP(GetMapEntry)",
+                HttpRequestType::GetTransferCost(_) => "HTTP(GetTransferCost)",
+                HttpRequestType::GetContractABI(..) => "HTTP(GetContractABI)",
+                HttpRequestType::GetContractSrc(..) => "HTTP(GetContractSrc)",
+                HttpRequestType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
             },
             StacksHttpMessage::Response(ref res) => match res {
+                HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
+                HttpResponseType::GetMapEntry(_, _) => "HTTP(GetMapEntry)",
+                HttpResponseType::GetAccount(_, _) => "HTTP(GetAccount)",
+                HttpResponseType::GetContractABI(..) => "HTTP(GetContractABI)",
+                HttpResponseType::GetContractSrc(..) => "HTTP(GetContractSrc)",
+                HttpResponseType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
                 HttpResponseType::PeerInfo(_, _) => "HTTP(PeerInfo)",
                 HttpResponseType::Neighbors(_, _) => "HTTP(Neighbors)",
                 HttpResponseType::Block(_, _) => "HTTP(Block)",
@@ -1741,7 +1992,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::Microblocks(_, _) => "HTTP(Microblocks)",
                 HttpResponseType::MicroblockStream(_) => "HTTP(MicroblockStream)",
                 HttpResponseType::TransactionID(_, _) => "HTTP(Transaction)",
-                HttpResponseType::BadRequest(_, _) => "HTTP(400)",
+                HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => "HTTP(400)",
                 HttpResponseType::Unauthorized(_, _) => "HTTP(401)",
                 HttpResponseType::PaymentRequired(_, _) => "HTTP(402)",
                 HttpResponseType::Forbidden(_, _) => "HTTP(403)",
@@ -1846,7 +2097,9 @@ pub struct StacksHttp {
     /// Incoming reply
     reply: Option<HttpReplyData>,
     /// Size of HTTP chunks to write
-    chunk_size: usize
+    chunk_size: usize,
+    /// Maximum size of call arguments
+    pub maximum_call_argument_size: u32,
 }
 
 impl StacksHttp {
@@ -1855,7 +2108,8 @@ impl StacksHttp {
             reply: None,
             request_version: None,
             request_path: None,
-            chunk_size: 8192
+            chunk_size: 8192,
+            maximum_call_argument_size: 20 * BOUND_VALUE_SERIALIZATION_HEX,
         }
     }
 
@@ -1948,7 +2202,6 @@ impl StacksHttp {
     }
 
     /// Given a fully-formed single HTTP response, parse it (used by clients).
-    /// The StacksHttp object
     pub fn parse_response(request_path: &str, response_buf: &[u8]) -> Result<StacksHttpMessage, net_error> {
         let mut http = StacksHttp::new();
         http.reset();
@@ -1961,7 +2214,7 @@ impl StacksHttp {
                 return Err(net_error::DeserializeError("Invalid HTTP message: did not get a Response preamble".to_string()));
             }
         };
-            
+         
         let mut message_bytes = &response_buf[message_offset..];
 
         if is_chunked {
@@ -2103,7 +2356,10 @@ impl ProtocolFamily for StacksHttp {
                 let mut cursor = io::Cursor::new(buf);
                 match HttpRequestType::parse(self, http_request_preamble, &mut cursor) {
                     Ok(data_request) => Ok((StacksHttpMessage::Request(data_request), cursor.position() as usize)),
-                    Err(e) => Err(e)
+                    Err(e) => {
+                        info!("Failed to parse HTTP request: {:?}", &e);
+                        Err(e)
+                    }
                 }
             },
             StacksHttpPreamble::Response(ref http_response_preamble) => {
@@ -2749,9 +3005,9 @@ mod test {
         let addr = auth.origin().address_testnet();
         let recv_addr = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
 
-        let mut tx_stx_transfer = StacksTransaction::new(TransactionVersion::Testnet,
-                                                         auth.clone(),
-                                                         TransactionPayload::TokenTransfer(recv_addr.clone(), 123, TokenTransferMemo([0u8; 34])));
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet, auth.clone(),
+            TransactionPayload::TokenTransfer(recv_addr.clone().into(), 123, TokenTransferMemo([0u8; 34])));
         tx_stx_transfer.chain_id = 0x80000000;
         tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
         tx_stx_transfer.set_fee_rate(0);
@@ -2835,7 +3091,7 @@ mod test {
         let tests = vec![
             HttpRequestType::GetNeighbors(http_request_metadata_ip.clone()),
             HttpRequestType::GetBlock(http_request_metadata_dns.clone(), BlockHeaderHash([2u8; 32])),
-            HttpRequestType::GetMicroblocks(http_request_metadata_ip.clone(), BlockHeaderHash([3u8; 32])),
+            HttpRequestType::GetMicroblocksIndexed(http_request_metadata_ip.clone(), BlockHeaderHash([3u8; 32])),
             HttpRequestType::PostTransaction(http_request_metadata_dns.clone(), make_test_transaction())
         ];
 

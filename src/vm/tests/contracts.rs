@@ -20,16 +20,16 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current in
            (print (map-insert factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
          (define-public (compute (id int))
            (let ((entry (unwrap! (map-get? factorials (tuple (id id)))
-                                 (err 'false))))
+                                 (err false))))
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)
-                             (ok 'true)
+                             (ok true)
                              (begin
                                (map-set factorials (tuple (id id))
                                                       (tuple (current (* current index))
                                                              (index (- index 1))))
-                               (ok 'false))))))
+                               (ok false))))))
         (begin (init-factorial 1337 3)
                (init-factorial 8008 5))";
 
@@ -70,6 +70,7 @@ fn get_principal() -> Value {
     StandardPrincipalData::transient().into()
 }
 
+
 #[test]
 fn test_get_block_info_eval() {
 
@@ -78,7 +79,7 @@ fn test_get_block_info_eval() {
         "(define-private (test-func) (get-block-info? time block-height))",
         "(define-private (test-func) (get-block-info? time u100000))",
         "(define-private (test-func) (get-block-info? time (- 1)))",
-        "(define-private (test-func) (get-block-info? time 'true))",
+        "(define-private (test-func) (get-block-info? time true))",
         "(define-private (test-func) (get-block-info? header-hash u1))",
         "(define-private (test-func) (get-block-info? burnchain-header-hash u1))",
         "(define-private (test-func) (get-block-info? vrf-seed u1))",
@@ -174,53 +175,53 @@ fn test_simple_token_system() {
 
         let contract_ast = ast::build_ast(&contract_identifier, tokens_contract, &mut ()).unwrap();
 
-        block.initialize_smart_contract(&contract_identifier, &contract_ast, tokens_contract, |_, _| false)
-            .unwrap();
+        block.as_transaction(|tx| tx.initialize_smart_contract(&contract_identifier, &contract_ast, tokens_contract, |_, _| false)
+                             .unwrap());
 
         assert!(!is_committed(&
-            block.run_contract_call(&p2, &contract_identifier, "token-transfer",
-                                    &[p1.clone().into(), Value::UInt(210)], |_, _| false).unwrap().0));
+            block.as_transaction(|tx| tx.run_contract_call(&p2, &contract_identifier, "token-transfer",
+                                    &[p1.clone().into(), Value::UInt(210)], |_, _| false)).unwrap().0));
         assert!(is_committed(&
-            block.run_contract_call(&p1, &contract_identifier, "token-transfer",
-                                    &[p2.clone().into(), Value::UInt(9000)], |_, _| false).unwrap().0));
+            block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier, "token-transfer",
+                                    &[p2.clone().into(), Value::UInt(9000)], |_, _| false)).unwrap().0));
 
         assert!(!is_committed(&
-            block.run_contract_call(&p1, &contract_identifier, "token-transfer",
-                                    &[p2.clone().into(), Value::UInt(1001)], |_, _| false).unwrap().0));
+            block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier, "token-transfer",
+                                    &[p2.clone().into(), Value::UInt(1001)], |_, _| false)).unwrap().0));
         assert!(is_committed(& // send to self!
-            block.run_contract_call(&p1, &contract_identifier, "token-transfer",
-                                    &[p1.clone().into(), Value::UInt(1000)], |_, _| false).unwrap().0));
+            block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier, "token-transfer",
+                                    &[p1.clone().into(), Value::UInt(1000)], |_, _| false)).unwrap().0));
 
         assert_eq!(
-            block.eval_read_only(&contract_identifier,
-                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+            block.as_transaction(|tx| tx.eval_read_only(&contract_identifier,
+                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)")).unwrap(),
             Value::UInt(1000));
         assert_eq!(
-            block.eval_read_only(&contract_identifier,
-                                 "(my-get-token-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
+            block.as_transaction(|tx| tx.eval_read_only(&contract_identifier,
+                                 "(my-get-token-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)")).unwrap(),
             Value::UInt(9200));
 
-        assert!(is_committed(&block.run_contract_call(&p1, &contract_identifier,
+        assert!(is_committed(&block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                                       "faucet",
-                                                      &[], |_, _| false).unwrap().0));
+                                                      &[], |_, _| false)).unwrap().0));
 
-        assert!(is_committed(&block.run_contract_call(&p1, &contract_identifier,
+        assert!(is_committed(&block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                                       "faucet",
-                                                      &[], |_, _| false).unwrap().0));
+                                                      &[], |_, _| false)).unwrap().0));
 
-        assert!(is_committed(&block.run_contract_call(&p1, &contract_identifier,
+        assert!(is_committed(&block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                                       "faucet",
-                                                      &[], |_, _| false).unwrap().0));
+                                                      &[], |_, _| false)).unwrap().0));
         
         assert_eq!(
-            block.eval_read_only(&contract_identifier,
-                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+            block.as_transaction(|tx| tx.eval_read_only(&contract_identifier,
+                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)")).unwrap(),
             Value::UInt(1003));
 
         assert!(!is_committed(
-            &block.run_contract_call(&p1, &contract_identifier,
+            &block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                      "mint-after", 
-                                     &[Value::UInt(25)], |_, _| false).unwrap().0));
+                                     &[Value::UInt(25)], |_, _| false)).unwrap().0));
         block.commit_block();
     }
 
@@ -238,23 +239,23 @@ fn test_simple_token_system() {
                                         &test_block_headers(26),
                                         &NULL_HEADER_DB);
         assert!(is_committed(
-            &block.run_contract_call(&p1, &contract_identifier,
+            &block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                      "mint-after", 
-                                     &[Value::UInt(25)], |_, _| false).unwrap().0));
+                                     &[Value::UInt(25)], |_, _| false)).unwrap().0));
         
         assert!(!is_committed(
-            &block.run_contract_call(&p1, &contract_identifier,
+            &block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                      "faucet", 
-                                     &[], |_, _| false).unwrap().0));
+                                     &[], |_, _| false)).unwrap().0));
 
         assert_eq!(
-            block.eval_read_only(&contract_identifier,
-                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+            block.as_transaction(|tx| tx.eval_read_only(&contract_identifier,
+                                 "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)")).unwrap(),
             Value::UInt(1004));
         assert_eq!(
-            block.run_contract_call(&p1, &contract_identifier,
+            block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier,
                                     "my-get-token-balance",
-                                    &[p1.clone().into()], |_, _| false).unwrap().0,
+                                    &[p1.clone().into()], |_, _| false)).unwrap().0,
             Value::UInt(1004));
     }
 }
@@ -285,16 +286,16 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
         let c_b = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("contract-b").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-a").unwrap(), "get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-a").unwrap(), "get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![p1.clone(), p1.clone()]).unwrap());
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap());
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "cc-get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "cc-get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![c_b.clone(), p1.clone()]).unwrap());
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-cc-get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-cc-get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap());
     }
 }
@@ -325,16 +326,16 @@ fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
         let c_b = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("contract-b").unwrap()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-a").unwrap(), "get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-a").unwrap(), "get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![p1.clone(), p1.clone()]).unwrap());
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap());
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "cc-get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "cc-get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![c_b.clone(), p1.clone()]).unwrap());
         assert_eq!(
-            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-cc-get-caller", &vec![]).unwrap(),
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-cc-get-caller", &vec![], false).unwrap(),
             Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap());
     }
 }
@@ -346,14 +347,14 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name int))
            (if (< name 100000) u1000 u100))
-         
-         (define-map name-map 
+
+         (define-map name-map
            ((name int)) ((owner principal)))
          (define-map preorder-map
            ((name-hash (buff 20)))
            ((buyer principal) (paid uint)))
-         
-         (define-public (preorder 
+
+         (define-public (preorder
                         (name-hash (buff 20))
                         (name-price uint))
            (let ((xfer-result (contract-call? .tokens token-transfer
@@ -377,12 +378,12 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
                    ;; preorder entry must exist!
                    (unwrap! (map-get? preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
-                 (name-entry 
+                 (name-entry
                    (map-get? name-map (tuple (name name)))))
              (if (and
                   (is-none name-entry)
                   ;; preorder must have paid enough
-                  (<= (price-function name) 
+                  (<= (price-function name)
                       (get paid preorder-entry))
                   ;; preorder must have been the current principal
                   (is-eq tx-sender
@@ -419,17 +420,17 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
         assert!(is_err_code(&
                             env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "preorder",
-                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap(), 1));
+                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]), false).unwrap(), 1));
     }
 
     {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert!(is_committed(&
                              env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "preorder",
-                                                  &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap()));
+                                                  &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]), false).unwrap()));
         assert!(is_err_code(&
                             env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "preorder",
-                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap(), 2));
+                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]), false).unwrap(), 2));
     }
 
     {
@@ -437,7 +438,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(Some(p2.clone()));
         assert!(is_err_code(&
                             env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "register",
-                                                 &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(), 4));
+                                                 &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)]), false).unwrap(), 4));
     }
 
     {
@@ -445,7 +446,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert!(is_committed(&
                              env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "register",
-                                                  &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap()));
+                                                  &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)]), false).unwrap()));
         
     }
 
@@ -454,23 +455,23 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(Some(p2.clone()));
         assert!(is_committed(&
                              env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "preorder",
-                                                  &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::UInt(100)])).unwrap()));
+                                                  &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::UInt(100)]), false).unwrap()));
         assert!(is_err_code(&
                             env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "register",
-                                                 &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap(), 4));
+                                                 &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)]), false).unwrap(), 4));
         
         // register a cheap name!
         assert!(is_committed(&
                              env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "preorder",
-                             &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::UInt(100)])).unwrap()));
+                             &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::UInt(100)]), false).unwrap()));
         assert!(is_committed(&
                              env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap()));
+                             &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)]), false).unwrap()));
         
         // preorder must exist!
         assert!(is_err_code(&
                             env.execute_contract(&QualifiedContractIdentifier::local("names").unwrap(), "register",
-                                                 &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap(), 5));
+                                                 &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)]), false).unwrap(), 5));
     }
 }
 
@@ -498,10 +499,10 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
                     Value::Int(120),
                     Value::Int(120)];
     for expected_result in &expected {
-        env.execute_contract(&QualifiedContractIdentifier::local("proxy-compute").unwrap(), "proxy-compute", &args).unwrap();
+        env.execute_contract(&QualifiedContractIdentifier::local("proxy-compute").unwrap(), "proxy-compute", &args, false).unwrap();
         assert_eq!(
             env.eval_read_only(&QualifiedContractIdentifier::local("factorial-contract").unwrap(),
-                               "(get current (unwrap! (map-get? factorials (tuple (id 8008))) 'false))").unwrap(),
+                               "(get current (unwrap! (map-get? factorials {id 8008}) false))").unwrap(),
             *expected_result);
     }
 }
@@ -553,32 +554,32 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
 
     assert_eq!(
         env.execute_contract(&QualifiedContractIdentifier::local("contract-1").unwrap(), "modify-data",
-                             &symbols_from_values(vec![Value::Int(10), Value::Int(10)])).unwrap(),
+                             &symbols_from_values(vec![Value::Int(10), Value::Int(10)]), false).unwrap(),
         Value::Response(ResponseData{ committed: true, data: Box::new(Value::Int(1)) }));
 
     assert_eq!(
         env.execute_contract(&QualifiedContractIdentifier::local("contract-1").unwrap(), "modify-data",
-                             &symbols_from_values(vec![Value::Int(20), Value::Int(10)])).unwrap(),
+                             &symbols_from_values(vec![Value::Int(20), Value::Int(10)]), false).unwrap(),
         Value::Response(ResponseData{ committed: false, data: Box::new(Value::Int(1)) }));
-    
+
     assert_eq!(
-        env.eval_read_only(&QualifiedContractIdentifier::local("contract-1").unwrap(), 
+        env.eval_read_only(&QualifiedContractIdentifier::local("contract-1").unwrap(),
                                                                "(get-data 20)").unwrap(),
         Value::Int(0));
 
     assert_eq!(
-        env.eval_read_only(&QualifiedContractIdentifier::local("contract-1").unwrap(), 
+        env.eval_read_only(&QualifiedContractIdentifier::local("contract-1").unwrap(),
                                                                "(get-data 10)").unwrap(),
         Value::Int(10));
 
     assert_eq!(
         env.execute_contract(&QualifiedContractIdentifier::local("contract-2").unwrap(), "fail-in-other",
-                             &symbols_from_values(vec![])).unwrap(),
+                             &symbols_from_values(vec![]), false).unwrap(),
         Value::Response(ResponseData{ committed: true, data: Box::new(Value::Int(1)) }));
 
     assert_eq!(
         env.execute_contract(&QualifiedContractIdentifier::local("contract-2").unwrap(), "fail-in-self",
-                             &symbols_from_values(vec![])).unwrap(),
+                             &symbols_from_values(vec![]), false).unwrap(),
         Value::Response(ResponseData{ committed: false, data: Box::new(Value::Int(1)) }));
 
     assert_eq!(
@@ -602,7 +603,7 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
     env.initialize_contract(contract_identifier, FACTORIAL_CONTRACT).unwrap();
 
     let tx_name = "compute";
-    let arguments_to_test = [symbols_from_values(vec![Value::Int(1337)]),  
+    let arguments_to_test = [symbols_from_values(vec![Value::Int(1337)]),
                              symbols_from_values(vec![Value::Int(1337)]),
                              symbols_from_values(vec![Value::Int(1337)]),
                              symbols_from_values(vec![Value::Int(1337)]),
@@ -632,17 +633,17 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
     env.sender = Some(get_principal());
 
     for (arguments, expectation) in arguments_to_test.iter().zip(expected.iter()) {
-        env.execute_contract(&QualifiedContractIdentifier::local("factorial").unwrap(), &tx_name, arguments).unwrap();
+        env.execute_contract(&QualifiedContractIdentifier::local("factorial").unwrap(), &tx_name, arguments, false).unwrap();
 
         assert_eq!(*expectation,
                    env.eval_read_only(&QualifiedContractIdentifier::local("factorial").unwrap(),
-                                      &format!("(unwrap! (get current (map-get? factorials (tuple (id {})))) 'false)", arguments[0]))
+                                      &format!("(unwrap! (get current (map-get? factorials (tuple (id {})))) false)", arguments[0]))
                    .unwrap());
     }
 
     let err_result = env.execute_contract(&QualifiedContractIdentifier::local("factorial").unwrap(), "init-factorial",
                                           &symbols_from_values(vec![Value::Int(9000),
-                                                                    Value::Int(15)])).unwrap_err();
+                                                                    Value::Int(15)]), false).unwrap_err();
     match err_result {
         Error::Unchecked(CheckErrors::NoSuchPublicFunction(_, _)) => {},
         _ => {
@@ -652,7 +653,7 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
     }
 
     let err_result = env.execute_contract(&QualifiedContractIdentifier::local("factorial").unwrap(), "compute",
-                                          &symbols_from_values(vec![Value::Bool(true)])).unwrap_err();
+                                          &symbols_from_values(vec![Value::Bool(true)]), false).unwrap_err();
     match err_result {
         Error::Unchecked(CheckErrors::TypeValueError(_, _)) => {},
         _ => {
@@ -702,14 +703,14 @@ fn test_ast_stack_depth() {
 
 #[test]
 fn test_arg_stack_depth() {
-    let program = "(define-private (foo) 
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
+    let program = "(define-private (foo)
+                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
+                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
                        bar 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
                          1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1))
-                       (define-private (bar) 
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
+                       (define-private (bar)
+                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
+                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
                        1 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
                          1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1))
                        (foo)
@@ -751,17 +752,17 @@ fn test_cc_stack_depth() {
 
 #[test]
 fn test_cc_trait_stack_depth() {
-    let contract_one = "(define-public (foo) 
-                        (ok (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
+    let contract_one = "(define-public (foo)
+                        (ok (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
+                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
                        1 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
                          1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)))";
     let contract_two =
                       "(define-trait trait-1 (
                         (foo () (response int int))))
-                       (define-private (bar (F <trait-1>)) 
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
+                       (define-private (bar (F <trait-1>))
+                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
+                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
                         (unwrap-panic (contract-call? F foo))
                          1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
                          1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1))
