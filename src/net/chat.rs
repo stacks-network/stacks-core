@@ -636,10 +636,13 @@ impl ConversationP2P {
     /// This is a non-blocking operation. The caller needs to call .try_flush() or .flush() on the
     /// returned Write to finish sending.
     pub fn relay_signed_message(&mut self, msg: StacksMessage) -> Result<ReplyHandleP2P, net_error> {
+        let _name = msg.get_message_name();
         let mut handle = self.connection.make_relay_handle()?;
         msg.consensus_serialize(&mut handle)?;
 
         self.stats.msgs_tx += 1;
+        
+        test_debug!("{:?}: relay-send({}) {}", &self, self.stats.msgs_tx, _name);
         Ok(handle)
     }
     
@@ -647,10 +650,14 @@ impl ConversationP2P {
     /// This is a non-blocking operation.  The caller needs to call .try_flush() or .flush() on the
     /// returned handle to finish sending.
     pub fn send_signed_request(&mut self, msg: StacksMessage, ttl: u64) -> Result<ReplyHandleP2P, net_error> {
+        let _name = msg.get_message_name();
+
         let mut handle = self.connection.make_request_handle(msg.request_id(), ttl)?;
         msg.consensus_serialize(&mut handle)?;
 
         self.stats.msgs_tx += 1;
+
+        test_debug!("{:?}: request-send({}) {}", &self, self.stats.msgs_tx, _name);
         Ok(handle)
     }
 
