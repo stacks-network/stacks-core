@@ -152,6 +152,15 @@ CREATE TABLE IF NOT EXISTS marf_data (
 
 CREATE INDEX IF NOT EXISTS block_hash_marf_data ON marf_data(block_hash);
 ";
+static SQL_MARF_MINED_TABLE: &str = "
+CREATE TABLE IF NOT EXISTS mined_blocks (
+   block_id INTEGER PRIMARY KEY, 
+   block_hash TEXT UNIQUE NOT NULL,
+   data BLOB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS block_hash_mined_blocks ON mined_blocks(block_hash);
+";
 static SQL_CHAIN_TIPS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS chain_tips (block_hash TEXT UNIQUE NOT NULL);
 
@@ -168,6 +177,7 @@ impl TrieSQL {
         let tx = conn.transaction()?;
 
         tx.execute_batch(SQL_MARF_DATA_TABLE)?;
+        tx.execute_batch(SQL_MARF_MINED_TABLE)?;
         tx.execute_batch(SQL_CHAIN_TIPS_TABLE)?;
         tx.execute_batch(SQL_EXTENSION_LOCKS_TABLE)?;
 
@@ -193,6 +203,16 @@ impl TrieSQL {
     pub fn write_trie_blob(conn: &Connection, block_hash: &BlockHeaderHash, data: &[u8]) -> Result<u32, Error> {
         let args: &[&dyn ToSql] = &[block_hash, &data];
         let mut s = conn.prepare("INSERT INTO marf_data (block_hash, data) VALUES (?, ?)")?;
+        let block_id = s.insert(args)?
+            .try_into()
+            .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
+        Ok(block_id)
+    }
+
+    pub fn write_trie_blob_to_mined(conn: &Connection, block_hash: &BlockHeaderHash, data: &[u8]) -> Result<u32, Error> {
+        let args: &[&dyn ToSql] = &[block_hash, &data];
+        debug!("{}", block_hash);
+        let mut s = conn.prepare("INSERT OR REPLACE INTO mined_blocks (block_hash, data) VALUES (?, ?)")?;
         let block_id = s.insert(args)?
             .try_into()
             .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
@@ -310,7 +330,25 @@ impl TrieSQL {
         tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
         tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
         tx.execute("DELETE FROM chain_tips", NO_PARAMS)?;
+        tx.execute("DELETE FROM mined_blocks", NO_PARAMS)?;
         tx.commit().map_err(|e| e.into())
+    }
+}
+
+
+enum FlushOptions<'a> {
+    CurrentHeader,
+    NewHeader(&'a BlockHeaderHash),
+    MinedTable(&'a BlockHeaderHash),
+}
+
+impl fmt::Display for FlushOptions <'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            FlushOptions::CurrentHeader => write!(f, "self"),
+            FlushOptions::MinedTable(bhh) => write!(f, "{}.mined", bhh),
+            FlushOptions::NewHeader(bhh) => write!(f, "{}", bhh),
+        }
     }
 }
 
@@ -598,13 +636,6 @@ impl NodeHashReader for TrieRAM {
     }
 }
 
-impl NodeHashReader for fs::File {
-    fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
-        w.write_all(&read_node_hash_bytes(self, ptr)?)?;
-        Ok(())
-    }
-}
-
 pub struct TrieSqlCursor <'a> {
     db: &'a Connection,
     block_id: u32
@@ -715,9 +746,8 @@ impl TrieFileStorage {
         None
     }
 
-    /// Set up a new Trie forest on disk.  If there is data there already, obliterate it first.
     #[cfg(test)]
-    pub fn new_overwrite(dir_path: &str) -> Result<TrieFileStorage, Error> {
+    pub fn new_memory() -> Result<TrieFileStorage, Error> {
         TrieFileStorage::new(":memory:")
     }
 
@@ -1104,7 +1134,7 @@ impl TrieFileStorage {
         Ok(())
     }
     
-    pub fn flush_to(&mut self, final_bhh: Option<&BlockHeaderHash>) -> Result<(), Error> {
+    fn inner_flush(&mut self, flush_options: FlushOptions) -> Result<(), Error> {
         // save the currently-bufferred Trie to disk, and atomically put it into place (possibly to
         // a different block than the one opened, as indicated by final_bhh).
         // Runs once -- subsequent calls are no-ops.
@@ -1114,37 +1144,59 @@ impl TrieFileStorage {
         // after.  Turns out rename(2) isn't crash-consistent, and turns out syscalls can get
         // reordered.
         if let Some((ref bhh, ref mut trie_ram)) = self.last_extended.take() {
-            let real_bhh = match final_bhh {
-                Some(real_bhh) => {
-                    if real_bhh != bhh {
-                        self.block_retarget(bhh, real_bhh)?;
-                    }
-                    real_bhh
-                }
-                None => bhh
-            };
-            
-            debug!("Flush: {} to {}", bhh, real_bhh);
-
+            trace!("Buffering block flush started.");
             let mut buffer = Cursor::new(Vec::new());
             trie_ram.dump(&mut buffer, bhh)?;
             // consume the cursor, get the buffer
             let buffer = buffer.into_inner();
-            trace!("Buffering finished.");
+            trace!("Buffering block flush finished.");
 
-            let tx = self.db.transaction()?;
-            let block_id = TrieSQL::write_trie_blob(&tx, real_bhh, &buffer)?;
-            TrieSQL::drop_lock(&tx, bhh)?;
-            tx.commit()?;
+            debug!("Flush: {} to {}", bhh, flush_options);
 
-            debug!("Flush: identifier of {} is {}", real_bhh, block_id);
+            let block_id = match flush_options {
+                FlushOptions::CurrentHeader => {
+                    let tx = self.db.transaction()?;
+                    let block_id = TrieSQL::write_trie_blob(&tx, bhh, &buffer)?;
+                    TrieSQL::drop_lock(&tx, bhh)?;
+                    tx.commit()?;
+                    block_id
+                },
+                FlushOptions::NewHeader(real_bhh) => {
+                    if real_bhh != bhh {
+                        self.block_retarget(bhh, real_bhh)?;
+                    }
+                    let tx = self.db.transaction()?;
+                    let block_id = TrieSQL::write_trie_blob(&tx, real_bhh, &buffer)?;
+                    TrieSQL::drop_lock(&tx, bhh)?;
+                    tx.commit()?;
+                    block_id
+                },
+                FlushOptions::MinedTable(real_bhh) => {
+                    let tx = self.db.transaction()?;
+                    let block_id = TrieSQL::write_trie_blob_to_mined(&tx, real_bhh, &buffer)?;
+                    TrieSQL::remove_chain_tip_if_present(&tx, bhh)?;
+                    TrieSQL::drop_lock(&tx, bhh)?;
+                    tx.commit()?;
+                    block_id
+                },
+            };
+
+            debug!("Flush: identifier of {} is {}", flush_options, block_id);
         }
 
         Ok(())
     }
 
     pub fn flush(&mut self) -> Result<(), Error> {
-        self.flush_to(None)
+        self.inner_flush(FlushOptions::CurrentHeader)
+    }
+
+    pub fn flush_to(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+        self.inner_flush(FlushOptions::NewHeader(bhh))
+    }
+
+    pub fn flush_mined(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+        self.inner_flush(FlushOptions::MinedTable(bhh))
     }
 
     pub fn drop_extending_trie(&mut self) {

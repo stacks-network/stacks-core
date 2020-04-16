@@ -770,13 +770,24 @@ impl MARF {
         };
         Ok(())
     }
+
+    /// Finish writing the next trie in the MARF.  This persists all changes.
+    pub fn commit_mined(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+        match self.open_chain_tip.take() {
+            Some(_tip) => {
+                self.storage.flush_mined(bhh)?;
+            },
+            None => {}
+        };
+        Ok(())
+    }
     
     /// Finish writing the next trie in the MARF, but change the hash of the current Trie's 
     /// block hash to something other than what we opened it as.  This persists all changes.
     pub fn commit_to(&mut self, real_bhh: &BlockHeaderHash) -> Result<(), Error> {
         match self.open_chain_tip.take() {
             Some(_tip) => {
-                self.storage.flush_to(Some(real_bhh))?;
+                self.storage.flush_to(real_bhh)?;
             },
             None => {}
         };
@@ -861,11 +872,6 @@ impl MARF {
         self.storage.open_block(&cur_block_hash)?;
         root_hash_res
     }
-
-    /// Get the path to a block's trie
-    pub fn get_block_path(&self, _block_hash: &BlockHeaderHash) -> PathBuf {
-        panic!("Not here")
-    }
 }
 
 #[cfg(test)]
@@ -895,7 +901,7 @@ mod test {
     fn marf_insert_different_leaf_same_block_100() {
         let filename = "/tmp/rust_marf_insert_different_leaf_same_block_100";
 
-        let f = TrieFileStorage::new_overwrite(filename).unwrap();
+        let f = TrieFileStorage::new_memory().unwrap();
 
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
@@ -926,7 +932,7 @@ mod test {
     fn marf_insert_different_leaf_different_path_different_block_100() {
         let filename = "/tmp/rust_marf_insert_different_leaf_different_path_different_block_100";
 
-        let f = TrieFileStorage::new_overwrite(filename).unwrap();
+        let f = TrieFileStorage::new_memory().unwrap();
 
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
@@ -966,7 +972,7 @@ mod test {
     fn marf_insert_same_leaf_different_block_100() {
         let path = "/tmp/rust_marf_same_leaf_different_block_100";
 
-        let f = TrieFileStorage::new_overwrite(path).unwrap();
+        let f = TrieFileStorage::new_memory().unwrap();
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
         marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
@@ -1005,7 +1011,7 @@ mod test {
     #[test]
     fn marf_insert_leaf_sequence_2() {
         let path = "/tmp/rust_marf_insert_leaf_sequence_2";
-        let f = TrieFileStorage::new_overwrite(path).unwrap();
+        let f = TrieFileStorage::new_memory().unwrap();
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
         marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
@@ -1047,7 +1053,7 @@ mod test {
     #[test]
     fn marf_insert_leaf_sequence_100() {
         let path = "/tmp/rust_marf_insert_leaf_sequence_100";
-        let f = TrieFileStorage::new_overwrite(path).unwrap();
+        let f = TrieFileStorage::new_memory().unwrap();
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
         marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
@@ -1205,7 +1211,7 @@ mod test {
     fn marf_walk_cow_test <F, G> (filename: &str, path_init: G, path_gen: F)
     where F: Fn(u32, [u8; 32]) -> [u8; 32],
           G: FnOnce(&mut TrieFileStorage) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
-        let mut f = TrieFileStorage::new_overwrite(filename).unwrap();
+        let mut f = TrieFileStorage::new_memory().unwrap();
         let mut last_block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &last_block_header).unwrap();
         f.test_genesis_block = Some(last_block_header.clone());
@@ -1316,7 +1322,7 @@ mod test {
     fn marf_merkle_verify_backptrs() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
             let path = format!("/tmp/rust_marf_merkle_verify_backptrs-{}", node_id);
-            let mut f = TrieFileStorage::new_overwrite(&path).unwrap();
+            let mut f = TrieFileStorage::new_memory().unwrap();
 
             let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
             MARF::format(&mut f, &block_header_1).unwrap();
@@ -1367,7 +1373,7 @@ mod test {
     fn marf_insert<F>(filename: &str, mut path_gen: F, count: u32, check_merkle_proof: bool) -> MARF
         where F: FnMut(u32) -> ([u8; 32], Option<BlockHeaderHash>) {
 
-        let f = TrieFileStorage::new_overwrite(filename).unwrap();
+        let f = TrieFileStorage::new_memory().unwrap();
         let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
         marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
@@ -1476,7 +1482,7 @@ mod test {
     #[test]
     fn marf_split_leaf_path() {
         let path = "/tmp/rust_marf_split_leaf_path";
-        let f = TrieFileStorage::new_overwrite(&path).unwrap();
+        let f = TrieFileStorage::new_memory().unwrap();
 
         let mut marf = MARF::from_storage(f);
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -1678,7 +1684,7 @@ mod test {
     #[test]
     fn marf_insert_random_4096_128_file_storage_merkle_proof() {
         let path = "/tmp/rust_marf_insert_4096_128_file_storage_merkle_proof";
-        let f = TrieFileStorage::new_overwrite(&path).unwrap();
+        let f = TrieFileStorage::new_memory().unwrap();
 
         let mut m = MARF::from_storage(f);
 
@@ -1993,7 +1999,7 @@ mod test {
     #[test]
     fn marf_insert_flush_to_different_block() {
         let path = "/tmp/marf_insert_flush_to_different_block".to_string();
-        let mut f = TrieFileStorage::new_overwrite(&path).unwrap();
+        let mut f = TrieFileStorage::new_memory().unwrap();
 
         let target_block = BlockHeaderHash([1u8; 32]);
 

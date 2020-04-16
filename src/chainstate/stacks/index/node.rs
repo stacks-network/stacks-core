@@ -1734,7 +1734,7 @@ mod test {
         for i in 0..3 {
             assert!(node4.insert(&TriePtr::new(TrieNodeID::Node16, (i+1) as u8, (i+2) as u32)));
         }
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node4".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let hash = TrieHash::from_data(&[0u8; 32]);
@@ -1754,7 +1754,7 @@ mod test {
             assert!(node16.insert(&TriePtr::new(TrieNodeID::Node48, (i+1) as u8, (i+2) as u32)));
         }
         
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node16".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let hash = TrieHash::from_data(&[0u8; 32]);
@@ -1775,7 +1775,7 @@ mod test {
             assert!(node48.insert(&TriePtr::new(TrieNodeID::Node256, (i+1) as u8, (i+2) as u32)));
         }
         
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node48".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let hash = TrieHash::from_data(&[0u8; 32]);
@@ -1796,7 +1796,7 @@ mod test {
         }
         
         let hash = TrieHash::from_data(&[0u8; 32]);
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node256".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let wres = trie_io.write_nodetype(0, &TrieNodeType::Node256(node256.clone()), hash.clone());
@@ -1816,7 +1816,7 @@ mod test {
             &vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39]
         );
 
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_leaf".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let hash = TrieHash::from_data(&[0u8; 32]);
@@ -1831,7 +1831,7 @@ mod test {
 
     #[test]
     fn read_write_node4_hashes() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node4_hashes".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let mut node4 = TrieNode4::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]);
@@ -1863,7 +1863,7 @@ mod test {
 
     #[test]
     fn read_write_node16_hashes() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node16_hashes".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let mut node16 = TrieNode16::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]);
@@ -1895,7 +1895,7 @@ mod test {
 
     #[test]
     fn read_write_node48_hashes() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node48_hashes".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let mut node48 = TrieNode48::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]);
@@ -1927,7 +1927,7 @@ mod test {
 
     #[test]
     fn read_write_node256_hashes() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node256_hashes".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let mut node256 = TrieNode256::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]);
@@ -1959,7 +1959,7 @@ mod test {
  
     #[test]
     fn trie_cursor_walk_full() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_full".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2059,7 +2059,7 @@ mod test {
     
     #[test]
     fn trie_cursor_walk_1() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_1".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2143,7 +2143,7 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_2() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_2".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2222,7 +2222,7 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_3() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_3".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2298,7 +2298,7 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_4() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_4".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2373,7 +2373,7 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_5() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_5".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2447,7 +2447,7 @@ mod test {
     
     #[test]
     fn trie_cursor_walk_6() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_6".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2520,7 +2520,7 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_10() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_10".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2591,7 +2591,7 @@ mod test {
    
     #[test]
     fn trie_cursor_walk_20() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_20".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
@@ -2661,7 +2661,7 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_32() {
-        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_32".to_string()).unwrap();
+        let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![

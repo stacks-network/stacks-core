@@ -811,7 +811,7 @@ fn bad_contract_tx_rollback() {
     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
     let addr_3 = to_addr(&sk_3);
 
-    conf.burnchain.block_time = 1500;
+    conf.burnchain.block_time = 4000;
     conf.add_initial_balance(addr_3.to_string(), 100000);
 
     let num_rounds = 3;
