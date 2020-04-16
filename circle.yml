@@ -57,7 +57,7 @@ jobs:
       - run:
           name: build
           environment:
-            RUSTFLAGS: -Zprofile -Copt-level=1 -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
+            RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
           command: cargo +nightly build --verbose
       - save_cache:
           key: v1-cargo-lock-{{ checksum "Cargo.lock" }}
@@ -69,7 +69,7 @@ jobs:
           command: |
             cargo +nightly test
           environment:
-            RUSTFLAGS: -Zprofile -Copt-level=1 -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
+            RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
           no_output_timeout: 30m
       - run:
           name: Collect debug outputs
