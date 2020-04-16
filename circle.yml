@@ -47,12 +47,6 @@ jobs:
           command: |
             rustup install nightly
       - run:
-          name: rustup component add
-          command: rustup component add rustfmt
-      - run:
-          name: fmt
-          command: cargo fmt -- --check
-      - run:
           name: cargo install grcov
           command: |
             sudo gem install coveralls-lcov
