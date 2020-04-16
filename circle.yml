@@ -33,30 +33,49 @@ jobs:
           command: |
             echo "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)" | blockstack-core local eval S1G2081040G2081040G2081040G208105NK8PE5.tokens db
   cargo_tests:
-    machine: true
+    docker:
+      - image: circleci/rust
     working_directory: ~/blockstack
     steps:
       - checkout
       - run:
-          name: Install perftools
+          name: Install lcov reqs
           command: |
-            sudo apt-get update -y && sudo apt-get install libgoogle-perftools4 -y
+            sudo apt-get update -y && sudo apt-get -y install lcov ruby
       - run:
-          name: Fetch latest grcov
+          name: rust nightly
           command: |
-            curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
+            rustup install nightly
       - run:
-          name: Pull Rust Nightly
+          name: rustup component add
+          command: rustup component add rustfmt
+      - run:
+          name: fmt
+          command: cargo fmt -- --check
+      - run:
+          name: cargo install grcov
           command: |
-             docker pull rustlang/rust:nightly-stretch
+            sudo gem install coveralls-lcov
+            cargo install grcov
+      - restore_cache:
+          keys:
+            - v1-cargo-lock-{{ checksum "Cargo.lock" }}
+      - run:
+          name: build
+          environment:
+            RUSTFLAGS: -Zprofile -Copt-level=1 -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
+          command: cargo +nightly build --verbose
+      - save_cache:
+          key: v1-cargo-lock-{{ checksum "Cargo.lock" }}
+          paths:
+            - "/usr/local/cargo/registry"
+            - "target"
       - run:
           name: Test
           command: |
-            docker run -it --security-opt seccomp=unconfined -e CIRCLE_TESTING=1 -e RUST_BACKTRACE=1 -e CARGO_INCREMENTAL=0 \
-            -e RUSTFLAGS="$RUSTFLAGS" -v "$PWD:/blockstack" rustlang/rust:nightly-stretch \
-            bash -c "cd /blockstack && rustup override set nightly && cargo test"
+            cargo +nightly test
           environment:
-            RUSTFLAGS: -Zprofile -A warnings -Copt-level=1 -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
+            RUSTFLAGS: -Zprofile -Copt-level=1 -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
           no_output_timeout: 30m
       - run:
           name: Collect debug outputs
