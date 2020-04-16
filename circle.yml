@@ -59,7 +59,7 @@ jobs:
           environment:
             CARGO_INCREMENTAL: 0
             RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
-          command: cargo +nightly -j 1 build --verbose
+          command: cargo +nightly build -j 1 --verbose
       - save_cache:
           key: v1-cargo-lock-{{ checksum "Cargo.lock" }}
           paths:
@@ -68,7 +68,7 @@ jobs:
       - run:
           name: Test
           command: |
-            cargo +nightly -j 1 test
+            cargo +nightly test -j 1
           environment:
             CARGO_INCREMENTAL: 0
             RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
