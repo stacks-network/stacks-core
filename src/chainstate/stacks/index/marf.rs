@@ -815,11 +815,6 @@ impl MARF {
             .map(|x| x.height)
     }
 
-    /// Get all known chain tips
-    pub fn chain_tips(&mut self) -> Vec<BlockHeaderHash> {
-        self.storage.chain_tips()
-    }
-
     /// Check if a block can open successfully, i.e.,
     ///   it's a known block, the storage system isn't issueing IOErrors, _and_ it's in the same fork
     ///   as the current block

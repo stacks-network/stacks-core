@@ -646,15 +646,6 @@ impl TrieFileStorage {
             None => (1024) // don't try to guess _byte_ allocation here.
         };
 
-        trie_sql::remove_chain_tip_if_present(&self.db, &self.cur_block)?;
-
-        // this *requires* that bhh hasn't been the parent of any prior
-        //   extended blocks.
-        // this is currently enforced if you use the "public" interfaces
-        //   to marfs, but could definitely be violated via raw updates
-        //   to trie structures.
-        trie_sql::add_chain_tip(&self.db, bhh)?;
-
         let trie_buf = TrieRAM::new(bhh, size_hint, &self.cur_block);
 
         // place a lock on this block, so we can't extend to it again
@@ -997,17 +988,13 @@ impl TrieFileStorage {
                         //  to avoid stepping on the borrow checker.
                         debug!("Retarget block {} to {}", bhh, real_bhh);
                         // switch over state
-                        // make it as if we had inserted this block the whole time
-                        trie_sql::retarget_chain_tip_entry(&tx, bhh, real_bhh)?;
                         self.trie_ancestor_hash_bytes_cache = None;
                         self.cur_block = real_bhh.clone();
                     }
                     trie_sql::write_trie_blob(&tx, real_bhh, &buffer)?
                 },
                 FlushOptions::MinedTable(real_bhh) => {
-                    let block_id = trie_sql::write_trie_blob_to_mined(&tx, real_bhh, &buffer)?;
-                    trie_sql::remove_chain_tip_if_present(&tx, bhh)?;
-                    block_id
+                    trie_sql::write_trie_blob_to_mined(&tx, real_bhh, &buffer)?
                 },
             };
 
@@ -1036,8 +1023,6 @@ impl TrieFileStorage {
         if let Some((ref bhh, _)) = self.last_extended.take() {
             let tx = self.db.transaction()
                 .expect("Corruption: Failed to obtain db transaction");
-            trie_sql::remove_chain_tip_if_present(&tx, bhh)
-                .expect("Corruption: Failed to drop the extended trie from chain tips");
             trie_sql::drop_lock(&tx, bhh)
                 .expect("Corruption: Failed to drop the extended trie lock");
             tx.commit()
@@ -1064,10 +1049,5 @@ impl TrieFileStorage {
         };
         result + (trie_sql::count_blocks(&self.db)
                   .expect("Corruption: SQL Error on a non-fallible query.") as usize)
-    }
-    
-    pub fn chain_tips(&self) -> Vec<BlockHeaderHash> {
-        trie_sql::get_chain_tips(&self.db)
-            .expect("Corruption: SQL Error on a non-fallible query.")
     }
 }

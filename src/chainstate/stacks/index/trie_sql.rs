@@ -120,11 +120,6 @@ CREATE TABLE IF NOT EXISTS mined_blocks (
 
 CREATE INDEX IF NOT EXISTS block_hash_mined_blocks ON mined_blocks(block_hash);
 ";
-static SQL_CHAIN_TIPS_TABLE: &str = "
-CREATE TABLE IF NOT EXISTS chain_tips (block_hash TEXT UNIQUE NOT NULL);
-
-CREATE INDEX IF NOT EXISTS block_hash_chain_tips ON chain_tips(block_hash);
-";
 static SQL_EXTENSION_LOCKS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS block_extension_locks (block_hash TEXT PRIMARY KEY);
 ";
@@ -134,7 +129,6 @@ pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
 
     tx.execute_batch(SQL_MARF_DATA_TABLE)?;
     tx.execute_batch(SQL_MARF_MINED_TABLE)?;
-    tx.execute_batch(SQL_CHAIN_TIPS_TABLE)?;
     tx.execute_batch(SQL_EXTENSION_LOCKS_TABLE)?;
 
     tx.commit().map_err(|e| e.into())
@@ -224,28 +218,6 @@ pub fn get_node_hash_bytes_by_bhh(conn: &Connection, bhh: &BlockHeaderHash, ptr:
     Ok(TrieHash(hash_buff))
 }
 
-pub fn get_chain_tips(conn: &Connection) -> Result<Vec<BlockHeaderHash>, Error> {
-    let mut s = conn.prepare("SELECT block_hash FROM chain_tips")?;
-    let rows = s.query_map(NO_PARAMS, |row| row.get("block_hash"))?;
-    rows.map(|i| i.map_err(|e| e.into())).collect()
-}
-
-pub fn remove_chain_tip_if_present(conn: &Connection, bhh: &BlockHeaderHash) -> Result<(), Error> {
-    conn.execute("DELETE FROM chain_tips WHERE block_hash = ?", &[bhh])?;
-    Ok(())
-}
-
-pub fn add_chain_tip(conn: &Connection, bhh: &BlockHeaderHash) -> Result<(), Error> {
-    conn.execute("INSERT INTO chain_tips (block_hash) VALUES (?)", &[bhh])?;
-    Ok(())
-}
-
-pub fn retarget_chain_tip_entry(conn: &Connection, from: &BlockHeaderHash, to: &BlockHeaderHash) -> Result<(), Error> {
-    conn.execute("UPDATE chain_tips SET block_hash = ? WHERE block_hash = ?",
-                 &[to, from])?;
-    Ok(())
-}
-
 pub fn lock_bhh_for_extension(conn: &mut Connection, bhh: &BlockHeaderHash) -> Result<bool, Error> {
     let tx = conn.transaction()?;
     let is_bhh_committed = tx.query_row("SELECT 1 FROM marf_data WHERE block_hash = ? LIMIT 1", &[bhh],
@@ -285,7 +257,6 @@ pub fn clear_tables(conn: &mut Connection) -> Result<(), Error> {
     let tx = conn.transaction()?;
     tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
     tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
-    tx.execute("DELETE FROM chain_tips", NO_PARAMS)?;
     tx.execute("DELETE FROM mined_blocks", NO_PARAMS)?;
     tx.commit().map_err(|e| e.into())
 }
