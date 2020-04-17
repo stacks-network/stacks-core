@@ -41,7 +41,7 @@ jobs:
           name: Coverage via tarpaulin
           command: |
             docker run --security-opt seccomp=unconfined -v "${PWD}:/volume" xd009642/tarpaulin \
-            bash -c "cargo tarpaulin -v --workspace -t 1800 -o Xml"
+            bash -c "cargo tarpaulin -v --workspace -t 240 -o Xml"
           no_output_timeout: 200m
       - run:
           name: Upload to codecov.io
