@@ -1,8 +1,8 @@
 [node]
-seed = "0101010101010101010101010101010101010101010101010101010101010101"
 rpc_bind = "127.0.0.1:9001"
-bootstrap_node = "127.0.0.1:46660"
-# working_dir = "/tmp/stacks-helium"
+p2p_bind = "127.0.0.1:10001"
+seed = "0101010101010101010101010101010101010101010101010101010101010101"
+bootstrap_node = "02338d1704b72920d0ad8ef9f256eb64825b36827ba6f97feb2c837d694602c5bb@127.0.0.1:10000"
 
 ## Settings for local testnet, relying on a local bitcoind server
 ## running with the following bitcoin.conf:
