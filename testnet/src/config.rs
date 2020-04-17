@@ -1,16 +1,21 @@
 use std::convert::TryInto;
 use std::io::{BufReader, Read};
 use std::fs::File;
+use std::net::SocketAddr;
 
 use rand::RngCore;
 
 use stacks::burnchains::{
     MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
+use stacks::core::{PEER_VERSION};
 use stacks::net::connection::ConnectionOptions;
+use stacks::net::{Neighbor, NeighborKey, PeerAddress};
+use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::hash::{to_hex, hex_bytes};
 use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier} ;
 
+use super::node::TESTNET_CHAIN_ID;
 
 #[derive(Clone, Deserialize)]
 pub struct ConfigFile {
@@ -82,7 +87,7 @@ impl Config {
         let default_node_config = NodeConfig::default();
         let node = match config_file.node {
             Some(node) => {
-                NodeConfig {
+                let mut node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
                         Some(seed) => hex_bytes(&seed).expect("Seed should a hex encoded string"),
@@ -91,11 +96,14 @@ impl Config {
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
                     rpc_bind: node.rpc_bind.unwrap_or(default_node_config.rpc_bind),
                     p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
-                }
+                    bootstrap_node: None,
+                };
+                node_config.set_bootstrap_node(node.bootstrap_node);
+                node_config
             },
             None => default_node_config
         };
-    
+
         let default_burnchain_config = BurnchainConfig::default();
         let burnchain = match config_file.burnchain {
             Some(burnchain) => {
@@ -221,8 +229,13 @@ impl Config {
     }
 
     pub fn get_burn_db_path(&self) -> String {
-        format!("{}/burnchain/db/", self.node.working_dir)
+        format!("{}/burnchain/db", self.node.working_dir)
     }
+
+    pub fn get_burn_db_file_path(&self) -> String {
+        format!("{}/burnchain/db/{}/{}/burn.db/", self.node.working_dir, self.burnchain.chain, "regtest")
+    }
+
 
     pub fn get_chainstate_path(&self) -> String {
         format!("{}/chainstate/", self.node.working_dir)
@@ -340,6 +353,7 @@ pub struct NodeConfig {
     pub working_dir: String,
     pub rpc_bind: String,
     pub p2p_bind: String,
+    pub bootstrap_node: Option<Neighbor>,
 }
 
 impl NodeConfig {
@@ -362,7 +376,8 @@ impl NodeConfig {
             seed: vec![0; 32],
             working_dir: format!("/tmp/{}", testnet_id),
             rpc_bind: format!("127.0.0.1:{}", rpc_port),
-            p2p_bind: format!("127.0.0.1:{}", p2p_port)
+            p2p_bind: format!("127.0.0.1:{}", p2p_port),
+            bootstrap_node: None,
         }
     }
 
@@ -372,6 +387,37 @@ impl NodeConfig {
 
     pub fn get_default_spv_headers_path(&self) -> String {
         format!("{}/spv-headers.dat", self.get_burnchain_path())
+    }
+
+    pub fn set_bootstrap_node(&mut self, bootstrap_node: Option<String>) {
+        if let Some(bootstrap_node) = bootstrap_node {
+            let comps: Vec<&str> = bootstrap_node.split("@").collect();
+            match comps[..] {
+                [public_key, peer_addr] => {
+                    let sock_addr: SocketAddr = peer_addr.parse().unwrap(); 
+                    let neighbor = Neighbor {
+                        addr: NeighborKey {
+                            peer_version: PEER_VERSION,
+                            network_id: TESTNET_CHAIN_ID,
+                            addrbytes: PeerAddress::from_socketaddr(&sock_addr),
+                            port: sock_addr.port()
+                        },
+                        public_key: Secp256k1PublicKey::from_hex(public_key).unwrap(),
+                        expire_block: 99999,
+                        last_contact_time: 0,
+                        whitelisted: 0,
+                        blacklisted: 0,
+                        asn: 0,
+                        org: 0,
+                        in_degree: 0,
+                        out_degree: 0
+                    };
+                    self.bootstrap_node = Some(neighbor);
+                },
+                _ => {}
+            }
+        }
+
     }
 }
 
@@ -411,6 +457,7 @@ pub struct NodeConfigFile {
     pub working_dir: Option<String>,
     pub rpc_bind: Option<String>,
     pub p2p_bind: Option<String>,
+    pub bootstrap_node: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]

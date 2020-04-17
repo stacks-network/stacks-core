@@ -18,6 +18,7 @@ use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
 
+
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xdead1010;
 
@@ -141,10 +142,10 @@ impl Node {
         }
     }
 
-    pub fn init_and_sync(config: Config, burnchain_controller: &mut Box<dyn BurnchainController>) -> Self {
-
-        let burnchain_tip = burnchain_controller.get_chain_tip();
+    pub fn init_and_sync(config: Config, burnchain_controller: &mut Box<dyn BurnchainController>) -> Node {
         
+        let burnchain_tip = burnchain_controller.get_chain_tip();
+
         let keychain = Keychain::default(config.node.seed.clone());
 
         let mut event_dispatcher = EventDispatcher::new();
@@ -153,35 +154,54 @@ impl Node {
             event_dispatcher.register_observer(observer);
         }
 
-        // todo(ludo): progress on that front is blocked by # 
-        
-        // In a nutshell, in this scenario we want to:
-        // 
-        // Block on rebuilding the chain_state
+        let chainstate_path = config.get_chainstate_path();
 
-        // Retrieve latest sortitioned block
+        let chain_state = match StacksChainState::open(
+            false, 
+            TESTNET_CHAIN_ID, 
+            &chainstate_path) {
+            Ok(x) => x,
+            Err(_e) => {
+                panic!()
+            },
+        };
 
-        // Retrieve latest registered key, if any
+        let mut node = Node {
+            active_registered_key: None,
+            bootstraping_chain: false,
+            chain_state,
+            chain_tip: None,
+            keychain,
+            last_sortitioned_block: None,
+            config,
+            burnchain_tip: None,
+            nonce: 0,
+            event_dispatcher,
+        };
 
-        // Self {
-        //     active_registered_key: None,
-        //     bootstraping_chain: false,
-        //     chain_state,
-        //     chain_tip,
-        //     keychain,
-        //     last_sortitioned_block: None,
-        //     config,
-        //     burnchain_tip: Some(burnchain_tip),
-        //     nonce: 0,
-        //     event_dispatcher,
-        // }
+        node.spawn_peer_server();
 
-        unimplemented!()
+        loop {
+            if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip() {
+                if chain_tip.burn_header_hash == burnchain_tip.block_snapshot.burn_header_hash {
+                    info!("Syncing Stacks blocks - completed");
+                    break;
+                } else {
+                    info!("Syncing Stacks blocks - received block #{}", chain_tip.height);
+                }
+            } else {
+                info!("Syncing Stacks blocks - unable to progress");
+            }
+            thread::sleep(time::Duration::from_secs(5));
+        }
+        node
     }
 
     pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
+        // todo(ludo): change file path once #1434 is merged in
+        // let mut burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
         let mut burndb = BurnDB::open(&self.config.get_burn_db_path(), true)
             .expect("Error while instantiating burnchain db");
 
@@ -198,10 +218,22 @@ impl Node {
         // create a new peerdb
         let data_url = UrlString::try_from(format!("http://{}", self.config.node.rpc_bind)).unwrap();
 
+        let mut initial_neighbors = vec![];
+        if let Some(ref bootstrap_node) = self.config.node.bootstrap_node {
+            initial_neighbors.push(bootstrap_node.clone());
+        }
+
+        println!("BOOTSTRAP WITH {:?}", initial_neighbors);
+
         let peerdb = PeerDB::connect(
-            &self.config.get_peer_db_path(), true, TESTNET_CHAIN_ID, burnchain.network_id, i64::max_value() as u64,
+            &self.config.get_peer_db_path(), 
+            true, 
+            TESTNET_CHAIN_ID, 
+            burnchain.network_id, 
+            i64::max_value() as u64,
             data_url.clone(),
-            &vec![], None).unwrap();
+            &vec![], 
+            Some(&initial_neighbors)).unwrap();
 
         let local_peer = LocalPeer::new(TESTNET_CHAIN_ID, burnchain.network_id,
                                         self.config.connection_options.private_key_lifetime.clone(),
@@ -212,9 +244,13 @@ impl Node {
             .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
         let p2p_sock = self.config.node.p2p_bind.parse()
             .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_bind));
-        let _join_handle = spawn_peer(p2p_net, &p2p_sock, &rpc_sock, self.config.get_burn_db_path(),
-                                      self.config.get_chainstate_path(), 5000)
-            .unwrap();
+        let _join_handle = spawn_peer(
+            p2p_net, 
+            &p2p_sock, 
+            &rpc_sock, 
+            self.config.get_burn_db_file_path(),
+            self.config.get_chainstate_path(), 
+            5000).unwrap();
 
         info!("Bound HTTP server on: {}", &self.config.node.rpc_bind);
         info!("Bound P2P server on: {}", &self.config.node.p2p_bind);
@@ -496,9 +532,10 @@ impl Node {
                                 burnchain_tip: &BurnchainTip,
                                 vrf_seed: VRFSeed) -> BurnchainOperationType {
 
-        let winning_tx_vtindex = match burnchain_tip.get_winning_tx_index() {
-            Some(winning_tx_id) => winning_tx_id,
-            None => unreachable!()
+        let winning_tx_vtindex = match (burnchain_tip.get_winning_tx_index(), burnchain_tip.block_snapshot.total_burn) {
+            (Some(winning_tx_id), _) => winning_tx_id,
+            (None, 0) => 0,
+            _ => unreachable!()
         };
 
         let (parent_block_ptr, parent_vtxindex) = match self.bootstraping_chain {
