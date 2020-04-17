@@ -63,7 +63,7 @@ following limitations:
    functions defined this way may only be called by other functions
    defined in the given smart contract.
 7. Functions specified via `define-public` statements are _public_
-   functions. Arguments to these functions must specify their types.
+   functions.
 8. Functions specified via `define-read-only` statements are _public_
    functions and perform _no_ state mutations. Any attempts to 
    modify contract state by these functions or functions called by
@@ -89,7 +89,7 @@ any type.
 * Lists may be multi-dimensional (i.e., lists may contain other lists), however each
   entry of this list must be of the same type.
 * `filter` `map` and `fold` functions may only be called with user-defined functions
-  (i.e., functions defined with `(define ...)`, `(define-read-only ...)`, or
+  (i.e., functions defined with `(define-private ...)`, `(define-read-only ...)`, or
   `(define-public ...)`) or simple native functions (e.g., `+`, `-`, `not`).
 * Functions that return lists of a different size than the input size
   (e.g., `(append-item ...)`) take a required _constant_ parameter that indicates
@@ -323,8 +323,8 @@ allows the construction of named tuples using a function `(tuple ...)`,
 e.g.,
 
 ```
-(define imaginary-number-a (tuple (real 1) (i 2)))
-(define imaginary-number-b (tuple (real 2) (i 3)))
+(define-constant imaginary-number-a (tuple (real 1) (i 2)))
+(define-constant imaginary-number-b (tuple (real 2) (i 3)))
 
 ```
 
@@ -332,36 +332,6 @@ This allows for creating named tuples on the fly, which is useful for
 data maps where the keys and values are themselves named tuples. To
 access a named value of a given tuple, the function `(get #name
 tuple)` will return that item from the tuple.
-
-### Reading from Other Smart Contracts
-
-While a smart contract may not _modify_ other smart contracts' data
-directly, it _can_ read data stored in those smart contracts' maps.
-(Note: this does not alter any confidentiality guarantees of the smart
-contracting language. All data in the smart contracts is inherently
-public, and will be readable through querying the underlying database
-in any case.) In order to do so, a contract may use the
-`(contract-map-get)` function, which behaves identically to
-`(map-get)`, though it accepts a contract principal as an argument
-in addition to the map name:
-
-```
-(contract-map-get
-  'contract-principal
-  'map-name
-  'key-tuple) -> value tuple or none
-
-Example:
-
-(contract-map-get
- 'SC3H92H297DX3YDPFHZGH90G8Z4NPH4VE8E83YWAQ
- 'name-map
- 12234) -> returns owner principal of name represent by integer 12234
-```
-
-Just as with the `(contract-call?)` function, the map name and contract
-principal arguments must be constants, specified at the time of
-publishing.
 
 ### Time-shifted Evaluations
 
@@ -719,8 +689,8 @@ In this simple scheme, names are represented by integers, but in
 practice, a buffer would probably be used.
 
 ```scheme
-(define burn-address '1111111111111111111114oLvT2)
-(define (price-function name)
+(define-constant burn-address '1111111111111111111114oLvT2)
+(define-private (price-function name)
   (if (< name 1e5) 1000 100))
 
 (define-map name-map 
