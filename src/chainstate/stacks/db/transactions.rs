@@ -1089,7 +1089,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-transaction");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-sponsored-tx");
 
         let privk_origin = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
         let privk_sponsor = StacksPrivateKey::from_hex("7e3af4db6af6b3c67e2c6c6d7d5983b519f4d9b3a6e00580ae96dcace3bde8bc01").unwrap();
@@ -1151,7 +1151,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-transaction");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-contract-cc-tx");
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
@@ -1237,7 +1237,7 @@ pub mod test {
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (define-public (return-error) (err 1))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-transaction-runtime-error");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-call-runtime-error");
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
@@ -1315,7 +1315,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-transaction-invalid");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-contract-cc-invalid");
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
@@ -1397,7 +1397,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-smart-contract-transaction");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-contract-cc-sponsored");
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
@@ -1812,7 +1812,7 @@ pub mod test {
             nonce += 1;
         }
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-post-conditions");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-post-conditions-tokens");
         let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
 
         let account_publisher = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
@@ -2214,7 +2214,7 @@ pub mod test {
             recv_nonce += 1;
         }
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-post-conditions");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "process-post-conditions-tokens-deny");
         let mut conn = chainstate.block_begin(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH, &BurnchainHeaderHash([1u8; 32]), &BlockHeaderHash([1u8; 32]));
 
         let account_publisher = StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());

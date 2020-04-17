@@ -6,10 +6,11 @@ use stacks::vm::{
     analysis::{mem_type_check, contract_interface_builder::{build_contract_interface, ContractInterface}},
     Value };
 use stacks::chainstate::stacks::{
-    db::StacksChainState, StacksPrivateKey, StacksAddress };
+    db::StacksChainState, StacksPrivateKey, StacksTransaction, StacksAddress };
 use stacks::chainstate::burn::VRFSeed;
 use stacks::burnchains::Address;
 use stacks::net::{AccountEntryResponse, ContractSrcResponse, CallReadOnlyRequestBody};
+use stacks::net::StacksMessageCodec;
 use stacks::vm::clarity::ClarityConnection;
 
 use crate::config::InitialBalance;
@@ -97,6 +98,7 @@ lazy_static! {
 }
 
 #[test]
+#[ignore]
 fn integration_test_get_info() {
     let mut conf = super::new_test_conf();
     let spender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap()).into();
@@ -506,6 +508,49 @@ fn integration_test_get_info() {
                 assert!(res.get("result").is_none());
                 assert!(!res["okay"].as_bool().unwrap());
                 assert!(res["cause"].as_str().unwrap().contains("NotReadOnly"));
+
+                // let's submit a valid transaction!
+                let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
+                let path = format!("{}/v2/transactions", &http_origin);
+                eprintln!("Test: POST {} (valid)", path);
+
+                // tx_xfer is 180 bytes long
+                let tx_xfer = make_stacks_transfer(&spender_sk, round.into(), 200,
+                                                   &StacksAddress::from_string(ADDR_4).unwrap().into(), 123);
+
+                let res = client.post(&path)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(tx_xfer.clone())
+                    .send()
+                    .unwrap()
+                    .text()
+                    .unwrap();
+
+                eprintln!("{}", res);
+                assert_eq!(res, format!("{}", StacksTransaction::consensus_deserialize(&mut &tx_xfer[..]).unwrap().txid()));
+                
+                // let's submit an invalid transaction!
+                let path = format!("{}/v2/transactions", &http_origin);
+                eprintln!("Test: POST {} (invalid)", path);
+
+                // tx_xfer_invalid is 180 bytes long
+                let tx_xfer_invalid = make_stacks_transfer(&spender_sk, (round + 10).into(), 200,     // bad nonce
+                                                           &StacksAddress::from_string(ADDR_4).unwrap().into(), 456);
+
+                let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
+
+                let res = client.post(&path)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(tx_xfer_invalid.clone())
+                    .send()
+                    .unwrap()
+                    .json::<serde_json::Value>()
+                    .unwrap();
+
+                eprintln!("{}", res);
+                assert_eq!(res.get("txid").unwrap().as_str().unwrap(), format!("{}", tx_xfer_invalid_tx.txid()));
+                assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
+                assert!(res.get("reason").is_some());
             },
             _ => {},
         }
@@ -554,9 +599,10 @@ fn contract_stx_transfer() {
             tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,publish_tx).unwrap();
         } else if round == 3 {
             // try to publish again
-            //   TODO: disabled, pending resolution of issue #1376
-            // let publish_tx = make_contract_publish(&contract_sk, 1, 0, "faucet", FAUCET_CONTRACT);
-            // tenure.mem_pool.submit(publish_tx);
+            let publish_tx = make_contract_publish(&contract_sk, 1, 0, "faucet", FAUCET_CONTRACT);
+            
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.metadata.burn_header_hash, &tenure.parent_block.metadata.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
 
             let tx = make_contract_call(&sk_2, 0, 0, &to_addr(&contract_sk), "faucet", "spout", &[]);
             tenure.mem_pool.submit_raw(&burn_header_hash, &header_hash,tx).unwrap();
@@ -660,6 +706,98 @@ fn contract_stx_transfer() {
                     98000);
             },
 
+            _ => {},
+        }
+    });
+
+    run_loop.start(num_rounds);
+}
+
+#[test]
+fn bad_contract_tx_rollback() {
+    let mut conf = super::new_test_conf();
+
+    let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+    let addr_3 = to_addr(&sk_3);
+
+    conf.burnchain.commit_anchor_block_within = 1500;
+    conf.add_initial_balance(addr_3.to_string(), 100000);
+
+    let num_rounds = 3;
+
+    let mut run_loop = RunLoop::new(conf);
+    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
+        let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+        let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
+        let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+        let addr_2 = to_addr(&sk_2);
+
+        let contract_identifier =
+            QualifiedContractIdentifier::parse(&format!("{}.{}",
+                                                        to_addr(
+                                                            &StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
+                                                        "faucet")).unwrap();
+
+        if round == 1 { // block-height = 2
+            let xfer_to_contract = make_stacks_transfer(&sk_3, 0, 0, &contract_identifier.into(), 1000);
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.metadata.burn_header_hash, &tenure.parent_block.metadata.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
+        } else if round == 2 { // block-height = 3
+            let xfer_to_contract = make_stacks_transfer(&sk_3, 1, 0, &addr_2.into(), 1000);
+            let (burn_header_hash, block_hash) = (&tenure.parent_block.metadata.burn_header_hash, &tenure.parent_block.metadata.anchored_header.block_hash());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
+            
+            let xfer_to_contract = make_stacks_transfer(&sk_3, 2, 0, &addr_2.into(), 1500);
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
+            
+            let publish_tx = make_contract_publish(&contract_sk, 0, 0, "faucet", FAUCET_CONTRACT);
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
+            
+            let publish_tx = make_contract_publish(&contract_sk, 1, 0, "faucet", FAUCET_CONTRACT);
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
+        }
+
+        return
+    });
+
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state| {
+        let contract_identifier =
+            QualifiedContractIdentifier::parse(&format!("{}.{}",
+                                                        to_addr(
+                                                            &StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
+                                                        "faucet")).unwrap();
+
+        match round {
+            1 => {
+                assert!(chain_tip.metadata.block_height == 2);
+                // Block #1 should have 2 txs -- coinbase + transfer
+                assert!(chain_tip.block.txs.len() == 2);
+
+                let cur_tip = (chain_tip.metadata.burn_header_hash.clone(), chain_tip.metadata.anchored_header.block_hash());
+                // check that 1000 stx _was_ transfered to the contract principal
+                assert_eq!(
+                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_account_stx_balance(&contract_identifier.clone().into())
+                        })
+                    }),
+                    1000);
+                // check that 1000 stx _was_ debited from SK_3
+                let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+                let addr_3 = to_addr(&sk_3).into();
+                assert_eq!(
+                    chain_state.with_read_only_clarity_tx(&cur_tip.0, &cur_tip.1, |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_account_stx_balance(&addr_3)
+                        })
+                    }),
+                    99000);
+            },
+            2 => {
+                assert_eq!(chain_tip.metadata.block_height, 3);
+                // Block #2 should have 4 txs -- coinbase + 2 transfers + 1 publish
+                assert_eq!(chain_tip.block.txs.len(), 4);
+            },
             _ => {},
         }
     });
