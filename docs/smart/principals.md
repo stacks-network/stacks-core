@@ -61,10 +61,10 @@ faucet" could be implemented as so:
 
 ```scheme
 (define-public (claim-from-faucet)
-  (if (is-none? (fetch-entry claimed-before {sender: tx-sender}))
+  (if (is-none? (fetch-entry claimed-before (tuple (sender tx-sender))))
       (let ((requester tx-sender)) ;; set a local variable requester = tx-sender
         (begin
-            (insert-entry! claimed-before {sender: requester} {claimed: true})
+            (insert-entry! claimed-before (tuple (sender requester)) (tuple (claimed true)))
             (as-contract (stx-transfer? u1 tx-sender requester))))
       (err 1)))
 ```
