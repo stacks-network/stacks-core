@@ -1094,6 +1094,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn marf_walk_cow_node4_20() {
         marf_walk_cow_test(|s| {
             // make a deep path
@@ -1139,6 +1140,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn marf_walk_cow_node4_20_reversed() {
         marf_walk_cow_test(|s| {
             // make a deep path
@@ -1297,6 +1299,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn marf_walk_cow_4() {
         marf_walk_cow_4_test("/tmp/rust_marf_walk_cow_node4_20", |i, mut p| {
             p[i as usize] = 32;
