@@ -25,12 +25,12 @@ on the blockchain.
 
 A Clarity contract can use a globally defined `tx-sender` variable to
 obtain the current principal. The following example defines a transaction
-type that transfers `amount` uSTX from the sender to a recipient if some
-condition is met, otherwise returning a 400 error code.
+type that transfers `amount` uSTX from the sender to a recipient if amount
+is a multiple of 10, otherwise returning a 400 error code.
 
-```cl
+```scheme
 (define-public (transfer-to-recipient! (recipient principal) (amount uint))
-  (if (check-condition)
+  (if (is-eq (mod amount 10) 0)
       (stx-transfer? amount tx-sender recipient)
       (err u400)))
 ```
@@ -41,7 +41,7 @@ Smart contracts themselves are principals and are represented by the
 smart contract's identifier -- which is the publishing address of the
 contract _and_ the contract's name, e.g.:
 
-```cl
+```scheme
 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract-name
 ```
 
@@ -59,13 +59,13 @@ set to the contract's principal, rather than the current sender. The
 For example, a smart contract that implements something like a "token
 faucet" could be implemented as so:
 
-```cl
+```scheme
 (define-public (claim-from-faucet)
   (if (is-none? (fetch-entry claimed-before {sender: tx-sender}))
       (let ((requester tx-sender)) ;; set a local variable requester = tx-sender
         (begin
             (insert-entry! claimed-before {sender: requester} {claimed: true})
-            (as-contract (stacks-transfer? u1 tx-sender requester))))
+            (as-contract (stx-transfer? u1 tx-sender requester))))
       (err 1)))
 ```
 
