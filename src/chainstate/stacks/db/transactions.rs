@@ -1476,35 +1476,26 @@ pub mod test {
         (define-fungible-token stackaroos)
         (define-non-fungible-token names (buff 50))
         (define-public (send-stackaroos (recipient principal))
-          (begin 
              (as-contract  ;; used to test post-conditions on contract principal
                (begin (unwrap-panic (ft-mint? stackaroos u100 tx-sender))
                       (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
                       (ok 'true))
              )
-           )
         )
         (define-public (send-name (name (buff 50)) (recipient principal))
-          (begin 
             (as-contract   ;; used to test post-conditions on contract principal
               (begin (unwrap-panic (nft-mint? names name tx-sender))
                      (unwrap-panic (nft-transfer? names name tx-sender recipient))
                      (ok 'true))
             )
-          )
         )
         (define-public (user-send-stackaroos (recipient principal))
-          (begin
              (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
              (ok 'true))
-        )
         (define-public (user-send-name (name (buff 50)) (recipient principal))
-          (begin
              (unwrap-panic (nft-transfer? names name tx-sender recipient))
              (ok 'true))
-        )
         (define-public (send-stackaroos-and-name (name (buff 50)) (recipient principal))
-          (begin
              (as-contract  ;; used to test post-conditions on contract principal
                (begin (unwrap-panic (nft-mint? names name tx-sender))
                       (unwrap-panic (nft-transfer? names name tx-sender recipient))
@@ -1512,14 +1503,11 @@ pub mod test {
                       (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
                       (ok 'true))
              )
-          )
         )
         (define-public (user-send-stackaroos-and-name (name (buff 50)) (recipient principal))
-           (begin
              (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
              (unwrap-panic (nft-transfer? names name tx-sender recipient))
              (ok 'true))
-        )
         (define-public (get-bar) (ok (var-get bar)))
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
@@ -1922,35 +1910,26 @@ pub mod test {
         (define-fungible-token stackaroos)
         (define-non-fungible-token names (buff 50))
         (define-public (send-stackaroos (recipient principal))
-          (begin 
              (as-contract  ;; used to test post-conditions on contract principal
                (begin (unwrap-panic (ft-mint? stackaroos u100 tx-sender))
                       (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
                       (ok 'true))
              )
-           )
         )
         (define-public (send-name (name (buff 50)) (recipient principal))
-          (begin 
             (as-contract   ;; used to test post-conditions on contract principal
               (begin (unwrap-panic (nft-mint? names name tx-sender))
                      (unwrap-panic (nft-transfer? names name tx-sender recipient))
                      (ok 'true))
             )
-          )
         )
         (define-public (user-send-stackaroos (recipient principal))
-          (begin
              (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
              (ok 'true))
-        )
         (define-public (user-send-name (name (buff 50)) (recipient principal))
-          (begin
              (unwrap-panic (nft-transfer? names name tx-sender recipient))
              (ok 'true))
-        )
         (define-public (send-stackaroos-and-name (name (buff 50)) (recipient principal))
-          (begin
              (as-contract  ;; used to test post-conditions on contract principal
                (begin (unwrap-panic (nft-mint? names name tx-sender))
                       (unwrap-panic (nft-transfer? names name tx-sender recipient))
@@ -1958,14 +1937,11 @@ pub mod test {
                       (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
                       (ok 'true))
              )
-          )
         )
         (define-public (user-send-stackaroos-and-name (name (buff 50)) (recipient principal))
-           (begin
              (unwrap-panic (ft-transfer? stackaroos u100 tx-sender recipient))
              (unwrap-panic (nft-transfer? names name tx-sender recipient))
              (ok 'true))
-        )
         (define-public (get-bar) (ok (var-get bar)))
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";

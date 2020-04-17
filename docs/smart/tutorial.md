@@ -81,10 +81,9 @@ The next sequence of lines shows an `if` statement that allows you to set condit
   (if (<= tokens 0)
       (err "must move positive balance")
       (let ((current-amount (get-balance account)))
-        (begin
           (set-entry! tokens (tuple (account account))
                       (tuple (balance (+ tokens current-amount))))
-          (ok tokens)))))
+          (ok tokens))))
 ```
 
 Every smart contract has both a data space and code. The data space of a contract may only interact with that contract. This particular function is interacting with a map named `tokens`. The `set-entry!` function is a native function that sets the value associated with the input key to the inputted value in the `tokens` data map. Because `set-entry!`  mutates data so it has an `!` exclamation point; this is by convention in Clarity. 

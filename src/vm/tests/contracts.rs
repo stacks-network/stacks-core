@@ -42,10 +42,9 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
             (if (<= amount u0)
                 (err \"must be positive\")
                 (let ((current-amount (my-get-token-balance account)))
-                  (begin
                     (map-set tokens (tuple (account account))
-                                       (tuple (balance (+ amount current-amount))))
-                    (ok 0)))))
+                                    (tuple (balance (+ amount current-amount))))
+                    (ok 0))))
          (define-public (token-transfer (to principal) (amount uint))
           (let ((balance (my-get-token-balance tx-sender)))
              (if (or (> amount balance) (<= amount u0))
@@ -517,12 +516,11 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
 (define-public (modify-data
                  (id int)
                  (value int))
-   (begin
      (map-set data (tuple (id id))
                       (tuple (value value)))
      (if (is-eq id value)
          (ok 1)
-         (err 1))))
+         (err 1)))
 
 
 (define-private (get-data (id int))
@@ -533,14 +531,12 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
 
     let contract_2 ="
 (define-public (fail-in-other)
-  (begin
     (contract-call? .contract-1 modify-data 100 101)
-    (ok 1)))
+    (ok 1))
 
 (define-public (fail-in-self)
-  (begin
     (contract-call? .contract-1 modify-data 105 105)
-    (err 1)))
+    (err 1))
 ";
     let mut env = owned_env.get_exec_environment(None);
 

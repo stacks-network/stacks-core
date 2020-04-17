@@ -881,8 +881,8 @@ a public function is aborted if the function returns an `err` type. Public funct
 contracts via `contract-call?`.",
     example: "
 (define-public (hello-world (input int))
-  (begin (print (+ 2 input))
-         (ok input)))
+  (print (+ 2 input))
+  (ok input))
 "
 };
 
@@ -1026,8 +1026,7 @@ definition (i.e., you cannot put such a statement in the middle of a function bo
     example: "
 (use-trait token-a-trait 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a.token-trait)
 (define-public (forward-get-balance (user principal) (contract <token-a-trait>))
-  (begin
-    (ok 1)))
+  (ok 1))
 "
 };
 

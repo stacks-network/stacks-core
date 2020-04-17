@@ -6,10 +6,9 @@
   (if (<= amount u0)
       (err "must move positive balance")
       (let ((current-amount (get-balance account)))
-        (begin
           (map-set tokens (tuple (account account))
                       (tuple (balance (+ amount current-amount))))
-          (ok amount)))))
+          (ok amount))))
 
 (define-public (token-transfer (to principal) (amount uint))
   (let ((balance (get-balance tx-sender)))

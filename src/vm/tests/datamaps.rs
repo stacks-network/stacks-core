@@ -63,23 +63,19 @@ fn test_bound_tuple() {
     let test =
         "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))
-            (begin
-                (let ((my-tuple (tuple (key key))))
-                (map-insert kv-store my-tuple (tuple (value value))))
-            value))
+            (let ((my-tuple (tuple (key key))))
+              (map-insert kv-store my-tuple (tuple (value value)))
+              value))
          (define-private (kv-get (key int))
             (let ((my-tuple (tuple (key key))))
-            (unwrap! (get value (map-get? kv-store my-tuple)) 0)))
+              (unwrap! (get value (map-get? kv-store my-tuple)) 0)))
          (define-private (kv-set (key int) (value int))
-            (begin
-                (let ((my-tuple (tuple (key key))))
-                (map-set kv-store my-tuple
-                                   (tuple (value value))))
+            (let ((my-tuple (tuple (key key))))
+                (map-set kv-store my-tuple (tuple (value value)))
                 value))
          (define-private (kv-del (key int))
-            (begin
-                (let ((my-tuple (tuple (key key))))
-                (map-delete kv-store my-tuple))
+            (let ((my-tuple (tuple (key key))))
+                (map-delete kv-store my-tuple)
                 key))
         ";
 
@@ -104,21 +100,18 @@ fn test_explicit_syntax_tuple() {
     let test =
         "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))
-            (begin
-                (map-insert kv-store (tuple (key key))
-                                    (tuple (value value)))
-            value))
+            (map-insert kv-store (tuple (key key))
+                                 (tuple (value value)))
+            value)
          (define-private (kv-get (key int))
             (unwrap! (get value (map-get? kv-store (tuple (key key)))) 0))
          (define-private (kv-set (key int) (value int))
-            (begin
                 (map-set kv-store (tuple (key key))
                                    (tuple (value value)))
-                value))
+                value)
          (define-private (kv-del (key int))
-            (begin
-                (map-delete kv-store (tuple (key key)))
-                key))
+            (map-delete kv-store (tuple (key key)))
+            key)
         ";
 
     let mut test_add_set_del = test.to_string();
@@ -142,21 +135,18 @@ fn test_implicit_syntax_tuple() {
     let test =
         "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))
-            (begin
                 (map-insert kv-store {key key}
                                      {value value})
-                value))
+                value)
          (define-private (kv-get (key int))
             (unwrap! (get value (map-get? kv-store {key key})) 0))
          (define-private (kv-set (key int) (value int))
-            (begin
                 (map-set kv-store {key key}
                                   {value value})
-                value))
+                value)
          (define-private (kv-del (key int))
-            (begin
                 (map-delete kv-store {key key})
-                key))
+                key)
         ";
 
     let mut test_add_set_del = test.to_string();
@@ -186,9 +176,8 @@ fn test_set_int_variable() {
                 value
                 0))
         (define-private (increment-cursor)
-            (begin
-                (var-set cursor (+ 1 (get-cursor)))
-                (get-cursor)))
+            (var-set cursor (+ 1 (get-cursor)))
+            (get-cursor))
     "#;
 
     let mut contract_src = contract_src.to_string();

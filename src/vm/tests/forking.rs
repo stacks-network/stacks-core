@@ -30,15 +30,13 @@ fn test_at_block_good() {
         let contract =
             "(define-data-var datum int 1)
              (define-public (reset)
-               (begin
                  (var-set datum (+
                    (at-block 0x0202020202020202020202020202020202020202020202020202020202020202 (var-get datum))
                    (at-block 0x0101010101010101010101010101010101010101010101010101010101010101 (var-get datum))))
-                 (ok (var-get datum))))
+                 (ok (var-get datum)))
              (define-public (set-val)
-               (begin
                  (var-set datum 10)
-                 (ok (var-get datum))))";
+                 (ok (var-get datum)))";
 
         eprintln!("Initializing contract...");
         owned_env.initialize_contract(c.clone(), &contract).unwrap();

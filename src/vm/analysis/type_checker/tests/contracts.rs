@@ -20,10 +20,9 @@ const SIMPLE_TOKENS: &str =
             (if (<= amount u0)
                 (err 1)
                 (let ((current-amount (my-get-token-balance account)))
-                  (begin
                     (map-set tokens (tuple (account account))
                                        (tuple (balance (+ amount current-amount))))
-                    (ok u0)))))
+                    (ok u0))))
          (define-public (token-transfer (to principal) (amount uint))
           (let ((balance (my-get-token-balance tx-sender)))
              (if (or (> amount balance) (<= amount u0))

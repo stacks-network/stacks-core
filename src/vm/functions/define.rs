@@ -1,7 +1,5 @@
 use std::collections::{HashMap, BTreeMap};
 use std::convert::TryInto;
-use std::convert::TryFrom;
-use std::convert::From;
 use vm::types::{Value, TypeSignature, TupleTypeSignature, PrincipalData, TraitIdentifier, QualifiedContractIdentifier, parse_name_type_pairs};
 use vm::types::signatures::FunctionSignature;
 use vm::callables::{DefinedFunction, DefineType};
@@ -173,24 +171,22 @@ impl DefineFunctions {
 }
 
 impl <'a> DefineFunctionsParsed <'a> {
-    
-    fn multi_expression(forms: &'a[SymbolicExpression]) -> SymbolicExpression {
-        if let [expression] = forms { 
-            expression.clone()
-        } else {
-            let mut content = forms.to_vec();                   
-            content.insert(0, SymbolicExpression::atom("begin".to_string().try_into().unwrap()));
-            SymbolicExpression::list(content.into_boxed_slice())
-        }
-    }
-
-    /// Try to parse a Top-Level Expression (e.g., (define-private (foo) 1)) as
+        /// Try to parse a Top-Level Expression (e.g., (define-private (foo) 1)) as
     /// a define-statement, returns None if the supplied expression is not a define.
     pub fn try_parse(expression: &'a SymbolicExpression) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrors> {
         let (define_type, args) = match DefineFunctions::try_parse(expression) {
             Some(x) => x,
             None => return Ok(None)
         };
+        fn multi_expression(forms: &[SymbolicExpression]) -> SymbolicExpression {
+            if let [expression] = forms { 
+                expression.clone()
+            } else {
+                let mut content = forms.to_vec();                   
+                content.insert(0, SymbolicExpression::atom("begin".to_string().try_into().unwrap()));
+                SymbolicExpression::list(content.into_boxed_slice())
+            }
+        }
         let result = match define_type {
             DefineFunctions::Constant => {
                 check_argument_count(2, args)?;
@@ -200,17 +196,17 @@ impl <'a> DefineFunctionsParsed <'a> {
             DefineFunctions::PrivateFunction => {
                 check_arguments_at_least(2, args)?;
                 let signature = args[0].match_list().ok_or(CheckErrors::DefineFunctionBadSignature)?;
-                DefineFunctionsParsed::PrivateFunction { signature, body: DefineFunctionsParsed::multi_expression(&args[1..]) }
+                DefineFunctionsParsed::PrivateFunction { signature, body: multi_expression(&args[1..]) }
             },
             DefineFunctions::ReadOnlyFunction => {
                 check_arguments_at_least(2, args)?;
                 let signature = args[0].match_list().ok_or(CheckErrors::DefineFunctionBadSignature)?;
-                DefineFunctionsParsed::ReadOnlyFunction { signature, body: DefineFunctionsParsed::multi_expression(&args[1..]) }
+                DefineFunctionsParsed::ReadOnlyFunction { signature, body: multi_expression(&args[1..]) }
             },
             DefineFunctions::PublicFunction => {
                 check_arguments_at_least(2, args)?;
                 let signature = args[0].match_list().ok_or(CheckErrors::DefineFunctionBadSignature)?;
-                DefineFunctionsParsed::PublicFunction { signature, body: DefineFunctionsParsed::multi_expression(&args[1..]) }
+                DefineFunctionsParsed::PublicFunction { signature, body: multi_expression(&args[1..]) }
             },
             DefineFunctions::NonFungibleToken => {
                 check_argument_count(2, args)?;

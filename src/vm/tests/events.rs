@@ -32,9 +32,8 @@ fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransaction
 fn test_emit_print_ok() {
     let contract =
         "(define-public (emit-event-ok)
-            (begin
-                (print \"Hello world\")
-                (ok u1)))";
+            (print \"Hello world\")
+            (ok u1))";
                 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
     assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
@@ -53,9 +52,8 @@ fn test_emit_print_ok() {
 fn test_emit_print_nok() {
     let contract =
         "(define-public (emit-event-nok)
-            (begin
-                (print \"Hello world\")
-                (err u1)))";
+            (print \"Hello world\")
+            (err u1))";
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
@@ -69,9 +67,8 @@ fn test_emit_stx_transfer_ok() {
         (define-constant recipient 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
         (define-fungible-token token)
         (define-public (emit-event-ok)
-            (begin
-                (unwrap-panic (stx-transfer? u10 sender recipient))
-                (ok u1)))";                
+            (unwrap-panic (stx-transfer? u10 sender recipient))
+            (ok u1))";                
                 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
     assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
@@ -93,9 +90,8 @@ fn test_emit_stx_transfer_nok() {
         (define-constant recipient 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
         (define-fungible-token token)
         (define-public (emit-event-nok)
-            (begin
-                (unwrap-panic (stx-transfer? u10 sender recipient))
-                (err u1)))";                
+            (unwrap-panic (stx-transfer? u10 sender recipient))
+            (err u1))";                
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
@@ -108,9 +104,8 @@ fn test_emit_stx_burn_ok() {
         "(define-constant sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
         (define-fungible-token token)
         (define-public (emit-event-ok)
-            (begin
-                (unwrap-panic (stx-burn? u10 sender))
-                (ok u1)))";                
+            (unwrap-panic (stx-burn? u10 sender))
+            (ok u1))";                
                 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
     assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
@@ -130,9 +125,8 @@ fn test_emit_stx_burn_nok() {
         "(define-constant sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
         (define-fungible-token token)
         (define-public (emit-event-nok)
-            (begin
-                (unwrap-panic (stx-burn? u10 sender))
-                (err u1)))";                
+            (unwrap-panic (stx-burn? u10 sender))
+            (err u1))";                
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
@@ -143,14 +137,12 @@ fn test_emit_stx_burn_nok() {
 fn test_emit_nested_print_nok() {
     let contract =
         "(define-public (emit-event-nok)
-            (begin
-                (print \"bar\")
-                (err u1)))
+            (print \"bar\")
+            (err u1))
         (define-public (emit-event-ok)
-            (begin
-                (emit-event-nok)
-                (print \"foo\")
-                (ok u1)))";                
+            (emit-event-nok)
+            (print \"foo\")
+            (ok u1))";                
 
     let (value, events) = helper_execute(contract, "emit-event-ok");
     assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
@@ -164,9 +156,8 @@ fn test_emit_ft_transfer_ok() {
         (define-constant recipient 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
         (define-fungible-token token)
         (define-public (emit-event-ok)
-            (begin
-                (unwrap-panic (ft-transfer? token u10 sender recipient))
-                (ok u1)))
+            (unwrap-panic (ft-transfer? token u10 sender recipient))
+            (ok u1))
         (begin (ft-mint? token u10 sender))";
         
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
@@ -192,9 +183,8 @@ fn test_emit_ft_transfer_nok() {
         (define-constant recipient 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
         (define-fungible-token token)
         (define-public (emit-event-nok)
-            (begin
-                (unwrap-panic (ft-transfer? token u10 sender recipient))
-                (err u1)))
+            (unwrap-panic (ft-transfer? token u10 sender recipient))
+            (err u1))
         (begin (ft-mint? token u10 sender))";
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
@@ -208,9 +198,8 @@ fn test_emit_ft_mint_ok() {
         "(define-constant recipient 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
         (define-fungible-token token)
         (define-public (emit-event-ok)
-            (begin
-                (unwrap-panic (ft-mint? token u10 recipient))
-                (ok u1)))";                
+            (unwrap-panic (ft-mint? token u10 recipient))
+            (ok u1))";                
 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
     assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
@@ -233,9 +222,8 @@ fn test_emit_ft_mint_nok() {
         "(define-constant recipient 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
         (define-fungible-token token)
         (define-public (emit-event-nok)
-            (begin
-                (unwrap-panic (ft-mint? token u10 recipient))
-                (err u1)))";
+            (unwrap-panic (ft-mint? token u10 recipient))
+            (err u1))";
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
@@ -249,9 +237,8 @@ fn test_emit_nft_transfer_ok() {
         (define-constant recipient 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
         (define-non-fungible-token token uint)
         (define-public (emit-event-ok)
-            (begin
-                (unwrap-panic (nft-transfer? token u1 sender recipient))
-                (ok u1)))
+            (unwrap-panic (nft-transfer? token u1 sender recipient))
+            (ok u1))
         (begin (nft-mint? token u1 sender))";
         
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
@@ -277,9 +264,8 @@ fn test_emit_nft_transfer_nok() {
         (define-constant recipient 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
         (define-non-fungible-token token uint)
         (define-public (emit-event-nok)
-            (begin
-                (unwrap-panic (nft-transfer? token u1 sender recipient))
-                (err u1)))
+            (unwrap-panic (nft-transfer? token u1 sender recipient))
+            (err u1))
         (begin (nft-mint? token u1 sender))";
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
@@ -293,9 +279,8 @@ fn test_emit_nft_mint_ok() {
         "(define-constant recipient 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
         (define-non-fungible-token token uint)
         (define-public (emit-event-ok)
-            (begin
-                (unwrap-panic (nft-mint? token u1 recipient))
-                (ok u1)))";
+            (unwrap-panic (nft-mint? token u1 recipient))
+            (ok u1))";
 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
     assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
@@ -318,9 +303,8 @@ fn test_emit_nft_mint_nok() {
         "(define-constant recipient 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
         (define-non-fungible-token token uint)
         (define-public (emit-event-nok)
-            (begin
-                (unwrap-panic (nft-mint? token u1 recipient))
-                (err u1)))";
+            (unwrap-panic (nft-mint? token u1 recipient))
+            (err u1))";
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());

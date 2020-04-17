@@ -53,25 +53,23 @@ const ASSET_NAMES: &str =
          (define-public (force-mint (name int))
            (nft-mint? names name tx-sender))
          (define-public (try-bad-transfers)
-           (begin
              (contract-call? .tokens my-token-transfer burn-address u50000)
              (contract-call? .tokens my-token-transfer burn-address u1000)
              (contract-call? .tokens my-token-transfer burn-address u1)
-             (err u0)))
+             (err u0))
          (define-public (try-bad-transfers-but-ok)
-           (begin
              (contract-call? .tokens my-token-transfer burn-address u50000)
              (contract-call? .tokens my-token-transfer burn-address u1000)
              (contract-call? .tokens my-token-transfer burn-address u1)
-             (ok 0)))
+             (ok 0))
          (define-public (transfer (name int) (recipient principal))
            (let ((transfer-name-result (nft-transfer? names name tx-sender recipient))
                  (token-to-contract-result (contract-call? .tokens my-token-transfer .names u1))
                  (contract-to-burn-result (as-contract (contract-call? .tokens my-token-transfer burn-address u1))))
-             (begin (unwrap! transfer-name-result transfer-name-result)
-                    (unwrap! token-to-contract-result token-to-contract-result)
-                    (unwrap! contract-to-burn-result contract-to-burn-result)
-                    (ok 0))))
+             (unwrap! transfer-name-result transfer-name-result)
+             (unwrap! token-to-contract-result token-to-contract-result)
+             (unwrap! contract-to-burn-result contract-to-burn-result)
+             (ok 0)))
          (define-public (register 
                         (recipient-principal principal)
                         (name int)
@@ -443,8 +441,8 @@ fn total_supply(owned_env: &mut OwnedEnvironment) {
          (define-public (faucet)
             (ft-mint? stackaroos u2 tx-sender))
          (define-public (gated-faucet (x bool))
-            (begin (faucet)
-                   (if x (ok 1) (err 0))))";
+            (faucet)
+            (if x (ok 1) (err 0)))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     

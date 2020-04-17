@@ -135,9 +135,8 @@ as a trait reference (<A>).
                      (token-b <can-transfer-tokens>)
                      (amount-b uint)
                      (owner-b principal)))
-     (begin
          (unwrap! (contract-call? token-a transfer-from? owner-a owner-b amount-a))
-         (unwrap! (contract-call? token-b transfer-from? owner-b owner-a amount-b))))
+         (unwrap! (contract-call? token-b transfer-from? owner-b owner-a amount-b)))
 ```
 
 Traits can either be locally defined:

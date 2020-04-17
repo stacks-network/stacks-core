@@ -50,9 +50,8 @@ For example, a smart contract that implements something like a "token faucet" co
 (define-public (claim-from-faucet)
   (if (is-none? (fetch-entry claimed-before (tuple (sender tx-sender))))
       (let ((requester tx-sender)) ;; set a local variable requester = tx-sender
-        (begin
-            (insert-entry! claimed-before (tuple (sender requester)) (tuple (claimed 'true)))
-            (as-contract (stacks-transfer! requester 1)))))
+        (insert-entry! claimed-before (tuple (sender requester)) (tuple (claimed 'true)))
+        (as-contract (stacks-transfer! requester 1))))
       (err 1))
 ```
 
