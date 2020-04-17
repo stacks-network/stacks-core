@@ -528,13 +528,13 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                     self.contract_context.add_variable_type(v_name, v_type)?;
                 },
                 DefineFunctionsParsed::PrivateFunction { signature, body } => {
-                    let (f_name, f_type) = self.type_check_define_function(signature, body, context)?;
+                    let (f_name, f_type) = self.type_check_define_function(signature, &body, context)?;
 
                     runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, f_type.total_type_size()?)?;
                     self.contract_context.add_private_function_type(f_name, FunctionType::Fixed(f_type))?;
                 },
                 DefineFunctionsParsed::PublicFunction { signature, body } => {
-                    let (f_name, f_type) = self.type_check_define_function(signature, body, context)?;
+                    let (f_name, f_type) = self.type_check_define_function(signature, &body, context)?;
                     runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, f_type.total_type_size()?)?;
 
                     if f_type.returns.is_response_type() {
@@ -545,7 +545,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                     }
                 },
                 DefineFunctionsParsed::ReadOnlyFunction { signature, body } => {
-                    let (f_name, f_type) = self.type_check_define_function(signature, body, context)?;
+                    let (f_name, f_type) = self.type_check_define_function(signature, &body, context)?;
                     runtime_cost!(cost_functions::ANALYSIS_BIND_NAME, self, f_type.total_type_size()?)?;
                     self.contract_context.add_read_only_function_type(f_name, FunctionType::Fixed(f_type))?;
                 },

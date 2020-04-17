@@ -1,4 +1,7 @@
 use std::collections::{HashMap, BTreeMap};
+use std::convert::TryInto;
+use std::convert::TryFrom;
+use std::convert::From;
 use vm::types::{Value, TypeSignature, TupleTypeSignature, PrincipalData, TraitIdentifier, QualifiedContractIdentifier, parse_name_type_pairs};
 use vm::types::signatures::FunctionSignature;
 use vm::callables::{DefinedFunction, DefineType};
@@ -24,9 +27,9 @@ define_named_enum!(DefineFunctions {
 
 pub enum DefineFunctionsParsed <'a> {
     Constant { name: &'a ClarityName, value: &'a SymbolicExpression },
-    PrivateFunction { signature: &'a [SymbolicExpression], body: &'a SymbolicExpression },
-    ReadOnlyFunction { signature: &'a [SymbolicExpression], body: &'a SymbolicExpression },
-    PublicFunction { signature: &'a [SymbolicExpression], body: &'a SymbolicExpression },
+    PrivateFunction { signature: &'a [SymbolicExpression], body: SymbolicExpression },
+    ReadOnlyFunction { signature: &'a [SymbolicExpression], body: SymbolicExpression },
+    PublicFunction { signature: &'a [SymbolicExpression], body: SymbolicExpression },
     NonFungibleToken { name: &'a ClarityName, nft_type: &'a SymbolicExpression },
     BoundedFungibleToken { name: &'a ClarityName, max_supply: &'a SymbolicExpression },
     UnboundedFungibleToken { name: &'a ClarityName },
@@ -170,6 +173,17 @@ impl DefineFunctions {
 }
 
 impl <'a> DefineFunctionsParsed <'a> {
+    
+    fn multi_expression(forms: &'a[SymbolicExpression]) -> SymbolicExpression {
+        if let [expression] = forms { 
+            expression.clone()
+        } else {
+            let mut content = forms.to_vec();                   
+            content.insert(0, SymbolicExpression::atom("begin".to_string().try_into().unwrap()));
+            SymbolicExpression::list(content.into_boxed_slice())
+        }
+    }
+
     /// Try to parse a Top-Level Expression (e.g., (define-private (foo) 1)) as
     /// a define-statement, returns None if the supplied expression is not a define.
     pub fn try_parse(expression: &'a SymbolicExpression) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrors> {
@@ -184,19 +198,19 @@ impl <'a> DefineFunctionsParsed <'a> {
                 DefineFunctionsParsed::Constant { name, value: &args[1] }
             },
             DefineFunctions::PrivateFunction => {
-                check_argument_count(2, args)?;
+                check_arguments_at_least(2, args)?;
                 let signature = args[0].match_list().ok_or(CheckErrors::DefineFunctionBadSignature)?;
-                DefineFunctionsParsed::PrivateFunction { signature, body: &args[1] }
+                DefineFunctionsParsed::PrivateFunction { signature, body: DefineFunctionsParsed::multi_expression(&args[1..]) }
             },
             DefineFunctions::ReadOnlyFunction => {
-                check_argument_count(2, args)?;
+                check_arguments_at_least(2, args)?;
                 let signature = args[0].match_list().ok_or(CheckErrors::DefineFunctionBadSignature)?;
-                DefineFunctionsParsed::ReadOnlyFunction { signature, body: &args[1] }
+                DefineFunctionsParsed::ReadOnlyFunction { signature, body: DefineFunctionsParsed::multi_expression(&args[1..]) }
             },
             DefineFunctions::PublicFunction => {
-                check_argument_count(2, args)?;
+                check_arguments_at_least(2, args)?;
                 let signature = args[0].match_list().ok_or(CheckErrors::DefineFunctionBadSignature)?;
-                DefineFunctionsParsed::PublicFunction { signature, body: &args[1] }
+                DefineFunctionsParsed::PublicFunction { signature, body: DefineFunctionsParsed::multi_expression(&args[1..]) }
             },
             DefineFunctions::NonFungibleToken => {
                 check_argument_count(2, args)?;
@@ -261,13 +275,13 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                 handle_define_variable(name, value, env)
             },
             DefineFunctionsParsed::PrivateFunction { signature, body } => {
-                handle_define_function(signature, body, env, DefineType::Private)
+                handle_define_function(signature, &body, env, DefineType::Private)
             },
             DefineFunctionsParsed::ReadOnlyFunction { signature, body } => {
-                handle_define_function(signature, body, env, DefineType::ReadOnly)
+                handle_define_function(signature, &body, env, DefineType::ReadOnly)
             },
             DefineFunctionsParsed::PublicFunction { signature, body } => {
-                handle_define_function(signature, body, env, DefineType::Public)
+                handle_define_function(signature, &body, env, DefineType::Public)
             },
             DefineFunctionsParsed::NonFungibleToken { name, nft_type } => {
                 handle_define_nonfungible_asset(name, nft_type, env)
