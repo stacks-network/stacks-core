@@ -772,7 +772,10 @@ impl MARF {
         Ok(())
     }
 
-    /// Finish writing the next trie in the MARF.  This persists all changes.
+    /// Finish writing the next trie in the MARF -- this is used by miners
+    ///   to commit the mined block, but write it to the mined_block table,
+    ///   rather than out to the marf_data table (this prevents the
+    ///   miner's block from getting stepped on after the sortition).
     pub fn commit_mined(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
         match self.open_chain_tip.take() {
             Some(_tip) => {
