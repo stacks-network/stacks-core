@@ -24,10 +24,10 @@ jobs:
       - run:
           command: |
             blockstack-core local initialize db &&
-            blockstack-core local check sample-programs/tokens.clar db &&
-            blockstack-core local launch S1G2081040G2081040G2081040G208105NK8PE5.tokens sample-programs/tokens.clar db &&
-            blockstack-core local check sample-programs/names.clar db &&
-            blockstack-core local launch S1G2081040G2081040G2081040G208105NK8PE5.names sample-programs/names.clar db &&
+            blockstack-core local check sample-contracts/tokens.clar db &&
+            blockstack-core local launch S1G2081040G2081040G2081040G208105NK8PE5.tokens sample-contracts/tokens.clar db &&
+            blockstack-core local check sample-contracts/names.clar db &&
+            blockstack-core local launch S1G2081040G2081040G2081040G208105NK8PE5.names sample-contracts/names.clar db &&
             blockstack-core local execute db S1G2081040G2081040G2081040G208105NK8PE5.tokens mint! SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u100000
       - run:
           command: |
@@ -41,7 +41,7 @@ jobs:
           name: Coverage via tarpaulin
           command: |
             docker run --security-opt seccomp=unconfined -v "${PWD}:/volume" xd009642/tarpaulin \
-            bash -c "cargo tarpaulin -v --workspace -t 240 -o Xml"
+            bash -c "cargo tarpaulin -v --workspace -t 300 -o Xml"
           no_output_timeout: 200m
       - run:
           name: Upload to codecov.io
