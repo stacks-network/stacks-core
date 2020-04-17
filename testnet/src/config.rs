@@ -88,7 +88,7 @@ impl Config {
                 let mut node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
-                        Some(seed) => hex_bytes(&seed).expect("Seed should a hex encoded string"),
+                        Some(seed) => hex_bytes(&seed).expect("Seed should be a hex encoded string"),
                         None => default_node_config.seed
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
