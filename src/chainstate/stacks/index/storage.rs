@@ -656,15 +656,6 @@ impl TrieFileStorage {
 
         trace!("Extended from {} to {}", &self.cur_block, bhh);
 
-        // write the new file out and add its parent
-        // TODO: I don't think this is necessary in the SQL impl,
-        //   so I've commented out -- but if it turns out we need to write
-        //   the parent block somewhere at this point, I've left this todo here so as not
-        //   to forget.
-        //  TrieRAM::write_trie_file(&mut fd, &[], &[], identifier, bhh)?;
-        //  fd.write_all(self.cur_block.as_bytes())
-        //    .map_err(|e| Error::IOError(e))?;
-
         // update internal structures
         self.cur_block = bhh.clone();
         self.cur_block_id = None;
