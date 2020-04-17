@@ -24,53 +24,50 @@ jobs:
       - run:
           command: |
             blockstack-core local initialize db &&
-            blockstack-core local check sample-programs/tokens.clar db &&
-            blockstack-core local launch S1G2081040G2081040G2081040G208105NK8PE5.tokens sample-programs/tokens.clar db &&
-            blockstack-core local check sample-programs/names.clar db &&
-            blockstack-core local launch S1G2081040G2081040G2081040G208105NK8PE5.names sample-programs/names.clar db &&
+            blockstack-core local check sample-contracts/tokens.clar db &&
+            blockstack-core local launch S1G2081040G2081040G2081040G208105NK8PE5.tokens sample-contracts/tokens.clar db &&
+            blockstack-core local check sample-contracts/names.clar db &&
+            blockstack-core local launch S1G2081040G2081040G2081040G208105NK8PE5.names sample-contracts/names.clar db &&
             blockstack-core local execute db S1G2081040G2081040G2081040G208105NK8PE5.tokens mint! SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u100000
       - run:
           command: |
             echo "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)" | blockstack-core local eval S1G2081040G2081040G2081040G208105NK8PE5.tokens db
-  cargo_tests:
+  unit_tests:
     machine: true
     working_directory: ~/blockstack
     steps:
       - checkout
       - run:
-          name: Install perftools
+          name: Coverage via tarpaulin
           command: |
-            sudo apt-get update -y && sudo apt-get install libgoogle-perftools4 -y
-      - run:
-          name: Fetch latest grcov
-          command: |
-            curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
-      - run:
-          name: Pull Rust Nightly
-          command: |
-             docker pull rustlang/rust:nightly-stretch
-      - run:
-          name: Build and Test
-          command: |
-            docker run -it --security-opt seccomp=unconfined -e CIRCLE_TESTING=1 -e RUST_BACKTRACE=1 -e CARGO_INCREMENTAL=0 \
-            -e RUSTFLAGS="$RUSTFLAGS" -v "$PWD:/blockstack" rustlang/rust:nightly-stretch \
-            bash -c "cd /blockstack && rustup override set nightly && cargo build --verbose && cargo test -- --test-threads 1"
-          environment:
-            RUSTFLAGS: -Zprofile -Copt-level=2 -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
-          no_output_timeout: 30m
-      - run:
-          name: Collect debug outputs
-          command: |
-            zip -0 ccov.zip `find . \( -name "blockstack_*.gc*" \) -print` &&
-            ./grcov ccov.zip -s . -t lcov --llvm --ignore-not-existing --ignore "/*" -o lcov.info;
+            docker run --security-opt seccomp=unconfined -v "${PWD}:/volume" xd009642/tarpaulin \
+            bash -c "cargo tarpaulin -v --workspace -t 240 -o Xml"
       - run:
           name: Upload to codecov.io
           command: |
-            bash <(curl -s https://codecov.io/bash) -f lcov.info;
+            bash <(curl -s https://codecov.io/bash)
+  all_tests:
+    docker:
+      - image: rust:1.40-stretch
+    working_directory: ~/blockstack
+    steps:
+      - checkout
+      - run:
+          no_output_timeout: 60m
+          command: |
+            cargo test && cargo test -- --ignored --test-threads 1
 workflows:
   version: 2
   build-deploy:
     jobs:
-      - cargo_tests
+      - unit_tests
       - test_demo
       - deploy
+      - all_tests:
+          filters:
+            branches:
+              only:
+                - master
+                - /.*net.*/
+                - /.*marf.*/
+                - feature/ignore-slow-serial-tests

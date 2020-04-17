@@ -6,6 +6,7 @@ use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 define_named_enum!(NativeVariables {
     ContractCaller("contract-caller"), TxSender("tx-sender"), BlockHeight("block-height"),
     BurnBlockHeight("burn-block-height"), NativeNone("none"),
+    NativeTrue("true"), NativeFalse("false"),
 });
 
 pub fn is_reserved_name(name: &str) -> bool {
@@ -34,6 +35,12 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &mut E
             },
             NativeVariables::NativeNone => {
                 Ok(Some(Value::none()))
+            },
+            NativeVariables::NativeTrue => {
+                Ok(Some(Value::Bool(true)))
+            },
+            NativeVariables::NativeFalse => {
+                Ok(Some(Value::Bool(false)))
             },
         }
     } else {

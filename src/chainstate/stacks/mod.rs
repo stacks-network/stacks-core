@@ -58,6 +58,8 @@ use chainstate::stacks::index::Error as marf_error;
 use chainstate::stacks::db::StacksHeaderInfo;
 use chainstate::stacks::db::accounts::MinerReward;
 
+use chainstate::stacks::db::blocks::MemPoolRejection;
+
 use net::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
@@ -86,7 +88,8 @@ pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21;        // N
 pub const STACKS_BLOCK_VERSION: u8 = 0;
 pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 
-pub const MAX_TRANSACTION_LEN: u32 = MAX_MESSAGE_LEN;
+pub const MAX_TRANSACTION_LEN: u32 = MAX_MESSAGE_LEN;       // TODO: shrink
+pub const MAX_BLOCK_LEN: u32 = MAX_MESSAGE_LEN;             // TODO: shrink
 
 impl From<StacksAddress> for StandardPrincipalData {
     fn from(addr: StacksAddress) -> StandardPrincipalData {
@@ -134,7 +137,8 @@ pub enum Error {
     NetError(net_error),
     MARFError(marf_error),
     ReadError(io::Error),
-    WriteError(io::Error)
+    WriteError(io::Error),
+    MemPoolError(String),
 }
 
 impl fmt::Display for Error {
@@ -156,6 +160,7 @@ impl fmt::Display for Error {
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
             Error::ReadError(ref e) => fmt::Display::fmt(e, f),
             Error::WriteError(ref e) => fmt::Display::fmt(e, f),
+            Error::MemPoolError(ref s) => fmt::Display::fmt(s, f),
         }
     }
 }
@@ -179,7 +184,14 @@ impl error::Error for Error {
             Error::MARFError(ref e) => Some(e),
             Error::ReadError(ref e) => Some(e),
             Error::WriteError(ref e) => Some(e),
+            Error::MemPoolError(ref _s) => None,
         }
+    }
+}
+
+impl From<db_error> for Error {
+    fn from(e: db_error) -> Error {
+        Error::DBError(e)
     }
 }
 

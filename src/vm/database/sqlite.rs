@@ -146,6 +146,7 @@ impl SqliteConnection {
     pub fn inner_open(filename: &str) -> Result<Self> {
         let conn = Connection::open(filename)
             .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
+
         Ok(SqliteConnection { conn })
     }
 

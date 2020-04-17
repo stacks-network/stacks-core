@@ -236,7 +236,7 @@ fn test_simple_filter_list() {
         "(filter 123 (list 123))",     // must have function name supplied
         "(filter not (list 123) 3)",  // must be 2 args
         "(filter +)",  // must be 2 args
-        "(filter not 'false)",       // must supply list
+        "(filter not false)",       // must supply list
         "(filter - (list 1 2 3))"]; // must return bool
 
 
@@ -344,22 +344,22 @@ fn test_buff_len() {
 
 #[test]
 fn test_construct_bad_list() {
-    let test1 = "(list 1 2 3 'true)";
-    assert_eq!(execute(test1).unwrap_err(), 
+    let test1 = "(list 1 2 3 true)";
+    assert_eq!(execute(test1).unwrap_err(),
                CheckErrors::TypeError(IntType, BoolType).into());
 
-    let test2 = "(define-private (bad-function (x int)) (if (is-eq x 1) 'true x))
+    let test2 = "(define-private (bad-function (x int)) (if (is-eq x 1) true x))
                  (map bad-function (list 0 1 2 3))";
     assert_eq!(execute(test2).unwrap_err(),
                CheckErrors::TypeError(IntType, BoolType).into());
 
-    let bad_2d_list = "(list (list 1 2 3) (list 'true 'false 'true))";
+    let bad_2d_list = "(list (list 1 2 3) (list true false true))";
     let bad_high_order_list = "(list (list 1 2 3) (list (list 1 2 3)))";
 
     assert_eq!(execute(bad_2d_list).unwrap_err(),
                CheckErrors::TypeError(IntType, BoolType).into());
     assert_eq!(execute(bad_high_order_list).unwrap_err(),
-               CheckErrors::TypeError(IntType, 
+               CheckErrors::TypeError(IntType,
                                       TypeSignature::from("(list 3 int)")).into());
 }
 

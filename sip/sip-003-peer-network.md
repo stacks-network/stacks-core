@@ -45,8 +45,8 @@ efficiency is acceptable if it makes encoding and decoding simpler.
 * **Unstructured reachability**.  The peer network's routing algorithm
   prioritizes building a _random_ peer graph such that there are many
 _distinct_ paths between any two peers.  A random (unstructured) graph is
-preferred to a structured graph (like a DHT) in order to maximize the number of neighbor peers that
-a given peer will consider in its frontier.  When choosing neighbors, a peer
+preferred to a structured graph (like a DHT) in order to maximize the number of next-hop
+(neighbor) peers that a given peer will consider in its frontier.  When choosing neighbors, a peer
 will prefer to maximize the number of _distinct_ autonomous systems represented
 in its frontier in order to help keep as many networks on the Internet connected
 to the Stacks peer network.
@@ -56,8 +56,7 @@ to the Stacks peer network.
 The following subsections describe the data structures and protocols for the
 Stacks peer network.  In particular, this document discusses _only_ the peer
 network message sturcture and protocols.  It does _not_ document the structure
-of Stacks transactions and blocks.  These structures will be defined in a future
-SIP.
+of Stacks transactions and blocks.  These structures are defined in SIP 005.
 
 ### Encoding Conventions
 
@@ -281,10 +280,6 @@ pub struct RelayData {
 
     /// The sequence number of that message (see the Preamble structure below)
     pub seq: u32,
-
-    /// The peer's original signature over the message, including the relay
-    /// metadata.
-    pub signature: MessageSignature
 }
 ```
 
@@ -376,6 +371,8 @@ pub enum StacksMessageType {
     Neighbors(NeighborsData),
     GetBlocksInv(GetBlocksData),
     BlocksInv(BlocksInvData),
+    BlocksAvailable(BlocksAvailableData),
+    MicroblocksAvailable(MicroblocksAvailableData),
     Blocks(BlocksData),
     Microblocks(MicroblocksData),
     Transaction(StacksTransaction),
@@ -514,9 +511,47 @@ Notes:
 * `BlocksInvData.block_bitvec` will have length `ceil(BlocksInvData.bitlen / 8)`
 * `BlocksInvData.microblocks_bitvec` will have length `ceil(BlocksInvData.bitlen / 8)`
 
-**Blocks**
+**BlocksAvailable**
 
 Type identifier: 7
+
+Structure:
+
+```
+pub struct BlocksAvailableData {
+    pub available: Vec<(ConsensusHash, BurnchainHeaderHash)>,
+}
+```
+
+Notes:
+
+* Each entry in `available` corresponds to the availability of an anchored
+  Stacks block from the sender.
+* `BlocksAvailableData.available.len()` will never exceed 32.
+* Each `ConsensusHash` in `BlocksAvailableData.available` must be the consensus
+  hash calculated by the sender for the burn chain block identified by
+`BurnchainHeaderHash`.
+
+**MicroblocksAvailable**
+
+Type identifier: 8
+
+Structure:
+
+```
+// Same as BlocksAvailable
+```
+
+Notes:
+
+* Each entry in `available` corresponds to the availability of a confirmed
+  microblock stream from the sender.
+* The same rules and limits apply to the `available` list as in
+  `BlocksAvailable`.
+   
+**Blocks**
+
+Type identifier: 8
 
 Structure:
 
@@ -533,7 +568,7 @@ pub struct StacksBlock {
 
 **Microblocks**
 
-Type identifier: 8
+Type identifier: 9
 
 Structure:
 
@@ -550,7 +585,7 @@ pub struct StacksMicroblock {
 
 **Transaction**
 
-Type identifier: 9
+Type identifier: 10
 
 Structure:
 
@@ -562,7 +597,7 @@ pub struct StacksTransaction {
 
 **Nack**
 
-Type identifier: 10
+Type identifier: 11
 
 Structure:
 
@@ -575,7 +610,7 @@ pub struct NackData {
 
 **Ping**
 
-Type identifier: 11
+Type identifier: 12
 
 Structure:
 
@@ -588,7 +623,7 @@ pub struct PingData {
 
 **Pong**
 
-Type identifier: 12
+Type identifier: 13
 
 Structure:
 
@@ -783,6 +818,7 @@ and then queries individual blocks and microblocks on the data-plane.
 
 On the control-plane, the sender builds up a locally-cached inventory of which
 blocks the receiver has.  To do so, the sender and receiver do the following:
+
 1.  The sender creates a `GetBlocksInv` message for a range of blocks it wants,
     and sends it to the receiver.
 2.  If the receiver has processed the range of blocks represented by the `GetBlocksInv` 
@@ -802,6 +838,7 @@ contacting it for a time.
 While synchronizing the receiver's block inventory, the sender will fetch blocks and microblocks
 on the data-plane once it knows that the receiver has them.
 To do so, the sender and receiver do the following:
+
 1.  The sender looks up the `data_url` from the receiver's `HandshakeAccept` message
     and issues a HTTP GET request for each anchored block marked as present in
 the inventory.
@@ -835,36 +872,27 @@ microblocks -- the receiver may send the URL to a Gaia hub in its
 the sender to fetch blocks and microblocks from a well-provisioned,
 always-online network endpoint that is more reliable than the receiver node.
 
-### Forwarding Data
+### Announcing New Data
 
-The Stacks peer network implements a flooding network for blocks and
-transactions in order to ensure that all peers receive a full copy of the chain
-state as it arrives on the network.  Chain data may be forwarded to other
-peers without requesting them.  In such
-case, a peer receives an unsolicited and un-asked-for `BlocksData`, `MicroblocksData`,
-or `Transaction` message.  Per the `Handshake` documentation, note that a downstream 
-peer will only accept a relayed message if the relayer had set the
-`SERVICE_RELAY` bit in its handshake's `services` bitfield.
+In addition to synchronizing inventories, peers announce to one another
+when a new block or confirmed microblock stream is available.  If peer A has
+crawled peer B's inventories, and peer A downloads or is forwarded a block or
+confirmed microblock stream that peer B does not have, then peer A will send a
+`BlocksAvailable` (or `MicroblocksAvailable`) message to peer B to inform it
+that it can fetch the data from peer A's data plane.  When peer B receives one
+of these messages, it updates its copy of peer A's inventory and proceeds to
+fetch the blocks and microblocks from peer A.  If peer A serves invalid data, or
+returns a HTTP 404, then peer B disconnects from peer A (since this indicates
+that peer A is misbehaving).
 
-If the data has not been seen before by the peer, and the data is valid, then the peer
-forwards it to a subset of its neighbors (excluding the one that sent the data). 
-If it has seen the data before, it does not forward
-it.  The process for determining whether or not a block or transaction is valid
-will be discussed in a future SIP.  However, at a high level, the following
-policies hold:
+Peers do not forward blocks or confirmed microblocks to one another.  Instead,
+they only announce that they are available.  This minimizes the aggregate
+network bandwidth required to propagate a block -- a block is only downloaded
+by the peers that need it.
 
-* A `StacksBlock` can only be valid if it corresponds to block commit
-  transaction on the burn chain that won sortition.  A peer may cache a
-`StacksBlock` if it determines that it has not yet processed the sortition that
-makes it valid, but in such cases, the peer will _not_ relay the data.
-* A `StacksMicroblock` can only be valid if it corresponds to a valid
-  `StacksBlock` or a previously-accepted `StacksMicroblock`.  A peer may cache a
-`StacksMicroblock` if it determines that a yet-to-arrive `StacksBlock` or
-`StacksMicroblock` could make it valid in the near, but in such cases, the peer will _not_
-relay the data.
-* A `Transaction` can only be valid if it encodes a legal state transition on
-  top of a Stacks blockchain tip.  A peer will _neither_ cache _nor_ relay a
-`Transaction` message if it cannot determine that it is valid.
+Unconfirmed microblocks and transactions are always forwarded to other peers in order to
+ensure that the whole peer network quickly has a full copy.  This helps maximize
+the number of transactions that can be included in a leader's microblock stream.
 
 ### Choosing Neighbors
 
@@ -876,6 +904,9 @@ the _lack of_ structure is the key to making the Stacks peer network
 resilient.
 
 This principle is realized through a randomized neighbor selection algorithm.
+This algorithm curates the peer's outbound connections to other peers; inbound
+connections are handled separately.
+
 The neighbor selection algorithm is designed to be able to address the following
 concerns:
 
@@ -985,10 +1016,10 @@ graph.  This information is encoded in the `relayers` vector in each message.
 When relaying data, the relaying peer must re-sign the message preamble and update its
 sequence number to match each recipient peer's expectations on what the signature 
 and message sequence will be.  In addition, the relaying peer appends the
-upstream peer's message signature and previous sequence number in the
-message's `relayers` vector.  In doing so, the recipient peers learn about the
-_path_ that a message took through the peer network.  This information will be
-used over time to promote message route diversity (see below).
+upstream peer's address and previous sequence number in the
+message's `relayers` vector.  Because the `relayers` vector grows each time a
+message is forwarded, the peer uses it to determine the message's time-to-live:
+if the `relayers` vector becomes too long, the message is dropped.
 
 A peer that relays messages _must_ include itself at the end of the
 `relayers` vector when it forwards a message.
@@ -1021,34 +1052,23 @@ violates the protocol by advertising their `SERVICE_RELAY` bit and not
 updating the `relayers` vector should be blacklisted by downstream
 peers.
 
-A peer must not forward messages with invalid `relayers` vectors.  At a minimum,
-the peer should authenticate the upstream peer's signature on the last entry of
-the `relayers` vector.  If the message is invalid, then the message must not be
-forwarded (and the sender may be throttled).  In addition, 
-a peer that receives a message from an upstream peer without the
- `SERVICE_RELAY` bit that includes a `relayers` vector _must not_ forward it.
-A peer that receives a message that contains duplicate entries in the `relayers`
-vector (or sees itself in the `relayers` vector) _must not_ forward the message
-either, since the message has been passed in a cycle.
+A peer must not forward messages with invalid `relayers` vectors.  In
+particular, if a peer detects that its address (specicifically, it's public key
+hash) is present in the `relayers` vector, or if the vector contains a cycle,
+then the message _must_ be dropped.  In addition, a peer that receives a message
+from an upstream peer without the `SERVICE_RELAY` bit set that includes a
+`relayers` vector _must_ drop the message.
 
 **Promoting Route Diversity**
 
-Over time, the peer will measure the routes taken by messages to determine
-whether or not the network is _implicitly_ structured -- that is, whether
-or not network reachability has come to rely 
-on substantially fewer nodes and edges than would be expected in a random peer
-graph.  This is used to inform the graph walk algorithm and the
-forwarding algorithm to select _against_ frequently-used nodes and edges, so
-that alternative network paths will be maintained by the peer network.
-
-The peer network employs two heuristics to prevent the network from becoming
-implicitly structured:
+The peer network employs two heuristics to help prevent choke points from
+arising:
 
 * Considering the AS-degree:  the graph walk algorithm will consider a peer's
 connectivity to different _autonomous systems_
 (ASs) when considering adding it to the neighbor set.
 
-* Relaying in rarest-AS-first order:  the relay algorithm will probabilistically
+* Sending data in rarest-AS-first order:  the relay algorithm will probabilistically
   rank its neighbors in order by how rare their AS is in the fresh frontier set.
 
 When building up its K neighbors, a peer has the opportunity to select neighbors
@@ -1068,30 +1088,16 @@ Internet.
 
 The rarest-AS-first heuristic is implemented as follows:
 
-1. The peer examines the `relayers` vector and attempts to handshake with a 
-   peer if it is not in the fresh frontier set.  Any peers that fail the handshake, or have
-public keys that differ from the relayer entry's public key hash will be dropped
-from consideration.  This lets the peer add nodes in as-of-yet-unreached ASs to its
-frontier, and lets the peer build up the set `AuthAS` of autonomous systems
-represented by the authenticated portions of the `relayers` vector.
-2. The peer builds a table `N[AS]` that maps its fresh frontier set's ASs to the list of peers
-   contained within.  `len(N[AS])` is the number of fresh frontier peers in `AS`.
-3. The peer assigns each neighbor a probability of being selected to receive the
-   message next.  The probability depends on whether or not the neighbor is in
-   one of the ASs in `AuthAS`:  the probability is
-   `1 - len(N[AS]) / K` if `AS` is not in `AuthAS`, 
-   `1 - (len(N[AS]) + 1) / K` if `AS` is present in `AuthAS`.
-4.  The peer selects a neighbor according to the distribution, forwards the message to it, and
-    removes the neighbor from consideration for this message.  The peer repeats step 3 until all neighbors have
+1. The peer builds a table `N[AS]` that maps its fresh frontier set's ASs to the list of peers
+   contained within.  `len(N[AS])` is the number of fresh frontier peers in `AS`, and 
+   `sum(len(N[AS]))` for all `AS` is `K`.
+2. The peer assigns each neighbor a probability of being selected to receive the
+   message next.  The probability depends on `len(N[AS])`, where `AS` is the
+   autonomous system ID the peer resides in.  The probability that a peer is
+   selected to receive the message is proportional to `1 - (len(N[AS]) + 1) / K`.
+3.  The peer selects a neighbor according to the distribution, forwards the message to it, and
+    removes the neighbor from consideration for this message.  The peer repeats step 2 until all neighbors have
     been sent the message.
-
-The probability distribution in step 3 ensures that ASs that are less
-well-represented by this peer are more likely to receive the message next.  The
-`relayers` vector serves to decrease the chance of a neighbor being selected if
-it is in an AS that has already been visited.  Nevertheless, the probability
-distribution helps ensure that as a message is relayed more and more times,
-peers will become increasingly prone to sending the message to
-neighbors in ASs that have not yet seen the message.
 
 A full empirical evaluation on the effectiveness of these heuristics at encouraging
 route diversity will be carried out before this SIP is accepted.
@@ -1117,6 +1123,80 @@ process and may be presumed "safe" to include in the frontier set.
 
 A recommended peer would not be evicted from the frontier set unless it could
 not be contacted, or unless overridden by a local configuration option.
+
+### Forwarding Data
+
+The Stacks peer network propagates blocks, microblocks, and
+transactions by flooding them.  In particular, a peer can send other peers
+an unsolicited `BlocksAvailable`, `MicroblocksAvailable`, `BlocksData`, `MicroblocksData`,
+and `Transaction` message.
+
+If the message has not been seen before by the peer, and the data is valid, then the peer
+forwards it to a subset of its neighbors (excluding the one that sent the data). 
+If it has seen the data before, it does not forward
+it.  The process for determining whether or not a block or transaction is valid
+is discussed in SIP 005.  However, at a high level, the following
+policies hold:
+
+* A `StacksBlock` can only be valid if it corresponds to block commit
+  transaction on the burn chain that won sortition.  A peer may cache a
+`StacksBlock` if it determines that it has not yet processed the sortition that
+makes it valid.  A `StacksBlock` is never forwarded by the recipient;
+instead, the recipient peer sends a `BlocksAvailable` message to its neighbors.
+* A `StacksMicroblock` can only be valid if it corresponds to a valid
+  `StacksBlock` or a previously-accepted `StacksMicroblock`.  A peer may cache a
+`StacksMicroblock` if it determines that a yet-to-arrive `StacksBlock` or
+`StacksMicroblock` could make it valid in the near-term, but if the
+`StacksMicroblock`'s parent `StacksBlock` is unknown, the
+`StacksMicroblock` will _not_ be forwarded.
+* A `Transaction` can only be valid if it encodes a legal state transition on
+  top of the peer's currently-known canonical Stacks blockchain tip. 
+A peer will _neither_ cache _nor_ relay a `Transaction` message if it cannot 
+determine that it is valid.
+
+#### Client Peers
+
+Messages can be forwarded to both outbound connections to other neighbors and to inbound
+connections from clients -- i.e. remote peers that have this peer as a next-hop
+neighbor.  Per the above text, outbound neighbors are selected as the
+next message recipients based on how rare their AS is in the frontier.
+
+Inbound peers are handled separately.  In particular, a peer does not crawl
+remote inbound connections, nor does it synchronize their peers' block inventories.
+Inbound peers tend to be un-routable peers, such as those running behind NATs on
+private, home networks.  However, such peers can still send
+unsolicited blocks, microblocks, and transactions to publicly-routable
+peers, and those publicly-routable peers will need to forward them to both its
+outbound neighbors as well as its own inbound peers.  To do the latter, 
+a peer will selectively forward data to its inbound peers in a way that is
+expected to minimize the number of _duplicate_ messages the other peers will
+receive.
+
+To do this, each peer uses the `relayers` vector in each message
+it receives from an inbound peer to keep track of which peers have forwarded 
+the same messages.  It will then choose inbound peers to receive a forwarded message
+based on how _infrequently_ the inbound recipient has sent duplicate messages.
+
+The intuition is that if an inbound peer forwards many messages 
+that this peer has already seen, then it is likely that the inbound per is also 
+connected to a (unknown) peer that is already able to forward it data.
+That is, if peer B has an inbound connectino to peer A, and
+peer A observes that peer B sends it messeges that it has already seen recently,
+then peer A can infer that there exists an unknown peer C that is forwarding
+messages to peer B before peer A can do so.  Therefore, when selecting inbound
+peers to receive a message, peer A can de-prioritize peer B based on the
+expectation that peer B will be serviced by unknown peer C.
+
+To make these deductions, each peer maintains a short-lived (i.e. 10 minutes)
+set of recently-seen message digests, as well as the list of which peers have sent 
+each message.  Then, when selecting inbound peers to receive a message, the peer
+calculates for each inbound peer a "duplicate rank" equal to the number of times
+it sent an already-seen message.  The peer then samples the inbound peers
+proportional to `1 - duplicate_rank / num_messages_seen`.
+
+It is predicted that there will be more NAT'ed peers than public peers.
+Therefore, when forwarding a message, a peer will select more inbound peers
+(e.g. 16) than outbound peers (e.g. 8) when forwarding a new message.
 
 ## Reference Implementation
 

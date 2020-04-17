@@ -55,12 +55,12 @@ The basic building blocks of Clarity are _atoms_ and _lists_. An atom is a numbe
 * `10000`
 * `SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR`
 
-Atoms can be native functions, user-defined functions, variables, and values that appear in a program. Functions that mutate data by convention terminate with an `!` exclamation point, for example the `insert-entry!` function. 
+Atoms can be native functions, user-defined functions, variables, and values that appear in a program. Functions that mutate data by convention terminate with an `!` exclamation point, for example the `insert-entry!` function.
 
 A list is a sequences of atoms enclosed with `()` parentheses. Lists can contain other lists. Some examples of lists are:
 
 * `(get-block-info time 10)`
-* `(and 'true 'false)`
+* `(and true false)`
 * `(is-none? (get id (fetch-entry names-map (tuple (name \"blockstack\")))))`
 
 You can add comments to your Clarity contracts using  `;;` (double semi-colons). Both standalone and inline comments are supported.
@@ -131,4 +131,3 @@ The Clarity smart contract has the following limitations:
 * Looping may only be performed via `map`, `filter`, or `fold`
 * There is support for lists of the atomic types, however, the only variable length lists in the language appear as function inputs; There is no support for list operations like append or join.
 * Variables are created via `let` binding and there is no support for mutating functions like `set`.
-

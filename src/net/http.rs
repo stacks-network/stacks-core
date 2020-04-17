@@ -2356,7 +2356,10 @@ impl ProtocolFamily for StacksHttp {
                 let mut cursor = io::Cursor::new(buf);
                 match HttpRequestType::parse(self, http_request_preamble, &mut cursor) {
                     Ok(data_request) => Ok((StacksHttpMessage::Request(data_request), cursor.position() as usize)),
-                    Err(e) => Err(e)
+                    Err(e) => {
+                        info!("Failed to parse HTTP request: {:?}", &e);
+                        Err(e)
+                    }
                 }
             },
             StacksHttpPreamble::Response(ref http_response_preamble) => {

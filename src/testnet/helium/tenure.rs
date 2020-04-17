@@ -1,4 +1,4 @@
-use super::{MemPool, MemPoolFS, Config};
+use super::{MemPoolDB, Config};
 use super::node::{SortitionedBlock, TESTNET_CHAIN_ID};
 
 use std::thread;
@@ -17,8 +17,8 @@ pub struct LeaderTenure {
     coinbase_tx: StacksTransaction,
     config: Config,
     last_sortitioned_block: SortitionedBlock,
-    pub mem_pool: MemPoolFS,
-    parent_block: StacksHeaderInfo,
+    pub mem_pool: MemPoolDB,
+    pub parent_block: StacksHeaderInfo,
     started_at: std::time::Instant,
     pub vrf_seed: VRFSeed,
 }
@@ -29,7 +29,7 @@ impl <'a> LeaderTenure {
                average_block_time: u64,
                coinbase_tx: StacksTransaction,
                config: Config,
-               mem_pool: MemPoolFS,
+               mem_pool: MemPoolDB,
                microblock_secret_key: StacksPrivateKey,  
                last_sortitioned_block: SortitionedBlock,
                vrf_proof: VRFProof) -> LeaderTenure {
@@ -51,8 +51,8 @@ impl <'a> LeaderTenure {
             block_builder,
             coinbase_tx,
             config,
-            last_sortitioned_block,
             mem_pool,
+            last_sortitioned_block,
             parent_block,
             started_at: now,
             vrf_seed: VRFSeed::from_proof(&vrf_proof),
@@ -76,11 +76,13 @@ impl <'a> LeaderTenure {
             TESTNET_CHAIN_ID, 
             &self.config.get_chainstate_path()).unwrap();
 
+        let (burn_header_hash, block_hash) = (self.parent_block.burn_header_hash.clone(), self.parent_block.anchored_header.block_hash());
+
         let mut clarity_tx = self.block_builder.epoch_begin(&mut chain_state).unwrap();
 
         self.handle_txs(&mut clarity_tx, vec![self.coinbase_tx.clone()]);
 
-        let txs = self.mem_pool.poll();
+        let txs = self.mem_pool.poll(&burn_header_hash, &block_hash);
         self.handle_txs(&mut clarity_tx, txs);
 
         let anchored_block = self.block_builder.mine_anchored_block(&mut clarity_tx);
