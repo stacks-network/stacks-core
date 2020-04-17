@@ -38,9 +38,6 @@ impl RunLoop {
             _ => self.exec_standard_boot_sequence(&mut burnchain)
         };
 
-        // TODO: enable this once available
-        // self.node.spawn_peer_server();
-
         let mut round_index: u64 = 1; // todo(ludo): careful with this round_index
         
         // Start the runloop
@@ -115,8 +112,9 @@ impl RunLoop {
         let mut node = Node::new(self.config.clone(), |_| {});
 
         // Sync and update node with this new block.
+        node.setup(burnchain_controller);
         let genesis_burnchain_tip = burnchain_controller.sync();
-        node.process_burnchain_state(&genesis_burnchain_tip); // todo(ludo): should return genesis?
+        node.process_burnchain_state(&genesis_burnchain_tip);
         
         let mut chain_tip = ChainTip::genesis();
 
@@ -173,6 +171,8 @@ impl RunLoop {
             &mut node.chain_state);
 
         let tenure = node.initiate_new_tenure();
+
+        node.spawn_peer_server();
 
         (node, chain_tip, burnchain_tip, tenure)
     }
