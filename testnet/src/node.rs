@@ -230,14 +230,15 @@ impl Node {
             true, 
             TESTNET_CHAIN_ID, 
             burnchain.network_id, 
-            i64::max_value() as u64,
+            self.config.connection_options.private_key_lifetime.clone(),
             data_url.clone(),
             &vec![], 
             Some(&initial_neighbors)).unwrap();
 
-        let local_peer = LocalPeer::new(TESTNET_CHAIN_ID, burnchain.network_id,
-                                        self.config.connection_options.private_key_lifetime.clone(),
-                                        data_url);
+        let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
+            Ok(local_peer) => local_peer,
+            _ => panic!("Unable to retrieve local peer")
+        };
 
         let p2p_net = PeerNetwork::new(peerdb, local_peer, TESTNET_PEER_VERSION, burnchain, view, self.config.connection_options.clone());
         let rpc_sock = self.config.node.rpc_bind.parse()
