@@ -1398,6 +1398,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_get_blocks_and_microblocks_3_peers_push_available() {
         run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_3_peers_push_available", 4200, 3,
                                        |ref mut peer_configs| {
@@ -1552,6 +1553,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks() {
         let original_blocks_and_microblocks = RefCell::new(vec![]);
         let blocks_and_microblocks = RefCell::new(vec![]);
@@ -1736,6 +1738,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
         let blocks_and_microblocks = RefCell::new(vec![]);
         let blocks_idx = RefCell::new(0);
