@@ -10,22 +10,19 @@ assignees: ''
 **Describe the bug**
 A clear and concise description of what the bug is.
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+**Steps To Reproduce**
+Please provide detailed instructions (e.g. command line invocation with parameters) to reproduce the behavior.
 
 **Expected behavior**
 A clear and concise description of what you expected to happen.
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
-
 **Environment (please complete the following information):**
  - OS: [e.g. Ubuntu / Debian]
  - Rust version
+ - Version of the appropriate binary / software package
 
 **Additional context**
-Add any other context about the problem here.
+Please include any relevant stack traces, error messages and logs.
+
+If you are encountering an issue with a smart contract, please include the smart contract code
+that demonstrates the issue.
