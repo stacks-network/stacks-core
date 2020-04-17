@@ -123,6 +123,8 @@ impl LocalPeer {
         let port = NETWORK_P2P_PORT;
         let services = ServiceFlags::RELAY;
 
+        info!("Peer's public key: {}", Secp256k1PublicKey::from_private(&my_private_key).to_hex());
+
         LocalPeer {
             network_id: network_id,
             parent_network_id: parent_network_id,
