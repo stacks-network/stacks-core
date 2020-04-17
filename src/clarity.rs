@@ -607,21 +607,21 @@ mod test {
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
 
         eprintln!("check tokens");
-        invoke_command("test", &["check".to_string(), "sample-programs/tokens.clar".to_string()]);
+        invoke_command("test", &["check".to_string(), "sample-contracts/tokens.clar".to_string()]);
         
         eprintln!("check tokens");
-        invoke_command("test", &["check".to_string(), "sample-programs/tokens.clar".to_string(), db_name.clone()]);
+        invoke_command("test", &["check".to_string(), "sample-contracts/tokens.clar".to_string(), db_name.clone()]);
         
         eprintln!("launch tokens");
         invoke_command("test", &["launch".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                                 "sample-programs/tokens.clar".to_string(), db_name.clone()]);
+                                 "sample-contracts/tokens.clar".to_string(), db_name.clone()]);
 
         eprintln!("check names");
-        invoke_command("test", &["check".to_string(), "sample-programs/names.clar".to_string(), db_name.clone()]);
+        invoke_command("test", &["check".to_string(), "sample-contracts/names.clar".to_string(), db_name.clone()]);
 
         eprintln!("launch names");
         invoke_command("test", &["launch".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.names".to_string(),
-                                 "sample-programs/names.clar".to_string(), db_name.clone()]);
+                                 "sample-contracts/names.clar".to_string(), db_name.clone()]);
 
         eprintln!("execute tokens");
         invoke_command("test", &["execute".to_string(), db_name.clone(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
@@ -630,13 +630,13 @@ mod test {
                             
         eprintln!("eval tokens");
         invoke_command("test", &["eval".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(), 
-                                 "sample-programs/tokens-mint.clar".to_string(),
+                                 "sample-contracts/tokens-mint.clar".to_string(),
                                  db_name.clone()
                                  ]);
 
         eprintln!("eval_at_chaintip tokens");
         invoke_command("test", &["eval_at_chaintip".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(), 
-                                 "sample-programs/tokens-mint.clar".to_string(),
+                                 "sample-contracts/tokens-mint.clar".to_string(),
                                  db_name.clone()
                                  ]);
     }
