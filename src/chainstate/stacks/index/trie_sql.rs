@@ -126,9 +126,7 @@ CREATE TABLE IF NOT EXISTS chain_tips (block_hash TEXT UNIQUE NOT NULL);
 CREATE INDEX IF NOT EXISTS block_hash_chain_tips ON chain_tips(block_hash);
 ";
 static SQL_EXTENSION_LOCKS_TABLE: &str = "
-CREATE TABLE IF NOT EXISTS block_extension_locks (block_hash TEXT UNIQUE NOT NULL);
-
-CREATE INDEX IF NOT EXISTS block_hash_locks ON block_extension_locks(block_hash);
+CREATE TABLE IF NOT EXISTS block_extension_locks (block_hash TEXT PRIMARY KEY);
 ";
 
 pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
@@ -269,7 +267,7 @@ pub fn lock_bhh_for_extension(conn: &mut Connection, bhh: &BlockHeaderHash) -> R
 }
 
 pub fn count_blocks(conn: &Connection) -> Result<u32, Error> {
-    let result = conn.query_row("SELECT COUNT(1) AS count FROM marf_data", NO_PARAMS, |row| row.get("count"))?;
+    let result = conn.query_row("SELECT IFNULL(MAX(block_id), 0) AS count FROM marf_data", NO_PARAMS, |row| row.get("count"))?;
     Ok(result)
 }
 

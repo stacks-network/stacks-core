@@ -135,7 +135,7 @@ impl MARF {
     fn node_copy_update_ptrs(ptrs: &mut [TriePtr], child_block_id: u32) -> () {
         for pointer in ptrs.iter_mut() {
             // if the node is empty, do nothing, if it's a back pointer, 
-            if pointer.id() == TrieNodeID::Empty || is_backptr(pointer.id()) {
+            if pointer.id() == TrieNodeID::Empty as u8 || is_backptr(pointer.id()) {
                 continue;
             } else {
                 // make backptr
@@ -268,7 +268,7 @@ impl MARF {
                         },
                         None => {
                             // end of path.  Should have found leaf.
-                            if !node.is_leaf() || clear_backptr(node_ptr.id()) != TrieNodeID::Leaf {
+                            if !node.is_leaf() || clear_backptr(node_ptr.id()) != TrieNodeID::Leaf as u8 {
                                 error!("Out-of-path but encountered a non-leaf");
                                 return Err(Error::CorruptionError("Non-leaf encountered at end of path".to_string()));
                             }
@@ -350,7 +350,7 @@ impl MARF {
                         },
                         None => {
                             // end of path.  Must be at a leaf.
-                            if clear_backptr(cursor.ptr().id()) != TrieNodeID::Leaf {
+                            if clear_backptr(cursor.ptr().id()) != TrieNodeID::Leaf as u8 {
                                 return Err(Error::CorruptionError("Non-leaf encountered at end of path".to_string()));
                             }
 
@@ -1100,7 +1100,7 @@ mod test {
 
     #[test]
     fn marf_walk_cow_node4_20() {
-        marf_walk_cow_test("/tmp/rust_marf_walk_cow_node4_20", |s| {
+        marf_walk_cow_test(|s| {
             // make a deep path
             let path_segments = vec![
                 (vec![], 0),
@@ -1145,7 +1145,7 @@ mod test {
 
     #[test]
     fn marf_walk_cow_node4_20_reversed() {
-        marf_walk_cow_test("/tmp/rust_marf_walk_cow_node4_20_reversed", |s| {
+        marf_walk_cow_test(|s| {
             // make a deep path
             let path_segments = vec![
                 (vec![], 0),
@@ -1191,8 +1191,6 @@ mod test {
     fn marf_walk_cow_4_test <F> (filename: &str, path_gen: F)
     where F: Fn(u32, [u8; 32]) -> [u8; 32] {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
-            let path = format!("{}-{}", filename, node_id);
-
             let path_segments = vec![
                 (vec![], 4),
                 (vec![0,1,2,3,5,6,7,8], 9),
@@ -1203,13 +1201,13 @@ mod test {
                 (vec![30], 31),
             ];
 
-            marf_walk_cow_test(&path, |s| {
-                make_node_path(s, *node_id, &path_segments, [31u8; 40].to_vec())
+            marf_walk_cow_test(|s| {
+                make_node_path(s, node_id.to_u8(), &path_segments, [31u8; 40].to_vec())
             }, |x,y| { path_gen(x, y) });
         }
     }
 
-    fn marf_walk_cow_test <F, G> (filename: &str, path_init: G, path_gen: F)
+    fn marf_walk_cow_test <F, G> (path_init: G, path_gen: F)
     where F: Fn(u32, [u8; 32]) -> [u8; 32],
           G: FnOnce(&mut TrieFileStorage) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
         let mut f = TrieFileStorage::new_memory().unwrap();
@@ -1323,7 +1321,6 @@ mod test {
     #[test]
     fn marf_merkle_verify_backptrs() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
-            let path = format!("/tmp/rust_marf_merkle_verify_backptrs-{}", node_id);
             let mut f = TrieFileStorage::new_memory().unwrap();
 
             let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -1338,7 +1335,7 @@ mod test {
             
             let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
-            let (nodes, node_ptrs, hashes) = make_node_path(&mut f, *node_id, &path_segments, [31u8; 40].to_vec());
+            let (nodes, node_ptrs, hashes) = make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec());
             let mut marf = MARF::from_storage(f);
 
             let block_header_2 = BlockHeaderHash::from_bytes(&[1u8; 32]).unwrap();

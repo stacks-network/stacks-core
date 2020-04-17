@@ -296,7 +296,7 @@ impl TrieRAM {
                 let ptrs = node.ptrs();
                 let num_children = ptrs.len();
                 for i in 0..num_children {
-                    if ptrs[i].id != TrieNodeID::Empty && !is_backptr(ptrs[i].id) {
+                    if ptrs[i].id != TrieNodeID::Empty as u8 && !is_backptr(ptrs[i].id) {
                         let (child, child_hash) = self.read_nodetype(&ptrs[i])?;
                         frontier.push_back((child, child_hash));
                     }
@@ -317,7 +317,7 @@ impl TrieRAM {
                 let mut ptrs = next_node.ptrs_mut();
                 let num_children = ptrs.len();
                 for k in 0..num_children {
-                    if ptrs[k].id != TrieNodeID::Empty && !is_backptr(ptrs[k].id) {
+                    if ptrs[k].id != TrieNodeID::Empty as u8 && !is_backptr(ptrs[k].id) {
                         ptrs[k].ptr = offsets[i];
                         i += 1;
                     }
@@ -334,7 +334,7 @@ impl TrieRAM {
     /// Dump ourself to f
     pub fn dump<F: Write + Seek>(&mut self, f: &mut F, bhh: &BlockHeaderHash) -> Result<u64, Error> {
         if self.block_header == *bhh {
-            let (root, hash) = self.read_nodetype(&TriePtr::new(TrieNodeID::Node256, 0, 0))?;
+            let (root, hash) = self.read_nodetype(&TriePtr::new(TrieNodeID::Node256 as u8, 0, 0))?;
             self.dump_traverse(f, &root, &hash)
         }
         else {
@@ -376,7 +376,7 @@ impl TrieRAM {
         if is_backptr(ptr.id()) {
             self.read_backptr_count += 1;
         }
-        else if ptr.id() == TrieNodeID::Leaf {
+        else if ptr.id() == TrieNodeID::Leaf as u8 {
             self.read_leaf_count += 1;
         }
         else {
@@ -608,7 +608,7 @@ impl TrieFileStorage {
     #[cfg(test)]
     pub fn read_block_root_hash(&self, bhh: &BlockHeaderHash) -> Result<TrieHash, Error> {
         let root_hash_ptr =
-            TriePtr::new(TrieNodeID::Node256, 0, TrieFileStorage::root_ptr_disk());
+            TriePtr::new(TrieNodeID::Node256 as u8, 0, TrieFileStorage::root_ptr_disk());
         trie_sql::get_node_hash_bytes_by_bhh(&self.db, bhh, &root_hash_ptr)
     }
 
@@ -620,7 +620,7 @@ impl TrieFileStorage {
 
         let last_extended = match self.last_extended.take() {
             Some((bhh, trie_ram)) => {
-                let ptr = TriePtr::new(set_backptr(TrieNodeID::Node256), 0, 0);
+                let ptr = TriePtr::new(set_backptr(TrieNodeID::Node256 as u8), 0, 0);
 
                 let root_hash = trie_ram.read_node_hash(&ptr)?;
 
@@ -786,7 +786,7 @@ impl TrieFileStorage {
     }
 
     pub fn root_trieptr(&self) -> TriePtr {
-        TriePtr::new(TrieNodeID::Node256, 0, self.root_ptr())
+        TriePtr::new(TrieNodeID::Node256 as u8, 0, self.root_ptr())
     }
 
     pub fn root_ptr_disk() -> u32 {
@@ -858,7 +858,7 @@ impl TrieFileStorage {
     fn inner_write_children_hashes<W: Write, H: NodeHashReader, M: BlockMap>(
         hash_reader: &mut H, map: &mut M, node: &TrieNodeType, w: &mut W) -> Result<(), Error> {
         for ptr in node.ptrs().iter() {
-            if ptr.id() == TrieNodeID::Empty {
+            if ptr.id() == TrieNodeID::Empty as u8 {
                 // hash of empty string
                 w.write_all(TrieHash::from_data(&[]).as_bytes())?;
             }
@@ -907,7 +907,7 @@ impl TrieFileStorage {
         if is_backptr(ptr.id()) {
             self.read_backptr_count += 1;
         }
-        else if ptr.id() == TrieNodeID::Leaf {
+        else if ptr.id() == TrieNodeID::Leaf as u8 {
             self.read_leaf_count += 1;
         }
         else {

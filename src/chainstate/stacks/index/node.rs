@@ -84,18 +84,17 @@ impl error::Error for CursorError {
     }
 }
 
-/// All numeric values of a Trie node when encoded.
-/// They are all 7-bit numbers -- the 8th bit is used to indicate whether or not the value
-/// identifies a back-pointer to be followed.
-// TODO: this should be a define_u8_enum.
-pub mod TrieNodeID {
-    pub const Empty : u8 = 0;
-    pub const Leaf: u8 = 1;
-    pub const Node4 : u8 = 2;
-    pub const Node16 : u8 = 3;
-    pub const Node48 : u8 = 4;
-    pub const Node256 : u8 = 5;
-}
+// All numeric values of a Trie node when encoded.
+// They are all 7-bit numbers -- the 8th bit is used to indicate whether or not the value
+// identifies a back-pointer to be followed.
+define_u8_enum!(TrieNodeID {
+    Empty = 0,
+    Leaf = 1,
+    Node4 = 2,
+    Node16 = 3,
+    Node48 = 4,
+    Node256 = 5
+});
 
 /// A node ID encodes a back-pointer if its high bit is set
 pub fn is_backptr(id: u8) -> bool {
@@ -240,7 +239,7 @@ pub const TRIEPTR_SIZE : usize = 10;        // full size of a TriePtr
 pub fn ptrs_fmt(ptrs: &[TriePtr]) -> String {
     let mut strs = vec![];
     for i in 0..ptrs.len() {
-        if ptrs[i].id != TrieNodeID::Empty {
+        if ptrs[i].id != TrieNodeID::Empty as u8 {
             strs.push(format!("id{}chr{:02x}ptr{}bblk{}", ptrs[i].id, ptrs[i].chr, ptrs[i].ptr, ptrs[i].back_block))
         }
     }
@@ -787,7 +786,7 @@ impl TrieNode256 {
 
 impl TrieNode for TrieNode4 {
     fn id(&self) -> u8 {
-        TrieNodeID::Node4
+        TrieNodeID::Node4 as u8
     }
 
     fn empty() -> TrieNode4 {
@@ -799,7 +798,7 @@ impl TrieNode for TrieNode4 {
 
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         for i in 0..4 {
-            if self.ptrs[i].id() != TrieNodeID::Empty && self.ptrs[i].chr() == chr {
+            if self.ptrs[i].id() != TrieNodeID::Empty as u8 && self.ptrs[i].chr() == chr {
                 return Some(self.ptrs[i].clone());
             }
         }
@@ -808,7 +807,7 @@ impl TrieNode for TrieNode4 {
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode4, Error> {
         let mut ptrs_slice = [TriePtr::default(); 4];
-        ptrs_from_bytes(TrieNodeID::Node4, r, &mut ptrs_slice)?;
+        ptrs_from_bytes(TrieNodeID::Node4 as u8, r, &mut ptrs_slice)?;
         let path = path_from_bytes(r)?;
 
         Ok(TrieNode4 {
@@ -823,7 +822,7 @@ impl TrieNode for TrieNode4 {
         }
 
         for i in 0..4 {
-            if self.ptrs[i].id() == TrieNodeID::Empty {
+            if self.ptrs[i].id() == TrieNodeID::Empty as u8 {
                 self.ptrs[i] = ptr.clone();
                 return true;
             }
@@ -833,7 +832,7 @@ impl TrieNode for TrieNode4 {
 
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         for i in 0..4 {
-            if self.ptrs[i].id() != TrieNodeID::Empty && self.ptrs[i].chr() == ptr.chr() {
+            if self.ptrs[i].id() != TrieNodeID::Empty as u8 && self.ptrs[i].chr() == ptr.chr() {
                 self.ptrs[i] = ptr.clone();
                 return true;
             }
@@ -856,7 +855,7 @@ impl TrieNode for TrieNode4 {
 
 impl TrieNode for TrieNode16 {
     fn id(&self) -> u8 {
-        TrieNodeID::Node16
+        TrieNodeID::Node16 as u8
     }
 
     fn empty() -> TrieNode16 {
@@ -868,7 +867,7 @@ impl TrieNode for TrieNode16 {
 
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         for i in 0..16 {
-            if self.ptrs[i].id != TrieNodeID::Empty && self.ptrs[i].chr == chr {
+            if self.ptrs[i].id != TrieNodeID::Empty as u8 && self.ptrs[i].chr == chr {
                 return Some(self.ptrs[i].clone());
             }
         }
@@ -877,7 +876,7 @@ impl TrieNode for TrieNode16 {
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode16, Error> {
         let mut ptrs_slice = [TriePtr::default(); 16];
-        ptrs_from_bytes(TrieNodeID::Node16, r, &mut ptrs_slice)?;
+        ptrs_from_bytes(TrieNodeID::Node16 as u8, r, &mut ptrs_slice)?;
 
         let path = path_from_bytes(r)?;
 
@@ -893,7 +892,7 @@ impl TrieNode for TrieNode16 {
         }
 
         for i in 0..16 {
-            if self.ptrs[i].id() == TrieNodeID::Empty {
+            if self.ptrs[i].id() == TrieNodeID::Empty as u8 {
                self.ptrs[i] = ptr.clone();
                return true;
             }
@@ -903,7 +902,7 @@ impl TrieNode for TrieNode16 {
 
     fn replace(&mut self, ptr: &TriePtr) -> bool {
        for i in 0..16 {
-           if self.ptrs[i].id() != TrieNodeID::Empty && self.ptrs[i].chr() == ptr.chr() {
+           if self.ptrs[i].id() != TrieNodeID::Empty as u8 && self.ptrs[i].chr() == ptr.chr() {
                self.ptrs[i] = ptr.clone();
                return true;
            }
@@ -926,7 +925,7 @@ impl TrieNode for TrieNode16 {
 
 impl TrieNode for TrieNode48 {
     fn id(&self) -> u8 {
-        TrieNodeID::Node48
+        TrieNodeID::Node48 as u8
     }
 
     fn empty() -> TrieNode48 {
@@ -939,7 +938,7 @@ impl TrieNode for TrieNode48 {
 
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         let idx = self.indexes[chr as usize];
-        if idx >= 0 && idx < 48 && self.ptrs[idx as usize].id() != TrieNodeID::Empty {
+        if idx >= 0 && idx < 48 && self.ptrs[idx as usize].id() != TrieNodeID::Empty as u8 {
             return Some(self.ptrs[idx as usize].clone());
         }
         return None;
@@ -962,7 +961,7 @@ impl TrieNode for TrieNode48 {
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode48, Error> {
         let mut ptrs_slice = [TriePtr::default(); 48];
-        ptrs_from_bytes(TrieNodeID::Node48, r, &mut ptrs_slice)?;
+        ptrs_from_bytes(TrieNodeID::Node48 as u8, r, &mut ptrs_slice)?;
         
         let mut indexes = [0u8; 256];
         let l_indexes = r.read(&mut indexes)
@@ -982,7 +981,7 @@ impl TrieNode for TrieNode48 {
         let mut i = 0;
         while i < ptrs_slice.len() {
             let ptr = &ptrs_slice[i];
-            if !(ptr.id() == TrieNodeID::Empty || (indexes_slice[ptr.chr() as usize] >= 0 && indexes_slice[ptr.chr() as usize] < 48)) {
+            if !(ptr.id() == TrieNodeID::Empty as u8 || (indexes_slice[ptr.chr() as usize] >= 0 && indexes_slice[ptr.chr() as usize] < 48)) {
                 return Err(Error::CorruptionError("Node48: corrupt index array: invalid index value".to_string()));
             }
             i += 1;
@@ -991,7 +990,7 @@ impl TrieNode for TrieNode48 {
         // not a for-loop because "for i in 0..256" is actually kinda slow
         i = 0;
         while i < 256 {
-            if !(indexes_slice[i] < 0 || (indexes_slice[i] >= 0 && (indexes_slice[i] as usize) < ptrs_slice.len() && ptrs_slice[indexes_slice[i] as usize].id() != TrieNodeID::Empty)) {
+            if !(indexes_slice[i] < 0 || (indexes_slice[i] >= 0 && (indexes_slice[i] as usize) < ptrs_slice.len() && ptrs_slice[indexes_slice[i] as usize].id() != TrieNodeID::Empty as u8)) {
                 return Err(Error::CorruptionError("Node48: corrupt index array: index points to empty node".to_string()));
             }
             i += 1;
@@ -1011,7 +1010,7 @@ impl TrieNode for TrieNode48 {
 
         let c = ptr.chr();
         for i in 0..48 {
-            if self.ptrs[i].id() == TrieNodeID::Empty {
+            if self.ptrs[i].id() == TrieNodeID::Empty as u8 {
                 self.indexes[c as usize] = i as i8;
                 self.ptrs[i] = ptr.clone();
                 return true;
@@ -1046,7 +1045,7 @@ impl TrieNode for TrieNode48 {
 
 impl TrieNode for TrieNode256 {
     fn id(&self) -> u8 {
-        TrieNodeID::Node256
+        TrieNodeID::Node256 as u8
     }
 
     fn empty() -> TrieNode256 {
@@ -1057,7 +1056,7 @@ impl TrieNode for TrieNode256 {
     }
 
     fn walk(&self, chr: u8) -> Option<TriePtr> {
-        if self.ptrs[chr as usize].id() != TrieNodeID::Empty {
+        if self.ptrs[chr as usize].id() != TrieNodeID::Empty as u8 {
             return Some(self.ptrs[chr as usize].clone());
         }
         return None;
@@ -1065,7 +1064,7 @@ impl TrieNode for TrieNode256 {
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode256, Error> {
         let mut ptrs_slice = [TriePtr::default(); 256];
-        ptrs_from_bytes(TrieNodeID::Node256, r, &mut ptrs_slice)?;
+        ptrs_from_bytes(TrieNodeID::Node256 as u8, r, &mut ptrs_slice)?;
 
         let path = path_from_bytes(r)?;
         
@@ -1086,7 +1085,7 @@ impl TrieNode for TrieNode256 {
 
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         let c = ptr.chr() as usize;
-        if self.ptrs[c].id() != TrieNodeID::Empty && self.ptrs[c].chr() == ptr.chr() {
+        if self.ptrs[c].id() != TrieNodeID::Empty as u8 && self.ptrs[c].chr() == ptr.chr() {
             self.ptrs[c] = ptr.clone();
             return true;
         }
@@ -1117,7 +1116,7 @@ impl TrieLeaf {
 
 impl TrieNode for TrieLeaf {
     fn id(&self) -> u8 {
-        TrieNodeID::Leaf
+        TrieNodeID::Leaf as u8
     }
 
     fn empty() -> TrieLeaf {
@@ -1148,7 +1147,7 @@ impl TrieNode for TrieLeaf {
             return Err(Error::CorruptionError("Leaf: failed to read ID".to_string()));
         }
 
-        if clear_backptr(idbuf[0]) != TrieNodeID::Leaf {
+        if clear_backptr(idbuf[0]) != TrieNodeID::Leaf as u8 {
             return Err(Error::CorruptionError(format!("Leaf: bad ID {:x}", idbuf[0])));
         }
 
@@ -1342,16 +1341,16 @@ mod test {
     fn trie_node4_to_bytes() {
         let mut node4 = TrieNode4::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]);
         for i in 0..3 {
-            assert!(node4.insert(&TriePtr::new(TrieNodeID::Node16, (i+1) as u8, (i+2) as u32)));
+            assert!(node4.insert(&TriePtr::new(TrieNodeID::Node16 as u8, (i+1) as u8, (i+2) as u32)));
         }
         let node4_bytes = vec![
             // node ID
-            TrieNodeID::Node4,
+            TrieNodeID::Node4 as u8,
             // ptrs (4)
-            TrieNodeID::Node16, 0x01, 0x00, 0x00, 0x00, 0x2, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node16, 0x02, 0x00, 0x00, 0x00, 0x3, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node16, 0x03, 0x00, 0x00, 0x00, 0x4, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Empty, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node16 as u8, 0x01, 0x00, 0x00, 0x00, 0x2, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node16 as u8, 0x02, 0x00, 0x00, 0x00, 0x3, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node16 as u8, 0x03, 0x00, 0x00, 0x00, 0x4, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Empty as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             // path length 
             0x14,
             // path 
@@ -1368,16 +1367,16 @@ mod test {
     fn trie_node4_to_consensus_bytes() {
         let mut node4 = TrieNode4::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]);
         for i in 0..3 {
-            assert!(node4.insert(&TriePtr::new(TrieNodeID::Node16, (i+1) as u8, (i+2) as u32)));
+            assert!(node4.insert(&TriePtr::new(TrieNodeID::Node16 as u8, (i+1) as u8, (i+2) as u32)));
         }
         let node4_bytes = vec![
             // node ID
-            TrieNodeID::Node4,
+            TrieNodeID::Node4 as u8,
             // ptrs (4): ID, chr, block-header-hash
-            TrieNodeID::Node16, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node16, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node16, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Empty, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node16 as u8, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node16 as u8, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node16 as u8, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Empty as u8, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             // path length 
             0x14,
             // path 
@@ -1392,28 +1391,28 @@ mod test {
     fn trie_node16_to_bytes() {
         let mut node16 = TrieNode16::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]);
         for i in 0..15 {
-            assert!(node16.insert(&TriePtr::new(TrieNodeID::Node48, (i+1) as u8, (i+2) as u32)));
+            assert!(node16.insert(&TriePtr::new(TrieNodeID::Node48 as u8, (i+1) as u8, (i+2) as u32)));
         }
         let node16_bytes = vec![
             // node ID
-            TrieNodeID::Node16,
+            TrieNodeID::Node16 as u8,
             // ptrs (16)
-            TrieNodeID::Node48, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x02, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x04, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x05, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x06, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x07, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x08, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x09, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x0a, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x0b, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x0c, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x0d, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x0e, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node48, 0x0f, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Empty, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x02, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x04, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x05, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x06, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x07, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x08, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x09, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x0a, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x0b, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x0c, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x0d, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x0e, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node48 as u8, 0x0f, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Empty as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             // path length 
             0x14,
             // path 
@@ -1430,27 +1429,27 @@ mod test {
     fn trie_node16_to_consensus_bytes() {
         let mut node16 = TrieNode16::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]);
         for i in 0..15 {
-            assert!(node16.insert(&TriePtr::new(TrieNodeID::Node48, (i+1) as u8, (i+2) as u32)));
+            assert!(node16.insert(&TriePtr::new(TrieNodeID::Node48 as u8, (i+1) as u8, (i+2) as u32)));
         }
         let node16_bytes = vec![
             // node ID
-            TrieNodeID::Node16,
-            TrieNodeID::Node48, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x08, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x09, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x0a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x0b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x0d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x0e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node48, 0x0f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Empty, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node16 as u8,
+            TrieNodeID::Node48 as u8, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x08, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x09, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x0a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x0b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x0d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x0e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node48 as u8, 0x0f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Empty as u8, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             // path length 
             0x14,
             // path 
@@ -1464,61 +1463,61 @@ mod test {
     fn trie_node48_to_bytes() {
         let mut node48 = TrieNode48::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]);
         for i in 0..47 {
-            assert!(node48.insert(&TriePtr::new(TrieNodeID::Node256, (i+1) as u8, (i+2) as u32)));
+            assert!(node48.insert(&TriePtr::new(TrieNodeID::Node256 as u8, (i+1) as u8, (i+2) as u32)));
         }
 
         let node48_bytes = vec![
             // node ID
-            TrieNodeID::Node48,
+            TrieNodeID::Node48 as u8,
             // ptrs (48)
-            TrieNodeID::Node256, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x02, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x04, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x05, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x06, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x07, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x08, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x09, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x0a, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x0b, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x0c, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x0d, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x0e, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x0f, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x10, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x11, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x12, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x13, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x14, 0x00, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x15, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x16, 0x00, 0x00, 0x00, 0x17, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x17, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x18, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x19, 0x00, 0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x1a, 0x00, 0x00, 0x00, 0x1b, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x1b, 0x00, 0x00, 0x00, 0x1c, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x1c, 0x00, 0x00, 0x00, 0x1d, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x1d, 0x00, 0x00, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x1e, 0x00, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x1f, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x20, 0x00, 0x00, 0x00, 0x21, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x21, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x22, 0x00, 0x00, 0x00, 0x23, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x23, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x24, 0x00, 0x00, 0x00, 0x25, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x25, 0x00, 0x00, 0x00, 0x26, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x26, 0x00, 0x00, 0x00, 0x27, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x27, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x28, 0x00, 0x00, 0x00, 0x29, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x29, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x2a, 0x00, 0x00, 0x00, 0x2b, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x2b, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x2c, 0x00, 0x00, 0x00, 0x2d, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x2d, 0x00, 0x00, 0x00, 0x2e, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x2e, 0x00, 0x00, 0x00, 0x2f, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Node256, 0x2f, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00,
-            TrieNodeID::Empty, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x02, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x04, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x05, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x06, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x07, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x08, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x09, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x0a, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x0b, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x0c, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x0d, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x0e, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x0f, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x10, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x11, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x12, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x13, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x14, 0x00, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x15, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x16, 0x00, 0x00, 0x00, 0x17, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x17, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x18, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x19, 0x00, 0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x1a, 0x00, 0x00, 0x00, 0x1b, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x1b, 0x00, 0x00, 0x00, 0x1c, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x1c, 0x00, 0x00, 0x00, 0x1d, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x1d, 0x00, 0x00, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x1e, 0x00, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x1f, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x20, 0x00, 0x00, 0x00, 0x21, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x21, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x22, 0x00, 0x00, 0x00, 0x23, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x23, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x24, 0x00, 0x00, 0x00, 0x25, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x25, 0x00, 0x00, 0x00, 0x26, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x26, 0x00, 0x00, 0x00, 0x27, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x27, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x28, 0x00, 0x00, 0x00, 0x29, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x29, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x2a, 0x00, 0x00, 0x00, 0x2b, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x2b, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x2c, 0x00, 0x00, 0x00, 0x2d, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x2d, 0x00, 0x00, 0x00, 0x2e, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x2e, 0x00, 0x00, 0x00, 0x2f, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Node256 as u8, 0x2f, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00,
+            TrieNodeID::Empty as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             // indexes (256)
             255,  0,  1,  2,  3,  4,  5,  6,
              7,  8,  9, 10, 11, 12, 13, 14,
@@ -1569,60 +1568,60 @@ mod test {
     fn trie_node48_to_consensus_bytes() {
         let mut node48 = TrieNode48::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]);
         for i in 0..47 {
-            assert!(node48.insert(&TriePtr::new(TrieNodeID::Node256, (i+1) as u8, (i+2) as u32)));
+            assert!(node48.insert(&TriePtr::new(TrieNodeID::Node256 as u8, (i+1) as u8, (i+2) as u32)));
         }
         let node48_bytes = vec![
             // node ID
-            TrieNodeID::Node48,
+            TrieNodeID::Node48 as u8,
             // ptrs (48)
-            TrieNodeID::Node256, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x08, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x09, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x0a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x0b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x0d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x0e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x0f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x1a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x1b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x1c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x1d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x1e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x1f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x22, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x26, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x29, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x2a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x2b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x2c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x2d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x2e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Node256, 0x2f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            TrieNodeID::Empty, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x08, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x09, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x0a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x0b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x0d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x0e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x0f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x1a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x1b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x1c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x1d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x1e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x1f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x22, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x26, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x29, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x2a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x2b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x2c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x2d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x2e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Node256 as u8, 0x2f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            TrieNodeID::Empty as u8, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             // path len
             0x14,
             // path 
@@ -1636,22 +1635,22 @@ mod test {
     fn trie_node256_to_bytes() {
         let mut node256 = TrieNode256::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]);
         for i in 0..255 {
-            assert!(node256.insert(&TriePtr::new(TrieNodeID::Node256, i as u8, (i+2) % 256)));
+            assert!(node256.insert(&TriePtr::new(TrieNodeID::Node256 as u8, i as u8, (i+2) % 256)));
         }
 
         let mut node256_bytes = vec![
             // node ID
-            TrieNodeID::Node256
+            TrieNodeID::Node256 as u8
         ];
         // ptrs (256)
         for i in 0..255 {
             node256_bytes.append(&mut vec![
-                TrieNodeID::Node256, i as u8, 0, 0, 0, (((i+2) % 256) as u8), 0, 0, 0, 0
+                TrieNodeID::Node256 as u8, i as u8, 0, 0, 0, (((i+2) % 256) as u8), 0, 0, 0, 0
             ]);
         }
         // last ptr is empty 
         node256_bytes.append(&mut vec![
-            TrieNodeID::Empty, 0, 0, 0, 0, 0, 0, 0, 0, 0
+            TrieNodeID::Empty as u8, 0, 0, 0, 0, 0, 0, 0, 0, 0
         ]);
         // path 
         node256_bytes.append(&mut vec![
@@ -1673,24 +1672,24 @@ mod test {
     fn trie_node256_to_consensus_bytes() {
         let mut node256 = TrieNode256::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]);
         for i in 0..255 {
-            assert!(node256.insert(&TriePtr::new(TrieNodeID::Node256, i as u8, (i+2) % 256)));
+            assert!(node256.insert(&TriePtr::new(TrieNodeID::Node256 as u8, i as u8, (i+2) % 256)));
         }
 
         let mut node256_bytes = vec![
             // node ID
-            TrieNodeID::Node256
+            TrieNodeID::Node256 as u8
         ];
         // ptrs (256)
 
         let pointer_back_block_bytes = [0; 32];
         for i in 0..255 {
             node256_bytes.append(&mut vec![
-                TrieNodeID::Node256, i as u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                TrieNodeID::Node256 as u8, i as u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
             ]);
         }
         // last ptr is empty
         node256_bytes.append(&mut vec![
-            TrieNodeID::Empty, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+            TrieNodeID::Empty as u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
         ]);
 
         // path 
@@ -1713,7 +1712,7 @@ mod test {
         );
         let leaf_bytes = vec![
                 // node ID
-                TrieNodeID::Leaf,
+                TrieNodeID::Leaf as u8,
                 // path len
                 0x14,
                 // path
@@ -1732,7 +1731,7 @@ mod test {
     fn read_write_node4() {
         let mut node4 = TrieNode4::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]);
         for i in 0..3 {
-            assert!(node4.insert(&TriePtr::new(TrieNodeID::Node16, (i+1) as u8, (i+2) as u32)));
+            assert!(node4.insert(&TriePtr::new(TrieNodeID::Node16 as u8, (i+1) as u8, (i+2) as u32)));
         }
         let mut trie_io = TrieFileStorage::new_memory().unwrap();
         trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
@@ -1741,7 +1740,7 @@ mod test {
         let wres = trie_io.write_nodetype(0, &TrieNodeType::Node4(node4.clone()), hash.clone());
         assert!(wres.is_ok());
 
-        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node4, 0, 0));
+        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node4 as u8, 0, 0));
         
         assert!(rres.is_ok());
         assert_eq!(rres.unwrap(), (TrieNodeType::Node4(node4.clone()), hash));
@@ -1751,7 +1750,7 @@ mod test {
     fn read_write_node16() {
         let mut node16 = TrieNode16::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]);
         for i in 0..16 {
-            assert!(node16.insert(&TriePtr::new(TrieNodeID::Node48, (i+1) as u8, (i+2) as u32)));
+            assert!(node16.insert(&TriePtr::new(TrieNodeID::Node48 as u8, (i+1) as u8, (i+2) as u32)));
         }
         
         let mut trie_io = TrieFileStorage::new_memory().unwrap();
@@ -1761,7 +1760,7 @@ mod test {
         let wres = trie_io.write_nodetype(0, &TrieNodeType::Node16(node16.clone()), hash.clone());
         assert!(wres.is_ok());
 
-        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node16, 0, 0));
+        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node16 as u8, 0, 0));
         
         assert!(rres.is_ok());
         assert_eq!(rres.unwrap(), (TrieNodeType::Node16(node16.clone()), hash));
@@ -1772,7 +1771,7 @@ mod test {
     fn read_write_node48() {
         let mut node48 = TrieNode48::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]);
         for i in 0..48 {
-            assert!(node48.insert(&TriePtr::new(TrieNodeID::Node256, (i+1) as u8, (i+2) as u32)));
+            assert!(node48.insert(&TriePtr::new(TrieNodeID::Node256 as u8, (i+1) as u8, (i+2) as u32)));
         }
         
         let mut trie_io = TrieFileStorage::new_memory().unwrap();
@@ -1782,7 +1781,7 @@ mod test {
         let wres = trie_io.write_nodetype(0, &TrieNodeType::Node48(node48.clone()), hash.clone());
         assert!(wres.is_ok());
         
-        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node48, 0, 0));
+        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node48 as u8, 0, 0));
         
         assert!(rres.is_ok());
         assert_eq!(rres.unwrap(), (TrieNodeType::Node48(node48.clone()), hash));
@@ -1792,7 +1791,7 @@ mod test {
     fn read_write_node256() {
         let mut node256 = TrieNode256::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]);
         for i in 0..256 {
-            assert!(node256.insert(&TriePtr::new(TrieNodeID::Node256, (i+1) as u8, (i+2) as u32)));
+            assert!(node256.insert(&TriePtr::new(TrieNodeID::Node256 as u8, (i+1) as u8, (i+2) as u32)));
         }
         
         let hash = TrieHash::from_data(&[0u8; 32]);
@@ -1803,7 +1802,7 @@ mod test {
         assert!(wres.is_ok());
 
         let root_ptr = trie_io.root_ptr();
-        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node256, 0, root_ptr as u32));
+        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node256 as u8, 0, root_ptr as u32));
         
         assert!(rres.is_ok());
         assert_eq!(rres.unwrap(), (TrieNodeType::Node256(node256.clone()), hash));
@@ -1823,7 +1822,7 @@ mod test {
         let wres = trie_io.write_nodetype(0, &TrieNodeType::Leaf(leaf.clone()), hash.clone());
         assert!(wres.is_ok());
 
-        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Leaf, 0, 0));
+        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Leaf as u8, 0, 0));
         
         assert!(rres.is_ok());
         assert_eq!(rres.unwrap(), (TrieNodeType::Leaf(leaf.clone()), hash));
@@ -1846,7 +1845,7 @@ mod test {
 
             let ptr = trie_io.last_ptr().unwrap();
             trie_io.write_node(ptr, &child, child_hash).unwrap();
-            assert!(node4.insert(&TriePtr::new(TrieNodeID::Leaf, i as u8, ptr)));
+            assert!(node4.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
         }
 
         // no final child
@@ -1878,7 +1877,7 @@ mod test {
 
             let ptr = trie_io.last_ptr().unwrap();
             trie_io.write_node(ptr, &child, child_hash).unwrap();
-            assert!(node16.insert(&TriePtr::new(TrieNodeID::Leaf, i as u8, ptr)));
+            assert!(node16.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
         }
 
         // no final child
@@ -1910,7 +1909,7 @@ mod test {
 
             let ptr = trie_io.last_ptr().unwrap();
             trie_io.write_node(ptr, &child, child_hash).unwrap();
-            assert!(node48.insert(&TriePtr::new(TrieNodeID::Leaf, i as u8, ptr)));
+            assert!(node48.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
         }
 
         // no final child
@@ -1942,7 +1941,7 @@ mod test {
 
             let ptr = trie_io.last_ptr().unwrap();
             trie_io.write_node(ptr, &child, child_hash).unwrap();
-            assert!(node256.insert(&TriePtr::new(TrieNodeID::Leaf, i as u8, ptr)));
+            assert!(node256.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
         }
 
         // no final child
@@ -2005,7 +2004,7 @@ mod test {
         assert_eq!(hashes.len(), 32);
 
         assert_eq!(node_ptrs[node_ptrs.len()-1].chr, 31);
-        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
+        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf as u8);
 
         // walk down the trie
         let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_trieptr());
@@ -2089,7 +2088,7 @@ mod test {
         assert_eq!(hashes.len(), 16);
 
         assert_eq!(node_ptrs[node_ptrs.len()-1].chr, 31);
-        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
+        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf as u8);
 
         // walk down the trie
         let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_trieptr());
@@ -2168,7 +2167,7 @@ mod test {
         assert_eq!(hashes.len(), 11);
 
         assert_eq!(node_ptrs[node_ptrs.len()-1].chr, 31);
-        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
+        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf as u8);
 
         // walk down the trie
         let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_trieptr());
@@ -2244,7 +2243,7 @@ mod test {
         assert_eq!(hashes.len(), 8);
 
         assert_eq!(node_ptrs[node_ptrs.len()-1].chr, 31);
-        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
+        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf as u8);
 
         // walk down the trie
         let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_trieptr());
@@ -2319,7 +2318,7 @@ mod test {
         assert_eq!(hashes.len(), 7);
 
         assert_eq!(node_ptrs[node_ptrs.len()-1].chr, 31);
-        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
+        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf as u8);
 
         // walk down the trie
         let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_trieptr());
@@ -2393,7 +2392,7 @@ mod test {
         assert_eq!(hashes.len(), 6);
 
         assert_eq!(node_ptrs[node_ptrs.len()-1].chr, 31);
-        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
+        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf as u8);
 
         // walk down the trie
         let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_trieptr());
@@ -2466,7 +2465,7 @@ mod test {
         assert_eq!(hashes.len(), 5);
 
         assert_eq!(node_ptrs[node_ptrs.len()-1].chr, 31);
-        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
+        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf as u8);
 
         // walk down the trie
         let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_trieptr());
@@ -2537,7 +2536,7 @@ mod test {
         assert_eq!(hashes.len(), 3);
 
         assert_eq!(node_ptrs[node_ptrs.len()-1].chr, 31);
-        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
+        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf as u8);
 
         // walk down the trie
         let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_trieptr());
@@ -2607,7 +2606,7 @@ mod test {
         assert_eq!(hashes.len(), 2);
 
         assert_eq!(node_ptrs[node_ptrs.len()-1].chr, 31);
-        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
+        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf as u8);
 
         // walk down the trie
         let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_trieptr());
@@ -2676,7 +2675,7 @@ mod test {
         assert_eq!(hashes.len(), 1);
 
         assert_eq!(node_ptrs[node_ptrs.len()-1].chr, 31);
-        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
+        assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf as u8);
 
         // walk down the trie
         let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_trieptr());

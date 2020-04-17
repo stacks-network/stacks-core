@@ -119,23 +119,22 @@ pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
 #[inline]
 pub fn check_node_id(nid: u8) -> bool {
     let node_id = clear_backptr(nid);
-    node_id == TrieNodeID::Leaf ||
-    node_id == TrieNodeID::Node4 ||
-    node_id == TrieNodeID::Node16 ||
-    node_id == TrieNodeID::Node48 ||
-    node_id == TrieNodeID::Node256
+    TrieNodeID::from_u8(node_id).is_some()
 }
 
 /// Helper to return the number of children in a Trie, given its ID.
 #[inline]
 pub fn node_id_to_ptr_count(node_id: u8) -> usize {
-    match clear_backptr(node_id) {
+    match TrieNodeID::from_u8(clear_backptr(node_id))
+        .expect(&format!("Unknown node ID {}", node_id)) {
         TrieNodeID::Leaf => 1,
         TrieNodeID::Node4 => 4,
         TrieNodeID::Node16 => 16,
         TrieNodeID::Node48 => 48,
         TrieNodeID::Node256 => 256,
-        _ => panic!("Unknown node ID {}", node_id)
+        TrieNodeID::Empty => {
+            panic!("node_id_to_ptr_count: tried getting empty node pointer count")
+        },
     }
 }
 
@@ -293,7 +292,7 @@ pub fn read_root_hash(s: &mut TrieFileStorage) -> Result<TrieHash, Error> {
 pub fn count_children(children: &[TriePtr]) -> usize {
     let mut cnt = 0;
     for i in 0..children.len() {
-        if children[i].id() != TrieNodeID::Empty {
+        if children[i].id() != TrieNodeID::Empty as u8 {
             cnt += 1;
         }
     }
@@ -317,7 +316,8 @@ pub fn read_nodetype<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNo
 pub fn read_nodetype_at_head<F: Read>(f: &mut F, ptr_id: u8) -> Result<(TrieNodeType, TrieHash), Error> {
     let h = read_hash_bytes(f)?;
 
-    let node = match ptr_id {
+    let node = match TrieNodeID::from_u8(ptr_id)
+        .ok_or_else(|| Error::CorruptionError(format!("read_node_type: Unknown trie node type {}", ptr_id)))? {
         TrieNodeID::Node4 => {
             let node = TrieNode4::from_bytes(f)?;
             TrieNodeType::Node4(node)
@@ -338,9 +338,9 @@ pub fn read_nodetype_at_head<F: Read>(f: &mut F, ptr_id: u8) -> Result<(TrieNode
             let node = TrieLeaf::from_bytes(f)?;
             TrieNodeType::Leaf(node)
         },
-        _ => {
-            return Err(Error::CorruptionError(format!("read_node_type: Unknown trie node type {}", ptr_id)));
-        }
+        TrieNodeID::Empty => {
+            return Err(Error::CorruptionError("read_node_type: stored empty node type".to_string()))
+        },
     };
 
     Ok((node, TrieHash(h)))

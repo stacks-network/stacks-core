@@ -166,7 +166,7 @@ pub enum TrieMerkleProofType {
 
 
 define_u8_enum!( TrieMerkleProofTypeIndicator {
-    Node4, Node16, Node48, Node256, Leaf, Shunt,
+    Node4 = 0, Node16 = 1, Node48 = 2, Node256 = 3, Leaf = 4, Shunt = 5
 });
 
 pub fn hashes_fmt(hashes: &[TrieHash]) -> String {
@@ -363,7 +363,7 @@ impl TrieMerkleProof {
         assert!(all_hashes.len() == node.ptrs().len());
 
         for i in 0..node.ptrs().len() {
-            if node.ptrs()[i].id() == TrieNodeID::Empty {
+            if node.ptrs()[i].id() == TrieNodeID::Empty as u8 {
                 hashes.push(TrieHash::from_data(&[]));
             }
             else if node.ptrs()[i].chr() != chr {
@@ -762,7 +762,7 @@ impl TrieMerkleProof {
             assert!(count > 0 && hashes.len() == count - 1);
 
             for child_ptr in node.ptrs() {
-                if child_ptr.id != TrieNodeID::Empty && child_ptr.chr == chr {
+                if child_ptr.id != TrieNodeID::Empty as u8 && child_ptr.chr == chr {
                     all_hashes.push(hash.clone());
                 }
                 else {
@@ -1282,7 +1282,7 @@ impl TrieMerkleProof {
                 shunt_proofs.push(first_shunt_proof);
             }
 
-            if cursor.ptr().id() == TrieNodeID::Leaf {
+            if cursor.ptr().id() == TrieNodeID::Leaf as u8 {
                 match reached_node {
                     TrieNodeType::Leaf(ref data) => {
                         if data.data != *expected_value {
