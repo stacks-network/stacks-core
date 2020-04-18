@@ -343,7 +343,7 @@ fn test_factorial_contract() {
     let test1 =
         "(define-map factorials ((id int)) ((current int) (index int)))
          (define-private (init-factorial (id int) (factorial int))
-           (map-insert factorials {id: id} {current:1, index: factorial}))
+           (map-insert factorials {id: id} {current: 1, index: factorial}))
          (define-private (compute (id int))
            (let ((entry (unwrap! (map-get? factorials {id : id}) 0)))
                     (let ((current (get current entry))
