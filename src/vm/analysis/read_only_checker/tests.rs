@@ -60,7 +60,7 @@ fn test_simple_read_only_violations() {
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (not-reading-only)
             (or (map-insert tokens (tuple (account tx-sender))
-                                   {balance 10}) false))",
+                                   { balance: 10, }) false))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (not-reading-only)
             (tuple (result (map-delete tokens (tuple (account tx-sender))))))",

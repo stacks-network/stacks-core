@@ -180,11 +180,15 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                         Ok(LexItem::Whitespace)
                     },
                     TokenType::Comma => {
-                        context = LexContext::ExpectNothing;
+                        // comma should not be followed directly by an item,
+                        //  e.g., {a: 1,b: 2} should not be legal
+                        context = LexContext::ExpectClosing;
                         Ok(LexItem::CommaSeparator)
                     },
                     TokenType::Colon => {
-                        context = LexContext::ExpectNothing;
+                        // colon should not be followed directly by an item,
+                        //  e.g., {a:b} should not be legal
+                        context = LexContext::ExpectClosing;
                         Ok(LexItem::ColonSeparator)
                     },
                     TokenType::LCurly => {
@@ -302,6 +306,23 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     }
 }
 
+enum ParseStackItem {
+    Expression(PreSymbolicExpression),
+    Colon, Comma
+}
+
+fn handle_expression(parse_stack: &mut Vec<(Vec<ParseStackItem>, u32, u32, ParseContext)>,
+                     outputs: &mut Vec<PreSymbolicExpression>,
+                     expr: PreSymbolicExpression) {
+    match parse_stack.last_mut() {
+        // no open lists on stack, add current to outputs.
+        None => outputs.push(expr),
+        // there's an open list or tuple on the stack.
+        Some((ref mut list, _, _, _)) =>
+            list.push(ParseStackItem::Expression(expr)),
+    }
+}
+
 pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbolicExpression>> {
     let mut parse_stack = Vec::new();
 
@@ -316,20 +337,22 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
             },
             LexItem::RightParen => {
                 // end current list.
-                if let Some((value, start_line, start_column, parse_context)) = parse_stack.pop() {
+                if let Some((list, start_line, start_column, parse_context)) = parse_stack.pop() {
                     match parse_context {
                         ParseContext::CollectList => {
-                            let mut pre_expr = PreSymbolicExpression::list(value.into_boxed_slice());
+                            let checked_list: ParseResult<Box<[PreSymbolicExpression]>> = list.into_iter()
+                                .map(|i| {
+                                    match i {
+                                        ParseStackItem::Expression(e) => Ok(e),
+                                        ParseStackItem::Colon => Err(ParseError::new(ParseErrors::ColonSeparatorUnexpected)),
+                                        ParseStackItem::Comma => Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected)),
+                                    } 
+                                })
+                                .collect();
+                            let checked_list = checked_list?;
+                            let mut pre_expr = PreSymbolicExpression::list(checked_list);
                             pre_expr.set_span(start_line, start_column, line_pos, column_pos);
-                            match parse_stack.last_mut() {
-                                None => {
-                                    // no open lists on stack, add current to result.
-                                    output_list.push(pre_expr)
-                                },
-                                Some((ref mut list, _, _, _)) => {
-                                    list.push(pre_expr);
-                                }
-                            };
+                            handle_expression(&mut parse_stack, &mut output_list, pre_expr);
                         },
                         ParseContext::CollectTuple => {
                             return Err(ParseError::new(ParseErrors::ClosingTupleLiteralExpected))
@@ -344,19 +367,41 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 parse_stack.push((new_list, line_pos, column_pos, ParseContext::CollectTuple));
             },
             LexItem::RightCurly => {
-                if let Some((value, start_line, start_column, parse_context)) = parse_stack.pop() {
+                if let Some((tuple_list, start_line, start_column, parse_context)) = parse_stack.pop() {
                     match parse_context {
                         ParseContext::CollectTuple => {
-                            let mut pre_expr = PreSymbolicExpression::tuple(value.into_boxed_slice());
+                            let mut checked_list = Vec::new();
+                            for (index, item) in tuple_list.into_iter().enumerate() {
+                                // check that tuple items are (expr, colon, expr, comma)
+                                match index % 4 {
+                                    0 | 2 => {
+                                        if let ParseStackItem::Expression(e) = item {
+                                            checked_list.push(e);
+                                            Ok(())
+                                        } else {
+                                            Err(ParseErrors::TupleItemExpected(index))
+                                        }
+                                    },
+                                    1 => {
+                                        if let ParseStackItem::Colon = item {
+                                            Ok(())
+                                        } else {
+                                            Err(ParseErrors::TupleColonExpected(index))
+                                        }
+                                    },
+                                    3 => {
+                                        if let ParseStackItem::Comma = item {
+                                            Ok(())
+                                        } else {
+                                            Err(ParseErrors::TupleCommaExpected(index))
+                                        }
+                                    },
+                                    _ => unreachable!("More than four modulos of four."),
+                                }?;
+                            }
+                            let mut pre_expr = PreSymbolicExpression::tuple(checked_list.into_boxed_slice());
                             pre_expr.set_span(start_line, start_column, line_pos, column_pos);
-                            match parse_stack.last_mut() {
-                                None => {
-                                    output_list.push(pre_expr)
-                                },
-                                Some((ref mut list, _, _, _)) => {
-                                    list.push(pre_expr);
-                                }
-                            };
+                            handle_expression(&mut parse_stack, &mut output_list, pre_expr);
                         },
                         ParseContext::CollectList => {
                             return Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
@@ -372,11 +417,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     .map_err(|_| { ParseError::new(ParseErrors::IllegalVariableName(value.to_string())) })?;
                 let mut pre_expr = PreSymbolicExpression::atom(value);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
-
-                match parse_stack.last_mut() {
-                    None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
-                };
+                handle_expression(&mut parse_stack, &mut output_list, pre_expr);
             },
             LexItem::LiteralValue(length, value) => {
                 let mut end_column = column_pos + (length as u32);
@@ -386,11 +427,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 }
                 let mut pre_expr = PreSymbolicExpression::atom_value(value);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
-
-                match parse_stack.last_mut() {
-                    None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
-                };
+                handle_expression(&mut parse_stack, &mut output_list, pre_expr);
             },
             LexItem::SugaredContractIdentifier(length, value) => {
                 let mut end_column = column_pos + (length as u32);
@@ -400,11 +437,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 }
                 let mut pre_expr = PreSymbolicExpression::sugared_contract_identifier(value);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
-
-                match parse_stack.last_mut() {
-                    None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
-                };
+                handle_expression(&mut parse_stack, &mut output_list, pre_expr);
             },
             LexItem::SugaredFieldIdentifier(length, contract_name, name) => {
                 let mut end_column = column_pos + (length as u32);
@@ -414,11 +447,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 }
                 let mut pre_expr = PreSymbolicExpression::sugared_field_identifier(contract_name, name);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
-
-                match parse_stack.last_mut() {
-                    None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
-                };
+                handle_expression(&mut parse_stack, &mut output_list, pre_expr);
             },
             LexItem::FieldIdentifier(length, trait_identifier) => {
                 let mut end_column = column_pos + (length as u32);
@@ -428,11 +457,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 }
                 let mut pre_expr = PreSymbolicExpression::field_identifier(trait_identifier);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
-
-                match parse_stack.last_mut() {
-                    None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
-                };
+                handle_expression(&mut parse_stack, &mut output_list, pre_expr);
             },
             LexItem::TraitReference(_length, value) => {
                 let end_column = column_pos + (value.len() as u32) - 1;
@@ -440,37 +465,21 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                     .map_err(|_| { ParseError::new(ParseErrors::IllegalVariableName(value.to_string())) })?;
                 let mut pre_expr = PreSymbolicExpression::trait_reference(value);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
-
-                match parse_stack.last_mut() {
-                    None => output_list.push(pre_expr),
-                    Some((ref mut list, _, _, _)) => list.push(pre_expr)
-                };
+                handle_expression(&mut parse_stack, &mut output_list, pre_expr);
             }
             LexItem::ColonSeparator => {
                 match parse_stack.last_mut() {
                     None => return Err(ParseError::new(ParseErrors::ColonSeparatorUnexpected)),
-                    Some((ref mut list, _, _, parse_context)) => {
-                        if let ParseContext::CollectTuple = parse_context {
-                            if list.len() % 2 == 0 {
-                                return Err(ParseError::new(ParseErrors::ColonSeparatorUnexpected))
-                            }
-                        } else {
-                            return Err(ParseError::new(ParseErrors::ColonSeparatorUnexpected))
-                        }
+                    Some((ref mut list, ..)) => {
+                        list.push(ParseStackItem::Colon);
                     }
                 };
             }
             LexItem::CommaSeparator => {
                 match parse_stack.last_mut() {
                     None => return Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected)),
-                    Some((ref mut list, _, _, parse_context)) => {
-                        if let ParseContext::CollectTuple = parse_context {
-                            if list.len() == 0 || list.len() % 2 == 1 {
-                                return Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected))
-                            }
-                        } else {
-                            return Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected))
-                        }
+                    Some((ref mut list, ..)) => {
+                        list.push(ParseStackItem::Comma);
                     }
                 };
             },
@@ -583,10 +592,10 @@ r#"z (let ((x 1) (y 2))
 
     #[test]
     fn test_parse_tuple_literal () {
-      let input = "{id 1337}";
-      let program = vec![ make_tuple(1, 1, 1, 9, Box::new([
+      let input = "{id: 1337 }";
+      let program = vec![ make_tuple(1, 1, 1, 11, Box::new([
                               make_atom("id", 1, 2, 1, 3),
-                              make_atom_value(Value::Int(1337), 1, 5, 1, 8)]))];
+                              make_atom_value(Value::Int(1337), 1, 6, 1, 9)]))];
       let parsed = ast::parser::parse(&input);
       assert_eq!(Ok(program), parsed, "Should match expected tuple literal");
     }
@@ -662,12 +671,14 @@ r#"z (let ((x 1) (y 2))
         let name_with_dot = "(let ((ab.de 1)))";
         let wrong_tuple_literal_close = "{id 1337)";
         let wrong_list_close = "(13 37}";
-        let extra_tuple_literal_close = "{37}}";
-        let unexpected_comma = "(let ((a 1),(b 2)) b)";
+        let extra_tuple_literal_close = "{id: 37}}";
+        let unexpected_comma = "(let ((a 1), (b 2)) b)";
         let shorthand_tuple = "{ a, b }";
         let shorthand_tuple_dangling_comma = "{ a: b, b: ,}";
         let decorative_colon_on_value = "{ a: b: }";
-        let tuple_literal_colon_after_comma = "{ a: b, :b a}";
+        let tuple_literal_colon_after_comma = "{ a: b, : b a}";
+        let tuple_comma_no_space = "{ a: b,c: 3 }";
+        let tuple_colon_no_space = "{ a:b }";
         let empty_tuple_literal_comma = "{,}";
         let empty_tuple_literal_colon = "{:}";
         let legacy_boolean_literals = "(and 'true 'false)";
@@ -709,23 +720,30 @@ r#"z (let ((x 1) (y 2))
         assert!(match ast::parser::parse(&unexpected_comma).unwrap_err().err {
             ParseErrors::CommaSeparatorUnexpected => true, _ => false });
 
+        assert!(match ast::parser::parse(&tuple_comma_no_space).unwrap_err().err {
+            ParseErrors::SeparatorExpected(_) => true, _ => false });
+        assert!(match ast::parser::parse(&tuple_colon_no_space).unwrap_err().err {
+            ParseErrors::SeparatorExpected(_) => true, _ => false });
+
         assert!(match ast::parser::parse(&shorthand_tuple).unwrap_err().err {
-            ParseErrors::CommaSeparatorUnexpected => true, _ => false });
+            ParseErrors::TupleColonExpected(_) => true, _ => false });
 
         assert!(match ast::parser::parse(&shorthand_tuple_dangling_comma).unwrap_err().err {
-            ParseErrors::CommaSeparatorUnexpected => true, _ => false });
+            ParseErrors::TupleItemExpected(_) => true, _ => false });
 
         assert!(match ast::parser::parse(&decorative_colon_on_value).unwrap_err().err {
-            ParseErrors::ColonSeparatorUnexpected => true, _ => false });
+            ParseErrors::TupleCommaExpected(_) => true, e => 
+            { eprintln!("{:?}", e); false } });
 
         assert!(match ast::parser::parse(&tuple_literal_colon_after_comma).unwrap_err().err {
-            ParseErrors::ColonSeparatorUnexpected => true, _ => false });
+            ParseErrors::TupleItemExpected(_) => true, e => 
+            { eprintln!("{:?}", e); false } });
 
         assert!(match ast::parser::parse(&empty_tuple_literal_comma).unwrap_err().err {
-            ParseErrors::CommaSeparatorUnexpected => true, _ => false });
+            ParseErrors::TupleItemExpected(_) => true, _ => false });
 
         assert!(match ast::parser::parse(&empty_tuple_literal_colon).unwrap_err().err {
-            ParseErrors::ColonSeparatorUnexpected => true, _ => false });
+            ParseErrors::TupleItemExpected(_) => true, _ => false });
 
         assert!(match ast::parser::parse(&legacy_boolean_literals).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
