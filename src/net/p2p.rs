@@ -377,13 +377,13 @@ impl PeerNetwork {
     }
 
     /// Call this instead of new()
-    pub fn init(peerdb_path: &String, network_id: u32, peer_version: u32, burnchain: Burnchain, chain_view: BurnchainView, connection_opts: ConnectionOptions, data_url: UrlString, asn4_path: Option<&String>) -> Result<PeerNetwork, net_error> {
+    pub fn init(peerdb_path: &String, network_id: u32, peer_version: u32, burnchain: Burnchain, chain_view: BurnchainView, connection_opts: ConnectionOptions, p2p_port: u16, data_url: UrlString, asn4_path: Option<&String>) -> Result<PeerNetwork, net_error> {
         let asn4_entries = match asn4_path {
             Some(path) => ASEntry4::from_file(path)?,
             None => vec![]
         };
 
-        let peerdb = PeerDB::connect(peerdb_path, true, network_id, burnchain.network_id, chain_view.burn_block_height + connection_opts.private_key_lifetime, data_url, &asn4_entries, None)
+        let peerdb = PeerDB::connect(peerdb_path, true, network_id, burnchain.network_id, chain_view.burn_block_height + connection_opts.private_key_lifetime, p2p_port, data_url, &asn4_entries, None)
             .map_err(net_error::DBError)?;
         
         let local_peer = PeerDB::get_local_peer(peerdb.conn())
@@ -394,7 +394,7 @@ impl PeerNetwork {
 
     /// start serving.
     pub fn bind(&mut self, my_addr: &SocketAddr, http_addr: &SocketAddr) -> Result<(), net_error> {
-        let mut net = NetworkState::new(800)?;
+        let mut net = NetworkState::new(800)?; // todo(ludo): Should this be a constant?
 
         let p2p_handle = net.bind(my_addr)?;
         let http_handle = net.bind(http_addr)?;

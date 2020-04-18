@@ -14,6 +14,7 @@ use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash};
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer } };
+use stacks::net::dns::DNSResolver;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
@@ -65,6 +66,8 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
               burn_db_path: String, stacks_chainstate_path: String, 
               poll_timeout: u64) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
+    let (mut dns_resolver, mut dns_client) = DNSResolver::new(5);
+
     let server_thread = thread::spawn(move || {
         loop {
             let mut burndb = match BurnDB::open(&burn_db_path, true) {
@@ -95,10 +98,25 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 }
             };
 
-            this.run(&mut burndb, &mut chainstate, &mut mem_pool, None, poll_timeout)
+            let res = this.run(
+                &mut burndb, 
+                &mut chainstate, 
+                &mut mem_pool, 
+                Some(&mut dns_client), 
+                poll_timeout)
                 .unwrap();
+
+            
+            println!("=======================================================");
+            println!("{:?}", res.blocks);
+            println!("=======================================================");
         }
     });
+
+    let jh = thread::spawn(move || {
+        dns_resolver.thread_main();
+    });
+
     Ok(server_thread)
 }
 
@@ -224,12 +242,16 @@ impl Node {
 
         println!("BOOTSTRAP WITH {:?}", initial_neighbors);
 
+        let p2p_sock: SocketAddr = self.config.node.p2p_bind.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_bind));
+
         let peerdb = PeerDB::connect(
             &self.config.get_peer_db_path(), 
             true, 
             TESTNET_CHAIN_ID, 
             burnchain.network_id, 
             self.config.connection_options.private_key_lifetime.clone(),
+            p2p_sock.port(),
             data_url.clone(),
             &vec![], 
             Some(&initial_neighbors)).unwrap();
@@ -242,8 +264,6 @@ impl Node {
         let p2p_net = PeerNetwork::new(peerdb, local_peer, TESTNET_PEER_VERSION, burnchain, view, self.config.connection_options.clone());
         let rpc_sock = self.config.node.rpc_bind.parse()
             .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
-        let p2p_sock = self.config.node.p2p_bind.parse()
-            .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_bind));
         let _join_handle = spawn_peer(
             p2p_net, 
             &p2p_sock, 
@@ -343,7 +363,7 @@ impl Node {
             None => {
                 // We're continuously registering new keys, as such, this branch
                 // should be unreachable.
-                unreachable!()
+                unreachable!() // todo(ludo): crashing, sometime at boot (neon, bootstraping)
             },
             Some(ref key) => key,
         };

@@ -349,7 +349,7 @@ impl BlockDownloader {
             match http.get_conversation(event_id) {
                 None => {
                     debug!("Event {} ({:?}, {:?} for block {}) is not connected", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
-                    self.dead_peers.push(event_id);
+                    pending_block_requests.insert(block_key, event_id);
                 }
                 Some(ref mut convo) => match convo.try_get_response() {
                     None => {
