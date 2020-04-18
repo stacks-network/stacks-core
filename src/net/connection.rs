@@ -53,6 +53,11 @@ use net::MAX_MESSAGE_LEN;
 
 use util::strings::UrlString;
 
+use vm::{
+    costs::ExecutionCost,
+    types::BOUND_VALUE_SERIALIZATION_HEX
+};
+
 use chainstate::burn::ConsensusHash;
 
 use util::log;
@@ -290,6 +295,7 @@ pub struct ConnectionOptions {
     pub inbox_maxlen: usize,
     pub outbox_maxlen: usize,
     pub timeout: u64,
+    pub idle_timeout: u64,
     pub heartbeat: u32,
     pub private_key_lifetime: u64,
     pub num_neighbors: u64,
@@ -302,6 +308,22 @@ pub struct ConnectionOptions {
     pub soft_max_neighbors_per_org: u64,
     pub soft_max_clients_per_host: u64,
     pub walk_interval: u64,
+    pub dns_timeout: u128,
+    pub max_inflight_blocks: u64,
+    pub read_only_call_limit: ExecutionCost,
+    pub maximum_call_argument_size: u32,
+    pub max_block_push_bandwidth: u64,
+    pub max_microblocks_push_bandwidth: u64,
+    pub max_transaction_push_bandwidth: u64,
+    
+    // fault injection
+    pub disable_neighbor_walk: bool,
+    pub disable_chat_neighbors: bool,
+    pub disable_inv_sync: bool,
+    pub disable_block_download: bool,
+    pub disable_network_prune: bool,
+    pub disable_network_bans: bool,
+    pub disable_block_advertisement: bool
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -309,7 +331,8 @@ impl std::default::Default for ConnectionOptions {
         ConnectionOptions {
             inbox_maxlen: 5,
             outbox_maxlen: 5,
-            timeout: 30,                    // how long to wait for a reply (and, how long a socket can be idle in the HTTP server)
+            timeout: 30,                    // how long to wait for a reply
+            idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
             heartbeat: 3600,                // send a heartbeat once an hour by default
             private_key_lifetime: 4302,     // key expires after ~1 month
             num_neighbors: 32,              // how many outbound connections we can have, full-stop
@@ -322,6 +345,24 @@ impl std::default::Default for ConnectionOptions {
             soft_max_neighbors_per_org: 10,      // how many outbound connections we can have per AS-owning organization, before we start pruning them
             soft_max_clients_per_host: 10,       // how many inbound connections we can have per IP address, before we start pruning them,
             walk_interval: 300,             // how often to do a neighbor walk
+            dns_timeout: 15_000,            // DNS timeout, in millis
+            max_inflight_blocks: 6,         // number of parallel block downloads
+            read_only_call_limit: ExecutionCost { write_length: 0, write_count: 0,
+                                                  read_length: 100000, read_count: 10,
+                                                  runtime: 10000000 },
+            maximum_call_argument_size: 20 * BOUND_VALUE_SERIALIZATION_HEX,
+            max_block_push_bandwidth: 0,    // infinite upload bandwidth allowed
+            max_microblocks_push_bandwidth: 0,     // infinite upload bandwidth allowed
+            max_transaction_push_bandwidth: 0,      // infinite upload bandwidth allowed
+
+            // no faults on by default
+            disable_neighbor_walk: false,
+            disable_chat_neighbors: false,
+            disable_inv_sync: false,
+            disable_block_download: false,
+            disable_network_prune: false,
+            disable_network_bans: false,
+            disable_block_advertisement: false
         }
     }
 }
@@ -481,7 +522,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 Err(e) => {
                     // will never be valid, even if underflowed, since the premable ought to have
                     // told us the message length
-                    debug!("Invalid message payload: {:?}", &e);
+                    debug!("Invalid message payload: {:?}.  Preamble was {:?}", &e, &preamble);
                     return Err(net_error::InvalidMessage);
                 }
             };
@@ -1092,12 +1133,17 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
         self.inbox.public_key = pubk;
     }
 
-    /// Get the public key 
+    /// Get a copy of the public key 
     pub fn get_public_key(&self) -> Option<Secp256k1PublicKey> {
         match self.inbox.public_key {
             Some(pubk) => Some(pubk.clone()),
             None => None
         }
+    }
+    
+    /// Get a copy of the public key 
+    pub fn ref_public_key(&self) -> Option<&Secp256k1PublicKey> {
+        self.inbox.public_key.as_ref()
     }
 
     /// do we have a public key 
@@ -1508,22 +1554,11 @@ mod test {
             pipes.push(pipe);
         }
 
-        // in the background, flush these pipes
-        let pinger = thread::spawn(move || {
-            let mut i = 0;
-
-            // force pipes to go out of scope
-            while pipes.len() > 0 {
-                let mut p = pipes.remove(0);
-                i += 1;
-
-                test_debug!("Flush pipe {}", i);
-                let _ = p.flush();
-                test_debug!("Flushed pipe {}", i);
+        fn flush_all(pipes: &mut Vec<ReplyHandleP2P>) {
+            for ref mut p in pipes.iter_mut() {
+                let _ = p.try_flush();
             }
-
-            test_debug!("Pinger exit");
-        });
+        }
 
         // 5 ping messages queued; no one expecting a reply
         for i in 0..5 {
@@ -1545,6 +1580,7 @@ mod test {
         let mut nw = 0;
         while nw < write_buf_len {
             nw += conn.send_data(&mut write_buf).unwrap();
+            flush_all(&mut pipes);
         }
         
         // 4 messages queued
@@ -1561,6 +1597,7 @@ mod test {
         nw = 0;
         while nw < write_buf_15_len {
             nw += conn.send_data(&mut write_buf_15).unwrap();
+            flush_all(&mut pipes);
         }
 
         // 3 messages still queued (the one partially-sent)
@@ -1585,6 +1622,7 @@ mod test {
         nw = 0;
         while nw < write_buf_05_len {
             nw += conn.send_data(&mut write_buf_05).unwrap();
+            flush_all(&mut pipes);
         }
         
         // 2 messages still queued 
@@ -1608,13 +1646,11 @@ mod test {
         nw = 0;
         while nw < drain_fd_len {
             nw += conn.send_data(&mut drain_fd).unwrap();
+            flush_all(&mut pipes);
         }
 
         assert_eq!(nw, ping_size*2);
         assert_eq!(conn.outbox.outbox.len(), 0);
-
-        test_debug!("Join pinger");
-        pinger.join().unwrap();
     }
 
     #[test]

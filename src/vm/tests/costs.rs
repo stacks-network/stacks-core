@@ -13,7 +13,7 @@ use vm::contexts::{Environment};
 use vm::costs::{ExecutionCost};
 use vm::database::{ClarityDatabase, MarfedKV, MemoryBackingStore,
                    NULL_HEADER_DB};
-
+use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
 
@@ -33,11 +33,11 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Modulo => "(mod 2 1)",
         Power => "(pow 2 3)",
         BitwiseXOR => "(xor 1 2)",
-        And => "(and 'true 'false)",
-        Or => "(or 'true 'false)",
-        Not => "(not 'true)",
+        And => "(and true false)",
+        Or => "(or true false)",
+        Not => "(not true)",
         Equals => "(is-eq 1 2)",
-        If => "(if 'true (+ 1 2) 2)",
+        If => "(if true (+ 1 2) 2)",
         Let => "(let ((x 1)) x)",
         FetchVar => "(var-get var-foo)",
         SetVar => "(var-set var-foo 1)",
@@ -50,7 +50,6 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Len => "(len list-bar)",
         ListCons => "(list 1 2 3 4)",
         FetchEntry => "(map-get? map-foo {a 1})",
-        FetchContractEntry => "(contract-map-get? .contract-other map-foo {a 1})",
         SetEntry => "(map-set map-foo {a 1} {b 2})",
         InsertEntry => "(map-insert map-foo {a 2} {b 2})",
         DeleteEntry => "(map-delete map-foo {a 1})",
@@ -70,18 +69,18 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         ConsError => "(err 1)",
         ConsSome => "(some 1)",
         DefaultTo => "(default-to 1 none)",
-        Asserts => "(asserts! 'true (err 1))",
+        Asserts => "(asserts! true (err 1))",
         UnwrapRet => "(unwrap! (ok 1) (err 1))",
         UnwrapErrRet => "(unwrap-err! (err 1) (ok 1))",
         Unwrap => "(unwrap-panic (ok 1))",
         UnwrapErr => "(unwrap-err-panic (err 1))",
         Match => "(match (some 1) x (+ x 1) 1)",
-        TryRet => "(try! (if 'true (ok 1) (err 1)))",
+        TryRet => "(try! (if true (ok 1) (err 1)))",
         IsOkay => "(is-ok (ok 1))",
         IsNone => "(is-none none)",
         IsErr => "(is-err (err 1))",
         IsSome => "(is-some (some 1))",
-        MintAsset => "(ft-mint? ft-foo u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)", 
+        MintAsset => "(ft-mint? ft-foo u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         MintToken => "(nft-mint? nft-foo 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         GetTokenBalance => "(ft-get-balance ft-foo 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         GetAssetOwner => "(nft-get-owner? nft-foo 1)",
@@ -94,7 +93,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
 }
 
 fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract_identifier: &QualifiedContractIdentifier,
-                       tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap), Error> {
+                       tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
     env.execute_transaction(issuer, contract_identifier.clone(), tx, args)
 }
 
@@ -107,7 +106,7 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
                          (define-fungible-token ft-foo)
                          (define-data-var var-foo int 0)
                          (define-constant tuple-foo (tuple (a 1)))
-                         (define-constant list-foo (list 'true))
+                         (define-constant list-foo (list true))
                          (define-constant list-bar (list 1))
                          (define-public (execute) (ok {}))", prog);
 

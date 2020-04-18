@@ -42,6 +42,7 @@ use burnchains::Address;
 
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
+use chainstate::stacks::events::*;
 use chainstate::stacks::db::blocks::*;
 use chainstate::stacks::index::{
     TrieHash,
@@ -80,10 +81,17 @@ use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
 use vm::database::marf::MarfedKV;
-use vm::database::SqliteConnection;
-use vm::clarity::ClarityInstance;
-use vm::clarity::ClarityBlockConnection;
-use vm::clarity::Error as clarity_error;
+use vm::database::{
+    SqliteConnection,
+    ClarityDatabase
+};
+use vm::clarity::{
+    ClarityInstance,
+    ClarityConnection,
+    ClarityBlockConnection,
+    ClarityReadOnlyConnection,
+    Error as clarity_error
+};
 use vm::representations::ClarityName;
 use vm::representations::ContractName;
 
@@ -97,7 +105,8 @@ pub struct StacksChainState {
     pub blocks_db: DBConn,
     pub headers_state_index: MARF,
     pub blocks_path: String,
-    pub clarity_state_index_path: String
+    pub clarity_state_index_path: String,
+    pub root_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -181,30 +190,23 @@ impl FromRow<DBConfig> for DBConfig {
 
 impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
     fn from_row<'a>(row: &'a Row) -> Result<StacksHeaderInfo, db_error> {
-        let block_height_i64 : i64 = row.get("block_height");
+        let block_height = u64::from_column(row, "block_height")?;
         let index_root = TrieHash::from_column(row, "index_root")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-        let burn_header_timestamp_i64 : i64 = row.get("burn_header_timestamp");
+        let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let stacks_header = StacksBlockHeader::from_row(row)?;
-        
-        if block_height_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-        if burn_header_timestamp_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
 
-        if block_height_i64 as u64 != stacks_header.total_work.work {
+        if block_height != stacks_header.total_work.work {
             return Err(db_error::ParseError);
         }
 
         Ok(StacksHeaderInfo {
             anchored_header: stacks_header, 
             microblock_tail: None,
-            block_height: block_height_i64 as u64,
+            block_height: block_height,
             index_root: index_root,
             burn_header_hash: burn_header_hash,
-            burn_header_timestamp: burn_header_timestamp_i64 as u64
+            burn_header_timestamp: burn_header_timestamp
         })
     }
 }
@@ -249,6 +251,18 @@ impl<'a> BlocksDBTx<'a> {
 pub struct ClarityTx<'a> {
     block: ClarityBlockConnection<'a>,
     pub config: DBConfig
+}
+
+impl ClarityConnection for ClarityTx<'_> {
+    fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase) {
+        ClarityConnection::with_clarity_db_readonly_owned(&mut self.block, to_do)
+    }
+
+    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
+    where F: FnOnce(&mut AnalysisDatabase) -> R {
+        self.block.with_analysis_db_readonly(to_do)
+    }
 }
 
 impl<'a> ClarityTx<'a> {
@@ -423,7 +437,6 @@ const STACKS_CHAIN_STATE_SQL : &'static [&'static str]= &[
 #[cfg(test)]
 const STACKS_MINER_AUTH_KEY : &'static str = "a5879925788dcb3fe1f2737453e371ba04c4064e6609552ef59a126ac4fa598001";
 
-#[cfg(test)]
 const STACKS_BOOT_CODE : &'static [&'static str] = &[
     r#"
     (define-constant ERR-NO-PRINCIPAL 1)
@@ -436,7 +449,7 @@ const STACKS_BOOT_CODE : &'static [&'static str] = &[
         ((available uint) (authorized bool))
     )
     (define-private (get-participant-info (participant principal))
-        (default-to (tuple (available u0) (authorized 'false)) (map-get? rewards ((participant participant)))))
+        (default-to {available: u0, authorized: false} (map-get? rewards {participant participant})))
 
     (define-public (get-participant-reward (participant principal))
         (ok (get available (get-participant-info participant))))
@@ -449,11 +462,8 @@ const STACKS_BOOT_CODE : &'static [&'static str] = &[
     "#
 ];
 
-
-#[cfg(test)]
 pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS : &'static str = "ST000000000000000000002AMW42H";
 
-#[cfg(test)]
 const STACKS_BOOT_CODE_CONTRACT_NAMES : &'static [&'static str] = &[
     "miner-rewards"
 ];
@@ -479,19 +489,6 @@ pub const MINER_REWARD_WINDOW : u64 = 1008;
 pub const MINER_FEE_MINIMUM_BLOCK_USAGE : u64 = 80;         // miner must share the first F% of the anchored block tx fees, and gets 100% - F% exclusively
 
 pub const MINER_FEE_WINDOW : u64 = 24;                      // number of blocks (B) used to smooth over the fraction of tx fees they share from anchored blocks
-
-#[cfg(not(test))]
-pub const STACKS_BOOT_CODE_CONTRACT_ADDRESS : &'static str = "SP000000000000000000002Q6VF78";
-
-// TODO
-#[cfg(not(test))]
-const STACKS_BOOT_CODE : &'static [&'static str] = &[
-];
-
-// TODO
-#[cfg(not(test))]
-const STACKS_BOOT_CODE_CONTRACT_NAMES : &'static [&'static str] = &[
-];
 
 impl StacksChainState {
     fn instantiate_headers_db(conn: &mut DBConn, mainnet: bool, chain_id: u32, marf_path: &str) -> Result<(), Error> {
@@ -586,7 +583,12 @@ impl StacksChainState {
 
     /// Install the boot code into the chain history.
     /// TODO: instantiate all account balances as well.
-    fn install_boot_code(chainstate: &mut StacksChainState, mainnet: bool, additional_boot_code_contract_names: &Vec<String>, additional_boot_code: &Vec<String>) -> Result<(), Error> {
+    fn install_boot_code<F>(chainstate: &mut StacksChainState, 
+                         mainnet: bool, 
+                         additional_boot_code_contract_names: &Vec<String>, 
+                         additional_boot_code: &Vec<String>, 
+                         initial_balances: Option<Vec<(PrincipalData, u64)>>, f: F) -> Result<(), Error> where F: FnOnce(&mut ClarityTx) -> () {
+
         assert_eq!(STACKS_BOOT_CODE.len(), STACKS_BOOT_CODE_CONTRACT_NAMES.len());
         assert_eq!(additional_boot_code_contract_names.len(), additional_boot_code.len());
         
@@ -625,7 +627,10 @@ impl StacksChainState {
                 );
 
                 let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-                StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+
+                clarity_tx.connection().as_transaction(|clarity| {
+                    StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account)
+                })?;
 
                 boot_code_account.nonce += 1;
             }
@@ -639,10 +644,23 @@ impl StacksChainState {
                 );
 
                 let boot_code_smart_contract = StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
-                StacksChainState::process_transaction_payload(&mut clarity_tx, &boot_code_smart_contract, &boot_code_account)?;
+
+                clarity_tx.connection().as_transaction(|clarity| {
+                    StacksChainState::process_transaction_payload(clarity, &boot_code_smart_contract, &boot_code_account)
+                })?;
                 
                 boot_code_account.nonce += 1;
             }
+
+            if let Some(initial_balances) = initial_balances {
+                for (address, amount) in initial_balances {
+                    clarity_tx.connection().as_transaction(|clarity| {
+                        StacksChainState::account_credit(clarity, &address, amount)
+                    })
+                }
+            }
+
+            f(&mut clarity_tx);
 
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH);
         }
@@ -689,8 +707,18 @@ impl StacksChainState {
 
         Ok(())
     }
-    
+
     pub fn open(mainnet: bool, chain_id: u32, path_str: &str) -> Result<StacksChainState, Error> {
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, |_| {})
+    }
+
+    pub fn open_testnet<F>(chain_id: u32, path_str: &str, initial_balances: Option<Vec<(PrincipalData, u64)>>, in_boot_block: F) -> Result<StacksChainState, Error> 
+    where F: FnOnce(&mut ClarityTx) -> () {        
+        StacksChainState::open_and_exec(false, chain_id, path_str, initial_balances, in_boot_block)
+    }
+
+    pub fn open_and_exec<F>(mainnet: bool, chain_id: u32, path_str: &str, initial_balances: Option<Vec<(PrincipalData, u64)>>, in_boot_block: F) -> Result<StacksChainState, Error> 
+    where F: FnOnce(&mut ClarityTx) -> () {
         let mut path = PathBuf::from(path_str);
 
         let chain_id_str = 
@@ -731,7 +759,7 @@ impl StacksChainState {
 
         headers_path.pop();
         headers_path.pop();
-        
+
         headers_path.push("index");
         let header_index_root = headers_path.to_str().ok_or_else(|| Error::DBError(db_error::ParseError))?.to_string();
 
@@ -758,11 +786,12 @@ impl StacksChainState {
             blocks_db: blocks_db,
             headers_state_index: headers_state_index,
             blocks_path: blocks_path_root,
-            clarity_state_index_path: clarity_state_index_marf
+            clarity_state_index_path: clarity_state_index_marf,
+            root_path: path_str.to_string(),
         };
 
         if !index_exists {
-            StacksChainState::install_boot_code(&mut chainstate, mainnet, &vec![], &vec![])?;
+            StacksChainState::install_boot_code(&mut chainstate, mainnet, &vec![], &vec![], initial_balances, in_boot_block)?;
         }
 
         Ok(chainstate)
@@ -831,25 +860,41 @@ impl StacksChainState {
                                                  parent_burn_hash, parent_block, new_burn_hash, new_block)
     }
 
+    fn begin_read_only_clarity_tx<'a>(&'a mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> ClarityReadOnlyConnection<'a> {
+        let index_block = StacksChainState::get_parent_index_block(parent_burn_hash, parent_block);
+        self.clarity_state.read_only_connection(&index_block, &self.headers_db)
+    }
+
+    pub fn with_read_only_clarity_tx<F, R>(&mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, to_do: F) -> R
+    where F: FnOnce(&mut ClarityReadOnlyConnection) -> R {
+        let mut conn = self.begin_read_only_clarity_tx(parent_burn_hash, parent_block);
+        let result = to_do(&mut conn);
+        conn.done();
+        result
+    }
+
+    fn get_parent_index_block(parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> BlockHeaderHash {
+        if *parent_block == BOOT_BLOCK_HASH {
+            // begin boot block
+            test_debug!("Begin processing boot block");
+            TrieFileStorage::block_sentinel()
+        }
+        else if *parent_block == FIRST_STACKS_BLOCK_HASH {
+            // begin first-ever block
+            test_debug!("Begin processing first-ever block");
+            StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH)
+        }
+        else {
+            // subsequent block
+            StacksBlockHeader::make_index_block_hash(parent_burn_hash, parent_block)
+        }
+    }
+
     /// Create a Clarity VM database transaction
     fn inner_clarity_tx_begin<'a>(conf: DBConfig, headers_db: &'a Connection, clarity_instance: &'a mut ClarityInstance, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
         // mix burn header hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the burn header hash _is_).
-        let parent_index_block = 
-            if *parent_block == BOOT_BLOCK_HASH {
-                // begin boot block
-                test_debug!("Begin processing boot block");
-                TrieFileStorage::block_sentinel()
-            }
-            else if *parent_block == FIRST_STACKS_BLOCK_HASH {
-                // begin first-ever block
-                test_debug!("Begin processing first-ever block");
-                StacksBlockHeader::make_index_block_hash(&FIRST_BURNCHAIN_BLOCK_HASH, &FIRST_STACKS_BLOCK_HASH)
-            }
-            else {
-                // subsequent block
-                StacksBlockHeader::make_index_block_hash(parent_burn_hash, parent_block)
-            };
+        let parent_index_block = StacksChainState::get_parent_index_block(parent_burn_hash, parent_block);
 
         let new_index_block = StacksBlockHeader::make_index_block_hash(new_burn_hash, new_block);
 
@@ -993,4 +1038,3 @@ pub mod test {
         }
     }
 }
-

@@ -1,9 +1,12 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError, 
                  IncomparableError, Error as ClarityError, CheckErrors};
 use vm::types::{Value, StandardPrincipalData, OptionalData, PrincipalData, BufferLength, MAX_VALUE_SIZE,
+                BOUND_VALUE_SERIALIZATION_BYTES,
                 TypeSignature, TupleData, QualifiedContractIdentifier, ResponseData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 use vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
+
+use net::{StacksMessageCodec, Error as NetError};
 
 use std::borrow::Borrow;
 use std::convert::{TryFrom, TryInto};
@@ -88,10 +91,19 @@ define_u8_enum!(TypePrefix {
     Tuple,
 });
 
+impl From<&PrincipalData> for TypePrefix {
+    fn from(v: &PrincipalData) -> TypePrefix {
+        use super::PrincipalData::*;
+        match v {
+            Standard(_) => TypePrefix::PrincipalStandard,
+            Contract(_) => TypePrefix::PrincipalContract,
+        }
+    }
+}
+
 impl From<&Value> for TypePrefix {
     fn from(v: &Value) -> TypePrefix {
         use super::Value::*;
-        use super::PrincipalData::*;
 
         match v {
             Int(_) => TypePrefix::Int,
@@ -104,8 +116,7 @@ impl From<&Value> for TypePrefix {
                     TypePrefix::BoolFalse
                 }
             },
-            Principal(Standard(_)) => TypePrefix::PrincipalStandard,
-            Principal(Contract(_)) => TypePrefix::PrincipalContract,
+            Principal(p) => TypePrefix::from(p),
             Response(response) => {
                 if response.committed {
                     TypePrefix::ResponseOk
@@ -178,6 +189,52 @@ impl ClarityValueSerializable<$Name> for $Name {
 serialize_guarded_string!(ClarityName);
 serialize_guarded_string!(ContractName);
 
+impl PrincipalData {
+    fn inner_consensus_serialize<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
+        w.write_all(&[TypePrefix::from(self) as u8])?;
+        match self {
+            PrincipalData::Standard(p) => {
+                p.serialize_write(w)
+            },
+            PrincipalData::Contract(contract_identifier) => {
+                contract_identifier.issuer.serialize_write(w)?;
+                contract_identifier.name.serialize_write(w)
+            }
+        }
+    }
+
+    fn inner_consensus_deserialize<R: Read>(r: &mut R) -> Result<PrincipalData, SerializationError> {
+        let mut header = [0];
+        r.read_exact(&mut header)?;
+
+        let prefix = TypePrefix::from_u8(header[0])
+            .ok_or_else(|| "Bad principal prefix")?;
+
+        match prefix {
+            TypePrefix::PrincipalStandard => {
+                StandardPrincipalData::deserialize_read(r)
+                    .map(PrincipalData::from)
+            },
+            TypePrefix::PrincipalContract => {
+                let issuer = StandardPrincipalData::deserialize_read(r)?;
+                let name = ContractName::deserialize_read(r)?;
+                Ok(PrincipalData::from(QualifiedContractIdentifier { issuer, name }))
+            },
+            _ => Err("Bad principal prefix".into())
+        }
+    }
+}
+
+impl StacksMessageCodec for PrincipalData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), NetError> {
+        self.inner_consensus_serialize(fd).map_err(NetError::WriteError)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<PrincipalData, NetError> {
+        PrincipalData::inner_consensus_deserialize(fd).map_err(|e| NetError::DeserializeError(e.to_string()))
+    }
+}
+
 macro_rules! check_match {
     ($item:expr, $Pattern:pat) => {
         match $item {
@@ -190,7 +247,7 @@ macro_rules! check_match {
 
 impl Value {
     pub fn deserialize_read<R: Read>(r: &mut R, expected_type: Option<&TypeSignature>) -> Result<Value, SerializationError> {
-        let mut bound_reader = BoundReader::from_reader(r, 2 * MAX_VALUE_SIZE as u64);
+        let mut bound_reader = BoundReader::from_reader(r, BOUND_VALUE_SERIALIZATION_BYTES as u64);
         Value::inner_deserialize_read(&mut bound_reader, expected_type, 0)
     }
 
@@ -474,6 +531,11 @@ impl Value {
     }
 
     pub fn try_deserialize_hex_untyped(hex: &str) -> Result<Value, SerializationError> {
+        let hex = if hex.starts_with("0x") {
+            &hex[2..]
+        } else {
+            &hex
+        };
         let mut data = hex_bytes(hex)
             .map_err(|_| "Bad hex string")?;
         Value::try_deserialize_bytes_untyped(&mut data)
@@ -491,6 +553,13 @@ impl ClaritySerializable for Value {
         self.serialize_write(&mut byte_serialization)
             .expect("IOError filling byte buffer.");
         to_hex(byte_serialization.as_slice())
+    }
+}
+
+impl ClarityDeserializable<Value> for Value {
+    fn deserialize(hex: &str) -> Self {
+        Value::try_deserialize_hex_untyped(hex)
+            .expect("ERROR: Failed to parse Clarity hex string")
     }
 }
 
@@ -757,6 +826,9 @@ mod tests {
             assert_eq!(
                 expected,
                 &Value::try_deserialize_hex_untyped(test));
+            assert_eq!(
+                expected,
+                &Value::try_deserialize_hex_untyped(&format!("0x{}", test)));
         }
     }
 

@@ -32,6 +32,9 @@ impl <'a> AnalysisDatabase <'a> {
             store: RollbackWrapper::new(store)
         }
     }
+    pub fn new_with_rollback_wrapper(store: RollbackWrapper<'a>) -> AnalysisDatabase<'a> {
+        AnalysisDatabase { store }
+    }
 
     pub fn execute <F, T, E> (&mut self, f: F) -> Result<T,E> where F: FnOnce(&mut Self) -> Result<T,E>, {
         self.begin();
@@ -67,6 +70,10 @@ impl <'a> AnalysisDatabase <'a> {
     pub fn test_insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier) {
         use util::hash::Sha512Trunc256Sum;
         self.store.prepare_for_contract_metadata(contract_identifier, Sha512Trunc256Sum([0; 32]));
+    }
+
+    pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
+        self.store.has_metadata_entry(contract_identifier, AnalysisDatabase::storage_key())
     }
 
     pub fn load_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractAnalysis> {
@@ -132,6 +139,10 @@ impl <'a> AnalysisDatabase <'a> {
         let map_type = contract.get_map_type(map_name)
             .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
         Ok(map_type.clone())
+    }
+
+    pub fn destroy(self) -> RollbackWrapper<'a> {
+        self.store
     }
 
 }

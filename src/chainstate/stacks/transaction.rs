@@ -158,10 +158,10 @@ impl StacksMessageCodec for TransactionPayload {
         let type_id : u8 = read_next(fd)?;
         let payload = match type_id {
             x if x == TransactionPayloadID::TokenTransfer as u8 => {
-                let addr : StacksAddress = read_next(fd)?;
-                let amount : u64 = read_next(fd)?;
-                let memo : TokenTransferMemo = read_next(fd)?;
-                TransactionPayload::TokenTransfer(addr, amount, memo)
+                let principal = read_next(fd)?;
+                let amount = read_next(fd)?;
+                let memo = read_next(fd)?;
+                TransactionPayload::TokenTransfer(principal, amount, memo)
             },
             x if x == TransactionPayloadID::ContractCall as u8 => {
                 let payload : TransactionContractCall = read_next(fd)?;
@@ -367,29 +367,18 @@ impl StacksMessageCodec for TransactionPostCondition {
     }
 }
 
-impl StacksMessageCodec for StacksTransaction {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
-        write_next(fd, &(self.version as u8))?;
-        write_next(fd, &self.chain_id)?;
-        write_next(fd, &self.auth)?;
-        write_next(fd, &(self.anchor_mode as u8))?;
-        write_next(fd, &(self.post_condition_mode as u8))?;
-        write_next(fd, &self.post_conditions)?;
-        write_next(fd, &self.payload)?;
-        Ok(())
-    }
+impl StacksTransaction {
+    pub fn consensus_deserialize_with_len<R: Read>(fd: &mut R) -> Result<(StacksTransaction, u64), net_error> {
+        let mut bound_read = BoundReader::from_reader(fd, MAX_TRANSACTION_LEN.into());
+        let fd = &mut bound_read;
 
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksTransaction, net_error> {
         let version_u8 : u8             = read_next(fd)?;
         let chain_id : u32              = read_next(fd)?;
         let auth : TransactionAuth      = read_next(fd)?;
         let anchor_mode_u8 : u8         = read_next(fd)?;
         let post_condition_mode_u8 : u8 = read_next(fd)?;
-        let post_conditions : Vec<TransactionPostCondition> = {
-            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            read_next(&mut bound_read)
-        }?;
-        
+        let post_conditions : Vec<TransactionPostCondition> = read_next(fd)?;
+
         let payload : TransactionPayload = read_next(fd)?;
 
         let version = 
@@ -448,7 +437,7 @@ impl StacksMessageCodec for StacksTransaction {
             }
         };
 
-        Ok(StacksTransaction {
+        Ok((StacksTransaction {
             version,
             chain_id,
             auth,
@@ -456,7 +445,25 @@ impl StacksMessageCodec for StacksTransaction {
             post_condition_mode,
             post_conditions,
             payload
-        })
+        }, fd.num_read()))
+    }
+}
+
+impl StacksMessageCodec for StacksTransaction {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &(self.version as u8))?;
+        write_next(fd, &self.chain_id)?;
+        write_next(fd, &self.auth)?;
+        write_next(fd, &(self.anchor_mode as u8))?;
+        write_next(fd, &(self.post_condition_mode as u8))?;
+        write_next(fd, &self.post_conditions)?;
+        write_next(fd, &self.payload)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksTransaction, net_error> {
+        StacksTransaction::consensus_deserialize_with_len(fd)
+            .map(|(result, _)| result)
     }
 }
 
@@ -668,7 +675,7 @@ impl StacksTransaction {
     }
 
     /// Verify this transaction's signatures
-    pub fn verify(&self) -> Result<bool, net_error> {
+    pub fn verify(&self) -> Result<(), net_error> {
         self.auth.verify(&self.verify_begin())
     }
 
@@ -870,6 +877,7 @@ mod test {
     use util::retry::LogReader;
 
     use vm::representations::{ClarityName, ContractName};
+    use vm::types::{PrincipalData, QualifiedContractIdentifier};
 
     use std::error::Error;
 
@@ -911,7 +919,7 @@ mod test {
                         },
                         TransactionSpendingCondition::Multisig(ref mut data) => {
                             let corrupt_field = match data.fields[i] {
-                                TransactionAuthField::PublicKey(ref pubkey) => {
+                                TransactionAuthField::PublicKey(_) => {
                                     TransactionAuthField::PublicKey(StacksPublicKey::from_hex("0270790e675116a63a75008832d82ad93e4332882ab0797b0f156de9d739160a0b").unwrap())
                                 },
                                 TransactionAuthField::Signature(ref key_encoding, ref sig) => {
@@ -1051,7 +1059,7 @@ mod test {
     // serialized data changes.
     fn test_signature_and_corruption(signed_tx: &StacksTransaction, corrupt_origin: bool, corrupt_sponsor: bool) -> () {
         // signature is well-formed otherwise
-        assert!(signed_tx.verify().unwrap());
+        signed_tx.verify().unwrap();
 
         // mess with the auth hash code
         let mut corrupt_tx_hash_mode = signed_tx.clone();
@@ -1385,13 +1393,13 @@ mod test {
 
     #[test]
     fn tx_stacks_transaction_payload_tokens() {
-        let addr = StacksAddress {
+        let addr = PrincipalData::from(StacksAddress {
             version: 1,
             bytes: Hash160([0xff; 20])
-        };
+        });
         
         let tt_stx = TransactionPayload::TokenTransfer(addr.clone(), 123, TokenTransferMemo([1u8; 34]));
-        
+
         // wire encodings of the same
         let mut tt_stx_bytes = vec![];
         tt_stx_bytes.push(TransactionPayloadID::TokenTransfer as u8);
@@ -1400,6 +1408,23 @@ mod test {
         tt_stx_bytes.append(&mut vec![1u8; 34]);
 
         check_codec_and_corruption::<TransactionPayload>(&tt_stx, &tt_stx_bytes);
+
+        let addr = PrincipalData::from(QualifiedContractIdentifier {
+            issuer: StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }.into(),
+            name: "foo-contract".into()
+        });
+        
+        let tt_stx = TransactionPayload::TokenTransfer(addr.clone(), 123, TokenTransferMemo([1u8; 34]));
+
+        // wire encodings of the same
+        let mut tt_stx_bytes = vec![];
+        tt_stx_bytes.push(TransactionPayloadID::TokenTransfer as u8);
+        addr.consensus_serialize(&mut tt_stx_bytes).unwrap();
+        tt_stx_bytes.append(&mut vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 123]);
+        tt_stx_bytes.append(&mut vec![1u8; 34]);
+
+        check_codec_and_corruption::<TransactionPayload>(&tt_stx, &tt_stx_bytes);
+
     }
 
     #[test]
@@ -1924,9 +1949,11 @@ mod test {
             asset_name: asset_name.clone()
         };
 
+        let stx_address = StacksAddress { version: 1, bytes: Hash160([0xff; 20]) };
+
         let tx_contract_call = StacksTransaction::new(TransactionVersion::Mainnet,
                                                       auth.clone(),
-                                                      TransactionPayload::new_contract_call(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, "hello", "world", vec![Value::Int(1)]).unwrap());
+                                                      TransactionPayload::new_contract_call(stx_address.clone(), "hello", "world", vec![Value::Int(1)]).unwrap());
 
         let tx_smart_contract = StacksTransaction::new(TransactionVersion::Mainnet,
                                                        auth.clone(),
@@ -1938,7 +1965,7 @@ mod test {
 
         let tx_stx = StacksTransaction::new(TransactionVersion::Mainnet,
                                             auth.clone(),
-                                            TransactionPayload::TokenTransfer(StacksAddress { version: 1, bytes: Hash160([0xff; 20]) }, 123, TokenTransferMemo([0u8; 34])));
+                                            TransactionPayload::TokenTransfer(stx_address.clone().into(), 123, TokenTransferMemo([0u8; 34])));
 
         let tx_poison = StacksTransaction::new(TransactionVersion::Mainnet,
                                                auth.clone(),

@@ -56,9 +56,9 @@ fn test_at_block_good() {
             let value = env.eval_read_only(&c, &command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
-        
+
         owned_env.execute_transaction(p1, c, to_exec, &vec![])
-            .map(|(x, _)| x)
+            .map(|(x, _, _)| x)
     }
 
     with_separate_forks_environment(
@@ -91,8 +91,8 @@ fn test_at_block_missing_defines() {
             "(define-map datum ((id bool)) ((value int)))
 
              (define-public (flip)
-               (let ((current (default-to (get value (map-get?! datum {id 'true})) 0)))
-                 (map-set datum {id 'true} (if (is-eq 1 current) 0 1))
+               (let ((current (default-to (get value (map-get?! datum {id true})) 0)))
+                 (map-set datum {id true} (if (is-eq 1 current) 0 1))
                  (ok current)))";
 
         eprintln!("Initializing contract...");
@@ -114,37 +114,13 @@ fn test_at_block_missing_defines() {
         e
     }
 
-    fn initialize_3(owned_env: &mut OwnedEnvironment) -> Error {
-        let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
-
-        let contract =
-            "(define-private (problematic-fetch-entry)
-               (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
-                 (contract-map-get? .contract-a datum ((id 'true)))))
-             (problematic-fetch-entry)
-            ";
-
-        eprintln!("Initializing contract...");
-        let e = owned_env.initialize_contract(c_b.clone(), &contract).unwrap_err();
-        e
-    }
-
     with_separate_forks_environment(
         |_| {},
         initialize_1,
         |_| {},
         |env| {
             let err = initialize_2(env);
-            assert_eq!(err, CheckErrors::NoSuchContract("'S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()).into());
-        });
-
-    with_separate_forks_environment(
-        |_| {},
-        initialize_1,
-        |_| {},
-        |env| {
-            let err = initialize_3(env);
-            assert_eq!(err, CheckErrors::NoSuchMap("datum".into()).into());
+            assert_eq!(err, CheckErrors::NoSuchContract("S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()).into());
         });
 
 }
@@ -257,7 +233,7 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
     {
         let mut env = owned_env.get_exec_environment(None);
         let command = format!("(get-balance {})", p1_str);
-        let balance = env.eval_read_only(&contract_identifier, 
+        let balance = env.eval_read_only(&contract_identifier,
                                          &command).unwrap();
         let expected = if expect_success {
             10
@@ -267,7 +243,7 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
         assert_eq!(balance, Value::UInt(expected));
     }
 
-    let (result, _) = owned_env.execute_transaction(Value::Principal(PrincipalData::Standard(p1_address)),
+    let (result, _, _) = owned_env.execute_transaction(Value::Principal(PrincipalData::Standard(p1_address)),
                                                     contract_identifier, 
                                                     "destroy",
                                                     &symbols_from_values(vec![Value::UInt(10)])).unwrap();
