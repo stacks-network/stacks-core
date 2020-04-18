@@ -15,7 +15,7 @@ pub struct RunLoop {
     config: Config,
     pub node: Node,
     new_burnchain_state_callback: Option<fn(u64, &BurnchainState)>,
-    new_tenure_callback: Option<fn(u64, &LeaderTenure)>,
+    new_tenure_callback: Option<fn(u64, &mut LeaderTenure)>,
     new_chain_state_callback: Option<fn(u64, &mut StacksChainState, StacksBlock, StacksHeaderInfo, Vec<StacksTransactionReceipt>)>,
 }
 
@@ -99,7 +99,7 @@ impl RunLoop {
             None => panic!("Error while initiating genesis tenure")
         };
 
-        RunLoop::handle_new_tenure_cb(&self.new_tenure_callback, round_index, &first_tenure);
+        RunLoop::handle_new_tenure_cb(&self.new_tenure_callback, round_index, &mut first_tenure);
 
         // Run the tenure, keep the artifacts
         let artifacts_from_1st_tenure = match first_tenure.run() {
@@ -154,7 +154,7 @@ impl RunLoop {
             // Run the last initialized tenure
             let artifacts_from_tenure = match leader_tenure {
                 Some(mut tenure) => {
-                    RunLoop::handle_new_tenure_cb(&self.new_tenure_callback, round_index, &tenure);
+                    RunLoop::handle_new_tenure_cb(&self.new_tenure_callback, round_index, &mut tenure);
                     tenure.run()
                 },
                 None => None
@@ -223,7 +223,7 @@ impl RunLoop {
         self.new_burnchain_state_callback = Some(f);
     }
 
-    pub fn apply_on_new_tenures(&mut self, f: fn(u64, &LeaderTenure)) {
+    pub fn apply_on_new_tenures(&mut self, f: fn(u64, &mut LeaderTenure)) {
         self.new_tenure_callback = Some(f);
     }
     
@@ -231,8 +231,8 @@ impl RunLoop {
         self.new_chain_state_callback = Some(f);
     }
 
-    fn handle_new_tenure_cb(new_tenure_callback: &Option<fn(u64, &LeaderTenure)>,
-                            round_index: u64, tenure: &LeaderTenure) {
+    fn handle_new_tenure_cb(new_tenure_callback: &Option<fn(u64, &mut LeaderTenure)>,
+                            round_index: u64, tenure: &mut LeaderTenure) {
         info_yellow!("Node starting new tenure with VRF {:?}", tenure.vrf_seed);
         new_tenure_callback.map(|cb| cb(round_index, tenure));
     }

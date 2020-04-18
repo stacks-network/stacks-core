@@ -149,6 +149,10 @@ impl <'a> ClarityDatabase <'a> {
         }
     }
 
+    pub fn new_with_rollback_wrapper(store: RollbackWrapper<'a>, headers_db: &'a dyn HeadersDB) -> ClarityDatabase<'a> {
+        ClarityDatabase { store, headers_db }
+    }
+
     pub fn initialize(&mut self) {
     }
 
@@ -260,11 +264,20 @@ impl <'a> ClarityDatabase <'a> {
         self.insert_metadata(contract_identifier, &key, &contract);
     }
 
+    pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
+        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
+        self.store.has_metadata_entry(contract_identifier, &key)
+    }
+
     pub fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Contract> {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
         let data = self.fetch_metadata(contract_identifier, &key)?
             .expect("Failed to read non-consensus contract metadata, even though contract exists in MARF.");
         Ok(data)
+    }
+
+    pub fn destroy(self) -> RollbackWrapper<'a> {
+        self.store
     }
 }
 
@@ -492,10 +505,6 @@ impl <'a> ClarityDatabase <'a> {
         let data = NonFungibleTokenMetadata { key_type: key_type.clone() };
         let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
         self.insert_metadata(contract_identifier, &key, &data);
-
-        assert!(!self.store.has_entry(&key), "Clarity VM attempted to initialize existing token");
-
-        self.put(&key, &data);
     }
 
     fn load_nft(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str) -> Result<NonFungibleTokenMetadata> {

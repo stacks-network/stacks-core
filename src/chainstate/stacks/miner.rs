@@ -31,6 +31,7 @@ use chainstate::burn::BlockHeaderHash;
 use net::StacksMessageCodec;
 use net::Error as net_error;
 use net::codec::{read_next, write_next};
+use vm::clarity::ClarityConnection;
 
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
@@ -102,6 +103,7 @@ impl StacksBlockBuilder {
     }
 
     /// Append a transaction if doing so won't exceed the epoch data size.
+    /// Errors out if we exceed budget (TODO), or the transaction is invalid.
     pub fn try_mine_tx<'a>(&mut self, clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(), Error> {
         let mut tx_bytes = vec![];
         tx.consensus_serialize(&mut tx_bytes).map_err(Error::NetError)?;
@@ -136,7 +138,7 @@ impl StacksBlockBuilder {
         self.bytes_so_far += tx_len;
         Ok(())
     }
-
+    
     /// Append a transaction if doing so won't exceed the epoch data size.
     /// Does not check for errors
     #[cfg(test)]
@@ -169,7 +171,7 @@ impl StacksBlockBuilder {
 
         self.bytes_so_far += tx_len;
         Ok(())
-    }    
+    }
 
     /// Finish building the anchored block.
     /// TODO: expand to deny mining a block whose anchored static checks fail (and allow the caller
@@ -248,10 +250,6 @@ impl StacksBlockBuilder {
         Ok(microblock)
     }
 
-    pub fn will_admit_mempool_tx<R: Read>(&self, chainstate: &mut StacksChainState, fd: &mut R) -> Result<StacksTransaction, MemPoolRejection> {
-        chainstate.will_admit_mempool_tx(&self.chain_tip.burn_header_hash, &self.header.parent_block, fd)
-    }
-    
     /// Begin mining an epoch's transactions.
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
     /// transaction can't query information about the _current_ block (i.e. information that is not
@@ -689,7 +687,7 @@ pub mod test {
                 }
             }
         }
-
+        
         pub fn get_last_accepted_anchored_block(&self, miner: &TestMiner) -> Option<StacksBlock> {
             for bc in miner.block_commits.iter().rev() {
                 if StacksChainState::has_stored_block(&self.chainstate.blocks_db, &self.chainstate.blocks_path, &bc.burn_header_hash, &bc.block_header_hash).unwrap() &&
@@ -705,7 +703,7 @@ pub mod test {
                 }
             }
             return None;
-        }        
+        }
 
         pub fn get_microblock_stream(&self, miner: &TestMiner, block_hash: &BlockHeaderHash) -> Option<Vec<StacksMicroblock>> {
             match self.commit_ops.get(block_hash) {
@@ -745,8 +743,9 @@ pub mod test {
                     (miner_participant_principal, Value::Principal(PrincipalData::Standard(StandardPrincipalData::from(addr.clone()))))])
                 .expect("FATAL: failed to construct miner principal key"));
 
-            let miner_status = clarity_tx.connection().with_clarity_db_readonly(|ref mut db| {
-                let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)?;
+            let miner_status = clarity_tx.with_clarity_db_readonly(|db| {
+                let miner_status_opt = db.fetch_entry(&miner_contract_id, BOOT_CODE_MINER_REWARDS_MAP, &miner_principal)
+                    .expect("FATAL: Clarity DB Error");
                 let miner_status = match miner_status_opt {
                     Value::Optional(ref optional_data) => {
                         match optional_data.data {
@@ -782,8 +781,8 @@ pub mod test {
                     }
                 };
             
-                Ok(miner_status)
-            }).unwrap();
+                miner_status
+            });
 
             miner_status
         }
@@ -840,6 +839,8 @@ pub mod test {
 
             // send block commit for this block
             let block_commit_op = TestStacksNode::add_block_commit(burndb, burn_block, miner, &stacks_block.block_hash(), burn_amount, miner_key, parent_block_snapshot_opt.as_ref());
+            
+            test_debug!("Miner {}: Block commit transaction builds on {},{} (parent snapshot is {:?})", miner.id, block_commit_op.parent_block_ptr, block_commit_op.parent_vtxindex, &parent_block_snapshot_opt);
             self.commit_ops.insert(block_commit_op.block_header_hash.clone(), self.anchored_blocks.len()-1);
 
             (stacks_block, microblocks, block_commit_op)
@@ -1055,7 +1056,7 @@ pub mod test {
             let tip_info_list = node.chainstate.process_blocks(1).unwrap();
 
             let expect_success = check_oracle(&stacks_block, &microblocks);
-            if expect_success {            
+            if expect_success {
                 // processed _this_ block
                 assert_eq!(tip_info_list.len(), 1);
                 let (chain_tip_opt, poison_opt) = tip_info_list[0].clone();
@@ -2420,6 +2421,51 @@ pub mod test {
         let tx_contract_call_signed = tx_signer.get_tx().unwrap();
         tx_contract_call_signed
     }
+
+    /// make a token transfer
+    pub fn make_token_transfer<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, nonce: Option<u64>, recipient: &StacksAddress, amount: u64, memo: &TokenTransferMemo) -> StacksTransaction {
+        let addr = miner.origin_address().unwrap();
+        let mut tx_stx_transfer = StacksTransaction::new(TransactionVersion::Testnet,
+                                                          miner.as_transaction_auth().unwrap(),
+                                                          TransactionPayload::TokenTransfer((*recipient).clone().into(), amount, (*memo).clone()));
+        
+        tx_stx_transfer.chain_id = 0x80000000;
+        tx_stx_transfer.auth.set_origin_nonce(nonce.unwrap_or(miner.get_nonce()));
+        tx_stx_transfer.set_fee_rate(0);
+        
+        let mut tx_signer = StacksTransactionSigner::new(&tx_stx_transfer);
+        miner.sign_as_origin(&mut tx_signer);
+        let tx_stx_transfer_signed = tx_signer.get_tx().unwrap();
+        tx_stx_transfer_signed
+    }
+
+    /// Mine invalid token transfers
+    pub fn mine_invalid_token_transfers_block<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
+        let miner_account = StacksChainState::get_account(clarity_tx, &miner.origin_address().unwrap().to_account_principal());
+        miner.set_nonce(miner_account.nonce);
+        
+        // make a coinbase for this miner
+        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
+        builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
+
+        let recipient = StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20]));
+        let tx1 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(1), &recipient, 11111, &TokenTransferMemo([1u8; 34]));
+        builder.force_mine_tx(clarity_tx, &tx1).unwrap();
+
+        let tx2 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(2), &recipient, 22222, &TokenTransferMemo([2u8; 34]));
+        builder.force_mine_tx(clarity_tx, &tx2).unwrap();
+        
+        let tx3 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(1), &recipient, 33333, &TokenTransferMemo([3u8; 34]));
+        builder.force_mine_tx(clarity_tx, &tx3).unwrap();
+
+        let tx4 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(2), &recipient, 44444, &TokenTransferMemo([4u8; 34]));
+        builder.force_mine_tx(clarity_tx, &tx4).unwrap();
+
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
+
+        test_debug!("Produce anchored stacks block {} with invalid token transfers at burnchain height {} stacks height {}", stacks_block.block_hash(), burnchain_height, stacks_block.header.total_work.work);
+        (stacks_block, vec![])
+    }
     
     /// mine a smart contract in an anchored block, and mine a contract-call in the same anchored
     /// block
@@ -2546,51 +2592,6 @@ pub mod test {
                     stacks_block.block_hash(), microblocks.len(), burnchain_height, stacks_block.header.total_work.work);
 
         (stacks_block, microblocks)
-    }
-
-    /// make a token transfer
-    pub fn make_token_transfer<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, nonce: Option<u64>, recipient: &StacksAddress, amount: u64, memo: &TokenTransferMemo) -> StacksTransaction {
-        let addr = miner.origin_address().unwrap();
-        let mut tx_stx_transfer = StacksTransaction::new(TransactionVersion::Testnet,
-                                                          miner.as_transaction_auth().unwrap(),
-                                                          TransactionPayload::TokenTransfer(recipient.clone().into(), amount, memo.clone()));
-        
-        tx_stx_transfer.chain_id = 0x80000000;
-        tx_stx_transfer.auth.set_origin_nonce(nonce.unwrap_or(miner.get_nonce()));
-        tx_stx_transfer.set_fee_rate(0);
-        
-        let mut tx_signer = StacksTransactionSigner::new(&tx_stx_transfer);
-        miner.sign_as_origin(&mut tx_signer);
-        let tx_stx_transfer_signed = tx_signer.get_tx().unwrap();
-        tx_stx_transfer_signed
-    }    
-
-    /// Mine invalid token transfers
-    pub fn mine_invalid_token_transfers_block<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, parent_microblock_header: Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) {
-        let miner_account = StacksChainState::get_account(clarity_tx, &miner.origin_address().unwrap().to_account_principal());
-        miner.set_nonce(miner_account.nonce);
-        
-        // make a coinbase for this miner
-        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
-        builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
-
-        let recipient = StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20]));
-        let tx1 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(1), &recipient, 11111, &TokenTransferMemo([1u8; 34]));
-        builder.force_mine_tx(clarity_tx, &tx1).unwrap();
-
-        let tx2 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(2), &recipient, 22222, &TokenTransferMemo([2u8; 34]));
-        builder.force_mine_tx(clarity_tx, &tx2).unwrap();
-        
-        let tx3 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(1), &recipient, 33333, &TokenTransferMemo([3u8; 34]));
-        builder.force_mine_tx(clarity_tx, &tx3).unwrap();
-
-        let tx4 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(2), &recipient, 44444, &TokenTransferMemo([4u8; 34]));
-        builder.force_mine_tx(clarity_tx, &tx4).unwrap();
-
-        let stacks_block = builder.mine_anchored_block(clarity_tx);
-
-        test_debug!("Produce anchored stacks block {} with invalid token transfers at burnchain height {} stacks height {}", stacks_block.block_hash(), burnchain_height, stacks_block.header.total_work.work);
-        (stacks_block, vec![])
     }
 
     /*
@@ -2794,6 +2795,7 @@ pub mod test {
     }
     
     #[test]
+    #[ignore]
     fn mine_anchored_smart_contract_block_contract_call_microblock_stacks_fork_random() {
         let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-stacks-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock, mine_smart_contract_block_contract_call_microblock);
         miner_trace_replay_randomized(&mut miner_trace);
@@ -2849,6 +2851,7 @@ pub mod test {
     }
     
     #[test]
+    #[ignore]
     fn mine_anchored_smart_contract_block_contract_call_microblock_exception_stacks_fork_random() {
         let mut miner_trace = mine_stacks_blocks_2_forks_2_miners_1_burnchain(&"smart-contract-block-contract-call-microblock-exception-stacks-fork-random".to_string(), 10, mine_smart_contract_block_contract_call_microblock_exception, mine_smart_contract_block_contract_call_microblock_exception);
         miner_trace_replay_randomized(&mut miner_trace);

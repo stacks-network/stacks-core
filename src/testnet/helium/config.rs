@@ -12,7 +12,6 @@ use net::connection::ConnectionOptions;
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
-    pub mempool: Option<MempoolConfig>,
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
@@ -33,7 +32,6 @@ impl ConfigFile {
 pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
-    pub mempool: MempoolConfig,
     pub initial_balances: Vec<InitialBalance>,
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
@@ -98,11 +96,6 @@ impl Config {
             None => default_burnchain_config
         };
 
-        let mempool = match config_file.mempool {
-            Some(mempool) => mempool,
-            None => MempoolConfig { path: node.get_default_mempool_path() }
-        };
-        
         let initial_balances: Vec<InitialBalance> = match config_file.mstx_balance {
             Some(balances) => {
                 balances.iter().map(|balance| {
@@ -113,7 +106,7 @@ impl Config {
             None => vec![]
         };
 
-        let events_observers = match config_file.events_observer {
+        let mut events_observers = match config_file.events_observer {
             Some(raw_observers) => {
                 let mut observers = vec![];
                 for observer in raw_observers {
@@ -122,14 +115,24 @@ impl Config {
                         .collect();
 
                     observers.push(EventObserverConfig {
-                        address: observer.address,
-                        port: observer.port,
+                        endpoint: observer.endpoint,
                         events_keys
                     });
                 }
                 observers
             }
             None => vec![]
+        };
+
+        // check for observer config in env vars
+        match std::env::var("STACKS_EVENT_OBSERVER") {
+            Ok(val) => {
+                events_observers.push(EventObserverConfig {
+                    endpoint: val,
+                    events_keys: vec![EventKeyType::AnyEvent],
+                })
+            },
+            _ => ()
         };
 
         let connection_options = match config_file.connection_options {
@@ -161,6 +164,7 @@ impl Config {
                     dns_timeout: opts.dns_timeout.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone()),
                     max_inflight_blocks: opts.max_inflight_blocks.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_inflight_blocks.clone()),
                     maximum_call_argument_size: opts.maximum_call_argument_size.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.maximum_call_argument_size.clone()),
+                    ..ConnectionOptions::default()
                 }
             },
             None => {
@@ -171,7 +175,6 @@ impl Config {
         Config {
             node,
             burnchain,
-            mempool,
             initial_balances,
             events_observers,
             connection_options
@@ -200,16 +203,11 @@ impl Config {
             ..BurnchainConfig::default()
         };
 
-        let mempool = MempoolConfig {
-            path: node.get_default_mempool_path(),
-        };
-
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
 
         Config {
             burnchain: burnchain,
             node: node,
-            mempool,
             initial_balances: vec![],
             events_observers: vec![],
             connection_options,
@@ -276,10 +274,6 @@ impl NodeConfig {
             p2p_bind: format!("127.0.0.1:{}", p2p_port)
         }
     }
-
-    pub fn get_default_mempool_path(&self) -> String {
-        format!("{}/mempool/", self.working_dir)
-    }
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -319,22 +313,15 @@ pub struct NodeConfigFile {
     pub p2p_bind: Option<String>,
 }
 
-#[derive(Clone, Default, Deserialize)]
-pub struct MempoolConfig {
-    pub path: String,
-}
-
 #[derive(Clone, Deserialize)]
 pub struct EventObserverConfigFile {
-    pub port: u16,
-    pub address: String,
+    pub endpoint: String,
     pub events_keys: Vec<String>,
 }
 
 #[derive(Clone, Default)]
 pub struct EventObserverConfig {
-    pub port: u16,
-    pub address: String,
+    pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
 }
 

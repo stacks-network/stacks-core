@@ -199,8 +199,6 @@ fn main() {
             }
         };
 
-        println!("*** Mempool path: {}", conf.mempool.path);
-
         let mut run_loop = testnet::helium::RunLoop::new(conf);
         let num_round: u64 = 0; // Infinite number of rounds
         run_loop.start(num_round);
