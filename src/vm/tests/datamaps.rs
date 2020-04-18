@@ -14,14 +14,14 @@ fn test_simple_tea_shop() {
     let test1 =
         "(define-map proper-tea ((tea-type int)) ((amount int)))
          (define-private (stock (tea int) (amount int))
-           (map-set proper-tea (tuple (tea-type tea)) (tuple (amount amount))))
+           (map-set proper-tea {tea-type tea} {amount}))
          (define-private (consume (tea int))
            (let ((current (unwrap!
-                            (get amount (map-get? proper-tea (tuple (tea-type tea)))) 3)))
+                            (get amount (map-get? proper-tea {tea-type tea})) 3)))
               (if (and (>= current 1))
                   (begin
-                    (map-set proper-tea (tuple (tea-type tea))
-                                           (tuple (amount (- current 1))))
+                    (map-set proper-tea {tea-type tea}
+                                        {amount (- current 1)})
                     1)
                   2)))
         (stock 1 3)
@@ -63,23 +63,19 @@ fn test_bound_tuple() {
     let test =
         "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))
-            (begin
-                (let ((my-tuple (tuple (key key))))
-                (map-insert kv-store my-tuple (tuple (value value))))
-            value))
+            (let ((my-tuple {key}))
+              (map-insert kv-store my-tuple {value})
+              value))
          (define-private (kv-get (key int))
-            (let ((my-tuple (tuple (key key))))
-            (unwrap! (get value (map-get? kv-store my-tuple)) 0)))
+            (let ((my-tuple {key}))
+              (unwrap! (get value (map-get? kv-store my-tuple)) 0)))
          (define-private (kv-set (key int) (value int))
-            (begin
-                (let ((my-tuple (tuple (key key))))
-                (map-set kv-store my-tuple
-                                   (tuple (value value))))
+            (let ((my-tuple {key}))
+                (map-set kv-store my-tuple {value})
                 value))
          (define-private (kv-del (key int))
-            (begin
-                (let ((my-tuple (tuple (key key))))
-                (map-delete kv-store my-tuple))
+            (let ((my-tuple {key}))
+                (map-delete kv-store my-tuple)
                 key))
         ";
 
@@ -390,15 +386,15 @@ fn silly_naming_system() {
     let test1 =
         "(define-map silly-names ((name int)) ((owner int)))
          (define-private (register (name int) (owner int))
-           (if (map-insert silly-names (tuple (name name)) (tuple (owner owner)))
+           (if (map-insert silly-names {name} {owner})
                1 0))
          (define-private (who-owns? (name int))
-           (let ((owner (get owner (map-get? silly-names (tuple (name name))))))
+           (let ((owner (get owner (map-get? silly-names {name}))))
              (default-to (- 1) owner)))
          (define-private (invalidate! (name int) (owner int))
            (let ((current-owner (who-owns? name)))
                 (if (is-eq current-owner owner)
-                    (if (map-delete silly-names (tuple (name name))) 1 0)
+                    (if (map-delete silly-names {name}) 1 0)
                     0)))
         (list (register 0 0)
               (register 0 1)
@@ -446,15 +442,14 @@ fn lists_system_2() {
     let test =
         "(define-map lists ((name int)) ((contents (list 5 1 int))))
          (define-private (add-list (name int) (content (list 5 1 int)))
-           (map-insert lists (tuple (name name))
-                                (tuple (contents content))))
+           (map-insert lists {name} {contents content}))
          (define-private (get-list (name int))
-            (get contents (map-get? lists (tuple (name name)))))
+            (get contents (map-get? lists {name})))
          (add-list 0 (list 1 2 3 4 5))
          (add-list 1 (list 1 2 3))
          (list      (get-list 0)
                     (get-list 1))
-        (map-insert lists (tuple (name 1)) (tuple (contentious (list 1 2 6))))";
+        (map-insert lists {name 1} {contentious (list 1 2 6)})";
 
     match execute(test) {
         Err(Error::Unchecked(CheckErrors::TypeError(_,_))) => true,
