@@ -11,6 +11,7 @@ use super::super::operations::{BurnchainOperationType, LeaderKeyRegisterPayload,
 use super::super::Config;
 
 use stacks::burnchains::Burnchain;
+use stacks::burnchains::BurnchainStateTransition;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
@@ -52,6 +53,8 @@ impl BitcoinRegtestController {
             panic!()
         }
 
+        let mode = config.burnchain.mode.clone();
+
         let indexer_config = {
             let burnchain_config = config.burnchain.clone();
             BitcoinIndexerConfig {
@@ -67,13 +70,20 @@ impl BitcoinRegtestController {
                 magic_bytes: burnchain_config.magic_bytes
             }
         };
-                
-        Self {
+        
+        let controller = Self {
             config: config,
             indexer_config,
             db: None,
             chain_tip: None,
+        };
+       
+        if mode == "neon-god" {
+            debug!("Generating initial blocks");
+            controller.build_next_block(101);
         }
+
+        controller
     }
 
     fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
@@ -118,10 +128,18 @@ impl BitcoinRegtestController {
                 burnchain_tip
             },
             (None, None) => {
-                error!("Unable to sync burnchain");
-                panic!()
+                // can happen at genesis
+                let burnchain_tip = BurnchainTip {
+                    block_snapshot: block_snapshot,
+                    state_transition: BurnchainStateTransition::noop(),
+                    received_at: Instant::now()
+                };
+                self.chain_tip = Some(burnchain_tip.clone());
+                burnchain_tip
             }
         };
+
+        debug!("Done receiving blocks");
         rest
     }
 
@@ -195,6 +213,7 @@ impl BitcoinRegtestController {
 
         let total_unspent: u64 = utxos.iter().map(|o| o.get_sat_amount()).sum();
         if total_unspent < amount_required {
+            debug!("Total unspent {} < {} for {:?}", total_unspent, amount_required, &public_key.to_hex());
             return None
         }
 
@@ -289,7 +308,10 @@ impl BitcoinRegtestController {
         // Fetch some UTXOs
         let utxos = match self.get_utxos(&public_key, amount_required) {
             Some(utxos) => utxos,
-            None => return None
+            None => {
+                debug!("No UTXOs for {}", &public_key.to_hex());
+                return None;
+            }
         };
         
         let mut inputs = vec![];
@@ -386,6 +408,7 @@ impl BitcoinRegtestController {
     }
 
     fn build_next_block(&self, num_blocks: u64) {
+        debug!("Generate {} block(s)", num_blocks);
         let public_key = match &self.config.burnchain.local_mining_public_key {
             Some(public_key) => hex_bytes(public_key).expect("Invalid byte sequence"),
             None => panic!("Unable to make new block, mining public key"),
@@ -449,12 +472,14 @@ impl BurnchainController for BitcoinRegtestController {
 
 
     fn start(&mut self) -> BurnchainTip {
+        debug!("Start {}", self.config.burnchain.mode);
         self.receive_blocks()
     }
 
-    fn sync(&mut self) -> BurnchainTip {        
-        if self.config.burnchain.mode == "helium" {
-            // Helium: this node is responsible for mining new burnchain blocks
+    fn sync(&mut self) -> BurnchainTip {
+        debug!("Sync for {}", self.config.burnchain.mode);
+        if self.config.burnchain.mode == "helium" || self.config.burnchain.mode == "neon-god" {
+            // Helium/Neon-god: this node is responsible for mining new burnchain blocks
             self.build_next_block(1);
             self.receive_blocks()
         } else {
@@ -471,7 +496,6 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     fn submit_operation(&mut self, operation: BurnchainOperationType, op_signer: &mut BurnchainOpSigner) {
-
         let transaction = match operation {
             BurnchainOperationType::LeaderBlockCommit(payload) 
                 => self.build_leader_block_commit_tx(payload, op_signer),
@@ -602,6 +626,7 @@ type RPCResult<T> = Result<T, RPCError>;
 impl BitcoinRPCRequest {
 
     pub fn generate_to_address(request_builder: RequestBuilder, num_blocks: u64, address: String) -> RPCResult<()> {
+        debug!("Generate {} blocks to {}", num_blocks, address);
         let payload = BitcoinRPCRequest {
             method: "generatetoaddress".to_string(),
             params: vec![num_blocks.into(), address.into()],
@@ -669,7 +694,7 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        BitcoinRPCRequest::send(request_builder, payload)?;
+        let response = BitcoinRPCRequest::send(request_builder, payload)?;
         Ok(())
     }
 
