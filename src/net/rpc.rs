@@ -1067,7 +1067,7 @@ mod test {
 
             let all_relays_flushed = receiver.num_pending_outbound() == 0 && sender.num_pending_outbound() == 0;
             
-            let nw = sender.send(&mut pipe_write).unwrap();
+            let nw = sender.send(&mut pipe_write, sender_chainstate).unwrap();
             let nr = receiver.recv(&mut pipe_read).unwrap();
 
             test_debug!("res = {}, all_relays_flushed = {} ({},{}), nr = {}, nw = {}", res, all_relays_flushed, receiver.num_pending_outbound(), sender.num_pending_outbound(), nr, nw);
