@@ -54,7 +54,7 @@ fn main() {
     if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
         let mut run_loop = helium::RunLoop::new(conf);
         run_loop.start(num_round);
-    } else if conf.burnchain.mode == "neon" {
+    } else if conf.burnchain.mode == "neon" || conf.burnchain.mode == "neon-god" {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(num_round);
     } else {
