@@ -13,7 +13,7 @@ use stacks::chainstate::stacks::{ StacksBlock, TransactionPayload, StacksAddress
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash};
 use stacks::core::mempool::MemPoolDB;
-use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer } };
+use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer }, relay::Relayer };
 use stacks::net::dns::DNSResolver;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -68,6 +68,8 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(5);
 
+    let mut relayer = Relayer::from_p2p(&mut this);
+
     let server_thread = thread::spawn(move || {
         loop {
             let mut burndb = match BurnDB::open(&burn_db_path, true) {
@@ -98,7 +100,10 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 }
             };
 
-            let res = this.run(
+            debug!("Begin network run");
+            println!("=======================================================");
+
+            let mut res = this.run(
                 &mut burndb, 
                 &mut chainstate, 
                 &mut mem_pool, 
@@ -106,10 +111,15 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 poll_timeout)
                 .unwrap();
 
-            
+            debug!("Finished network run");
             println!("=======================================================");
-            println!("{:?}", res.blocks);
+            println!("Network result blocks: {:?}", res.blocks);
             println!("=======================================================");
+
+            /*
+            let local_peer = PeerDB::get_local_peer(this.peerdb.conn()).unwrap();
+            relayer.process_network_result(&local_peer, &mut res, &mut burndb, &mut chainstate, &mut mem_pool).unwrap();
+            */
         }
     });
 
@@ -293,7 +303,7 @@ impl Node {
         let mut last_sortitioned_block = None; 
         let mut won_sortition = false;
         let ops = &burnchain_tip.state_transition.accepted_ops;
-
+        
         for op in ops.iter() {
             match op {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => {
@@ -363,7 +373,8 @@ impl Node {
             None => {
                 // We're continuously registering new keys, as such, this branch
                 // should be unreachable.
-                unreachable!() // todo(ludo): crashing, sometime at boot (neon, bootstraping)
+                // unreachable!() // todo(ludo): crashing, sometime at boot (neon, bootstraping)
+                return None;
             },
             Some(ref key) => key,
         };
