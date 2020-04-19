@@ -167,7 +167,7 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
     /// is destroyed in the process).
     pub fn try_recv(mut self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
         if self.deadline > 0 && self.deadline < get_epoch_time_secs() {
-            test_debug!("Deadline {} exceeded (now = {})", self.deadline, get_epoch_time_secs());
+            test_debug!("Reply deadline {} exceeded (now = {})", self.deadline, get_epoch_time_secs());
             return Err(Err(net_error::RecvTimeout));
         }
         match self.receiver_output {
@@ -176,7 +176,10 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
                 match res {
                     Ok(message) => Ok(message),
                     Err(TryRecvError::Empty) => Err(Ok(self)),      // try again,
-                    Err(TryRecvError::Disconnected) => Err(Err(net_error::ConnectionBroken))
+                    Err(TryRecvError::Disconnected) => {
+                        debug!("receiver_output.try_recv() disconnected -- sender endpoint is dead and the receiver endpoint is drained");
+                        Err(Err(net_error::ConnectionBroken))
+                    }
                 }
             },
             None => {
@@ -1057,9 +1060,9 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
                     continue;
                 }
                 Some(inflight) => {
-                    if inflight.ttl < now {
+                    if inflight.ttl + get_epoch_time_secs() < now {
                         // expired
-                        test_debug!("Request timed out: seq={} ttl={} now={}", inflight.expected_seq, inflight.ttl, now); 
+                        debug!("Request timed out: seq={} ttl={} now={}", inflight.expected_seq, inflight.ttl, now); 
                         to_remove.push(i);
                     }
                 }
