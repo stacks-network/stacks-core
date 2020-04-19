@@ -112,19 +112,37 @@ impl RunLoop {
         let mut node = Node::new(self.config.clone(), |_| {});
 
         // Sync and update node with this new block.
+        // Do this twice so we quickly sync up with the first 100 blocks
         node.setup(burnchain_controller);
-        let genesis_burnchain_tip = burnchain_controller.sync();
+        let _ = burnchain_controller.sync();
+
+        node.setup(burnchain_controller);
+        let mut genesis_burnchain_tip = burnchain_controller.sync();
         node.process_burnchain_state(&genesis_burnchain_tip);
         
         let mut chain_tip = ChainTip::genesis();
 
         // Bootstrap the chain: node will start a new tenure,
         // using the sortition hash from block #1 for generating a VRF.
-        let mut first_tenure = match node.initiate_genesis_tenure(&genesis_burnchain_tip) {
-            Some(res) => res,
-            None => panic!("Error while initiating genesis tenure")
+        //
+        // Jude: it's possible that the VRF registration transaction doesn't get mined immediately,
+        // so we need to loop here.
+        let mut first_tenure = {
+            loop {
+                let mut first_tenure = match node.initiate_genesis_tenure(&genesis_burnchain_tip) {
+                    Some(res) => res,
+                    None => {
+                        // mine another block
+                        node.setup(burnchain_controller);
+                        genesis_burnchain_tip = burnchain_controller.sync();
+                        node.process_burnchain_state(&genesis_burnchain_tip);
+                        continue;
+                    }
+                };
+                self.callbacks.invoke_new_tenure(0, &genesis_burnchain_tip, &chain_tip, &mut first_tenure);
+                break first_tenure;
+            }
         };
-        self.callbacks.invoke_new_tenure(0, &genesis_burnchain_tip, &chain_tip, &mut first_tenure);
 
         // Run the tenure, keep the artifacts
         let artifacts_from_1st_tenure = match first_tenure.run() {
