@@ -78,7 +78,7 @@ fn test_simple_read_only_violations() {
               (map-set tokens (tuple (account tx-sender)) (tuple (balance 10)))
               tx-sender))
          (define-read-only (get-token-balance)
-            (map-get? tokens ((account (update-balance-and-get-tx-sender)))))",
+            (map-get? tokens {account (update-balance-and-get-tx-sender)}))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (update-balance-and-get-tx-sender)
             (begin              
@@ -92,7 +92,7 @@ fn test_simple_read_only_violations() {
               (map-set tokens (tuple (account tx-sender)) (tuple (balance 10)))
               tx-sender))
          (define-read-only (get-token-balance)
-            (map-get? tokens ((account (update-balance-and-get-tx-sender)))))",
+            (map-get? tokens {account (update-balance-and-get-tx-sender)}))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (not-reading-only)
             (let ((x 1))

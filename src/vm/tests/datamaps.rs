@@ -138,7 +138,7 @@ fn test_explicit_syntax_tuple() {
 }
 
 #[test]
-fn test_implicit_syntax_tuple() {
+fn test_literal_syntax_tuple() {
     let test =
         "(define-map kv-store ((key int)) ((value int)))
          (define-private (kv-add (key int) (value int))

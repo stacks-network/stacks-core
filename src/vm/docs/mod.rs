@@ -457,7 +457,7 @@ The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a `none` option. Otherwise,
 it returns `(some value)`.",
     example: "(unwrap-panic (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (tuple (id 1337))
-(unwrap-panic (map-get? names-map ((name \"blockstack\")))) ;; Same command, using a shorthand for constructing the tuple
+(unwrap-panic (map-get? names-map {name \"blockstack\"})) ;; Same command using a tuple literal
 ",
 };
 
@@ -472,7 +472,7 @@ with the key, the function overwrites that existing association.
 Note: the `value-tuple` requires 1 additional byte for storage in the materialized blockchain state,
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
     example: "(map-set names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns true
-(map-set names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
+(map-set names-map {name \"blockstack\"} {id 1337}) ;; Same command using a tuple literal
 ",
 };
 
@@ -489,7 +489,7 @@ Note: the `value-tuple` requires 1 additional byte for storage in the materializ
 and therefore the maximum size of a value that may be inserted into a map is MAX_CLARITY_VALUE - 1.",
     example: "(map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns true
 (map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns false
-(map-insert names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
+(map-insert names-map {name \"blockstack\"} {id 1337}) ;; Same command using a tuple literal
 ",
 };
 
@@ -502,7 +502,7 @@ the given map. If an item exists and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
     example: "(map-delete names-map (tuple (name \"blockstack\"))) ;; Returns true
 (map-delete names-map (tuple (name \"blockstack\"))) ;; Returns false
-(map-delete names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
+(map-delete names-map {name \"blockstack\"}) ;; Same command using a tuple literal
 ",
 };
 
@@ -512,9 +512,11 @@ const TUPLE_CONS_API: SpecialAPI = SpecialAPI {
     signature: "(tuple ((key0 expr0) (key1 expr1) ...))",
     description: "The `tuple` function constructs a typed tuple from the supplied key and expression pairs.
 A `get` function can use typed tuples as input to select specific values from a given tuple.
-Key names may not appear multiple times in the same tuple definition. Supplied expressions are evaluated and
-associated with the expressions' paired key name.",
-    example: "(tuple (name \"blockstack\") (id 1337))"
+Key names may not appear more than once in the same tuple definition. Supplied expressions are evaluated and
+associated with the expressions' paired key name. Note that tuples have an alternative literal notation with curly braces (see example below).",
+    example: "(tuple (name \"blockstack\") (id 1337)) ;; a tuple with two key/value pairs
+{name \"blockstack\", id 1337} ;; same tuple as a literal - the comma is optional
+"
 };
 
 const TUPLE_GET_API: SpecialAPI = SpecialAPI {
@@ -982,7 +984,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
     example: "
 (define-map squares ((x int)) ((square int)))
 (define-private (add-entry (x int))
-  (map-insert squares ((x 2)) ((square (* x x)))))
+  (map-insert squares {x 2} {square (* x x)}))
 (add-entry 1)
 (add-entry 2)
 (add-entry 3)

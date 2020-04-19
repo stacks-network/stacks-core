@@ -122,7 +122,7 @@ fn test_bad_map_name() {
 
 #[test]
 fn test_no_such_map() {
-    let snippet = "(map-get? unicorn ((key 1)))";
+    let snippet = "(map-get? unicorn {key 1})";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("use of unresolved map 'unicorn'"));
 }

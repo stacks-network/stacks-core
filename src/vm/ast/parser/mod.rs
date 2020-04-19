@@ -347,7 +347,11 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 if let Some((value, start_line, start_column, parse_context)) = parse_stack.pop() {
                     match parse_context {
                         ParseContext::CollectTuple => {
-                            let mut pre_expr = PreSymbolicExpression::tuple(value.into_boxed_slice());
+                            let pairs = value.chunks(2)
+                                             .map(|pair| pair.to_vec().into_boxed_slice())
+                                             .map(PreSymbolicExpression::list)
+                                             .collect::<Vec<_>>();
+                            let mut pre_expr = PreSymbolicExpression::tuple(pairs.into_boxed_slice());
                             pre_expr.set_span(start_line, start_column, line_pos, column_pos);
                             match parse_stack.last_mut() {
                                 None => {

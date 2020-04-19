@@ -1,5 +1,4 @@
 use vm::functions::tuples;
-use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
 use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, TypeSignature, AssetIdentifier};
 use vm::representations::{SymbolicExpression};

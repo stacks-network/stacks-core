@@ -92,8 +92,6 @@ impl <'a> DefinitionSorter {
                 Ok(())
             },
             List(ref exprs) => {
-                // Avoid looking for dependencies in tuples
-                // TODO: Eliminate special handling of tuples as it is a separate presymbolic expression type
                 if let Some((function_name, function_args)) = exprs.split_first() {
                     if let Some(function_name) = function_name.match_atom() {
                         if let Some(define_function) = DefineFunctions::lookup_by_name(function_name) {
@@ -153,7 +151,7 @@ impl <'a> DefinitionSorter {
                                     // Args: [map-name, tuple-predicate]: handle tuple-predicate as tuple
                                     if function_args.len() == 2 {
                                         self.probe_for_dependencies(&function_args[0], tle_index)?;
-                                        self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
+                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
                                     }
                                     return Ok(());
                                 }, 
@@ -161,8 +159,8 @@ impl <'a> DefinitionSorter {
                                     // Args: [map-name, tuple-keys, tuple-values]: handle tuple-keys and tuple-values as tuples
                                     if function_args.len() == 3 {
                                         self.probe_for_dependencies(&function_args[0], tle_index)?;
-                                        self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
-                                        self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
+                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
+                                        self.probe_for_dependencies(&function_args[2], tle_index)?;
                                     }
                                     return Ok(());
                                 }, 
@@ -224,7 +222,7 @@ impl <'a> DefinitionSorter {
 
     fn probe_for_dependencies_in_tuple_list(&mut self, tuples: &[PreSymbolicExpression], tle_index: usize) -> ParseResult<()> {
         for index in 0..tuples.len() {
-            self.probe_for_dependencies_in_tuple(&tuples[index], tle_index)?;
+            self.probe_for_dependencies_in_tuple_pair(&tuples[index], tle_index)?;
         } 
         Ok(())
     }
@@ -247,16 +245,24 @@ impl <'a> DefinitionSorter {
         }
         Ok(())
     }
+    
+    fn probe_for_dependencies_in_tuple_pair(&mut self, pair: &PreSymbolicExpression, tle_index: usize) -> ParseResult<()> {
+        if let Some(pair) = pair.match_list() {
+            if pair.len() == 2 {
+                self.probe_for_dependencies(&pair[1], tle_index)?;
+            }
+        }
+        Ok(())
+    }
 
     fn probe_for_dependencies_in_tuple(&mut self, expr: &PreSymbolicExpression, tle_index: usize) -> ParseResult<()> {
-        if let Some(tuple) = expr.match_list() {
-            for pair in tuple.into_iter() {
-                if let Some(pair) = pair.match_list() {
-                    if pair.len() == 2 {
-                        self.probe_for_dependencies(&pair[1], tle_index)?;
-                    }
+        match expr.pre_expr {
+            List(ref list) | Tuple(ref list) => {
+                for pair in list.into_iter() {
+                    self.probe_for_dependencies_in_tuple_pair(&pair, tle_index)?;
                 }
             }
+            _ => ()
         }
         Ok(())
     }

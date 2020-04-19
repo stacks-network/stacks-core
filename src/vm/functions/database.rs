@@ -2,7 +2,6 @@ use std::convert::{TryFrom, TryInto};
 use std::cmp;
 
 use vm::functions::tuples;
-use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
 use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, TypeSignature, BUFF_32};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
@@ -166,12 +165,8 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
 
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
-
-    let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[1], env, &context)?
-    };
-
+    let key = eval(&args[1], env, &context)?;
+    
     let contract = &env.contract_context.contract_identifier;
 
     // optimization todo: db metadata like this should just get stored
@@ -218,16 +213,10 @@ pub fn special_set_entry(args: &[SymbolicExpression],
 
     check_argument_count(3, args)?;
 
-    let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[1], env, &context)?
-    };
+    let key = eval(&args[1], env, &context)?;
 
-    let value = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[2], env, &context)?
-    };
-
+    let value = eval(&args[2], env, &context)?;
+    
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
@@ -255,15 +244,9 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
 
     check_argument_count(3, args)?;
     
-    let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[1], env, &context)?
-    };
+    let key = eval(&args[1], env, &context)?;
 
-    let value = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[2], env, &context)?
-    };
+    let value = eval(&args[2], env, &context)?;
 
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
@@ -292,10 +275,7 @@ pub fn special_delete_entry(args: &[SymbolicExpression],
  
     check_argument_count(2, args)?;
 
-    let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
-        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[1], env, &context)?
-    };
+    let key = eval(&args[1], env, &context)?;
 
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;

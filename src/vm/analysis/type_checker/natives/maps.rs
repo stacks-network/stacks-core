@@ -2,7 +2,6 @@ use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::types::{TypeSignature, Value, PrincipalData};
 
 use vm::functions::tuples;
-use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
 use super::check_special_tuple_cons;
 use vm::analysis::type_checker::{TypeResult, TypingContext, 
@@ -12,15 +11,7 @@ use vm::analysis::type_checker::{TypeResult, TypingContext,
 use vm::costs::{cost_functions, analysis_typecheck_cost};
 
 fn check_and_type_map_arg_tuple(checker: &mut TypeChecker, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
-    match tuples::get_definition_type_of_tuple_argument(expr) {
-        Explicit => checker.type_check(expr, context),
-        Implicit(ref inner_expr) => {
-            let type_result = check_special_tuple_cons(checker, inner_expr, context)?;
-            runtime_cost!(cost_functions::ANALYSIS_TYPE_ANNOTATE, checker, type_result.type_size()?)?;
-            checker.type_map.set_type(expr, type_result.clone())?;
-            Ok(type_result)
-        }
-    }
+    checker.type_check(expr, context)
 }
 
 pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {

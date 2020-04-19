@@ -56,11 +56,7 @@ impl SugarExpander {
                 },
                 PreSymbolicExpressionType::Tuple(pre_exprs) => {
                     let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
-                    let expression = self.transform(drain, contract_ast)?;
-                    let mut pairs = expression.chunks(2)
-                                     .map(|pair| pair.to_vec().into_boxed_slice())
-                                     .map(SymbolicExpression::list)
-                                     .collect::<Vec<_>>();
+                    let mut pairs = self.transform(drain, contract_ast)?;
                     pairs.insert(0, SymbolicExpression::atom("tuple".to_string().try_into().unwrap()));
                     SymbolicExpression::list(pairs.into_boxed_slice())
                 },
