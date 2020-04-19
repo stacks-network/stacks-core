@@ -66,7 +66,7 @@ pub const FIRST_BLOCK_TESTNET: u64 = 0;
 pub const FIRST_BLOCK_REGTEST: u64 = 0;
 
 // batch size for searching for a reorg 
-const REORG_BATCH_SIZE: u64 = 200;
+const REORG_BATCH_SIZE: u64 = 2000;
 
 pub fn network_id_to_bytes(network_id: BitcoinNetworkType) -> u32 {
     match network_id {
@@ -486,7 +486,7 @@ impl BitcoinIndexer {
         
         let mut start_block = db_height.saturating_sub(REORG_BATCH_SIZE);
 
-        while start_block > 0 && !found {
+        while !found {
             debug!("Search for reorg'ed headers from {} - {}", start_block, start_block + REORG_BATCH_SIZE);
 
             // copy over the head of the existing headers so we can fetch to the .reorg file
@@ -520,14 +520,20 @@ impl BitcoinIndexer {
                     error!("Failed to read reorg headers from {} to {}", start_block, start_block + REORG_BATCH_SIZE);
                     e
                 })?;
-              
-            for i in (start_block..(start_block + REORG_BATCH_SIZE)).rev() {
+            
+            let max_headers_len = if canonical_headers.len() < reorg_headers.len() { canonical_headers.len() } else { reorg_headers.len() };
+            let max_height = start_block + (max_headers_len as u64);
+            for i in (start_block..max_height).rev() {
                 if canonical_headers[(i - start_block) as usize] == reorg_headers[(i - start_block) as usize] {
                     // shared history 
                     new_tip = i + 1;
                     found = true;
                     break;
                 }
+            }
+
+            if start_block == 0 {
+                break;
             }
 
             start_block = start_block.saturating_sub(REORG_BATCH_SIZE);
