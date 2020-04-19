@@ -215,7 +215,7 @@ impl NeighborWalkResult {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum NeighborWalkState {
     HandshakeBegin,
     HandshakeFinish,
@@ -477,7 +477,7 @@ impl NeighborWalk {
                     },
                     Err(e) => {
                         // disconnected 
-                        test_debug!("{:?}: failed to get reply: {:?}", &self.local_peer, &e);
+                        debug!("Failed to get Handshake reply from {:?}: {:?}", &self.cur_neighbor.addr, &e);
                         self.result.add_dead(self.cur_neighbor.addr.clone());
                         Err(e)
                     }
@@ -605,6 +605,7 @@ impl NeighborWalk {
                     },
                     Err(e) => {
                         // disconnected 
+                        debug!("Failed to get GetNeighbors reply from {:?}: {:?}", &self.cur_neighbor.addr, &e);
                         self.result.add_dead(self.cur_neighbor.addr.clone());
                         Err(e)
                     }
@@ -672,7 +673,7 @@ impl NeighborWalk {
                 Ok(message) => {
                     // if the neighbor is still bootstrapping, we're doone
                     if message.preamble.burn_stable_block_height + MAX_NEIGHBOR_BLOCK_DELAY < stable_block_height {
-                        test_debug!("Remote neighbor {:?} is still bootstrapping (at block {})", &rh_naddr, message.preamble.burn_stable_block_height);
+                        debug!("Remote neighbor {:?} is still bootstrapping (at block {})", &rh_naddr, message.preamble.burn_stable_block_height);
                     }
                     else {
                         match message.payload {
@@ -1175,7 +1176,7 @@ impl PeerNetwork {
         // send handshake.
         let handshake_data = HandshakeData::from_local_peer(&self.local_peer);
         
-        test_debug!("{:?}: send Handshake to {:?}", &self.local_peer, &nk);
+        debug!("{:?}: send Handshake to {:?}", &self.local_peer, &nk);
 
         let msg = self.sign_for_peer(nk, StacksMessageType::Handshake(handshake_data))?;
         let req_res = self.send_message(nk, msg, get_epoch_time_secs() + self.connection_opts.timeout);
@@ -1544,6 +1545,18 @@ impl PeerNetwork {
         })
     }
 
+    /// Get the walk state
+    fn get_walk_state(&self) -> NeighborWalkState {
+        match self.walk {
+            None => {
+                NeighborWalkState::HandshakeBegin
+            },
+            Some(ref walk) => {
+                walk.state
+            }
+        }
+    }
+
     /// Update the state of our peer graph walk.
     /// If we complete a walk, give back a walk result.
     /// Mask errors by restarting the graph walk.
@@ -1559,49 +1572,56 @@ impl PeerNetwork {
             }
         }
 
-        let walk_state =
-            match self.walk {
-                None => {
-                    NeighborWalkState::HandshakeBegin
+        // take as many steps as we can
+        let mut walk_state = self.get_walk_state();
+
+        debug!("{:?}: walk state is {:?}", &self.local_peer, walk_state);
+
+        let mut did_cycle = false;
+        let res = loop {
+            let last_walk_state = walk_state;
+            let res = match walk_state {
+                NeighborWalkState::HandshakeBegin => {
+                    self.walk_handshake_begin()
+                        .and_then(|_| Ok(None))
                 },
-                Some(ref walk) => {
-                    walk.state.clone()
+                NeighborWalkState::HandshakeFinish => {
+                    self.walk_handshake_try_finish()
+                        .and_then(|_| Ok(None))
+                },
+                NeighborWalkState::GetNeighborsBegin => {
+                    self.walk_getneighbors_begin()
+                        .and_then(|_| Ok(None))
+                },
+                NeighborWalkState::GetNeighborsFinish => {
+                    self.walk_getneighbors_try_finish()
+                        .and_then(|_| Ok(None))
+                },
+                NeighborWalkState::GetHandshakesFinish => {
+                    self.walk_neighbor_handshakes_try_finish()
+                        .and_then(|_| Ok(None))
+                },
+                NeighborWalkState::GetNeighborsNeighborsFinish => {
+                    self.walk_getneighbors_neighbors_try_finish()
+                        .and_then(|_| Ok(None))
+                },
+                NeighborWalkState::NeighborsPingFinish => {
+                    did_cycle = true;
+                    test_debug!("{:?}: finish walk {}", &self.local_peer, self.walk_count);
+                    self.walk_ping_existing_neighbors_try_finish()
+                }
+                _ => {
+                    panic!("Reached invalid walk state {:?}", walk_state);
                 }
             };
 
-        test_debug!("{:?}: {:?}", &self.local_peer, walk_state);
-
-        let res = match walk_state {
-            NeighborWalkState::HandshakeBegin => {
-                self.walk_handshake_begin()
-                    .and_then(|_| Ok(None))
-            },
-            NeighborWalkState::HandshakeFinish => {
-                self.walk_handshake_try_finish()
-                    .and_then(|_| Ok(None))
-            },
-            NeighborWalkState::GetNeighborsBegin => {
-                self.walk_getneighbors_begin()
-                    .and_then(|_| Ok(None))
-            },
-            NeighborWalkState::GetNeighborsFinish => {
-                self.walk_getneighbors_try_finish()
-                    .and_then(|_| Ok(None))
-            },
-            NeighborWalkState::GetHandshakesFinish => {
-                self.walk_neighbor_handshakes_try_finish()
-                    .and_then(|_| Ok(None))
-            },
-            NeighborWalkState::GetNeighborsNeighborsFinish => {
-                self.walk_getneighbors_neighbors_try_finish()
-                    .and_then(|_| Ok(None))
-            },
-            NeighborWalkState::NeighborsPingFinish => {
-                test_debug!("{:?}: finish walk {}", &self.local_peer, self.walk_count);
-                self.walk_ping_existing_neighbors_try_finish()
+            if did_cycle {
+                break res;
             }
-            _ => {
-                panic!("Reached invalid walk state {:?}", walk_state);
+
+            walk_state = self.get_walk_state();
+            if walk_state == last_walk_state {
+                break res;
             }
         };
 
@@ -1633,7 +1653,7 @@ impl PeerNetwork {
                     Some(ref mut walk) => {
                         // finished a walk step.
                         walk.walk_step_count += 1;
-                        test_debug!("{:?}: walk has taken {} steps (total of {} walks)", &self.local_peer, walk.walk_step_count, self.walk_count);
+                        debug!("{:?}: walk has taken {} steps (total of {} walks)", &self.local_peer, walk.walk_step_count, self.walk_count);
 
                         if walk_opt.is_some() && self.walk_count > NUM_INITIAL_WALKS && walk.walk_step_count >= walk.walk_min_duration {
                             // consider re-setting the walk state, now that we completed a walk

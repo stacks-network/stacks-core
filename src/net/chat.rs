@@ -637,12 +637,14 @@ impl ConversationP2P {
     /// returned Write to finish sending.
     pub fn relay_signed_message(&mut self, msg: StacksMessage) -> Result<ReplyHandleP2P, net_error> {
         let _name = msg.get_message_name();
+        let _seq = msg.request_id();
+        
         let mut handle = self.connection.make_relay_handle()?;
         msg.consensus_serialize(&mut handle)?;
 
         self.stats.msgs_tx += 1;
         
-        test_debug!("{:?}: relay-send({}) {}", &self, self.stats.msgs_tx, _name);
+        debug!("{:?}: relay-send({}) {} seq {}", &self, self.stats.msgs_tx, _name, _seq);
         Ok(handle)
     }
     
@@ -651,13 +653,14 @@ impl ConversationP2P {
     /// returned handle to finish sending.
     pub fn send_signed_request(&mut self, msg: StacksMessage, ttl: u64) -> Result<ReplyHandleP2P, net_error> {
         let _name = msg.get_message_name();
+        let _seq = msg.request_id();
 
         let mut handle = self.connection.make_request_handle(msg.request_id(), ttl)?;
         msg.consensus_serialize(&mut handle)?;
 
         self.stats.msgs_tx += 1;
 
-        test_debug!("{:?}: request-send({}) {}", &self, self.stats.msgs_tx, _name);
+        debug!("{:?}: request-send({}) {} seq {}", &self, self.stats.msgs_tx, _name, _seq);
         Ok(handle)
     }
 
@@ -770,8 +773,8 @@ impl ConversationP2P {
         let updated = self.update_from_handshake_data(&message.preamble, &handshake_data)?;
         let _authentic_msg = if !updated { "same" } else if old_pubkey_opt.is_none() { "new" } else { "upgraded" };
 
-        test_debug!("Handshake from {:?} {} public key {:?} expires at {:?}", &self, _authentic_msg,
-                    &to_hex(&handshake_data.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_data.expire_block_height);
+        debug!("Handshake from {:?} {} public key {:?} expires at {:?}", &self, _authentic_msg,
+               &to_hex(&handshake_data.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_data.expire_block_height);
 
         if updated {
             // save the new key
@@ -780,7 +783,7 @@ impl ConversationP2P {
             neighbor.save_update(&mut tx)?;
             tx.commit().map_err(|e| net_error::DBError(db_error::SqliteError(e)))?;
             
-            test_debug!("{:?}: Re-key {:?} to {:?} expires {}", local_peer, &neighbor.addr, &to_hex(&neighbor.public_key.to_bytes_compressed()), neighbor.expire_block);
+            debug!("{:?}: Re-key {:?} to {:?} expires {}", local_peer, &neighbor.addr, &to_hex(&neighbor.public_key.to_bytes_compressed()), neighbor.expire_block);
         }
 
         let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat);
@@ -799,8 +802,8 @@ impl ConversationP2P {
         self.peer_heartbeat = handshake_accept.heartbeat_interval;
         self.stats.last_handshake_time = get_epoch_time_secs();
 
-        test_debug!("HandshakeAccept from {:?}: set public key to {:?} expiring at {:?} heartbeat {}s", &self,
-                    &to_hex(&handshake_accept.handshake.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_accept.handshake.expire_block_height, self.peer_heartbeat);
+        debug!("HandshakeAccept from {:?}: set public key to {:?} expiring at {:?} heartbeat {}s", &self,
+               &to_hex(&handshake_accept.handshake.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_accept.handshake.expire_block_height, self.peer_heartbeat);
         Ok(())
     }
     
@@ -832,7 +835,7 @@ impl ConversationP2P {
             .map(|n| NeighborAddress::from_neighbor(n))
             .collect();
         
-        test_debug!("{:?}: handle GetNeighbors from {:?}. Reply with {} neighbors", &local_peer, &self, neighbor_addrs.len());
+        debug!("{:?}: handle GetNeighbors from {:?}. Reply with {} neighbors", &local_peer, &self, neighbor_addrs.len());
 
         let payload = StacksMessageType::Neighbors( NeighborsData { neighbors: neighbor_addrs } );
         let reply = self.sign_reply(chain_view, &local_peer.private_key, payload, preamble.seq)?;
@@ -874,7 +877,7 @@ impl ConversationP2P {
 
         let blocks_inv_data : BlocksInvData = chainstate.get_blocks_inventory(&block_hashes).map_err(|e| net_error::from(e))?;
 
-        test_debug!("{:?}: Reply {:?} to request {:?}", &local_peer, &blocks_inv_data, get_blocks_inv);
+        debug!("{:?}: Handle GetBlocksInv from {:?}. Reply {:?} to request {:?}", &local_peer, &self, &blocks_inv_data, get_blocks_inv);
 
         let blocks_inv_payload = StacksMessageType::BlocksInv(blocks_inv_data);
         self.sign_and_reply(local_peer, burnchain_view, preamble, blocks_inv_payload)
@@ -1046,32 +1049,57 @@ impl ConversationP2P {
 
     /// Load data into our connection 
     pub fn recv<R: Read>(&mut self, r: &mut R) -> Result<usize, net_error> {
-        let res = self.connection.recv_data(r);
-        match res {
-            Ok(num_recved) => {
-                if num_recved > 0 {
-                    self.stats.last_recv_time = get_epoch_time_secs();
-                    self.stats.bytes_rx += num_recved as u64;
+        let mut total_recved = 0;
+        loop {
+            let res = self.connection.recv_data(r);
+            match res {
+                Ok(num_recved) => {
+                    total_recved += num_recved;
+                    if num_recved > 0 {
+                        self.stats.last_recv_time = get_epoch_time_secs();
+                        self.stats.bytes_rx += num_recved as u64;
+                    }
+                    else {
+                        break;
+                    }
+                },
+                Err(e) => {
+                    info!("{:?}: failed to recv: {:?}", self, &e);
+                    return Err(e);
                 }
-            },
-            Err(_) => {}
-        };
-        res
+            }
+        }
+        debug!("{:?}: received {} bytes", self, total_recved);
+        Ok(total_recved)
     }
 
     /// Write data out of our conversation 
     pub fn send<W: Write>(&mut self, w: &mut W) -> Result<usize, net_error> {
-        let res = self.connection.send_data(w);
-        match res {
-            Ok(num_sent) => {
-                if num_sent > 0 {
-                    self.stats.last_send_time = get_epoch_time_secs();
-                    self.stats.bytes_tx += num_sent as u64;
+        let mut total_sent = 0;
+        loop {
+            // queue next byte slice
+            self.try_flush()?;
+
+            let res = self.connection.send_data(w);
+            match res {
+                Ok(num_sent) => {
+                    total_sent += num_sent;
+                    if num_sent > 0 {
+                        self.stats.last_send_time = get_epoch_time_secs();
+                        self.stats.bytes_tx += num_sent as u64;
+                    }
+                    else {
+                        break;
+                    }
+                },
+                Err(e) => {
+                    info!("{:?}: failed to send: {:?}", self, &e);
+                    return Err(e);
                 }
-            },
-            Err(_) => {}
-        };
-        res
+            }
+        }
+        debug!("{:?}: sent {} bytes", self, total_sent);
+        Ok(total_sent)
     }
 
     /// Make progress on in-flight messages.
@@ -1291,6 +1319,7 @@ impl ConversationP2P {
             
             let now = get_epoch_time_secs();
             let _msgtype = msg.payload.get_message_name().to_owned();
+            let _seq = msg.request_id();
 
             if update_stats {
                 // successfully got a message -- update stats
@@ -1315,28 +1344,30 @@ impl ConversationP2P {
                 // got an unhandled message we didn't ask for
                 self.stats.msgs_rx_unsolicited += 1;
             }
+            
+            debug!("{:?}: Received message {}", &self, _msgtype);
 
             // Is there someone else waiting for this message?  If so, pass it along.
             let fulfill_opt = self.connection.fulfill_request(msg);
             match fulfill_opt {
                 None => {
-                    test_debug!("{:?}: Fulfilled pending message request (type {})", &self, _msgtype);
+                    debug!("{:?}: Fulfilled pending message request (type {} seq {})", &self, _msgtype, _seq);
                 },
                 Some(msg) => {
                     if consumed {
                         // already handled
-                        test_debug!("{:?}: Consumed message (type {})", &self, _msgtype);
+                        debug!("{:?}: Consumed message (type {} seq {})", &self, _msgtype, _seq);
                     }
                     else {
-                        test_debug!("{:?}: Try handling message (type {})", &self, _msgtype);
+                        test_debug!("{:?}: Try handling message (type {} seq {})", &self, _msgtype, _seq);
                         let msg_opt = self.handle_data_message(local_peer, peerdb, burndb, chainstate, burnchain_view, msg)?;
                         match msg_opt {
                             Some(msg) => {
-                                test_debug!("{:?}: Did not handle message (type {}); passing upstream", &self, _msgtype);
+                                debug!("{:?}: Did not handle message (type {} seq {}); passing upstream", &self, _msgtype, _seq);
                                 unsolicited.push(msg);
                             },
                             None => {
-                                test_debug!("{:?}: Handled message {}", &self, _msgtype);
+                                debug!("{:?}: Handled message {} seq {}", &self, _msgtype, _seq);
                             }
                         }
                     }

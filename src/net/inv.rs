@@ -357,7 +357,7 @@ impl InvState {
 
             block_stats: HashMap::new(),
 
-            request_timeout: 10,
+            request_timeout: 30,
             first_block_height: first_block_height,
 
             rescan_height: first_block_height,
@@ -426,7 +426,7 @@ impl InvState {
     pub fn cull_broken_peers(&mut self) -> () {
         for nk in self.broken_peers.iter() {
             if self.sync_peers.contains(nk) {
-                test_debug!("Cull broken peer {:?}", nk);
+                debug!("Cull broken peer {:?}", nk);
                 self.sync_peers.remove(nk);
             }
         }
@@ -436,7 +436,7 @@ impl InvState {
     pub fn cull_stale_peers(&mut self) -> () {
         for nk in self.stale_peers.iter() {
             if self.sync_peers.contains(nk) {
-                test_debug!("Cull stale peer {:?}", nk);
+                debug!("Cull stale peer {:?}", nk);
                 self.sync_peers.remove(nk);
             }
         }
@@ -446,7 +446,7 @@ impl InvState {
     pub fn cull_dead_peers(&mut self) -> () {
         for nk in self.dead_peers.iter() {
             if self.sync_peers.contains(nk) {
-                test_debug!("Cull dead peer {:?}", nk);
+                debug!("Cull dead peer {:?}", nk);
                 self.sync_peers.remove(nk);
             }
         }
@@ -456,7 +456,7 @@ impl InvState {
     pub fn cull_diverged_peers(&mut self) -> () {
         for nk in self.diverged_peers.iter() {
             if self.sync_peers.contains(nk) {
-                test_debug!("Cull diverged peer {:?}", nk);
+                debug!("Cull diverged peer {:?}", nk);
                 self.sync_peers.remove(nk);
             }
         }
@@ -604,21 +604,21 @@ impl InvState {
                     };
 
                 if diverged {
-                    test_debug!("Remote neighbor {:?} NACKed us because it diverged", _nk);
+                    debug!("Remote neighbor {:?} NACKed us because it diverged", _nk);
                 }
                 else if unstable {
-                    test_debug!("Remote neighbor {:?} NACKed us because it's chain tip is different from ours", _nk);
+                    debug!("Remote neighbor {:?} NACKed us because it's chain tip is different from ours", _nk);
                 }
                 else {
                     // something else is wrong
-                    test_debug!("Remote neighbor {:?} NACKed us because its block height is not in the chain view", _nk);
+                    debug!("Remote neighbor {:?} NACKed us because its block height is not in the chain view", _nk);
                     broken = true;
                 }
             }
         }
         else {
             // some other error
-            test_debug!("Remote neighbor {:?} NACKed us with error code {}", _nk, nack_data.error_code);
+            debug!("Remote neighbor {:?} NACKed us with error code {}", _nk, nack_data.error_code);
             broken = true;
         }
 
@@ -663,15 +663,15 @@ impl InvState {
                         StacksMessageType::BlocksInv(blocks_inv_data) => {
                             // got a BlocksInv!
                             // but, only accept it if the peer isn't too far ahead of us
-                            test_debug!("Got BlocksInv response at height {} from {:?} at ({},{}): {:?}", _target_height, &nk, preamble_burn_block_height, preamble_burn_stable_block_height, &blocks_inv_data);
+                            debug!("Got BlocksInv response at height {} from {:?} at ({},{}): {:?}", _target_height, &nk, preamble_burn_block_height, preamble_burn_stable_block_height, &blocks_inv_data);
                             self.block_invs.insert(nk, blocks_inv_data);
                         },
                         StacksMessageType::Nack(nack_data) => {
-                            test_debug!("Remote neighbor {:?} nack'ed our GetBlocksInv", &nk);
+                            debug!("Remote neighbor {:?} nack'ed our GetBlocksInv: error {}", &nk, nack_data.error_code);
                             match InvState::diagnose_nack(&nk, nack_data, chain_view, preamble_burn_block_height, preamble_burn_stable_block_height, preamble_burn_consensus_hash, preamble_burn_stable_consensus_hash) {
                                 NackResult::Noop => {},
                                 NackResult::Stale => {
-                                    test_debug!("Peer {:?} is stale", nk);
+                                    debug!("Peer {:?} is stale", nk);
                                     self.stale_peers.insert(nk);
                                 },
                                 NackResult::Unstable => {
@@ -683,14 +683,14 @@ impl InvState {
                                     self.diverged_peers.insert(nk);
                                 },
                                 NackResult::Broken => {
-                                    test_debug!("Peer {:?} is broken", nk);
+                                    debug!("Peer {:?} is broken", nk);
                                     self.broken_peers.insert(nk);
                                 }
                             };
                         },
                         _ => {
                             // unexpected reply
-                            test_debug!("Remote neighbor {:?} sent an unexpected reply of '{}'", &nk, message.get_message_name());
+                            debug!("Remote neighbor {:?} sent an unexpected reply of '{}'", &nk, message.get_message_name());
                             self.broken_peers.insert(nk);
                         }
                     }
@@ -706,7 +706,7 @@ impl InvState {
                         Err(_e) => {
                             // connection broken.
                             // Don't try to contact this node again.
-                            test_debug!("Failed to get block inventory from {:?}: {:?}", &nk, &_e);
+                            debug!("Failed to get block inventory from {:?}: {:?}", &nk, &_e);
                             self.dead_peers.insert(nk);
                             None
                         }
@@ -720,7 +720,7 @@ impl InvState {
             }
         }
 
-        test_debug!("Still waiting for {} blocksinv replies", pending_getblocksinv_requests.len());
+        debug!("Still waiting for {} blocksinv replies", pending_getblocksinv_requests.len());
 
         // are we done?
         if pending_getblocksinv_requests.len() == 0 {
@@ -729,10 +729,7 @@ impl InvState {
             return Ok(true);
         }
 
-        // still have more to go 
-        for (nk, rh) in pending_getblocksinv_requests.drain() {
-            self.getblocksinv_requests.insert(nk, rh);
-        }
+        self.getblocksinv_requests = pending_getblocksinv_requests;
         return Ok(false);
     }
 }    
@@ -908,7 +905,7 @@ impl PeerNetwork {
             let mut inv_heights : HashMap<NeighborKey, u64> = HashMap::new();
 
             for (nk, (target_height, inv_request)) in inv_targets.drain() {
-                test_debug!("{:?}: send getblocksinv request targeted at {}: {:?} to {:?}", &network.local_peer, target_height, &inv_request, &nk);
+                debug!("{:?}: send getblocksinv request targeted at {}: {:?} to {:?}", &network.local_peer, target_height, &inv_request, &nk);
 
                 let payload = StacksMessageType::GetBlocksInv(inv_request);
                 let message = network.sign_for_peer(&nk, payload)?;
@@ -971,9 +968,8 @@ impl PeerNetwork {
             self.init_inv_sync(burndb);
         }
         
-        let state = self.inv_state.as_ref().unwrap().state;
         let mut done = false;
-
+        let state = self.inv_state.as_ref().unwrap().state;
         match state {
             InvWorkState::GetBlocksInvBegin => {
                 self.inv_getblocksinv_begin(burndb)?;
@@ -1003,7 +999,7 @@ impl PeerNetwork {
                             Some(ref mut nk_stats) => {
                                 let target_height = *inv_state.getblocksinv_target_heights.get(&nk).expect(&format!("BUG: no target height for request to {:?}", &nk));
 
-                                test_debug!("{:?}: got blocksinv at block height {} from {:?}: {:?}", &self.local_peer, target_height, &nk, &blocks_inv);
+                                debug!("{:?}: got blocksinv at block height {} from {:?}: {:?}", &self.local_peer, target_height, &nk, &blocks_inv);
                                 let (new_blocks, new_microblocks) = nk_stats.inv.merge_blocks_inv(target_height, blocks_inv.bitlen, blocks_inv.block_bitvec, blocks_inv.microblocks_bitvec);
                                 test_debug!("{:?}: {:?} has {} new blocks and {} new microblocks: {},{:?}", &self.local_peer, &nk, new_blocks, new_microblocks, nk_stats.inv.num_sortitions, &nk_stats.inv);
 
