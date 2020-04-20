@@ -532,6 +532,12 @@ fn test_btc_to_sat() {
 
 #[test]
 #[should_panic]
-fn test_btc_to_sat_panic() {
+fn test_btc_to_sat_panic_1() {
+    UTXO::serialized_btc_to_sat("0.000000001");
+}
+
+#[test]
+#[should_panic]
+fn test_btc_to_sat_panic_2() {
     UTXO::serialized_btc_to_sat("1");
 }
