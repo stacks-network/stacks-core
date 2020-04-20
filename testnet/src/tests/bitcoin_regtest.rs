@@ -81,7 +81,8 @@ impl Drop for BitcoinCoreController {
 }
 
 #[test]
-fn simple_test() {
+#[ignore]
+fn bitcoind_integration_test() {
 
     let mut conf = super::new_test_conf();
     conf.burnchain.commit_anchor_block_within = 2000;
