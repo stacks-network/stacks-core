@@ -367,6 +367,11 @@ impl HttpPeer {
         Ok((!convo_dead, msgs))
     }
 
+    /// Is an event in the process of connecting?
+    pub fn is_connecting(&self, event_id: usize) -> bool {
+        self.connecting.contains_key(&event_id)
+    }
+
     /// Process newly-connected sockets
     fn process_connecting_sockets(&mut self, network_state: &mut NetworkState, chainstate: &mut StacksChainState, poll_state: &mut NetworkPollState) -> () {
         for event_id in poll_state.ready.iter() {
