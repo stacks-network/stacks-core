@@ -493,6 +493,27 @@ fn total_supply(owned_env: &mut OwnedEnvironment) {
     });
 }
 
+fn test_overlapping_nfts(owned_env: &mut OwnedEnvironment) {
+    let tokens_contract = FIRST_CLASS_TOKENS;
+    let names_contract = ASSET_NAMES;
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    let p1_principal = match p1 {
+        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!()
+    };
+
+    let tokens_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
+    let names_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "names".into());
+    let names_2_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "names-2".into());
+
+    owned_env.initialize_contract(tokens_contract_id.clone(), tokens_contract).unwrap();
+    owned_env.initialize_contract(names_contract_id.clone(), names_contract).unwrap();
+    owned_env.initialize_contract(names_2_contract_id.clone(), names_contract).unwrap();
+
+}
+
 fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let tokens_contract = FIRST_CLASS_TOKENS;
 
@@ -677,7 +698,8 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
 #[test]
 fn test_all() {
-    let to_test = [test_simple_token_system, test_simple_naming_system, total_supply, test_native_stx_ops];
+    let to_test = [test_overlapping_nfts, test_simple_token_system,
+                   test_simple_naming_system, total_supply, test_native_stx_ops];
     for test in to_test.iter() {
         with_memory_environment(test, true);
         with_marfed_environment(test, true);
