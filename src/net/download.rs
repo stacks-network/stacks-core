@@ -348,8 +348,14 @@ impl BlockDownloader {
         for (block_key, event_id) in self.getblock_requests.drain() {
             match http.get_conversation(event_id) {
                 None => {
-                    debug!("Event {} ({:?}, {:?} for block {}) is not connected yet", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
-                    pending_block_requests.insert(block_key, event_id);
+                    if http.is_connecting(event_id) {
+                        debug!("Event {} ({:?}, {:?} for block {} is not connected yet", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        pending_block_requests.insert(block_key, event_id);
+                    }
+                    else {
+                        debug!("Event {} ({:?}, {:?} for block {} failed to connect", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        self.dead_peers.push(event_id);
+                    }
                 }
                 Some(ref mut convo) => match convo.try_get_response() {
                     None => {
@@ -422,8 +428,14 @@ impl BlockDownloader {
             let rh_block_key = block_key.clone();
             match http.get_conversation(event_id) {
                 None => {
-                    debug!("Event {} ({:?}, {:?} for microblocks built by {:?}) is not connected", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
-                    self.dead_peers.push(event_id);
+                    if http.is_connecting(event_id) {
+                        debug!("Event {} ({:?}, {:?} for microblocks built by ({}) is not connected yet", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        pending_microblock_requests.insert(block_key, event_id);
+                    }
+                    else {
+                        debug!("Event {} ({:?}, {:?} for microblocks built by ({}) failed to connect", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        self.dead_peers.push(event_id);
+                    }
                 }
                 Some(ref mut convo) => match convo.try_get_response() {
                     None => {
@@ -1879,7 +1891,7 @@ pub mod test {
                                                // connections in each peer
                                                peer_configs[i].connection_opts.max_clients_per_host = 1;
                                                peer_configs[i].connection_opts.num_clients = 1;
-                                               peer_configs[i].connection_opts.idle_timeout = 5;
+                                               peer_configs[i].connection_opts.idle_timeout = 1;
                                            }
 
                                            for n in neighbors.drain(..) {
