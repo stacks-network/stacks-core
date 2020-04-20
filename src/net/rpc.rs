@@ -211,7 +211,7 @@ impl ConversationHttp {
     /// Returns the request handle; does not set the handle into this connection.
     fn start_request(&mut self, req: HttpRequestType) -> Result<ReplyHandleHttp, net_error> {
         test_debug!("{:?},id={}: Start HTTP request {:?}", &self.peer_host, self.conn_id, &req);
-        let mut handle = self.connection.make_request_handle(HTTP_REQUEST_ID_RESERVED, get_epoch_time_secs() + self.timeout)?;
+        let mut handle = self.connection.make_request_handle(HTTP_REQUEST_ID_RESERVED, get_epoch_time_secs() + self.timeout, self.conn_id)?;
         let stacks_msg = StacksHttpMessage::Request(req);
         self.connection.send_message(&mut handle, &stacks_msg)?;
         Ok(handle)
@@ -614,7 +614,7 @@ impl ConversationHttp {
     pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
                           chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<Option<StacksMessageType>, net_error> {
 
-        let mut reply = self.connection.make_relay_handle()?;
+        let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;
         let mut ret = None;
 
@@ -1064,10 +1064,12 @@ mod test {
            
             sender.try_flush(sender_chainstate).unwrap();
             receiver.try_flush(receiver_chainstate).unwrap();
+            
+            pipe_write.try_flush().unwrap();
 
             let all_relays_flushed = receiver.num_pending_outbound() == 0 && sender.num_pending_outbound() == 0;
             
-            let nw = sender.send(&mut pipe_write).unwrap();
+            let nw = sender.send(&mut pipe_write, sender_chainstate).unwrap();
             let nr = receiver.recv(&mut pipe_read).unwrap();
 
             test_debug!("res = {}, all_relays_flushed = {} ({},{}), nr = {}, nw = {}", res, all_relays_flushed, receiver.num_pending_outbound(), sender.num_pending_outbound(), nr, nw);

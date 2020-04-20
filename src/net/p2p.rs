@@ -435,39 +435,26 @@ impl PeerNetwork {
         client
     }
 
-    /// Send a message to a peer.
-    /// Non-blocking -- caller has to call .try_flush() or .flush() on the resulting handle to make sure the data is
-    /// actually sent.
-    pub fn send_message(&mut self, neighbor_key: &NeighborKey, message: StacksMessage, ttl: u64) -> Result<ReplyHandleP2P, net_error> {
-        let event_id_opt = self.events.get(&neighbor_key);
-        if event_id_opt.is_none() {
-            info!("Not connected to {:?}", &neighbor_key);
-            return Err(net_error::NoSuchNeighbor);
-        }
-
-        let event_id = event_id_opt.unwrap();
-        let convo_opt = self.peers.get_mut(event_id);
+    /// Saturate a socket with a reply handle
+    pub fn saturate_p2p_socket(&mut self, event_id: usize, handle: &mut ReplyHandleP2P) -> Result<(), net_error> {
+        let convo_opt = self.peers.get_mut(&event_id);
         if convo_opt.is_none() {
-            info!("No ongoing conversation with {:?}", &neighbor_key);
+            info!("No open socket for {}", event_id);
             return Err(net_error::PeerNotConnected);
         }
-
-        let socket_opt = self.sockets.get_mut(event_id);
+        
+        let socket_opt = self.sockets.get_mut(&event_id);
         if socket_opt.is_none() {
-            info!("No open socket for {:?}", &neighbor_key);
+            info!("No open socket for {}", event_id);
             return Err(net_error::PeerNotConnected);
         }
-
+        
         let convo = convo_opt.unwrap();
         let client_sock = socket_opt.unwrap();
 
-        let mut rh = convo.send_signed_request(message, ttl)?;
-        
-        // saturate the socket
         loop {
+            handle.try_flush()?;
             let send_res = convo.send(client_sock);
-            rh.try_flush()?;
-
             match send_res {
                 Err(e) => {
                     debug!("Failed to send data to event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
@@ -480,6 +467,31 @@ impl PeerNetwork {
                 }
             }
         }
+
+        Ok(())
+    }
+
+    /// Send a message to a peer.
+    /// Non-blocking -- caller has to call .try_flush() or .flush() on the resulting handle to make sure the data is
+    /// actually sent.
+    pub fn send_message(&mut self, neighbor_key: &NeighborKey, message: StacksMessage, ttl: u64) -> Result<ReplyHandleP2P, net_error> {
+        let event_id_opt = self.events.get(&neighbor_key);
+        if event_id_opt.is_none() {
+            info!("Not connected to {:?}", &neighbor_key);
+            return Err(net_error::NoSuchNeighbor);
+        }
+
+        let event_id = *(event_id_opt.unwrap());
+        let convo_opt = self.peers.get_mut(&event_id);
+        if convo_opt.is_none() {
+            info!("No ongoing conversation with {:?}", &neighbor_key);
+            return Err(net_error::PeerNotConnected);
+        }
+
+        let convo = convo_opt.unwrap();
+
+        let mut rh = convo.send_signed_request(message, ttl)?;
+        self.saturate_p2p_socket(event_id, &mut rh)?;
         
         // caller must send the remainder
         Ok(rh)

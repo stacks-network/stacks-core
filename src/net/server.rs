@@ -201,7 +201,7 @@ impl HttpPeer {
             }
 
             // prime the socket
-            match HttpPeer::saturate_socket(&mut socket, &mut new_convo, chainstate) {
+            match HttpPeer::saturate_http_socket(&mut socket, &mut new_convo, chainstate) {
                 Ok(_) => {},
                 Err(e) => {
                     let _ = network_state.deregister(event_id, &socket);
@@ -269,7 +269,7 @@ impl HttpPeer {
 
     /// Saturate a conversation's socket -- either sends the whole request, or fills the socket
     /// buffer.
-    pub fn saturate_socket(client_sock: &mut mio::net::TcpStream, convo: &mut ConversationHttp, chainstate: &mut StacksChainState) -> Result<(), net_error> {
+    pub fn saturate_http_socket(client_sock: &mut mio::net::TcpStream, convo: &mut ConversationHttp, chainstate: &mut StacksChainState) -> Result<(), net_error> {
         // saturate the socket
         loop {
             let send_res = convo.send(client_sock, chainstate);
