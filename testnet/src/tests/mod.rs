@@ -510,18 +510,16 @@ fn should_succeed_handling_malformed_and_valid_txs() {
 #[test]
 fn test_btc_to_sat() {
     let inputs = [
-        "0.1000000",
-        "0.0000001",
+        "0.10000000",
+        "0.00000010",
         "0.00000001",
-        "1.0",
-        "0.1",
+        "1.00000001",
     ];
-    let expected_outputs: [u64; 5] = [
+    let expected_outputs: [u64; 4] = [
         10000000,
         10,
         1,
-        100000000,
-        10000000,
+        100000001,
     ];
 
     for (input, expected_output) in inputs.iter().zip(expected_outputs.iter()) {
@@ -540,4 +538,10 @@ fn test_btc_to_sat_panic_1() {
 #[should_panic]
 fn test_btc_to_sat_panic_2() {
     UTXO::serialized_btc_to_sat("1");
+}
+
+#[test]
+#[should_panic]
+fn test_btc_to_sat_panic_3() {
+    UTXO::serialized_btc_to_sat("0.1");
 }
