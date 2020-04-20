@@ -589,8 +589,9 @@ r#"z (let ((x 1) (y 2))
     fn test_parse_tuple_literal () {
       let input = "{id 1337}";
       let program = vec![ make_tuple(1, 1, 1, 9, Box::new([
+                            make_list(0,0,0,0, Box::new([
                               make_atom("id", 1, 2, 1, 3),
-                              make_atom_value(Value::Int(1337), 1, 5, 1, 8)]))];
+                              make_atom_value(Value::Int(1337), 1, 5, 1, 8)])) ]))];
       let parsed = ast::parser::parse(&input);
       assert_eq!(Ok(program), parsed, "Should match expected tuple literal");
     }

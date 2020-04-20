@@ -223,8 +223,9 @@ mod test {
     fn test_transform_tuple_literal() {
        let pre_ast = vec![
            make_pre_tuple(1, 1, 1, 9, Box::new([
+            make_pre_list(0,0,0,0, Box::new([
              make_pre_atom("id", 1, 2, 1, 3),
-             make_pre_atom_value(Value::Int(1337), 1, 5, 1, 8)]))];
+             make_pre_atom_value(Value::Int(1337), 1, 5, 1, 8) ])) ]))];
         let ast = vec![
             make_list(1, 1, 1, 9, Box::new([
               make_atom("tuple", 0, 0, 0, 0),
