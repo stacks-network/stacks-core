@@ -422,6 +422,11 @@ impl BitcoinMessageHandler for SpvClient {
         let start_height = self.cur_block_height;
         self.end_block_height = Some(indexer.runtime.block_height);
 
+        if indexer.runtime.block_height <= start_height {
+            debug!("Have all headers up to {}", start_height);
+            return Ok(false);
+        }
+
         debug!("Get headers {}-{}", self.cur_block_height, self.end_block_height.unwrap());
         self.send_next_getheaders(indexer, start_height).and_then(|_r| Ok(true))
     }

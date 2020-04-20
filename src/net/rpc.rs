@@ -209,9 +209,9 @@ impl ConversationHttp {
     
     /// Start a HTTP request from this peer, and expect a response.
     /// Returns the request handle; does not set the handle into this connection.
-    pub fn start_request(&mut self, req: HttpRequestType) -> Result<ReplyHandleHttp, net_error> {
+    fn start_request(&mut self, req: HttpRequestType) -> Result<ReplyHandleHttp, net_error> {
         test_debug!("{:?},id={}: Start HTTP request {:?}", &self.peer_host, self.conn_id, &req);
-        let mut handle = self.connection.make_request_handle(HTTP_REQUEST_ID_RESERVED, get_epoch_time_secs() + self.timeout)?;
+        let mut handle = self.connection.make_request_handle(HTTP_REQUEST_ID_RESERVED, get_epoch_time_secs() + self.timeout, self.conn_id)?;
         let stacks_msg = StacksHttpMessage::Request(req);
         self.connection.send_message(&mut handle, &stacks_msg)?;
         Ok(handle)
@@ -614,7 +614,7 @@ impl ConversationHttp {
     pub fn handle_request(&mut self, req: HttpRequestType, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
                           chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<Option<StacksMessageType>, net_error> {
 
-        let mut reply = self.connection.make_relay_handle()?;
+        let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let keep_alive = req.metadata().keep_alive;
         let mut ret = None;
 
@@ -949,16 +949,48 @@ impl ConversationHttp {
 
     /// Load data into our HTTP connection
     pub fn recv<R: Read>(&mut self, r: &mut R) -> Result<usize, net_error> {
-        self.connection.recv_data(r)
+        let mut total_recv = 0;
+        loop {
+            let nrecv = match self.connection.recv_data(r) {
+                Ok(nr) => nr,
+                Err(e) => {
+                    info!("{:?}: failed to recv: {:?}", self, &e);
+                    return Err(e);
+                }
+            };
+
+            total_recv += nrecv;
+            if nrecv == 0 {
+                break;
+            }
+        }
+        Ok(total_recv)
     }
 
-    /// Write data out of our HTTP connection 
-    pub fn send<W: Write>(&mut self, w: &mut W) -> Result<usize, net_error> {
-        let sz = self.connection.send_data(w)?;
-        if sz > 0 {
-            self.last_response_timestamp = get_epoch_time_secs();
+    /// Write data out of our HTTP connection.  Write as much as we can
+    pub fn send<W: Write>(&mut self, w: &mut W, chainstate: &mut StacksChainState) -> Result<usize, net_error> {
+        let mut total_sz = 0;
+        loop {
+            // prime the Write
+            self.try_flush(chainstate)?;
+
+            let sz = match self.connection.send_data(w) {
+                Ok(sz) => sz,
+                Err(e) => {
+                    info!("{:?}: failed to send on HTTP conversation: {:?}", self, &e);
+                    return Err(e);
+                }
+            };
+
+            total_sz += sz;
+            if sz > 0 {
+                self.last_response_timestamp = get_epoch_time_secs();
+            }
+            else {
+                break;
+            }
         }
-        Ok(sz)
+        Ok(total_sz)
     }
 
     /// Make a new getinfo request to this endpoint
@@ -1032,10 +1064,12 @@ mod test {
            
             sender.try_flush(sender_chainstate).unwrap();
             receiver.try_flush(receiver_chainstate).unwrap();
+            
+            pipe_write.try_flush().unwrap();
 
             let all_relays_flushed = receiver.num_pending_outbound() == 0 && sender.num_pending_outbound() == 0;
             
-            let nw = sender.send(&mut pipe_write).unwrap();
+            let nw = sender.send(&mut pipe_write, sender_chainstate).unwrap();
             let nr = receiver.recv(&mut pipe_read).unwrap();
 
             test_debug!("res = {}, all_relays_flushed = {} ({},{}), nr = {}, nw = {}", res, all_relays_flushed, receiver.num_pending_outbound(), sender.num_pending_outbound(), nr, nw);
