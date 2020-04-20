@@ -16,7 +16,7 @@ use stacks::chainstate::burn::operations::{
     BlockstackOperationType,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer } };
+use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer }, relay::Relayer };
 use stacks::net::dns::DNSResolver;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -71,6 +71,8 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(5);
 
+    let mut relayer = Relayer::from_p2p(&mut this);
+
     let server_thread = thread::spawn(move || {
         loop {
             let mut burndb = match BurnDB::open(&burn_db_path, true) {
@@ -101,13 +103,26 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 }
             };
 
-            let res = this.run(
+            debug!("Begin network run");
+            println!("=======================================================");
+
+            let mut res = this.run(
                 &mut burndb, 
                 &mut chainstate, 
                 &mut mem_pool, 
                 Some(&mut dns_client), 
                 poll_timeout)
                 .unwrap();
+
+            debug!("Finished network run");
+            println!("=======================================================");
+            println!("Network result blocks: {:?}", res.blocks);
+            println!("=======================================================");
+
+            /*
+            let local_peer = PeerDB::get_local_peer(this.peerdb.conn()).unwrap();
+            relayer.process_network_result(&local_peer, &mut res, &mut burndb, &mut chainstate, &mut mem_pool).unwrap();
+            */
         }
     });
 
@@ -216,9 +231,7 @@ impl Node {
     pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        // todo(ludo): change file path once #1434 is merged in
-        // let mut burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
-        let mut burndb = BurnDB::open(&self.config.get_burn_db_path(), true)
+        let mut burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
             .expect("Error while instantiating burnchain db");
 
         let burnchain = Burnchain::new(
@@ -292,7 +305,7 @@ impl Node {
         let mut last_sortitioned_block = None; 
         let mut won_sortition = false;
         let ops = &burnchain_tip.state_transition.accepted_ops;
-
+        
         for op in ops.iter() {
             match op {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => {
@@ -362,7 +375,7 @@ impl Node {
             None => {
                 // We're continuously registering new keys, as such, this branch
                 // should be unreachable.
-                unreachable!()
+                return None;
             },
             Some(ref key) => key,
         };
