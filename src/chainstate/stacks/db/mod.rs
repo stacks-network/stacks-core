@@ -275,8 +275,8 @@ impl<'a> ClarityTx<'a> {
         self.block.commit_block();
     }
 
-    pub fn commit_block_will_move(self, will_move: &str) -> () {
-        self.block.commit_block_will_move(will_move);
+    pub fn commit_mined_block(self, block_hash: &BlockHeaderHash) -> () {
+        self.block.commit_mined_block(block_hash);
     }
 
     pub fn commit_to_block(self, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> () {
@@ -290,11 +290,6 @@ impl<'a> ClarityTx<'a> {
 
     pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a> {
         &mut self.block
-    }
-
-    pub fn get_block_path(&mut self, burn_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> PathBuf {
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_hash, block_hash);
-        self.block.get_marf().get_block_path(&index_block_hash)
     }
 }
 

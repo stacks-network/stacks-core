@@ -11,13 +11,13 @@ You have two options for setting up a local development environment:
 Fetch the docker image
 
 ```bash
-$ docker pull blockstack/blockstack-core:alpha.contracts.1
+$ docker pull blockstack/stacks-blockchain
 ```
 
 You can "enter" a docker environment using the following command:
 
 ```bash
-$ docker run -it -v $HOME/blockstack-dev-data:/data/ blockstack/blockstack-core:alpha.contracts.1 bash
+$ docker run -it -v $HOME/blockstack-dev-data:/data/ blockstack/stacks-blockchain bash
 ```
 
 This also _mounts_ the folder `$HOME/blockstack-dev-data` so that you
@@ -65,7 +65,7 @@ You should see a message saying "Database created".
 Start by type checking the "names" sample contract.
 
 ```bash
-$ blockstack-core local check sample-programs/names.clar /data/db
+$ blockstack-core local check sample-contracts/names.clar /data/db
 ```
 
 You should get an error:
@@ -83,7 +83,7 @@ that contract doesn't exist yet!
 If you type check the `tokens.clar` contract, it should pass validation:
 
 ```bash
-$ blockstack-core local check sample-programs/tokens.clar /data/db
+$ blockstack-core local check sample-contracts/tokens.clar /data/db
 ```
 
 When the `check` command executes successfully, it does not output any information,
@@ -94,20 +94,20 @@ it just exits with the stand UNIX `0` exit code.
 Now, let's instantiate the tokens contract:
 
 ```bash
-$ blockstack-core local launch tokens sample-programs/tokens.clar /data/db
+$ blockstack-core local launch tokens sample-contracts/tokens.clar /data/db
 ```
 
 Now that our development database has an instantiated tokens contract, let's see if
 the `names.clar` contract will successfully pass the type checker now:
 
 ```bash
-$ blockstack-core local check sample-programs/names.clar /data/db
+$ blockstack-core local check sample-contracts/names.clar /data/db
 ```
 
 It should pass validation. So now let's instantiate the names contract as well.
 
 ```bash
-$ blockstack-core local launch names sample-programs/names.clar /data/db
+$ blockstack-core local launch names sample-contracts/names.clar /data/db
 ```
 
 ### Executing a contract
@@ -198,7 +198,7 @@ defined in the smart contract VM.
 You can obtain them from the docker container with:
 
 ```
-$ docker run -it -v $HOME/blockstack-dev-data:/data/ blockstack/blockstack-core:alpha.contracts.1 blockstack-core docgen
+$ docker run -it -v $HOME/blockstack-dev-data:/data/ blockstack/stacks-blockchain blockstack-core docgen
 ```
 
 This outputs a JSON encoding of the API specifications for the native functions.
