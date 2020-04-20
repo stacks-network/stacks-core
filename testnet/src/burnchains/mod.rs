@@ -4,7 +4,7 @@ pub mod bitcoin_regtest_controller;
 pub use self::mocknet_controller::{MocknetController};
 pub use self::bitcoin_regtest_controller::{BitcoinRegtestController};
 
-use super::operations::{BurnchainOperationType, BurnchainOpSigner};
+use super::operations::BurnchainOpSigner;
 
 use std::time::Instant;
 
@@ -15,7 +15,7 @@ use stacks::chainstate::burn::operations::BlockstackOperationType;
 
 pub trait BurnchainController {
     fn start(&mut self) -> BurnchainTip;
-    fn submit_operation(&mut self, operation: BurnchainOperationType, op_signer: &mut BurnchainOpSigner);
+    fn submit_operation(&mut self, operation: BlockstackOperationType, op_signer: &mut BurnchainOpSigner);
     fn sync(&mut self) -> BurnchainTip;
     fn burndb_mut(&mut self) -> &mut BurnDB;
     fn get_chain_tip(&mut self) -> BurnchainTip;

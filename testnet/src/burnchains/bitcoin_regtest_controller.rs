@@ -7,7 +7,7 @@ use serde::Serialize;
 use secp256k1::{Secp256k1};
 
 use super::{BurnchainController, BurnchainTip};
-use super::super::operations::{BurnchainOperationType, LeaderKeyRegisterPayload, LeaderBlockCommitPayload, UserBurnSupportPayload, BurnchainOpSigner};
+use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 
 use stacks::burnchains::Burnchain;
@@ -17,6 +17,12 @@ use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime
 use stacks::burnchains::bitcoin::spv::SpvClient; 
 use stacks::burnchains::PublicKey;
 use stacks::chainstate::burn::db::burndb::BurnDB;
+use stacks::chainstate::burn::operations::{
+    LeaderBlockCommitOp,
+    LeaderKeyRegisterOp,
+    UserBurnSupportOp,
+    BlockstackOperationType,
+};
 use stacks::deps::bitcoin::blockdata::transaction::{Transaction, TxIn, TxOut, OutPoint};
 use stacks::deps::bitcoin::blockdata::opcodes;
 use stacks::deps::bitcoin::blockdata::script::{Script, Builder};
@@ -195,13 +201,14 @@ impl BitcoinRegtestController {
 
         let total_unspent: u64 = utxos.iter().map(|o| o.get_sat_amount()).sum();
         if total_unspent < amount_required {
+            debug!("Total unspent {} < {} for {:?}", total_unspent, amount_required, &public_key.to_hex());
             return None
         }
 
         Some(utxos)
     }
 
-    fn build_leader_key_register_tx(&mut self, payload: LeaderKeyRegisterPayload, signer: &mut BurnchainOpSigner) -> Option<Transaction> {
+    fn build_leader_key_register_tx(&mut self, payload: LeaderKeyRegisterOp, signer: &mut BurnchainOpSigner) -> Option<Transaction> {
         
         let public_key = signer.get_public_key();
 
@@ -235,7 +242,7 @@ impl BitcoinRegtestController {
         Some(tx)   
     }
 
-    fn build_leader_block_commit_tx(&mut self, payload: LeaderBlockCommitPayload, signer: &mut BurnchainOpSigner) -> Option<Transaction> {
+    fn build_leader_block_commit_tx(&mut self, payload: LeaderBlockCommitOp, signer: &mut BurnchainOpSigner) -> Option<Transaction> {
 
         let public_key = signer.get_public_key();
 
@@ -289,7 +296,10 @@ impl BitcoinRegtestController {
         // Fetch some UTXOs
         let utxos = match self.get_utxos(&public_key, amount_required) {
             Some(utxos) => utxos,
-            None => return None
+            None => {
+                debug!("No UTXOs for {}", &public_key.to_hex());
+                return None;
+            }
         };
         
         let mut inputs = vec![];
@@ -367,7 +377,7 @@ impl BitcoinRegtestController {
         signer.dispose();
     }
  
-    fn build_user_burn_support_tx(&mut self, _payload: UserBurnSupportPayload, _signer: &mut BurnchainOpSigner) -> Option<Transaction> {
+    fn build_user_burn_support_tx(&mut self, _payload: UserBurnSupportOp, _signer: &mut BurnchainOpSigner) -> Option<Transaction> {
         unimplemented!()
     }
 
@@ -386,6 +396,7 @@ impl BitcoinRegtestController {
     }
 
     fn build_next_block(&self, num_blocks: u64) {
+        debug!("Generate {} block(s)", num_blocks);
         let public_key = match &self.config.burnchain.local_mining_public_key {
             Some(public_key) => hex_bytes(public_key).expect("Invalid byte sequence"),
             None => panic!("Unable to make new block, mining public key"),
@@ -470,14 +481,13 @@ impl BurnchainController for BitcoinRegtestController {
         }
     }
 
-    fn submit_operation(&mut self, operation: BurnchainOperationType, op_signer: &mut BurnchainOpSigner) {
-
+    fn submit_operation(&mut self, operation: BlockstackOperationType, op_signer: &mut BurnchainOpSigner) {
         let transaction = match operation {
-            BurnchainOperationType::LeaderBlockCommit(payload) 
+            BlockstackOperationType::LeaderBlockCommit(payload) 
                 => self.build_leader_block_commit_tx(payload, op_signer),
-            BurnchainOperationType::LeaderKeyRegister(payload) 
+                BlockstackOperationType::LeaderKeyRegister(payload) 
                 => self.build_leader_key_register_tx(payload, op_signer),
-            BurnchainOperationType::UserBurnSupport(payload) 
+                BlockstackOperationType::UserBurnSupport(payload) 
                 => self.build_user_burn_support_tx(payload, op_signer)
         };
 
@@ -602,6 +612,7 @@ type RPCResult<T> = Result<T, RPCError>;
 impl BitcoinRPCRequest {
 
     pub fn generate_to_address(request_builder: RequestBuilder, num_blocks: u64, address: String) -> RPCResult<()> {
+        debug!("Generate {} blocks to {}", num_blocks, address);
         let payload = BitcoinRPCRequest {
             method: "generatetoaddress".to_string(),
             params: vec![num_blocks.into(), address.into()],

@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use super::super::{Config};
-use super::{BurnchainController, BurnchainOperationType, BurnchainTip};
+use super::{BurnchainController, BurnchainTip};
 use super::super::operations::BurnchainOpSigner;
 
 use stacks::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainHeaderHash, BurnchainBlock, Txid, BurnchainStateTransition};
@@ -24,7 +24,7 @@ pub struct MocknetController {
     burnchain: Burnchain,
     db: Option<BurnDB>,
     chain_tip: Option<BurnchainTip>,
-    queued_operations: VecDeque<BurnchainOperationType>,
+    queued_operations: VecDeque<BlockstackOperationType>,
 }
 
 impl MocknetController {
@@ -106,7 +106,7 @@ impl BurnchainController for MocknetController {
         genesis_state
     }
 
-    fn submit_operation(&mut self, operation: BurnchainOperationType, _op_signer: &mut BurnchainOpSigner) {
+    fn submit_operation(&mut self, operation: BlockstackOperationType, _op_signer: &mut BurnchainOpSigner) {
         self.queued_operations.push_back(operation);
     }
 
@@ -121,7 +121,7 @@ impl BurnchainController for MocknetController {
         while let Some(payload) = self.queued_operations.pop_front() {
             let txid = Txid(Sha256Sum::from_data(format!("{}::{}", next_block_header.block_height, vtxindex).as_bytes()).0);
             let op = match payload {
-                BurnchainOperationType::LeaderKeyRegister(payload) => {
+                BlockstackOperationType::LeaderKeyRegister(payload) => {
                     BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
                         consensus_hash: payload.consensus_hash,
                         public_key: payload.public_key,
@@ -133,7 +133,7 @@ impl BurnchainController for MocknetController {
                         burn_header_hash: next_block_header.block_hash,
                     })
                 },
-                BurnchainOperationType::LeaderBlockCommit(payload) => {
+                BlockstackOperationType::LeaderBlockCommit(payload) => {
                     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
                         block_header_hash: payload.block_header_hash,
                         new_seed: payload.new_seed,
@@ -150,7 +150,7 @@ impl BurnchainController for MocknetController {
                         burn_header_hash: next_block_header.block_hash,
                     })
                 },
-                BurnchainOperationType::UserBurnSupport(payload) => {
+                BlockstackOperationType::UserBurnSupport(payload) => {
                     BlockstackOperationType::UserBurnSupport(UserBurnSupportOp {
                         address: payload.address,
                         consensus_hash: payload.consensus_hash,

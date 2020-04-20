@@ -17,6 +17,8 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::io::{Read, Write};
+
 use address::AddressHashMode;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::operations::Error as op_error;
@@ -50,6 +52,10 @@ use burnchains::{
     BurnchainSigner,
     BurnchainRecipient
 };
+
+use net::StacksMessageCodec;
+use net::codec::{write_next};
+use net::Error as net_error;
 
 use util::log;
 use util::hash::to_hex;
@@ -241,6 +247,39 @@ impl LeaderBlockCommitOp {
     }
 }
 
+impl StacksMessageCodec for LeaderBlockCommitOp {
+
+    /*
+        Wire format:
+
+        0      2  3            35               67     71     73    77   79     80
+        |------|--|-------------|---------------|------|------|-----|-----|-----|
+         magic  op   block hash     new seed     parent parent key   key   memo
+                                                block  txoff  block txoff
+    */
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), net_error> {
+        write_next(fd, &(Opcodes::LeaderBlockCommit as u8))?;
+        write_next(fd, &self.block_header_hash)?;
+        fd.write_all(&self.new_seed.as_bytes()[..]).map_err(net_error::WriteError)?;
+        write_next(fd, &self.parent_block_ptr)?;
+        write_next(fd, &self.parent_vtxindex)?;
+        write_next(fd, &self.key_block_ptr)?;
+        write_next(fd, &self.key_vtxindex)?;
+
+        let memo = match self.memo.len() > 0 {
+            true => self.memo[0],
+            false => 0x00,
+        };
+        write_next(fd, &memo)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderBlockCommitOp, net_error> {
+        // Op deserialized through burchain indexer
+        unimplemented!();
+    }
+}
+
 impl BlockstackOperation for LeaderBlockCommitOp {
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<LeaderBlockCommitOp, op_error> {
         LeaderBlockCommitOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
@@ -393,7 +432,7 @@ mod tests {
     };
 
     use util::vrf::VRFPublicKey;
-    use util::hash::hex_bytes;
+    use util::hash::{hex_bytes, to_hex};
     use util::log;
     use util::get_epoch_time_secs;
     
@@ -406,6 +445,7 @@ mod tests {
 
     struct OpFixture {
         txstr: String,
+        opstr: String,
         result: Option<LeaderBlockCommitOp>
     }
 
@@ -432,6 +472,7 @@ mod tests {
             OpFixture {
                 // valid
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100eba8c0a57c1eb71cdfba0874de63cf37b3aace1e56dcbd61701548194a79af34022041dd191256f3f8a45562e5d60956bb871421ba69db605716250554b23b08277b012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000030000000000000000536a4c5069645b222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333334041424350516061626370718039300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "69645b2222222222222222222222222222222222222222222222222222222222222222333333333333333333333333333333333333333333333333333333333333333340414243505160616263707180".to_string(),
                 result: Some(LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
@@ -459,16 +500,19 @@ mod tests {
             OpFixture {
                 // invalid -- wrong opcode 
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006946304302207129fa2054a61cdb4b7db0b8fab6e8ff4af0edf979627aa5cf41665b7475a451021f70032b48837df091223c1d0bb57fb0298818eb11d0c966acff4b82f4b2d5c8012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000030000000000000000536a4c5069645c222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333334041424350516061626370718039300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "".to_string(),
                 result: None,
             },
             OpFixture {
                 // invalid -- wrong burn address
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100e25f5f9f660339cd665caba231d5bdfc3f0885bcc0b3f85dc35564058c9089d702206aa142ea6ccd89e56fdc0743cdcf3a2744e133f335e255e9370e4f8a6d0f6ffd012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000030000000000000000536a4c5069645b222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333334041424350516061626370718039300000000000001976a914000000000000000000000000000000000000000188aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "".to_string(),
                 result: None,
             },
             OpFixture {
                 // invalid -- bad OP_RETURN (missing memo)
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100c6c3ccc9b5a6ba5161706f3a5e4518bc3964e8de1cf31dbfa4d38082535c88e902205860de620cfe68a72d5a1fc3be1171e6fd8b2cdde0170f76724faca0db5ee0b6012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000030000000000000000526a4c4f69645b2222222222222222222222222222222222222222222222222222222222222222333333333333333333333333333333333333333333333333333333333333333340414243505160616263707139300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                opstr: "".to_string(),
                 result: None,
             }
         ];
@@ -504,6 +548,16 @@ mod tests {
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {
+
+                    let opstr = {
+                        let mut buffer= vec![];
+                        let mut magic_bytes = BLOCKSTACK_MAGIC_MAINNET.as_bytes().to_vec();
+                        buffer.append(&mut magic_bytes);
+                        parsed_tx.consensus_serialize(&mut buffer).expect("FATAL: invalid operation");
+                        to_hex(&buffer)
+                    };
+
+                    assert_eq!(tx_fixture.opstr, opstr);
                     assert_eq!(parsed_tx, result);
                 },
                 (Err(_e), None) => {},

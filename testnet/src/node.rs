@@ -1,19 +1,22 @@
 use super::{Keychain, Config, Tenure, BurnchainController, BurnchainTip, EventDispatcher};
-use super::operations::{BurnchainOperationType, LeaderBlockCommitPayload, LeaderKeyRegisterPayload};
 
 use std::convert::TryFrom;
 use std::{thread, time, thread::JoinHandle};
 use std::net::SocketAddr;
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash};
+use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
 use stacks::chainstate::burn::db::burndb::{BurnDB};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::{ StacksBlock, TransactionPayload, StacksAddress, StacksTransactionSigner, StacksTransaction, TransactionVersion, StacksMicroblock, CoinbasePayload, TransactionAnchorMode};
-use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash};
+use stacks::chainstate::burn::operations::{
+    LeaderBlockCommitOp,
+    LeaderKeyRegisterOp,
+    BlockstackOperationType,
+};
 use stacks::core::mempool::MemPoolDB;
-use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer } };
+use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::PeerDB};
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
@@ -516,12 +519,16 @@ impl Node {
     }
 
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
-    fn generate_leader_key_register_op(&mut self, vrf_public_key: VRFPublicKey, consensus_hash: &ConsensusHash) -> BurnchainOperationType {
-        BurnchainOperationType::LeaderKeyRegister(LeaderKeyRegisterPayload {
+    fn generate_leader_key_register_op(&mut self, vrf_public_key: VRFPublicKey, consensus_hash: &ConsensusHash) -> BlockstackOperationType {
+        BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: vec![],
             address: self.keychain.get_address(),
             consensus_hash: consensus_hash.clone(),
+            vtxindex: 0,
+            txid: Txid([0u8; 32]),
+            block_height: 0,
+            burn_header_hash: BurnchainHeaderHash([0u8; 32]),        
         })
     }
 
@@ -531,7 +538,7 @@ impl Node {
                                 burn_fee: u64, 
                                 key: &RegisteredKey,
                                 burnchain_tip: &BurnchainTip,
-                                vrf_seed: VRFSeed) -> BurnchainOperationType {
+                                vrf_seed: VRFSeed) -> BlockstackOperationType {
 
         let winning_tx_vtindex = match (burnchain_tip.get_winning_tx_index(), burnchain_tip.block_snapshot.total_burn) {
             (Some(winning_tx_id), _) => winning_tx_id,
@@ -544,7 +551,7 @@ impl Node {
             false => (burnchain_tip.block_snapshot.block_height as u32, winning_tx_vtindex as u16)
         };
 
-        BurnchainOperationType::LeaderBlockCommit(LeaderBlockCommitPayload {
+        BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
             block_header_hash,
             burn_fee,
             input: self.keychain.get_burnchain_signer(),
@@ -553,7 +560,11 @@ impl Node {
             memo: vec![],
             new_seed: vrf_seed,
             parent_block_ptr,
-            parent_vtxindex
+            parent_vtxindex,
+            vtxindex: 0,
+            txid: Txid([0u8; 32]),
+            block_height: 0,
+            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
         })
     }
 
