@@ -178,14 +178,20 @@ pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
 
 macro_rules! impl_byte_array_from_column {
     ($thing:ident) => {
-        impl FromColumn<$thing> for $thing {
-            fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<$thing, ::util::db::Error> {
-                let hex_str : String = row.get(column_name);
-                let byte_str = hex_bytes(&hex_str)
-                    .map_err(|_e| ::util::db::Error::ParseError)?;
+        impl rusqlite::types::FromSql for $thing {
+            fn column_result(value: rusqlite::types::ValueRef) -> rusqlite::types::FromSqlResult<Self> {
+                let hex_str = value.as_str()?;
+                let byte_str = ::util::hash::hex_bytes(hex_str)
+                    .map_err(|_e| rusqlite::types::FromSqlError::InvalidType)?;
                 let inst = $thing::from_bytes(&byte_str)
-                    .ok_or(::util::db::Error::ParseError)?;
+                    .ok_or(rusqlite::types::FromSqlError::InvalidType)?;
                 Ok(inst)
+            }
+        }
+
+        impl FromColumn<$thing> for $thing {
+            fn from_column(row: &rusqlite::Row, column_name: &str) -> Result<Self, ::util::db::Error> {
+                Ok(row.get::<_, Self>(column_name))
             }
         }
 
