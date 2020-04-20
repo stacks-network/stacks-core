@@ -1177,7 +1177,7 @@ mod test {
         assert_eq!(relayer_stats.relay_stats.get(&na).unwrap().last_seen, 1);
         assert_eq!(relayer_stats.relay_updates.len(), 1);
 
-        let now = get_epoch_time_secs() + 60;
+        let now = get_epoch_time_secs() + 600;
 
         let relay_stats_2 = RelayStats {
             num_messages: 2,

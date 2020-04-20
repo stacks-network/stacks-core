@@ -106,29 +106,37 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
 pub struct NetworkReplyHandle<P: ProtocolFamily> {
     receiver_output: Option<Receiver<P::Message>>,
     request_pipe_write: Option<PipeWrite>,        // caller feeds in the message via this pipe endpoint.  Set to None on flush
-    deadline: u64
+    deadline: u64,
+    socket_event_id: usize
 }
 
 impl<P: ProtocolFamily> NetworkReplyHandle<P> {
-    pub fn new(output: Receiver<P::Message>, write: PipeWrite) -> NetworkReplyHandle<P> {
+    pub fn new(output: Receiver<P::Message>, write: PipeWrite, socket_event_id: usize) -> NetworkReplyHandle<P> {
         NetworkReplyHandle {
             receiver_output: Some(output),
             request_pipe_write: Some(write),
-            deadline: 0
+            deadline: 0,
+            socket_event_id: socket_event_id
         }
     }
 
-    pub fn new_relay(write: PipeWrite) -> NetworkReplyHandle<P> {
+    pub fn new_relay(write: PipeWrite, socket_event_id: usize) -> NetworkReplyHandle<P> {
         NetworkReplyHandle {
             receiver_output: None,
             request_pipe_write: Some(write),
-            deadline: 0
+            deadline: 0,
+            socket_event_id: socket_event_id
         }
     }
 
     /// deadline is in seconds
     pub fn set_deadline(&mut self, dl: u64) -> () {
         self.deadline = dl;
+    }
+
+    /// Get the associated socket event ID hint
+    pub fn get_event_id(&self) -> usize {
+        self.socket_event_id
     }
 
     /// Try to flush and receive.
@@ -167,7 +175,7 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
     /// is destroyed in the process).
     pub fn try_recv(mut self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
         if self.deadline > 0 && self.deadline < get_epoch_time_secs() {
-            test_debug!("Deadline {} exceeded (now = {})", self.deadline, get_epoch_time_secs());
+            test_debug!("Reply deadline {} exceeded (now = {})", self.deadline, get_epoch_time_secs());
             return Err(Err(net_error::RecvTimeout));
         }
         match self.receiver_output {
@@ -176,7 +184,10 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
                 match res {
                     Ok(message) => Ok(message),
                     Err(TryRecvError::Empty) => Err(Ok(self)),      // try again,
-                    Err(TryRecvError::Disconnected) => Err(Err(net_error::ConnectionBroken))
+                    Err(TryRecvError::Disconnected) => {
+                        debug!("receiver_output.try_recv() disconnected -- sender endpoint is dead and the receiver endpoint is drained");
+                        Err(Err(net_error::ConnectionBroken))
+                    }
                 }
             },
             None => {
@@ -192,12 +203,16 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
         match self.receiver_output {
             Some(ref mut output) => {
                 if timeout < 0 {
-                    output.recv()
-                        .map_err(|_e| net_error::ConnectionBroken)
+                    output.recv().map_err(|_e| {
+                        debug!("recv error: {:?}", &_e);
+                        net_error::ConnectionBroken
+                    })
                 }
                 else {
-                    output.recv_timeout(Duration::new(timeout as u64, 0))
-                        .map_err(|_e| net_error::ConnectionBroken)
+                    output.recv_timeout(Duration::new(timeout as u64, 0)).map_err(|_e| {
+                        debug!("recv timeout error: {:?}", &_e);
+                        net_error::ConnectionBroken
+                    })
                 }
             },
             None => {
@@ -1059,7 +1074,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
                 Some(inflight) => {
                     if inflight.ttl < now {
                         // expired
-                        test_debug!("Request timed out: seq={} ttl={} now={}", inflight.expected_seq, inflight.ttl, now); 
+                        debug!("Request timed out: seq={} ttl={} now={}", inflight.expected_seq, inflight.ttl, now); 
                         to_remove.push(i);
                     }
                 }
@@ -1081,13 +1096,13 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     /// Caller will need to write the message bytes into the resulting NetworkReplyHandle, and call
     /// flush() on it to make sure the data gets written out to the socket.
     /// ttl is in seconds
-    pub fn make_request_handle(&mut self, request_id: u32, ttl: u64) -> Result<NetworkReplyHandle<P>, net_error> {
+    pub fn make_request_handle(&mut self, request_id: u32, timeout: u64, socket_event_id: usize) -> Result<NetworkReplyHandle<P>, net_error> {
         let (send_ch, recv_ch) = sync_channel(1);
-        let recv_notify = ReceiverNotify::new(request_id, send_ch, ttl);
+        let recv_notify = ReceiverNotify::new(request_id, send_ch, timeout + get_epoch_time_secs());
         
         let (pipe_read, pipe_write) = Pipe::new();
-        let mut recv_handle = NetworkReplyHandle::new(recv_ch, pipe_write);
-        recv_handle.set_deadline(ttl + get_epoch_time_secs());
+        let mut recv_handle = NetworkReplyHandle::new(recv_ch, pipe_write, socket_event_id);
+        recv_handle.set_deadline(timeout + get_epoch_time_secs());
 
         self.outbox.queue_message(pipe_read, Some(recv_notify))?;
         Ok(recv_handle)
@@ -1095,11 +1110,11 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
 
     /// Forward a message and expect no reply
     /// Returns a Write-able handle into which the message should be written, and flushed.
-    pub fn make_relay_handle(&mut self) -> Result<NetworkReplyHandle<P>, net_error> {
+    pub fn make_relay_handle(&mut self, socket_event_id: usize) -> Result<NetworkReplyHandle<P>, net_error> {
         let (pipe_read, pipe_write) = Pipe::new();
         self.outbox.queue_message(pipe_read, None)?;
 
-        let send_handle = NetworkReplyHandle::new_relay(pipe_write);
+        let send_handle = NetworkReplyHandle::new_relay(pipe_write, socket_event_id);
         Ok(send_handle)
     }
 
@@ -1206,7 +1221,7 @@ mod test {
 
         let mut pipes = vec![]; // keep pipes in-scope
         for i in 0..conn.options.outbox_maxlen {
-            let pipe = conn.make_relay_handle().unwrap();
+            let pipe = conn.make_relay_handle(0).unwrap();
             pipes.push(pipe);
         }
         
@@ -1354,7 +1369,7 @@ mod test {
 
         let mut handles = vec![]; // keep pipes in-scope
         for i in 0..conn.options.outbox_maxlen {
-            let handle = conn.make_request_handle(messages[i].request_id(), get_epoch_time_secs() + 60).unwrap();
+            let handle = conn.make_request_handle(messages[i].request_id(), 60, 0).unwrap();
             handles.push(handle);
         }
         
@@ -1549,7 +1564,7 @@ mod test {
         let mut pipes = vec![]; // keep pipes in-scope
         for i in 0..5 {
             test_debug!("Write ping {}", i);
-            let mut pipe = conn.make_relay_handle().unwrap();
+            let mut pipe = conn.make_relay_handle(0).unwrap();
             ping.consensus_serialize(&mut pipe).unwrap();
             pipes.push(pipe);
         }
@@ -1701,7 +1716,7 @@ mod test {
                 tmp.len()
             };
 
-            let mut pipe = conn.make_relay_handle().unwrap();
+            let mut pipe = conn.make_relay_handle(0).unwrap();
             ping.consensus_serialize(&mut pipe).unwrap();
             pipes.push(pipe);
             ping_vec.push(ping);
@@ -1792,7 +1807,7 @@ mod test {
                 tmp.len()
             };
 
-            let mut handle = conn.make_request_handle(ping.request_id(), get_epoch_time_secs() + 60).unwrap();
+            let mut handle = conn.make_request_handle(ping.request_id(), 60, 0).unwrap();
             ping.consensus_serialize(&mut handle).unwrap();
 
             handle_vec.push(handle);
@@ -1897,7 +1912,7 @@ mod test {
             };
            
             // 1-second timeout
-            let mut handle = conn.make_request_handle(ping.request_id(), get_epoch_time_secs() + 1).unwrap();
+            let mut handle = conn.make_request_handle(ping.request_id(), 1, 0).unwrap();
             ping.consensus_serialize(&mut handle).unwrap();
 
             handle_vec.push(handle);

@@ -147,7 +147,7 @@ impl NetworkState {
         let server = NetworkState::bind_address(addr)?;
         let next_server_event = self.next_event_id();
 
-        self.poll.register(&server, mio::Token(next_server_event), mio::Ready::readable(), mio::PollOpt::edge())
+        self.poll.register(&server, mio::Token(next_server_event), Ready::all(), PollOpt::edge())
             .map_err(|e| {
                 error!("Failed to register server socket: {:?}", &e);
                 net_error::BindError
