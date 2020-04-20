@@ -151,13 +151,14 @@ impl HttpPeer {
         }
 
         // how many other conversations are connected?
-        if self.count_inbound_ip_addrs(peer_addr) > self.connection_opts.max_clients_per_host {
+        let num_inbound = self.count_inbound_ip_addrs(peer_addr);
+        if num_inbound > self.connection_opts.max_clients_per_host {
             // too many 
-            debug!("HTTP: too many inbound peers from {:?}", peer_addr);
+            debug!("HTTP: too many inbound peers from {:?} ({} > {})", peer_addr, num_inbound, self.connection_opts.max_clients_per_host);
             return Err(net_error::TooManyPeers);
         }
 
-        debug!("HTTP: Have {} peers now (max {}) inbound={}", self.peers.len(), self.connection_opts.num_clients, outbound_url.is_none());
+        debug!("HTTP: Have {} peers now (max {}) inbound={}, including {} from host of {:?}", self.peers.len(), self.connection_opts.num_clients, outbound_url.is_none(), num_inbound, peer_addr);
         Ok(())
     }
 
@@ -188,10 +189,10 @@ impl HttpPeer {
 
         let mut new_convo = ConversationHttp::new(self.network_id, &self.burnchain, client_addr.clone(), outbound_url.clone(), peer_host, &self.connection_opts, event_id);
         
-        debug!("Registered HTTP {} as event {} (outbound={:?})", &client_addr, event_id, &outbound_url);
+        debug!("Registered HTTP {:?} as event {} (outbound={:?})", &socket, event_id, &outbound_url);
 
         if let Some(request) = initial_request {
-            test_debug!("Sending initial HTTP request to {}", &client_addr);
+            test_debug!("Sending initial HTTP request to {:?}", &socket);
             match new_convo.send_request(request) {
                 Ok(_) => {},
                 Err(e) => {

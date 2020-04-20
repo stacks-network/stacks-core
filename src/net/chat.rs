@@ -1064,7 +1064,7 @@ impl ConversationP2P {
                     }
                 },
                 Err(e) => {
-                    info!("{:?}: failed to recv: {:?}", self, &e);
+                    info!("{:?}: failed to recv on P2P conversation: {:?}", self, &e);
                     return Err(e);
                 }
             }
@@ -1093,7 +1093,7 @@ impl ConversationP2P {
                     }
                 },
                 Err(e) => {
-                    info!("{:?}: failed to send: {:?}", self, &e);
+                    info!("{:?}: failed to send on P2P conversation: {:?}", self, &e);
                     return Err(e);
                 }
             }

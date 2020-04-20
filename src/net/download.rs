@@ -1754,6 +1754,7 @@ pub mod test {
 
                                            for p in peer_configs.iter_mut() {
                                                p.connection_opts.disable_block_advertisement = true;
+                                               p.connection_opts.max_clients_per_host = 30;
                                            }
                                            
                                            let peer_0 = peer_configs[0].to_neighbor();
@@ -1811,6 +1812,7 @@ pub mod test {
                                            
                                            for p in peer_configs.iter_mut() {
                                                p.connection_opts.disable_block_advertisement = true;
+                                               p.connection_opts.max_clients_per_host = 30;
                                            }
 
                                            for i in 0..peer_configs.len() {
