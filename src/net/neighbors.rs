@@ -514,7 +514,7 @@ impl NeighborWalk {
     /// the reported NeighborAddress public key hash doesn't match our records.
     fn lookup_stale_neighbors(dbconn: &DBConn, network_id: u32, block_height: u64, addrs: &Vec<NeighborAddress>) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error> {
         let mut to_resolve = vec![];
-        let mut resolved = HashMap::<NeighborAddress, Neighbor>::new();
+        let mut resolved : HashMap<NeighborAddress, Neighbor> = HashMap::new();
         for naddr in addrs {
             let neighbor_opt = Neighbor::from_neighbor_address(dbconn, network_id, block_height, naddr)?;
             match neighbor_opt {
@@ -1265,6 +1265,12 @@ impl PeerNetwork {
                     Ok(true)
                 },
                 None => {
+                    // if cur_neighbor is _us_, then grab a different neighbor and try again
+                    if walk.cur_neighbor.public_key == Secp256k1PublicKey::from_private(&network.local_peer.private_key) {
+                        debug!("Walk stepped to ourselves.  Will reset instead.");
+                        return Err(net_error::NoSuchNeighbor);
+                    }
+
                     let my_addr = walk.cur_neighbor.addr.clone();
                     walk.clear_state();
 

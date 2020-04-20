@@ -139,6 +139,11 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
         self.socket_event_id
     }
 
+    /// Are we expecting a reply?
+    pub fn expects_reply(&self) -> bool {
+        self.receiver_output.is_some()
+    }
+
     /// Try to flush and receive.
     /// Only call this once all sender data is bufferred up.
     /// Consumed the handle if it succeeds in both emptying the message buffer and getting a message.

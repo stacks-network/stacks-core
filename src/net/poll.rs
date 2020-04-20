@@ -251,6 +251,12 @@ impl NetworkState {
                 net_error::ConnectionError
             })?;
 
+        if cfg!(test) {
+            // edge-trigger torture test
+            stream.set_send_buffer_size(32).unwrap();
+            stream.set_recv_buffer_size(32).unwrap();
+        }
+
         test_debug!("New socket connected to {:?}: {:?}", addr, &stream);
         Ok(stream)
     }
