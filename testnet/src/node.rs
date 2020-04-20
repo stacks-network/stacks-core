@@ -69,6 +69,8 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
               burn_db_path: String, stacks_chainstate_path: String, 
               poll_timeout: u64) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
+    let (mut dns_resolver, mut dns_client) = DNSResolver::new(5);
+
     let server_thread = thread::spawn(move || {
         loop {
             let mut burndb = match BurnDB::open(&burn_db_path, true) {
@@ -108,6 +110,11 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
                 .unwrap();
         }
     });
+
+    let jh = thread::spawn(move || {
+        dns_resolver.thread_main();
+    });
+
     Ok(server_thread)
 }
 
