@@ -2326,6 +2326,7 @@ mod tests {
         };
 
         first_snapshot.index_root = initial_snapshot.index_root.clone();
+        first_snapshot.burn_header_timestamp = initial_snapshot.burn_header_timestamp;
         assert_eq!(initial_snapshot, first_snapshot);
 
         {
@@ -2346,6 +2347,7 @@ mod tests {
         };
 
         next_snapshot.index_root = initial_snapshot.index_root.clone();
+        next_snapshot.burn_header_timestamp = initial_snapshot.burn_header_timestamp;
         assert_eq!(initial_snapshot, next_snapshot);
 
         {
@@ -2366,6 +2368,7 @@ mod tests {
         };
 
         snapshot_with_sortition.index_root = next_snapshot_2.index_root.clone();
+        snapshot_with_sortition.burn_header_timestamp = next_snapshot_2.burn_header_timestamp;
         assert_eq!(snapshot_with_sortition, next_snapshot_2);
     }
 

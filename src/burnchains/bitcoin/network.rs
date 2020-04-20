@@ -226,14 +226,15 @@ impl BitcoinIndexer {
                             // need to try again
                             backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0));
                         }
-                        Err(_) => {
+                        Err(e) => {
                             // propagate other network error
-                            return handshake_result;
+                            warn!("Failed to handshake with {}:{}: {:?}", &self.config.peer_host, self.config.peer_port, &e);
+                            return Err(e);
                         }
                     }
                 }
                 Err(err_msg) => {
-                    error!("Failed to connect to peer: {}", err_msg);
+                    error!("Failed to connect to peer {}:{}: {}", &self.config.peer_host, self.config.peer_port, err_msg);
                     backoff = 2.0 * backoff + (backoff * rng.gen_range(0.0, 1.0));
                 }
             }

@@ -737,7 +737,7 @@ impl Burnchain {
             })?;
         
         if new_height < db_height {
-            warn!("Detected burnchain reorg at height {}. Re-sync'ing...", new_height);
+            warn!("Detected burnchain reorg at height {} (< {}). Re-sync'ing...", new_height, db_height);
 
             // drop associated headers as well 
             indexer.drop_headers(&headers_path, new_height)?;

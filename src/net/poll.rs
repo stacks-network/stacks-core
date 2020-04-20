@@ -147,7 +147,7 @@ impl NetworkState {
         let server = NetworkState::bind_address(addr)?;
         let next_server_event = self.next_event_id();
 
-        self.poll.register(&server, mio::Token(next_server_event), mio::Ready::readable(), mio::PollOpt::edge())
+        self.poll.register(&server, mio::Token(next_server_event), Ready::all(), PollOpt::edge())
             .map_err(|e| {
                 error!("Failed to register server socket: {:?}", &e);
                 net_error::BindError
@@ -250,6 +250,12 @@ impl NetworkState {
                 test_debug!("Failed to set TCP_KEEPALIVE and/or SO_KEEPALIVE: {:?}", &_e);
                 net_error::ConnectionError
             })?;
+
+        if cfg!(test) {
+            // edge-trigger torture test
+            stream.set_send_buffer_size(32).unwrap();
+            stream.set_recv_buffer_size(32).unwrap();
+        }
 
         test_debug!("New socket connected to {:?}: {:?}", addr, &stream);
         Ok(stream)
