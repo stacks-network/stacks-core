@@ -1439,6 +1439,10 @@ pub mod test {
     fn test_get_block_availability() {
         let mut peer_1_config = TestPeerConfig::new("test_get_block_availability", 3210, 3211);
         let mut peer_2_config = TestPeerConfig::new("test_get_block_availability", 3212, 3213);
+
+        // don't bother downloading blocks
+        peer_1_config.connection_opts.disable_block_download = true;
+        peer_2_config.connection_opts.disable_block_download = true;
         
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -1478,7 +1482,22 @@ pub mod test {
             let result_2 = peer_2.step();
 
             inv_1_count = match peer_1.network.inv_state {
-                Some(ref inv) => inv.get_inv_sortitions(&peer_2.to_neighbor().addr),
+                Some(ref inv) => {
+                    let mut count = inv.get_inv_sortitions(&peer_2.to_neighbor().addr);
+
+                    // continue until peer 1 knows that peer 2 has blocks
+                    let peer_1_availability = BlockDownloader::get_block_availability(peer_1.network.inv_state.as_mut().unwrap(), peer_1.burndb.as_mut().unwrap(), first_stacks_block_height - 1, first_stacks_block_height + num_blocks).unwrap();
+                    for (_, _, neighbors) in peer_1_availability.iter() {
+                        if neighbors.len() != 1 {
+                            // not done yet
+                            count = 0;
+                            break;
+                        }
+                        assert_eq!(neighbors[0], peer_2.config.to_neighbor().addr);
+                    }
+
+                    count
+                },
                 None => 0
             };
 
@@ -1492,6 +1511,7 @@ pub mod test {
                 Some(ref inv) => {
                     assert_eq!(inv.broken_peers.len(), 0);
                     assert_eq!(inv.diverged_peers.len(), 0);
+
                 },
                 None => {}
             }
@@ -1503,6 +1523,7 @@ pub mod test {
                 },
                 None => {}
             }
+
 
             round += 1;
         }
