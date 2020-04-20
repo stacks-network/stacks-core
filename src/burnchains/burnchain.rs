@@ -90,6 +90,14 @@ use burnchains::bitcoin::indexer::FIRST_BLOCK_TESTNET as BITCOIN_FIRST_BLOCK_TES
 use burnchains::bitcoin::indexer::FIRST_BLOCK_REGTEST as BITCOIN_FIRST_BLOCK_REGTEST;
 
 impl BurnchainStateTransition {
+    pub fn noop() -> BurnchainStateTransition {
+        BurnchainStateTransition {
+            burn_dist: vec![],
+            accepted_ops: vec![],
+            consumed_leader_keys: vec![]
+        }
+    }
+
     pub fn from_block_ops<'a>(tx: &mut BurnDBTx<'a>, parent_snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
