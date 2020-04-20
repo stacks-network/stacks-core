@@ -70,7 +70,7 @@ impl RunLoop {
         let mut chain_tip = ChainTip::genesis();
 
         if self.config.burnchain.mode == "mocknet" {
-            self.node.spawn_peer_server();
+            self.node.spawn_node_threads();
         }
 
         // Bootstrap the chain: node will start a new tenure,

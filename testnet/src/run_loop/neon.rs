@@ -1,3 +1,4 @@
+use std::process;
 use crate::{Config, Node, BurnchainController, BitcoinRegtestController, ChainTip, BurnchainTip, Tenure};
 
 use super::RunLoopCallbacks;
@@ -76,21 +77,17 @@ impl RunLoop {
 
             match (artifacts_from_tenure, sortitioned_block) {
                 // Pass if we're missing the artifacts from the current tenure.
-                (Some(ref artifacts), Some(ref last_sortitioned_block)) => {
-                    // Have each node process the previous tenure.
-                    // We should have some additional checks here, and ensure that the previous artifacts are legit.
-                    chain_tip = node.process_tenure(
-                        &artifacts.anchored_block, 
-                        &last_sortitioned_block.block_snapshot.burn_header_hash, 
-                        &last_sortitioned_block.block_snapshot.parent_burn_header_hash,             
-                        artifacts.microblocks.clone(),
-                        burnchain.burndb_mut());
-
-                        self.callbacks.invoke_new_stacks_chain_state(
-                            round_index, 
-                            &burnchain_tip, 
-                            &chain_tip, 
-                            &mut node.chain_state);
+                (Some(artifacts), Some(last_sortitioned_block)) => {
+                    // Let's process a tenure -- that happens in the relayer thread.
+                    if !node.relayer_process_tenure(
+                        artifacts.anchored_block, 
+                        last_sortitioned_block.block_snapshot.burn_header_hash, 
+                        last_sortitioned_block.block_snapshot.parent_burn_header_hash,             
+                        artifacts.microblocks) {
+                        // relayer hung up, exit.
+                        error!("Block relayer and miner hung up, exiting.");
+                        process::exit(1);
+                    }
                 },
                 (_, _) => continue,
             };
@@ -172,7 +169,7 @@ impl RunLoop {
 
         let tenure = node.initiate_new_tenure();
 
-        node.spawn_peer_server();
+        node.spawn_node_threads();
 
         (node, chain_tip, burnchain_tip, tenure)
     }

@@ -21,7 +21,9 @@ use stacks::net::dns::DNSResolver;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
+use stacks::net::NetworkResult;
 
+use std::sync::mpsc::{channel, Sender, Receiver};
 
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
 pub const TESTNET_PEER_VERSION: u32 = 0xdead1010;
@@ -51,6 +53,11 @@ struct RegisteredKey {
     vrf_public_key: VRFPublicKey,
 }
 
+enum RelayerDirective {
+    HandleNetResult(NetworkResult),
+    ProcessTenure(StacksBlock, Vec<StacksMicroblock>, BurnchainHeaderHash, BurnchainHeaderHash)
+}
+
 /// Node is a structure modelising an active node working on the stacks chain.
 pub struct Node {
     pub chain_state: StacksChainState,
@@ -62,69 +69,39 @@ pub struct Node {
     keychain: Keychain,
     last_sortitioned_block: Option<BurnchainTip>,
     nonce: u64,
+
+    // refactoring this struct and the run_loops so that this doesn't
+    // need to be an option, but is rather initialized on instantiation
+    // would be a good idea.
+    relay_channel: Option<Sender<RelayerDirective>>,
+    dispatcher_channel: Sender<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>,
 }
 
-fn spawn_peer(mut this: PeerNetwork, 
-    p2p_sock: &SocketAddr, 
-    rpc_sock: &SocketAddr,
-    burn_db_path: String, 
-    stacks_chainstate_path: String, 
-    poll_timeout: u64,
-    event_dispatcher: EventDispatcher) -> Result<JoinHandle<()>, NetError> 
-{
+fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAddr,
+              burn_db_path: String, stacks_chainstate_path: String, 
+              poll_timeout: u64, relay_channel: Sender<RelayerDirective>) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(5);
+    let mut burndb = BurnDB::open(&burn_db_path, true)
+        .map_err(NetError::DBError)?;
 
-    let mut relayer = Relayer::from_p2p(&mut this);
+    let mut chainstate = StacksChainState::open(
+        false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
+        .map_err(|e| NetError::ChainstateError(e.to_string()))?;
+    
+    let mut mem_pool = MemPoolDB::open(
+        false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
+        .map_err(NetError::DBError)?;
 
     let server_thread = thread::spawn(move || {
         loop {
-            let mut burndb = match BurnDB::open(&burn_db_path, true) {
-                Ok(x) => x,
-                Err(e) => {
-                    warn!("Error while connecting burnchain db in peer loop: {}", e);
-                    thread::sleep(time::Duration::from_secs(1));
-                    continue;
-                },
-            };
-            let mut chainstate = match StacksChainState::open(
-                false, TESTNET_CHAIN_ID, &stacks_chainstate_path) {
-                Ok(x) => x,
-                Err(e) => {
-                    warn!("Error while connecting chainstate db in peer loop: {}", e);
-                    thread::sleep(time::Duration::from_secs(1));
-                    continue;
-                },
-            };
-
-            let mut mem_pool = match MemPoolDB::open(
-                false, TESTNET_CHAIN_ID, &stacks_chainstate_path) {
-                Ok(x) => x,
-                Err(e) => {
-                    warn!("Error while connecting to mempool db in peer loop: {}", e);
-                    thread::sleep(time::Duration::from_secs(1));
-                    continue;
-                }
-            };
-
-            debug!("Begin network run");
-            println!("=======================================================");
-
-            let mut res = this.run(
-                &mut burndb, 
-                &mut chainstate, 
-                &mut mem_pool, 
-                Some(&mut dns_client), 
-                poll_timeout)
+            let network_result = this.run(&mut burndb, &mut chainstate, &mut mem_pool, None, poll_timeout)
                 .unwrap();
 
-            debug!("Finished network run");
-            println!("=======================================================");
-            println!("Network result blocks: {:?}", res.blocks);
-            println!("=======================================================");
-
-            let local_peer = PeerDB::get_local_peer(this.peerdb.conn()).unwrap();
-            let processed_blocks = relayer.process_network_result(&local_peer, &mut res, &mut burndb, &mut chainstate, &mut mem_pool).unwrap();
+            if let Err(e) = relay_channel.send(RelayerDirective::HandleNetResult(network_result)) {
+                info!("Relayer hang up with p2p channel: {}", e);
+                break;
+            }
         }
     });
 
@@ -135,6 +112,80 @@ fn spawn_peer(mut this: PeerNetwork,
     Ok(server_thread)
 }
 
+fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
+                       burn_db_path: String, stacks_chainstate_path: String, 
+                       relay_channel: Receiver<RelayerDirective>, dispatcher_channel: Sender<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>) -> Result<(), NetError> {
+    // Note: the relayer is *the* block processor, it is responsible for writes to the chainstate --
+    //   no other codepaths should be writing once this is spawned.
+    //
+    // the relayer _should not_ be modifying the burndb,
+    //   however, it needs a mut reference to create read TXs.
+    //   should address via #1449
+    let mut burndb = BurnDB::open(&burn_db_path, true)
+        .map_err(NetError::DBError)?;
+
+    let mut chainstate = StacksChainState::open(
+        false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
+        .map_err(|e| NetError::ChainstateError(e.to_string()))?;
+    
+    let mut mem_pool = MemPoolDB::open(
+        false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
+        .map_err(NetError::DBError)?;
+
+    let relayer_thread = thread::spawn(move || {
+        while let Ok(mut directive) = relay_channel.recv() {
+            match directive {
+                RelayerDirective::HandleNetResult(ref mut net_result) => {
+                    let block_receipts = relayer.process_network_result(&local_peer, net_result,
+                                                                        &mut burndb, &mut chainstate, &mut mem_pool)
+                        .expect("BUG: failure processing network results");
+
+                    for (stacks_header, tx_receipts) in block_receipts {
+                        if let Err(e) = dispatcher_channel.send((stacks_header, tx_receipts)) {
+                            info!("Event dispatcher hang up with p2p channel: {}", e);
+                            break;
+                        }
+                    }
+                },
+                RelayerDirective::ProcessTenure(anchored_block, microblocks, burn_header, parent_burn_header) => {
+                    let (stacks_header, _) = 
+                        Node::inner_process_tenure(&anchored_block, &burn_header, &parent_burn_header, microblocks,
+                                                   &mut burndb, &mut chainstate, &dispatcher_channel);
+                    let blocks_available = Relayer::load_blocks_available_data(&mut burndb, vec![stacks_header.burn_header_hash])
+                        .expect("Failed to obtain block information for a block we mined.");
+                    if let Err(e) = relayer.advertize_blocks(blocks_available) {
+                        warn!("Failed to advertise new block: {}", e);
+                    }
+                },
+            }
+        }
+    });
+
+    Ok(())
+}
+
+fn spawn_dispatcher(blocks_path: String, mut event_dispatcher: EventDispatcher,
+                    dispatcher_channel: Receiver<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>) {
+    thread::spawn(move || {
+        while let Ok((metadata, receipts)) = dispatcher_channel.recv() {
+            let block = {
+                let block_path = StacksChainState::get_block_path(
+                    &blocks_path, 
+                    &metadata.burn_header_hash, 
+                    &metadata.anchored_header.block_hash()).unwrap();
+                StacksChainState::consensus_load(&block_path).unwrap()
+            };
+
+            let chain_tip = ChainTip {
+                metadata,
+                block,
+                receipts
+            };
+
+            event_dispatcher.process_chain_tip(&chain_tip);
+        }
+    });
+}
 
 impl Node {
 
@@ -155,6 +206,15 @@ impl Node {
             Ok(res) => res,
             Err(err) => panic!("Error while opening chain state at path {}: {:?}", config.get_chainstate_path(), err)
         };
+
+        let (dispatcher_channel, dispatch_recv) = channel();
+        let mut event_dispatcher = EventDispatcher::new();
+        for observer in config.events_observers.iter() {
+            event_dispatcher.register_observer(observer);
+        }
+        let blocks_path = chain_state.blocks_path.clone();
+        spawn_dispatcher(blocks_path, event_dispatcher, dispatch_recv);
+
         Self {
             active_registered_key: None,
             bootstraping_chain: false,
@@ -165,6 +225,8 @@ impl Node {
             config,
             burnchain_tip: None,
             nonce: 0,
+            relay_channel: None,
+            dispatcher_channel,
         }
     }
 
@@ -173,12 +235,6 @@ impl Node {
         let burnchain_tip = burnchain_controller.get_chain_tip();
 
         let keychain = Keychain::default(config.node.seed.clone());
-
-        let mut event_dispatcher = EventDispatcher::new();
-
-        for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer);
-        }
 
         let chainstate_path = config.get_chainstate_path();
 
@@ -192,6 +248,14 @@ impl Node {
             },
         };
 
+        let (dispatcher_channel, dispatch_recv) = channel();
+        let mut event_dispatcher = EventDispatcher::new();
+        for observer in config.events_observers.iter() {
+            event_dispatcher.register_observer(observer);
+        }
+        let blocks_path = chain_state.blocks_path.clone();
+        spawn_dispatcher(blocks_path, event_dispatcher, dispatch_recv);
+
         let mut node = Node {
             active_registered_key: None,
             bootstraping_chain: false,
@@ -202,9 +266,11 @@ impl Node {
             config,
             burnchain_tip: None,
             nonce: 0,
+            relay_channel: None,
+            dispatcher_channel,
         };
 
-        node.spawn_peer_server();
+        node.spawn_node_threads();
 
         loop {
             if let Ok(Some(ref chain_tip)) = node.chain_state.get_stacks_chain_tip() {
@@ -222,7 +288,7 @@ impl Node {
         node
     }
 
-    pub fn spawn_peer_server(&mut self) {
+    pub fn spawn_node_threads(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let mut burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
@@ -250,6 +316,8 @@ impl Node {
 
         let p2p_sock: SocketAddr = self.config.node.p2p_bind.parse()
             .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_bind));
+        let rpc_sock = self.config.node.rpc_bind.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
 
         let peerdb = PeerDB::connect(
             &self.config.get_peer_db_path(), 
@@ -267,24 +335,32 @@ impl Node {
             _ => panic!("Unable to retrieve local peer")
         };
 
+        let blocks_paths = self.chain_state.blocks_path.clone();
 
-        let mut event_dispatcher = EventDispatcher::new();
+        // now we're ready to instantiate a p2p network object, the relayer, and the event dispatcher
 
-        for observer in &self.config.events_observers {
-            event_dispatcher.register_observer(observer);
-        }
+        let mut p2p_net = PeerNetwork::new(peerdb, local_peer.clone(), TESTNET_PEER_VERSION, burnchain, view,
+                                           self.config.connection_options.clone());
+        let relayer = Relayer::from_p2p(&mut p2p_net);
 
-        let p2p_net = PeerNetwork::new(peerdb, local_peer, TESTNET_PEER_VERSION, burnchain, view, self.config.connection_options.clone());
-        let rpc_sock = self.config.node.rpc_bind.parse()
-            .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
-        let _join_handle = spawn_peer(
+        // we need to set up our communication channels.
+
+        let (relay_send, relay_recv) = channel();
+
+        self.relay_channel = Some(relay_send.clone());
+
+        spawn_peer(
             p2p_net, 
             &p2p_sock, 
             &rpc_sock, 
             self.config.get_burn_db_file_path(),
             self.config.get_chainstate_path(), 
-            5000,
-            event_dispatcher).unwrap();
+            5000, relay_send).unwrap();
+
+        spawn_miner_relayer(relayer, local_peer,
+                            self.config.get_burn_db_file_path(),
+                            self.config.get_chainstate_path(),
+                            relay_recv, self.dispatcher_channel.clone());
 
         info!("Bound HTTP server on: {}", &self.config.node.rpc_bind);
         info!("Bound P2P server on: {}", &self.config.node.p2p_bind);
@@ -462,22 +538,70 @@ impl Node {
         burnchain_controller.submit_operation(op, &mut one_off_signer);
     }
 
-    /// Process artifacts from the tenure.
-    /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
-    pub fn process_tenure(
-        &mut self, 
+
+    /// returns _false_ if the relayer hung up the channel.
+    pub fn relayer_process_tenure(&self,
+        anchored_block: StacksBlock,
+        burn_header_hash: BurnchainHeaderHash,
+        parent_burn_header_hash: BurnchainHeaderHash,
+        microblocks: Vec<StacksMicroblock>) -> bool {
+
+        self.relay_channel.as_ref().expect("Tried to process a tenure before Relay/Miner thread spawned")
+            .send(RelayerDirective::ProcessTenure(
+                anchored_block, microblocks, burn_header_hash, parent_burn_header_hash))
+            .is_ok()
+    }
+
+    pub fn process_tenure(&mut self, 
         anchored_block: &StacksBlock, 
         burn_header_hash: &BurnchainHeaderHash, 
         parent_burn_header_hash: &BurnchainHeaderHash, 
         microblocks: Vec<StacksMicroblock>, 
-        db: &mut BurnDB) -> ChainTip {
+        burn_db: &mut BurnDB) -> ChainTip {
+        let (metadata, receipts) = 
+            Node::inner_process_tenure(anchored_block, burn_header_hash, parent_burn_header_hash,
+                                       microblocks, burn_db, &mut self.chain_state,
+                                       &self.dispatcher_channel);
 
+        let block = {
+            let block_path = StacksChainState::get_block_path(
+                &self.chain_state.blocks_path, 
+                &metadata.burn_header_hash, 
+                &metadata.anchored_header.block_hash()).unwrap();
+            StacksChainState::consensus_load(&block_path).unwrap()
+        };
+
+        let chain_tip = ChainTip {
+            metadata,
+            block,
+            receipts
+        };
+
+        self.chain_tip = Some(chain_tip.clone());
+
+        // Unset the `bootstraping_chain` flag.
+        if self.bootstraping_chain {
+            self.bootstraping_chain = false;
+        }
+
+        chain_tip
+    }
+
+    /// Process artifacts from the tenure.
+    /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
+    fn inner_process_tenure(
+        anchored_block: &StacksBlock, 
+        burn_header_hash: &BurnchainHeaderHash, 
+        parent_burn_header_hash: &BurnchainHeaderHash, 
+        microblocks: Vec<StacksMicroblock>, 
+        burn_db: &mut BurnDB,
+        chain_state: &mut StacksChainState,
+        dispatcher_channel: &Sender<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>) -> (StacksHeaderInfo, Vec<StacksTransactionReceipt>) {
         {
-            // let mut db = burn_db.lock().unwrap();
-            let mut tx = db.tx_begin().unwrap();
+            let mut tx = burn_db.tx_begin().unwrap();
 
             // Preprocess the anchored block
-            self.chain_state.preprocess_anchored_block(
+            chain_state.preprocess_anchored_block(
                 &mut tx,
                 &burn_header_hash,
                 get_epoch_time_secs(),
@@ -486,7 +610,7 @@ impl Node {
 
             // Preprocess the microblocks
             for microblock in microblocks.iter() {
-                let res = self.chain_state.preprocess_streamed_microblock(
+                let res = chain_state.preprocess_streamed_microblock(
                     &burn_header_hash, 
                     &anchored_block.block_hash(), 
                     microblock).unwrap();
@@ -498,7 +622,7 @@ impl Node {
 
         let mut processed_blocks = vec![];
         loop {
-            match self.chain_state.process_blocks(1) {
+            match chain_state.process_blocks(1) {
                 Err(e) => panic!("Error while processing block - {:?}", e),
                 Ok(ref mut blocks) => {
                     if blocks.len() == 0 {
@@ -517,30 +641,9 @@ impl Node {
         // Handle events
         let receipts = processed_block.1;
         let metadata = processed_block.0;
-        let block = {
-            let block_path = StacksChainState::get_block_path(
-                &self.chain_state.blocks_path, 
-                &metadata.burn_header_hash, 
-                &metadata.anchored_header.block_hash()).unwrap();
-            StacksChainState::consensus_load(&block_path).unwrap()
-        };
 
-        let chain_tip = ChainTip {
-            metadata,
-            block,
-            receipts
-        };
-
-        self.event_dispatcher.process_chain_tip(&chain_tip);
-
-        self.chain_tip = Some(chain_tip.clone());
-
-        // Unset the `bootstraping_chain` flag.
-        if self.bootstraping_chain {
-            self.bootstraping_chain = false;
-        }
-
-        chain_tip
+        dispatcher_channel.send((metadata.clone(), receipts.clone()));
+        (metadata, receipts)
     }
 
     /// Returns the Stacks address of the node

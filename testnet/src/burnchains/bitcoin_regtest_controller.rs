@@ -11,6 +11,7 @@ use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 
 use stacks::burnchains::Burnchain;
+use stacks::burnchains::BurnchainStateTransition;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
@@ -108,13 +109,7 @@ impl BitcoinRegtestController {
             Ok(res) => res,
             Err(e) => {
                 error!("Unable to sync burnchain: {}", e);
-                let burnchain_tip = BurnchainTip {
-                    block_snapshot: block_snapshot,
-                    state_transition: BurnchainStateTransition::noop(),
-                    received_at: Instant::now()
-                };
-                self.chain_tip = Some(burnchain_tip.clone());
-                burnchain_tip
+                panic!()
             }
         };
 
@@ -130,10 +125,18 @@ impl BitcoinRegtestController {
                 burnchain_tip
             },
             (None, None) => {
-                error!("Unable to sync burnchain");
-                panic!()
+                // can happen at genesis
+                let burnchain_tip = BurnchainTip {
+                    block_snapshot: block_snapshot,
+                    state_transition: BurnchainStateTransition::noop(),
+                    received_at: Instant::now()
+                };
+                self.chain_tip = Some(burnchain_tip.clone());
+                burnchain_tip
             }
         };
+
+        debug!("Done receiving blocks");
         rest
     }
 
