@@ -512,14 +512,16 @@ fn test_btc_to_sat() {
     let inputs = [
         "0.1000000",
         "0.0000001",
+        "0.00000001",
         "1.0",
         "0.1",
     ];
-    let expected_outputs: [u64; 4] = [
-        1000000,
-        1,
+    let expected_outputs: [u64; 5] = [
         10000000,
-        1000000,
+        10,
+        1,
+        100000000,
+        10000000,
     ];
 
     for (input, expected_output) in inputs.iter().zip(expected_outputs.iter()) {

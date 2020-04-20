@@ -593,8 +593,8 @@ impl UTXO {
         match comps[..] {
             [lhs, rhs] => {
                 let base: u64 = 10;
-                let sat_decimals = 7;
-                let btc_to_sat = base.pow(7);
+                let sat_decimals = 8;
+                let btc_to_sat = base.pow(8);
                 let btc = lhs.parse::<u64>().expect("Invalid amount");
                 let mut amount = btc * btc_to_sat;
                 if rhs.len() > sat_decimals { 
