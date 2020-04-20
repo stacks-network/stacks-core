@@ -87,6 +87,7 @@ pub trait RelayPayload {
     /// Get a representative digest of this message.
     /// m1.get_digest() == m2.get_digest() --> m1 == m2
     fn get_digest(&self) -> Sha512Trunc256Sum;
+    fn get_id(&self) -> String;
 }
 
 impl RelayPayload for BlocksAvailableData {
@@ -96,12 +97,18 @@ impl RelayPayload for BlocksAvailableData {
         let h = Sha512Trunc256Sum::from_data(&bytes);
         h
     }
+    fn get_id(&self) -> String {
+        format!("{:?}", &self)
+    }
 }
 
 impl RelayPayload for StacksBlock {
     fn get_digest(&self) -> Sha512Trunc256Sum {
         let h = self.block_hash();
         Sha512Trunc256Sum(h.0)
+    }
+    fn get_id(&self) -> String {
+        format!("StacksBlock({})", self.block_hash())
     }
 }
 
@@ -110,12 +117,18 @@ impl RelayPayload for StacksMicroblock {
         let h = self.block_hash();
         Sha512Trunc256Sum(h.0)
     }
+    fn get_id(&self) -> String {
+        format!("StacksMicroblock({})", self.block_hash())
+    }
 }
 
 impl RelayPayload for StacksTransaction {
     fn get_digest(&self) -> Sha512Trunc256Sum {
         let h = self.txid();
         Sha512Trunc256Sum(h.0)
+    }
+    fn get_id(&self) -> String {
+        format!("Transaction({})", self.txid())
     }
 }
 
@@ -1542,6 +1555,10 @@ mod test {
                 test_debug!("{:?} outbox overflow; try again later", &peer.to_neighbor().addr);
                 return false;
             },
+            Err(net_error::SendError(msg)) => {
+                warn!("Failed to send to {:?}: SendError({})", &peer.to_neighbor().addr, msg);
+                return false;
+            }
             Err(e) => {
                 test_debug!("{:?} encountered fatal error when forwarding: {:?}", &peer.to_neighbor().addr, &e);
                 assert!(false);

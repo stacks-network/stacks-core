@@ -276,7 +276,7 @@ pub struct PeerNetwork {
 
     // ongoing messages the network is sending via the p2p interface (not bound to a specific
     // conversation).
-    pub relay_handles: VecDeque<ReplyHandleP2P>,
+    pub relay_handles: HashMap<usize, VecDeque<ReplyHandleP2P>>,
     pub relayer_stats: RelayerStats,
 
     // handles for other threads to send/receive data to peers
@@ -312,9 +312,6 @@ pub struct PeerNetwork {
     // do we need to do a prune at the end of the work state cycle?
     pub do_prune: bool,
 
-    // re-key state 
-    pub rekey_handles: Option<HashMap<usize, ReplyHandleP2P>>,
-
     // prune state
     pub prune_deadline: u64,
 
@@ -342,7 +339,7 @@ impl PeerNetwork {
             connecting: HashMap::new(),
             bans: HashSet::new(),
 
-            relay_handles: VecDeque::new(),
+            relay_handles: HashMap::new(),
             relayer_stats: RelayerStats::new(),
 
             handles: VecDeque::new(),
@@ -365,8 +362,6 @@ impl PeerNetwork {
             block_downloader: None,
 
             do_prune: false,
-
-            rekey_handles: None,
 
             prune_deadline: 0,
             prune_outbound_counts : HashMap::new(),
@@ -436,7 +431,35 @@ impl PeerNetwork {
     }
 
     /// Saturate a socket with a reply handle
-    pub fn saturate_p2p_socket(&mut self, event_id: usize, handle: &mut ReplyHandleP2P) -> Result<(), net_error> {
+    /// Return (number of bytes sent, whether or not there's more to send)
+    fn do_saturate_p2p_socket(convo: &mut ConversationP2P, client_sock: &mut mio::net::TcpStream, handle: &mut ReplyHandleP2P) -> Result<(usize, bool), net_error> {
+        let mut total_sent = 0;
+        let mut flushed;
+        
+        loop {
+            flushed = handle.try_flush()?;
+            let send_res = convo.send(client_sock);
+            match send_res {
+                Err(e) => {
+                    debug!("Failed to send data to socket {:?}: {:?}", client_sock, &e);
+                    return Err(e);
+                },
+                Ok(sz) => {
+                    total_sent += sz;
+                    if sz == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        Ok((total_sent, flushed))
+    }
+
+
+    /// Saturate a socket with a reply handle.
+    /// Return (number of bytes sent, whether or not there's more to send)
+    pub fn saturate_p2p_socket(&mut self, event_id: usize, handle: &mut ReplyHandleP2P) -> Result<(usize, bool), net_error> {
         let convo_opt = self.peers.get_mut(&event_id);
         if convo_opt.is_none() {
             info!("No open socket for {}", event_id);
@@ -452,23 +475,7 @@ impl PeerNetwork {
         let convo = convo_opt.unwrap();
         let client_sock = socket_opt.unwrap();
 
-        loop {
-            handle.try_flush()?;
-            let send_res = convo.send(client_sock);
-            match send_res {
-                Err(e) => {
-                    debug!("Failed to send data to event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
-                    return Err(e);
-                },
-                Ok(sz) => {
-                    if sz == 0 {
-                        break;
-                    }
-                }
-            }
-        }
-
-        Ok(())
+        PeerNetwork::do_saturate_p2p_socket(convo, client_sock, handle)
     }
 
     /// Send a message to a peer.
@@ -497,27 +504,45 @@ impl PeerNetwork {
         Ok(rh)
     }
 
+    fn add_relay_handle(&mut self, event_id: usize, relay_handle: ReplyHandleP2P) -> () {
+        if let Some(handle_list) = self.relay_handles.get_mut(&event_id) {
+            handle_list.push_back(relay_handle);
+        }
+        else {
+            let mut handle_list = VecDeque::new();
+            handle_list.push_back(relay_handle);
+            self.relay_handles.insert(event_id, handle_list);
+        }
+    }
+
     /// Relay a signed message to a peer.
     /// The peer network will take care of sending the data; no need to deal with a reply handle.
     /// Called from _within_ the p2p thread.
     pub fn relay_signed_message(&mut self, neighbor_key: &NeighborKey, message: StacksMessage) -> Result<(), net_error> {
-        let event_id_opt = self.events.get(&neighbor_key);
-        if event_id_opt.is_none() {
-            info!("Not connected to {:?}", &neighbor_key);
-            return Err(net_error::NoSuchNeighbor);
-        }
+        let event_id = {
+            let event_id_opt = self.events.get(&neighbor_key);
+            if event_id_opt.is_none() {
+                info!("Not connected to {:?}", &neighbor_key);
+                return Err(net_error::NoSuchNeighbor);
+            }
 
-        let event_id = event_id_opt.unwrap();
-        let convo_opt = self.peers.get_mut(event_id);
+            *(event_id_opt.unwrap())
+        };
+
+        let convo_opt = self.peers.get_mut(&event_id);
         if convo_opt.is_none() {
             info!("No ongoing conversation with {:?}", &neighbor_key);
             return Err(net_error::PeerNotConnected);
         }
 
         let convo = convo_opt.unwrap();
-        let reply_handle = convo.relay_signed_message(message)?;
+        let mut reply_handle = convo.relay_signed_message(message)?;
 
-        self.relay_handles.push_back(reply_handle);
+        let (num_sent, flushed) = self.saturate_p2p_socket(event_id, &mut reply_handle)?;
+        if num_sent > 0 || !flushed {
+            // keep trying to send
+            self.add_relay_handle(event_id, reply_handle);
+        }
         Ok(())
     }
 
@@ -525,10 +550,11 @@ impl PeerNetwork {
     pub fn broadcast_message(&mut self, mut neighbor_keys: Vec<NeighborKey>, relay_hints: Vec<RelayData>, message_payload: StacksMessageType) -> () {
         for nk in neighbor_keys.drain(..) {
             if let Some(event_id) = self.events.get(&nk) {
-                if let Some(convo) = self.peers.get_mut(event_id) {
+                let event_id = *event_id;
+                if let Some(convo) = self.peers.get_mut(&event_id) {
                     match convo.sign_and_forward(&self.local_peer, &self.chain_view, relay_hints.clone(), message_payload.clone()) {
                         Ok(rh) => {
-                            self.relay_handles.push_back(rh);
+                            self.add_relay_handle(event_id, rh);
                         },
                         Err(e) => {
                             warn!("{:?}: Failed to broadcast message to {:?}: {:?}", &self.local_peer, nk, &e);
@@ -629,7 +655,7 @@ impl PeerNetwork {
                         // don't send to this peer
                         let nk = convo.to_neighbor_key();
 
-                        test_debug!("{:?}: Do not forward to {:?}, since it already saw this message", &self.local_peer, &nk);
+                        test_debug!("{:?}: Do not forward {} to {:?}, since it already saw this message", &self.local_peer, payload.get_id(), &nk);
                         outbound_dist.remove(&nk);
                         inbound_dist.remove(&nk);
                     }
@@ -1025,6 +1051,7 @@ impl PeerNetwork {
             // remove socket
             self.sockets.remove(&event_id);
             self.connecting.remove(&event_id);
+            self.relay_handles.remove(&event_id);
         }
     }
 
@@ -1292,6 +1319,7 @@ impl PeerNetwork {
     /// alive.
     pub fn queue_ping_heartbeats(&mut self) -> () {
         let now = get_epoch_time_secs();
+        let mut relay_handles = HashMap::new();
         for (_, convo) in self.peers.iter_mut() {
             if convo.stats.last_handshake_time > 0 && convo.stats.last_send_time + (convo.peer_heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
                 // haven't talked to this neighbor in a while
@@ -1304,7 +1332,7 @@ impl PeerNetwork {
                         // (the conversational logic will update our measure of this node's uptime)
                         match convo.relay_signed_message(ping) {
                             Ok(handle) => {
-                                self.relay_handles.push_back(handle);
+                                relay_handles.insert(convo.conn_id, handle);
                             },
                             Err(_e) => {
                                 debug!("Outbox to {:?} is full; cannot ping", &convo);
@@ -1316,6 +1344,9 @@ impl PeerNetwork {
                     }
                 };
             }
+        }
+        for (event_id, handle) in relay_handles.drain() {
+            self.add_relay_handle(event_id, handle);
         }
     }
 
@@ -1384,71 +1415,38 @@ impl PeerNetwork {
 
     /// Regenerate our session private key and re-handshake with everyone.
     fn rekey(&mut self, old_local_peer_opt: Option<&LocalPeer>) -> () {
-        let handles = self.rekey_handles.take();
-        let new_handles = match handles {
-            None => {
-                assert!(old_local_peer_opt.is_some());
-                let _old_local_peer = old_local_peer_opt.unwrap();
+        assert!(old_local_peer_opt.is_some());
+        let _old_local_peer = old_local_peer_opt.unwrap();
 
-                // begin re-key 
-                let mut inflight_handshakes = HashMap::new();
-                for (event_id, convo) in self.peers.iter_mut() {
-                    let nk = convo.to_neighbor_key();
-                    let handshake_data = HandshakeData::from_local_peer(&self.local_peer);
-                    let handshake = StacksMessageType::Handshake(handshake_data);
-        
-                    test_debug!("{:?}: send re-key Handshake ({:?} --> {:?}) to {:?}", &self.local_peer, 
-                           &to_hex(&Secp256k1PublicKey::from_private(&_old_local_peer.private_key).to_bytes_compressed()),
-                           &to_hex(&Secp256k1PublicKey::from_private(&self.local_peer.private_key).to_bytes_compressed()), &nk);
-                    
-                    let msg_res = convo.sign_message(&self.chain_view, &self.local_peer.private_key, handshake);
-                    if let Ok(msg) = msg_res {
-                        let req_res = convo.send_signed_request(msg, get_epoch_time_secs() + NEIGHBOR_REQUEST_TIMEOUT);
-                        match req_res {
-                            Ok(handle) => {
-                                inflight_handshakes.insert(*event_id, handle);
-                            },
-                            Err(e) => {
-                                debug!("Not connected: {:?} ({:?})", nk, &e);
-                            }
-                        };
-                    }
-                }
+        // begin re-key 
+        let mut msgs = HashMap::new();
+        for (event_id, convo) in self.peers.iter_mut() {
+            let nk = convo.to_neighbor_key();
+            let handshake_data = HandshakeData::from_local_peer(&self.local_peer);
+            let handshake = StacksMessageType::Handshake(handshake_data);
 
-                Some(inflight_handshakes)
-            },
-            Some(mut inflight_handles) => {
-                let mut new_inflight_handles = HashMap::new();
+            debug!("{:?}: send re-key Handshake ({:?} --> {:?}) to {:?}", &self.local_peer, 
+                   &to_hex(&Secp256k1PublicKey::from_private(&_old_local_peer.private_key).to_bytes_compressed()),
+                   &to_hex(&Secp256k1PublicKey::from_private(&self.local_peer.private_key).to_bytes_compressed()), &nk);
 
-                // consume in-flight replies 
-                // (have to consume them since we want our neighbor stats to be updated)
-                for (event_id, rh) in inflight_handles.drain() {
-                    match rh.try_recv() {
-                        Ok(_) => {},
-                        Err(res) => {
-                            match res {
-                                Ok(new_rh) => {
-                                    new_inflight_handles.insert(event_id, new_rh);
-                                }
-                                Err(e) => {
-                                    debug!("{:?}: remote peer Failed re-key handshake: {:?}", self.local_peer, &e);
-                                }
-                            }
-                        }
-                    }
-                }
+            if let Ok(msg) = convo.sign_message(&self.chain_view, &_old_local_peer.private_key, handshake) {
+                msgs.insert(nk, (*event_id, msg));
+            }
+        }
 
-                if new_inflight_handles.len() > 0 {
-                    Some(new_inflight_handles)
-                }
-                else {
-                    None
+        for (nk, (event_id, msg)) in msgs.drain() {
+            match self.send_message(&nk, msg, NEIGHBOR_REQUEST_TIMEOUT) {
+                Ok(handle) => {
+                    self.add_relay_handle(event_id, handle);
+                },
+                Err(e) => {
+                    info!("Failed to rekey to {:?}: {:?}", &nk, &e);
                 }
             }
-        };
-        self.rekey_handles = new_handles;
+        }
     }
 
+    /*
     /// Flush relyed message handles
     fn flush_network_replies<P: ProtocolFamily>(_local_peer: &LocalPeer, handles: &mut VecDeque<NetworkReplyHandle<P>>) {
         if handles.len() > 0 {
@@ -1470,25 +1468,57 @@ impl PeerNetwork {
             handles.append(&mut unrelayed);
         }
     }
+    */
 
     /// Flush relayed message handles, but don't block.
     /// Drop broken handles.
     /// Return the list of broken conversation event IDs
     fn flush_relay_handles(&mut self) -> Vec<usize> {
-        // send out all relayed data from other threads
-        PeerNetwork::flush_network_replies(&self.local_peer, &mut self.relay_handles);
-
         let mut broken = vec![];
+        let mut drained = vec![];
 
         // flush each outgoing conversation 
-        for (event_id, ref mut convo) in self.peers.iter_mut() {
-            match convo.try_flush() {
-                Ok(_) => {},
-                Err(_e) => {
-                    info!("Broken connection {:?}", convo);
-                    broken.push(*event_id);
+        for (event_id, handle_list) in self.relay_handles.iter_mut() {
+            if handle_list.len() == 0 {
+                drained.push(*event_id);
+                continue;
+            }
+
+            if let (Some(ref mut socket), Some(ref mut convo)) = (self.sockets.get_mut(event_id), self.peers.get_mut(event_id)) {
+                while handle_list.len() > 0 {
+                    let handle = handle_list.front_mut().unwrap();
+                    let (num_sent, flushed) = match PeerNetwork::do_saturate_p2p_socket(convo, socket, handle) {
+                        Ok(x) => x,
+                        Err(e) => {
+                            info!("Broken connection on event {}: {:?}", event_id, &e);
+                            broken.push(*event_id);
+                            break;
+                        }
+                    };
+
+                    if flushed && num_sent == 0 {
+                        // message fully sent
+                        let handle = handle_list.pop_front().unwrap();
+                        
+                        // if we're expecting a reply, go consume it out of the underlying
+                        // connection
+                        if handle.expects_reply() {
+                            if let Ok(msg) = handle.try_recv() {
+                                debug!("Got back internal message {} seq {}", msg.get_message_name(), msg.request_id());
+                            }
+                        }
+                        continue;
+                    }
+                    else if num_sent == 0 {
+                        // saturated
+                        break;
+                    }
                 }
             }
+        }
+
+        for empty in drained.drain(..) {
+            self.relay_handles.remove(&empty);
         }
 
         broken
@@ -1987,13 +2017,6 @@ impl PeerNetwork {
             self.prune_connections();
         }
         
-        // move conversations along
-        let error_events = self.flush_relay_handles();
-        for error_event in error_events {
-            debug!("{:?}: Failed connection on event {}", &self.local_peer, error_event);
-            self.deregister_peer(error_event);
-        }
-
         // remove timed-out requests from other threads 
         for (_, convo) in self.peers.iter_mut() {
             convo.clear_timeouts();
@@ -2004,6 +2027,13 @@ impl PeerNetwork {
         
         // queue up pings to neighbors we haven't spoken to in a while
         self.queue_ping_heartbeats();
+        
+        // move conversations along
+        let error_events = self.flush_relay_handles();
+        for error_event in error_events {
+            debug!("{:?}: Failed connection on event {}", &self.local_peer, error_event);
+            self.deregister_peer(error_event);
+        }
 
         // is our key about to expire?  do we need to re-key?
         // NOTE: must come last since it invalidates local_peer
@@ -2014,10 +2044,6 @@ impl PeerNetwork {
             let old_local_peer = self.local_peer.clone();
             self.local_peer = new_local_peer;
             self.rekey(Some(&old_local_peer));
-        }
-        else if self.rekey_handles.is_some() {
-            // finish re-keying
-            self.rekey(None);
         }
 
         // update our relay statistics, so we know who to forward messages to

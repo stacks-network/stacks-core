@@ -571,7 +571,7 @@ pub struct UTXO {
     txid: String,
     vout: u32,
     script_pub_key: String,
-    amount: f64,
+    amount: String,
     confirmations: u32,
     spendable: bool,
     solvable: bool,
@@ -588,9 +588,40 @@ impl UTXO {
     }
 
     pub fn get_sat_amount(&self) -> u64 {
-        let res = self.amount * 10e7;
-        res as u64
+        UTXO::serialized_btc_to_sat(&self.amount)
     }
+
+    pub fn serialized_btc_to_sat(amount: &str) -> u64 {
+        let comps: Vec<&str> = amount.split(".").collect();
+        match comps[..] {
+            [lhs, rhs] => {
+                let base: u64 = 10;
+                let sat_decimals = 8;
+                let btc_to_sat = base.pow(8);
+                let btc = lhs.parse::<u64>().expect("Invalid amount");
+                let mut amount = btc * btc_to_sat;
+                if rhs.len() > sat_decimals { 
+                    panic!("Unexpected amount of decimals");
+                }
+                let rhs = format!("{:0<width$}", rhs, width = sat_decimals);
+                let sat = rhs.parse::<u64>().expect("Invalid amount");
+                amount += sat;
+                amount
+            },
+            _ => panic!("Invalid amount")
+        }    
+    } 
+
+    pub fn sat_to_serialized_btc(amount: u64) -> String {
+        let sat_decimals = 8;
+        let fmt = format!("{:0width$}", amount, width = sat_decimals);
+        let amount = if fmt.len() == sat_decimals {
+            format!("0.{}", &fmt[fmt.len() - sat_decimals..])
+        } else {
+            format!("{}.{}", &fmt[0..(fmt.len() - sat_decimals)], &fmt[fmt.len() - sat_decimals..])
+        };
+        amount
+    } 
 
     pub fn get_script_pub_key(&self) -> Script {
         let bytes = hex_bytes(&self.script_pub_key).expect("Invalid byte sequence");
@@ -634,16 +665,9 @@ impl BitcoinRPCRequest {
     }
 
     pub fn list_unspent(request_builder: RequestBuilder, addresses: Vec<String>, include_unsafe: bool, minimum_sum_amount: u64) -> RPCResult<Vec<UTXO>> {
-        let sat_decimals = 8;
-        // This API endpoint is expecting an amount expressed in BTC (vs satoshi)
-        let fmt = format!("{:0width$}", minimum_sum_amount, width = sat_decimals);
-        let min_sum_amount = if fmt.len() == sat_decimals {
-            format!("0.{}", &fmt[fmt.len() - sat_decimals..])
-        } else {
-            format!("{}.{}", &fmt[0..(fmt.len() - sat_decimals)], &fmt[fmt.len() - sat_decimals..])
-        };
         let min_conf = 0;
         let max_conf = 9999999;
+        let min_sum_amount = UTXO::sat_to_serialized_btc(minimum_sum_amount);
 
         let payload = BitcoinRPCRequest {
             method: "listunspent".to_string(),
