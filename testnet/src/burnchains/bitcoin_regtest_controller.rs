@@ -108,7 +108,13 @@ impl BitcoinRegtestController {
             Ok(res) => res,
             Err(e) => {
                 error!("Unable to sync burnchain: {}", e);
-                panic!()
+                let burnchain_tip = BurnchainTip {
+                    block_snapshot: block_snapshot,
+                    state_transition: BurnchainStateTransition::noop(),
+                    received_at: Instant::now()
+                };
+                self.chain_tip = Some(burnchain_tip.clone());
+                burnchain_tip
             }
         };
 
