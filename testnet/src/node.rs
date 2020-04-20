@@ -61,13 +61,17 @@ pub struct Node {
     pub chain_tip: Option<ChainTip>,
     keychain: Keychain,
     last_sortitioned_block: Option<BurnchainTip>,
-    event_dispatcher: EventDispatcher,
     nonce: u64,
 }
 
-fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAddr,
-              burn_db_path: String, stacks_chainstate_path: String, 
-              poll_timeout: u64) -> Result<JoinHandle<()>, NetError> {
+fn spawn_peer(mut this: PeerNetwork, 
+    p2p_sock: &SocketAddr, 
+    rpc_sock: &SocketAddr,
+    burn_db_path: String, 
+    stacks_chainstate_path: String, 
+    poll_timeout: u64,
+    event_dispatcher: EventDispatcher) -> Result<JoinHandle<()>, NetError> 
+{
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(5);
 
@@ -119,10 +123,8 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
             println!("Network result blocks: {:?}", res.blocks);
             println!("=======================================================");
 
-            /*
             let local_peer = PeerDB::get_local_peer(this.peerdb.conn()).unwrap();
-            relayer.process_network_result(&local_peer, &mut res, &mut burndb, &mut chainstate, &mut mem_pool).unwrap();
-            */
+            let processed_blocks = relayer.process_network_result(&local_peer, &mut res, &mut burndb, &mut chainstate, &mut mem_pool).unwrap();
         }
     });
 
@@ -153,12 +155,6 @@ impl Node {
             Ok(res) => res,
             Err(err) => panic!("Error while opening chain state at path {}: {:?}", config.get_chainstate_path(), err)
         };
-        let mut event_dispatcher = EventDispatcher::new();
-
-        for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer);
-        }
-
         Self {
             active_registered_key: None,
             bootstraping_chain: false,
@@ -169,7 +165,6 @@ impl Node {
             config,
             burnchain_tip: None,
             nonce: 0,
-            event_dispatcher,
         }
     }
 
@@ -207,7 +202,6 @@ impl Node {
             config,
             burnchain_tip: None,
             nonce: 0,
-            event_dispatcher,
         };
 
         node.spawn_peer_server();
@@ -273,6 +267,13 @@ impl Node {
             _ => panic!("Unable to retrieve local peer")
         };
 
+
+        let mut event_dispatcher = EventDispatcher::new();
+
+        for observer in &self.config.events_observers {
+            event_dispatcher.register_observer(observer);
+        }
+
         let p2p_net = PeerNetwork::new(peerdb, local_peer, TESTNET_PEER_VERSION, burnchain, view, self.config.connection_options.clone());
         let rpc_sock = self.config.node.rpc_bind.parse()
             .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
@@ -282,7 +283,8 @@ impl Node {
             &rpc_sock, 
             self.config.get_burn_db_file_path(),
             self.config.get_chainstate_path(), 
-            5000).unwrap();
+            5000,
+            event_dispatcher).unwrap();
 
         info!("Bound HTTP server on: {}", &self.config.node.rpc_bind);
         info!("Bound P2P server on: {}", &self.config.node.p2p_bind);

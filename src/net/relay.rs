@@ -676,7 +676,7 @@ impl Relayer {
     /// * list of confirmed microblock burn header hashes for newly-discovered microblock streams, so we can turn them into MicroblocksAvailable messages
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
     /// * list of neighbors that served us invalid data (so we can ban them)
-    pub fn process_new_blocks(network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &mut StacksChainState) -> Result<(Vec<BurnchainHeaderHash>, Vec<BurnchainHeaderHash>, Vec<(Vec<RelayData>, MicroblocksData)>, Vec<NeighborKey>), net_error> {
+    pub fn process_new_blocks(network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &mut StacksChainState) -> Result<(Vec<BurnchainHeaderHash>, Vec<BurnchainHeaderHash>, Vec<(Vec<RelayData>, MicroblocksData)>, Vec<NeighborKey>, Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>), net_error> {
         let mut new_blocks = HashSet::new();
         let mut new_confirmed_microblocks = HashSet::new();
         let mut bad_neighbors = vec![];
@@ -709,9 +709,9 @@ impl Relayer {
         
         // process as many epochs as we can.
         // Try to process at least one epoch.
-        let _ = chainstate.process_blocks(new_blocks.len() + 1)?;
+        let processed_blocks = chainstate.process_blocks(new_blocks.len() + 1)?;
 
-        Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors))
+        Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors, processed_blocks))
     }
     
     /// Produce blocks-available messages from blocks we just got.
@@ -797,9 +797,9 @@ impl Relayer {
     /// * Forward transactions we didn't already have.
     /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
     /// turned into peer bans.
-    pub fn process_network_result(&mut self, _local_peer: &LocalPeer, network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<(), net_error> {
+    pub fn process_network_result(&mut self, _local_peer: &LocalPeer, network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<(Option<(StacksHeaderInfo, Vec<StacksTransactionReceipt>)>, Option<TransactionPayload>)>, net_error> {
         match Relayer::process_new_blocks(network_result, burndb, chainstate) {
-            Ok((new_blocks, new_confirmed_microblocks, mut new_microblocks, bad_block_neighbors)) => {
+            Ok((new_blocks, new_confirmed_microblocks, mut new_microblocks, bad_block_neighbors, processed_blocks)) => {
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers
                 test_debug!("{:?}: Ban {} peers", &_local_peer, bad_block_neighbors.len());
@@ -836,6 +836,8 @@ impl Relayer {
                         warn!("Message relay error: {:?}", &relay_error);
                     }
                 }
+
+                processed_blocks
             },
             Err(e) => {
                 warn!("Failed to process new blocks: {:?}", &e);
