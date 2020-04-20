@@ -76,19 +76,19 @@ impl From<CheckErrors> for SerializationError {
 }
 
 define_u8_enum!(TypePrefix {
-    Int,
-    UInt,
-    Buffer,
-    BoolTrue,
-    BoolFalse,
-    PrincipalStandard,
-    PrincipalContract,
-    ResponseOk,
-    ResponseErr,
-    OptionalNone,
-    OptionalSome,
-    List,
-    Tuple,
+    Int = 0,
+    UInt = 1,
+    Buffer = 2,
+    BoolTrue = 3,
+    BoolFalse = 4,
+    PrincipalStandard = 5,
+    PrincipalContract = 6,
+    ResponseOk = 7,
+    ResponseErr = 8,
+    OptionalNone = 9,
+    OptionalSome = 10,
+    List = 11,
+    Tuple = 12
 });
 
 impl From<&PrincipalData> for TypePrefix {

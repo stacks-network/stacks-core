@@ -69,6 +69,9 @@ pub fn get_loglevel() -> u8 {
     if env::var("BLOCKSTACK_DEBUG") == Ok("1".into()) && res > LOG_DEBUG {
         set_loglevel(LOG_DEBUG).unwrap();
         LOG_DEBUG
+    } else if env::var("BLOCKSTACK_TRACE") == Ok("1".into()) && res > LOG_TRACE {
+        set_loglevel(LOG_TRACE).unwrap();
+        LOG_TRACE
     } else {
         res
     }
