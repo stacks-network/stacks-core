@@ -1028,7 +1028,7 @@ impl PeerNetwork {
                     match network.http.get_conversation_and_socket(event_id) {
                         (Some(ref mut convo), Some(ref mut socket)) => {
                             convo.send_request(request)?;
-                            HttpPeer::saturate_socket(socket, convo, chainstate)?;
+                            HttpPeer::saturate_http_socket(socket, convo, chainstate)?;
                             Ok(event_id)
                         },
                         (_, _) => {

@@ -639,7 +639,7 @@ impl ConversationP2P {
         let _name = msg.get_message_name();
         let _seq = msg.request_id();
         
-        let mut handle = self.connection.make_relay_handle()?;
+        let mut handle = self.connection.make_relay_handle(self.conn_id)?;
         msg.consensus_serialize(&mut handle)?;
 
         self.stats.msgs_tx += 1;
@@ -655,7 +655,7 @@ impl ConversationP2P {
         let _name = msg.get_message_name();
         let _seq = msg.request_id();
 
-        let mut handle = self.connection.make_request_handle(msg.request_id(), ttl)?;
+        let mut handle = self.connection.make_request_handle(msg.request_id(), ttl, self.conn_id)?;
         msg.consensus_serialize(&mut handle)?;
 
         self.stats.msgs_tx += 1;
@@ -1463,6 +1463,9 @@ mod test {
            
             sender.try_flush().unwrap();
             receiver.try_flush().unwrap();
+
+            pipe_write.try_flush().unwrap();
+            
             let all_relays_flushed = receiver.num_pending_outbound() == 0 && sender.num_pending_outbound() == 0;
             
             let nw = sender.send(&mut pipe_write).unwrap();
@@ -1473,6 +1476,9 @@ mod test {
                 break;
             }
         }
+
+        eprintln!("pipe_read = {:?}", pipe_read);
+        eprintln!("pipe_write = {:?}", pipe_write);
     }
 
     fn db_setup(peerdb: &mut PeerDB, burndb: &mut BurnDB, socketaddr: &SocketAddr, chain_view: &BurnchainView) -> () {
@@ -1997,7 +2003,7 @@ mod test {
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_2 = ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 1);
 
         for i in 0..5 {
             // do handshake/ping over and over, with different keys.

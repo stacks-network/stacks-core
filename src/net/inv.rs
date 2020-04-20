@@ -642,12 +642,16 @@ impl InvState {
     /// Try to finish getting all BlocksInvData requests.
     /// Return true if this method is done -- i.e. all requests have been handled.
     /// Return false if we're not done.
-    pub fn getblocksinv_try_finish(&mut self, chain_view: &BurnchainView) -> Result<bool, net_error> {
+    pub fn getblocksinv_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
         assert_eq!(self.state, InvWorkState::GetBlocksInvFinish);
 
         // requests that are still pending
         let mut pending_getblocksinv_requests = HashMap::new();
-        for (nk, rh) in self.getblocksinv_requests.drain() {
+        for (nk, mut rh) in self.getblocksinv_requests.drain() {
+            if let Err(_e) = network.saturate_p2p_socket(rh.get_event_id(), &mut rh) {
+                self.dead_peers.insert(nk);
+                continue;
+            }
             let res = rh.try_send_recv();
             let rh_nk = nk.clone();
             let _target_height = *self.getblocksinv_target_heights.get(&nk).expect(&format!("BUG: no target block height for request to {:?}", &nk));
@@ -668,7 +672,7 @@ impl InvState {
                         },
                         StacksMessageType::Nack(nack_data) => {
                             debug!("Remote neighbor {:?} nack'ed our GetBlocksInv: error {}", &nk, nack_data.error_code);
-                            match InvState::diagnose_nack(&nk, nack_data, chain_view, preamble_burn_block_height, preamble_burn_stable_block_height, preamble_burn_consensus_hash, preamble_burn_stable_consensus_hash) {
+                            match InvState::diagnose_nack(&nk, nack_data, &network.chain_view, preamble_burn_block_height, preamble_burn_stable_block_height, preamble_burn_consensus_hash, preamble_burn_stable_consensus_hash) {
                                 NackResult::Noop => {},
                                 NackResult::Stale => {
                                     debug!("Peer {:?} is stale", nk);
@@ -930,7 +934,7 @@ impl PeerNetwork {
     pub fn inv_getblocksinv_finish(&mut self) -> Result<bool, net_error> {
         test_debug!("{:?}: getblocksinv_try_finish", &self.local_peer);
         PeerNetwork::with_inv_state(self, |ref mut network, ref mut inv_state| {
-            inv_state.getblocksinv_try_finish(&network.chain_view)
+            inv_state.getblocksinv_try_finish(network)
         })
     }
 
