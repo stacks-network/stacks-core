@@ -16,6 +16,7 @@ use stacks::address::AddressHashMode;
 use super::{Config};
 use crate::helium::RunLoop;
 use super::node::{TESTNET_CHAIN_ID};
+use super::burnchains::bitcoin_regtest_controller::UTXO;
 
 // $ cat /tmp/out.clar 
 pub const STORE_CONTRACT: &str =  r#"(define-map store ((key (buff 32))) ((value (buff 32))))
@@ -504,4 +505,31 @@ fn should_succeed_handling_malformed_and_valid_txs() {
         }
     });
     run_loop.start(num_rounds);
+}
+
+#[test]
+fn test_btc_to_sat() {
+    let inputs = [
+        "0.1000000",
+        "0.0000001",
+        "1.0",
+        "0.1",
+    ];
+    let expected_outputs: [u64; 4] = [
+        1000000,
+        1,
+        10000000,
+        1000000,
+    ];
+
+    for (input, expected_output) in inputs.iter().zip(expected_outputs.iter()) {
+        let output = UTXO::serialized_btc_to_sat(input); 
+        assert_eq!(*expected_output, output);
+    }
+}
+
+#[test]
+#[should_panic]
+fn test_btc_to_sat_panic() {
+    UTXO::serialized_btc_to_sat("1");
 }
