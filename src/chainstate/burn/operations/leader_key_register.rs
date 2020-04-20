@@ -196,9 +196,11 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
         write_next(fd, &(Opcodes::LeaderKeyRegister as u8))?;
         write_next(fd, &self.consensus_hash)?;
         fd.write_all(&self.public_key.as_bytes()[..]).map_err(net_error::WriteError)?;    
-        let memo_len = 25;
-        let mut memo = self.memo.clone();
-        memo.resize(memo_len, 0);
+        
+        let memo = match self.memo.len() {
+            l if l <= 25 => self.memo[0..].to_vec().clone(),
+            _ => self.memo[0..25].to_vec().clone(),
+        };
         fd.write_all(&memo).map_err(net_error::WriteError)?;
         Ok(())
     }
@@ -305,7 +307,7 @@ mod tests {
         let tx_fixtures: Vec<OpFixture> = vec![
             OpFixture {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402203a176d95803e8d51e7884d38750322c4bfa55307a71291ef8db65191edd665f1022056f5d1720d1fde8d6a163c79f73f22f874ef9e186e98e5b60fa8ac64d298e77a012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000200000000000000003e6a3c69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a010203040539300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
-                opstr: "69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a01020304050000000000000000000000000000000000000000".to_string(),
+                opstr: "69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a0102030405".to_string(),
                 result: Some(LeaderKeyRegisterOp {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
@@ -320,7 +322,7 @@ mod tests {
             },
             OpFixture {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a473044022037d0b9d4e98eab190522acf5fb8ea8e89b6a4704e0ac6c1883d6ffa629b3edd30220202757d710ec0fb940d1715e02588bb2150110161a9ee08a83b750d961431a8e012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000020000000000000000396a3769645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a39300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
-                opstr: "69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a00000000000000000000000000000000000000000000000000".to_string(),
+                opstr: "69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a".to_string(),
                 result: Some(LeaderKeyRegisterOp {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
