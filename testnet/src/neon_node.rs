@@ -218,7 +218,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
 
     let server_thread = thread::spawn(move || {
         loop {
-            let network_result = this.run(&mut burndb, &mut chainstate, &mut mem_pool, None, poll_timeout)
+            let network_result = this.run(&mut burndb, &mut chainstate, &mut mem_pool, Some(&mut dns_client), poll_timeout)
                 .unwrap();
 
             if let Err(e) = relay_channel.try_send(RelayerDirective::HandleNetResult(network_result)) {
@@ -644,6 +644,7 @@ impl NeonGenesisNode {
 
         let keychain = Keychain::default(config.node.seed.clone());
 
+        info!("Begining Neon genesis node: miner address: {}", keychain.origin_address().unwrap());
         let initial_balances = config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
 
         let chain_state = match StacksChainState::open_and_exec(

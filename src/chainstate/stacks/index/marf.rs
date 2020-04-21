@@ -207,7 +207,7 @@ impl MARF {
     /// On Ok, s will point to new_bhh and will be open for reading
     pub fn extend_trie(storage: &mut TrieFileStorage, new_bhh: &BlockHeaderHash) -> Result<(), Error> {
         let (cur_bhh, cur_block_id) = storage.get_cur_block_and_id();
-             if storage.num_blocks() == 0 {
+        if storage.num_blocks() == 0 || cur_bhh == TrieFileStorage::block_sentinel() {
             // brand new storage
             trace!("Brand new storage -- start with {:?}", new_bhh);
             storage.extend_to_block(new_bhh)?;
