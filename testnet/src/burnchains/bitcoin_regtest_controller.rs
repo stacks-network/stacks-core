@@ -558,8 +558,7 @@ impl BurnchainController for BitcoinRegtestController {
             let request_builder = self.get_rpc_request_builder();
 
             let _result = BitcoinRPCRequest::import_public_key(
-                request_builder, 
-                local_mining_pubkey);
+                request_builder, &Secp256k1PublicKey::from_hex(local_mining_pubkey).unwrap());
     
             let request_builder = self.get_rpc_request_builder();
             let result = BitcoinRPCRequest::generate_to_address(
