@@ -596,7 +596,7 @@ impl UTXO {
                 let btc_to_sat = base.pow(8);
                 let btc = lhs.parse::<u64>().expect("Invalid amount");
                 let mut amount = btc * btc_to_sat;
-                assert!(rhs.len() <= 7, "Unexpected amount of decimals");
+                assert!(rhs.len() <= 8, "Unexpected amount of decimals");
                 let frac_part = rhs.parse::<u64>().expect("Invalid amount");
                 let sat = frac_part * base.pow(8 - rhs.len() as u32);
                 amount += sat;

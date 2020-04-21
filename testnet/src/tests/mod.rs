@@ -514,12 +514,14 @@ fn test_btc_to_sat() {
         "0.00000010",
         "0.00000001",
         "1.00000001",
+        "0.1",
     ];
-    let expected_outputs: [u64; 4] = [
+    let expected_outputs: [u64; 5] = [
         10000000,
         10,
         1,
         100000001,
+        10000000,
     ];
 
     for (input, expected_output) in inputs.iter().zip(expected_outputs.iter()) {
@@ -540,8 +542,3 @@ fn test_btc_to_sat_panic_2() {
     UTXO::serialized_btc_to_sat("1");
 }
 
-#[test]
-#[should_panic]
-fn test_btc_to_sat_panic_3() {
-    UTXO::serialized_btc_to_sat("0.1");
-}
