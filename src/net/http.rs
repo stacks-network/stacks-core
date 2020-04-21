@@ -1947,7 +1947,7 @@ impl StacksMessageCodec for StacksHttpPreamble {
                                     Err(net_error::DeserializeError(format!("Neither a HTTP request ({:?}) or HTTP response ({:?})", ioe1, ioe2)))
                                 }
                             },
-                            (e1, e2) => Err(net_error::DeserializeError(format!("Failed to decode HTTP request ({:?}) or HTTP response ({:?})", &e1, &e2)))
+                            (_, _) => Err(net_error::DeserializeError("Failed to decode HTTP request or HTTP response".to_string()))
                         }
                     }
                 }
@@ -3419,7 +3419,11 @@ mod test {
 
     #[test]
     fn test_http_headers_too_many() {
-        let too_many_headers = "H1: 1\r\nH2: 2\r\nH3: 3\r\nH4: 4\r\nH5: 5\r\nH6: 6\r\nH7: 7\r\nH8: 8\r\nH9: 9\r\nH10: 10\r\nH11: 11\r\nH12: 12\r\nH13: 13\r\nH14: 14\r\nH15: 15\r\nH16: 16\r\n";
+        let mut too_many_headers_list = vec![];
+        for i in 0..HTTP_PREAMBLE_MAX_NUM_HEADERS {
+            too_many_headers_list.push(format!("H{}: {}\r\n", i+1, i+1));
+        }
+        let too_many_headers = too_many_headers_list.join("");
         let bad_request_preamble = format!("GET /v2/neighbors HTTP/1.1\r\nHost: localhost:1234\r\n{}\r\n", &too_many_headers);
         let bad_response_preamble = format!("HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-ID: 123\r\nContent-Type: text/plain\r\nContent-Length: 64\r\n{}\r\n", &too_many_headers);
         
