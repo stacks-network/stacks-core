@@ -289,6 +289,14 @@ impl Node {
     }
 
     pub fn spawn_node_threads(&mut self) {
+        self.inner_spawn_node_threads(true)
+    }
+
+    pub fn spawn_peer_thread(&mut self) {
+        self.inner_spawn_node_threads(false)
+    }
+
+    fn inner_spawn_node_threads(&mut self, spawn_relayer_miner: bool) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let mut burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
@@ -341,13 +349,25 @@ impl Node {
 
         let mut p2p_net = PeerNetwork::new(peerdb, local_peer.clone(), TESTNET_PEER_VERSION, burnchain, view,
                                            self.config.connection_options.clone());
-        let relayer = Relayer::from_p2p(&mut p2p_net);
 
-        // we need to set up our communication channels.
-
+        // setup the relayer channel
         let (relay_send, relay_recv) = channel();
-
         self.relay_channel = Some(relay_send.clone());
+
+        if spawn_relayer_miner {
+            let relayer = Relayer::from_p2p(&mut p2p_net);
+
+            spawn_miner_relayer(relayer, local_peer,
+                                self.config.get_burn_db_file_path(),
+                                self.config.get_chainstate_path(),
+                                relay_recv, self.dispatcher_channel.clone());
+        } else {
+            // just no-op on the relayer events
+            thread::spawn(move || {
+                while let Ok(_) = relay_recv.recv() {
+                }
+            });
+        }
 
         spawn_peer(
             p2p_net, 
@@ -357,10 +377,6 @@ impl Node {
             self.config.get_chainstate_path(), 
             5000, relay_send).unwrap();
 
-        spawn_miner_relayer(relayer, local_peer,
-                            self.config.get_burn_db_file_path(),
-                            self.config.get_chainstate_path(),
-                            relay_recv, self.dispatcher_channel.clone());
 
         info!("Bound HTTP server on: {}", &self.config.node.rpc_bind);
         info!("Bound P2P server on: {}", &self.config.node.p2p_bind);
@@ -373,6 +389,7 @@ impl Node {
         let consensus_hash = burnchain_tip.block_snapshot.consensus_hash; 
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
         let mut op_signer = self.keychain.generate_op_signer();
+        info!("Submitting VRF key registration");
         burnchain_controller.submit_operation(key_reg_op, &mut op_signer);
     }
 
@@ -453,7 +470,7 @@ impl Node {
             None => {
                 // We're continuously registering new keys, as such, this branch
                 // should be unreachable.
-                return None;
+                unreachable!()
             },
             Some(ref key) => key,
         };

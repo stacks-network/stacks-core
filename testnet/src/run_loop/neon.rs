@@ -42,6 +42,7 @@ impl RunLoop {
         let mut round_index: u64 = 1; // todo(ludo): careful with this round_index
         
         // Start the runloop
+        info!("Begining run loop");
         loop {
             if expected_num_rounds == round_index {
                 return;
@@ -50,6 +51,7 @@ impl RunLoop {
             // Run the last initialized tenure
             let artifacts_from_tenure = match tenure {
                 Some(mut tenure) => {
+                    info!("Running leader tenure...");
                     self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &mut tenure);
                     tenure.run()
                 },
@@ -78,6 +80,7 @@ impl RunLoop {
             match (artifacts_from_tenure, sortitioned_block) {
                 // Pass if we're missing the artifacts from the current tenure.
                 (Some(artifacts), Some(last_sortitioned_block)) => {
+                    info!("Processing leader tenure...");
                     // Let's process a tenure -- that happens in the relayer thread.
                     if !node.relayer_process_tenure(
                         artifacts.anchored_block, 
@@ -108,9 +111,16 @@ impl RunLoop {
     fn exec_genesis_boot_sequence(&self, burnchain_controller: &mut Box<dyn BurnchainController>) -> (Node, ChainTip, BurnchainTip, Option<Tenure>) {
         let mut node = Node::new(self.config.clone(), |_| {});
 
+        info!("Executing genesis boot sequence...");
+
         // Sync and update node with this new block.
         node.setup(burnchain_controller);
-        let genesis_burnchain_tip = burnchain_controller.sync();
+        let mut genesis_burnchain_tip = burnchain_controller.sync();
+        while genesis_burnchain_tip.state_transition.accepted_ops.len() == 0 {
+            info!("VRF register not included, waiting on another block");
+            genesis_burnchain_tip = burnchain_controller.sync();
+        }
+
         node.process_burnchain_state(&genesis_burnchain_tip);
         
         let mut chain_tip = ChainTip::genesis();

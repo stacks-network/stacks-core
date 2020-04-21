@@ -474,6 +474,8 @@ impl BurnDB {
         };
 
         let (db_path, index_path) = db_mkdirs(path)?;
+        debug!("Connect/Open burndb '{}' as '{}', with index as '{}'",
+               db_path, if readwrite { "readwrite" } else { "readonly" }, index_path);
         let mut conn = Connection::open_with_flags(&db_path, open_flags).map_err(db_error::SqliteError)?;
 
         if create_flag {
@@ -550,6 +552,8 @@ impl BurnDB {
             };
 
         let (db_path, index_path) = db_mkdirs(path)?;
+        debug!("Open burndb '{}' as '{}', with index as '{}'",
+               db_path, if readwrite { "readwrite" } else { "readonly" }, index_path);
         let conn = Connection::open_with_flags(&db_path, open_flags).map_err(db_error::SqliteError)?;
         let marf = BurnDB::open_index(&index_path)?;
         let first_snapshot = BurnDB::get_first_block_snapshot(&conn)?;
