@@ -83,7 +83,7 @@ impl BurnchainController for MocknetController {
     }
    
     fn start(&mut self) -> BurnchainTip {
-        let db = match BurnDB::connect(&self.config.get_burn_db_path(), 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
+        let db = match BurnDB::connect(&self.config.get_burn_db_file_path(), 0, &BurnchainHeaderHash([0u8; 32]), get_epoch_time_secs(), true) {
             Ok(db) => db,
             Err(_) => panic!("Error while connecting to burnchain db")
         };
