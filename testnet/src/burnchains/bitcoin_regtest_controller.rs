@@ -568,7 +568,7 @@ pub struct UTXO {
     txid: String,
     vout: u32,
     script_pub_key: String,
-    amount: String,
+    amount: serde_json::Number,
     confirmations: u32,
     spendable: bool,
     solvable: bool,
@@ -585,7 +585,7 @@ impl UTXO {
     }
 
     pub fn get_sat_amount(&self) -> u64 {
-        UTXO::serialized_btc_to_sat(&self.amount)
+        UTXO::serialized_btc_to_sat(&self.amount.to_string())
     }
 
     pub fn serialized_btc_to_sat(amount: &str) -> u64 {
@@ -593,13 +593,10 @@ impl UTXO {
         match comps[..] {
             [lhs, rhs] => {
                 let base: u64 = 10;
-                let sat_decimals = 8;
                 let btc_to_sat = base.pow(8);
                 let btc = lhs.parse::<u64>().expect("Invalid amount");
                 let mut amount = btc * btc_to_sat;
-                if rhs.len() != sat_decimals { 
-                    panic!("Unexpected amount of decimals");
-                }
+                assert!(rhs.len() <= 7, "Unexpected amount of decimals");
                 let frac_part = rhs.parse::<u64>().expect("Invalid amount");
                 let sat = frac_part * base.pow(8 - rhs.len() as u32);
                 amount += sat;
