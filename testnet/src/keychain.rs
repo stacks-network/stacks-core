@@ -143,6 +143,14 @@ impl Keychain {
             &public_keys).unwrap()
     }
 
+    pub fn address_from_burnchain_signer(signer: &BurnchainSigner) -> StacksAddress {
+        StacksAddress::from_public_keys(
+            signer.hash_mode.to_version_testnet(),
+            &signer.hash_mode,
+            signer.num_sigs,
+            &signer.public_keys).unwrap()
+    }
+
     pub fn get_burnchain_signer(&self) -> BurnchainSigner {
         let public_keys = self.secret_keys.iter().map(|ref pk| StacksPublicKey::from_private(pk)).collect();
         BurnchainSigner {

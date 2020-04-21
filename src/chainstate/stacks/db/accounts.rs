@@ -329,7 +329,7 @@ impl StacksChainState {
     /// TODO: this is incomplete -- it does not calculate transaction fees.  This is just stubbed
     /// out for now -- it only grants miners and user burn supports their coinbases.
     fn calculate_miner_reward(miner: &MinerPaymentSchedule, sample: &Vec<(MinerPaymentSchedule, Vec<MinerPaymentSchedule>)>) -> MinerReward {
-        assert!(miner.burnchain_sortition_burn > 0);        // don't call this method if there was no sortition for this block!
+        // assert!(miner.burnchain_sortition_burn > 0);        // don't call this method if there was no sortition for this block!
         for i in 0..sample.len() {
             assert!(sample[i].0.miner);
             for u in sample[i].1.iter() {

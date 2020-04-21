@@ -1,5 +1,6 @@
 use std::process;
-use crate::{Config, Node, BurnchainController, BitcoinRegtestController, ChainTip, BurnchainTip, Tenure};
+use crate::{Config, NeonGenesisNode, InitializedNeonNode, BurnchainController, 
+            BitcoinRegtestController, ChainTip, BurnchainTip, Tenure};
 
 use super::RunLoopCallbacks;
 
@@ -34,9 +35,12 @@ impl RunLoop {
 
         let burnchain_tip = burnchain.start();
         let total_burn = burnchain_tip.block_snapshot.total_burn; 
-        let (mut node, mut chain_tip, mut burnchain_tip, mut tenure) = match total_burn {
+        let (mut node, mut burnchain_tip) = match total_burn {
             0 => self.exec_genesis_boot_sequence(&mut burnchain),
-            _ => self.exec_standard_boot_sequence(&mut burnchain)
+            _ => {
+                panic!("Not implemented");
+                //self.exec_standard_boot_sequence(&mut burnchain)
+            }
         };
 
         let mut round_index: u64 = 1; // todo(ludo): careful with this round_index
@@ -76,13 +80,13 @@ impl RunLoop {
     // loading the boot smart contracts and the initial balances.
     // It will then register a key, build a genesis stack block and create a block commit.
     // This method will return a tenure, that can then be run.  
-    fn exec_genesis_boot_sequence(&self, burnchain_controller: &mut Box<dyn BurnchainController>) -> (Node, ChainTip, BurnchainTip, Option<Tenure>) {
-        let mut node = Node::new(self.config.clone(), |_| {});
+    fn exec_genesis_boot_sequence(&self, burnchain_controller: &mut Box<dyn BurnchainController>) -> (InitializedNeonNode, BurnchainTip) {
+        let mut node = NeonGenesisNode::new(self.config.clone(), |_| {});
 
         info!("Executing genesis boot sequence...");
 
-        // Sync and update node with this new block.
-        node.setup(burnchain_controller);
+        // Submit the VRF key operation
+        node.submit_vrf_key_operation(burnchain_controller);
         let mut genesis_burnchain_tip = burnchain_controller.sync();
         while genesis_burnchain_tip.state_transition.accepted_ops.len() == 0 {
             info!("VRF register not included, waiting on another block");
@@ -99,7 +103,8 @@ impl RunLoop {
             Some(res) => res,
             None => panic!("Error while initiating genesis tenure")
         };
-        self.callbacks.invoke_new_tenure(0, &genesis_burnchain_tip, &chain_tip, &mut first_tenure);
+
+        // self.callbacks.invoke_new_tenure(0, &genesis_burnchain_tip, &chain_tip, &mut first_tenure);
 
         // Run the tenure, keep the artifacts
         let artifacts_from_1st_tenure = match first_tenure.run() {
@@ -139,32 +144,29 @@ impl RunLoop {
             artifacts_from_1st_tenure.microblocks.clone(),
             burnchain_controller.burndb_mut());
 
-        self.callbacks.invoke_new_stacks_chain_state(
-            0, 
-            &burnchain_tip, 
-            &chain_tip, 
-            &mut node.chain_state);
+        //  callbacks aren't preserved in neon for now.
+        // self.callbacks.invoke_new_stacks_chain_state(
+        //    0, 
+        //    &burnchain_tip, 
+        //    &chain_tip, 
+        //    &mut node.chain_state);
 
-        let tenure = node.initiate_new_tenure();
-
-        node.spawn_node_threads();
-
-        (node, chain_tip, burnchain_tip, tenure)
+        (node.into_initialized_node(), burnchain_tip)
     }
 
     // In this boot sequence, a node will be initializing a chainstate from network, ignoring
     // the boot contrats, initial balances etc.
     // Instead, it would sync with the peer networks and build a chainstate consistent with
     // the burnchain_tip previously fetched. 
-    fn exec_standard_boot_sequence(&self, burnchain_controller: &mut Box<dyn BurnchainController>) -> (Node, ChainTip, BurnchainTip, Option<Tenure>) {
-        let node = Node::init_and_sync(self.config.clone(), burnchain_controller);
+    // fn exec_standard_boot_sequence(&self, burnchain_controller: &mut Box<dyn BurnchainController>) -> (Node, ChainTip, BurnchainTip, Option<Tenure>) {
+    //     let node = Node::init_and_sync(self.config.clone(), burnchain_controller);
         
-        let burnchain_tip = node.burnchain_tip.clone()
-            .expect("Unable to get a chaintip from the burnchain");
+    //     let burnchain_tip = node.burnchain_tip.clone()
+    //         .expect("Unable to get a chaintip from the burnchain");
 
-        let chain_tip = node.chain_tip.clone()
-            .expect("Unable to get a chaintip from the stacks chain");
+    //     let chain_tip = node.chain_tip.clone()
+    //         .expect("Unable to get a chaintip from the stacks chain");
 
-        (node, chain_tip, burnchain_tip, None)
-    }
+    //     (node, chain_tip, burnchain_tip, None)
+    // }
 }
