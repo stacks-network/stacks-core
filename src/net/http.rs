@@ -51,6 +51,7 @@ use net::NeighborsData;
 use net::NeighborAddress;
 use net::CallReadOnlyRequestBody;
 use net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
+use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::MAX_MESSAGE_LEN;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
 use net::HTTP_REQUEST_ID_RESERVED;
@@ -794,8 +795,8 @@ impl StacksMessageCodec for HttpRequestPreamble {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpRequestPreamble, net_error> {
-        // realistically, there won't be more than 16 headers
-        let mut headers = [httparse::EMPTY_HEADER; 16];
+        // realistically, there won't be more than HTTP_PREAMBLE_MAX_NUM_HEADERS headers
+        let mut headers = [httparse::EMPTY_HEADER; HTTP_PREAMBLE_MAX_NUM_HEADERS];
         let mut req = httparse::Request::new(&mut headers);
 
         let buf_read = read_to_crlf2(fd)?;
@@ -1030,8 +1031,8 @@ impl StacksMessageCodec for HttpResponsePreamble {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<HttpResponsePreamble, net_error> {
-        // realistically, there won't be more than 16 headers
-        let mut headers = [httparse::EMPTY_HEADER; 16];
+        // realistically, there won't be more than HTTP_PREAMBLE_MAX_NUM_HEADERS headers
+        let mut headers = [httparse::EMPTY_HEADER; HTTP_PREAMBLE_MAX_NUM_HEADERS];
         let mut resp = httparse::Response::new(&mut headers);
 
         let buf_read = read_to_crlf2(fd)?;
@@ -1946,7 +1947,7 @@ impl StacksMessageCodec for StacksHttpPreamble {
                                     Err(net_error::DeserializeError(format!("Neither a HTTP request ({:?}) or HTTP response ({:?})", ioe1, ioe2)))
                                 }
                             },
-                            (_, _) => Err(net_error::DeserializeError("Failed to decode HTTP request or HTTP response".to_string()))
+                            (e1, e2) => Err(net_error::DeserializeError(format!("Failed to decode HTTP request ({:?}) or HTTP response ({:?})", &e1, &e2)))
                         }
                     }
                 }
@@ -3574,6 +3575,19 @@ mod test {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn test_live_headers() {
+        // headers pulled from prod
+        let live_headers = &[
+            "GET /v2/info HTTP/1.1\r\naccept-language: en-US,en;q=0.9\r\naccept-encoding: gzip, deflate, br\r\nsec-fetch-dest: document\r\nsec-fetch-user: ?1\r\nsec-fetch-mode: navigate\r\nsec-fetch-site: none\r\naccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9\r\nuser-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.113 Safari/537.36\r\nupgrade-insecure-requests: 1\r\ncache-control: max-age=0\r\nconnection: close\r\nx-forwarded-port: 443\r\nx-forwarded-host: crashy-stacky.zone117x.com\r\nx-forwarded-proto: https\r\nx-forwarded-for: 213.127.17.55\r\nx-real-ip: 213.127.17.55\r\nhost: stacks-blockchain:9000\r\n\r\n"
+        ];
+
+        for live_header in live_headers {
+            let res = HttpRequestPreamble::consensus_deserialize(&mut live_header.as_bytes());
+            assert!(res.is_ok(), format!("headers: {}\nerror: {:?}", live_header, &res));
         }
     }
 
