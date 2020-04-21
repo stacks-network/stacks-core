@@ -908,10 +908,9 @@ impl StacksChainState {
     /// Get the appropriate MARF index hash to use to identify a chain tip, given a parent block
     /// header
     pub fn get_index_hash(burn_hash: &BurnchainHeaderHash, header: &StacksBlockHeader) -> BlockHeaderHash {
-        if header.is_genesis() {
+        if burn_hash == &FIRST_BURNCHAIN_BLOCK_HASH {
             TrieFileStorage::block_sentinel()
-        }
-        else {
+        } else {
             header.index_block_hash(burn_hash)
         }
     } 
@@ -962,6 +961,10 @@ impl StacksChainState {
         let indexed_values = vec![
             "1".to_string()
         ];
+
+        info!("Advancing tip! {}/{} from {}/{}", &new_tip.block_hash(), new_burn_block,
+              &parent_tip.block_hash(), &parent_burn_block);
+        info!("SUSPICIOUSLY: {} => {}", &new_tip.parent_block, &parent_hash);
 
         // store each indexed field
         headers_tx.put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_burn_block))

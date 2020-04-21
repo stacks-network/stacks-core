@@ -48,11 +48,6 @@ impl RunLoop {
                 return;
             }
 
-            burnchain_tip = burnchain.sync();
-
-            // Have the node process the new block, that can include, or not, a sortition.
-            node.process_burnchain_state(&burnchain_tip);
-
             // (1) tell the relayer to check whether or not it won the sortition, and if so,
             //     process and advertize the block
             if !node.relayer_sortition_notify() {
@@ -67,6 +62,11 @@ impl RunLoop {
                 error!("Block relayer and miner hung up, exiting.");
                 process::exit(1);
             }
+
+            burnchain_tip = burnchain.sync();
+
+            // Have the node process the new block, that can include, or not, a sortition.
+            node.process_burnchain_state(&burnchain_tip);
             
             round_index += 1;
         }

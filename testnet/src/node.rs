@@ -163,8 +163,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                 },
                 RelayerDirective::ProcessTenure(burn_header_hash, parent_burn_header_hash, block_header_hash) => {
                     if let Some((mined_burn_hh, mined_block)) = last_mined_block.take() {
-                        if mined_block.block_hash() == block_header_hash {
-                        // we won!
+                        if mined_block.block_hash() == block_header_hash && parent_burn_header_hash == mined_burn_hh {
+                            // we won!
                             info!("Won sortition! {} from {}, known to sortition by {}/{}", block_header_hash,
                                   mined_burn_hh, parent_burn_header_hash, burn_header_hash);
 
@@ -449,7 +449,9 @@ impl Node {
                     if op.txid == burnchain_tip.block_snapshot.winning_block_txid {
                         last_sortitioned_block = Some(burnchain_tip.clone());
 
-                        info!("Winning sortition block: {:?}", burnchain_tip);
+                        info!("Winning sortition block at burn-header-hash: {}, with parent: {}",
+                              burnchain_tip.block_snapshot.burn_header_hash, 
+                              burnchain_tip.block_snapshot.parent_burn_header_hash);
 
                         // Release current registered key if leader won the sortition
                         // This will trigger a new registration
@@ -502,6 +504,7 @@ impl Node {
                           mem_pool: &mut MemPoolDB,
                           burn_fee_cap: u64,
                           bitcoin_controller: &mut BitcoinRegtestController) -> Option<(BurnchainHeaderHash, StacksBlock)> {
+
         let stacks_tip = match chain_state.get_stacks_chain_tip().unwrap() {
             Some(x) => x,
             None => {
@@ -519,10 +522,20 @@ impl Node {
             }
         };
 
+
+        info!("Mining tenure on burn_block: {}, stacks tip burn_header_hash: {}",
+              &burn_block.block_snapshot.burn_header_hash,
+              &stacks_tip.burn_header_hash);
+
         // Generates a proof out of the sortition hash provided in the params.
         let vrf_proof = keychain.generate_proof(
             &registered_key.vrf_public_key, 
             burn_block.block_snapshot.sortition_hash.as_bytes()).unwrap();
+
+        info!("Generated VRF Proof: {} over {} with key {}",
+              vrf_proof.to_hex(),
+              &burn_block.block_snapshot.sortition_hash,
+              &registered_key.vrf_public_key.to_hex());
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
@@ -536,26 +549,24 @@ impl Node {
             work: 1 + stacks_tip_header.anchored_header.total_work.work,
         };
 
-        let mut block_builder = match burn_block.block_snapshot.total_burn {
-            0 => StacksBlockBuilder::first(
-                1, 
-                &stacks_tip.burn_header_hash, 
-                stacks_tip.burn_header_timestamp, 
-                &vrf_proof, 
-                &microblock_secret_key),
-            _ => StacksBlockBuilder::from_parent(
-                1, 
-                &stacks_tip_header,
-                &ratio,
-                &vrf_proof, 
-                &microblock_secret_key)
-        };
+        // relayer is always building a non-genesis block.
+        let mut block_builder = StacksBlockBuilder::from_parent(
+            1, 
+            &stacks_tip_header,
+            &ratio,
+            &vrf_proof, 
+            &microblock_secret_key);
 
         let mut clarity_tx = block_builder.epoch_begin(chain_state).unwrap();
         
 
         // make a coinbase
-        // block_build.try_mine_tx(&mut clarity_tx, coinbase_tx);
+
+        let principal = keychain.origin_address().unwrap().into();
+        let nonce = StacksChainState::get_account(&mut clarity_tx, &principal).nonce;
+
+        let coinbase_tx = Node::inner_generate_coinbase_tx(keychain, nonce);
+        block_builder.try_mine_tx(&mut clarity_tx, &coinbase_tx);
 
         let txs = mem_pool.poll(burn_header_to_poll, &block_hash_to_poll);
 
@@ -925,6 +936,22 @@ impl Node {
      
         // Increment nonce
         self.nonce += 1;
+
+        tx_signer.get_tx().unwrap()                       
+    }
+
+    fn inner_generate_coinbase_tx(keychain: &mut Keychain, nonce: u64) -> StacksTransaction {
+        let mut tx_auth = keychain.get_transaction_auth().unwrap();
+        tx_auth.set_origin_nonce(nonce);
+
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet, 
+            tx_auth, 
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
+        tx.chain_id = TESTNET_CHAIN_ID;
+        tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+        let mut tx_signer = StacksTransactionSigner::new(&tx);
+        keychain.sign_as_origin(&mut tx_signer);
 
         tx_signer.get_tx().unwrap()                       
     }
