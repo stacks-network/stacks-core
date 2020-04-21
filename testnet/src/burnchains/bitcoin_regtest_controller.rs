@@ -40,7 +40,6 @@ pub struct BitcoinRegtestController {
     indexer_config: BitcoinIndexerConfig,
     db: Option<BurnDB>,
     chain_tip: Option<BurnchainTip>,
-    yielded_tip: Option<BurnchainTip>,
 }
 
 impl BitcoinRegtestController {

@@ -26,7 +26,7 @@ use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
 use stacks::net::NetworkResult;
 use crate::tenure::TenureArtifacts;
-use std::sync::mpsc::{sync_channel, SyncSender, Receiver};
+use std::sync::mpsc::{channel, Sender, Receiver};
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::ChainTip;
 
@@ -51,7 +51,7 @@ enum RelayerDirective {
 
 
 pub struct InitializedNeonNode {
-    relay_channel: SyncSender<RelayerDirective>,
+    relay_channel: Sender<RelayerDirective>,
     config: Config,
     active_registered_key: Option<RegisteredKey>,
     burnchain_signer: BurnchainSigner,
@@ -199,7 +199,7 @@ fn inner_generate_block_commit_op(
 
 fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAddr,
               burn_db_path: String, stacks_chainstate_path: String, 
-              poll_timeout: u64, relay_channel: SyncSender<RelayerDirective>) -> Result<JoinHandle<()>, NetError> {
+              poll_timeout: u64, relay_channel: Sender<RelayerDirective>) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(5);
     let mut burndb = BurnDB::open(&burn_db_path, true)
@@ -218,16 +218,9 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
             let network_result = this.run(&mut burndb, &mut chainstate, &mut mem_pool, None, poll_timeout)
                 .unwrap();
 
-            if let Err(e) = relay_channel.try_send(RelayerDirective::HandleNetResult(network_result)) {
-                match e {
-                    TrySendError::Full(_) => {
-                        warn!("Relayer thread buffer is filled, p2p thread dropping net result");
-                    },
-                    TrySendError::Disconnected(_) => {
-                        info!("Relayer disconnected from p2p channel");
-                        break;
-                    }
-                }
+            if let Err(e) = relay_channel.send(RelayerDirective::HandleNetResult(network_result)) {
+                info!("Relayer hang up with p2p channel: {}", e);
+                break;
             }
         }
     });
@@ -388,7 +381,7 @@ impl InitializedNeonNode {
                                            config.connection_options.clone());
 
         // setup the relayer channel
-        let (relay_send, relay_recv) = sync_channel(RELAYER_MAX_BUFFER);
+        let (relay_send, relay_recv) = channel();
 
         let burnchain_signer = keychain.get_burnchain_signer();
         let relayer = Relayer::from_p2p(&mut p2p_net);
