@@ -962,10 +962,6 @@ impl StacksChainState {
             "1".to_string()
         ];
 
-        info!("Advancing tip! {}/{} from {}/{}", &new_tip.block_hash(), new_burn_block,
-              &parent_tip.block_hash(), &parent_burn_block);
-        info!("SUSPICIOUSLY: {} => {}", &new_tip.parent_block, &parent_hash);
-
         // store each indexed field
         headers_tx.put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_burn_block))
             .map_err(Error::DBError)?;

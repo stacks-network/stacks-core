@@ -448,11 +448,6 @@ impl Node {
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
                     if op.txid == burnchain_tip.block_snapshot.winning_block_txid {
                         last_sortitioned_block = Some(burnchain_tip.clone());
-
-                        info!("Winning sortition block at burn-header-hash: {}, with parent: {}",
-                              burnchain_tip.block_snapshot.burn_header_hash, 
-                              burnchain_tip.block_snapshot.parent_burn_header_hash);
-
                         // Release current registered key if leader won the sortition
                         // This will trigger a new registration
                         if op.input == self.keychain.get_burnchain_signer() {
@@ -523,7 +518,7 @@ impl Node {
         };
 
 
-        info!("Mining tenure on burn_block: {}, stacks tip burn_header_hash: {}",
+        debug!("Mining tenure on burn_block: {}, stacks tip burn_header_hash: {}",
               &burn_block.block_snapshot.burn_header_hash,
               &stacks_tip.burn_header_hash);
 
@@ -532,7 +527,7 @@ impl Node {
             &registered_key.vrf_public_key, 
             burn_block.block_snapshot.sortition_hash.as_bytes()).unwrap();
 
-        info!("Generated VRF Proof: {} over {} with key {}",
+        debug!("Generated VRF Proof: {} over {} with key {}",
               vrf_proof.to_hex(),
               &burn_block.block_snapshot.sortition_hash,
               &registered_key.vrf_public_key.to_hex());

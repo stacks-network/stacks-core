@@ -2079,7 +2079,6 @@ impl StacksChainState {
         let block_commit = match BurnDB::get_block_commit_for_stacks_block(tx, burn_header_hash, &block.block_hash()).map_err(Error::DBError)? {
             Some(bc) => bc,
             None => {
-                warn!("{}, {} does not match a block commit op for this block", burn_header_hash, &block.block_hash());
                 // unsoliciated
                 return Ok(None);
             }
@@ -2112,7 +2111,6 @@ impl StacksChainState {
                 let parent_commit = match BurnDB::get_block_commit_parent(tx, block_commit.parent_block_ptr.into(), block_commit.parent_vtxindex.into(), burn_header_hash).map_err(Error::DBError)? {
                     Some(commit) => commit,
                     None => {
-                        warn!("No parent commit");
                         // unsolicited -- orphaned
                         return Ok(None);
                     }
@@ -2127,8 +2125,7 @@ impl StacksChainState {
         // attaches to burn chain
         match block.header.validate_burnchain(&burn_chain_tip, &penultimate_sortition_snapshot, &leader_key, &block_commit, &stacks_chain_tip) {
             Ok(_) => {},
-            Err(e) => {
-                warn!("Failed to validate_burnchain: {}", e);
+            Err(_) => {
                 return Ok(None);
             }
         };
@@ -2136,7 +2133,6 @@ impl StacksChainState {
         // static checks on transactions all pass
         let valid = block.validate_transactions_static(mainnet, chain_id);
         if !valid {
-            warn!("Failed to validate transactions");
             return Ok(None);
         }
 
