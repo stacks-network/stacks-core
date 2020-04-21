@@ -630,15 +630,12 @@ impl UTXO {
         match comps[..] {
             [lhs, rhs] => {
                 let base: u64 = 10;
-                let sat_decimals = 8;
                 let btc_to_sat = base.pow(8);
                 let btc = lhs.parse::<u64>().expect("Invalid amount");
                 let mut amount = btc * btc_to_sat;
-                if rhs.len() > sat_decimals { 
-                    panic!("Unexpected amount of decimals");
-                }
-                let rhs = format!("{:0<width$}", rhs, width = sat_decimals);
-                let sat = rhs.parse::<u64>().expect("Invalid amount");
+                assert!(rhs.len() <= 8, "Unexpected amount of decimals");
+                let frac_part = rhs.parse::<u64>().expect("Invalid amount");
+                let sat = frac_part * base.pow(8 - rhs.len() as u32);
                 amount += sat;
                 amount
             },
@@ -647,13 +644,10 @@ impl UTXO {
     } 
 
     pub fn sat_to_serialized_btc(amount: u64) -> String {
-        let sat_decimals = 8;
-        let fmt = format!("{:0width$}", amount, width = sat_decimals);
-        let amount = if fmt.len() == sat_decimals {
-            format!("0.{}", &fmt[fmt.len() - sat_decimals..])
-        } else {
-            format!("{}.{}", &fmt[0..(fmt.len() - sat_decimals)], &fmt[fmt.len() - sat_decimals..])
-        };
+        let base: u64 = 10;
+        let int_part = amount / base.pow(8);
+        let frac_part = amount % base.pow(8);
+        let amount = format!("{}.{:08}", int_part, frac_part);
         amount
     } 
 
