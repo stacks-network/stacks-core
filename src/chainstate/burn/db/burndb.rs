@@ -796,7 +796,7 @@ impl BurnDB {
 
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
     /// block in this fork, find the snapshot of the block at that height.
-    fn get_ancestor_snapshot<'a>(tx: &mut BurnDBTx<'a>, ancestor_block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+    pub fn get_ancestor_snapshot<'a>(tx: &mut BurnDBTx<'a>, ancestor_block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(ancestor_block_height < BLOCK_HEIGHT_MAX);
         let ancestor_hash = match burndb_get_ancestor_block_hash(tx, ancestor_block_height, &tip_block_hash)? {
             Some(bhh) => {

@@ -17,6 +17,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::stacks::StacksWorkScore;
 use stacks::chainstate::stacks::{StacksBlockBuilder};
+use stacks::chainstate::burn::BlockSnapshot;
 
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer }, relay::Relayer };
@@ -26,7 +27,7 @@ use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
 use stacks::net::NetworkResult;
 use crate::tenure::TenureArtifacts;
-use std::sync::mpsc::{channel, Sender, Receiver};
+use std::sync::mpsc::{sync_channel, TrySendError, SyncSender, Receiver};
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::ChainTip;
 
@@ -46,17 +47,18 @@ struct RegisteredKey {
 enum RelayerDirective {
     HandleNetResult(NetworkResult),
     ProcessTenure(BurnchainHeaderHash, BurnchainHeaderHash, BlockHeaderHash),
-    RunTenure(RegisteredKey, BurnchainTip),
+    RunTenure(RegisteredKey, (BlockSnapshot, u32)),
 }
 
 
 pub struct InitializedNeonNode {
-    relay_channel: Sender<RelayerDirective>,
+    relay_channel: SyncSender<RelayerDirective>,
     config: Config,
     active_registered_key: Option<RegisteredKey>,
     burnchain_signer: BurnchainSigner,
-    pub burnchain_tip: BurnchainTip,
-    last_sortitioned_block: Option<BurnchainTip>,
+    // TODO: what about handling blocks _without_ sortitions?
+    // store the last sortitioned block, and it's winner vtx
+    last_sortitioned_block: Option<(BlockSnapshot, u32)>,
 }
 
 pub struct NeonGenesisNode {
@@ -164,7 +166,8 @@ fn inner_generate_block_commit_op(
     block_header_hash: BlockHeaderHash,
     burn_fee: u64, 
     key: &RegisteredKey,
-    burnchain_tip: &BurnchainTip,
+    burnchain_tip: &BlockSnapshot,
+    winning_vtx_index: Option<u32>,
     vrf_seed: VRFSeed,
     is_bootstrap_commit: bool) -> BlockstackOperationType {
 
@@ -172,13 +175,13 @@ fn inner_generate_block_commit_op(
         if is_bootstrap_commit {
             (0, 0)
         } else {
-            let winning_tx_vtindex = match (burnchain_tip.get_winning_tx_index(), burnchain_tip.block_snapshot.total_burn) {
+            let winning_tx_vtindex = match (winning_vtx_index, burnchain_tip.total_burn) {
                 (Some(winning_tx_id), _) => winning_tx_id,
                 (None, 0) => 0,
                 _ => unreachable!()
             };
 
-            (burnchain_tip.block_snapshot.block_height as u32, winning_tx_vtindex as u16)
+            (burnchain_tip.block_height as u32, winning_tx_vtindex as u16)
         };
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
         block_header_hash,
@@ -199,7 +202,7 @@ fn inner_generate_block_commit_op(
 
 fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAddr,
               burn_db_path: String, stacks_chainstate_path: String, 
-              poll_timeout: u64, relay_channel: Sender<RelayerDirective>) -> Result<JoinHandle<()>, NetError> {
+              poll_timeout: u64, relay_channel: SyncSender<RelayerDirective>) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(5);
     let mut burndb = BurnDB::open(&burn_db_path, true)
@@ -218,9 +221,16 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
             let network_result = this.run(&mut burndb, &mut chainstate, &mut mem_pool, None, poll_timeout)
                 .unwrap();
 
-            if let Err(e) = relay_channel.send(RelayerDirective::HandleNetResult(network_result)) {
-                info!("Relayer hang up with p2p channel: {}", e);
-                break;
+            if let Err(e) = relay_channel.try_send(RelayerDirective::HandleNetResult(network_result)) {
+                match e {
+                    TrySendError::Full(_) => {
+                        warn!("Relayer buffer is full, dropping NetworkHandle");
+                    }
+                    TrySendError::Disconnected(_) => {
+                        info!("Relayer hang up with p2p channel");
+                        break;
+                    }
+                }
             }
         }
     });
@@ -296,9 +306,9 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                         }
                     }
                 },
-                RelayerDirective::RunTenure(registered_key, last_sortitioned_block) => {
+                RelayerDirective::RunTenure(registered_key, (last_sortitioned_block, winning_vtx)) => {
                     last_mined_block = InitializedNeonNode::relayer_run_tenure(
-                        registered_key, &mut chainstate, last_sortitioned_block,
+                        registered_key, &mut chainstate, last_sortitioned_block, winning_vtx,
                         &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller)
                 },
             }
@@ -329,7 +339,7 @@ fn dispatcher_announce(blocks_path: &str, event_dispatcher: &mut EventDispatcher
 
 impl InitializedNeonNode {
     fn new(config: Config, keychain: Keychain, event_dispatcher: EventDispatcher,
-           last_sortitioned_block: BurnchainTip, burnchain_tip: BurnchainTip, registered_key: RegisteredKey) -> InitializedNeonNode {
+           last_sortitioned_block: Option<BurnchainTip>, registered_key: Option<RegisteredKey>) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let mut burndb = BurnDB::open(&config.get_burn_db_file_path(), true)
@@ -381,7 +391,7 @@ impl InitializedNeonNode {
                                            config.connection_options.clone());
 
         // setup the relayer channel
-        let (relay_send, relay_recv) = channel();
+        let (relay_send, relay_recv) = sync_channel(RELAYER_MAX_BUFFER);
 
         let burnchain_signer = keychain.get_burnchain_signer();
         let relayer = Relayer::from_p2p(&mut p2p_net);
@@ -403,13 +413,18 @@ impl InitializedNeonNode {
         info!("Bound HTTP server on: {}", &config.node.rpc_bind);
         info!("Bound P2P server on: {}", &config.node.p2p_bind);
 
+        let last_sortitioned_block = last_sortitioned_block.map(
+            |block| {
+                let vtx = block.get_winning_tx_index().unwrap();
+                (block.block_snapshot, vtx)
+            });
+
         InitializedNeonNode {
             relay_channel: relay_send,
             config,
-            burnchain_tip,
-            last_sortitioned_block: Some(last_sortitioned_block),
+            last_sortitioned_block,
             burnchain_signer,
-            active_registered_key: Some(registered_key),
+            active_registered_key: registered_key,
         }
     }
 
@@ -435,8 +450,7 @@ impl InitializedNeonNode {
     ///  and advertize it if it was mined by the node.
     /// returns _false_ if the relayer hung up the channel.
     pub fn relayer_sortition_notify(&self) -> bool {
-        if let Some(ref burnchain_tip) = &self.last_sortitioned_block {
-            let snapshot = &burnchain_tip.block_snapshot;
+        if let Some((ref snapshot, _)) = &self.last_sortitioned_block {
             self.relay_channel
                 .send(RelayerDirective::ProcessTenure(
                     snapshot.burn_header_hash.clone(), 
@@ -451,7 +465,8 @@ impl InitializedNeonNode {
 
     fn relayer_run_tenure(registered_key: RegisteredKey,
                           chain_state: &mut StacksChainState,
-                          burn_block: BurnchainTip,
+                          burn_block: BlockSnapshot,
+                          burn_block_winner_vtx: u32,
                           keychain: &mut Keychain,
                           mem_pool: &mut MemPoolDB,
                           burn_fee_cap: u64,
@@ -476,17 +491,17 @@ impl InitializedNeonNode {
 
 
         debug!("Mining tenure on burn_block: {}, stacks tip burn_header_hash: {}",
-              &burn_block.block_snapshot.burn_header_hash,
+              &burn_block.burn_header_hash,
               &stacks_tip.burn_header_hash);
 
         // Generates a proof out of the sortition hash provided in the params.
         let vrf_proof = keychain.generate_proof(
             &registered_key.vrf_public_key, 
-            burn_block.block_snapshot.sortition_hash.as_bytes()).unwrap();
+            burn_block.sortition_hash.as_bytes()).unwrap();
 
         debug!("Generated VRF Proof: {} over {} with key {}",
               vrf_proof.to_hex(),
-              &burn_block.block_snapshot.sortition_hash,
+              &burn_block.sortition_hash,
               &registered_key.vrf_public_key.to_hex());
 
         // Generates a new secret key for signing the trail of microblocks
@@ -497,7 +512,7 @@ impl InitializedNeonNode {
         let block_hash_to_poll = &stacks_tip.anchored_block_hash;
 
         let ratio = StacksWorkScore {
-            burn: burn_block.block_snapshot.total_burn,
+            burn: burn_block.total_burn,
             work: 1 + stacks_tip_header.anchored_header.total_work.work,
         };
 
@@ -543,57 +558,65 @@ impl InitializedNeonNode {
             burn_fee_cap,
             &registered_key, 
             &burn_block,
+            Some(burn_block_winner_vtx),
             VRFSeed::from_proof(&vrf_proof),
             false);
         let mut op_signer = keychain.generate_op_signer();
         bitcoin_controller.submit_operation(op, &mut op_signer);
 
-        let vrf_pk = keychain.rotate_vrf_keypair(burn_block.block_snapshot.block_height);
-        let burnchain_tip_consensus_hash = burn_block.block_snapshot.consensus_hash;
+        let vrf_pk = keychain.rotate_vrf_keypair(burn_block.block_height);
+        let burnchain_tip_consensus_hash = burn_block.consensus_hash;
         let op = inner_generate_leader_key_register_op(keychain.get_address(), vrf_pk, &burnchain_tip_consensus_hash);
 
         let mut one_off_signer = keychain.generate_op_signer();
         bitcoin_controller.submit_operation(op, &mut one_off_signer);
 
-        Some((burn_block.block_snapshot.burn_header_hash, anchored_block))
+        Some((burn_block.burn_header_hash, anchored_block))
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
     /// and inspecting if a sortition was won.
-    pub fn process_burnchain_state(&mut self, burnchain_tip: &BurnchainTip) -> (Option<BurnchainTip>, bool) {
+    pub fn process_burnchain_state(&mut self, burndb: &mut BurnDB, burn_hash: &BurnchainHeaderHash) -> (Option<BlockSnapshot>, bool) {
         let mut new_key = None;
         let mut last_sortitioned_block = None; 
         let mut won_sortition = false;
-        let ops = &burnchain_tip.state_transition.accepted_ops;
-        
-        for op in ops.iter() {
-            match op {
-                BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                    if op.address == Keychain::address_from_burnchain_signer(&self.burnchain_signer) {
-                        // Registered key has been mined
-                        new_key = Some(RegisteredKey {
-                            vrf_public_key: op.public_key.clone(),
-                            block_height: op.block_height as u16,
-                            op_vtxindex: op.vtxindex as u16,
-                        });
-                    }
-                },
-                BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                    if op.txid == burnchain_tip.block_snapshot.winning_block_txid {
-                        last_sortitioned_block = Some(burnchain_tip.clone());
-                        // Release current registered key if leader won the sortition
-                        // This will trigger a new registration
-                        if op.input == self.burnchain_signer {
-                            self.active_registered_key = None;
-                            won_sortition = true;
-                        }    
-                    }
-                },
-                BlockstackOperationType::UserBurnSupport(_) => {
-                    // no-op, UserBurnSupport ops are not supported / produced at this point.
-                }
+
+        let mut burn_tx = burndb.tx_begin()
+            .unwrap();
+
+        let block_snapshot = BurnDB::get_block_snapshot(&burn_tx, burn_hash)
+            .expect("Failed to obtain block snapshot for processed burn block.")
+            .expect("Failed to obtain block snapshot for processed burn block.");
+        let block_height = block_snapshot.block_height;
+
+        let block_commits = BurnDB::get_block_commits_by_block(&mut burn_tx, block_height, burn_hash)
+            .expect("Unexpected BurnDB error fetching block commits");
+        for op in block_commits.into_iter() {
+            if op.txid == block_snapshot.winning_block_txid {
+                last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
+                // Release current registered key if leader won the sortition
+                // This will trigger a new registration
+                if op.input == self.burnchain_signer {
+                    self.active_registered_key = None;
+                    won_sortition = true;
+                }    
+            }            
+        }
+
+        let key_registers = BurnDB::get_leader_keys_by_block(&mut burn_tx, block_height, burn_hash)
+            .expect("Unexpected BurnDB error fetching key registers");
+        for op in key_registers.into_iter() {
+            if op.address == Keychain::address_from_burnchain_signer(&self.burnchain_signer) {
+                // Registered key has been mined
+                new_key = Some(RegisteredKey {
+                    vrf_public_key: op.public_key,
+                    block_height: op.block_height as u16,
+                    op_vtxindex: op.vtxindex as u16,
+                });
             }
         }
+
+        // no-op on UserBurnSupport ops are not supported / produced at this point.
 
         // Update the active key so we use the latest registered key.
         if new_key.is_some() {
@@ -601,10 +624,14 @@ impl InitializedNeonNode {
         }
 
         // Keep a pointer of the burnchain's chain tip.
-        self.burnchain_tip = burnchain_tip.clone();
-        self.last_sortitioned_block = last_sortitioned_block.clone();
+        if last_sortitioned_block.is_none() {
+            info!("No sortition in the block {}", burn_hash);
+        } else {
+            info!("Found sortition in the block {}", burn_hash);
+            self.last_sortitioned_block = last_sortitioned_block.clone();
+        }
 
-        (last_sortitioned_block, won_sortition)
+        (last_sortitioned_block.map(|x| x.0), won_sortition)
     }
 
 }
@@ -645,15 +672,15 @@ impl NeonGenesisNode {
         }
     }
 
-    pub fn submit_vrf_key_operation(&mut self, burnchain_controller: &mut Box<dyn BurnchainController>) {
+    pub fn submit_vrf_key_operation(&mut self, burnchain_controller: &mut Box<dyn BurnchainController>) -> bool {
         // Register a new key
         let burnchain_tip = burnchain_controller.get_chain_tip();
         let vrf_pk = self.keychain.rotate_vrf_keypair(burnchain_tip.block_snapshot.block_height);
         let consensus_hash = burnchain_tip.block_snapshot.consensus_hash; 
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
         let mut op_signer = self.keychain.generate_op_signer();
-        info!("Submitting VRF key registration");
-        burnchain_controller.submit_operation(key_reg_op, &mut op_signer);
+        info!("Trying to submit VRF key registration");
+        burnchain_controller.submit_operation(key_reg_op, &mut op_signer)
     }
 
     /// initiate the first tenure.
@@ -725,8 +752,9 @@ impl NeonGenesisNode {
                 self.keychain.get_burnchain_signer(),
                 anchored_block_from_ongoing_tenure.header.block_hash(),
                 burn_fee,
-                &registered_key, 
-                &burnchain_tip,
+                &registered_key,
+                &burnchain_tip.block_snapshot,
+                None,
                 VRFSeed::from_proof(&vrf_proof),
                 true);
 
@@ -834,18 +862,27 @@ impl NeonGenesisNode {
         inner_generate_leader_key_register_op(self.keychain.get_address(), vrf_public_key, consensus_hash)
     }
 
-    pub fn into_initialized_node(mut self) -> InitializedNeonNode {
+    pub fn into_initialized_leader_node(mut self) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
         let event_dispatcher = self.event_dispatcher;
         let last_sortitioned_block = self.last_sortitioned_block
             .expect("Expected a sortitioned block to have occurred before initialization completed");
-        let burnchain_tip = self.burnchain_tip
-            .expect("Expected a burnchain block to have occurred before initialization completed");
         let registered_key = self.active_registered_key
             .expect("Expected a burnchain block to have occurred before initialization completed");
 
+        InitializedNeonNode::new(config, keychain, event_dispatcher, Some(last_sortitioned_block),
+                                 Some(registered_key))
+    }
+
+    pub fn into_initialized_node(mut self) -> InitializedNeonNode {
+        let config = self.config;
+        let keychain = self.keychain;
+        let event_dispatcher = self.event_dispatcher;
+        let last_sortitioned_block = self.last_sortitioned_block;
+        let registered_key = self.active_registered_key;
+
         InitializedNeonNode::new(config, keychain, event_dispatcher, last_sortitioned_block,
-                                 burnchain_tip, registered_key)
+                                 registered_key)
     }
 }

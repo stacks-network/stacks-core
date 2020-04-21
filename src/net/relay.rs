@@ -690,6 +690,7 @@ impl Relayer {
     /// * list of confirmed microblock burn header hashes for newly-discovered microblock streams, so we can turn them into MicroblocksAvailable messages
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
     /// * list of neighbors that served us invalid data (so we can ban them)
+    /// * list of transaction receipts for the processed blocks (a tuple of block header info and associated receipts)
     pub fn process_new_blocks(network_result: &mut NetworkResult, burndb: &mut BurnDB, chainstate: &mut StacksChainState)
                               -> Result<(Vec<BurnchainHeaderHash>,
                                          Vec<BurnchainHeaderHash>, 

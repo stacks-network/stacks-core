@@ -522,7 +522,8 @@ impl BurnchainController for BitcoinRegtestController {
         }
     }
 
-    fn submit_operation(&mut self, operation: BlockstackOperationType, op_signer: &mut BurnchainOpSigner) {
+    // returns true if the operation was submitted successfully, false otherwise 
+    fn submit_operation(&mut self, operation: BlockstackOperationType, op_signer: &mut BurnchainOpSigner) -> bool {
         let transaction = match operation {
             BlockstackOperationType::LeaderBlockCommit(payload) 
                 => self.build_leader_block_commit_tx(payload, op_signer),
@@ -535,11 +536,11 @@ impl BurnchainController for BitcoinRegtestController {
         let transaction = match transaction {
             Some(tx) => SerializedTx::new(tx),
             _ => {
-                panic!("Failed to assemble transaction");
+                return false
             }
         };
 
-        self.send_transaction(transaction);
+        self.send_transaction(transaction)
     }
     
     #[cfg(test)]
