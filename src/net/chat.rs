@@ -259,7 +259,7 @@ impl NeighborStats {
         }
 
         if elapsed_time_start == elapsed_time_end {
-            (total_bytes as f64)
+            total_bytes as f64
         }
         else {
             (total_bytes as f64) / ((elapsed_time_end - elapsed_time_start) as f64)

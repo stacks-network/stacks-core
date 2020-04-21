@@ -374,7 +374,7 @@ impl EventBatch {
 }
 
 impl <'a> OwnedEnvironment <'a> {
-    #[cfg(test)]
+
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment <'a> {
         OwnedEnvironment {
             context: GlobalContext::new(database, LimitedCostTracker::new_max_limit()),
@@ -455,7 +455,6 @@ impl <'a> OwnedEnvironment <'a> {
                             |exec_env| exec_env.eval_raw(program))
     }
 
-    #[cfg(test)]
     pub fn eval_read_only(&mut self, contract: &QualifiedContractIdentifier, program: &str) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)>  {
         self.execute_in_env(Value::from(QualifiedContractIdentifier::transient().issuer),
                             |exec_env| exec_env.eval_read_only(contract, program))

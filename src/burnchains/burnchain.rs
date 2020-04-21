@@ -575,7 +575,7 @@ impl Burnchain {
     /// * insert the ones that went into the burn distribution
     /// * snapshot the block and run the sortition
     /// * return the snapshot (and sortition results)
-    fn process_checked_block_ops<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, this_block_ops: &Vec<BlockstackOperationType>) -> Result<BlockSnapshot, burnchain_error> {
+    fn process_checked_block_ops<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, this_block_ops: &Vec<BlockstackOperationType>) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
         let this_block_height = block_header.block_height;
         let this_block_hash = block_header.block_hash.clone();
 
@@ -605,7 +605,7 @@ impl Burnchain {
         debug!("INDEX-ROOT({}): {}", this_block_height, &snapshot.index_root);
         debug!("SORTITION-HASH({}): {}", this_block_height, &snapshot.sortition_hash);
         debug!("CONSENSUS({}): {}", this_block_height, &snapshot.consensus_hash);
-        Ok(snapshot)
+        Ok((snapshot, state_transition))
     }
 
     /// Check and then commit all blockstack operations to our chainstate.
@@ -615,7 +615,7 @@ impl Burnchain {
     /// * commit all valid transactions
     /// * commit the results of the sortition
     /// Returns the BlockSnapshot created from this block.
-    pub fn process_block_ops<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, blockstack_txs: &Vec<BlockstackOperationType>) -> Result<BlockSnapshot, burnchain_error> {
+    pub fn process_block_ops<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, blockstack_txs: &Vec<BlockstackOperationType>) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
         debug!("BEGIN({}) block ({},{})", block_header.block_height, block_header.block_hash, block_header.parent_block_hash);
         debug!("Append {} operation(s) from block {} {}", blockstack_txs.len(), block_header.block_height, &block_header.block_hash);
 
@@ -627,13 +627,13 @@ impl Burnchain {
             })?;
 
         // process them 
-        let snapshot = Burnchain::process_checked_block_ops(tx, burnchain, parent_snapshot, block_header, &block_ops)
+        let res = Burnchain::process_checked_block_ops(tx, burnchain, parent_snapshot, block_header, &block_ops)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when snapshotting block {} ({}): {:?}", block_header.block_height, &block_header.block_hash, e);
                 e
             })?;
 
-        Ok(snapshot)
+        Ok(res)
     }
 
     /// Get the abstracted burnchain header from an abstracted burnchain block, as well as its
@@ -685,7 +685,7 @@ impl Burnchain {
     /// Given the extracted txs, and a block header, go process them into the next
     /// snapshot.  Unlike process_block_ops, this method applies safety checks against the given
     /// list of blockstack transactions.
-    pub fn process_block_txs<'a>(tx: &mut BurnDBTx<'a>, parent_snapshot: &BlockSnapshot, this_block_header: &BurnchainBlockHeader, burnchain: &Burnchain, mut blockstack_txs: Vec<BlockstackOperationType>) -> Result<BlockSnapshot, burnchain_error> {
+    pub fn process_block_txs<'a>(tx: &mut BurnDBTx<'a>, parent_snapshot: &BlockSnapshot, this_block_header: &BurnchainBlockHeader, burnchain: &Burnchain, mut blockstack_txs: Vec<BlockstackOperationType>) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
         assert_eq!(parent_snapshot.block_height + 1, this_block_header.block_height);
         assert_eq!(parent_snapshot.burn_header_hash, this_block_header.parent_block_hash);
         Burnchain::apply_blockstack_txs_safety_checks(this_block_header.block_height, &mut blockstack_txs);
@@ -695,7 +695,7 @@ impl Burnchain {
     }
 
     /// Top-level entry point to check and process a block.
-    pub fn process_block(db: &mut BurnDB, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<BlockSnapshot, burnchain_error> {
+    pub fn process_block(db: &mut BurnDB, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
         debug!("Process block {} {}", block.block_height(), &block.block_hash());
 
         let mut tx = db.tx_begin()
@@ -752,9 +752,15 @@ impl Burnchain {
     /// Top-level burnchain sync
     pub fn sync<I: BurnchainIndexer + 'static>(&mut self) -> Result<u64, burnchain_error> {
         let mut indexer: I = self.make_indexer()?;
-        let mut burndb = self.connect_db(&indexer, true)?;
+        let (chain_tip, _) = self.sync_with_indexer(&mut indexer)?;
+        Ok(chain_tip.block_height)
+    }
 
+    /// Top-level burnchain sync
+    pub fn sync_with_indexer<I: BurnchainIndexer + 'static>(&mut self, indexer: &mut I) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
         let headers_path = indexer.get_headers_path();
+        
+        let mut burndb = self.connect_db(indexer, true)?;
         let burn_chain_tip = BurnDB::get_canonical_burn_chain_tip(burndb.conn())
             .map_err(|e| {
                 error!("Failed to query burn chain tip from burn DB");
@@ -764,7 +770,7 @@ impl Burnchain {
         let db_height = burn_chain_tip.block_height;
 
         // handle reorgs
-        let sync_reorg_res = Burnchain::sync_reorg(&mut indexer, &burn_chain_tip);
+        let sync_reorg_res = Burnchain::sync_reorg(indexer, &burn_chain_tip);
         let sync_height = sync_reorg_res?;
 
         // get latest headers 
@@ -781,12 +787,16 @@ impl Burnchain {
 
         if db_height >= end_block {
             // all caught up
-            return Ok(db_height);
+            return Ok((burn_chain_tip, None));
         }
 
         // initial inputs
         // TODO: stream this -- don't need to load them all into RAM
-        let input_headers = indexer.read_headers(&headers_path, sync_height, end_block)?;
+        let start_block = match sync_height {
+            0 => 0,
+            _ => sync_height + 1,
+        };
+        let input_headers = indexer.read_headers(&headers_path, start_block, end_block + 1)?;
 
         // synchronize 
         let (downloader_send, downloader_recv) = sync_channel(1);
@@ -801,10 +811,8 @@ impl Burnchain {
         // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
         // and if so, do nothing.
         let download_thread : thread::JoinHandle<Result<(), burnchain_error>> = thread::spawn(move || {
-            loop {
+            while let Ok(Some(ipc_header)) = downloader_recv.recv() {
                 debug!("Try recv next header");
-                let ipc_header = downloader_recv.recv()
-                    .map_err(|_e| burnchain_error::ThreadChannelError)?;
 
                 let download_start = get_epoch_time_ms();
                 let ipc_block = downloader.download(&ipc_header)?;
@@ -812,16 +820,17 @@ impl Burnchain {
 
                 debug!("Downloaded block {} in {}ms", ipc_block.height(), download_end - download_start);
 
-                parser_send.send(ipc_block)
+                parser_send.send(Some(ipc_block))
                     .map_err(|_e| burnchain_error::ThreadChannelError)?;
             }
+            parser_send.send(None)
+                .map_err(|_e| burnchain_error::ThreadChannelError)?;
+            Ok(())
         });
 
         let parse_thread : thread::JoinHandle<Result<(), burnchain_error>> = thread::spawn(move || {
-            loop {
+            while let Ok(Some(ipc_block)) = parser_recv.recv() {
                 debug!("Try recv next block");
-                let ipc_block = parser_recv.recv()
-                    .map_err(|_e| burnchain_error::ThreadChannelError)?;
 
                 let parse_start = get_epoch_time_ms();
                 let burnchain_block = parser.parse(&ipc_block)?;
@@ -829,38 +838,52 @@ impl Burnchain {
 
                 debug!("Parsed block {} in {}ms", burnchain_block.block_height(), parse_end - parse_start);
 
-                db_send.send(burnchain_block)
+                db_send.send(Some(burnchain_block))
                     .map_err(|_e| burnchain_error::ThreadChannelError)?;
             }
+            db_send.send(None)
+                .map_err(|_e| burnchain_error::ThreadChannelError)?;
+            Ok(())
         });
 
-        let db_thread : thread::JoinHandle<Result<(), burnchain_error>> = thread::spawn(move || {
-            loop {
+        let db_thread : thread::JoinHandle<Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error>> = thread::spawn(move || {
+            let mut last_processed: Option<(BlockSnapshot, BurnchainStateTransition)> = None;
+            while let Ok(Some(burnchain_block)) = db_recv.recv() {
                 debug!("Try recv next parsed block");
 
-                let burnchain_block = db_recv.recv()
-                    .map_err(|_e| burnchain_error::ThreadChannelError)?;
-
+                if burnchain_block.block_height() == 0 {
+                    continue;
+                }
+                
                 let insert_start = get_epoch_time_ms();
-                Burnchain::process_block(&mut burndb, &burnchain_config, &burnchain_block)?;
+                let res = Burnchain::process_block(&mut burndb, &burnchain_config, &burnchain_block)?;
+                last_processed = Some(res);
                 let insert_end = get_epoch_time_ms();
 
                 debug!("Inserted block {} in {}ms", burnchain_block.block_height(), insert_end - insert_start);
             }
+            Ok(last_processed.unwrap())
         });
 
         // feed the pipeline!
         for i in 0..input_headers.len() {
-            downloader_send.send(input_headers[i].clone())
+            downloader_send.send(Some(input_headers[i].clone()))
                 .map_err(|_e| burnchain_error::ThreadChannelError)?;
         }
+
+        downloader_send.send(None)
+            .map_err(|_e| burnchain_error::ThreadChannelError)?;
 
         // join up 
         download_thread.join().unwrap().unwrap();
         parse_thread.join().unwrap().unwrap();
-        db_thread.join().unwrap().unwrap();
+        let (block_snapshot, state_transition) = db_thread.join().unwrap().unwrap();
         
-        Ok(end_block)
+        if block_snapshot.block_height != end_block {
+            return Err(burnchain_error::ThreadChannelError)
+        }
+
+        Ok((block_snapshot, Some(state_transition)))
     }
 }
 
@@ -1270,7 +1293,7 @@ pub mod tests {
         {
             let header = block121.header(&initial_snapshot);
             let mut tx = db.tx_begin().unwrap();
-            let sn121 = Burnchain::process_block_ops(&mut tx, &burnchain, &initial_snapshot, &header, &block_ops_121).unwrap();
+            let (sn121, _) = Burnchain::process_block_ops(&mut tx, &burnchain, &initial_snapshot, &header, &block_ops_121).unwrap();
             tx.commit().unwrap();
            
             block_121_snapshot.index_root = sn121.index_root.clone();
@@ -1279,7 +1302,7 @@ pub mod tests {
         {
             let header = block122.header(&block_121_snapshot);
             let mut tx = db.tx_begin().unwrap();
-            let sn122 = Burnchain::process_block_ops(&mut tx, &burnchain, &block_121_snapshot, &header, &block_ops_122).unwrap();
+            let (sn122, _) = Burnchain::process_block_ops(&mut tx, &burnchain, &block_121_snapshot, &header, &block_ops_122).unwrap();
             tx.commit().unwrap();
             
             block_122_snapshot.index_root = sn122.index_root.clone();
@@ -1288,7 +1311,7 @@ pub mod tests {
         {
             let header = block123.header(&block_122_snapshot);
             let mut tx = db.tx_begin().unwrap();
-            let sn123 = Burnchain::process_block_ops(&mut tx, &burnchain, &block_122_snapshot, &header, &block_ops_123).unwrap();
+            let (sn123, _) = Burnchain::process_block_ops(&mut tx, &burnchain, &block_122_snapshot, &header, &block_ops_123).unwrap();
             tx.commit().unwrap();
             
             block_123_snapshot.index_root = sn123.index_root.clone();
@@ -1378,7 +1401,7 @@ pub mod tests {
             let sn124 = {
                 let header = block124.header(&block_123_snapshot);
                 let mut tx = db.tx_begin().unwrap();
-                let sn124 = Burnchain::process_block_ops(&mut tx, &burnchain, &block_123_snapshot, &header, &block_ops_124).unwrap();
+                let (sn124, _) = Burnchain::process_block_ops(&mut tx, &burnchain, &block_123_snapshot, &header, &block_ops_124).unwrap();
                 tx.commit().unwrap();
 
                 block_124_snapshot.index_root = sn124.index_root.clone();
@@ -1527,7 +1550,7 @@ pub mod tests {
             let snapshot = {
                 let header = block.header(&prev_snapshot);
                 let mut tx = db.tx_begin().unwrap();
-                let sn = Burnchain::process_block_ops(&mut tx, &burnchain, &prev_snapshot, &header, &block_ops).unwrap();
+                let (sn, _) = Burnchain::process_block_ops(&mut tx, &burnchain, &prev_snapshot, &header, &block_ops).unwrap();
                 tx.commit().unwrap();
                 sn
             };
