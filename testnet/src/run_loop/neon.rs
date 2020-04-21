@@ -42,63 +42,31 @@ impl RunLoop {
         let mut round_index: u64 = 1; // todo(ludo): careful with this round_index
         
         // Start the runloop
-        info!("Begining run loop");
+        info!("Begin run loop");
         loop {
             if expected_num_rounds == round_index {
                 return;
             }
 
-            // Run the last initialized tenure
-            let artifacts_from_tenure = match tenure {
-                Some(mut tenure) => {
-                    info!("Running leader tenure...");
-                    self.callbacks.invoke_new_tenure(round_index, &burnchain_tip, &chain_tip, &mut tenure);
-                    tenure.run()
-                },
-                None => None
-            };
+            burnchain_tip = burnchain.sync();
 
-            match artifacts_from_tenure {
-                Some(ref artifacts) => {
-                    node.commit_artifacts(
-                        &artifacts.anchored_block, 
-                        &artifacts.parent_block, 
-                        &mut burnchain, 
-                        artifacts.burn_fee);
-                },
-                None => {}
+            // Have the node process the new block, that can include, or not, a sortition.
+            node.process_burnchain_state(&burnchain_tip);
+
+            // (1) tell the relayer to check whether or not it won the sortition, and if so,
+            //     process and advertize the block
+            if !node.relayer_sortition_notify() {
+                // relayer hung up, exit.
+                error!("Block relayer and miner hung up, exiting.");
+                process::exit(1);
             }
 
-            burnchain_tip = burnchain.sync();
-            self.callbacks.invoke_new_burn_chain_state(round_index, &burnchain_tip, &chain_tip);
-    
-            tenure = None;
-
-            // Have each node process the new block, that can include, or not, a sortition.
-            let (sortitioned_block, won_sortition) = node.process_burnchain_state(&burnchain_tip);
-
-            match (artifacts_from_tenure, sortitioned_block) {
-                // Pass if we're missing the artifacts from the current tenure.
-                (Some(artifacts), Some(last_sortitioned_block)) => {
-                    info!("Processing leader tenure...");
-                    // Let's process a tenure -- that happens in the relayer thread.
-                    if !node.relayer_process_tenure(
-                        artifacts.anchored_block, 
-                        last_sortitioned_block.block_snapshot.burn_header_hash, 
-                        last_sortitioned_block.block_snapshot.parent_burn_header_hash,             
-                        artifacts.microblocks) {
-                        // relayer hung up, exit.
-                        error!("Block relayer and miner hung up, exiting.");
-                        process::exit(1);
-                    }
-                },
-                (_, _) => continue,
-            };
-            
-            // If the node we're looping on won the sortition, initialize and configure the next tenure
-            if won_sortition {
-                tenure = node.initiate_new_tenure();
-            } 
+            // (2) tell the relayer to run a new tenure
+            if !node.relayer_issue_tenure() {
+                // relayer hung up, exit.
+                error!("Block relayer and miner hung up, exiting.");
+                process::exit(1);
+            }
             
             round_index += 1;
         }

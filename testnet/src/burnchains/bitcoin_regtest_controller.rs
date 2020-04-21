@@ -83,6 +83,33 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// create a dummy bitcoin regtest controller.
+    ///   used just for submitting bitcoin ops.
+    pub fn new_dummy(config: Config) -> Self {
+        let indexer_config = {
+            let burnchain_config = config.burnchain.clone();
+            BitcoinIndexerConfig {
+                peer_host: burnchain_config.peer_host,
+                peer_port: burnchain_config.peer_port,
+                rpc_port: burnchain_config.rpc_port,
+                rpc_ssl: burnchain_config.rpc_ssl,
+                username: burnchain_config.username,
+                password: burnchain_config.password,
+                timeout: burnchain_config.timeout,
+                spv_headers_path: burnchain_config.spv_headers_path,
+                first_block: burnchain_config.first_block,
+                magic_bytes: burnchain_config.magic_bytes
+            }
+        };
+                
+        Self {
+            config: config,
+            indexer_config,
+            db: None,
+            chain_tip: None,
+        }        
+    }
+
     fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
         let network = "regtest".to_string();
         let working_dir = self.config.get_burn_db_path();
@@ -164,8 +191,6 @@ impl BitcoinRegtestController {
             &pkh)
             .expect("Public key incorrect");        
         let filter_addresses = vec![address.to_b58()];
-
-        info!("Get UTXOs for {}", address.to_b58());
 
         let request_builder = self.get_rpc_request_builder();
         let result = BitcoinRPCRequest::list_unspent(
@@ -310,7 +335,7 @@ impl BitcoinRegtestController {
         let utxos = match self.get_utxos(&public_key, amount_required) {
             Some(utxos) => utxos,
             None => {
-                info!("No UTXOs for {}", &public_key.to_hex());
+                debug!("No UTXOs for {}", &public_key.to_hex());
                 return None;
             }
         };
@@ -396,14 +421,12 @@ impl BitcoinRegtestController {
 
     fn send_transaction(&self, transaction: SerializedTx) -> bool {
         let request_builder = self.get_rpc_request_builder();
-        info!("Submitting TX");
 
         let result = BitcoinRPCRequest::send_raw_transaction(
             request_builder, 
             transaction.to_hex());
         match result {
             Ok(x) => {
-                info!("Submitted TX, response = {:?}", x);
                 true
             },
             Err(e) =>  {
@@ -701,7 +724,6 @@ impl BitcoinRPCRequest {
             Some(ref mut object) => {
                 match object.get_mut("result") {
                     Some(serde_json::Value::Array(entries)) => {
-                        info!("Response: {:?}", entries); 
                         while let Some(entry) = entries.pop() { 
                             match serde_json::from_value(entry) {
                                 Ok(utxo) => { utxos.push(utxo); },
