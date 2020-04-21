@@ -203,9 +203,7 @@ impl Node {
     pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        // todo(ludo): change file path once #1434 is merged in
-        // let mut burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
-        let mut burndb = BurnDB::open(&self.config.get_burn_db_path(), true)
+        let mut burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
             .expect("Error while instantiating burnchain db");
 
         let burnchain = Burnchain::new(
