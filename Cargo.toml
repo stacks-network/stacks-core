@@ -85,4 +85,4 @@ default = ["developer-mode", "asm"]
 
 
 [workspace]
-members = [".", "testnet/"]
+members = [".", "testnet/", "xtask/"]

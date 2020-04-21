@@ -1,0 +1,15 @@
+[package]
+edition = "2018"
+name = "xtask"
+version = "0.1.0"
+authors = ["Ludo Galabru <ludovic@galabru.com>"]
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+walkdir = "2.3.1"
+pico-args = "0.3.1"
+proc-macro2 = "1.0.8"
+anyhow = "1.0.26"
