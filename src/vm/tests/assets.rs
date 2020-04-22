@@ -29,13 +29,13 @@ const ASSET_NAMES: &str =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name int))
            (if (< name 100000) u1000 u100))
-         
+
          (define-non-fungible-token names int)
          (define-map preorder-map
            ((name-hash (buff 20)))
            ((buyer principal) (paid uint)))
-         
-         (define-public (preorder 
+
+         (define-public (preorder
                         (name-hash (buff 20))
                         (name-price uint))
            (let ((xfer-result (contract-call? .tokens my-token-transfer
@@ -80,12 +80,12 @@ const ASSET_NAMES: &str =
                    ;; preorder entry must exist!
                    (unwrap! (map-get? preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err u5)))
-                 (name-entry 
+                 (name-entry
                    (nft-get-owner? names name)))
              (if (and
                   (is-none name-entry)
                   ;; preorder must have paid enough
-                  (<= (price-function name) 
+                  (<= (price-function name)
                       (get paid preorder-entry))
                   ;; preorder must have been the current principal
                   (is-eq tx-sender
@@ -433,7 +433,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
 
 fn total_supply(owned_env: &mut OwnedEnvironment) {
     let bad_0 = "(define-fungible-token stackaroos (- 5))";
-    let bad_1 = "(define-fungible-token stackaroos 'true)";
+    let bad_1 = "(define-fungible-token stackaroos true)";
 
     let contract = "(define-fungible-token stackaroos u5)
          (define-read-only (get-balance (account principal))
@@ -493,6 +493,27 @@ fn total_supply(owned_env: &mut OwnedEnvironment) {
     });
 }
 
+fn test_overlapping_nfts(owned_env: &mut OwnedEnvironment) {
+    let tokens_contract = FIRST_CLASS_TOKENS;
+    let names_contract = ASSET_NAMES;
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    let p1_principal = match p1 {
+        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!()
+    };
+
+    let tokens_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
+    let names_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "names".into());
+    let names_2_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "names-2".into());
+
+    owned_env.initialize_contract(tokens_contract_id.clone(), tokens_contract).unwrap();
+    owned_env.initialize_contract(names_contract_id.clone(), names_contract).unwrap();
+    owned_env.initialize_contract(names_2_contract_id.clone(), names_contract).unwrap();
+
+}
+
 fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let tokens_contract = FIRST_CLASS_TOKENS;
 
@@ -534,7 +555,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let (result, _asset_map, _events) = execute_transaction(
         owned_env, p1.clone(), &names_contract_id, "preorder",
         &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)])).unwrap();
-    
+
     assert!(is_committed(&result));
     
     let (result, _asset_map, _events) = execute_transaction(
@@ -649,7 +670,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap();
 
     assert!(is_err_code(&result, 4));
-    
+
     // register a cheap name!
 
     let (result, _asset_map, _events) = execute_transaction(
@@ -677,7 +698,8 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
 
 #[test]
 fn test_all() {
-    let to_test = [test_simple_token_system, test_simple_naming_system, total_supply, test_native_stx_ops];
+    let to_test = [test_overlapping_nfts, test_simple_token_system,
+                   test_simple_naming_system, total_supply, test_native_stx_ops];
     for test in to_test.iter() {
         with_memory_environment(test, true);
         with_marfed_environment(test, true);

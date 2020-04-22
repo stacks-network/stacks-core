@@ -153,9 +153,12 @@ pub struct BlockDownloader {
     num_blocks_downloaded: u64,
     num_microblocks_downloaded: u64,
 
+    /// How many times have we tried to download blocks, only to find nothing?
     empty_block_download_passes: u64,
     empty_microblock_download_passes: u64,
 
+    /// When was the last time we did a full scan of the inv state?  when was the last time the inv
+    /// state was updated?
     finished_scan_at: u64,
     last_inv_update_at: u64,
 
@@ -189,7 +192,7 @@ pub struct BlockDownloader {
 impl BlockDownloader {
     pub fn new(dns_timeout: u128, max_inflight_requests: u64) -> BlockDownloader {
         BlockDownloader {
-            state: BlockDownloaderState::GetBlocksBegin,
+            state: BlockDownloaderState::DNSLookupBegin,
 
             block_sortition_height: 0,
             microblock_sortition_height: 0,
@@ -345,13 +348,19 @@ impl BlockDownloader {
         for (block_key, event_id) in self.getblock_requests.drain() {
             match http.get_conversation(event_id) {
                 None => {
-                    debug!("Event {} ({:?}, {:?} for block {}) is not connected", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
-                    self.dead_peers.push(event_id);
+                    if http.is_connecting(event_id) {
+                        debug!("Event {} ({:?}, {:?} for block {} is not connected yet", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        pending_block_requests.insert(block_key, event_id);
+                    }
+                    else {
+                        debug!("Event {} ({:?}, {:?} for block {} failed to connect", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        self.dead_peers.push(event_id);
+                    }
                 }
                 Some(ref mut convo) => match convo.try_get_response() {
                     None => {
                         // still waiting
-                        debug!("Event {} ({:?}, {:?} for block {}) is still waiting for a response", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        debug!("Event {} ({:?}, {:?} for block {}) is still waiting for a response", event_id, &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
                         pending_block_requests.insert(block_key, event_id);
                     },
                     Some(http_response) => match http_response {
@@ -419,8 +428,14 @@ impl BlockDownloader {
             let rh_block_key = block_key.clone();
             match http.get_conversation(event_id) {
                 None => {
-                    debug!("Event {} ({:?}, {:?} for microblocks built by {:?}) is not connected", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
-                    self.dead_peers.push(event_id);
+                    if http.is_connecting(event_id) {
+                        debug!("Event {} ({:?}, {:?} for microblocks built by ({}) is not connected yet", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        pending_microblock_requests.insert(block_key, event_id);
+                    }
+                    else {
+                        debug!("Event {} ({:?}, {:?} for microblocks built by ({}) failed to connect", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash, event_id);
+                        self.dead_peers.push(event_id);
+                    }
                 }
                 Some(ref mut convo) => match convo.try_get_response() {
                     None => {
@@ -583,6 +598,32 @@ impl BlockDownloader {
         disconnect_neighbors.append(&mut self.broken_neighbors);
 
         (disconnect, disconnect_neighbors)
+    }
+    
+    /// Set a hint that a block is now available from a remote peer, if we're idling or we're ahead
+    /// of the given height.
+    pub fn hint_block_sortition_height_available(&mut self, block_sortition_height: u64) -> () {
+        if self.empty_block_download_passes > 0 || block_sortition_height < self.block_sortition_height {
+            // idling on new blocks to fetch
+            self.empty_block_download_passes = 0;
+            self.block_sortition_height = block_sortition_height;
+            self.next_block_sortition_height = block_sortition_height;
+
+            debug!("Awaken downloader to start scanning at block sortiton height {}", block_sortition_height);
+        }
+    }
+    
+    /// Set a hint that a confirmed microblock stream is now available from a remote peer, if we're idling or we're ahead
+    /// of the given height.
+    pub fn hint_microblock_sortition_height_available(&mut self, mblock_sortition_height: u64) -> () {
+        if self.empty_microblock_download_passes > 0 || mblock_sortition_height < self.microblock_sortition_height {
+            // idling on new blocks to fetch
+            self.empty_microblock_download_passes = 0;
+            self.microblock_sortition_height = mblock_sortition_height;
+            self.next_microblock_sortition_height = mblock_sortition_height;
+
+            debug!("Awaken downloader to start scanning at microblock sortiton height {}", mblock_sortition_height);
+        }
     }
 }
 
@@ -842,7 +883,6 @@ impl PeerNetwork {
                     test_debug!("{:?}: at {},{}: {} blocks to get, {} microblock streams to get (up to {},{})", 
                                 &network.local_peer, next_block_sortition_height, next_microblock_sortition_height, next_blocks_to_try.len(), next_microblocks_to_try.len(), max_height, max_mblock_height);
 
-                    /*
                     test_debug!("{:?}: Begin block requests", &network.local_peer);
                     for (_key, _requests) in next_blocks_to_try.iter() {
                         test_debug!("   {:?}: {:?}", _key, _requests);
@@ -854,7 +894,6 @@ impl PeerNetwork {
                         test_debug!("   {:?}: {:?}", _key, _requests);
                     }
                     test_debug!("{:?}: End microblock requests", &network.local_peer);
-                    */
 
                     // queue up block requests in order by sortition height
                     while height <= max_height && (downloader.blocks_to_try.len() as u64) < downloader.max_inflight_requests {
@@ -935,9 +974,19 @@ impl PeerNetwork {
 
                 if downloader.blocks_to_try.len() == 0 && downloader.microblocks_to_try.len() == 0 {
                     // nothing in this range, so advance sortition range to try for next time 
-                    test_debug!("{:?}: Pessimistically increase block and microblock sortition heights", &network.local_peer);
-                    next_block_sortition_height = (next_block_sortition_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64)) % network.chain_view.burn_block_height;
-                    next_microblock_sortition_height = (next_microblock_sortition_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64)) % network.chain_view.burn_block_height;
+                    next_block_sortition_height = next_block_sortition_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64);
+                    next_microblock_sortition_height = next_microblock_sortition_height + (BLOCKS_INV_DATA_MAX_BITLEN as u64);
+
+                    if next_block_sortition_height >= network.chain_view.burn_block_height {
+                        // wrapped around
+                        next_block_sortition_height = 0;
+                    }
+                    if next_microblock_sortition_height >= network.chain_view.burn_block_height {
+                        // wrapped around
+                        next_microblock_sortition_height = 0;
+                    }
+
+                    test_debug!("{:?}: Pessimistically increase block and microblock sortition heights to ({},{})", &network.local_peer, next_block_sortition_height, next_microblock_sortition_height);
                 }
 
                 downloader.next_block_sortition_height = next_block_sortition_height;
@@ -983,40 +1032,35 @@ impl PeerNetwork {
         })
     }
 
-    pub fn connect_or_send_http_request(&mut self, data_url: UrlString, addr: SocketAddr, request: HttpRequestType) -> Result<usize, net_error> {
-        match self.http {
-            Some(ref mut http) => {
-                match http.connect_http(data_url.clone(), addr.clone(), Some(request.clone())) {
-                    Ok(event_id) => Ok(event_id),
-                    Err(net_error::AlreadyConnected(event_id)) => {
-                        match http.get_conversation(event_id) {
-                            Some(ref mut convo) => {
-                                convo.send_request(request)?;
-                                Ok(event_id)
-                            },
-                            None => {
-                                debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
-                                Err(net_error::PeerNotConnected)
-                            }
+    fn connect_or_send_http_request(&mut self, data_url: UrlString, addr: SocketAddr, request: HttpRequestType, chainstate: &mut StacksChainState) -> Result<usize, net_error> {
+        PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
+            match network.http.connect_http(network_state, data_url.clone(), addr.clone(), Some(request.clone())) {
+                Ok(event_id) => Ok(event_id),
+                Err(net_error::AlreadyConnected(event_id)) => {
+                    match network.http.get_conversation_and_socket(event_id) {
+                        (Some(ref mut convo), Some(ref mut socket)) => {
+                            convo.send_request(request)?;
+                            HttpPeer::saturate_http_socket(socket, convo, chainstate)?;
+                            Ok(event_id)
+                        },
+                        (_, _) => {
+                            debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
+                            Err(net_error::PeerNotConnected)
                         }
-                    },
-                    Err(e) => {
-                        return Err(e);
                     }
+                },
+                Err(e) => {
+                    return Err(e);
                 }
-            },
-            None => {
-                test_debug!("{:?}: HTTP not connected", &self.local_peer);
-                Err(net_error::NotConnected)
             }
-        }
+        })
     }
 
     /// Start a request, given the list of request keys to consider.  Use the given request_factory to
     /// create the HTTP request.  Pops requests off the front of request_keys, and returns once it successfully
     /// sends out a request via the HTTP peer.  Returns the event ID in the http peer that's
     /// handling the request.
-    fn begin_request<F>(network: &mut PeerNetwork, dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>, request_name: &str, request_keys: &mut VecDeque<BlockRequestKey>, request_factory: F) -> Option<(BlockRequestKey, usize)> 
+    fn begin_request<F>(network: &mut PeerNetwork, dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>, request_name: &str, request_keys: &mut VecDeque<BlockRequestKey>, chainstate: &mut StacksChainState, request_factory: F) -> Option<(BlockRequestKey, usize)> 
     where
         F: Fn(PeerHost, BlockHeaderHash) -> HttpRequestType
     {
@@ -1036,7 +1080,7 @@ impl PeerNetwork {
 
                         for addr in sockaddrs.iter() {
                             let request = request_factory(peerhost.clone(), key.index_block_hash.clone());
-                            match network.connect_or_send_http_request(key.data_url.clone(), addr.clone(), request) {
+                            match network.connect_or_send_http_request(key.data_url.clone(), addr.clone(), request, chainstate) {
                                 Ok(handle) => {
                                     debug!("{:?}: Begin HTTP request for {} {} to {:?} ({:?})", &network.local_peer, request_name, &key.index_block_hash, &key.neighbor, &key.data_url);
                                     return Some((key, handle));
@@ -1064,20 +1108,15 @@ impl PeerNetwork {
 
 
     /// Start fetching blocks
-    pub fn block_getblocks_begin(&mut self) -> Result<(), net_error> {
+    pub fn block_getblocks_begin(&mut self, chainstate: &mut StacksChainState) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            if network.http.is_none() {
-                test_debug!("{:?}: HTTP not connected", &network.local_peer);
-                return Err(net_error::NotConnected);
-            }
-
             let mut priority = PeerNetwork::prioritize_requests(&downloader.blocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.blocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
-                        match PeerNetwork::begin_request(network, &downloader.dns_lookups, "anchored block", keys, |peerhost, index_block_hash| HttpRequestType::GetBlock(HttpRequestMetadata::from_host(peerhost), index_block_hash)) {
+                        match PeerNetwork::begin_request(network, &downloader.dns_lookups, "anchored block", keys, chainstate, |peerhost, index_block_hash| HttpRequestType::GetBlock(HttpRequestMetadata::from_host(peerhost), index_block_hash)) {
                             Some((key, handle)) => {
                                 requests.insert(key.clone(), handle);
                             },
@@ -1099,33 +1138,20 @@ impl PeerNetwork {
     pub fn block_getblocks_try_finish(&mut self) -> Result<bool, net_error> {
         test_debug!("{:?}: block_getblocks_try_finish", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            match network.http {
-                Some(ref mut http) => {
-                    downloader.getblocks_try_finish(http)
-                },
-                None => {
-                    test_debug!("{:?}: HTTP not connected", &network.local_peer);
-                    Err(net_error::NotConnected)
-                }
-            }
+            downloader.getblocks_try_finish(&mut network.http)
         })
     }
 
     /// Proceed to get microblocks 
-    pub fn block_getmicroblocks_begin(&mut self) -> Result<(), net_error> {
+    pub fn block_getmicroblocks_begin(&mut self, chainstate: &mut StacksChainState) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            if network.http.is_none() {
-                test_debug!("{:?}: HTTP not connected", &network.local_peer);
-                return Err(net_error::NotConnected);
-            }
-
             let mut priority = PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
-                        match PeerNetwork::begin_request(network, &downloader.dns_lookups, "microblock stream", keys, |peerhost, index_block_hash| HttpRequestType::GetMicroblocksConfirmed(HttpRequestMetadata::from_host(peerhost), index_block_hash)) {
+                        match PeerNetwork::begin_request(network, &downloader.dns_lookups, "microblock stream", keys, chainstate, |peerhost, index_block_hash| HttpRequestType::GetMicroblocksConfirmed(HttpRequestMetadata::from_host(peerhost), index_block_hash)) {
                             Some((key, handle)) => {
                                 requests.insert(key.clone(), handle);
                             },
@@ -1147,22 +1173,14 @@ impl PeerNetwork {
     pub fn block_getmicroblocks_try_finish(&mut self) -> Result<bool, net_error> {
         test_debug!("{:?}: block_getmicroblocks_try_finish", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            match network.http {
-                Some(ref mut http) => {
-                    downloader.getmicroblocks_try_finish(http)
-                },
-                None => {
-                    test_debug!("{:?}: HTTP not connected", &network.local_peer);
-                    Err(net_error::NotConnected)
-                }
-            }
+            downloader.getmicroblocks_try_finish(&mut network.http)
         })
     }
 
     /// Process newly-fetched blocks and microblocks.
     /// Returns true if we've completed all requests.
     /// Returns (done?, blocks-we-got, microblocks-we-got) on success
-    fn finish_downloads(&mut self, burndb: &mut BurnDB, chainstate: &mut StacksChainState) -> Result<(bool, Vec<StacksBlock>, Vec<Vec<StacksMicroblock>>), net_error> {
+    fn finish_downloads(&mut self, burndb: &mut BurnDB, chainstate: &mut StacksChainState) -> Result<(bool, Vec<(BurnchainHeaderHash, StacksBlock)>, Vec<(BurnchainHeaderHash, Vec<StacksMicroblock>)>), net_error> {
         let mut blocks = vec![];
         let mut microblocks = vec![];
         let mut done = false;
@@ -1170,8 +1188,8 @@ impl PeerNetwork {
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
             // extract blocks and microblocks downloaded
             for (request_key, block) in downloader.blocks.drain() {
-                test_debug!("Downloaded block {}/{} ({}) at sortition height {}", &request_key.burn_block_hash, &request_key.anchor_block_hash, &request_key.index_block_hash, request_key.sortition_height);
-                blocks.push(block);
+                debug!("Downloaded block {}/{} ({}) at sortition height {}", &request_key.burn_block_hash, &request_key.anchor_block_hash, &request_key.index_block_hash, request_key.sortition_height);
+                blocks.push((request_key.burn_block_hash.clone(), block));
                 downloader.num_blocks_downloaded += 1;
 
                 // don't try this again
@@ -1186,13 +1204,13 @@ impl PeerNetwork {
 
                 if StacksChainState::validate_parent_microblock_stream(&block_header, &child_block_header, &microblock_stream, true).is_some() {
                     // stream is valid!
-                    test_debug!("Downloaded valid microblock stream {}/{} at sortition height {}", &request_key.burn_block_hash, &request_key.anchor_block_hash, request_key.sortition_height);
-                    microblocks.push(microblock_stream);
+                    debug!("Downloaded valid microblock stream {}/{} at sortition height {}", &request_key.burn_block_hash, &request_key.anchor_block_hash, request_key.sortition_height);
+                    microblocks.push((request_key.burn_block_hash.clone(), microblock_stream));
                     downloader.num_microblocks_downloaded += 1;
                 }
                 else {
                     // stream is not well-formed
-                    test_debug!("Microblock stream {:?}: {}/{} is invalid", request_key.sortition_height, &request_key.burn_block_hash, &request_key.anchor_block_hash);
+                    debug!("Microblock stream {:?}: {}/{} is invalid", request_key.sortition_height, &request_key.burn_block_hash, &request_key.anchor_block_hash);
                 }
 
                 // don't try again
@@ -1287,23 +1305,23 @@ impl PeerNetwork {
         })
     }
 
+    /// Initialize the downloader 
+    pub fn init_block_downloader(&mut self) -> () {
+        self.block_downloader = Some(BlockDownloader::new(self.connection_opts.dns_timeout, self.connection_opts.max_inflight_blocks));
+    }
+
     /// Process block downloader lifetime.  Returns the new blocks and microblocks if we get
     /// anything.
     /// Returns true/false if we're done, as well as any blocks and microblocks we got, as well as
     /// broken http and p2p neighbors we encountered (so the main loop can disconnect them)
-    pub fn download_blocks(&mut self, burndb: &mut BurnDB, chainstate: &mut StacksChainState, dns_client: &mut DNSClient) -> Result<(bool, Vec<StacksBlock>, Vec<Vec<StacksMicroblock>>, Vec<usize>, Vec<NeighborKey>), net_error> {
-        if self.http.is_none() {
-            test_debug!("{:?}: HTTP not connected yet", &self.local_peer);
-            return Err(net_error::NotConnected);
-        }
-
+    pub fn download_blocks(&mut self, burndb: &mut BurnDB, chainstate: &mut StacksChainState, dns_client: &mut DNSClient) -> Result<(bool, Vec<(BurnchainHeaderHash, StacksBlock)>, Vec<(BurnchainHeaderHash, Vec<StacksMicroblock>)>, Vec<usize>, Vec<NeighborKey>), net_error> {
         if self.inv_state.is_none() {
             test_debug!("{:?}: Inv state not initialized yet", &self.local_peer);
             return Err(net_error::NotConnected);
         }
 
         if self.block_downloader.is_none() {
-            self.block_downloader = Some(BlockDownloader::new(self.connection_opts.dns_timeout, self.connection_opts.max_inflight_blocks));
+            self.init_block_downloader();
         }
 
         let last_inv_update_at = self.inv_state.as_ref().unwrap().last_change_at;
@@ -1340,39 +1358,51 @@ impl PeerNetwork {
             }
         }
 
-        let dlstate = self.block_downloader.as_ref().unwrap().state;
         let mut done = false;
 
         let mut blocks = vec![];
         let mut microblocks = vec![];
 
-        match dlstate {
-            BlockDownloaderState::DNSLookupBegin => {
-                self.block_dns_lookups_begin(burndb, chainstate, dns_client)?;
-            },
-            BlockDownloaderState::DNSLookupFinish => {
-                self.block_dns_lookups_try_finish(dns_client)?;
-            },
-            BlockDownloaderState::GetBlocksBegin => {
-                self.block_getblocks_begin()?;
-            },
-            BlockDownloaderState::GetBlocksFinish => {
-                self.block_getblocks_try_finish()?;
-            },
-            BlockDownloaderState::GetMicroblocksBegin => {
-                self.block_getmicroblocks_begin()?;
-            },
-            BlockDownloaderState::GetMicroblocksFinish => {
-                self.block_getmicroblocks_try_finish()?;
-            },
-            BlockDownloaderState::Done => {
-                // did a pass.
-                // do we have more requests?
-                let (blocks_done, mut successful_blocks, mut successful_microblocks) = self.finish_downloads(burndb, chainstate)?;
+        let mut done_cycle = false;
+        while !done_cycle {
+            let dlstate = self.block_downloader.as_ref().unwrap().state;
+            debug!("{:?}: Download state is {:?}", &self.local_peer, &dlstate);
 
-                blocks.append(&mut successful_blocks);
-                microblocks.append(&mut successful_microblocks);
-                done = blocks_done;
+            match dlstate {
+                BlockDownloaderState::DNSLookupBegin => {
+                    self.block_dns_lookups_begin(burndb, chainstate, dns_client)?;
+                },
+                BlockDownloaderState::DNSLookupFinish => {
+                    self.block_dns_lookups_try_finish(dns_client)?;
+                },
+                BlockDownloaderState::GetBlocksBegin => {
+                    self.block_getblocks_begin(chainstate)?;
+                },
+                BlockDownloaderState::GetBlocksFinish => {
+                    self.block_getblocks_try_finish()?;
+                },
+                BlockDownloaderState::GetMicroblocksBegin => {
+                    self.block_getmicroblocks_begin(chainstate)?;
+                },
+                BlockDownloaderState::GetMicroblocksFinish => {
+                    self.block_getmicroblocks_try_finish()?;
+                },
+                BlockDownloaderState::Done => {
+                    // did a pass.
+                    // do we have more requests?
+                    let (blocks_done, mut successful_blocks, mut successful_microblocks) = self.finish_downloads(burndb, chainstate)?;
+
+                    blocks.append(&mut successful_blocks);
+                    microblocks.append(&mut successful_microblocks);
+                    done = blocks_done;
+
+                    done_cycle = true;
+                }
+            }
+        
+            let new_dlstate = self.block_downloader.as_ref().unwrap().state;
+            if new_dlstate == dlstate {
+                done_cycle = true;
             }
         }
 
@@ -1395,12 +1425,13 @@ impl PeerNetwork {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
     use net::*;
     use net::codec::*;
     use net::inv::*;
     use net::test::*;
+    use net::relay::*;
     use chainstate::stacks::*;
     use std::collections::HashMap;
     
@@ -1408,6 +1439,10 @@ mod test {
     fn test_get_block_availability() {
         let mut peer_1_config = TestPeerConfig::new("test_get_block_availability", 3210, 3211);
         let mut peer_2_config = TestPeerConfig::new("test_get_block_availability", 3212, 3213);
+
+        // don't bother downloading blocks
+        peer_1_config.connection_opts.disable_block_download = true;
+        peer_2_config.connection_opts.disable_block_download = true;
         
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -1441,13 +1476,33 @@ mod test {
         let mut round = 0;
         let mut inv_1_count = 0;
         let mut inv_2_count = 0;
+        let mut all_blocks_available = false;
 
-        while inv_1_count < num_burn_blocks && inv_2_count < num_burn_blocks {
+        while inv_1_count < num_burn_blocks && inv_2_count < num_burn_blocks && !all_blocks_available {
             let result_1 = peer_1.step();
             let result_2 = peer_2.step();
 
             inv_1_count = match peer_1.network.inv_state {
-                Some(ref inv) => inv.get_inv_sortitions(&peer_2.to_neighbor().addr),
+                Some(ref inv) => {
+                    let mut count = inv.get_inv_sortitions(&peer_2.to_neighbor().addr);
+
+                    // continue until peer 1 knows that peer 2 has blocks
+                    let peer_1_availability = BlockDownloader::get_block_availability(peer_1.network.inv_state.as_mut().unwrap(), peer_1.burndb.as_mut().unwrap(), first_stacks_block_height - 1, first_stacks_block_height + num_blocks).unwrap();
+                    let mut all_availability = true;
+                    for (_, _, neighbors) in peer_1_availability.iter() {
+                        if neighbors.len() != 1 {
+                            // not done yet
+                            count = 0;
+                            all_availability = false;
+                            break;
+                        }
+                        assert_eq!(neighbors[0], peer_2.config.to_neighbor().addr);
+                    }
+
+                    all_blocks_available = all_availability;
+
+                    count
+                },
                 None => 0
             };
 
@@ -1461,6 +1516,7 @@ mod test {
                 Some(ref inv) => {
                     assert_eq!(inv.broken_peers.len(), 0);
                     assert_eq!(inv.diverged_peers.len(), 0);
+
                 },
                 None => {}
             }
@@ -1472,6 +1528,7 @@ mod test {
                 },
                 None => {}
             }
+
 
             round += 1;
         }
@@ -1489,10 +1546,6 @@ mod test {
             assert_eq!(*burn_header_hash, *sn_burn_header_hash);
             assert!(stacks_block_hash_opt.is_some());
             assert_eq!(*stacks_block_hash_opt, Some(stacks_block.block_hash()));
-
-            // peer 1 knows that peer 2 has blocks
-            assert_eq!(neighbors.len(), 1);
-            assert_eq!(neighbors[0], peer_2.config.to_neighbor().addr);
         }
     }
    
@@ -1529,11 +1582,13 @@ mod test {
         inv
     }
     
-    fn run_get_blocks_and_microblocks<T, F, C>(test_name: &str, port_base: u16, num_peers: usize, make_topology: T, block_generator: F, check_breakage: C)
+    pub fn run_get_blocks_and_microblocks<T, F, P, C, D>(test_name: &str, port_base: u16, num_peers: usize, make_topology: T, block_generator: F, mut peer_func: P, mut check_breakage: C, mut done_func: D) -> Vec<TestPeer>
     where 
         T: FnOnce(&mut Vec<TestPeerConfig>) -> (),
         F: FnOnce(usize, &mut Vec<TestPeer>) -> Vec<(BurnchainHeaderHash, Option<StacksBlock>, Option<Vec<StacksMicroblock>>)>,
-        C: Fn(&TestPeer) -> bool,
+        P: FnMut(&mut Vec<TestPeer>) -> (),
+        C: FnMut(&mut TestPeer) -> bool,
+        D: FnMut(&mut Vec<TestPeer>) -> bool
     {
         assert!(num_peers > 0);
         let first_sortition_height = 5;
@@ -1579,28 +1634,22 @@ mod test {
         let mut round = 0;
         let mut peer_invs = vec![BlocksInvData::empty(); num_peers];
 
+        let mut done = false;
+
         loop {
+            peer_func(&mut peers);
+
             for i in 0..peers.len() {
                 let peer = &mut peers[i];
                 
                 test_debug!("======= peer {} step begin =========", i);
-                let result = peer.step_dns(&mut dns_clients[i]).unwrap();
-                
-                for received_block in result.blocks.iter() {
-                    test_debug!("Peer {} got block {}", i, received_block.block_hash());
-                    peer.preprocess_stacks_block(received_block).unwrap();
-                }
+                let mut result = peer.step_dns(&mut dns_clients[i]).unwrap();
 
-                for received_microblocks in result.confirmed_microblocks.iter() {
-                    if received_microblocks.len() > 0 {
-                        test_debug!("Peer {} got microblock {}", i, received_microblocks[0].block_hash());
-                    }
-                    else {
-                        test_debug!("Peer {} got empty microblock stream", i);
-                    }
-                    peer.preprocess_stacks_microblocks(received_microblocks).unwrap();
-                }
-            
+                let lp = peer.network.local_peer.clone();
+                peer.with_db_state(|burndb, chainstate, relayer, mempool| {
+                    relayer.process_network_result(&lp, &mut result, burndb, chainstate, mempool)
+                }).unwrap();
+
                 test_debug!("Peer {} processes {} blocks and {} microblock streams", i, result.blocks.len(), result.confirmed_microblocks.len());
                 let peer_work = peer.chainstate().process_blocks(result.blocks.len() + 1).unwrap();
                 test_debug!("Peer {} processed headers: {:?}", i, &peer_work);
@@ -1612,24 +1661,29 @@ mod test {
                 test_debug!("======= peer {} step end   =========", i);
             }
 
-            let mut done = true;
-            for i in 0..num_peers {
-                for b in 0..num_blocks {
-                    if !peer_invs[i].has_ith_block(((b as u64) + first_stacks_block_height - first_sortition_height) as u16) {
-                        test_debug!("Peer {} is missing block {}", i, (b as u64) + first_stacks_block_height - first_sortition_height);
-                        done = false;
+            if !done {
+                done = true;
+                for i in 0..num_peers {
+                    for b in 0..num_blocks {
+                        if !peer_invs[i].has_ith_block(((b as u64) + first_stacks_block_height - first_sortition_height) as u16) {
+                            test_debug!("Peer {} is missing block {}", i, (b as u64) + first_stacks_block_height - first_sortition_height);
+                            done = false;
+                        }
                     }
-                }
-                for b in 0..(num_blocks - 1) {
-                    if !peer_invs[i].has_ith_microblock_stream(((b as u64) + first_stacks_block_height - first_sortition_height) as u16) {
-                        test_debug!("Peer {} is missing microblock stream {}", i, (b as u64) + first_stacks_block_height - first_sortition_height);
-                        done = false;
+                    for b in 0..(num_blocks - 1) {
+                        if !peer_invs[i].has_ith_microblock_stream(((b as u64) + first_stacks_block_height - first_sortition_height) as u16) {
+                            test_debug!("Peer {} is missing microblock stream {}", i, (b as u64) + first_stacks_block_height - first_sortition_height);
+                            done = false;
+                        }
                     }
                 }
             }
 
             if done {
-                break;
+                // all blocks obtained, now do custom check
+                if done_func(&mut peers) {
+                    break;
+                }
             }
             
             round += 1;
@@ -1638,8 +1692,8 @@ mod test {
         info!("Completed walk round {} step(s)", round);
       
         let mut peer_invs = vec![];
-        for mut peer in peers.drain(..) {
-            let peer_inv = get_blocks_inventory(&mut peer, 0, num_burn_blocks);
+        for peer in peers.iter_mut() {
+            let peer_inv = get_blocks_inventory(peer, 0, num_burn_blocks);
             peer_invs.push(peer_inv);
 
             let availability = BlockDownloader::get_block_availability(peer.network.inv_state.as_mut().unwrap(), peer.burndb.as_mut().unwrap(), 
@@ -1664,14 +1718,21 @@ mod test {
         for handle in dns_threads.drain(..) {
             handle.join().unwrap();
         }
+
+        peers
     }
 
     #[test]
-    fn test_get_blocks_and_microblocks_2_peers() {
+    #[ignore]
+    pub fn test_get_blocks_and_microblocks_2_peers() {
         run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_2_peers", 3200, 2,
                                        |ref mut peer_configs| {
                                            // build initial network topology
                                            assert_eq!(peer_configs.len(), 2);
+
+                                           peer_configs[0].connection_opts.disable_block_advertisement = true;
+                                           peer_configs[1].connection_opts.disable_block_advertisement = true;
+
                                            let peer_0 = peer_configs[0].to_neighbor();
                                            let peer_1 = peer_configs[1].to_neighbor();
                                            peer_configs[0].add_neighbor(&peer_1);
@@ -1691,7 +1752,8 @@ mod test {
                                            }
                                            block_data
                                        },
-                                       |ref peer| {
+                                       |_| {},
+                                       |peer| {
                                            // check peer health
                                            // nothing should break 
                                            match peer.network.block_downloader {
@@ -1701,18 +1763,34 @@ mod test {
                                                },
                                                None => {}
                                            }
+
+                                           // no block advertisements (should be disabled)
+                                           let _ = peer.for_each_convo_p2p(|event_id, convo| {
+                                               let cnt = *(convo.stats.msg_rx_counts.get(&StacksMessageID::BlocksAvailable).unwrap_or(&0));
+                                               assert_eq!(cnt, 0, "neighbor event={} got {} BlocksAvailable messages", event_id, cnt);
+                                               Ok(())
+                                           });
+
                                            true
-                                       })
+                                       },
+                                       |_| true);
     }
     
     #[test]
-    fn test_get_blocks_and_microblocks_5_peers_star() {
+    #[ignore]
+    pub fn test_get_blocks_and_microblocks_5_peers_star() {
         run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_5_peers_star", 3210, 5,
                                        |ref mut peer_configs| {
                                            // build initial network topology -- a star with
                                            // peers[0] at the center, with all the blocks
                                            assert_eq!(peer_configs.len(), 5);
                                            let mut neighbors = vec![];
+
+                                           for p in peer_configs.iter_mut() {
+                                               p.connection_opts.disable_block_advertisement = true;
+                                               p.connection_opts.max_clients_per_host = 30;
+                                           }
+                                           
                                            let peer_0 = peer_configs[0].to_neighbor();
                                            for i in 1..peer_configs.len() {
                                                neighbors.push(peer_configs[i].to_neighbor());
@@ -1740,7 +1818,8 @@ mod test {
                                            }
                                            block_data
                                        },
-                                       |ref peer| {
+                                       |_| {},
+                                       |peer| {
                                            // check peer health
                                            // nothing should break 
                                            match peer.network.block_downloader {
@@ -1751,17 +1830,25 @@ mod test {
                                                None => {}
                                            }
                                            true
-                                       })
+                                       },
+                                       |_| true);
     }
 
     #[test]
-    fn test_get_blocks_and_microblocks_5_peers_line() {
+    #[ignore]
+    pub fn test_get_blocks_and_microblocks_5_peers_line() {
         run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_5_peers_line", 3220, 5,
                                        |ref mut peer_configs| {
                                            // build initial network topology -- a line with
                                            // peers[0] at the left, with all the blocks
                                            assert_eq!(peer_configs.len(), 5);
                                            let mut neighbors = vec![];
+                                           
+                                           for p in peer_configs.iter_mut() {
+                                               p.connection_opts.disable_block_advertisement = true;
+                                               p.connection_opts.max_clients_per_host = 30;
+                                           }
+
                                            for i in 0..peer_configs.len() {
                                                neighbors.push(peer_configs[i].to_neighbor());
                                            }
@@ -1788,7 +1875,8 @@ mod test {
                                            }
                                            block_data
                                        },
-                                       |ref peer| {
+                                       |_| {},
+                                       |peer| {
                                            // check peer health
                                            // nothing should break 
                                            match peer.network.block_downloader {
@@ -1799,18 +1887,26 @@ mod test {
                                                None => {}
                                            }
                                            true
-                                       })
+                                       },
+                                       |_| true);
     }
     
     #[test]
-    fn test_get_blocks_and_microblocks_overwhelmed() {
+    #[ignore]
+    pub fn test_get_blocks_and_microblocks_overwhelmed() {
         run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_overwhelmed", 3220, 5,
                                        |ref mut peer_configs| {
                                            // build initial network topology -- a star with
                                            // peers[0] at the center, with all the blocks
                                            assert_eq!(peer_configs.len(), 5);
                                            let mut neighbors = vec![];
+                                           
+                                           for p in peer_configs.iter_mut() {
+                                               p.connection_opts.disable_block_advertisement = true;
+                                           }
+
                                            let peer_0 = peer_configs[0].to_neighbor();
+
                                            for i in 1..peer_configs.len() {
                                                neighbors.push(peer_configs[i].to_neighbor());
                                                peer_configs[i].add_neighbor(&peer_0);
@@ -1819,7 +1915,7 @@ mod test {
                                                // connections in each peer
                                                peer_configs[i].connection_opts.max_clients_per_host = 1;
                                                peer_configs[i].connection_opts.num_clients = 1;
-                                               peer_configs[i].connection_opts.idle_timeout = 5;
+                                               peer_configs[i].connection_opts.idle_timeout = 1;
                                            }
 
                                            for n in neighbors.drain(..) {
@@ -1843,7 +1939,8 @@ mod test {
                                            }
                                            block_data
                                        },
-                                       |ref peer| {
+                                       |_| {},
+                                       |peer| {
                                            // check peer health
                                            // nothing should break 
                                            match peer.network.block_downloader {
@@ -1854,6 +1951,7 @@ mod test {
                                                None => {}
                                            }
                                            true
-                                       })
+                                       },
+                                       |_| true);
     }
 }

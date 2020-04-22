@@ -23,7 +23,6 @@ use self::traits_resolver::TraitsResolver;
 use self::stack_depth_checker::StackDepthChecker;
 
 /// Legacy function
-#[cfg(test)]
 pub fn parse(contract_identifier: &QualifiedContractIdentifier, source_code: &str) -> Result<Vec<SymbolicExpression>, Error> {
     let ast = build_ast(contract_identifier, source_code, &mut ())?;
     Ok(ast.expressions)

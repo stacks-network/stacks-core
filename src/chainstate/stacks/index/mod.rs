@@ -23,6 +23,7 @@ pub mod node;
 pub mod proofs;
 pub mod storage;
 pub mod trie;
+pub mod trie_sql;
 
 use std::fmt;
 use std::error;
@@ -222,6 +223,8 @@ impl MARFValue {
 pub enum Error {
     NotOpenedError,
     IOError(io::Error),
+    SQLError(rusqlite::Error),
+    RequestedIdentifierForExtensionTrie,
     NotFoundError,
     BackptrNotFoundError,
     ExistsError,
@@ -244,10 +247,21 @@ impl From<io::Error> for Error {
     }
 }
 
+impl From<rusqlite::Error> for Error {
+    fn from(err: rusqlite::Error) -> Self {
+        if let rusqlite::Error::QueryReturnedNoRows = err {
+            Error::NotFoundError
+        } else {
+            Error::SQLError(err)
+        }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
+            Error::SQLError(ref e) => fmt::Display::fmt(e, f),
             Error::CorruptionError(ref s) => fmt::Display::fmt(s, f),
             Error::CursorError(ref e) => fmt::Display::fmt(e, f),
             Error::BlockHashMapCorruptionError(ref opt_e) => {
@@ -269,6 +283,7 @@ impl fmt::Display for Error {
             Error::WriteNotBegunError => write!(f, "Write has not begun"),
             Error::RestoreMarfBlockError(_) => write!(f, "Failed to restore previous open block during block header check"),
             Error::NonMatchingForks(_, _) => write!(f, "The supplied blocks are not in the same fork"),
+            Error::RequestedIdentifierForExtensionTrie => write!(f, "BUG: MARF requested the identifier for a RAM trie"),
         }
     }
 }
@@ -277,6 +292,7 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::IOError(ref e) => Some(e),
+            Error::SQLError(ref e) => Some(e),
             Error::RestoreMarfBlockError(ref e) => Some(e),
             Error::BlockHashMapCorruptionError(ref opt_e) => match opt_e {
                 Some(ref e) => Some(e),
@@ -284,6 +300,21 @@ impl error::Error for Error {
             },
             _ => None
         }
+    }
+}
+
+pub trait BlockMap {
+    fn get_block_hash(&self, id: u32) -> Result<BlockHeaderHash, Error>;
+    fn get_block_hash_caching(&mut self, id: u32) -> Result<&BlockHeaderHash, Error>;
+}
+
+#[cfg(test)]
+impl BlockMap for () {
+    fn get_block_hash(&self, _id: u32) -> Result<BlockHeaderHash, Error> {
+        Err(Error::NotFoundError)
+    }
+    fn get_block_hash_caching(&mut self, _id: u32) -> Result<&BlockHeaderHash, Error> {
+        Err(Error::NotFoundError)
     }
 }
 
@@ -360,7 +391,7 @@ mod test {
                 }
             };
             for ptr in ptrs.iter() {
-                if ptr.id() == TrieNodeID::Empty {
+                if ptr.id() == TrieNodeID::Empty as u8 {
                     continue;
                 }
                 if !is_backptr(ptr.id()) {
@@ -465,7 +496,7 @@ mod test {
             // let node_ptr = ftell(s).unwrap();
             let node_ptr = s.last_ptr().unwrap();
 
-            let node = match node_id {
+            let node = match TrieNodeID::from_u8(node_id).unwrap() {
                 TrieNodeID::Node4 => TrieNodeType::Node4(TrieNode4::new(path_segment)),
                 TrieNodeID::Node16 => TrieNodeType::Node16(TrieNode16::new(path_segment)),
                 TrieNodeID::Node48 => TrieNodeType::Node48(TrieNode48::new(path_segment)),
@@ -505,24 +536,24 @@ mod test {
 
         // update parent
         match parent {
-            TrieNodeType::Node256(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32))),
-            TrieNodeType::Node48(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32))),
-            TrieNodeType::Node16(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32))),
-            TrieNodeType::Node4(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32))),
+            TrieNodeType::Node256(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr as u32))),
+            TrieNodeType::Node48(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr as u32))),
+            TrieNodeType::Node16(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr as u32))),
+            TrieNodeType::Node4(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr as u32))),
             TrieNodeType::Leaf(_) => panic!("can't insert into leaf"),
         };
 
         s.write_nodetype(parent_ptr, &parent, TrieHash::from_data(&[(seg_id) as u8; 32])).unwrap();
 
         nodes.push(parent.clone());
-        node_ptrs.push(TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32));
+        node_ptrs.push(TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr as u32));
         hashes.push(TrieHash::from_data(&[(seg_id+1) as u8; 32]));
 
         (nodes, node_ptrs, hashes)
     }
 
     pub fn make_node4_path(s: &mut TrieFileStorage, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
-        make_node_path(s, TrieNodeID::Node4, path_segments, leaf_data)
+        make_node_path(s, TrieNodeID::Node4 as u8, path_segments, leaf_data)
     }    
 }
 
