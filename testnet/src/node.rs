@@ -116,12 +116,11 @@ impl Node {
 
         let initial_balances = config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
 
-        let chain_state = match StacksChainState::open_and_exec(
-            false, 
-            TESTNET_CHAIN_ID, 
-            &config.get_chainstate_path(), 
-            Some(initial_balances), 
-            boot_block_exec) {
+        let chain_state_result = StacksChainState::open_and_exec(
+            false, TESTNET_CHAIN_ID, &config.get_chainstate_path(),
+            Some(initial_balances), boot_block_exec, config.block_limit.clone());
+
+        let chain_state = match chain_state_result {
             Ok(res) => res,
             Err(err) => panic!("Error while opening chain state at path {}: {:?}", config.get_chainstate_path(), err)
         };

@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use rand::RngCore;
 
 use stacks::burnchains::{
-    MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+    Address, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
 use stacks::core::{PEER_VERSION};
 use stacks::net::connection::ConnectionOptions;
@@ -14,6 +14,7 @@ use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::hash::{to_hex, hex_bytes};
 use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier} ;
+use stacks::vm::costs::ExecutionCost;
 
 use super::node::TESTNET_CHAIN_ID;
 
@@ -24,10 +25,10 @@ pub struct ConfigFile {
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
+    pub block_limit: Option<BlockLimitFile>,
 }
 
 impl ConfigFile {
-
     pub fn from_path(path: &str) -> ConfigFile {
         let path = File::open(path).unwrap();
         let mut config_file_reader = BufReader::new(path);
@@ -41,13 +42,14 @@ impl ConfigFile {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
     pub initial_balances: Vec<InitialBalance>,
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
+    pub block_limit: ExecutionCost,
 }
 
 lazy_static! {
@@ -74,6 +76,14 @@ lazy_static! {
         .. std::default::Default::default()
     };
 }
+
+pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
+    write_length: 15_0_000_000,
+    write_count: 5_0_000,
+    read_length: 1_000_000_000,
+    read_count: 5_0_000,
+    runtime: 1_00_000_000,
+};
 
 impl Config {
 
@@ -215,12 +225,24 @@ impl Config {
             }
         };
 
+        let block_limit = match config_file.block_limit {
+            Some(opts) => ExecutionCost {
+                write_length: opts.write_length.unwrap_or(HELIUM_BLOCK_LIMIT.write_length.clone()),
+                write_count:  opts.write_count.unwrap_or(HELIUM_BLOCK_LIMIT.write_count.clone()),
+                read_length:  opts.read_length.unwrap_or(HELIUM_BLOCK_LIMIT.read_length.clone()),
+                read_count:  opts.read_count.unwrap_or(HELIUM_BLOCK_LIMIT.read_count.clone()),
+                runtime:  opts.runtime.unwrap_or(HELIUM_BLOCK_LIMIT.runtime.clone()),
+            },
+            None => HELIUM_BLOCK_LIMIT.clone()
+        };
+
         Config {
             node,
             burnchain,
             initial_balances,
             events_observers,
-            connection_options
+            connection_options,
+            block_limit
         }
     }
 
@@ -245,7 +267,14 @@ impl Config {
         format!("{}/peer_db.sqlite", self.node.working_dir)
     }
 
-    pub fn default() -> Config {
+    pub fn add_initial_balance(&mut self, address: String, amount: u64) {
+        let new_balance = InitialBalance { address: PrincipalData::parse_standard_principal(&address).unwrap().into(), amount };
+        self.initial_balances.push(new_balance);
+    }
+}
+
+impl std::default::Default for Config {
+    fn default() -> Config {
         // Testnet's name
         let node = NodeConfig {
             ..NodeConfig::default()
@@ -258,6 +287,7 @@ impl Config {
         burnchain.spv_headers_path = node.get_default_spv_headers_path();
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
+        let block_limit = HELIUM_BLOCK_LIMIT.clone();
 
         Config {
             burnchain,
@@ -265,12 +295,8 @@ impl Config {
             initial_balances: vec![],
             events_observers: vec![],
             connection_options,
+            block_limit,
         }
-    }
-
-    pub fn add_initial_balance(&mut self, address: String, amount: u64) {
-        let new_balance = InitialBalance { address: PrincipalData::parse_standard_principal(&address).unwrap().into(), amount };
-        self.initial_balances.push(new_balance);
     }
 }
 
@@ -330,7 +356,6 @@ pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
     pub mode: Option<String>,
-    pub block_time: Option<u64>,
     pub commit_anchor_block_within: Option<u64>,
     pub peer_host: Option<String>,
     pub peer_port: Option<u16>,
@@ -447,6 +472,15 @@ pub struct ConnectionOptionsFile {
     pub read_only_call_limit_read_count: Option<u64>,
     pub read_only_call_limit_runtime: Option<u64>,
     pub maximum_call_argument_size: Option<u32>,
+}
+
+#[derive(Clone, Default, Deserialize)]
+pub struct BlockLimitFile {
+    pub write_length: Option<u64>,
+    pub read_length: Option<u64>,
+    pub write_count: Option<u64>,
+    pub read_count: Option<u64>,
+    pub runtime: Option<u64>,
 }
 
 

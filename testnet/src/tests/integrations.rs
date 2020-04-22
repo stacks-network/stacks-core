@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use std::{thread, time};
+use std::fmt::Write;
 use stacks::vm::{
     database::ClaritySerializable,
     types::{QualifiedContractIdentifier, TupleData},
@@ -108,7 +110,7 @@ fn integration_test_get_info() {
         amount: 100300
     });
 
-    conf.burnchain.commit_anchor_block_within = 1500;
+    conf.burnchain.commit_anchor_block_within = 5000;
 
     let num_rounds = 4;
 
@@ -572,7 +574,7 @@ fn contract_stx_transfer() {
     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
     let addr_3 = to_addr(&sk_3);
 
-    conf.burnchain.commit_anchor_block_within = 1500;
+    conf.burnchain.commit_anchor_block_within = 5000;
     conf.add_initial_balance(addr_3.to_string(), 100000);
 
     let num_rounds = 5;
@@ -720,7 +722,7 @@ fn bad_contract_tx_rollback() {
     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
     let addr_3 = to_addr(&sk_3);
 
-    conf.burnchain.commit_anchor_block_within = 1500;
+    conf.burnchain.commit_anchor_block_within = 5000;
     conf.add_initial_balance(addr_3.to_string(), 100000);
 
     let num_rounds = 3;
@@ -747,7 +749,7 @@ fn bad_contract_tx_rollback() {
             let (burn_header_hash, block_hash) = (&tenure.parent_block.metadata.burn_header_hash, &tenure.parent_block.metadata.anchored_header.block_hash());
             tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
             
-            let xfer_to_contract = make_stacks_transfer(&sk_3, 2, 0, &addr_2.into(), 1500);
+            let xfer_to_contract = make_stacks_transfer(&sk_3, 2, 0, &addr_2.into(), 3000);
             tenure.mem_pool.submit_raw(burn_header_hash, block_hash, xfer_to_contract).unwrap();
             
             let publish_tx = make_contract_publish(&contract_sk, 0, 0, "faucet", FAUCET_CONTRACT);
@@ -797,6 +799,97 @@ fn bad_contract_tx_rollback() {
                 assert_eq!(chain_tip.metadata.block_height, 3);
                 // Block #2 should have 4 txs -- coinbase + 2 transfers + 1 publish
                 assert_eq!(chain_tip.block.txs.len(), 4);
+            },
+            _ => {},
+        }
+    });
+
+    run_loop.start(num_rounds);
+}
+
+lazy_static! {
+    static ref EXPENSIVE_CONTRACT: String = make_expensive_contract(
+        "(define-private (inner-loop (x int)) (begin 
+           (map sha256 list-9)
+           0))", "");
+}
+
+fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
+    let mut contract = "(define-constant list-0 (list 0))".to_string();
+
+    for i in 0..10 {
+        contract.push_str("\n");
+        contract.push_str(
+            &format!("(define-constant list-{} (concat list-{} list-{}))",
+                     i+1, i, i));
+    }
+
+    contract.push_str("\n");
+    contract.push_str(other_decl);
+    contract.push_str("\n");
+    contract.push_str(inner_loop);
+
+    write!(contract, "\n(define-private (outer-loop) (map inner-loop list-5))\n").unwrap();
+    write!(contract, "(define-public (do-it) (begin (outer-loop) (ok 1)))").unwrap();
+
+    contract
+}
+
+#[test]
+fn block_limit_runtime_test() {
+    let mut conf = testnet::helium::tests::new_test_conf();
+
+    conf.burnchain.block_time = 3000;
+
+    // use a shorter runtime limit. the current runtime limit
+    //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+    conf.block_limit.runtime = 1_000_000;
+    conf.burnchain.commit_anchor_block_within = 5000;
+
+    let num_rounds = 6;
+
+    let mut run_loop = testnet::helium::RunLoop::new(conf);
+    run_loop.apply_on_new_tenures(|round, tenure| {
+        let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+
+        let contract_identifier =
+            QualifiedContractIdentifier::parse(
+                &format!("{}.{}", to_addr(&contract_sk), "hello-contract")).unwrap();
+        let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+
+        if round == 1 {
+            let publish_tx = make_contract_publish(&contract_sk, 0, 0, "hello-contract", EXPENSIVE_CONTRACT.as_str());
+            tenure.mem_pool.submit_raw(burn_header_hash, block_hash, publish_tx).unwrap();
+        } else if round > 1 {
+            eprintln!("Begin Round: {}", round);
+            let to_submit = 2 * (round - 1);
+
+            for _i in 0..to_submit {
+                let sk = StacksPrivateKey::new();
+                let tx = make_contract_call(&sk, 0, 0, &to_addr(&contract_sk), "hello-contract", "do-it", &[]);
+                tenure.mem_pool.submit_raw(burn_header_hash, block_hash, tx).unwrap();
+            }
+        }
+
+        return
+    });
+
+    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _events| {
+        let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+        let _contract_identifier =
+            QualifiedContractIdentifier::parse(
+                &format!("{}.{}", to_addr(&contract_sk), "hello-contract")).unwrap();
+
+        match round {
+            2 => {
+                // Block #1 should have 3 txs -- coinbase + 2 contract calls...
+                assert!(block.txs.len() == 3);
+            },
+            3 | 4 | 5=> {
+                // Block >= 2 should have 4 txs -- coinbase + 3 contract calls
+                //   because the _subsequent_ transactions should never have been
+                //   included.
+                assert_eq!(block.txs.len(), 4);
             },
             _ => {},
         }
