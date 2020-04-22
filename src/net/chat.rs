@@ -1443,7 +1443,12 @@ mod test {
         let peerdb_path = format!("{}/peers.db", &test_path);
         let chainstate_path = format!("{}/chainstate", &test_path);
 
-        let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, key_expires, NETWORK_P2P_PORT, data_url.clone(), [0u8; 8].to_vec(), &asn4_entries, Some(&initial_neighbors)).unwrap();
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 8];
+        let mut local_peer_seed = [0u8; 32];
+        rng.fill_bytes(&mut local_peer_seed);
+
+        let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, key_expires, NETWORK_P2P_PORT, data_url.clone(), local_peer_seed.to_vec(), &asn4_entries, Some(&initial_neighbors)).unwrap();
         let burndb = BurnDB::connect(&burndb_path, burnchain.first_block_height, &burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
         let chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
 
