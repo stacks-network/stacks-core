@@ -1476,8 +1476,9 @@ pub mod test {
         let mut round = 0;
         let mut inv_1_count = 0;
         let mut inv_2_count = 0;
+        let mut all_blocks_available = false;
 
-        while inv_1_count < num_burn_blocks && inv_2_count < num_burn_blocks {
+        while inv_1_count < num_burn_blocks && inv_2_count < num_burn_blocks && !all_blocks_available {
             let result_1 = peer_1.step();
             let result_2 = peer_2.step();
 
@@ -1487,14 +1488,18 @@ pub mod test {
 
                     // continue until peer 1 knows that peer 2 has blocks
                     let peer_1_availability = BlockDownloader::get_block_availability(peer_1.network.inv_state.as_mut().unwrap(), peer_1.burndb.as_mut().unwrap(), first_stacks_block_height - 1, first_stacks_block_height + num_blocks).unwrap();
+                    let mut all_availability = true;
                     for (_, _, neighbors) in peer_1_availability.iter() {
                         if neighbors.len() != 1 {
                             // not done yet
                             count = 0;
+                            all_availability = false;
                             break;
                         }
                         assert_eq!(neighbors[0], peer_2.config.to_neighbor().addr);
                     }
+
+                    all_blocks_available = all_availability;
 
                     count
                 },
@@ -1541,10 +1546,6 @@ pub mod test {
             assert_eq!(*burn_header_hash, *sn_burn_header_hash);
             assert!(stacks_block_hash_opt.is_some());
             assert_eq!(*stacks_block_hash_opt, Some(stacks_block.block_hash()));
-
-            // peer 1 knows that peer 2 has blocks
-            assert_eq!(neighbors.len(), 1);
-            assert_eq!(neighbors[0], peer_2.config.to_neighbor().addr);
         }
     }
    

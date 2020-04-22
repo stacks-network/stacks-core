@@ -1362,7 +1362,7 @@ impl NetworkResult {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
     use net::asn::*;
     use net::chat::*;
@@ -1384,6 +1384,7 @@ mod test {
     use chainstate::*;
     use chainstate::stacks::miner::*;
     use chainstate::stacks::miner::test::*;
+    use chainstate::stacks::*;
 
     use chainstate::stacks::db::StacksChainState;
 
@@ -1422,6 +1423,8 @@ mod test {
     use rand;
 
     use mio;
+
+    use util::vrf::*;
 
     // emulate a socket
     pub struct NetCursor<T> {
@@ -1714,7 +1717,7 @@ mod test {
         pub stacks_node: Option<TestStacksNode>,
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
-        chainstate_path: String,
+        pub chainstate_path: String,
     }
 
     impl TestPeer {
@@ -2036,6 +2039,42 @@ mod test {
             self.burndb = Some(burndb);
             self.stacks_node = Some(stacks_node);
             res
+        }
+
+        // Make a tenure
+        pub fn make_tenure<F>(&mut self, mut tenure_builder: F) -> (Vec<BlockstackOperationType>, StacksBlock, Vec<StacksMicroblock>)
+        where
+            F: FnMut(&mut TestMiner, &mut BurnDB, &mut StacksChainState, VRFProof, Option<&StacksBlock>, Option<&StacksMicroblockHeader>) -> (StacksBlock, Vec<StacksMicroblock>) 
+        {
+            let mut burndb = self.burndb.take().unwrap();
+            let mut burn_block = {
+                let sn = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();
+                TestBurnchainBlock::new(&sn, 0)
+            };
+
+            let last_sortition_block = BurnDB::get_canonical_burn_chain_tip(burndb.conn()).unwrap();        // no forks here
+          
+            let mut stacks_node = self.stacks_node.take().unwrap();
+
+            let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
+            let parent_microblock_header_opt = get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
+            let last_key = stacks_node.get_last_key(&self.miner);
+
+            let network_id = self.config.network_id;
+            let chainstate_path = self.chainstate_path.clone();
+            let burn_block_height = burn_block.block_height;
+            
+            let proof = self.miner.make_proof(&last_key.public_key, &burn_block.parent_snapshot.sortition_hash)
+                .expect(&format!("FATAL: no private key for {}", last_key.public_key.to_hex()));
+        
+            let (stacks_block, microblocks) = tenure_builder(&mut self.miner, &mut burndb, &mut stacks_node.chainstate, proof, parent_block_opt.as_ref(), parent_microblock_header_opt.as_ref());
+
+            let block_commit_op = stacks_node.make_tenure_commitment(&mut burndb, &mut burn_block, &mut self.miner, &stacks_block, &microblocks, 1000, &last_key, Some(&last_sortition_block));
+            let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
+
+            self.stacks_node = Some(stacks_node);
+            self.burndb = Some(burndb);
+            (vec![BlockstackOperationType::LeaderKeyRegister(leader_key_op), BlockstackOperationType::LeaderBlockCommit(block_commit_op)], stacks_block, microblocks)
         }
 
         // have this peer produce an anchored block and microblock tail using its internal miner.

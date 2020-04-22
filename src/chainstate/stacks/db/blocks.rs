@@ -3060,9 +3060,16 @@ impl StacksChainState {
     pub fn will_admit_mempool_tx(&mut self, current_burn: &BurnchainHeaderHash, current_block: &BlockHeaderHash, tx: &StacksTransaction, tx_size: u64) -> Result<(), MemPoolRejection> {
         let conf = self.config();
         let staging_height = match self.get_stacks_block_height(current_burn, current_block) {
-            Ok(Some(height)) => height,
+            Ok(Some(height)) => {
+                height
+            },
             Ok(None) => {
-                return Err(MemPoolRejection::NoSuchChainTip(current_burn.clone(), current_block.clone()));
+                if *current_burn == FIRST_BURNCHAIN_BLOCK_HASH {
+                    0
+                }
+                else {
+                    return Err(MemPoolRejection::NoSuchChainTip(current_burn.clone(), current_block.clone()));
+                }
             },
             Err(_e) => {
                 panic!("DB CORRUPTION: failed to query block height");

@@ -59,6 +59,8 @@ use vm::contexts::{
 
 use vm::ast::build_ast;
 use vm::analysis::run_analysis;
+use vm::costs::ExecutionCost;
+
 use vm::types::{
     Value,
     AssetIdentifier
@@ -73,6 +75,7 @@ use vm::clarity::{
 
 use vm::errors::Error as InterpreterError;
 
+use vm::analysis::types::ContractAnalysis;
 pub use vm::analysis::errors::CheckErrors;
 use vm::clarity::Error as clarity_error;
 
@@ -86,6 +89,65 @@ impl std::hash::Hash for Value {
         let mut s = vec![];
         self.consensus_serialize(&mut s).expect("FATAL: failed to serialize to vec");
         s.hash(state);
+    }
+}
+
+impl StacksTransactionReceipt {
+    pub fn from_stx_transfer(tx: StacksTransaction, origin_account: &StacksAccount, recipient: PrincipalData, amount: u128, cost: ExecutionCost) -> StacksTransactionReceipt {
+        let sender = origin_account.principal.clone();
+        let event_data = STXTransferEventData { sender: sender, recipient: recipient, amount: amount };
+        StacksTransactionReceipt {
+            events: vec![StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data))],
+            result: Value::okay_true(),
+            stx_burned: 0,
+            contract_analysis: None,
+            transaction: tx,
+            execution_cost: cost
+        }
+    }
+
+    pub fn from_contract_call(tx: StacksTransaction, events: Vec<StacksTransactionEvent>, result: Value, burned: u128, cost: ExecutionCost) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx,
+            events,
+            result,
+            stx_burned: burned,
+            contract_analysis: None,
+            execution_cost: cost
+        }
+    }
+
+    pub fn from_smart_contract(tx: StacksTransaction, events: Vec<StacksTransactionEvent>, burned: u128, analysis: ContractAnalysis, cost: ExecutionCost) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx,
+            events,
+            result: Value::okay_true(),
+            stx_burned: burned,
+            contract_analysis: Some(analysis),
+            execution_cost: cost
+        }
+    }
+
+    pub fn from_coinbase(tx: StacksTransaction) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx,
+            events: vec![],
+            result: Value::okay_true(),
+            stx_burned: 0,
+            contract_analysis: None,
+            execution_cost: ExecutionCost::zero()
+        }
+    }
+
+    pub fn from_analysis_failure(tx: StacksTransaction, analysis_cost: ExecutionCost) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx,
+            events: vec![],
+            result: Value::err_none(),
+            stx_burned: 0,
+            contract_analysis: None,
+            execution_cost: analysis_cost,
+        }
     }
 }
 
@@ -126,15 +188,14 @@ impl StacksChainState {
 
     /// Pay the transaction fee (but don't credit it to the miner yet).
     /// Does not touch the account nonce
-    /// TODO: the fee paid here isn't the bare fee in the transaction, but is instead the
-    /// block-wide STX/compute-unit rate, times the compute units used by this tx.
-    fn pay_transaction_fee(clarity_tx: &mut ClarityTransactionConnection, tx: &StacksTransaction, payer_account: &StacksAccount) -> Result<u64, Error> {
-        if payer_account.stx_balance < tx.get_fee_rate() as u128 {
+    fn pay_transaction_fee(clarity_tx: &mut ClarityTransactionConnection, fee: u64, payer_account: &StacksAccount) -> Result<u64, Error> {
+        if payer_account.stx_balance < fee as u128 {
             return Err(Error::InvalidFee);
         }
-        StacksChainState::account_debit(clarity_tx, &payer_account.principal, tx.get_fee_rate());
-        Ok(tx.get_fee_rate())
+        StacksChainState::account_debit(clarity_tx, &payer_account.principal, fee);
+        Ok(fee)
     }
+
 
     /// Pre-check a transaction -- make sure it's well-formed
     pub fn process_transaction_precheck(config: &DBConfig, tx: &StacksTransaction) -> Result<(), Error> {
@@ -380,21 +441,14 @@ impl StacksChainState {
                     return Err(Error::InvalidStacksTransaction(msg));
                 }
 
+                let cost_before = clarity_tx.cost_so_far();
                 StacksChainState::process_transaction_token_transfer(clarity_tx, &tx.txid(), addr, *amount, origin_account)?;
 
-                let sender = origin_account.principal.clone();
-                let recipient = addr.clone();
-                let amount = u128::try_from(*amount).unwrap();
-                let event_data = STXTransferEventData { sender, recipient, amount };
-                let receipt = StacksTransactionReceipt {
-                    transaction: tx.clone(),
-                    events: vec![StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data))],
-                    result: Value::okay_true(),
-                    stx_burned: 0,
-                    contract_analysis: None,
-                };
+                let mut total_cost = clarity_tx.cost_so_far();
+                total_cost.sub(&cost_before).expect("BUG: total block cost decreased");
 
-                // no burns
+                // TODO: cost is not empty, but we need to figure out how to charge for it
+                let receipt = StacksTransactionReceipt::from_stx_transfer(tx.clone(), &origin_account, addr.clone(), *amount as u128, total_cost);
                 Ok(receipt)
             },
             TransactionPayload::ContractCall(ref contract_call) => {
@@ -404,15 +458,21 @@ impl StacksChainState {
                 // transaction is still valid, but no changes will materialize besides debiting the
                 // tx fee.
                 let contract_id = contract_call.to_clarity_contract_id();
+                let cost_before = clarity_tx.cost_so_far();
+
                 let contract_call_resp = clarity_tx.run_contract_call(
                     &origin_account.principal, &contract_id, &contract_call.function_name, &contract_call.function_args,
                     |asset_map, _| {
                         !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode,
                                                                             origin_account, asset_map) });
 
+                let mut total_cost = clarity_tx.cost_so_far();
+                total_cost.sub(&cost_before).expect("BUG: total block cost decreased");
+
                 let (result, asset_map, events) = match contract_call_resp {
                     Ok((return_value, asset_map, events)) => {
                         info!("Contract-call to {}.{:?} args {:?} returned {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &return_value);
+                        info!("Contract-call to {}.{:?} args {:?} cost {:?}", &contract_id, &contract_call.function_name, &contract_call.function_args, &total_cost);
                         Ok((return_value, asset_map, events))
                     },
                     Err(e) => {
@@ -422,22 +482,23 @@ impl StacksChainState {
                                 info!("Runtime error {:?} on contract-call {}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
                                 Ok((Value::err_none(), AssetMap::new(), vec![]))
                             },
+                            // log this for now
+                            clarity_error::CostError(ref cost, ref budget) => {
+                                warn!("Block compute budget exceeded on {}: cost={}, budget={}", tx.txid(), cost, budget);
+                                Err(e)
+                            },
                             _ => Err(e)
                         }
                     }
                 }.map_err(|e| {
                     warn!("Invalid contract-call transaction {}: {:?}", &tx.txid(), &e);
-                    Error::ClarityError(e)
+                    match e {
+                        clarity_error::CostError(ref cost_after, ref budget) => Error::CostOverflowError(cost_before, cost_after.clone(), budget.clone()),
+                        _ => Error::ClarityError(e)
+                    }
                 })?;
 
-                let receipt = StacksTransactionReceipt {
-                    transaction: tx.clone(),
-                    events,
-                    result,
-                    stx_burned: asset_map.get_stx_burned_total(),
-                    contract_analysis: None,
-                };
-
+                let receipt = StacksTransactionReceipt::from_contract_call(tx.clone(), events, result, asset_map.get_stx_burned_total(), total_cost);
                 Ok(receipt)
             },
             TransactionPayload::SmartContract(ref smart_contract) => {
@@ -462,27 +523,37 @@ impl StacksChainState {
                     return Err(Error::InvalidStacksTransaction(msg));
                 }
 
+                let cost_before = clarity_tx.cost_so_far();
+
                 // analysis pass -- if this fails, then the transaction is still accepted, but nothing is stored or processed.
                 // The reason for this is that analyzing the transaction is itself an expensive
                 // operation, and the paying account will need to be debited the fee regardless.
                 let analysis_resp = clarity_tx.analyze_smart_contract(&contract_id, &contract_code_str);
                 let (contract_ast, contract_analysis) = match analysis_resp {
-                    Ok((ast, analysis)) => (ast, analysis),
+                    Ok(x) => x,
                     Err(e) => {
-                        // this analysis isn't free -- convert to runtime error
-                        error!("Runtime error in contract analysis for {}: {}", &contract_id, &e);
-                        let receipt = StacksTransactionReceipt {
-                            transaction: tx.clone(),
-                            events: vec![],
-                            result: Value::err_none(),
-                            stx_burned: 0,
-                            contract_analysis: None,
-                        };
-                
-                        // abort now -- no burns
-                        return Ok(receipt);
+                        match e {
+                            clarity_error::CostError(ref cost_after, ref budget) => {
+                                warn!("Block compute budget exceeded on {}: cost before={}, after={}, budget={}", tx.txid(), &cost_before, cost_after, budget);
+                                return Err(Error::CostOverflowError(cost_before, cost_after.clone(), budget.clone()));
+                            },
+                            _ => {
+                                // this analysis isn't free -- convert to runtime error
+                                let mut analysis_cost = clarity_tx.cost_so_far();
+                                analysis_cost.sub(&cost_before).expect("BUG: total block cost decreased");
+                                
+                                error!("Runtime error in contract analysis for {}: {:?}", &contract_id, &e);
+                                let receipt = StacksTransactionReceipt::from_analysis_failure(tx.clone(), analysis_cost);
+                        
+                                // abort now -- no burns
+                                return Ok(receipt);
+                            }
+                        }
                     }
                 };
+                
+                let mut analysis_cost = clarity_tx.cost_so_far();
+                analysis_cost.sub(&cost_before).expect("BUG: total block cost decreased");
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).
@@ -491,12 +562,19 @@ impl StacksChainState {
                     |asset_map, _| {
                         !StacksChainState::check_transaction_postconditions(&tx.post_conditions, &tx.post_condition_mode,
                                                                             origin_account, asset_map) });
+
+                let mut total_cost = clarity_tx.cost_so_far();
+                total_cost.sub(&cost_before).expect("BUG: total block cost decreased");
+
                 let (asset_map, events) = match initialize_resp {
-                    Ok((asset_map, events)) => {
-                        Ok((asset_map, events))
-                    },
+                    Ok(x) => Ok(x),
                     Err(e) => {
                         match e {
+                            // log cost overflow errors
+                            clarity_error::CostError(ref cost, ref budget) => {
+                                warn!("Block compute budget exceeded on {}: cost={}, budget={}", tx.txid(), cost, budget);
+                                Err(e)
+                            },
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
                                 info!("Runtime error {:?} on instantiating {}, code {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_code_str, stack);
@@ -507,21 +585,17 @@ impl StacksChainState {
                     }
                 }.map_err(|e| {
                     info!("Invalid smart-contract transaction {}: {}", &tx.txid(), &e);
-                    Error::ClarityError(e)
+                    match e {
+                        clarity_error::CostError(ref cost_after, ref budget) => Error::CostOverflowError(cost_before, cost_after.clone(), budget.clone()),
+                        _ => Error::ClarityError(e)
+                    }
                 })?;
-
+                
                 // store analysis -- if this fails, then the have some pretty bad problems
                 clarity_tx.save_analysis(&contract_id, &contract_analysis)
                     .expect("FATAL: failed to store contract analysis");
-                
-                let receipt = StacksTransactionReceipt {
-                    transaction: tx.clone(),
-                    events,
-                    result: Value::okay_true(),
-                    stx_burned: asset_map.get_stx_burned_total(),
-                    contract_analysis: Some(contract_analysis),
-                };
 
+                let receipt = StacksTransactionReceipt::from_smart_contract(tx.clone(), events, asset_map.get_stx_burned_total(), contract_analysis, total_cost);
                 Ok(receipt)
             },
             TransactionPayload::PoisonMicroblock(ref _mblock_header_1, ref _mblock_header_2) => {
@@ -540,20 +614,13 @@ impl StacksChainState {
             TransactionPayload::Coinbase(_) => {
                 // no-op; not handled here
                 // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
-                let receipt = StacksTransactionReceipt {
-                    transaction: tx.clone(),
-                    events: vec![],
-                    result: Value::okay_true(),
-                    stx_burned: 0,
-                    contract_analysis: None,
-                };
-
+                let receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
                 Ok(receipt)
             }
         }
     }
 
-    /// Process a transaction.  Return the fee, the amount of STX destroyed and the events emitted
+    /// Process a transaction.  Return the fee and the transaction receipt
     pub fn process_transaction(clarity_block: &mut ClarityTx, tx: &StacksTransaction) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {}", tx.txid());
 
@@ -562,12 +629,13 @@ impl StacksChainState {
         let mut transaction = clarity_block.connection().start_transaction_processing();
         let (origin_account, payer_account) = StacksChainState::check_transaction_nonces(&mut transaction, tx)?;
 
-        // pay fee
-        // TODO: don't do this here; do it when we know what the STX/compute rate will be, and then
-        // debit the account (aborting the _whole block_ if the balance would go negative)
-        let fee = StacksChainState::pay_transaction_fee(&mut transaction, tx, &payer_account)?;
-    
         let tx_receipt = StacksChainState::process_transaction_payload(&mut transaction, tx, &origin_account)?;
+
+        // pay fee borne by runtime costs.
+        // TODO: this is the fee *rate*, not the absolute fee.  This code is broken until we have
+        // the true block reward system built.
+        let fee = tx.get_fee_rate();
+        StacksChainState::pay_transaction_fee(&mut transaction, fee, &payer_account)?;
 
         // update the account nonces
         StacksChainState::update_account_nonce(&mut transaction, &origin_account);

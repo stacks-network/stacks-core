@@ -1,10 +1,11 @@
 use super::{Keychain, Config, Tenure, BurnchainController, BurnchainTip, EventDispatcher};
+use crate::config::HELIUM_BLOCK_LIMIT;
 
 use std::convert::TryFrom;
 use std::{thread, thread::JoinHandle};
 use std::net::SocketAddr;
 
-use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
+use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid, PublicKey};
 use stacks::chainstate::burn::db::burndb::{BurnDB};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, ClarityTx};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
@@ -15,10 +16,10 @@ use stacks::chainstate::burn::operations::{
     LeaderKeyRegisterOp,
     BlockstackOperationType,
 };
-use stacks::chainstate::stacks::StacksWorkScore;
 use stacks::chainstate::stacks::{StacksBlockBuilder};
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::stacks::{Error as ChainstateError};
+use stacks::chainstate::stacks::StacksPublicKey;
 
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer }, relay::Relayer };
@@ -26,6 +27,7 @@ use stacks::net::dns::DNSResolver;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
+use stacks::util::hash::Hash160;
 use stacks::net::NetworkResult;
 use std::sync::mpsc::{sync_channel, TrySendError, SyncSender, Receiver};
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
@@ -498,7 +500,6 @@ impl InitializedNeonNode {
             }
         };
 
-
         debug!("Mining tenure on burn_block: {}, stacks tip burn_header_hash: {}",
               &burn_block.burn_header_hash,
               &stacks_tip.burn_header_hash);
@@ -516,50 +517,24 @@ impl InitializedNeonNode {
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
         let microblock_secret_key = keychain.rotate_microblock_keypair();
-
-        let burn_header_to_poll = &stacks_tip.burn_header_hash;
-        let block_hash_to_poll = &stacks_tip.anchored_block_hash;
-
-        let ratio = StacksWorkScore {
-            burn: burn_block.total_burn,
-            work: 1 + stacks_tip_header.anchored_header.total_work.work,
-        };
-
-        // relayer is always building a non-genesis block.
-        let mut block_builder = StacksBlockBuilder::from_parent(
-            1, 
-            &stacks_tip_header,
-            &ratio,
-            &vrf_proof, 
-            &microblock_secret_key);
-
-        let mut clarity_tx = block_builder.epoch_begin(chain_state).unwrap();
+        let mblock_pubkey_hash = Hash160::from_data(&StacksPublicKey::from_private(&microblock_secret_key).to_bytes());
         
-
         // make a coinbase
-
         let principal = keychain.origin_address().unwrap().into();
-        let nonce = StacksChainState::get_account(&mut clarity_tx, &principal).nonce;
-
+        let nonce = {
+            let account = chain_state.with_read_only_clarity_tx(&stacks_tip.burn_header_hash, &stacks_tip.anchored_block_hash, |conn| {
+                StacksChainState::get_account(conn, &principal)
+            });
+            account.nonce
+        };
+        
         let coinbase_tx = inner_generate_coinbase_tx(keychain, nonce);
-        block_builder.try_mine_tx(&mut clarity_tx, &coinbase_tx)
-            .ok()?; // if we can't mine a coinbase, abandon block.
 
-        let txs = mem_pool.poll(burn_header_to_poll, &block_hash_to_poll);
-
-        for tx in txs {
-            let res = block_builder
-                .try_mine_tx(&mut clarity_tx, &tx);
-            match res {
-                Err(e) => error!("Failed mining transaction - {}", e),
-                Ok(_) => {},
-            };
-        }
-
-        let anchored_block = block_builder.mine_anchored_block(&mut clarity_tx);
+        let anchored_block = StacksBlockBuilder::build_anchored_block(
+            chain_state, mem_pool, &stacks_tip_header, burn_block.total_burn,
+            vrf_proof.clone(), mblock_pubkey_hash, &coinbase_tx, HELIUM_BLOCK_LIMIT.clone()).unwrap();
 
         info!("Finish tenure: {}", anchored_block.block_hash());
-        block_builder.epoch_finish(clarity_tx);
 
         // let's commit
         let op = inner_generate_block_commit_op(
