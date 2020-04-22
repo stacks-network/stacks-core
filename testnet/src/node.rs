@@ -116,12 +116,11 @@ impl Node {
 
         let initial_balances = config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
 
-        let chain_state = match StacksChainState::open_and_exec(
-            false, 
-            TESTNET_CHAIN_ID, 
-            &config.get_chainstate_path(), 
-            Some(initial_balances), 
-            boot_block_exec) {
+        let chain_state_result = StacksChainState::open_and_exec(
+            false, TESTNET_CHAIN_ID, &config.get_chainstate_path(),
+            Some(initial_balances), boot_block_exec, config.block_limit.clone());
+
+        let chain_state = match chain_state_result {
             Ok(res) => res,
             Err(err) => panic!("Error while opening chain state at path {}: {:?}", config.get_chainstate_path(), err)
         };
@@ -203,9 +202,7 @@ impl Node {
     pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        // todo(ludo): change file path once #1434 is merged in
-        // let mut burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
-        let mut burndb = BurnDB::open(&self.config.get_burn_db_path(), true)
+        let mut burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
             .expect("Error while instantiating burnchain db");
 
         let burnchain = Burnchain::new(
@@ -228,12 +225,18 @@ impl Node {
 
         println!("BOOTSTRAP WITH {:?}", initial_neighbors);
 
+        let rpc_sock: SocketAddr = self.config.node.rpc_bind.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
+        let p2p_sock: SocketAddr = self.config.node.p2p_bind.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_bind));
+
         let peerdb = PeerDB::connect(
             &self.config.get_peer_db_path(), 
             true, 
             TESTNET_CHAIN_ID, 
             burnchain.network_id, 
             self.config.connection_options.private_key_lifetime.clone(),
+            p2p_sock.port(),
             data_url.clone(),
             &vec![], 
             Some(&initial_neighbors)).unwrap();
@@ -244,10 +247,6 @@ impl Node {
         };
 
         let p2p_net = PeerNetwork::new(peerdb, local_peer, TESTNET_PEER_VERSION, burnchain, view, self.config.connection_options.clone());
-        let rpc_sock = self.config.node.rpc_bind.parse()
-            .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
-        let p2p_sock = self.config.node.p2p_bind.parse()
-            .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_bind));
         let _join_handle = spawn_peer(
             p2p_net, 
             &p2p_sock, 

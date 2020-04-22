@@ -32,7 +32,7 @@ jobs:
       - run:
           command: |
             echo "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)" | blockstack-core local eval S1G2081040G2081040G2081040G208105NK8PE5.tokens db
-  unit_tests:
+  unit_tests_with_cov:
     machine: true
     working_directory: ~/blockstack
     steps:
@@ -47,6 +47,16 @@ jobs:
           name: Upload to codecov.io
           command: |
             bash <(curl -s https://codecov.io/bash)
+  unit_tests:
+    docker:
+      - image: rust:1.40-stretch
+    working_directory: ~/blockstack
+    steps:
+      - checkout
+      - run:
+          no_output_timeout: 200m
+          command: |
+            cargo test --workspace
   all_tests:
     docker:
       - image: rust:1.40-stretch
@@ -56,7 +66,7 @@ jobs:
       - run:
           no_output_timeout: 200m
           command: |
-            cargo test && cargo test -- --ignored --test-threads 1
+            cargo test --workspace && cargo test -- --ignored --test-threads 1
 workflows:
   version: 2
   build-deploy:

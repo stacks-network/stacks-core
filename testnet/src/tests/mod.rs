@@ -81,6 +81,7 @@ pub fn new_test_conf() -> Config {
 
     let mut conf = Config::default();
     conf.add_initial_balance("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(), 10000);
+
     conf
 }
 
@@ -359,6 +360,7 @@ fn should_succeed_mining_valid_txs() {
 }
 
 #[test]
+#[ignore]
 fn should_succeed_handling_malformed_and_valid_txs() {
     let conf = new_test_conf();
     

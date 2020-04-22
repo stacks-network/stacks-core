@@ -10,7 +10,8 @@ use super::{BurnchainController, BurnchainTip};
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 
-use stacks::burnchains::{Burnchain, BurnchainStateTransition};
+use stacks::burnchains::Burnchain;
+use stacks::burnchains::BurnchainStateTransition;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinIndexerRuntime, BitcoinIndexerConfig};
@@ -82,6 +83,33 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// create a dummy bitcoin regtest controller.
+    ///   used just for submitting bitcoin ops.
+    pub fn new_dummy(config: Config) -> Self {
+        let indexer_config = {
+            let burnchain_config = config.burnchain.clone();
+            BitcoinIndexerConfig {
+                peer_host: burnchain_config.peer_host,
+                peer_port: burnchain_config.peer_port,
+                rpc_port: burnchain_config.rpc_port,
+                rpc_ssl: burnchain_config.rpc_ssl,
+                username: burnchain_config.username,
+                password: burnchain_config.password,
+                timeout: burnchain_config.timeout,
+                spv_headers_path: burnchain_config.spv_headers_path,
+                first_block: burnchain_config.first_block,
+                magic_bytes: burnchain_config.magic_bytes
+            }
+        };
+                
+        Self {
+            config: config,
+            indexer_config,
+            db: None,
+            chain_tip: None,
+        }        
+    }
+
     fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
         let network = "regtest".to_string();
         let working_dir = self.config.get_burn_db_path();
@@ -134,6 +162,8 @@ impl BitcoinRegtestController {
                 burnchain_tip
             }
         };
+
+        debug!("Done receiving blocks");
         rest
     }
 
@@ -141,7 +171,9 @@ impl BitcoinRegtestController {
         let url = self.config.burnchain.get_rpc_url();
         let client = Client::new();
         let builder = client.post(&url);
-        
+
+        debug!("BitcoinRPC builder: {:?}:{:?}@{}", &self.config.burnchain.username, &self.config.burnchain.password,
+               &url);
         match (&self.config.burnchain.username, &self.config.burnchain.password) {
             (Some(username), Some(password)) => builder.basic_auth(username, Some(password)),
             (_, _) => builder
@@ -180,7 +212,7 @@ impl BitcoinRegtestController {
             let request_builder = self.get_rpc_request_builder();
             let _result = BitcoinRPCRequest::import_public_key(
                 request_builder,
-                &public_key.to_hex());
+                &public_key);
 
             // todo(ludo): rescan can take time. we should probably add a few retries, with exp backoff.
             sleep_ms(1000);
@@ -389,11 +421,14 @@ impl BitcoinRegtestController {
 
     fn send_transaction(&self, transaction: SerializedTx) -> bool {
         let request_builder = self.get_rpc_request_builder();
+
         let result = BitcoinRPCRequest::send_raw_transaction(
             request_builder, 
             transaction.to_hex());
         match result {
-            Ok(_) => true,
+            Ok(_) => {
+                true
+            },
             Err(e) =>  {
                 error!("Bitcoin RPC failure: transaction submission failed - {:?}", e);
                 false
@@ -487,7 +522,8 @@ impl BurnchainController for BitcoinRegtestController {
         }
     }
 
-    fn submit_operation(&mut self, operation: BlockstackOperationType, op_signer: &mut BurnchainOpSigner) {
+    // returns true if the operation was submitted successfully, false otherwise 
+    fn submit_operation(&mut self, operation: BlockstackOperationType, op_signer: &mut BurnchainOpSigner) -> bool {
         let transaction = match operation {
             BlockstackOperationType::LeaderBlockCommit(payload) 
                 => self.build_leader_block_commit_tx(payload, op_signer),
@@ -499,10 +535,12 @@ impl BurnchainController for BitcoinRegtestController {
 
         let transaction = match transaction {
             Some(tx) => SerializedTx::new(tx),
-            _ => return
+            _ => {
+                return false
+            }
         };
 
-        self.send_transaction(transaction);
+        self.send_transaction(transaction)
     }
     
     #[cfg(test)]
@@ -521,8 +559,7 @@ impl BurnchainController for BitcoinRegtestController {
             let request_builder = self.get_rpc_request_builder();
 
             let _result = BitcoinRPCRequest::import_public_key(
-                request_builder, 
-                local_mining_pubkey);
+                request_builder, &Secp256k1PublicKey::from_hex(local_mining_pubkey).unwrap());
     
             let request_builder = self.get_rpc_request_builder();
             let result = BitcoinRPCRequest::generate_to_address(
@@ -681,9 +718,12 @@ impl BitcoinRPCRequest {
             Some(ref mut object) => {
                 match object.get_mut("result") {
                     Some(serde_json::Value::Array(entries)) => {
-                        while let Some(entry) = entries.pop() {    
-                            if let Ok(utxo) = serde_json::from_value(entry) {
-                                utxos.push(utxo);
+                        while let Some(entry) = entries.pop() { 
+                            match serde_json::from_value(entry) {
+                                Ok(utxo) => { utxos.push(utxo); },
+                                Err(e) => {
+                                    warn!("Failed to parse: {}", e);
+                                }
                             }
                         }
                     },
@@ -708,12 +748,20 @@ impl BitcoinRPCRequest {
         Ok(())
     }
 
-    pub fn import_public_key(request_builder: RequestBuilder, public_key: &str) -> RPCResult<()> {
+    pub fn import_public_key(request_builder: RequestBuilder, public_key: &Secp256k1PublicKey) -> RPCResult<()> {
         let rescan = true;
         let label = "";
+
+        let pkh = Hash160::from_data(&public_key.to_bytes()).to_bytes().to_vec();
+        let address = BitcoinAddress::from_bytes(
+            BitcoinNetworkType::Regtest,
+            BitcoinAddressType::PublicKeyHash,
+            &pkh)
+            .expect("Public key incorrect");        
+
         let payload = BitcoinRPCRequest {
-            method: "importpubkey".to_string(),
-            params: vec![public_key.into(), label.into(), rescan.into()],
+            method: "importaddress".to_string(),
+            params: vec![address.to_b58().into(), label.into(), rescan.into()],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };

@@ -1426,7 +1426,7 @@ mod test {
 
     use net::test::*;
 
-    use core::PEER_VERSION;
+    use core::{PEER_VERSION, NETWORK_P2P_PORT};
 
     fn make_test_chain_dbs(testname: &str, burnchain: &Burnchain, network_id: u32, key_expires: u64, data_url: UrlString, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> (PeerDB, BurnDB, StacksChainState) {
         let test_path = format!("/tmp/blockstack-test-databases-{}", testname);
@@ -1443,7 +1443,7 @@ mod test {
         let peerdb_path = format!("{}/peers.db", &test_path);
         let chainstate_path = format!("{}/chainstate", &test_path);
 
-        let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, key_expires, data_url.clone(), &asn4_entries, Some(&initial_neighbors)).unwrap();
+        let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, key_expires, NETWORK_P2P_PORT, data_url.clone(), &asn4_entries, Some(&initial_neighbors)).unwrap();
         let burndb = BurnDB::connect(&burndb_path, burnchain.first_block_height, &burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
         let chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
 
@@ -2486,7 +2486,7 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let local_peer = LocalPeer::new(123, burnchain.network_id, get_epoch_time_secs() + 123456, UrlString::try_from("http://foo.com").unwrap());
+        let local_peer = LocalPeer::new(123, burnchain.network_id, NETWORK_P2P_PORT, get_epoch_time_secs() + 123456, UrlString::try_from("http://foo.com").unwrap());
         let mut convo = ConversationP2P::new(123, 456, &burnchain, &socketaddr, &conn_opts, true, 0);
 
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });

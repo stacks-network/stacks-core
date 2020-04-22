@@ -279,6 +279,8 @@ impl StacksBlockBuilder {
 
         test_debug!("\n\nMiner {}: Mined anchored block {}, {} transactions, state root is {}\n", self.miner_id, block.block_hash(), block.txs.len(), state_root_hash);
 
+        info!("Miner: mined anchored block {}, parent block {}", block.block_hash(), &self.header.parent_block);
+
         block
     }
 
@@ -385,7 +387,7 @@ impl StacksBlockBuilder {
     pub fn epoch_finish<'a>(self, tx: ClarityTx<'a>) {
         let new_burn_hash = MINER_BLOCK_BURN_HEADER_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
-        
+
         let index_block_hash = StacksBlockHeader::make_index_block_hash(&new_burn_hash, &new_block_hash);
 
         // clear out the block trie we just created, so the block validator logic doesn't step all
