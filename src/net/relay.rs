@@ -726,7 +726,8 @@ impl Relayer {
         
         let (new_microblocks, mut new_bad_neighbors) = Relayer::preprocess_pushed_microblocks(network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
-        
+
+        info!("Processing newly received blocks: {}", new_blocks.len());        
         // process as many epochs as we can.
         // Try to process at least one epoch.
         let receipts: Vec<_> = chainstate.process_blocks(new_blocks.len() + 1)?.into_iter()
@@ -774,7 +775,7 @@ impl Relayer {
         let (burn_header_hash, block_hash, chain_height) = match chainstate.get_stacks_chain_tip()? {
             Some(tip) => (tip.burn_header_hash, tip.anchored_block_hash, tip.height),
             None => {
-                info!("No Stacks chain tip; dropping {} transaction(s)", network_result.pushed_transactions.len());
+                debug!("No Stacks chain tip; dropping {} transaction(s)", network_result.pushed_transactions.len());
                 return Ok(vec![]);
             }
         };
