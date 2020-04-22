@@ -1,13 +1,22 @@
-use util::hash::{to_hex};
-use burnchains::{Address, Burnchain};
-use vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier} ;
-use vm::costs::ExecutionCost;
-use rand::RngCore;
 use std::convert::TryInto;
-use std::io::BufReader;
-use std::io::Read;
+use std::io::{BufReader, Read};
 use std::fs::File;
-use net::connection::ConnectionOptions;
+use std::net::SocketAddr;
+
+use rand::RngCore;
+
+use stacks::burnchains::{
+    Address, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
+use stacks::core::{PEER_VERSION};
+use stacks::net::connection::ConnectionOptions;
+use stacks::net::{Neighbor, NeighborKey, PeerAddress};
+use stacks::util::secp256k1::Secp256k1PublicKey;
+use stacks::util::hash::{to_hex, hex_bytes};
+use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier} ;
+use stacks::vm::costs::ExecutionCost;
+
+use super::node::TESTNET_CHAIN_ID;
 
 #[derive(Clone, Deserialize)]
 pub struct ConfigFile {
@@ -26,6 +35,10 @@ impl ConfigFile {
         let mut config_file = vec![];
         config_file_reader.read_to_end(&mut config_file).unwrap();    
         toml::from_slice(&config_file[..]).unwrap()
+    }
+
+    pub fn from_str(content: &str) -> ConfigFile {
+        toml::from_slice(&content.as_bytes()).unwrap()
     }
 }
 
@@ -84,12 +97,19 @@ impl Config {
         let default_node_config = NodeConfig::default();
         let node = match config_file.node {
             Some(node) => {
-                NodeConfig {
+                let mut node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
+                    seed: match node.seed {
+                        Some(seed) => hex_bytes(&seed).expect("Seed should be a hex encoded string"),
+                        None => default_node_config.seed
+                    },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
                     rpc_bind: node.rpc_bind.unwrap_or(default_node_config.rpc_bind),
                     p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
-                }
+                    bootstrap_node: None,
+                };
+                node_config.set_bootstrap_node(node.bootstrap_node);
+                node_config
             },
             None => default_node_config
         };
@@ -100,12 +120,35 @@ impl Config {
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     mode: burnchain.mode.unwrap_or(default_burnchain_config.mode),
-                    block_time: burnchain.block_time.unwrap_or(default_burnchain_config.block_time),
+                    burn_fee_cap: burnchain.burn_fee_cap.unwrap_or(default_burnchain_config.burn_fee_cap),
+                    commit_anchor_block_within: burnchain.commit_anchor_block_within.unwrap_or(default_burnchain_config.commit_anchor_block_within),
+                    peer_host: burnchain.peer_host.unwrap_or(default_burnchain_config.peer_host),
+                    peer_port: burnchain.peer_port.unwrap_or(default_burnchain_config.peer_port),
+                    rpc_port: burnchain.rpc_port.unwrap_or(default_burnchain_config.rpc_port),
+                    rpc_ssl: burnchain.rpc_ssl.unwrap_or(default_burnchain_config.rpc_ssl),
+                    username: burnchain.username,
+                    password: burnchain.password,
+                    timeout: burnchain.timeout.unwrap_or(default_burnchain_config.timeout),
+                    spv_headers_path: burnchain.spv_headers_path.unwrap_or(node.get_default_spv_headers_path()),
+                    first_block: burnchain.first_block.unwrap_or(default_burnchain_config.first_block),
+                    magic_bytes: default_burnchain_config.magic_bytes,
+                    local_mining_public_key: burnchain.local_mining_public_key,
+                    burnchain_op_tx_fee: burnchain.burnchain_op_tx_fee.unwrap_or(default_burnchain_config.burnchain_op_tx_fee)
                 }
             },
             None => default_burnchain_config
         };
 
+        let supported_modes = vec!["mocknet", "helium", "neon"];
+
+        if !supported_modes.contains(&burnchain.mode.as_str())  {
+            panic!("Setting burnchain.network not supported (should be: {})", supported_modes.join(", "))
+        }
+
+        if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
+            panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
+        }
+        
         let initial_balances: Vec<InitialBalance> = match config_file.mstx_balance {
             Some(balances) => {
                 balances.iter().map(|balance| {
@@ -174,7 +217,7 @@ impl Config {
                     dns_timeout: opts.dns_timeout.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone()),
                     max_inflight_blocks: opts.max_inflight_blocks.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_inflight_blocks.clone()),
                     maximum_call_argument_size: opts.maximum_call_argument_size.unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.maximum_call_argument_size.clone()),
-                    ..ConnectionOptions::default()
+                    ..ConnectionOptions::default() 
                 }
             },
             None => {
@@ -203,9 +246,18 @@ impl Config {
         }
     }
 
-    pub fn get_burn_db_path(&self) -> String {
-        format!("{}/burn_db/", self.node.working_dir)
+    pub fn get_burnchain_path(&self) -> String {
+        format!("{}/burnchain/", self.node.working_dir)
     }
+
+    pub fn get_burn_db_path(&self) -> String {
+        format!("{}/burnchain/db", self.node.working_dir)
+    }
+
+    pub fn get_burn_db_file_path(&self) -> String {
+        format!("{}/burnchain/db/{}/{}/burn.db/", self.node.working_dir, self.burnchain.chain, "regtest")
+    }
+
 
     pub fn get_chainstate_path(&self) -> String {
         format!("{}/chainstate/", self.node.working_dir)
@@ -228,16 +280,18 @@ impl std::default::Default for Config {
             ..NodeConfig::default()
         };
 
-        let burnchain = BurnchainConfig {
+        let mut burnchain = BurnchainConfig {
             ..BurnchainConfig::default()
         };
+
+        burnchain.spv_headers_path = node.get_default_spv_headers_path();
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
         let block_limit = HELIUM_BLOCK_LIMIT.clone();
 
         Config {
-            burnchain: burnchain,
-            node: node,
+            burnchain,
+            node,
             initial_balances: vec![],
             events_observers: vec![],
             connection_options,
@@ -250,32 +304,82 @@ impl std::default::Default for Config {
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
-    pub block_time: u64,
+    pub commit_anchor_block_within: u64,
+    pub burn_fee_cap: u64,
+    pub peer_host: String,
+    pub peer_port: u16,
+    pub rpc_port: u16,
+    pub rpc_ssl: bool,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub timeout: u32,
+    pub spv_headers_path: String,
+    pub first_block: u64,
+    pub magic_bytes: MagicBytes,
+    pub local_mining_public_key: Option<String>,
+    pub burnchain_op_tx_fee: u64,
 }
 
 impl BurnchainConfig {
     fn default() -> BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
-            mode: "regtest".to_string(),
-            block_time: 5000,
+            mode: "mocknet".to_string(),
+            burn_fee_cap: 10000,
+            commit_anchor_block_within: 5000,
+            peer_host: "127.0.0.1".to_string(),
+            peer_port: 8333,
+            rpc_port: 8332,
+            rpc_ssl: false,
+            username: None,
+            password: None,
+            timeout: 30,
+            spv_headers_path: "./spv-headers.dat".to_string(),
+            first_block: FIRST_BLOCK_MAINNET,
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            local_mining_public_key: None,
+            burnchain_op_tx_fee: 1000,
         }
+    }
+
+    pub fn get_rpc_url(&self) -> String {
+        let scheme = match self.rpc_ssl {
+            true => "https://",
+            false => "http://"
+        };
+        format!("{}{}:{}", scheme, self.peer_host, self.rpc_port)
     }
 }
 
 #[derive(Clone, Deserialize)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
+    pub burn_fee_cap: Option<u64>,
     pub mode: Option<String>,
     pub block_time: Option<u64>,
+    pub commit_anchor_block_within: Option<u64>,
+    pub peer_host: Option<String>,
+    pub peer_port: Option<u16>,
+    pub rpc_port: Option<u16>,
+    pub rpc_ssl: Option<bool>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub timeout: Option<u32>,
+    pub spv_headers_path: Option<String>,
+    pub first_block: Option<u64>,
+    pub magic_bytes: Option<String>,
+    pub local_mining_public_key: Option<String>,
+    pub burnchain_op_tx_fee: Option<u64>
 }
 
 #[derive(Clone, Default)]
 pub struct NodeConfig {
     pub name: String,
+    pub seed: Vec<u8>,
     pub working_dir: String,
     pub rpc_bind: String,
     pub p2p_bind: String,
+    pub bootstrap_node: Option<Neighbor>,
 }
 
 impl NodeConfig {
@@ -295,10 +399,51 @@ impl NodeConfig {
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
+            seed: vec![0; 32],
             working_dir: format!("/tmp/{}", testnet_id),
             rpc_bind: format!("127.0.0.1:{}", rpc_port),
-            p2p_bind: format!("127.0.0.1:{}", p2p_port)
+            p2p_bind: format!("127.0.0.1:{}", p2p_port),
+            bootstrap_node: None,
         }
+    }
+
+    pub fn get_burnchain_path(&self) -> String {
+        format!("{}/burnchain", self.working_dir)
+    }
+
+    pub fn get_default_spv_headers_path(&self) -> String {
+        format!("{}/spv-headers.dat", self.get_burnchain_path())
+    }
+
+    pub fn set_bootstrap_node(&mut self, bootstrap_node: Option<String>) {
+        if let Some(bootstrap_node) = bootstrap_node {
+            let comps: Vec<&str> = bootstrap_node.split("@").collect();
+            match comps[..] {
+                [public_key, peer_addr] => {
+                    let sock_addr: SocketAddr = peer_addr.parse().unwrap(); 
+                    let neighbor = Neighbor {
+                        addr: NeighborKey {
+                            peer_version: PEER_VERSION,
+                            network_id: TESTNET_CHAIN_ID,
+                            addrbytes: PeerAddress::from_socketaddr(&sock_addr),
+                            port: sock_addr.port()
+                        },
+                        public_key: Secp256k1PublicKey::from_hex(public_key).unwrap(),
+                        expire_block: 99999,
+                        last_contact_time: 0,
+                        whitelisted: 0,
+                        blacklisted: 0,
+                        asn: 0,
+                        org: 0,
+                        in_degree: 0,
+                        out_degree: 0
+                    };
+                    self.bootstrap_node = Some(neighbor);
+                },
+                _ => {}
+            }
+        }
+
     }
 }
 
@@ -343,9 +488,11 @@ pub struct BlockLimitFile {
 #[derive(Clone, Default, Deserialize)]
 pub struct NodeConfigFile {
     pub name: Option<String>,
+    pub seed: Option<String>,
     pub working_dir: Option<String>,
     pub rpc_bind: Option<String>,
     pub p2p_bind: Option<String>,
+    pub bootstrap_node: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]

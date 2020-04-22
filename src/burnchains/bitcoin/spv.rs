@@ -23,6 +23,8 @@ use std::io::{Read, Seek, Write, SeekFrom};
 use std::ops::Deref;
 
 use deps::bitcoin::blockdata::block::{LoneBlockHeader, BlockHeader};
+use deps::bitcoin::blockdata::constants::genesis_block;
+use deps::bitcoin::network::constants::Network;
 use deps::bitcoin::network::encodable::VarInt;
 use deps::bitcoin::network::serialize::{serialize, deserialize, BitcoinHash};
 use deps::bitcoin::network::message as btc_message;
@@ -199,37 +201,18 @@ impl SpvClient {
     }
 
     /// Initialize the block headers file with the genesis block hash 
-    fn init_block_headers(headers_path: &str, network_id: BitcoinNetworkType) -> Result<(), btc_error> {
-        let genesis_merkle_root_str = match network_id {
-            BitcoinNetworkType::Mainnet => GENESIS_BLOCK_MERKLE_ROOT_MAINNET,
-            BitcoinNetworkType::Testnet => GENESIS_BLOCK_MERKLE_ROOT_TESTNET,
-            BitcoinNetworkType::Regtest => GENESIS_BLOCK_MERKLE_ROOT_TESTNET
+    pub fn init_block_headers(headers_path: &str, network_id: BitcoinNetworkType) -> Result<(), btc_error> {
+        let (genesis_block, genesis_block_hash_str) = match network_id {
+            BitcoinNetworkType::Mainnet => (genesis_block(Network::Bitcoin), GENESIS_BLOCK_HASH_MAINNET),
+            BitcoinNetworkType::Testnet => (genesis_block(Network::Testnet), GENESIS_BLOCK_HASH_TESTNET),
+            BitcoinNetworkType::Regtest => (genesis_block(Network::Regtest), GENESIS_BLOCK_HASH_TESTNET),
         };
-
-        let genesis_block_hash_str = match network_id {
-            BitcoinNetworkType::Mainnet => GENESIS_BLOCK_HASH_MAINNET,
-            BitcoinNetworkType::Testnet => GENESIS_BLOCK_HASH_TESTNET,
-            BitcoinNetworkType::Regtest => GENESIS_BLOCK_HASH_TESTNET,
-        };
-
-        let genesis_prev_blockhash = Sha256dHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
-                .map_err(btc_error::HashError)?;
-
-        let genesis_merkle_root = Sha256dHash::from_hex(genesis_merkle_root_str)
-                .map_err(btc_error::HashError)?;
 
         let genesis_block_hash = Sha256dHash::from_hex(genesis_block_hash_str)
                 .map_err(btc_error::HashError)?;
 
         let genesis_header = LoneBlockHeader {
-            header: BlockHeader {
-                version: 1,
-                prev_blockhash: genesis_prev_blockhash,
-                merkle_root: genesis_merkle_root,
-                time: 1231006505,
-                bits: 0x1d00ffff,
-                nonce: 2083236893
-            },
+            header: genesis_block.header,
             tx_count: VarInt(0)
         };
 
@@ -421,6 +404,11 @@ impl BitcoinMessageHandler for SpvClient {
     fn begin_session(&mut self, indexer: &mut BitcoinIndexer) -> Result<bool, btc_error> {
         let start_height = self.cur_block_height;
         self.end_block_height = Some(indexer.runtime.block_height);
+
+        if indexer.runtime.block_height <= start_height {
+            debug!("Have all headers up to {}", start_height);
+            return Ok(false);
+        }
 
         debug!("Get headers {}-{}", self.cur_block_height, self.end_block_height.unwrap());
         self.send_next_getheaders(indexer, start_height).and_then(|_r| Ok(true))

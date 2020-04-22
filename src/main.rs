@@ -161,26 +161,6 @@ fn main() {
         return
     }
 
-    if argv[1] == "testnet" {
-        use testnet;
-
-        let conf = match argv.len() {
-            n if n >= 3 => {
-                println!("Starting testnet with config {}...", argv[2]);
-                testnet::helium::Config::from_config_file_path(&argv[2])
-            },
-            _ => {
-                println!("Starting testnet with default config...");
-                testnet::helium::Config::default()
-            }
-        };
-
-        let mut run_loop = testnet::helium::RunLoop::new(conf);
-        let num_round: u64 = 0; // Infinite number of rounds
-        run_loop.start(num_round);
-        return
-    }
-
     if argv[1] == "docgen" {
         println!("{}", vm::docs::make_json_api_reference());
         return

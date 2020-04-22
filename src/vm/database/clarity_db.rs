@@ -505,10 +505,6 @@ impl <'a> ClarityDatabase <'a> {
         let data = NonFungibleTokenMetadata { key_type: key_type.clone() };
         let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
         self.insert_metadata(contract_identifier, &key, &data);
-
-        assert!(!self.store.has_entry(&key), "Clarity VM attempted to initialize existing token");
-
-        self.put(&key, &data);
     }
 
     fn load_nft(&mut self, contract_identifier: &QualifiedContractIdentifier, token_name: &str) -> Result<NonFungibleTokenMetadata> {

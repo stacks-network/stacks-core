@@ -86,6 +86,7 @@ pub trait RelayPayload {
     /// Get a representative digest of this message.
     /// m1.get_digest() == m2.get_digest() --> m1 == m2
     fn get_digest(&self) -> Sha512Trunc256Sum;
+    fn get_id(&self) -> String;
 }
 
 impl RelayPayload for BlocksAvailableData {
@@ -95,12 +96,18 @@ impl RelayPayload for BlocksAvailableData {
         let h = Sha512Trunc256Sum::from_data(&bytes);
         h
     }
+    fn get_id(&self) -> String {
+        format!("{:?}", &self)
+    }
 }
 
 impl RelayPayload for StacksBlock {
     fn get_digest(&self) -> Sha512Trunc256Sum {
         let h = self.block_hash();
         Sha512Trunc256Sum(h.0)
+    }
+    fn get_id(&self) -> String {
+        format!("StacksBlock({})", self.block_hash())
     }
 }
 
@@ -109,12 +116,18 @@ impl RelayPayload for StacksMicroblock {
         let h = self.block_hash();
         Sha512Trunc256Sum(h.0)
     }
+    fn get_id(&self) -> String {
+        format!("StacksMicroblock({})", self.block_hash())
+    }
 }
 
 impl RelayPayload for StacksTransaction {
     fn get_digest(&self) -> Sha512Trunc256Sum {
         let h = self.txid();
         Sha512Trunc256Sum(h.0)
+    }
+    fn get_id(&self) -> String {
+        format!("Transaction({})", self.txid())
     }
 }
 
@@ -1177,7 +1190,7 @@ mod test {
         assert_eq!(relayer_stats.relay_stats.get(&na).unwrap().last_seen, 1);
         assert_eq!(relayer_stats.relay_updates.len(), 1);
 
-        let now = get_epoch_time_secs() + 60;
+        let now = get_epoch_time_secs() + 600;
 
         let relay_stats_2 = RelayStats {
             num_messages: 2,
@@ -1398,6 +1411,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_get_blocks_and_microblocks_3_peers_push_available() {
         run_get_blocks_and_microblocks("test_get_blocks_and_microblocks_3_peers_push_available", 4200, 3,
                                        |ref mut peer_configs| {
@@ -1525,6 +1539,10 @@ mod test {
                 test_debug!("{:?} outbox overflow; try again later", &peer.to_neighbor().addr);
                 return false;
             },
+            Err(net_error::SendError(msg)) => {
+                warn!("Failed to send to {:?}: SendError({})", &peer.to_neighbor().addr, msg);
+                return false;
+            }
             Err(e) => {
                 test_debug!("{:?} encountered fatal error when forwarding: {:?}", &peer.to_neighbor().addr, &e);
                 assert!(false);
@@ -1552,6 +1570,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks() {
         let original_blocks_and_microblocks = RefCell::new(vec![]);
         let blocks_and_microblocks = RefCell::new(vec![]);
@@ -1736,6 +1755,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
         let blocks_and_microblocks = RefCell::new(vec![]);
         let blocks_idx = RefCell::new(0);

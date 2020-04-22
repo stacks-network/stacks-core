@@ -415,7 +415,7 @@ mod test {
             "1",
             "0",
             "foo-contract",
-            "./sample-programs/tokens.clar"];
+            "./sample-contracts/tokens.clar"];
 
         assert!(main_handler(to_string_vec(&publish_args)).is_ok());
 
@@ -425,7 +425,7 @@ mod test {
             "1",
             "0",
             "foo-contract",
-            "./sample-programs/non-existent-tokens.clar"];
+            "./sample-contracts/non-existent-tokens.clar"];
 
         assert!(format!("{}", main_handler(to_string_vec(&publish_args)).unwrap_err())
                 .contains("IO error"));

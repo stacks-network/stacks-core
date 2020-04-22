@@ -69,12 +69,15 @@ pub fn get_loglevel() -> u8 {
     if env::var("BLOCKSTACK_DEBUG") == Ok("1".into()) && res > LOG_DEBUG {
         set_loglevel(LOG_DEBUG).unwrap();
         LOG_DEBUG
+    } else if env::var("BLOCKSTACK_TRACE") == Ok("1".into()) && res > LOG_TRACE {
+        set_loglevel(LOG_TRACE).unwrap();
+        LOG_TRACE
     } else {
         res
     }
 }
 
-#[allow(unused_macros)]
+#[macro_export]
 macro_rules! trace {
     ($($arg:tt)*) => ({
         if ::util::log::get_loglevel() <= ::util::log::LOG_TRACE {
@@ -88,6 +91,7 @@ macro_rules! trace {
     })
 }
 
+#[macro_export]
 macro_rules! debug {
     ($($arg:tt)*) => ({
         if ::util::log::get_loglevel() <= ::util::log::LOG_DEBUG {
@@ -101,6 +105,7 @@ macro_rules! debug {
     })
 }
 
+#[macro_export]
 macro_rules! info {
     ($($arg:tt)*) => ({
         if ::util::log::get_loglevel() <= ::util::log::LOG_INFO {
@@ -114,6 +119,7 @@ macro_rules! info {
     })
 }
 
+#[macro_export]
 macro_rules! warn {
     ($($arg:tt)*) => ({
         if ::util::log::get_loglevel() <= ::util::log::LOG_WARN {
@@ -127,6 +133,7 @@ macro_rules! warn {
     })
 }
 
+#[macro_export]
 macro_rules! error {
     ($($arg:tt)*) => ({
         if ::util::log::get_loglevel() <= ::util::log::LOG_ERROR {
@@ -140,7 +147,7 @@ macro_rules! error {
     })
 }
 
-#[allow(unused_macros)]
+#[macro_export]
 macro_rules! fatal {
     ($($arg:tt)*) => ({
         if ::util::log::get_loglevel() <= ::util::log::LOG_FATAL {

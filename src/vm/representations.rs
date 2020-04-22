@@ -58,7 +58,6 @@ macro_rules! guarded_string {
             }
         }
 
-        #[cfg(test)]
         impl From<&'_ str> for $Name {
             fn from(value: &str) -> Self {
                 Self::try_from(value.to_string()).unwrap()

@@ -41,11 +41,11 @@ See [SIP 000](https://github.com/blockstack/stacks-blockchain/blob/master/sip/si
 
 ### Testnet versions
 
-- [x] **Local Testnet** is a developer local setup, mono-node, assembling SIP 001, SIP 002, SIP 004 and SIP 005. With this version, developers can not only run Stacks 2.0 on their development machines, but also write, execute, and test smart contracts. See the instructions below for more details.
+- [x] **Helium** is a developer local setup, mono-node, assembling SIP 001, SIP 002, SIP 004 and SIP 005. With this version, developers can not only run Stacks 2.0 on their development machines, but also write, execute, and test smart contracts. See the instructions below for more details.
 
-- [ ] **Open Testnet** is the upcoming version of our public testnet, that we're anticipating will ship in Q2 2020. This testnet will ship with SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
+- [ ] **Neon** is the upcoming version of our public testnet, that we're anticipating will ship in Q2 2020. This testnet will ship with SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
 
-- [ ] **Mainet** is the fully functional version, that we're intending to ship in Q3 2020.
+- [ ] **Mainnet** is the fully functional version, that we're intending to ship in Q3 2020.
 
 ## Getting started
 
@@ -144,7 +144,7 @@ cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d
 You can observe the state machine in action locally by running:
 
 ```bash
-cargo run --bin blockstack-core testnet ./Stacks.toml
+cargo testnet ./testnet/helium/Stacks.toml
 ```
 
 `Stacks.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.  You can grant an address an initial account balance by adding the following entries:
