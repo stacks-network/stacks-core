@@ -4,7 +4,7 @@ use vm::contexts::{OwnedEnvironment, AssetMap, Environment};
 use vm::database::{MarfedKV, ClarityDatabase, SqliteConnection, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog};
 use vm::analysis::{AnalysisDatabase};
 use vm::errors::{Error as InterpreterError};
-use vm::ast::{ContractAST, errors::ParseError};
+use vm::ast::{ContractAST, errors::ParseError, errors::ParseErrors};
 use vm::analysis::{ContractAnalysis, errors::CheckError, errors::CheckErrors};
 use vm::ast;
 use vm::analysis;
@@ -74,7 +74,12 @@ pub enum Error {
 
 impl From<CheckError> for Error {
     fn from(e: CheckError) -> Self {
-        Error::Analysis(e)
+        match e.err {
+            CheckErrors::CostOverflow => Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value()),
+            CheckErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
+            CheckErrors::MemoryBalanceExceeded(_a, _b) => Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value()),
+            _ => Error::Analysis(e)
+        }
     }
 }
 
@@ -90,7 +95,12 @@ impl From<InterpreterError> for Error {
 
 impl From<ParseError> for Error {
     fn from(e: ParseError) -> Self {
-        Error::Parse(e)
+        match e.err {
+            ParseErrors::CostOverflow => Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value()),
+            ParseErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
+            ParseErrors::MemoryBalanceExceeded(_a, _b) => Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value()),
+            _ => Error::Parse(e)
+        }
     }
 }
 
