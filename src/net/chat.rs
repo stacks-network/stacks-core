@@ -1444,7 +1444,6 @@ mod test {
         let chainstate_path = format!("{}/chainstate", &test_path);
 
         let mut rng = rand::thread_rng();
-        let mut buf = [0u8; 8];
         let mut local_peer_seed = [0u8; 32];
         rng.fill_bytes(&mut local_peer_seed);
 
@@ -2081,11 +2080,11 @@ mod test {
 
             // convo_2 got updated with convo_1's peer info, but no heartbeat info 
             assert_eq!(convo_2.peer_heartbeat, 0);
-            assert_eq!(convo_2.connection.get_public_key().unwrap(), Secp256k1PublicKey::from_private(&local_peer_1.private_key));
+            assert_eq!(convo_2.connection.get_public_key().unwrap().to_bytes_compressed(), Secp256k1PublicKey::from_private(&local_peer_1.private_key).to_bytes_compressed());
 
             // convo_1 got updated with convo_2's peer info, as well as heartbeat
             assert_eq!(convo_1.peer_heartbeat, conn_opts.heartbeat);
-            assert_eq!(convo_1.connection.get_public_key().unwrap(), Secp256k1PublicKey::from_private(&local_peer_2.private_key));
+            assert_eq!(convo_1.connection.get_public_key().unwrap().to_bytes_compressed(), Secp256k1PublicKey::from_private(&local_peer_2.private_key).to_bytes_compressed());
 
             // regenerate keys and expiries in peer 1
             let new_privkey = Secp256k1PrivateKey::new();
