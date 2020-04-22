@@ -18,6 +18,7 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::stacks::StacksWorkScore;
 use stacks::chainstate::stacks::{StacksBlockBuilder};
 use stacks::chainstate::burn::BlockSnapshot;
+use stacks::chainstate::stacks::{Error as ChainstateError};
 
 use stacks::core::mempool::MemPoolDB;
 use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::{ PeerDB, LocalPeer }, relay::Relayer };
@@ -80,7 +81,7 @@ fn inner_process_tenure(
     microblocks: Vec<StacksMicroblock>, 
     burn_db: &mut BurnDB,
     chain_state: &mut StacksChainState,
-    dispatcher: &mut EventDispatcher) -> (StacksHeaderInfo, Vec<StacksTransactionReceipt>) {
+    dispatcher: &mut EventDispatcher) -> Result<(StacksHeaderInfo, Vec<StacksTransactionReceipt>), ChainstateError> {
     {
         let mut tx = burn_db.tx_begin().unwrap();
 
@@ -90,14 +91,14 @@ fn inner_process_tenure(
             &burn_header_hash,
             get_epoch_time_secs(),
             &anchored_block, 
-            &parent_burn_header_hash).unwrap();
+            &parent_burn_header_hash)?;
 
         // Preprocess the microblocks
         for microblock in microblocks.iter() {
             let res = chain_state.preprocess_streamed_microblock(
                 &burn_header_hash, 
                 &anchored_block.block_hash(), 
-                microblock).unwrap();
+                microblock)?;
             if !res {
                 warn!("Unhandled error while pre-processing microblock {}", microblock.header.block_hash());
             }
@@ -127,7 +128,7 @@ fn inner_process_tenure(
     let metadata = processed_block.0;
 
     dispatcher_announce(&chain_state.blocks_path, dispatcher, metadata.clone(), receipts.clone());
-    (metadata, receipts)
+    Ok((metadata, receipts))
 }
 
 fn inner_generate_coinbase_tx(keychain: &mut Keychain, nonce: u64) -> StacksTransaction {
@@ -287,13 +288,21 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     if let Some((mined_burn_hh, mined_block)) = last_mined_block.take() {
                         if mined_block.block_hash() == block_header_hash && parent_burn_header_hash == mined_burn_hh {
                             // we won!
-                            info!("Won sortition! {} from {}, known to sortition by {}/{}", block_header_hash,
-                                  mined_burn_hh, parent_burn_header_hash, burn_header_hash);
+                            info!("Won sortition! stacks_header={}, burn_header={}",
+                                  block_header_hash,
+                                  mined_burn_hh);
 
                             let (stacks_header, _) = 
-                                inner_process_tenure(&mined_block, &burn_header_hash, &parent_burn_header_hash,
-                                                     vec![], // no microblocks for now...
-                                                     &mut burndb, &mut chainstate, &mut event_dispatcher);
+                                match inner_process_tenure(&mined_block, &burn_header_hash, &parent_burn_header_hash,
+                                                           vec![], // no microblocks for now...
+                                                           &mut burndb, &mut chainstate, &mut event_dispatcher) {
+                                    Ok(x) => x,
+                                    Err(e) => {
+                                        warn!("Error processing my tenure, bad block produced: {}", e);
+                                        continue;
+                                    }
+                                };
+
 
                             let blocks_available = Relayer::load_blocks_available_data(&mut burndb, vec![stacks_header.burn_header_hash])
                                 .expect("Failed to obtain block information for a block we mined.");
@@ -782,7 +791,8 @@ impl NeonGenesisNode {
         let (metadata, receipts) = 
             inner_process_tenure(anchored_block, burn_header_hash, parent_burn_header_hash,
                                  microblocks, burn_db, &mut self.chain_state,
-                                 &mut self.event_dispatcher);
+                                 &mut self.event_dispatcher)
+            .expect("Failed to process tenure during genesis initialization");
 
         let block = {
             let block_path = StacksChainState::get_block_path(
