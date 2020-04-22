@@ -327,13 +327,15 @@ impl MemPoolDB {
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
         Ok(rows)
     }
-    
+   
+    /*
     /// Given a chain tip, find the current block height
     pub fn get_block_height(conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash) -> Result<Option<u64>, db_error> {
         let sql = "SELECT height FROM mempool WHERE burn_header_hash = ?1 AND block_header_hash = ?2";
         let args : &[&dyn ToSql] = &[burn_header_hash, block_header_hash];
         query_row(conn, sql, args)
     }
+    */
 
     /// Given a chain tip, find the highest block-height from _before_ this tip
     pub fn get_previous_block_height(conn: &DBConn, height: u64) -> Result<Option<u64>, db_error> {
@@ -499,7 +501,7 @@ impl MemPoolDB {
         let height = match mempool_tx.admitter.chainstate.get_stacks_block_height(burn_header_hash, block_hash) {
             Ok(Some(h)) => h,
             Ok(None) => {
-                if *burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH && *block_hash == FIRST_STACKS_BLOCK_HASH {
+                if *burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH {
                     0
                 }
                 else {
