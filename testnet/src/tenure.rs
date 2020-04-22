@@ -4,6 +4,7 @@ use super::node::{TESTNET_CHAIN_ID, ChainTip};
 use std::time::{Instant, Duration};
 use std::thread;
 
+use stacks::burnchains::Txid;
 use stacks::chainstate::stacks::db::{StacksChainState, ClarityTx};
 use stacks::chainstate::stacks::{StacksPrivateKey, StacksBlock, StacksWorkScore, StacksTransaction, StacksMicroblock, StacksBlockBuilder};
 use stacks::chainstate::burn::VRFSeed;
@@ -71,12 +72,18 @@ impl <'a> Tenure {
         }
     }
 
-    pub fn handle_txs(&mut self, clarity_tx: &mut ClarityTx<'a>, txs: Vec<StacksTransaction>) {
-        for tx in txs {
+    pub fn handle_txs(&mut self, clarity_tx: &mut ClarityTx<'a>, txs_in_mempool: Vec<StacksTransaction>, candidates: &mut Vec<Txid>) {
+        for tx in txs_in_mempool {
+            if candidates.contains(&tx.txid()) {
+                continue;
+            }
+
             let res = self.block_builder.try_mine_tx(clarity_tx, &tx);
             match res {
                 Err(e) => error!("Failed mining transaction - {}", e),
-                Ok(_) => {},
+                Ok(_) => {
+                    candidates.push(tx.txid());
+                },
             };
         }
     }
@@ -93,15 +100,15 @@ impl <'a> Tenure {
         let block_hash= self.parent_block.block.block_hash();
 
         let mut clarity_tx = self.block_builder.epoch_begin(&mut chain_state).unwrap();
+        let mut candidates= vec![];
 
-        self.handle_txs(&mut clarity_tx, vec![self.coinbase_tx.clone()]);
+        self.handle_txs(&mut clarity_tx, vec![self.coinbase_tx.clone()], &mut candidates);
 
         let duration_left: u128 = self.config.burnchain.commit_anchor_block_within as u128;
         let mut elapsed = Instant::now().duration_since(self.burnchain_tip.received_at);
-
         while duration_left.saturating_sub(elapsed.as_millis()) > 0 {
-            let txs = self.mem_pool.poll(&burn_header_hash, &block_hash);
-            self.handle_txs(&mut clarity_tx, txs);
+            let txs_in_mempool = self.mem_pool.poll(&burn_header_hash, &block_hash);
+            self.handle_txs(&mut clarity_tx, txs_in_mempool, &mut candidates);
             thread::sleep(Duration::from_millis(1000));
             elapsed = Instant::now().duration_since(self.burnchain_tip.received_at);
         } 
