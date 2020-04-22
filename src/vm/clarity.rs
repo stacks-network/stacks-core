@@ -434,6 +434,14 @@ impl <'a> ClarityTransactionConnection <'a> {
         })
     }
 
+    /// What's our total (block-wide) resource use so far?
+    pub fn cost_so_far(&self) -> ExecutionCost {
+        match self.cost_track {
+            Some(ref track) => track.get_total(),
+            None => ExecutionCost::zero()
+        }
+    }
+
     /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
     pub fn analyze_smart_contract(&mut self, identifier: &QualifiedContractIdentifier, contract_content: &str)
                                   -> Result<(ContractAST, ContractAnalysis), Error> {
