@@ -1,7 +1,7 @@
 use super::{Keychain, Config, Tenure, BurnchainController, BurnchainTip, EventDispatcher};
 
 use std::convert::TryFrom;
-use std::{thread, time, thread::JoinHandle};
+use std::{thread, thread::JoinHandle};
 use std::net::SocketAddr;
 
 use stacks::burnchains::{Burnchain, BurnchainHeaderHash, Txid};
@@ -27,7 +27,6 @@ use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
 use stacks::net::NetworkResult;
-use crate::tenure::TenureArtifacts;
 use std::sync::mpsc::{sync_channel, TrySendError, SyncSender, Receiver};
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::ChainTip;
@@ -54,7 +53,6 @@ enum RelayerDirective {
 
 pub struct InitializedNeonNode {
     relay_channel: SyncSender<RelayerDirective>,
-    config: Config,
     active_registered_key: Option<RegisteredKey>,
     burnchain_signer: BurnchainSigner,
     // TODO: what about handling blocks _without_ sortitions?
@@ -202,15 +200,20 @@ fn inner_generate_block_commit_op(
 }
 
 fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAddr,
-              burn_db_path: String, stacks_chainstate_path: String, 
+              config: Config,
               poll_timeout: u64, relay_channel: SyncSender<RelayerDirective>) -> Result<JoinHandle<()>, NetError> {
+
+    let burn_db_path = config.get_burn_db_file_path();
+    let stacks_chainstate_path = config.get_chainstate_path();
+    let block_limit = config.block_limit;
+
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(5);
     let mut burndb = BurnDB::open(&burn_db_path, true)
         .map_err(NetError::DBError)?;
 
-    let mut chainstate = StacksChainState::open(
-        false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
+    let mut chainstate = StacksChainState::open_with_block_limit(
+        false, TESTNET_CHAIN_ID, &stacks_chainstate_path, block_limit)
         .map_err(|e| NetError::ChainstateError(e.to_string()))?;
     
     let mut mem_pool = MemPoolDB::open(
@@ -236,7 +239,7 @@ fn spawn_peer(mut this: PeerNetwork, p2p_sock: &SocketAddr, rpc_sock: &SocketAdd
         }
     });
 
-    let jh = thread::spawn(move || {
+    let _jh = thread::spawn(move || {
         dns_resolver.thread_main();
     });
 
@@ -257,8 +260,8 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
     let mut burndb = BurnDB::open(&burn_db_path, true)
         .map_err(NetError::DBError)?;
 
-    let mut chainstate = StacksChainState::open(
-        false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
+    let mut chainstate = StacksChainState::open_with_block_limit(
+        false, TESTNET_CHAIN_ID, &stacks_chainstate_path, config.block_limit.clone())
         .map_err(|e| NetError::ChainstateError(e.to_string()))?;
     
     let mut mem_pool = MemPoolDB::open(
@@ -272,7 +275,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
 
     let blocks_path = chainstate.blocks_path.clone();
 
-    let relayer_thread = thread::spawn(move || {
+    let _relayer_handle = thread::spawn(move || {
         while let Ok(mut directive) = relay_channel.recv() {
             match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
@@ -413,9 +416,7 @@ impl InitializedNeonNode {
             .expect("Failed to initialize mine/relay thread");
 
         spawn_peer(p2p_net, &p2p_sock, &rpc_sock,
-                   config.get_burn_db_file_path(),
-                   config.get_chainstate_path(),
-                   5000, relay_send.clone())
+                   config.clone(), 5000, relay_send.clone())
             .expect("Failed to initialize mine/relay thread");
 
 
@@ -430,7 +431,6 @@ impl InitializedNeonNode {
 
         InitializedNeonNode {
             relay_channel: relay_send,
-            config,
             last_sortitioned_block,
             burnchain_signer,
             active_registered_key: registered_key,
@@ -542,7 +542,8 @@ impl InitializedNeonNode {
         let nonce = StacksChainState::get_account(&mut clarity_tx, &principal).nonce;
 
         let coinbase_tx = inner_generate_coinbase_tx(keychain, nonce);
-        block_builder.try_mine_tx(&mut clarity_tx, &coinbase_tx);
+        block_builder.try_mine_tx(&mut clarity_tx, &coinbase_tx)
+            .ok()?; // if we can't mine a coinbase, abandon block.
 
         let txs = mem_pool.poll(burn_header_to_poll, &block_hash_to_poll);
 
@@ -661,7 +662,8 @@ impl NeonGenesisNode {
             TESTNET_CHAIN_ID, 
             &config.get_chainstate_path(), 
             Some(initial_balances), 
-            boot_block_exec) {
+            boot_block_exec,
+            config.block_limit.clone()) {
             Ok(res) => res,
             Err(err) => panic!("Error while opening chain state at path {}: {:?}", config.get_chainstate_path(), err)
         };
@@ -873,7 +875,7 @@ impl NeonGenesisNode {
         inner_generate_leader_key_register_op(self.keychain.get_address(), vrf_public_key, consensus_hash)
     }
 
-    pub fn into_initialized_leader_node(mut self) -> InitializedNeonNode {
+    pub fn into_initialized_leader_node(self) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
         let event_dispatcher = self.event_dispatcher;
@@ -886,7 +888,7 @@ impl NeonGenesisNode {
                                  Some(registered_key))
     }
 
-    pub fn into_initialized_node(mut self) -> InitializedNeonNode {
+    pub fn into_initialized_node(self) -> InitializedNeonNode {
         let config = self.config;
         let keychain = self.keychain;
         let event_dispatcher = self.event_dispatcher;
