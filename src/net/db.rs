@@ -34,7 +34,7 @@ use util::db::DBConn;
 
 use util;
 use util::log;
-use util::hash::{to_hex, hex_bytes, Hash160, Sha512Trunc256Sum};
+use util::hash::{to_hex, hex_bytes, Hash160, Sha512Trunc256Sum, Sha256Sum};
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
 use util::macros::is_big_endian;
@@ -112,9 +112,17 @@ impl fmt::Debug for LocalPeer {
 }
 
 impl LocalPeer {
-    pub fn new(network_id: u32, parent_network_id: u32, port: u16, key_expire: u64, data_url: UrlString) -> LocalPeer {
+    pub fn new(network_id: u32, parent_network_id: u32, port: u16, key_expire: u64, data_url: UrlString, seed: Vec<u8>) -> LocalPeer {
+
+        let mut re_hashed_seed = seed;
+        let my_private_key = loop {
+            match Secp256k1PrivateKey::from_slice(&re_hashed_seed[..]) {
+                Ok(sk) => break sk,
+                Err(_) => re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..]).as_bytes().to_vec()
+            }
+        };
+
         let mut rng = thread_rng();
-        let my_private_key = Secp256k1PrivateKey::new();
         let mut my_nonce = [0u8; 32];
 
         rng.fill_bytes(&mut my_nonce);
@@ -304,8 +312,8 @@ pub struct PeerDB {
 }
 
 impl PeerDB {
-    fn instantiate(&mut self, network_id: u32, parent_network_id: u32, key_expires: u64, data_url: UrlString, p2p_port: u16, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> Result<(), db_error> {
-        let localpeer = LocalPeer::new(network_id, parent_network_id, p2p_port, key_expires, data_url);
+    fn instantiate(&mut self, network_id: u32, parent_network_id: u32, key_expires: u64, data_url: UrlString, local_peer_seed: Vec<u8>, p2p_port: u16, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> Result<(), db_error> {
+        let localpeer = LocalPeer::new(network_id, parent_network_id, p2p_port, key_expires, data_url, local_peer_seed);
 
         let mut tx = self.tx_begin()?;
 
@@ -366,7 +374,7 @@ impl PeerDB {
 
     /// Open the burn database at the given path.  Open read-only or read/write.
     /// If opened for read/write and it doesn't exist, instantiate it.
-    pub fn connect(path: &String, readwrite: bool, network_id: u32, parent_network_id: u32, key_expires: u64, p2p_port: u16, data_url: UrlString, asn4_recs: &Vec<ASEntry4>, initial_neighbors: Option<&Vec<Neighbor>>) -> Result<PeerDB, db_error> {
+    pub fn connect(path: &String, readwrite: bool, network_id: u32, parent_network_id: u32, key_expires: u64, p2p_port: u16, data_url: UrlString, local_peer_seed: Vec<u8>, asn4_recs: &Vec<ASEntry4>, initial_neighbors: Option<&Vec<Neighbor>>) -> Result<PeerDB, db_error> {
         let mut create_flag = false;
         let open_flags =
             if fs::metadata(path).is_err() {
@@ -401,10 +409,10 @@ impl PeerDB {
             // instantiate!
             match initial_neighbors {
                 Some(ref neighbors) => {
-                    db.instantiate(network_id, parent_network_id, key_expires, data_url, p2p_port, asn4_recs, neighbors)?;
+                    db.instantiate(network_id, parent_network_id, key_expires, data_url, local_peer_seed, p2p_port, asn4_recs, neighbors)?;
                 },
                 None => {
-                    db.instantiate(network_id, parent_network_id, key_expires, data_url, p2p_port, asn4_recs, &vec![])?;
+                    db.instantiate(network_id, parent_network_id, key_expires, data_url, local_peer_seed, p2p_port, asn4_recs, &vec![])?;
                 }
             }
         } else {
@@ -424,7 +432,7 @@ impl PeerDB {
             readwrite: true,
         };
 
-        db.instantiate(network_id, parent_network_id, key_expires, data_url, NETWORK_P2P_PORT, asn4_entries, initial_neighbors)?;
+        db.instantiate(network_id, parent_network_id, key_expires, data_url, [0u8; 32].to_vec(), NETWORK_P2P_PORT, asn4_entries, initial_neighbors)?;
         Ok(db)
     }
 

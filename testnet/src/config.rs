@@ -112,6 +112,10 @@ impl Config {
                         Some(data_url) => data_url,
                         None => format!("http://{}", rpc_bind)
                     },
+                    local_peer_seed: match node.local_peer_seed {
+                        Some(seed) => hex_bytes(&seed).expect("Seed should be a hex encoded string"),
+                        None => default_node_config.local_peer_seed
+                    },
                 };
                 node_config.set_bootstrap_node(node.bootstrap_node);
                 node_config
@@ -384,6 +388,7 @@ pub struct NodeConfig {
     pub rpc_bind: String,
     pub p2p_bind: String,
     pub data_url: String,
+    pub local_peer_seed: Vec<u8>,
     pub bootstrap_node: Option<Neighbor>,
 }
 
@@ -401,6 +406,9 @@ impl NodeConfig {
         let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap())
             .saturating_add(1024); // use a non-privileged port
 
+        let mut local_peer_seed = [0u8; 32];
+        rng.fill_bytes(&mut local_peer_seed);
+
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
@@ -410,6 +418,7 @@ impl NodeConfig {
             p2p_bind: format!("127.0.0.1:{}", p2p_port),
             data_url: format!("http://127.0.0.1:{}", rpc_port),
             bootstrap_node: None,
+            local_peer_seed: local_peer_seed.to_vec(),
         }
     }
 
@@ -500,6 +509,7 @@ pub struct NodeConfigFile {
     pub p2p_bind: Option<String>,
     pub data_url: Option<String>,
     pub bootstrap_node: Option<String>,
+    pub local_peer_seed: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]

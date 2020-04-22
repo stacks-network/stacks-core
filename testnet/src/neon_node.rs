@@ -392,6 +392,7 @@ impl InitializedNeonNode {
             config.connection_options.private_key_lifetime.clone(),
             p2p_sock.port(),
             data_url.clone(),
+            config.node.local_peer_seed.clone(),
             &vec![], 
             Some(&initial_neighbors)).unwrap();
 
