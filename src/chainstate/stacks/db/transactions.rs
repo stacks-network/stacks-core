@@ -482,12 +482,20 @@ impl StacksChainState {
                                 info!("Runtime error {:?} on contract-call {}.{:?} {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_call.function_name, &contract_call.function_args, stack);
                                 Ok((Value::err_none(), AssetMap::new(), vec![]))
                             },
+                            // log this for now
+                            clarity_error::CostError(ref cost, ref budget) => {
+                                warn!("Block compute budget exceeded on {}: cost={}, budget={}", tx.txid(), cost, budget);
+                                Err(e)
+                            },
                             _ => Err(e)
                         }
                     }
                 }.map_err(|e| {
                     warn!("Invalid contract-call transaction {}: {:?}", &tx.txid(), &e);
-                    Error::ClarityError(e)
+                    match e {
+                        clarity_error::CostError(ref cost_after, ref budget) => Error::CostOverflowError(cost_before, cost_after.clone(), budget.clone()),
+                        _ => Error::ClarityError(e)
+                    }
                 })?;
 
                 let receipt = StacksTransactionReceipt::from_contract_call(tx.clone(), events, result, asset_map.get_stx_burned_total(), total_cost);
@@ -521,21 +529,31 @@ impl StacksChainState {
                 // The reason for this is that analyzing the transaction is itself an expensive
                 // operation, and the paying account will need to be debited the fee regardless.
                 let analysis_resp = clarity_tx.analyze_smart_contract(&contract_id, &contract_code_str);
-                
-                let mut analysis_cost = clarity_tx.cost_so_far();
-                analysis_cost.sub(&cost_before).expect("BUG: total block cost decreased");
-
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
                     Err(e) => {
-                        // this analysis isn't free -- convert to runtime error
-                        error!("Runtime error in contract analysis for {}: {}", &contract_id, &e);
-                        let receipt = StacksTransactionReceipt::from_analysis_failure(tx.clone(), analysis_cost);
-                
-                        // abort now -- no burns
-                        return Ok(receipt);
+                        match e {
+                            clarity_error::CostError(ref cost_after, ref budget) => {
+                                warn!("Block compute budget exceeded on {}: cost before={}, after={}, budget={}", tx.txid(), &cost_before, cost_after, budget);
+                                return Err(Error::CostOverflowError(cost_before, cost_after.clone(), budget.clone()));
+                            },
+                            _ => {
+                                // this analysis isn't free -- convert to runtime error
+                                let mut analysis_cost = clarity_tx.cost_so_far();
+                                analysis_cost.sub(&cost_before).expect("BUG: total block cost decreased");
+                                
+                                error!("Runtime error in contract analysis for {}: {:?}", &contract_id, &e);
+                                let receipt = StacksTransactionReceipt::from_analysis_failure(tx.clone(), analysis_cost);
+                        
+                                // abort now -- no burns
+                                return Ok(receipt);
+                            }
+                        }
                     }
                 };
+                
+                let mut analysis_cost = clarity_tx.cost_so_far();
+                analysis_cost.sub(&cost_before).expect("BUG: total block cost decreased");
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).
@@ -552,6 +570,11 @@ impl StacksChainState {
                     Ok(x) => Ok(x),
                     Err(e) => {
                         match e {
+                            // log cost overflow errors
+                            clarity_error::CostError(ref cost, ref budget) => {
+                                warn!("Block compute budget exceeded on {}: cost={}, budget={}", tx.txid(), cost, budget);
+                                Err(e)
+                            },
                             // runtime errors are okay -- we just have an empty asset map
                             clarity_error::Interpreter(InterpreterError::Runtime(ref runtime_error, ref stack)) => {
                                 info!("Runtime error {:?} on instantiating {}, code {:?}, stack trace {:?}", runtime_error, &contract_id, &contract_code_str, stack);
@@ -562,7 +585,10 @@ impl StacksChainState {
                     }
                 }.map_err(|e| {
                     info!("Invalid smart-contract transaction {}: {}", &tx.txid(), &e);
-                    Error::ClarityError(e)
+                    match e {
+                        clarity_error::CostError(ref cost_after, ref budget) => Error::CostOverflowError(cost_before, cost_after.clone(), budget.clone()),
+                        _ => Error::ClarityError(e)
+                    }
                 })?;
                 
                 // store analysis -- if this fails, then the have some pretty bad problems
