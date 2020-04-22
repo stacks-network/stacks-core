@@ -56,7 +56,7 @@ jobs:
       - run:
           no_output_timeout: 200m
           command: |
-            cargo test --test-threads 1
+            cargo test
   all_tests:
     docker:
       - image: rust:1.40-stretch
