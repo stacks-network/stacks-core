@@ -3064,7 +3064,7 @@ impl StacksChainState {
                 height
             },
             Ok(None) => {
-                if *current_burn == FIRST_BURNCHAIN_BLOCK_HASH && *current_block == FIRST_STACKS_BLOCK_HASH {
+                if *current_burn == FIRST_BURNCHAIN_BLOCK_HASH {
                     0
                 }
                 else {
