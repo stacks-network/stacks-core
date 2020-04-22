@@ -23,7 +23,7 @@ use stacks::util::strings::UrlString;
 
 
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
-pub const TESTNET_PEER_VERSION: u32 = 0xdead1010;
+pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
