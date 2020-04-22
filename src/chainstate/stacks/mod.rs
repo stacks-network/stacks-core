@@ -703,7 +703,6 @@ pub struct StacksBlockBuilder {
     pub total_anchored_fees: u64,
     pub total_confirmed_streamed_fees: u64,
     pub total_streamed_fees: u64,
-    max_cost: ExecutionCost,
     anchored_done: bool,
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
