@@ -1,0 +1,95 @@
+name: release
+on:
+  schedule:
+  - cron: '0 0 * * *' # midnight UTC
+
+  push:
+    branches:
+    - release
+    - nightly
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTFLAGS: -D warnings
+  RUSTUP_MAX_RETRIES: 10
+
+jobs:
+  dist:
+    name: dist
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Install dependencies
+      if: matrix.os == 'ubuntu-latest'
+      run: sudo apt-get install -y --no-install-recommends musl musl-tools
+
+    - name: Rename existing rust toolchain (Windows)
+      if: matrix.os == 'windows-latest'
+      run: Rename-Item C:\Users\runneradmin\.rustup\toolchains\stable-x86_64-pc-windows-msvc C:\Users\runneradmin\.rustup\toolchains\stable-x86_64-pc-windows-msvc.old
+
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        target: x86_64-unknown-linux-musl
+        override: true
+
+    - name: Build artifacts
+      run: cargo xtask release
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v1
+      with:
+        name: dist-${{ matrix.os }}
+        path: ./dist
+
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    needs: ['dist']
+    steps:
+    - name: Install Nodejs
+      uses: actions/setup-node@v1
+      with:
+        node-version: 12.x
+
+    - run: echo "::set-env name=TAG::$(date --iso --utc)"
+      if: github.ref == 'refs/heads/release'
+    - run: echo "::set-env name=TAG::nightly"
+      if: github.ref != 'refs/heads/release'
+    - run: 'echo "TAG: $TAG"'
+
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - uses: actions/download-artifact@v1
+      with:
+        name: dist-macos-latest
+        path: dist
+  
+    - uses: actions/download-artifact@v1
+      with:
+        name: dist-ubuntu-latest
+        path: dist
+
+    - uses: actions/download-artifact@v1
+      with:
+        name: dist-windows-latest
+        path: dist
+
+    - run: ls -all ./dist
+
+    - name: Publish Release
+      uses: ./.github/actions/github-release
+      with:
+        files: "dist/*"
+        name: ${{ env.TAG }}
+        token: ${{ secrets.GITHUB_TOKEN }}
