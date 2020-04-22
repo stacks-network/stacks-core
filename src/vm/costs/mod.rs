@@ -61,7 +61,6 @@ impl MemoryConsumer for Value {
 
 pub trait CostTracker {
     fn add_cost(&mut self, cost: ExecutionCost) -> Result<()>;
-
     fn add_memory(&mut self, memory: u64) -> Result<()>;
     fn drop_memory(&mut self, memory: u64);
     fn reset_memory(&mut self);
@@ -72,7 +71,6 @@ impl CostTracker for () {
     fn add_cost(&mut self, _cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         Ok(())
     }
-
     fn add_memory(&mut self, _memory: u64) -> std::result::Result<(), CostErrors> {
         Ok(())
     }
@@ -205,6 +203,7 @@ impl fmt::Display for ExecutionCost {
 pub trait CostOverflowingMath <T> {
     fn cost_overflow_mul(self, other: T) -> Result<T>;
     fn cost_overflow_add(self, other: T) -> Result<T>;
+    fn cost_overflow_sub(self, other: T) -> Result<T>;
 }
 
 impl CostOverflowingMath <u64> for u64 {
@@ -214,6 +213,10 @@ impl CostOverflowingMath <u64> for u64 {
     }
     fn cost_overflow_add(self, other: u64) -> Result<u64> {
         self.checked_add(other)
+            .ok_or_else(|| CostErrors::CostOverflow)
+    }
+    fn cost_overflow_sub(self, other: u64) -> Result<u64> {
+        self.checked_sub(other)
             .ok_or_else(|| CostErrors::CostOverflow)
     }
 }
@@ -242,6 +245,15 @@ impl ExecutionCost {
         self.read_length  = self.read_length.cost_overflow_add(other.read_length)?;
         self.write_length = self.write_length.cost_overflow_add(other.write_length)?;
         self.write_count  = self.write_count.cost_overflow_add(other.write_count)?;
+        Ok(())
+    }
+
+    pub fn sub(&mut self, other: &ExecutionCost) -> Result<()> {
+        self.runtime = self.runtime.cost_overflow_sub(other.runtime)?;
+        self.read_count   = self.read_count.cost_overflow_sub(other.read_count)?;
+        self.read_length  = self.read_length.cost_overflow_sub(other.read_length)?;
+        self.write_length = self.write_length.cost_overflow_sub(other.write_length)?;
+        self.write_count  = self.write_count.cost_overflow_sub(other.write_count)?;
         Ok(())
     }
 
@@ -354,6 +366,13 @@ mod unit_tests {
             Err(CostErrors::CostOverflow));
         assert_eq!(
             CostFunctions::NLogN(1, 1).compute_cost(u64::max_value()),
+            Err(CostErrors::CostOverflow));
+    }
+
+    #[test]
+    fn test_simple_sub() {
+        assert_eq!(
+            0u64.cost_overflow_sub(1),
             Err(CostErrors::CostOverflow));
     }
 
