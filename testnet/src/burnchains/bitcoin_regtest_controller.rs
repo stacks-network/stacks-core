@@ -426,7 +426,7 @@ impl BitcoinRegtestController {
             request_builder, 
             transaction.to_hex());
         match result {
-            Ok(x) => {
+            Ok(_) => {
                 true
             },
             Err(e) =>  {

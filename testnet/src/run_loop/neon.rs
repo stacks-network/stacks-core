@@ -1,6 +1,6 @@
 use std::process;
 use crate::{Config, NeonGenesisNode, InitializedNeonNode, BurnchainController, 
-            BitcoinRegtestController, ChainTip, BurnchainTip, Tenure};
+            BitcoinRegtestController, BurnchainTip};
 use stacks::chainstate::burn::db::burndb::BurnDB;
 
 use super::RunLoopCallbacks;
@@ -27,7 +27,7 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and 
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, expected_num_rounds: u64) {
+    pub fn start(&mut self, _expected_num_rounds: u64) {
 
         // Initialize and start the burnchain.
         let mut burnchain: Box<dyn BurnchainController> = BitcoinRegtestController::generic(self.config.clone());
@@ -43,8 +43,6 @@ impl RunLoop {
             }
         };
 
-        let mut round_index: u64 = 1; // todo(ludo): careful with this round_index
-
         let mut block_height = burnchain_tip.block_snapshot.block_height;
 
         // Start the runloop
@@ -53,7 +51,7 @@ impl RunLoop {
             burnchain_tip = burnchain.sync();
 
             let next_height = burnchain_tip.block_snapshot.block_height;
-            if (next_height <= block_height) {
+            if next_height <= block_height {
                 warn!("burnchain.sync() did not progress block height");
                 continue;
             }
@@ -90,6 +88,7 @@ impl RunLoop {
             }
 
             block_height = next_height;
+
         }
     }
 
@@ -162,7 +161,7 @@ impl RunLoop {
 
         // Have the node process its own tenure.
         // We should have some additional checks here, and ensure that the previous artifacts are legit.
-        let chain_tip = node.process_tenure(
+        let _chain_tip = node.process_tenure(
             &artifacts_from_1st_tenure.anchored_block, 
             &last_sortitioned_block.block_snapshot.burn_header_hash, 
             &last_sortitioned_block.block_snapshot.parent_burn_header_hash, 
@@ -204,12 +203,12 @@ impl RunLoop {
     // Instead, it would sync with the peer networks and build a chainstate consistent with
     // the burnchain_tip previously fetched. 
     fn exec_standard_boot_sequence(&self, burnchain_controller: &mut Box<dyn BurnchainController>) -> (InitializedNeonNode, BurnchainTip) {
-        let mut burnchain_tip = burnchain_controller.get_chain_tip();
+        let burnchain_tip = burnchain_controller.get_chain_tip();
 
         let mut node = NeonGenesisNode::new(self.config.clone(), |_| {});
 
         // Try to submit the VRF key operation
-        if (node.submit_vrf_key_operation(burnchain_controller)) {
+        if node.submit_vrf_key_operation(burnchain_controller) {
             info!("Submitted a VRF leader registration: this node will mine.");
         } else {
             info!("Could not generate a VRF leader registration, this node is a follower.");
