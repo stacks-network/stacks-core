@@ -216,7 +216,7 @@ impl Node {
         };
 
         // create a new peerdb
-        let data_url = UrlString::try_from(format!("http://{}", self.config.node.rpc_bind)).unwrap();
+        let data_url = UrlString::try_from(format!("{}", self.config.node.data_url)).unwrap();
 
         let mut initial_neighbors = vec![];
         if let Some(ref bootstrap_node) = self.config.node.bootstrap_node {

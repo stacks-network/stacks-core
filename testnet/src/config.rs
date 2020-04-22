@@ -97,6 +97,7 @@ impl Config {
         let default_node_config = NodeConfig::default();
         let node = match config_file.node {
             Some(node) => {
+                let rpc_bind = node.rpc_bind.unwrap_or(default_node_config.rpc_bind);
                 let mut node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
@@ -104,9 +105,13 @@ impl Config {
                         None => default_node_config.seed
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
-                    rpc_bind: node.rpc_bind.unwrap_or(default_node_config.rpc_bind),
+                    rpc_bind: rpc_bind.clone(),
                     p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
                     bootstrap_node: None,
+                    data_url: match node.data_url {
+                        Some(data_url) => data_url,
+                        None => format!("http://{}", rpc_bind)
+                    },
                 };
                 node_config.set_bootstrap_node(node.bootstrap_node);
                 node_config
@@ -378,6 +383,7 @@ pub struct NodeConfig {
     pub working_dir: String,
     pub rpc_bind: String,
     pub p2p_bind: String,
+    pub data_url: String,
     pub bootstrap_node: Option<Neighbor>,
 }
 
@@ -402,6 +408,7 @@ impl NodeConfig {
             working_dir: format!("/tmp/{}", testnet_id),
             rpc_bind: format!("127.0.0.1:{}", rpc_port),
             p2p_bind: format!("127.0.0.1:{}", p2p_port),
+            data_url: format!("http://127.0.0.1:{}", rpc_port),
             bootstrap_node: None,
         }
     }
@@ -491,6 +498,7 @@ pub struct NodeConfigFile {
     pub working_dir: Option<String>,
     pub rpc_bind: Option<String>,
     pub p2p_bind: Option<String>,
+    pub data_url: Option<String>,
     pub bootstrap_node: Option<String>,
 }
 
