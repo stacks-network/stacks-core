@@ -18,6 +18,8 @@
 */
 
 use std::fs;
+use std::mem;
+use std::collections::HashSet;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use chainstate::stacks::db::{
@@ -27,6 +29,8 @@ use chainstate::stacks::db::{
 };
 use chainstate::stacks::index::TrieHash;
 use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::db::burndb::BurnDB;
+use chainstate::stacks::events::StacksTransactionReceipt;
 
 use net::StacksMessageCodec;
 use net::Error as net_error;
@@ -49,13 +53,10 @@ use burnchains::PublicKey;
 use util::vrf::*;
 
 use core::*;
+use core::mempool::*;
 
 impl StacksBlockBuilder {
-    pub fn from_parent(miner_id: usize, parent_chain_tip: &StacksHeaderInfo, total_work: &StacksWorkScore, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
-        let mut pubk = StacksPublicKey::from_private(microblock_privkey);
-        pubk.set_compressed(true);
-
-        let pubkh = Hash160::from_data(&pubk.to_bytes());
+    fn from_parent_pubkey_hash(miner_id: usize, parent_chain_tip: &StacksHeaderInfo, total_work: &StacksWorkScore, proof: &VRFProof, pubkh: Hash160) -> StacksBlockBuilder {
         let header = StacksBlockHeader::from_parent_empty(&parent_chain_tip.anchored_header, parent_chain_tip.microblock_tail.as_ref(), total_work, proof, &pubkh);
 
         let mut header_bytes = vec![];
@@ -67,16 +68,31 @@ impl StacksBlockBuilder {
             header: header,
             txs: vec![],
             micro_txs: vec![],
+            total_cost: ExecutionCost::zero(),
+            total_anchored_fees: 0,
+            total_confirmed_streamed_fees: 0,
+            total_streamed_fees: 0,
+            max_cost: ExecutionCost::max_value(),
             bytes_so_far: bytes_so_far,
             anchored_done: false,
             prev_microblock_header: StacksMicroblockHeader::first_unsigned(&EMPTY_MICROBLOCK_PARENT_HASH, &Sha512Trunc256Sum([0u8; 32])),       // will be updated
-            miner_privkey: microblock_privkey.clone(),
+            miner_privkey: StacksPrivateKey::new(),      // caller should overwrite this, or refrain from mining microblocks
             miner_payouts: None,
             miner_id: miner_id
         }
     }
-    
-    pub fn first(miner_id: usize, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
+
+    pub fn from_parent(miner_id: usize, parent_chain_tip: &StacksHeaderInfo, total_work: &StacksWorkScore, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
+        let mut pubk = StacksPublicKey::from_private(microblock_privkey);
+        pubk.set_compressed(true);
+        let pubkh = Hash160::from_data(&pubk.to_bytes());
+
+        let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(miner_id, parent_chain_tip, total_work, proof, pubkh);
+        builder.miner_privkey = microblock_privkey.clone();
+        builder
+    }
+
+    fn first_pubkey_hash(miner_id: usize, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, pubkh: Hash160) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis(),
             microblock_tail: None,
@@ -86,8 +102,18 @@ impl StacksBlockBuilder {
             burn_header_timestamp: genesis_burn_header_timestamp
         };
 
-        let mut builder = StacksBlockBuilder::from_parent(miner_id, &genesis_chain_tip, &StacksWorkScore::initial(), proof, microblock_privkey);
+        let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(miner_id, &genesis_chain_tip, &StacksWorkScore::initial(), proof, pubkh);
         builder.header.parent_block = EMPTY_MICROBLOCK_PARENT_HASH.clone();
+        builder
+    }
+    
+    pub fn first(miner_id: usize, genesis_burn_header_hash: &BurnchainHeaderHash, genesis_burn_header_timestamp: u64, proof: &VRFProof, microblock_privkey: &StacksPrivateKey) -> StacksBlockBuilder {
+        let mut pubk = StacksPublicKey::from_private(microblock_privkey);
+        pubk.set_compressed(true);
+        let pubkh = Hash160::from_data(&pubk.to_bytes());
+
+        let mut builder = StacksBlockBuilder::first_pubkey_hash(miner_id, genesis_burn_header_hash, genesis_burn_header_timestamp, proof, pubkh);
+        builder.miner_privkey = microblock_privkey.clone();
         builder
     }
 
@@ -102,8 +128,30 @@ impl StacksBlockBuilder {
         self.header.parent_microblock_sequence = parent_mblock_seq;
     }
 
+    /// Assign maximum epoch cost
+    pub fn set_max_cost(&mut self, max_cost: ExecutionCost) -> () {
+        self.max_cost = max_cost;
+    }
+
+    /// Reset measured costs and fees
+    pub fn reset_costs(&mut self) -> () {
+        self.total_cost = ExecutionCost::zero();
+        self.total_anchored_fees = 0;
+        self.total_confirmed_streamed_fees = 0;
+        self.total_streamed_fees = 0;
+    }
+
+    fn check_block_cost(&self, receipt: &StacksTransactionReceipt) -> Result<(), Error> {
+        let mut total_cost = self.total_cost.clone();
+        total_cost.add(&receipt.execution_cost).expect("BUG: miner created a block that was way too expensive");
+        if total_cost.exceeds(&self.max_cost) {
+            return Err(Error::BlockTooBigError);
+        }
+        Ok(())
+    }
+
     /// Append a transaction if doing so won't exceed the epoch data size.
-    /// Errors out if we exceed budget (TODO), or the transaction is invalid.
+    /// Errors out if we exceed budget, or the transaction is invalid.
     pub fn try_mine_tx<'a>(&mut self, clarity_tx: &mut ClarityTx<'a>, tx: &StacksTransaction) -> Result<(), Error> {
         let mut tx_bytes = vec![];
         tx.consensus_serialize(&mut tx_bytes).map_err(Error::NetError)?;
@@ -119,20 +167,27 @@ impl StacksBlockBuilder {
                 return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for anchored data".to_string()));
             }
 
-            StacksChainState::process_transaction(clarity_tx, tx)?;
+            let (fee, receipt) = StacksChainState::process_transaction(clarity_tx, tx)?;
+            self.check_block_cost(&receipt)?;
 
             // save
             self.txs.push(tx.clone());
+            self.total_anchored_fees += fee;
+            self.total_cost.add(&receipt.execution_cost).expect("BUG: miner created a block that is way too expensive");
         }
         else {
-            // building up the anchored blocks
+            // building up the microblocks
             if tx.anchor_mode != TransactionAnchorMode::OffChainOnly && tx.anchor_mode != TransactionAnchorMode::Any {
                 return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for streamed data".to_string()));
             }
             
-            StacksChainState::process_transaction(clarity_tx, tx)?;
+            let (fee, receipt) = StacksChainState::process_transaction(clarity_tx, tx)?;
+            self.check_block_cost(&receipt)?;
 
+            // save
             self.micro_txs.push(tx.clone());
+            self.total_streamed_fees += fee;
+            self.total_cost.add(&receipt.execution_cost).expect("BUG: miner created a microblock that is way too expensive");
         }
 
         self.bytes_so_far += tx_len;
@@ -147,10 +202,17 @@ impl StacksBlockBuilder {
         tx.consensus_serialize(&mut tx_bytes).map_err(Error::NetError)?;
         let tx_len = tx_bytes.len() as u64;
         
+        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+            warn!("Epoch size is {} >= {}", self.bytes_so_far + tx_len, MAX_EPOCH_SIZE);
+        }
+        
         if !self.anchored_done {
             // save
             match StacksChainState::process_transaction(clarity_tx, tx) {
-                Ok(_) => {},
+                Ok((fee, receipt)) => {
+                    self.total_anchored_fees += fee;
+                    self.total_cost.add(&receipt.execution_cost).expect("BUG: miner created a block that is way too expensive");
+                },
                 Err(e) => {
                     warn!("Invalid transaction {} in anchored block, but forcing inclusion (error: {:?})", &tx.txid(), &e);
                 }
@@ -160,12 +222,15 @@ impl StacksBlockBuilder {
         }
         else {
             match StacksChainState::process_transaction(clarity_tx, tx) {
-                Ok(_) => {},
+                Ok((fee, receipt)) => {
+                    self.total_streamed_fees += fee;
+                    self.total_cost.add(&receipt.execution_cost).expect("BUG: miner created a block that is way too expensive");
+                },
                 Err(e) => {
                     warn!("Invalid transaction {} in microblock, but forcing inclusion (error: {:?})", &tx.txid(), &e);
                 }
             }
-
+            
             self.micro_txs.push(tx.clone());
         }
 
@@ -283,7 +348,7 @@ impl StacksBlockBuilder {
             None => vec![]
         };
 
-        let mut tx = chainstate.block_begin(&parent_burn_header_hash, &parent_header_hash, &new_burn_hash, &new_block_hash);
+        let mut tx = chainstate.block_begin_limited(&parent_burn_header_hash, &parent_header_hash, &new_burn_hash, &new_block_hash, self.max_cost.clone());
 
         test_debug!("Miner {}: Apply {} parent microblocks", self.miner_id, parent_microblocks.len());
 
@@ -292,7 +357,9 @@ impl StacksBlockBuilder {
         }
         else {
             match StacksChainState::process_microblocks_transactions(&mut tx, &parent_microblocks) {
-                Ok(_) => { },
+                Ok((fees, ..)) => {
+                    self.total_confirmed_streamed_fees += fees as u64;
+                },
                 Err((e, mblock_header_hash)) => {
                     let msg = format!("Invalid Stacks microblocks {},{} (offender {}): {:?}", parent_burn_header_hash, parent_header_hash, mblock_header_hash, &e);
                     warn!("{}", &msg);
@@ -326,6 +393,218 @@ impl StacksBlockBuilder {
 
         test_debug!("\n\nMiner {}: Finished mining child of {}/{}. Trie is in mined_blocks table.\n", self.miner_id, self.chain_tip.burn_header_hash, self.chain_tip.anchored_header.block_hash());
     }
+    
+    /// Unconditionally build an anchored block from a list of transactions.
+    /// Used when we are re-building a valid block after we exceed budget
+    fn make_anchored_block_from_txs(mut builder: StacksBlockBuilder, chainstate: &mut StacksChainState, mut txs: Vec<StacksTransaction>) -> Result<StacksBlock, Error> {
+        debug!("Build anchored block from {} transactions", txs.len());
+        let mut epoch_tx = builder.epoch_begin(chainstate)?;
+        for tx in txs.drain(..) {
+            builder.try_mine_tx(&mut epoch_tx, &tx)?;
+        }
+        let block = builder.mine_anchored_block(&mut epoch_tx);
+        builder.epoch_finish(epoch_tx);
+        Ok(block)
+    }
+
+    /// Create a block builder for mining
+    fn make_block_builder(burndb: &mut BurnDB,
+                          chainstate: &mut StacksChainState,
+                          parent_burn_header_hash: &BurnchainHeaderHash,
+                          parent_block_hash: &BlockHeaderHash,
+                          proof: VRFProof,
+                          pubkey_hash: Hash160) -> Result<StacksBlockBuilder, Error> {
+
+        let builder = 
+            if *parent_burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH && *parent_block_hash == FIRST_STACKS_BLOCK_HASH {
+                StacksBlockBuilder::first_pubkey_hash(0, parent_burn_header_hash, FIRST_BURNCHAIN_BLOCK_TIMESTAMP, &proof, pubkey_hash)
+            }
+            else {
+                // building off an existing stacks block
+                let parent_stacks_block_snapshot = {
+                    let mut tx = burndb.tx_begin()?;
+                    let parent_stacks_block_snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, parent_burn_header_hash, parent_block_hash)?
+                        .ok_or(Error::NoSuchBlockError)?;
+
+                    parent_stacks_block_snapshot
+                };
+
+                let parent_chain_tip = StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, parent_burn_header_hash, parent_block_hash)?
+                    .ok_or(Error::NoSuchBlockError)?;
+
+                let new_work = StacksWorkScore {
+                    burn: parent_stacks_block_snapshot.total_burn,
+                    work: parent_chain_tip.block_height.checked_add(1).expect("FATAL: block height overflow")
+                };
+
+                StacksBlockBuilder::from_parent_pubkey_hash(0, &parent_chain_tip, &new_work, &proof, pubkey_hash)
+            };
+
+        Ok(builder)
+    }
+
+    /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
+    pub fn build_anchored_block(burndb: &mut BurnDB,
+                                chainstate: &mut StacksChainState,
+                                mempool: &MemPoolDB,
+                                parent_burn_header_hash: &BurnchainHeaderHash,
+                                parent_block_hash: &BlockHeaderHash,
+                                proof: VRFProof,
+                                pubkey_hash: Hash160,
+                                coinbase_tx: &StacksTransaction,
+                                execution_budget: ExecutionCost) -> Result<StacksBlock, Error> {
+
+        if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {} else {
+            return Err(Error::MemPoolError("Not a coinbase transaction".to_string()));
+        }
+
+        let mut builder = StacksBlockBuilder::make_block_builder(burndb, chainstate, parent_burn_header_hash, parent_block_hash, proof, pubkey_hash)?;
+
+        builder.set_max_cost(execution_budget.clone());
+        let cost_overflow_recovery_builder = builder.clone();     // used to construct the real anchored block if we run out of budget
+        let mut header_reader_chainstate = chainstate.reopen()?;    // uesd for reading block headers during an epoch
+        
+        let mut tip_height = MemPoolDB::get_block_height(mempool.conn(), parent_burn_header_hash, parent_block_hash)?.unwrap_or(0);
+        let mut tip_burn_header_hash = parent_burn_header_hash.clone();
+        let mut tip_block_hash = parent_block_hash.clone();
+        
+        let mut epoch_tx = builder.epoch_begin(chainstate)?;
+        builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
+
+        let mut considered = HashSet::new();
+        let mut next_timestamp = match MemPoolDB::get_next_timestamp(mempool.conn(), parent_burn_header_hash, parent_block_hash, 0)? {
+            Some(ts) => ts,
+            None => {
+                // no transactions at this chain tip, so mine an empty block 
+                let block = builder.mine_anchored_block(&mut epoch_tx);
+                builder.epoch_finish(epoch_tx);
+                return Ok(block);
+            }
+        };
+        
+        test_debug!("Begin scanning transaction mempool at {}/{} height={}", &tip_burn_header_hash, &tip_block_hash, tip_height);
+
+        // set to true if we exceed budget, and need to rebuild with known-good transactions.
+        let mut do_rebuild = false;
+
+        loop {
+            let mut available_txs = match MemPoolDB::get_txs_at(mempool.conn(), &tip_burn_header_hash, &tip_block_hash, next_timestamp) {
+                Ok(txs) => txs,
+                Err(e) => {
+                    epoch_tx.rollback_block();
+                    return Err(e.into());
+                }
+            };
+
+            for txinfo in available_txs.drain(..) {
+                if considered.contains(&txinfo.tx.txid()) {
+                    continue;
+                }
+
+                considered.insert(txinfo.tx.txid());
+
+                match builder.try_mine_tx(&mut epoch_tx, &txinfo.tx) {
+                    Ok(_) => {},
+                    Err(Error::BlockTooBigError) => {
+                        // done mining -- our execution budget is exceeded.
+                        // Make the block from the transactions we did manage to get
+                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
+                        do_rebuild = true;
+                    },
+                    Err(e) => {
+                        warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
+                    }
+                }
+            }
+
+            // next query point
+            match MemPoolDB::get_next_timestamp(mempool.conn(), &tip_burn_header_hash, &tip_block_hash, next_timestamp)? {
+                Some(ts) => {
+                    // still on this tip
+                    next_timestamp = ts;
+                },
+                None => {
+                    // no more transactions at this chain tip.  Walk back to the next-highest
+                    // ancestor of this tip, and see if we can include anything from there.
+                    let next_height = MemPoolDB::get_previous_block_height(mempool.conn(), tip_height)?.unwrap_or(0);
+                    if next_height == 0 && tip_height == 0 {
+                        // we're done -- tried every tx
+                        test_debug!("Done scanning mempool -- at height 0");
+                        break;
+                    }
+
+                    let mut next_tips = MemPoolDB::get_chain_tips_at_height(mempool.conn(), next_height)?;
+                    if next_tips.len() == 0 {
+                        // we're done -- no more chain tips
+                        test_debug!("Done scanning mempool -- no chain tips at height {}", next_height);
+                        break;
+                    }
+                    
+                    let ancestor_tip = {
+                        let mut headers_tx = header_reader_chainstate.headers_tx_begin()?;
+                        // `next_height` is 1-indexed, since stacks blocks start at height 1.
+                        // The headers DB, however, is 0-indexed, since it includes the genesis
+                        // block header hash.  Account for this.
+                        let next_header_height = next_height.saturating_sub(1);
+                        match StacksChainState::get_index_tip_ancestor(&mut headers_tx, &StacksBlockHeader::make_index_block_hash(&tip_burn_header_hash, &tip_block_hash), next_header_height)? {
+                            Some(tip_info) => tip_info,
+                            None => {
+                                // no such ancestor.  We're done
+                                test_debug!("Done scanning mempool -- no ancestor at height {} off of {}/{} ({})", next_height, tip_burn_header_hash, tip_block_hash, StacksBlockHeader::make_index_block_hash(&tip_burn_header_hash, &tip_block_hash));
+                                break;
+                            }
+                        }
+                    };
+                    
+                    // find out which tip is the ancestor tip
+                    let mut found = false;
+                    for (burn_bhh, block_bhh) in next_tips.drain(..) {
+                        if ancestor_tip.burn_header_hash == burn_bhh && ancestor_tip.anchored_header.block_hash() == block_bhh {
+                            found = true;
+                            tip_burn_header_hash = burn_bhh;
+                            tip_block_hash = block_bhh;
+                            break;
+                        }
+                    }
+                    
+                    if !found {
+                        // no such ancestor.  We're done.
+                        test_debug!("Done scanning mempool -- none of the available prior chain tips at {} is an ancestor of {}/{}", next_height, tip_burn_header_hash, tip_block_hash);
+                        break;
+                    }
+
+                    tip_height = next_height;
+                    next_timestamp = match MemPoolDB::get_next_timestamp(mempool.conn(), &tip_burn_header_hash, &tip_block_hash, 0)? {
+                        Some(ts) => ts,
+                        None => {
+                            unreachable!("No transactions at a chain tip that exists");
+                        }
+                    };
+                    
+                    test_debug!("Scan transaction mempool at {}/{} ts={} height={}", &tip_burn_header_hash, &tip_block_hash, next_timestamp, tip_height);
+                }
+            };
+        }
+
+        if do_rebuild {
+            // re-build a block using the txs that we could mine.
+            // TODO: this is only necessary because there's no way to retroatively abort a
+            // transaction's state that we committed to in a ClarityBlockConnection.  If there was,
+            // then we'd just "undo" the offending transaction.  But until this exists, the only
+            // way to recover from a budget-exceeded condition is to re-mine the transactions that
+            // we know did fit.
+            let txs = mem::replace(&mut builder.txs, vec![]);
+            epoch_tx.rollback_block();
+
+            return StacksBlockBuilder::make_anchored_block_from_txs(cost_overflow_recovery_builder, chainstate, txs);
+        }
+        else {
+            // save the block so we can build microblocks off of it
+            let block = builder.mine_anchored_block(&mut epoch_tx);
+            builder.epoch_finish(epoch_tx);
+            Ok(block)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -356,6 +635,12 @@ pub mod test {
     use rand::Rng;
     use rand::thread_rng;
     use rand::seq::SliceRandom;
+
+    use net::test::*;
+
+    use util::sleep_ms;
+
+    use vm::tests::integrations::*;
 
     pub const COINBASE : u128 = 500 * 100_000;
 
@@ -777,6 +1062,29 @@ pub mod test {
             miner_status
         }
 
+        pub fn make_tenure_commitment(&mut self, 
+                                      burndb: &mut BurnDB, 
+                                      burn_block: &mut TestBurnchainBlock, 
+                                      miner: &mut TestMiner, 
+                                      stacks_block: &StacksBlock,
+                                      microblocks: &Vec<StacksMicroblock>,
+                                      burn_amount: u64, 
+                                      miner_key: &LeaderKeyRegisterOp, 
+                                      parent_block_snapshot_opt: Option<&BlockSnapshot>) -> LeaderBlockCommitOp {
+
+            self.anchored_blocks.push(stacks_block.clone());
+            self.microblocks.push(microblocks.clone());
+            
+            test_debug!("Miner {}: Commit to stacks block {} (work {},{})", miner.id, stacks_block.block_hash(), stacks_block.header.total_work.burn, stacks_block.header.total_work.work);
+
+            // send block commit for this block
+            let block_commit_op = TestStacksNode::add_block_commit(burndb, burn_block, miner, &stacks_block.block_hash(), burn_amount, miner_key, parent_block_snapshot_opt);
+            
+            test_debug!("Miner {}: Block commit transaction builds on {},{} (parent snapshot is {:?})", miner.id, block_commit_op.parent_block_ptr, block_commit_op.parent_vtxindex, &parent_block_snapshot_opt);
+            self.commit_ops.insert(block_commit_op.block_header_hash.clone(), self.anchored_blocks.len()-1);
+            block_commit_op
+        }
+
         pub fn mine_stacks_block<F>(&mut self,
                                     burndb: &mut BurnDB,
                                     miner: &mut TestMiner, 
@@ -822,16 +1130,7 @@ pub mod test {
             test_debug!("Miner {}: Assemble stacks block from {}", miner.id, miner.origin_address().unwrap().to_string());
 
             let (stacks_block, microblocks) = block_assembler(builder, miner);
-            self.anchored_blocks.push(stacks_block.clone());
-            self.microblocks.push(microblocks.clone());
-            
-            test_debug!("Miner {}: Commit to stacks block {} (work {},{})", miner.id, stacks_block.block_hash(), stacks_block.header.total_work.burn, stacks_block.header.total_work.work);
-
-            // send block commit for this block
-            let block_commit_op = TestStacksNode::add_block_commit(burndb, burn_block, miner, &stacks_block.block_hash(), burn_amount, miner_key, parent_block_snapshot_opt.as_ref());
-            
-            test_debug!("Miner {}: Block commit transaction builds on {},{} (parent snapshot is {:?})", miner.id, block_commit_op.parent_block_ptr, block_commit_op.parent_vtxindex, &parent_block_snapshot_opt);
-            self.commit_ops.insert(block_commit_op.block_header_hash.clone(), self.anchored_blocks.len()-1);
+            let block_commit_op = self.make_tenure_commitment(burndb, burn_block, miner, &stacks_block, &microblocks, burn_amount, miner_key, parent_block_snapshot_opt.as_ref());
 
             (stacks_block, microblocks, block_commit_op)
         }
@@ -2342,7 +2641,7 @@ pub mod test {
         }
     }
 
-    pub fn mine_coinbase<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize) -> StacksTransaction {
+    pub fn make_coinbase(miner: &mut TestMiner, burnchain_height: usize) -> StacksTransaction {
         // make a coinbase for this miner
         let mut tx_coinbase = StacksTransaction::new(TransactionVersion::Testnet, miner.as_transaction_auth().unwrap(), TransactionPayload::Coinbase(CoinbasePayload([(burnchain_height % 256) as u8; 32])));
         tx_coinbase.chain_id = 0x80000000;
@@ -2360,7 +2659,7 @@ pub mod test {
         miner.set_nonce(miner_account.nonce);
 
         // make a coinbase for this miner
-        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
+        let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
 
         builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
 
@@ -2370,7 +2669,7 @@ pub mod test {
         (stacks_block, vec![])
     }
     
-    pub fn make_smart_contract<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize) -> StacksTransaction {
+    pub fn make_smart_contract(miner: &mut TestMiner, burnchain_height: usize, stacks_block_height: usize) -> StacksTransaction {
         // make a smart contract
         let contract = "
         (define-data-var bar int 0)
@@ -2378,11 +2677,11 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
         
-        test_debug!("Make smart contract block at hello-world-{}-{}", burnchain_height, builder.header.total_work.work);
+        test_debug!("Make smart contract block at hello-world-{}-{}", burnchain_height, stacks_block_height);
 
         let mut tx_contract = StacksTransaction::new(TransactionVersion::Testnet,
                                                      miner.as_transaction_auth().unwrap(),
-                                                     TransactionPayload::new_smart_contract(&format!("hello-world-{}-{}", burnchain_height, builder.header.total_work.work), &contract.to_string()).unwrap());
+                                                     TransactionPayload::new_smart_contract(&format!("hello-world-{}-{}", burnchain_height, stacks_block_height), &contract.to_string()).unwrap());
 
         tx_contract.chain_id = 0x80000000;
         tx_contract.auth.set_origin_nonce(miner.get_nonce());
@@ -2396,11 +2695,11 @@ pub mod test {
     }
 
     /// paired with make_smart_contract
-    pub fn make_contract_call<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, arg1: i128, arg2: i128) -> StacksTransaction {
+    pub fn make_contract_call(miner: &mut TestMiner, burnchain_height: usize, stacks_block_height: usize, arg1: i128, arg2: i128) -> StacksTransaction {
         let addr = miner.origin_address().unwrap();
         let mut tx_contract_call = StacksTransaction::new(TransactionVersion::Testnet,
                                                           miner.as_transaction_auth().unwrap(),
-                                                          TransactionPayload::new_contract_call(addr.clone(), &format!("hello-world-{}-{}", burnchain_height, builder.header.total_work.work), "set-bar", vec![Value::Int(arg1), Value::Int(arg2)]).unwrap());
+                                                          TransactionPayload::new_contract_call(addr.clone(), &format!("hello-world-{}-{}", burnchain_height, stacks_block_height), "set-bar", vec![Value::Int(arg1), Value::Int(arg2)]).unwrap());
 
         tx_contract_call.chain_id = 0x80000000;
         tx_contract_call.auth.set_origin_nonce(miner.get_nonce());
@@ -2413,7 +2712,7 @@ pub mod test {
     }
 
     /// make a token transfer
-    pub fn make_token_transfer<'a>(clarity_tx: &mut ClarityTx<'a>, builder: &mut StacksBlockBuilder, miner: &mut TestMiner, burnchain_height: usize, nonce: Option<u64>, recipient: &StacksAddress, amount: u64, memo: &TokenTransferMemo) -> StacksTransaction {
+    pub fn make_token_transfer(miner: &mut TestMiner, burnchain_height: usize, nonce: Option<u64>, recipient: &StacksAddress, amount: u64, memo: &TokenTransferMemo) -> StacksTransaction {
         let addr = miner.origin_address().unwrap();
         let mut tx_stx_transfer = StacksTransaction::new(TransactionVersion::Testnet,
                                                           miner.as_transaction_auth().unwrap(),
@@ -2435,20 +2734,20 @@ pub mod test {
         miner.set_nonce(miner_account.nonce);
         
         // make a coinbase for this miner
-        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
+        let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
         builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
 
         let recipient = StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20]));
-        let tx1 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(1), &recipient, 11111, &TokenTransferMemo([1u8; 34]));
+        let tx1 = make_token_transfer(miner, burnchain_height, Some(1), &recipient, 11111, &TokenTransferMemo([1u8; 34]));
         builder.force_mine_tx(clarity_tx, &tx1).unwrap();
 
-        let tx2 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(2), &recipient, 22222, &TokenTransferMemo([2u8; 34]));
+        let tx2 = make_token_transfer(miner, burnchain_height, Some(2), &recipient, 22222, &TokenTransferMemo([2u8; 34]));
         builder.force_mine_tx(clarity_tx, &tx2).unwrap();
         
-        let tx3 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(1), &recipient, 33333, &TokenTransferMemo([3u8; 34]));
+        let tx3 = make_token_transfer(miner, burnchain_height, Some(1), &recipient, 33333, &TokenTransferMemo([3u8; 34]));
         builder.force_mine_tx(clarity_tx, &tx3).unwrap();
 
-        let tx4 = make_token_transfer(clarity_tx, builder, miner, burnchain_height, Some(2), &recipient, 44444, &TokenTransferMemo([4u8; 34]));
+        let tx4 = make_token_transfer(miner, burnchain_height, Some(2), &recipient, 44444, &TokenTransferMemo([4u8; 34]));
         builder.force_mine_tx(clarity_tx, &tx4).unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2464,15 +2763,15 @@ pub mod test {
         miner.set_nonce(miner_account.nonce);
 
         // make a coinbase for this miner
-        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
+        let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
         builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
 
         // make a smart contract
-        let tx_contract_signed = make_smart_contract(clarity_tx, builder, miner, burnchain_height);
+        let tx_contract_signed = make_smart_contract(miner, burnchain_height, builder.header.total_work.work as usize);
         builder.try_mine_tx(clarity_tx, &tx_contract_signed).unwrap();
 
         // make a contract call 
-        let tx_contract_call_signed = make_contract_call(clarity_tx, builder, miner, burnchain_height, 6, 2);
+        let tx_contract_call_signed = make_contract_call(miner, burnchain_height, builder.header.total_work.work as usize, 6, 2);
         builder.try_mine_tx(clarity_tx, &tx_contract_call_signed).unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2504,11 +2803,11 @@ pub mod test {
         miner.set_nonce(miner_account.nonce);
 
         // make a coinbase for this miner
-        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
+        let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
         builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
 
         // make a smart contract
-        let tx_contract_signed = make_smart_contract(clarity_tx, builder, miner, burnchain_height);
+        let tx_contract_signed = make_smart_contract(miner, burnchain_height, builder.header.total_work.work as usize);
         builder.try_mine_tx(clarity_tx, &tx_contract_signed).unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2516,7 +2815,7 @@ pub mod test {
         let mut microblocks = vec![];
         for i in 0..3 {
             // make a contract call
-            let tx_contract_call_signed = make_contract_call(clarity_tx, builder, miner, burnchain_height, 6 + i, 2 + i);
+            let tx_contract_call_signed = make_contract_call(miner, burnchain_height, builder.header.total_work.work as usize, 6, 2);
             builder.try_mine_tx(clarity_tx, &tx_contract_call_signed).unwrap();
             
             // put the contract-call into a microblock 
@@ -2558,11 +2857,11 @@ pub mod test {
         miner.set_nonce(miner_account.nonce);
 
         // make a coinbase for this miner
-        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
+        let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
         builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
 
         // make a smart contract
-        let tx_contract_signed = make_smart_contract(clarity_tx, builder, miner, burnchain_height);
+        let tx_contract_signed = make_smart_contract(miner, burnchain_height, builder.header.total_work.work as usize);
         builder.try_mine_tx(clarity_tx, &tx_contract_signed).unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2570,7 +2869,7 @@ pub mod test {
         let mut microblocks = vec![];
         for i in 0..3 {
             // make a contract call (note: triggers a divide-by-zero runtime error)
-            let tx_contract_call_signed = make_contract_call(clarity_tx, builder, miner, burnchain_height, 6 + i, 0);
+            let tx_contract_call_signed = make_contract_call(miner, burnchain_height, builder.header.total_work.work as usize, 6, 2);
             builder.try_mine_tx(clarity_tx, &tx_contract_call_signed).unwrap();
             
             // put the contract-call into a microblock 
@@ -2599,12 +2898,12 @@ pub mod test {
         miner.set_nonce(miner_account.nonce);
 
         // make a coinbase for this miner
-        let tx_coinbase_signed = mine_coinbase(clarity_tx, builder, miner, burnchain_height);
+        let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
         builder.try_mine_tx(clarity_tx, &tx_coinbase_signed).unwrap();
         
         if burnchain_height == 0 {
             // make a smart contract
-            let tx_contract_signed = make_smart_contract(clarity_tx, builder, miner, 0);
+            let tx_contract_signed = make_smart_contract(miner, burnchain_height, builder.header.total_work.work as usize);
             builder.try_mine_tx(clarity_tx, &tx_contract_signed).unwrap();
             
             let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2612,7 +2911,7 @@ pub mod test {
             // create the initial 20 contract calls in microblocks
             let mut stacks_microblocks = vec![];
             for i in 0..20 {
-                let tx_contract_call_signed = make_contract_call_at(clarity_tx, builder, miner, 0, 1, i+1, 1);
+                let tx_contract_call_signed = make_contract_call(miner, burnchain_height, builder.header.total_work.work, 6, 2);
                 builder.try_mine_tx(clarity_tx, &tx_contract_call_signed).unwrap();
 
                 let microblock = builder.mine_next_microblock().unwrap();
@@ -2631,7 +2930,7 @@ pub mod test {
             // re-create the initial 100 contract calls in microblocks
             let mut stacks_microblocks = vec![];
             for i in 0..20 {
-                let tx_contract_call_signed = make_contract_call_at(clarity_tx, builder, miner, 0, 1, i+1, 1);
+                let tx_contract_call_signed = make_contract_call(miner, burnchain_height, builder.header.total_work.work, 6, 2);
                 builder.try_mine_tx(clarity_tx, &tx_contract_call_signed).unwrap();
 
                 let microblock = builder.mine_next_microblock().unwrap();
@@ -2882,7 +3181,431 @@ pub mod test {
                 assert!(StacksChainState::is_block_orphaned(&chainstate.blocks_db, &bc.burn_header_hash, &bc.block_header_hash).unwrap());
             }
         }
-    } 
+    }
+
+    // TODO: merge with vm/tests/integrations.rs.
+    // Distinct here because we use a different testnet ID
+    pub fn make_user_contract_publish(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+                                      contract_name: &str, contract_content: &str) -> StacksTransaction {
+        let name = ContractName::from(contract_name);
+        let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
+
+        let payload = TransactionSmartContract { name, code_body };
+
+        sign_standard_singlesig_tx(payload.into(), sender, nonce, fee_rate)
+    }
+
+    pub fn make_user_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64,
+                                    recipient: &PrincipalData, amount: u64) -> StacksTransaction {
+        let payload = TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+        sign_standard_singlesig_tx(payload.into(), sender, nonce, fee_rate)
+    }
+
+    pub fn make_user_coinbase(sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> StacksTransaction {
+        let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]));
+        sign_standard_singlesig_tx(payload.into(), sender, nonce, fee_rate)
+    }
+
+    pub fn sign_standard_singlesig_tx(payload: TransactionPayload,
+                                      sender: &StacksPrivateKey, nonce: u64, fee_rate: u64) -> StacksTransaction {
+        let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
+            .expect("Failed to create p2pkh spending condition from public key.");
+        spending_condition.set_nonce(nonce);
+        spending_condition.set_fee_rate(fee_rate);
+        let auth = TransactionAuth::Standard(spending_condition);
+        let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+
+        unsigned_tx.chain_id = 0x80000000;
+        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer.sign_origin(sender).unwrap();
+
+        tx_signer.get_tx().unwrap()
+    }
+
+    #[test]
+    fn test_build_anchored_blocks_empty() {
+        let peer_config = TestPeerConfig::new("test_build_anchored_blocks_empty", 2000, 2001);
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 10;
+        let first_stacks_block_height = {
+            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            sn.block_height
+        };
+
+        let mut last_block : Option<StacksBlock> = None;
+        for tenure_id in 0..num_blocks {
+            // send transactions to the mempool
+            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+
+            assert_eq!(tip.block_height, first_stacks_block_height + (tenure_id as u64));
+            if let Some(block) = last_block {
+                assert_eq!(tip.winning_stacks_block_hash, block.block_hash());
+            }
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_header_hash = match parent_opt {
+                   Some(block) => block.block_hash(),
+                   None => FIRST_STACKS_BLOCK_HASH.clone()
+                };
+
+                let mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+                let parent_tip_bhh = if parent_header_hash == FIRST_STACKS_BLOCK_HASH { FIRST_BURNCHAIN_BLOCK_HASH.clone() } else { tip.burn_header_hash.clone() };
+
+                let anchored_block = StacksBlockBuilder::build_anchored_block(burndb, chainstate, &mempool, &parent_tip_bhh, &parent_header_hash, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                (anchored_block, vec![])
+            });
+
+            last_block = Some(stacks_block.clone());
+
+            peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+        }
+    }
+    
+    #[test]
+    fn test_build_anchored_blocks_stx_transfers() {
+        let privk = StacksPrivateKey::from_hex("42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01").unwrap();
+        let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk)]).unwrap();
+
+        let mut peer_config = TestPeerConfig::new("test_build_anchored_blocks_stx_transfers", 2002, 2003);
+        peer_config.initial_balances = vec![
+            (addr.to_account_principal(), 1000000000)
+        ];
+
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 10;
+        let first_stacks_block_height = {
+            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            sn.block_height
+        };
+
+        let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+        let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+        let mut sender_nonce = 0;
+
+        let mut last_block = None;
+        for tenure_id in 0..num_blocks {
+            // send transactions to the mempool
+            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_header_hash = match parent_opt {
+                   Some(block) => block.block_hash(),
+                   None => FIRST_STACKS_BLOCK_HASH.clone()
+                };
+
+                let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+                let parent_tip_bhh = if parent_header_hash == FIRST_STACKS_BLOCK_HASH { FIRST_BURNCHAIN_BLOCK_HASH.clone() } else { tip.burn_header_hash.clone() };
+
+                let stx_transfer = make_user_stacks_transfer(&privk, sender_nonce, 200, &recipient.to_account_principal(), 1);
+                sender_nonce += 1;
+
+                mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
+                
+                let anchored_block = StacksBlockBuilder::build_anchored_block(burndb, chainstate, &mempool, &parent_tip_bhh, &parent_header_hash, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                (anchored_block, vec![])
+            });
+            
+            last_block = Some(stacks_block.clone());
+
+            peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            // transaction was mined
+            assert_eq!(stacks_block.txs.len(), 2);
+            if let TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) = stacks_block.txs[1].payload {
+                assert_eq!(*addr, recipient.to_account_principal());
+                assert_eq!(*amount, 1);
+            }
+            else {
+                assert!(false);
+            }
+        }
+    }
+
+    #[test]
+    fn test_build_anchored_blocks_stx_transfers_multi() {
+        let mut privks = vec![];
+        let mut balances = vec![];
+        for _ in 0..10 {
+            let privk = StacksPrivateKey::new();
+            let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk)]).unwrap();
+
+            privks.push(privk);
+            balances.push((addr.to_account_principal(), 100000000));
+        }
+
+        let mut peer_config = TestPeerConfig::new("test_build_anchored_blocks_stx_transfers_multi", 2004, 2005);
+        peer_config.initial_balances = balances;
+
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 10;
+        let first_stacks_block_height = {
+            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            sn.block_height
+        };
+
+        let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+        let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+        let mut sender_nonce = 0;
+
+        let mut last_block = None;
+        for tenure_id in 0..num_blocks {
+            // send transactions to the mempool
+            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_header_hash = match parent_opt {
+                   Some(block) => block.block_hash(),
+                   None => FIRST_STACKS_BLOCK_HASH.clone()
+                };
+
+                let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+                let parent_tip_bhh = if parent_header_hash == FIRST_STACKS_BLOCK_HASH { FIRST_BURNCHAIN_BLOCK_HASH.clone() } else { tip.burn_header_hash.clone() };
+
+                for i in 0..5 {
+                    let stx_transfer = make_user_stacks_transfer(&privks[i], sender_nonce, 200, &recipient.to_account_principal(), 1);
+                    mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
+                }
+                
+                test_debug!("Delay for 1.5s");
+                sleep_ms(1500);
+
+                for i in 5..10 {
+                    let stx_transfer = make_user_stacks_transfer(&privks[i], sender_nonce, 200, &recipient.to_account_principal(), 1);
+                    mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
+                }
+                
+                sender_nonce += 1;
+                let anchored_block = StacksBlockBuilder::build_anchored_block(burndb, chainstate, &mempool, &parent_tip_bhh, &parent_header_hash, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                (anchored_block, vec![])
+            });
+            
+            last_block = Some(stacks_block.clone());
+
+            peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            // transaction was mined, even though they were staggerred by time
+            assert_eq!(stacks_block.txs.len(), 11);
+            for i in 1..11 {
+                if let TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) = stacks_block.txs[i].payload {
+                    assert_eq!(*addr, recipient.to_account_principal());
+                    assert_eq!(*amount, 1);
+                }
+                else {
+                    assert!(false);
+                }
+            }
+        }
+    }
+    
+    #[test]
+    fn test_build_anchored_blocks_skip_too_expensive() {
+        let privk = StacksPrivateKey::from_hex("42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01").unwrap();
+        let privk_expensive = StacksPrivateKey::from_hex("924956ebb4d412109e85310383ade0e6a3920215f20036fa852669e7304c00eb01").unwrap();
+        let privk_extra = StacksPrivateKey::from_hex("f67c7437f948ca1834602b28595c12ac744f287a4efaf70d437042a6afed81bc01").unwrap();
+
+        let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk)]).unwrap();
+        let addr_expensive = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk_expensive)]).unwrap();
+        let addr_extra = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk_extra)]).unwrap();
+
+        let mut peer_config = TestPeerConfig::new("test_build_anchored_blocks_skip_too_expensive", 2002, 2003);
+        peer_config.initial_balances = vec![
+            (addr.to_account_principal(), 1000000000),
+            (addr_expensive.to_account_principal(), 1000000000),
+            (addr_extra.to_account_principal(), 1000000000),
+        ];
+
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 10;
+        let first_stacks_block_height = {
+            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            sn.block_height
+        };
+
+        let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+        let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+        let mut sender_nonce = 0;
+
+        let mut last_block = None;
+        for tenure_id in 0..num_blocks {
+            // send transactions to the mempool
+            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_header_hash = match parent_opt {
+                   Some(block) => block.block_hash(),
+                   None => FIRST_STACKS_BLOCK_HASH.clone()
+                };
+
+                let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+                let parent_tip_bhh = if parent_header_hash == FIRST_STACKS_BLOCK_HASH { FIRST_BURNCHAIN_BLOCK_HASH.clone() } else { tip.burn_header_hash.clone() };
+
+                let mut expensive_part = vec![];
+                for i in 0..100 {
+                    expensive_part.push(format!("(define-data-var var-{} int 0)", i));
+                }
+                let contract = format!("{}
+                (define-data-var bar int 0)
+                (define-public (get-bar) (ok (var-get bar)))
+                (define-public (set-bar (x int) (y int))
+                  (begin (var-set bar (/ x y)) (ok (var-get bar))))", expensive_part.join("\n"));
+
+                // fee high enough to get miend first
+                let stx_transfer = make_user_stacks_transfer(&privk, sender_nonce, (4*contract.len()) as u64, &recipient.to_account_principal(), 1);
+                mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
+
+                // will never get mined
+                let contract_tx = make_user_contract_publish(&privk_expensive, 0, (2*contract.len()) as u64, &format!("hello-world-{}", tenure_id), &contract);
+
+                mempool.submit(&parent_tip_bhh, &parent_header_hash, contract_tx).unwrap();
+                
+                // will get mined last
+                let stx_transfer = make_user_stacks_transfer(&privk_extra, sender_nonce, 300, &recipient.to_account_principal(), 1);
+                mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
+                
+                sender_nonce += 1;
+               
+                // enough for the first stx-transfer, but not for the analysis of the smart
+                // contract.
+                let execution_cost = ExecutionCost {
+                    write_length: 100,
+                    write_count: 100,
+                    read_length: 100,
+                    read_count: 100,
+                    runtime: 3350
+                };
+                
+                let anchored_block = StacksBlockBuilder::build_anchored_block(burndb, chainstate, &mempool, &parent_tip_bhh, &parent_header_hash, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
+                (anchored_block, vec![])
+            });
+            
+            last_block = Some(stacks_block.clone());
+
+            peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            // expensive transaction was not mined, but the two stx-transfers were
+            assert_eq!(stacks_block.txs.len(), 3);
+            for tx in stacks_block.txs.iter() {
+                match tx.payload {
+                    TransactionPayload::Coinbase(..) => {},
+                    TransactionPayload::TokenTransfer(ref recipient, ref amount, ref memo) => {},
+                    _ => {
+                        assert!(false);
+                    }
+                }
+            }
+        }
+    }
+    
+    #[test]
+    fn test_build_anchored_blocks_multiple_chaintips() {
+        let mut privks = vec![];
+        let mut balances = vec![];
+        let num_blocks = 10;
+
+        for _ in 0..num_blocks {
+            let privk = StacksPrivateKey::new();
+            let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk)]).unwrap();
+
+            privks.push(privk);
+            balances.push((addr.to_account_principal(), 100000000));
+        }
+
+        let mut peer_config = TestPeerConfig::new("test_build_anchored_blocks_multiple_chaintips", 2002, 2003);
+        peer_config.initial_balances = balances;
+
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let first_stacks_block_height = {
+            let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+            sn.block_height
+        };
+
+        let mut last_block = None;
+        for tenure_id in 0..num_blocks {
+            // send transactions to the mempool
+            let tip = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut burndb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
+                let parent_header_hash = match parent_opt {
+                   Some(block) => block.block_hash(),
+                   None => FIRST_STACKS_BLOCK_HASH.clone()
+                };
+
+                let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+                let parent_tip_bhh = if parent_header_hash == FIRST_STACKS_BLOCK_HASH { FIRST_BURNCHAIN_BLOCK_HASH.clone() } else { tip.burn_header_hash.clone() };
+
+                let contract = "
+                (define-data-var bar int 0)
+                (define-public (get-bar) (ok (var-get bar)))
+                (define-public (set-bar (x int) (y int))
+                  (begin (var-set bar (/ x y)) (ok (var-get bar))))";
+
+                let contract_tx = make_user_contract_publish(&privks[tenure_id], 0, (2*contract.len()) as u64, &format!("hello-world-{}", tenure_id), &contract);
+                mempool.submit(&parent_tip_bhh, &parent_header_hash, contract_tx).unwrap();
+              
+                let execution_cost = 
+                    if tenure_id < num_blocks - 1 {
+                        // doesn't allow it to get mined yet, but it'll sit in the mempool.
+                        ExecutionCost {
+                            write_length: 0,
+                            write_count: 0,
+                            read_length: 0,
+                            read_count: 0,
+                            runtime: 0
+                        }
+                    }
+                    else {
+                        // last block allows _everything_ to get mined
+                        ExecutionCost::max_value()
+                    };
+                
+                let anchored_block = StacksBlockBuilder::build_anchored_block(burndb, chainstate, &mempool, &parent_tip_bhh, &parent_header_hash, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
+                (anchored_block, vec![])
+            });
+            
+            last_block = Some(stacks_block.clone());
+
+            peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            if tenure_id < num_blocks - 1 {
+                assert_eq!(stacks_block.txs.len(), 1);
+            }
+            else {
+                assert_eq!(stacks_block.txs.len(), num_blocks);
+            }
+        }
+    }
 
     // TODO: (BLOCKED) build off of different points in the same microblock stream
     // TODO; skipped blocks
