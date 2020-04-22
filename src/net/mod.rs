@@ -557,6 +557,7 @@ pub struct HttpResponsePreamble {
 
 /// Maximum size an HTTP request or response preamble can be (within reason)
 pub const HTTP_PREAMBLE_MAX_ENCODED_SIZE : u32 = 4096;
+pub const HTTP_PREAMBLE_MAX_NUM_HEADERS : usize = 64;
 
 /// P2P message preamble -- included in all p2p network messages
 #[derive(Debug, Clone, PartialEq)]
