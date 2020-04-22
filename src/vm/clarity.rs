@@ -145,6 +145,16 @@ macro_rules! using {
     }
 }
 
+impl ClarityBlockConnection<'_> {
+    /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
+    /// Used by the miner to "undo" applying a transaction that exceeded the budget.
+    pub fn reset_block_cost(&mut self, cost: ExecutionCost) -> () {
+        if let Some(ref mut cost_tracker) = self.cost_track {
+            cost_tracker.set_total(cost);
+        }
+    }
+}
+
 impl ClarityInstance {
     pub fn new(datastore: MarfedKV, block_limit: ExecutionCost) -> ClarityInstance {
         ClarityInstance { datastore: Some(datastore), block_limit }
