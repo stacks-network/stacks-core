@@ -225,6 +225,7 @@ impl Node {
 
         println!("BOOTSTRAP WITH {:?}", initial_neighbors);
 
+        let p2p_host = PeerAddress:from_ipv4(127, 0, 0, 1);
         let rpc_sock: SocketAddr = self.config.node.rpc_bind.parse()
             .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
         let p2p_sock: SocketAddr = self.config.node.p2p_bind.parse()
@@ -236,6 +237,7 @@ impl Node {
             TESTNET_CHAIN_ID, 
             burnchain.network_id, 
             self.config.connection_options.private_key_lifetime.clone(),
+            p2p_host,
             p2p_sock.port(),
             data_url.clone(),
             &vec![], 

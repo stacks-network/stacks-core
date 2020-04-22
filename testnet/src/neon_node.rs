@@ -371,7 +371,7 @@ impl InitializedNeonNode {
 
         // create a new peerdb
         let data_url = UrlString::try_from(format!("http://{}", &config.node.rpc_bind)).unwrap();
-
+        let p2p_host = PeerAddress::from_ipv4(127, 0, 0, 1);
         let mut initial_neighbors = vec![];
         if let Some(ref bootstrap_node) = &config.node.bootstrap_node {
             initial_neighbors.push(bootstrap_node.clone());
@@ -390,6 +390,7 @@ impl InitializedNeonNode {
             TESTNET_CHAIN_ID, 
             burnchain.network_id, 
             config.connection_options.private_key_lifetime.clone(),
+            p2p_host, 
             p2p_sock.port(),
             data_url.clone(),
             &vec![], 

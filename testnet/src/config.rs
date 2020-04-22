@@ -8,7 +8,6 @@ use rand::RngCore;
 use stacks::burnchains::{
     MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
-use stacks::core::{PEER_VERSION};
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::secp256k1::Secp256k1PublicKey;
@@ -17,6 +16,7 @@ use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentif
 use stacks::vm::costs::ExecutionCost;
 
 use super::node::TESTNET_CHAIN_ID;
+use super::neon_node::TESTNET_PEER_VERSION;
 
 #[derive(Clone, Deserialize)]
 pub struct ConfigFile {
@@ -422,7 +422,7 @@ impl NodeConfig {
                     let sock_addr: SocketAddr = peer_addr.parse().unwrap(); 
                     let neighbor = Neighbor {
                         addr: NeighborKey {
-                            peer_version: PEER_VERSION,
+                            peer_version: TESTNET_PEER_VERSION,
                             network_id: TESTNET_CHAIN_ID,
                             addrbytes: PeerAddress::from_socketaddr(&sock_addr),
                             port: sock_addr.port()
