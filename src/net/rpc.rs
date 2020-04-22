@@ -954,7 +954,7 @@ impl ConversationHttp {
             let nrecv = match self.connection.recv_data(r) {
                 Ok(nr) => nr,
                 Err(e) => {
-                    info!("{:?}: failed to recv: {:?}", self, &e);
+                    debug!("{:?}: failed to recv: {:?}", self, &e);
                     return Err(e);
                 }
             };
