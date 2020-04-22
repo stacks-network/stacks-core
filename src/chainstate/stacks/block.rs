@@ -162,8 +162,8 @@ impl StacksBlockHeader {
     }
 
     pub fn is_genesis(&self) -> bool {
-        // Aaron: not sure about this -- wouldn't the FIRST_STACKS_BLOCK_HASH _be_ the genesis block?
-        //   a child of that block wouldn't be the genesis block.
+        // Note: this is true if this block is the child of the first stacks block -- which
+        //   means it is the first mined block
         self.parent_block == FIRST_STACKS_BLOCK_HASH.clone()
     }
 

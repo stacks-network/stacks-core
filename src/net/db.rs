@@ -350,6 +350,20 @@ impl PeerDB {
         Ok(())
     }
 
+    fn update_local_peer(&mut self, network_id: u32, parent_network_id: u32, data_url: UrlString, p2p_port: u16) -> Result<(), db_error> {
+        let local_peer_args : &[&dyn ToSql] = &[
+            &p2p_port,
+            &data_url.as_str(),
+            &network_id,
+            &parent_network_id];
+
+        match self.conn.execute("UPDATE local_peer SET port = ?, data_url = ? WHERE network_id = ? AND parent_network_id = ?",
+                                local_peer_args) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(db_error::SqliteError(e))
+        }
+    }
+
     /// Open the burn database at the given path.  Open read-only or read/write.
     /// If opened for read/write and it doesn't exist, instantiate it.
     pub fn connect(path: &String, readwrite: bool, network_id: u32, parent_network_id: u32, key_expires: u64, p2p_port: u16, data_url: UrlString, asn4_recs: &Vec<ASEntry4>, initial_neighbors: Option<&Vec<Neighbor>>) -> Result<PeerDB, db_error> {
@@ -393,6 +407,8 @@ impl PeerDB {
                     db.instantiate(network_id, parent_network_id, key_expires, data_url, p2p_port, asn4_recs, &vec![])?;
                 }
             }
+        } else {
+            db.update_local_peer(network_id, parent_network_id, data_url, p2p_port)?;
         }
         Ok(db)
     }
