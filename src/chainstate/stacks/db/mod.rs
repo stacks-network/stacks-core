@@ -289,6 +289,10 @@ impl<'a> ClarityTx<'a> {
         self.block.rollback_block()
     }
 
+    pub fn reset_cost(&mut self, cost: ExecutionCost) -> () {
+        self.block.reset_block_cost(cost);
+    }
+
     pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a> {
         &mut self.block
     }
@@ -713,6 +717,12 @@ impl StacksChainState {
     pub fn reopen(&self) -> Result<StacksChainState, Error> {
         StacksChainState::open(self.mainnet, self.chain_id, &self.root_path)
     }
+    
+    /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
+    /// parameters, but with a block limit
+    pub fn reopen_limited(&self, budget: ExecutionCost) -> Result<StacksChainState, Error> {
+        StacksChainState::open_and_exec(self.mainnet, self.chain_id, &self.root_path, None, |_| {}, budget)
+    }
 
     pub fn open_testnet<F>(chain_id: u32, path_str: &str, initial_balances: Option<Vec<(PrincipalData, u64)>>,
                            in_boot_block: F, block_limit: ExecutionCost) -> Result<StacksChainState, Error>  
@@ -863,22 +873,7 @@ impl StacksChainState {
 
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(conf, chainstate_tx.headers_tx.deref().deref(),
-                                                 clarity_instance, parent_burn_hash, parent_block, new_burn_hash, new_block, None)
-    }
-    
-    /// Begin processing an epoch's transactions within the context of a chainstate transaction,
-    /// with a given computational budget
-    pub fn chainstate_block_begin_limited<'a>(chainstate_tx: &'a ChainstateTx<'a>,
-                                              clarity_instance: &'a mut ClarityInstance,
-                                              parent_burn_hash: &BurnchainHeaderHash,
-                                              parent_block: &BlockHeaderHash,
-                                              new_burn_hash: &BurnchainHeaderHash,
-                                              new_block: &BlockHeaderHash,
-                                              max_cost: ExecutionCost) -> ClarityTx<'a> {
-
-        let conf = chainstate_tx.config.clone();
-        StacksChainState::inner_clarity_tx_begin(conf, chainstate_tx.headers_tx.deref().deref(),
-                                                 clarity_instance, parent_burn_hash, parent_block, new_burn_hash, new_block, Some(max_cost))
+                                                 clarity_instance, parent_burn_hash, parent_block, new_burn_hash, new_block)
     }
     
     /// Begin a transaction against the Clarity VM, _outside of_ the context of a chainstate
@@ -886,15 +881,7 @@ impl StacksChainState {
     pub fn block_begin<'a>(&'a mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash) -> ClarityTx<'a> {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(conf, &self.headers_db, &mut self.clarity_state,
-                                                 parent_burn_hash, parent_block, new_burn_hash, new_block, None)
-    }
-    
-    /// Begin a transaction against the Clarity VM, _outside of_ the context of a chainstate
-    /// transaction.  Used by the miner for producing blocks with a fixed computation budget
-    pub fn block_begin_limited<'a>(&'a mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash, new_burn_hash: &BurnchainHeaderHash, new_block: &BlockHeaderHash, max_cost: ExecutionCost) -> ClarityTx<'a> {
-        let conf = self.config();
-        StacksChainState::inner_clarity_tx_begin(conf, &self.headers_db, &mut self.clarity_state,
-                                                 parent_burn_hash, parent_block, new_burn_hash, new_block, Some(max_cost))
+                                                 parent_burn_hash, parent_block, new_burn_hash, new_block)
     }
     
     fn begin_read_only_clarity_tx<'a>(&'a mut self, parent_burn_hash: &BurnchainHeaderHash, parent_block: &BlockHeaderHash) -> ClarityReadOnlyConnection<'a> {
@@ -934,8 +921,7 @@ impl StacksChainState {
                                   parent_burn_hash: &BurnchainHeaderHash,
                                   parent_block: &BlockHeaderHash,
                                   new_burn_hash: &BurnchainHeaderHash,
-                                  new_block: &BlockHeaderHash,
-                                  cost_opt: Option<ExecutionCost>) -> ClarityTx<'a> {
+                                  new_block: &BlockHeaderHash) -> ClarityTx<'a> {
 
         // mix burn header hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the burn header hash _is_).
@@ -947,10 +933,7 @@ impl StacksChainState {
         test_debug!("Child MARF index root:  {} = {} + {}", new_index_block, new_burn_hash, new_block);
         test_debug!("Parent MARF index root: {} = {} + {}", parent_index_block, parent_burn_hash, parent_block);
 
-        let inner_clarity_tx = match cost_opt {
-            Some(cost_limit) => clarity_instance.begin_block_with_limit(&parent_index_block, &new_index_block, headers_db, cost_limit),
-            None => clarity_instance.begin_block(&parent_index_block, &new_index_block, headers_db)
-        };
+        let inner_clarity_tx = clarity_instance.begin_block(&parent_index_block, &new_index_block, headers_db);
 
         test_debug!("Got clarity TX!");
         ClarityTx {
