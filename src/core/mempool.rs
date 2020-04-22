@@ -52,6 +52,9 @@ use util::db::query_row;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 
+use core::FIRST_STACKS_BLOCK_HASH;
+use core::FIRST_BURNCHAIN_BLOCK_HASH;
+
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE : u64 = 256;
 
@@ -310,6 +313,64 @@ impl MemPoolDB {
         Ok(rows)
     }
 
+    /// Get the next timestamp after this one that occurs in this chain tip.
+    pub fn get_next_timestamp(conn: &DBConn, burnchain_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash, timestamp: u64) -> Result<Option<u64>, db_error> {
+        let sql = "SELECT accept_time FROM mempool WHERE accept_time > ?1 AND burn_header_hash = ?2 AND block_header_hash = ?3 ORDER BY accept_time LIMIT 1";
+        let args : &[&dyn ToSql] = &[&u64_to_sql(timestamp)?, burnchain_header_hash, block_header_hash];
+        query_row(conn, sql, args)
+    }
+    
+    /// Get all transactions at a particular timestamp and chain tip
+    pub fn get_txs_at(conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash, timestamp: u64) -> Result<Vec<MemPoolTxInfo>, db_error> {
+        let sql = "SELECT * FROM mempool WHERE accept_time = ?1 AND burn_header_hash = ?2 AND block_header_hash = ?3 ORDER BY estimated_fee DESC";
+        let args : &[&dyn ToSql] = &[&u64_to_sql(timestamp)?, burn_header_hash, block_header_hash];
+        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
+        Ok(rows)
+    }
+    
+    /// Given a chain tip, find the current block height
+    pub fn get_block_height(conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash) -> Result<Option<u64>, db_error> {
+        let sql = "SELECT height FROM mempool WHERE burn_header_hash = ?1 AND block_header_hash = ?2";
+        let args : &[&dyn ToSql] = &[burn_header_hash, block_header_hash];
+        query_row(conn, sql, args)
+    }
+
+    /// Given a chain tip, find the highest block-height from _before_ this tip
+    pub fn get_previous_block_height(conn: &DBConn, height: u64) -> Result<Option<u64>, db_error> {
+        let sql = "SELECT height FROM mempool WHERE height < ?1 ORDER BY height DESC LIMIT 1";
+        let args : &[&dyn ToSql] = &[&u64_to_sql(height)?];
+        query_row(conn, sql, args)
+    }
+
+    /// Get chain tip(s) at a given height that have transactions
+    pub fn get_chain_tips_at_height(conn: &DBConn, height: u64) -> Result<Vec<(BurnchainHeaderHash, BlockHeaderHash)>, db_error> {
+        let sql = "SELECT burn_header_hash,block_header_hash FROM mempool WHERE height = ?1";
+        let args : &[&dyn ToSql] = &[&u64_to_sql(height)?];
+        
+        let mut stmt = conn.prepare(sql)
+            .map_err(db_error::SqliteError)?;
+
+        let mut rows = stmt.query(args)
+            .map_err(db_error::SqliteError)?;
+
+        // gather 
+        let mut tips = vec![];
+        while let Some(row_res) = rows.next() {
+            match row_res {
+                Ok(row) => {
+                    let burn_header_hash = BurnchainHeaderHash::from_column(&row, "burn_header_hash")?;
+                    let block_hash = BlockHeaderHash::from_column(&row, "block_header_hash")?;
+                    tips.push((burn_header_hash, block_hash));
+                },
+                Err(e) => {
+                    return Err(db_error::SqliteError(e));
+                }
+            };
+        }
+
+        Ok(tips)
+    }
+
     /// Get a number of transactions after a given timestamp on a given chain tip.
     pub fn get_txs_after(conn: &DBConn, burn_header_hash: &BurnchainHeaderHash, block_header_hash: &BlockHeaderHash, timestamp: u64, count: u64) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool WHERE accept_time >= ?1 AND burn_header_hash = ?2 AND block_header_hash = ?3 ORDER BY estimated_fee DESC LIMIT ?4";
@@ -438,7 +499,12 @@ impl MemPoolDB {
         let height = match mempool_tx.admitter.chainstate.get_stacks_block_height(burn_header_hash, block_hash) {
             Ok(Some(h)) => h,
             Ok(None) => {
-                return Err(MemPoolRejection::NoSuchChainTip(burn_header_hash.clone(), block_hash.clone()));
+                if *burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH && *block_hash == FIRST_STACKS_BLOCK_HASH {
+                    0
+                }
+                else {
+                    return Err(MemPoolRejection::NoSuchChainTip(burn_header_hash.clone(), block_hash.clone()));
+                }
             },
             Err(e) => {
                 return Err(MemPoolRejection::Other(format!("Failed to load chain tip: {:?}", &e)));
