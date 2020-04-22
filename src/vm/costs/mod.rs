@@ -105,6 +105,10 @@ impl LimitedCostTracker {
     pub fn get_total(&self) -> ExecutionCost {
         self.total.clone()
     }
+    pub fn set_total(&mut self, total: ExecutionCost) -> () {
+        // used by the miner to "undo" the cost of a transaction when trying to pack a block.
+        self.total = total;
+    }
 }
 
 fn add_cost(s: &mut LimitedCostTracker, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
