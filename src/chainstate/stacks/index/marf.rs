@@ -188,7 +188,8 @@ impl MARF {
     fn root_copy(storage: &mut TrieFileStorage, prev_block_hash: &BlockHeaderHash) -> Result<(), Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
         storage.open_block(prev_block_hash)?;
-        let prev_block_identifier = storage.get_cur_block_identifier()?;
+        let prev_block_identifier = storage.get_cur_block_identifier()
+            .expect(&format!("called open_block on {}, but found no identifier", prev_block_hash));
         
         let (mut prev_root, _) = Trie::read_root(storage)?;
         let new_root_hash = MARF::node_copy_update(&mut prev_root, prev_block_identifier)?;
