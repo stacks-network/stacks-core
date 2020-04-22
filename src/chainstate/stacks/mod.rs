@@ -73,6 +73,7 @@ use vm::types::{
 
 use vm::representations::{ContractName, ClarityName};
 use vm::clarity::Error as clarity_error;
+use vm::costs::ExecutionCost;
 
 pub type StacksPublicKey = secp256k1::Secp256k1PublicKey;
 pub type StacksPrivateKey = secp256k1::Secp256k1PrivateKey;
@@ -130,6 +131,7 @@ pub enum Error {
     NoSuchBlockError,
     InvalidChainstateDB,
     BlockTooBigError,
+    BlockCostExceeded,
     MicroblockStreamTooLongError,
     IncompatibleSpendingConditionError,
     ClarityError(clarity_error),
@@ -152,6 +154,7 @@ impl fmt::Display for Error {
             Error::NoSuchBlockError => write!(f, "No such Stacks block"),
             Error::InvalidChainstateDB => write!(f, "Invalid chainstate database"),
             Error::BlockTooBigError => write!(f, "Too much data in block"),
+            Error::BlockCostExceeded => write!(f, "Block execution budget exceeded"),
             Error::MicroblockStreamTooLongError => write!(f, "Too many microblocks in stream"),
             Error::IncompatibleSpendingConditionError => write!(f, "Spending condition is incompatible with this operation"),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
@@ -176,6 +179,7 @@ impl error::Error for Error {
             Error::NoSuchBlockError => None,
             Error::InvalidChainstateDB => None,
             Error::BlockTooBigError => None,
+            Error::BlockCostExceeded => None,
             Error::MicroblockStreamTooLongError => None,
             Error::IncompatibleSpendingConditionError => None,
             Error::ClarityError(ref e) => Some(e),
@@ -693,12 +697,17 @@ pub struct StacksBlockBuilder {
     pub header: StacksBlockHeader,
     pub txs: Vec<StacksTransaction>,
     pub micro_txs: Vec<StacksTransaction>,
+    pub total_cost: ExecutionCost,
+    pub total_anchored_fees: u64,
+    pub total_confirmed_streamed_fees: u64,
+    pub total_streamed_fees: u64,
+    max_cost: ExecutionCost,
     anchored_done: bool,
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
     miner_payouts: Option<Vec<MinerReward>>,
-    miner_id: usize
+    miner_id: usize,
 }
 
 // maximum amount of data a leader can send during its epoch (2MB)
