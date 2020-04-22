@@ -7,7 +7,6 @@ extern crate serde;
 #[macro_use] extern crate serde_json;
 #[macro_use] extern crate stacks;
 
-
 pub use stacks::util;
 
 pub mod run_loop; 
@@ -27,30 +26,46 @@ pub use self::config::{Config, ConfigFile};
 pub use self::event_dispatcher::{EventDispatcher};
 pub use self::run_loop::{neon, helium};
 
-
-use std::env;
+use pico_args::Arguments;
 
 fn main() {
 
-    util::log::set_loglevel(util::log::LOG_INFO).unwrap();
+    let mut args = Arguments::from_env();
+    let subcommand = args.subcommand().unwrap().unwrap_or_default();
 
-    let argv : Vec<String> = env::args().collect();
-
-    let conf = match argv.len() {
-        n if n >= 2 => {
-            println!("Starting testnet with config {}...", argv[1]);
-            Config::from_config_file_path(&argv[1])
-        },
+    let config_file = match subcommand.as_str() {
+        "mocknet" => {
+            args.finish().unwrap();
+            ConfigFile::mocknet()
+        }
+        "helium" => {
+            args.finish().unwrap();
+            ConfigFile::helium()
+        }
+        "neon" => {
+            args.finish().unwrap();
+            ConfigFile::neon()
+        }
+        "start" => {
+            let config_path: String = args.value_from_str("--config").unwrap();
+            args.finish().unwrap();
+            println!("==> {}", config_path);
+            ConfigFile::from_path(&config_path)
+        }
+        "version" => {
+            print_version();
+            return;
+        }
         _ => {
-            println!("Starting testnet with default config...");
-            Config::default()
+            print_help();
+            return
         }
     };
 
-    println!("Transactions can be posted on the endpoint:");
-    println!("POST http://{}/v2/transactions", conf.node.rpc_bind);
-    
+    let conf = Config::from_config_file(config_file);
+
     let num_round: u64 = 0; // Infinite number of rounds
+
     if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
         let mut run_loop = helium::RunLoop::new(conf);
         run_loop.start(num_round);
@@ -60,7 +75,48 @@ fn main() {
     } else {
         println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
     }
-    return
+}
+
+fn print_help() {
+    eprintln!(
+        "\
+stacks-node <SUBCOMMAND>
+Run a stacks-node.
+
+USAGE:
+stacks-node <SUBCOMMAND>
+
+SUBCOMMANDS:
+
+mocknet\t\tStart a node based on a fast local setup emulating a burnchain. Ideal for smart contract development. 
+
+helium\t\tStart a node based on a local setup relying on a local instance of bitcoind.
+\t\tThe following bitcoin.conf is expected:
+\t\t  chain=regtest
+\t\t  disablewallet=0
+\t\t  txindex=1
+\t\t  server=1
+\t\t  rpcuser=helium
+\t\t  rpcpassword=helium
+
+neon\t\tStart a node that will join and stream blocks from the public neon testnet, powered by Blockstack.
+
+start\t\tStart a node with a config of your own. Can be used for joining a network, starting new chain, etc.
+\t\tArguments:
+\t\t  --config: path of the config (such as https://github.com/blockstack/stacks-blockchain/blob/master/testnet/Stacks.toml).
+\t\tExemple:
+\t\t  stacks-node start --config=/path/to/config.toml
+
+version\t\tDisplay informations about the current version and our release cycle.
+
+help\t\tDisplay this help.
+
+"
+    );
+}
+
+fn print_version() {
+    println!("2020-04-23");
 }
 
 #[cfg(test)]
