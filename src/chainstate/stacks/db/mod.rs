@@ -916,10 +916,9 @@ impl StacksChainState {
     /// Get the appropriate MARF index hash to use to identify a chain tip, given a parent block
     /// header
     pub fn get_index_hash(burn_hash: &BurnchainHeaderHash, header: &StacksBlockHeader) -> BlockHeaderHash {
-        if header.is_genesis() {
+        if burn_hash == &FIRST_BURNCHAIN_BLOCK_HASH {
             TrieFileStorage::block_sentinel()
-        }
-        else {
+        } else {
             header.index_block_hash(burn_hash)
         }
     } 

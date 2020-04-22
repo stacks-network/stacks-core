@@ -19,7 +19,7 @@ pub struct TenureArtifacts {
 }
 
 pub struct Tenure {
-    block_builder: StacksBlockBuilder,
+    block_builder: Option<StacksBlockBuilder>,
     coinbase_tx: StacksTransaction,
     config: Config,
     pub burnchain_tip: BurnchainTip,
@@ -61,7 +61,7 @@ impl <'a> Tenure {
         };
 
         Self {
-            block_builder,
+            block_builder: Some(block_builder),
             coinbase_tx,
             config,
             burnchain_tip,
@@ -78,7 +78,9 @@ impl <'a> Tenure {
                 continue;
             }
 
-            let res = self.block_builder.try_mine_tx(clarity_tx, &tx);
+            let res = self.block_builder.as_mut()
+                .expect("BUG: attempted to process tx in tenure that already committed")
+                .try_mine_tx(clarity_tx, &tx);
             match res {
                 Err(e) => error!("Failed mining transaction - {}", e),
                 Ok(_) => {
@@ -100,8 +102,10 @@ impl <'a> Tenure {
         let burn_header_hash = self.parent_block.metadata.burn_header_hash;
         let block_hash= self.parent_block.block.block_hash();
 
-        let mut clarity_tx = self.block_builder.epoch_begin(&mut chain_state).unwrap();
-        let mut candidates= vec![];
+        let mut clarity_tx = self.block_builder.as_mut()
+            .expect("BUG: attempted to process tx in tenure that already committed")
+            .epoch_begin(&mut chain_state).unwrap();
+        let mut candidates = vec![];
 
         self.handle_txs(&mut clarity_tx, vec![self.coinbase_tx.clone()], &mut candidates);
 
@@ -114,9 +118,13 @@ impl <'a> Tenure {
             elapsed = Instant::now().duration_since(self.burnchain_tip.received_at);
         } 
 
-        let anchored_block = self.block_builder.mine_anchored_block(&mut clarity_tx);
+        let mut block_builder = self.block_builder.take()
+            .expect("BUG: attempted to process tx in tenure that already committed");
 
-        clarity_tx.rollback_block();
+        let anchored_block = block_builder.mine_anchored_block(&mut clarity_tx);
+
+        info!("Finish tenure: {}", anchored_block.block_hash());
+        block_builder.epoch_finish(clarity_tx);
 
         let artifact = TenureArtifacts {
             anchored_block,

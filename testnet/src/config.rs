@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use rand::RngCore;
 
 use stacks::burnchains::{
-    Address, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+    MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
 use stacks::core::{PEER_VERSION};
 use stacks::net::connection::ConnectionOptions;

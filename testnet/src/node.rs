@@ -223,12 +223,20 @@ impl Node {
             initial_neighbors.push(bootstrap_node.clone());
         }
 
+        println!("BOOTSTRAP WITH {:?}", initial_neighbors);
+
+        let rpc_sock: SocketAddr = self.config.node.rpc_bind.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
+        let p2p_sock: SocketAddr = self.config.node.p2p_bind.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_bind));
+
         let peerdb = PeerDB::connect(
             &self.config.get_peer_db_path(), 
             true, 
             TESTNET_CHAIN_ID, 
             burnchain.network_id, 
             self.config.connection_options.private_key_lifetime.clone(),
+            p2p_sock.port(),
             data_url.clone(),
             &vec![], 
             Some(&initial_neighbors)).unwrap();
@@ -239,10 +247,6 @@ impl Node {
         };
 
         let p2p_net = PeerNetwork::new(peerdb, local_peer, TESTNET_PEER_VERSION, burnchain, view, self.config.connection_options.clone());
-        let rpc_sock = self.config.node.rpc_bind.parse()
-            .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
-        let p2p_sock = self.config.node.p2p_bind.parse()
-            .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_bind));
         let _join_handle = spawn_peer(
             p2p_net, 
             &p2p_sock, 

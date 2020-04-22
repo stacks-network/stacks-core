@@ -34,6 +34,7 @@ impl MocknetController {
     }
 
     fn new(config: Config) -> Self {
+        debug!("Opening Burnchain at {}", &config.get_burn_db_path());
         let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain, &"regtest".to_string())
             .expect("Error while instantiating burnchain");
 
@@ -106,8 +107,9 @@ impl BurnchainController for MocknetController {
         genesis_state
     }
 
-    fn submit_operation(&mut self, operation: BlockstackOperationType, _op_signer: &mut BurnchainOpSigner) {
+    fn submit_operation(&mut self, operation: BlockstackOperationType, _op_signer: &mut BurnchainOpSigner) -> bool {
         self.queued_operations.push_back(operation);
+        true
     }
 
     fn sync(&mut self) -> BurnchainTip {
