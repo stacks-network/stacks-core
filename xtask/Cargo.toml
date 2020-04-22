@@ -10,4 +10,3 @@ doctest = false
 
 [dependencies]
 pico-args = "0.3.1"
-anyhow = "1.0.26"
