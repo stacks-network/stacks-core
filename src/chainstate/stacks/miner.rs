@@ -20,6 +20,7 @@
 use std::fs;
 use std::mem;
 use std::collections::HashSet;
+use std::collections::HashMap;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use chainstate::stacks::db::{
@@ -68,7 +69,6 @@ impl StacksBlockBuilder {
             header: header,
             txs: vec![],
             micro_txs: vec![],
-            total_cost: ExecutionCost::zero(),
             total_anchored_fees: 0,
             total_confirmed_streamed_fees: 0,
             total_streamed_fees: 0,
@@ -135,19 +135,9 @@ impl StacksBlockBuilder {
 
     /// Reset measured costs and fees
     pub fn reset_costs(&mut self) -> () {
-        self.total_cost = ExecutionCost::zero();
         self.total_anchored_fees = 0;
         self.total_confirmed_streamed_fees = 0;
         self.total_streamed_fees = 0;
-    }
-
-    fn check_block_cost(&self, receipt: &StacksTransactionReceipt) -> Result<(), Error> {
-        let mut total_cost = self.total_cost.clone();
-        total_cost.add(&receipt.execution_cost).expect("BUG: miner created a block that was way too expensive");
-        if total_cost.exceeds(&self.max_cost) {
-            return Err(Error::BlockTooBigError);
-        }
-        Ok(())
     }
 
     /// Append a transaction if doing so won't exceed the epoch data size.
@@ -167,13 +157,21 @@ impl StacksBlockBuilder {
                 return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for anchored data".to_string()));
             }
 
-            let (fee, receipt) = StacksChainState::process_transaction(clarity_tx, tx)?;
-            self.check_block_cost(&receipt)?;
+            let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx)
+                .map_err(|e| {
+                    match e {
+                        Error::CostOverflowError(cost_before, cost_after, total_budget) => { 
+                            warn!("Transaction {} reached block cost {}; budget was {}", tx.txid(), &cost_after, &total_budget);
+                            // TODO: roll back cost
+                            Error::BlockTooBigError
+                        },
+                        _ => e
+                    }
+                })?;
 
             // save
             self.txs.push(tx.clone());
             self.total_anchored_fees += fee;
-            self.total_cost.add(&receipt.execution_cost).expect("BUG: miner created a block that is way too expensive");
         }
         else {
             // building up the microblocks
@@ -181,13 +179,21 @@ impl StacksBlockBuilder {
                 return Err(Error::InvalidStacksTransaction("Invalid transaction anchor mode for streamed data".to_string()));
             }
             
-            let (fee, receipt) = StacksChainState::process_transaction(clarity_tx, tx)?;
-            self.check_block_cost(&receipt)?;
+            let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx)
+                .map_err(|e| {
+                    match e {
+                        Error::CostOverflowError(cost_before, cost_after, total_budget) => { 
+                            warn!("Transaction {} reached block cost {}; budget was {}", tx.txid(), &cost_after, &total_budget);
+                            // TODO: roll back cost
+                            Error::BlockTooBigError
+                        },
+                        _ => e
+                    }
+                })?;
 
             // save
             self.micro_txs.push(tx.clone());
             self.total_streamed_fees += fee;
-            self.total_cost.add(&receipt.execution_cost).expect("BUG: miner created a microblock that is way too expensive");
         }
 
         self.bytes_so_far += tx_len;
@@ -211,7 +217,6 @@ impl StacksBlockBuilder {
             match StacksChainState::process_transaction(clarity_tx, tx) {
                 Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
-                    self.total_cost.add(&receipt.execution_cost).expect("BUG: miner created a block that is way too expensive");
                 },
                 Err(e) => {
                     warn!("Invalid transaction {} in anchored block, but forcing inclusion (error: {:?})", &tx.txid(), &e);
@@ -224,7 +229,6 @@ impl StacksBlockBuilder {
             match StacksChainState::process_transaction(clarity_tx, tx) {
                 Ok((fee, receipt)) => {
                     self.total_streamed_fees += fee;
-                    self.total_cost.add(&receipt.execution_cost).expect("BUG: miner created a block that is way too expensive");
                 },
                 Err(e) => {
                     warn!("Invalid transaction {} in microblock, but forcing inclusion (error: {:?})", &tx.txid(), &e);
@@ -408,28 +412,18 @@ impl StacksBlockBuilder {
     }
 
     /// Create a block builder for mining
-    fn make_block_builder(burndb: &mut BurnDB,
-                          chainstate: &mut StacksChainState,
-                          parent_burn_header_hash: &BurnchainHeaderHash,
-                          parent_block_hash: &BlockHeaderHash,
+    fn make_block_builder(chainstate: &mut StacksChainState,
+                          parent_stacks_block_snapshot: Option<BlockSnapshot>,
                           proof: VRFProof,
                           pubkey_hash: Hash160) -> Result<StacksBlockBuilder, Error> {
 
-        let builder = 
-            if *parent_burn_header_hash == FIRST_BURNCHAIN_BLOCK_HASH && *parent_block_hash == FIRST_STACKS_BLOCK_HASH {
-                StacksBlockBuilder::first_pubkey_hash(0, parent_burn_header_hash, FIRST_BURNCHAIN_BLOCK_TIMESTAMP, &proof, pubkey_hash)
+        let builder = match parent_stacks_block_snapshot {
+            None => {
+                StacksBlockBuilder::first_pubkey_hash(0, &FIRST_BURNCHAIN_BLOCK_HASH, FIRST_BURNCHAIN_BLOCK_TIMESTAMP, &proof, pubkey_hash)
             }
-            else {
+            Some(parent_stacks_block_snapshot) => {
                 // building off an existing stacks block
-                let parent_stacks_block_snapshot = {
-                    let mut tx = burndb.tx_begin()?;
-                    let parent_stacks_block_snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, parent_burn_header_hash, parent_block_hash)?
-                        .ok_or(Error::NoSuchBlockError)?;
-
-                    parent_stacks_block_snapshot
-                };
-
-                let parent_chain_tip = StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, parent_burn_header_hash, parent_block_hash)?
+                let parent_chain_tip = StacksChainState::get_anchored_block_header_info(&chainstate.headers_db, &parent_stacks_block_snapshot.burn_header_hash, &parent_stacks_block_snapshot.winning_stacks_block_hash)?
                     .ok_or(Error::NoSuchBlockError)?;
 
                 let new_work = StacksWorkScore {
@@ -438,17 +432,85 @@ impl StacksBlockBuilder {
                 };
 
                 StacksBlockBuilder::from_parent_pubkey_hash(0, &parent_chain_tip, &new_work, &proof, pubkey_hash)
-            };
+            }
+        };
 
         Ok(builder)
     }
 
+    /// Walk the mempool back to the first chain tip that has a transction we can mine.
+    /// Returns (burn hash, block hash, block height, timestamp)
+    fn walk_mempool(mempool: &MemPoolDB, chainstate: &mut StacksChainState, tip_burn_header_hash: &BurnchainHeaderHash, tip_block_hash: &BlockHeaderHash) -> Result<Option<(BurnchainHeaderHash, BlockHeaderHash, u64, u64)>, Error> {
+        let mut tip_height = MemPoolDB::get_block_height(mempool.conn(), tip_burn_header_hash, tip_block_hash)?.unwrap_or(0);
+
+        // Walk back to the next-highest
+        // ancestor of this tip, and see if we can include anything from there.
+        let next_height = MemPoolDB::get_previous_block_height(mempool.conn(), tip_height)?.unwrap_or(0);
+        if next_height == 0 && tip_height == 0 {
+            // we're done -- tried every tx
+            debug!("Done scanning mempool -- at height 0");
+            return Ok(None);
+        }
+
+        let mut next_tips = MemPoolDB::get_chain_tips_at_height(mempool.conn(), next_height)?;
+        if next_tips.len() == 0 {
+            // we're done -- no more chain tips
+            debug!("Done scanning mempool -- no chain tips at height {}", next_height);
+            return Ok(None);
+        }
+        
+        let ancestor_tip = {
+            let mut headers_tx = chainstate.headers_tx_begin()?;
+            // `next_height` is 1-indexed, since stacks blocks start at height 1.
+            // The headers DB, however, is 0-indexed, since it includes the genesis
+            // block header hash.  Account for this.
+            let next_header_height = next_height.saturating_sub(1);
+            match StacksChainState::get_index_tip_ancestor(&mut headers_tx, &StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash), next_header_height)? {
+                Some(tip_info) => tip_info,
+                None => {
+                    // no such ancestor.  We're done
+                    debug!("Done scanning mempool -- no ancestor at height {} off of {}/{} ({})", next_height, tip_burn_header_hash, tip_block_hash, StacksBlockHeader::make_index_block_hash(tip_burn_header_hash, tip_block_hash));
+                    return Ok(None);
+                }
+            }
+        };
+        
+        // find out which tip is the ancestor tip
+        let mut found = false;
+        let mut next_tip_burn_header_hash = tip_burn_header_hash.clone();
+        let mut next_tip_block_hash = tip_block_hash.clone();
+
+        for (burn_bhh, block_bhh) in next_tips.drain(..) {
+            if ancestor_tip.burn_header_hash == burn_bhh && ancestor_tip.anchored_header.block_hash() == block_bhh {
+                found = true;
+                next_tip_burn_header_hash = burn_bhh;
+                next_tip_block_hash = block_bhh;
+                break;
+            }
+        }
+        
+        if !found {
+            // no such ancestor.  We're done.
+            debug!("Done scanning mempool -- none of the available prior chain tips at {} is an ancestor of {}/{}", next_height, tip_burn_header_hash, tip_block_hash);
+            return Ok(None);
+        }
+
+        tip_height = next_height;
+        let next_timestamp = match MemPoolDB::get_next_timestamp(mempool.conn(), &next_tip_burn_header_hash, &next_tip_block_hash, 0)? {
+            Some(ts) => ts,
+            None => {
+                unreachable!("No transactions at a chain tip that exists");
+            }
+        };
+        
+        debug!("Will start scaning mempool at {}/{} height={} ts={}", &next_tip_burn_header_hash, &next_tip_block_hash, tip_height, next_timestamp);
+        Ok(Some((next_tip_burn_header_hash, next_tip_block_hash, tip_height, next_timestamp)))
+    }
+
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
-    pub fn build_anchored_block(burndb: &mut BurnDB,
-                                chainstate: &mut StacksChainState,
+    pub fn build_anchored_block(chainstate: &mut StacksChainState,
                                 mempool: &MemPoolDB,
-                                parent_burn_header_hash: &BurnchainHeaderHash,
-                                parent_block_hash: &BlockHeaderHash,
+                                parent_stacks_block_snapshot: Option<BlockSnapshot>,
                                 proof: VRFProof,
                                 pubkey_hash: Hash160,
                                 coinbase_tx: &StacksTransaction,
@@ -458,36 +520,61 @@ impl StacksBlockBuilder {
             return Err(Error::MemPoolError("Not a coinbase transaction".to_string()));
         }
 
-        let mut builder = StacksBlockBuilder::make_block_builder(burndb, chainstate, parent_burn_header_hash, parent_block_hash, proof, pubkey_hash)?;
+        let (mut tip_burn_header_hash, mut tip_block_hash) = match parent_stacks_block_snapshot {
+            None => (FIRST_BURNCHAIN_BLOCK_HASH.clone(), FIRST_STACKS_BLOCK_HASH.clone()),
+            Some(ref snapshot) => {
+                if !snapshot.sortition {
+                    info!("No sortition in burn block {}", &snapshot.burn_header_hash);
+                    return Err(Error::NoSuchBlockError);
+                }
+                (snapshot.burn_header_hash.clone(), snapshot.winning_stacks_block_hash.clone())
+            }
+        };
+        let mut tip_height = MemPoolDB::get_block_height(mempool.conn(), &tip_burn_header_hash, &tip_block_hash)?.unwrap_or(0);
 
+        debug!("Build anchored block off of {}/{} height {}", &tip_burn_header_hash, &tip_block_hash, tip_height); 
+
+        let mut builder = StacksBlockBuilder::make_block_builder(chainstate, parent_stacks_block_snapshot, proof, pubkey_hash)?;
         builder.set_max_cost(execution_budget.clone());
+
         let cost_overflow_recovery_builder = builder.clone();     // used to construct the real anchored block if we run out of budget
         let mut header_reader_chainstate = chainstate.reopen()?;    // uesd for reading block headers during an epoch
-        
-        let mut tip_height = MemPoolDB::get_block_height(mempool.conn(), parent_burn_header_hash, parent_block_hash)?.unwrap_or(0);
-        let mut tip_burn_header_hash = parent_burn_header_hash.clone();
-        let mut tip_block_hash = parent_block_hash.clone();
         
         let mut epoch_tx = builder.epoch_begin(chainstate)?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
-        let mut considered = HashSet::new();
-        let mut next_timestamp = match MemPoolDB::get_next_timestamp(mempool.conn(), parent_burn_header_hash, parent_block_hash, 0)? {
+        let mut considered = HashSet::new();        // txids of all transactions we looked at
+        let mut mined_origin_nonces = HashMap::new();     // map addrs of mined transaction origins to the nonces we used
+        let mut mined_sponsor_nonces = HashMap::new();    // map addrs of mined transaction sponsors to the nonces we used
+
+        let mut next_timestamp = match MemPoolDB::get_next_timestamp(mempool.conn(), &tip_burn_header_hash, &tip_block_hash, 0)? {
             Some(ts) => ts,
             None => {
-                // no transactions at this chain tip, so mine an empty block 
-                let block = builder.mine_anchored_block(&mut epoch_tx);
-                builder.epoch_finish(epoch_tx);
-                return Ok(block);
+                // walk back to where the first transaction we can mine can be found
+                match StacksBlockBuilder::walk_mempool(mempool, &mut header_reader_chainstate, &tip_burn_header_hash, &tip_block_hash)? {
+                    Some((next_burn_bhh, next_block_bhh, next_height, next_timestamp)) => {
+                        tip_burn_header_hash = next_burn_bhh;
+                        tip_block_hash = next_block_bhh;
+                        tip_height = next_height;
+                        next_timestamp
+                    },
+                    None => {
+                        // no transactions anywhere, so mine an empty block
+                        let block = builder.mine_anchored_block(&mut epoch_tx);
+                        builder.epoch_finish(epoch_tx);
+                        return Ok(block);
+                    }
+                }
             }
         };
         
-        test_debug!("Begin scanning transaction mempool at {}/{} height={}", &tip_burn_header_hash, &tip_block_hash, tip_height);
+        debug!("Begin scanning transaction mempool at {}/{} height={}", &tip_burn_header_hash, &tip_block_hash, tip_height);
 
         // set to true if we exceed budget, and need to rebuild with known-good transactions.
         let mut do_rebuild = false;
 
         loop {
+            debug!("Scan mempool transactions at {}/{} height={} starting at {}", &tip_burn_header_hash, &tip_block_hash, tip_height, next_timestamp);
             let mut available_txs = match MemPoolDB::get_txs_at(mempool.conn(), &tip_burn_header_hash, &tip_block_hash, next_timestamp) {
                 Ok(txs) => txs,
                 Err(e) => {
@@ -495,10 +582,21 @@ impl StacksBlockBuilder {
                     return Err(e.into());
                 }
             };
+            
+            debug!("Mempool has {} transactions at {}/{} height={} ts={}", available_txs.len(), &tip_burn_header_hash, &tip_block_hash, tip_height, next_timestamp);
 
             for txinfo in available_txs.drain(..) {
+                // skip transactions early if we can
                 if considered.contains(&txinfo.tx.txid()) {
                     continue;
+                }
+                if mined_origin_nonces.get(&txinfo.tx.origin_address()).is_some() {
+                    continue;
+                }
+                if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
+                    if mined_sponsor_nonces.get(&sponsor_addr).is_some() {
+                        continue;
+                    }
                 }
 
                 considered.insert(txinfo.tx.txid());
@@ -510,14 +608,40 @@ impl StacksBlockBuilder {
                         // Make the block from the transactions we did manage to get
                         debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
                         do_rebuild = true;
+                        continue;
                     },
                     Err(e) => {
                         warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
+                        continue;
                     }
+                }
+
+                mined_origin_nonces.insert(txinfo.tx.origin_address(), txinfo.tx.get_origin_nonce());
+                if let (Some(sponsor_addr), Some(sponsor_nonce)) = (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce()) {
+                    mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
                 }
             }
 
-            // next query point
+            // page back
+            next_timestamp = match MemPoolDB::get_next_timestamp(mempool.conn(), &tip_burn_header_hash, &tip_block_hash, next_timestamp)? {
+                Some(ts) => ts,
+                None => {
+                    // walk back
+                    match StacksBlockBuilder::walk_mempool(mempool, &mut header_reader_chainstate, &tip_burn_header_hash, &tip_block_hash)? {
+                        Some((next_burn_bhh, next_block_bhh, _next_height, next_timestamp)) => {
+                            tip_burn_header_hash = next_burn_bhh;
+                            tip_block_hash = next_block_bhh;
+                            next_timestamp
+                        },
+                        None => {
+                            // no more transactions
+                            break;
+                        }
+                    }
+                }
+            };
+
+            /*
             match MemPoolDB::get_next_timestamp(mempool.conn(), &tip_burn_header_hash, &tip_block_hash, next_timestamp)? {
                 Some(ts) => {
                     // still on this tip
@@ -529,14 +653,14 @@ impl StacksBlockBuilder {
                     let next_height = MemPoolDB::get_previous_block_height(mempool.conn(), tip_height)?.unwrap_or(0);
                     if next_height == 0 && tip_height == 0 {
                         // we're done -- tried every tx
-                        test_debug!("Done scanning mempool -- at height 0");
+                        debug!("Done scanning mempool -- at height 0");
                         break;
                     }
 
                     let mut next_tips = MemPoolDB::get_chain_tips_at_height(mempool.conn(), next_height)?;
                     if next_tips.len() == 0 {
                         // we're done -- no more chain tips
-                        test_debug!("Done scanning mempool -- no chain tips at height {}", next_height);
+                        debug!("Done scanning mempool -- no chain tips at height {}", next_height);
                         break;
                     }
                     
@@ -550,7 +674,7 @@ impl StacksBlockBuilder {
                             Some(tip_info) => tip_info,
                             None => {
                                 // no such ancestor.  We're done
-                                test_debug!("Done scanning mempool -- no ancestor at height {} off of {}/{} ({})", next_height, tip_burn_header_hash, tip_block_hash, StacksBlockHeader::make_index_block_hash(&tip_burn_header_hash, &tip_block_hash));
+                                debug!("Done scanning mempool -- no ancestor at height {} off of {}/{} ({})", next_height, tip_burn_header_hash, tip_block_hash, StacksBlockHeader::make_index_block_hash(&tip_burn_header_hash, &tip_block_hash));
                                 break;
                             }
                         }
@@ -569,7 +693,7 @@ impl StacksBlockBuilder {
                     
                     if !found {
                         // no such ancestor.  We're done.
-                        test_debug!("Done scanning mempool -- none of the available prior chain tips at {} is an ancestor of {}/{}", next_height, tip_burn_header_hash, tip_block_hash);
+                        debug!("Done scanning mempool -- none of the available prior chain tips at {} is an ancestor of {}/{}", next_height, tip_burn_header_hash, tip_block_hash);
                         break;
                     }
 
@@ -581,9 +705,10 @@ impl StacksBlockBuilder {
                         }
                     };
                     
-                    test_debug!("Scan transaction mempool at {}/{} ts={} height={}", &tip_burn_header_hash, &tip_block_hash, next_timestamp, tip_height);
+                    debug!("Scan transaction mempool at {}/{} ts={} height={}", &tip_burn_header_hash, &tip_block_hash, next_timestamp, tip_height);
                 }
             };
+            */
         }
 
         if do_rebuild {
@@ -623,12 +748,18 @@ pub mod test {
     use chainstate::stacks::db::test::*;
     use chainstate::burn::*;
     use chainstate::burn::db::burndb::*;
-    use chainstate::burn::operations::*;
+    use chainstate::burn::operations::{
+        LeaderBlockCommitOp,
+        LeaderKeyRegisterOp,
+        UserBurnSupportOp,
+        BlockstackOperation,
+        BlockstackOperationType
+    };
 
     use burnchains::*;
     use burnchains::test::*;
 
-    use util::vrf::*;
+    use util::vrf::VRFProof;
 
     use vm::types::*;
 
@@ -639,8 +770,6 @@ pub mod test {
     use net::test::*;
 
     use util::sleep_ms;
-
-    use vm::tests::integrations::*;
 
     pub const COINBASE : u128 = 500 * 100_000;
 
@@ -3258,7 +3387,17 @@ pub mod test {
                 let coinbase_tx = make_coinbase(miner, tenure_id);
                 let parent_tip_bhh = if parent_header_hash == FIRST_STACKS_BLOCK_HASH { FIRST_BURNCHAIN_BLOCK_HASH.clone() } else { tip.burn_header_hash.clone() };
 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(burndb, chainstate, &mempool, &parent_tip_bhh, &parent_header_hash, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let parent_snapshot_opt = 
+                    if parent_header_hash == FIRST_STACKS_BLOCK_HASH {
+                        None
+                    }
+                    else {
+                        let mut tx = burndb.tx_begin().unwrap();
+                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &parent_tip_bhh, &parent_header_hash).unwrap().unwrap();
+                        Some(snapshot)
+                    };
+
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, parent_snapshot_opt, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
                 (anchored_block, vec![])
             });
 
@@ -3314,7 +3453,17 @@ pub mod test {
 
                 mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
                 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(burndb, chainstate, &mempool, &parent_tip_bhh, &parent_header_hash, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+                let parent_snapshot_opt = 
+                    if parent_header_hash == FIRST_STACKS_BLOCK_HASH {
+                        None
+                    }
+                    else {
+                        let mut tx = burndb.tx_begin().unwrap();
+                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &parent_tip_bhh, &parent_header_hash).unwrap().unwrap();
+                        Some(snapshot)
+                    };
+                
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, parent_snapshot_opt, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
                 (anchored_block, vec![])
             });
             
@@ -3394,7 +3543,18 @@ pub mod test {
                 }
                 
                 sender_nonce += 1;
-                let anchored_block = StacksBlockBuilder::build_anchored_block(burndb, chainstate, &mempool, &parent_tip_bhh, &parent_header_hash, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
+
+                let parent_snapshot_opt = 
+                    if parent_header_hash == FIRST_STACKS_BLOCK_HASH {
+                        None
+                    }
+                    else {
+                        let mut tx = burndb.tx_begin().unwrap();
+                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &parent_tip_bhh, &parent_header_hash).unwrap().unwrap();
+                        Some(snapshot)
+                    };
+
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, parent_snapshot_opt, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, ExecutionCost::max_value()).unwrap();
                 (anchored_block, vec![])
             });
             
@@ -3420,25 +3580,32 @@ pub mod test {
     #[test]
     fn test_build_anchored_blocks_skip_too_expensive() {
         let privk = StacksPrivateKey::from_hex("42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01").unwrap();
-        let privk_expensive = StacksPrivateKey::from_hex("924956ebb4d412109e85310383ade0e6a3920215f20036fa852669e7304c00eb01").unwrap();
         let privk_extra = StacksPrivateKey::from_hex("f67c7437f948ca1834602b28595c12ac744f287a4efaf70d437042a6afed81bc01").unwrap();
+        let mut privks_expensive = vec![];
+        let mut initial_balances = vec![];
+        let num_blocks = 10;
+        for i in 0..num_blocks {
+            let pk = StacksPrivateKey::new();
+            let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&pk)]).unwrap().to_account_principal();
+
+            privks_expensive.push(pk);
+            initial_balances.push((addr, 10000000000));
+        }
+
 
         let addr = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk)]).unwrap();
-        let addr_expensive = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk_expensive)]).unwrap();
         let addr_extra = StacksAddress::from_public_keys(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, &AddressHashMode::SerializeP2PKH, 1, &vec![StacksPublicKey::from_private(&privk_extra)]).unwrap();
+        
+        initial_balances.push((addr.to_account_principal(), 100000000000));
+        initial_balances.push((addr_extra.to_account_principal(), 200000000000));
 
         let mut peer_config = TestPeerConfig::new("test_build_anchored_blocks_skip_too_expensive", 2002, 2003);
-        peer_config.initial_balances = vec![
-            (addr.to_account_principal(), 1000000000),
-            (addr_expensive.to_account_principal(), 1000000000),
-            (addr_extra.to_account_principal(), 1000000000),
-        ];
+        peer_config.initial_balances = initial_balances;
 
         let mut peer = TestPeer::new(peer_config);
 
         let chainstate_path = peer.chainstate_path.clone();
 
-        let num_blocks = 10;
         let first_stacks_block_height = {
             let sn = BurnDB::get_canonical_burn_chain_tip(&peer.burndb.as_ref().unwrap().conn()).unwrap();
             sn.block_height
@@ -3474,12 +3641,12 @@ pub mod test {
                 (define-public (set-bar (x int) (y int))
                   (begin (var-set bar (/ x y)) (ok (var-get bar))))", expensive_part.join("\n"));
 
-                // fee high enough to get miend first
+                // fee high enough to get mined first
                 let stx_transfer = make_user_stacks_transfer(&privk, sender_nonce, (4*contract.len()) as u64, &recipient.to_account_principal(), 1);
                 mempool.submit(&parent_tip_bhh, &parent_header_hash, stx_transfer).unwrap();
 
                 // will never get mined
-                let contract_tx = make_user_contract_publish(&privk_expensive, 0, (2*contract.len()) as u64, &format!("hello-world-{}", tenure_id), &contract);
+                let contract_tx = make_user_contract_publish(&privks_expensive[tenure_id], 0, (2*contract.len()) as u64, &format!("hello-world-{}", tenure_id), &contract);
 
                 mempool.submit(&parent_tip_bhh, &parent_header_hash, contract_tx).unwrap();
                 
@@ -3499,7 +3666,17 @@ pub mod test {
                     runtime: 3350
                 };
                 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(burndb, chainstate, &mempool, &parent_tip_bhh, &parent_header_hash, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
+                let parent_snapshot_opt = 
+                    if parent_header_hash == FIRST_STACKS_BLOCK_HASH {
+                        None
+                    }
+                    else {
+                        let mut tx = burndb.tx_begin().unwrap();
+                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &parent_tip_bhh, &parent_header_hash).unwrap().unwrap();
+                        Some(snapshot)
+                    };
+                
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, parent_snapshot_opt, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
                 (anchored_block, vec![])
             });
             
@@ -3589,7 +3766,17 @@ pub mod test {
                         ExecutionCost::max_value()
                     };
                 
-                let anchored_block = StacksBlockBuilder::build_anchored_block(burndb, chainstate, &mempool, &parent_tip_bhh, &parent_header_hash, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
+                let parent_snapshot_opt = 
+                    if parent_header_hash == FIRST_STACKS_BLOCK_HASH {
+                        None
+                    }
+                    else {
+                        let mut tx = burndb.tx_begin().unwrap();
+                        let snapshot = BurnDB::get_block_snapshot_for_winning_stacks_block(&mut tx, &parent_tip_bhh, &parent_header_hash).unwrap().unwrap();
+                        Some(snapshot)
+                    };
+                
+                let anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &mempool, parent_snapshot_opt, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, execution_cost).unwrap();
                 (anchored_block, vec![])
             });
             
