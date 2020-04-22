@@ -33,6 +33,7 @@ use std::fmt;
 ///
 pub struct ClarityInstance {
     datastore: Option<MarfedKV>,
+    block_limit: ExecutionCost,
 }
 
 ///
@@ -135,8 +136,8 @@ macro_rules! using {
 }
 
 impl ClarityInstance {
-    pub fn new(datastore: MarfedKV) -> ClarityInstance {
-        ClarityInstance { datastore: Some(datastore) }
+    pub fn new(datastore: MarfedKV, block_limit: ExecutionCost) -> ClarityInstance {
+        ClarityInstance { datastore: Some(datastore), block_limit }
     }
 
     pub fn begin_block<'a> (&'a mut self, current: &BlockHeaderHash, next: &BlockHeaderHash,
@@ -148,28 +149,13 @@ impl ClarityInstance {
 
         datastore.begin(current, next);
 
-        ClarityBlockConnection {
-            datastore,
-            header_db,
-            parent: self,
-            cost_track: Some(LimitedCostTracker::new_max_limit())
-        }
-    }
-
-    pub fn begin_block_with_limit<'a> (&'a mut self, current: &BlockHeaderHash, next: &BlockHeaderHash,
-                                       header_db: &'a dyn HeadersDB, limit: ExecutionCost) -> ClarityBlockConnection<'a> {
-        let mut datastore = self.datastore.take()
-            // this is a panicking failure, because there should be _no instance_ in which a ClarityBlockConnection
-            //   doesn't restore it's parent's datastore
-            .expect("FAIL: use of begin_block while prior block neither committed nor rolled back.");
-
-        datastore.begin(current, next);
+        let cost_track = Some(LimitedCostTracker::new(self.block_limit.clone()));
 
         ClarityBlockConnection {
             datastore,
             header_db,
             parent: self,
-            cost_track: Some(LimitedCostTracker::new(limit))
+            cost_track
         }
     }
 
@@ -605,7 +591,7 @@ mod tests {
     #[test]
     pub fn bad_syntax_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf);
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -632,7 +618,7 @@ mod tests {
     #[test]
     pub fn tx_rollback() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf);
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
@@ -690,7 +676,7 @@ mod tests {
     #[test]
     pub fn simple_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf);
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -722,7 +708,7 @@ mod tests {
     #[test]
     pub fn test_block_roll_back() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf);
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
@@ -756,7 +742,7 @@ mod tests {
     #[test]
     pub fn test_tx_roll_backs() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf);
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
@@ -819,7 +805,7 @@ mod tests {
     #[test]
     pub fn test_block_limit() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(marf);
+        let mut clarity_instance = ClarityInstance::new(marf, ExecutionCost::max_value());
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
@@ -847,17 +833,16 @@ mod tests {
             conn.commit_block();
         }
 
+        clarity_instance.block_limit = ExecutionCost { write_length: u64::max_value(),
+                                                       write_count: u64::max_value(),
+                                                       read_count: u64::max_value(),
+                                                       read_length: u64::max_value(),
+                                                       runtime: 100 };
+
         {
-            let mut conn = clarity_instance.begin_block_with_limit(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
-                                                                   &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
-                                                                   &NULL_HEADER_DB,
-                                                                   ExecutionCost {
-                                                                       write_length: u64::max_value(),
-                                                                       write_count: u64::max_value(),
-                                                                       read_count: u64::max_value(),
-                                                                       read_length: u64::max_value(),
-                                                                       runtime: 100
-                                                                   });
+            let mut conn = clarity_instance.begin_block(&BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+                                                        &BlockHeaderHash::from_bytes(&[1 as u8; 32]).unwrap(),
+                                                        &NULL_HEADER_DB);
             assert!(
                 match conn.as_transaction(|tx| tx.run_contract_call(&sender, &contract_identifier, "do-expand", &[],
                                        |_, _| false)).unwrap_err() {

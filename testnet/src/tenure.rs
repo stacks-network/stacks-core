@@ -91,10 +91,11 @@ impl <'a> Tenure {
     pub fn run(&mut self) -> Option<TenureArtifacts> {
         info!("Node starting new tenure with VRF {:?}", self.vrf_seed);
 
-        let mut chain_state = StacksChainState::open(
+        let mut chain_state = StacksChainState::open_with_block_limit(
             false, 
             TESTNET_CHAIN_ID, 
-            &self.config.get_chainstate_path()).unwrap();
+            &self.config.get_chainstate_path(),
+            self.config.block_limit.clone()).unwrap();
 
         let burn_header_hash = self.parent_block.metadata.burn_header_hash;
         let block_hash= self.parent_block.block.block_hash();
