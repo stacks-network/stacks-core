@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use std::{thread, time};
 use std::fmt::Write;
 use stacks::vm::{
     database::ClaritySerializable,
@@ -837,9 +836,7 @@ fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
 
 #[test]
 fn block_limit_runtime_test() {
-    let mut conf = testnet::helium::tests::new_test_conf();
-
-    conf.burnchain.block_time = 3000;
+    let mut conf = super::new_test_conf();
 
     // use a shorter runtime limit. the current runtime limit
     //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
@@ -848,14 +845,15 @@ fn block_limit_runtime_test() {
 
     let num_rounds = 6;
 
-    let mut run_loop = testnet::helium::RunLoop::new(conf);
-    run_loop.apply_on_new_tenures(|round, tenure| {
+    let mut run_loop = RunLoop::new(conf);
+    run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
 
-        let contract_identifier =
+        let _contract_identifier =
             QualifiedContractIdentifier::parse(
                 &format!("{}.{}", to_addr(&contract_sk), "hello-contract")).unwrap();
-        let (burn_header_hash, block_hash) = (&tenure.parent_block.burn_header_hash, &tenure.parent_block.anchored_header.block_hash());
+        let (burn_header_hash, block_hash) = (&tenure.parent_block.metadata.burn_header_hash,
+                                              &tenure.parent_block.metadata.anchored_header.block_hash());
 
         if round == 1 {
             let publish_tx = make_contract_publish(&contract_sk, 0, 0, "hello-contract", EXPENSIVE_CONTRACT.as_str());
@@ -874,7 +872,7 @@ fn block_limit_runtime_test() {
         return
     });
 
-    run_loop.apply_on_new_chain_states(|round, chain_state, block, chain_tip_info, _events| {
+    run_loop.callbacks.on_new_stacks_chain_state(|round, _chain_state, block, _chain_tip_info| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
         let _contract_identifier =
             QualifiedContractIdentifier::parse(
@@ -883,13 +881,13 @@ fn block_limit_runtime_test() {
         match round {
             2 => {
                 // Block #1 should have 3 txs -- coinbase + 2 contract calls...
-                assert!(block.txs.len() == 3);
+                assert!(block.block.txs.len() == 3);
             },
             3 | 4 | 5=> {
                 // Block >= 2 should have 4 txs -- coinbase + 3 contract calls
                 //   because the _subsequent_ transactions should never have been
                 //   included.
-                assert_eq!(block.txs.len(), 4);
+                assert_eq!(block.block.txs.len(), 4);
             },
             _ => {},
         }
