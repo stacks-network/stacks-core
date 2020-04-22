@@ -2836,7 +2836,7 @@ pub mod test {
                 }
 
                 let prev_bar_value = StacksChainState::get_data_var(clarity_tx, &prev_contract_id, "bar").unwrap();
-                assert_eq!(prev_bar_value, Some(Value::Int((6 + 3 - 1) / (2 + 3 - 1))));
+                assert_eq!(prev_bar_value, Some(Value::Int(3)));
                 break;
             }
         }
@@ -2911,7 +2911,7 @@ pub mod test {
         let mut microblocks = vec![];
         for i in 0..3 {
             // make a contract call (note: triggers a divide-by-zero runtime error)
-            let tx_contract_call_signed = make_contract_call(miner, burnchain_height, builder.header.total_work.work as usize, 6, 2);
+            let tx_contract_call_signed = make_contract_call(miner, burnchain_height, builder.header.total_work.work as usize, 6, 0);
             builder.try_mine_tx(clarity_tx, &tx_contract_call_signed).unwrap();
             
             // put the contract-call into a microblock 
