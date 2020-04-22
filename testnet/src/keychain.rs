@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
-use chainstate::stacks::{StacksTransactionSigner, TransactionAuth, StacksPublicKey, StacksPrivateKey, StacksAddress};
-use address::AddressHashMode;
-use burnchains::{BurnchainSigner, BurnchainHeaderHash, PrivateKey};
-use util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
-use util::hash::{Sha256Sum};
+use super::operations::BurnchainOpSigner;
+
+use stacks::chainstate::stacks::{StacksTransactionSigner, TransactionAuth, StacksPublicKey, StacksPrivateKey, StacksAddress};
+use stacks::address::AddressHashMode;
+use stacks::burnchains::{BurnchainSigner, PrivateKey};
+use stacks::util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
+use stacks::util::hash::{Sha256Sum};
 
 pub struct Keychain {
     secret_keys: Vec<StacksPrivateKey>, 
@@ -54,13 +56,12 @@ impl Keychain {
 
         Keychain::new(vec![secret_key], threshold, hash_mode)
     }
-
-    pub fn rotate_vrf_keypair(&mut self) -> VRFPublicKey {
-        let mut seed = match self.vrf_secret_keys.last() {
-            // First key is the hash of the secret state
-            None => self.hashed_secret_state,
-            // Next key is the hash of the last
-            Some(last_vrf) => Sha256Sum::from_data(last_vrf.as_bytes()),  
+    
+    pub fn rotate_vrf_keypair(&mut self, block_height: u64) -> VRFPublicKey {
+        let mut seed = {
+            let mut secret_state = self.hashed_secret_state.to_bytes().to_vec();
+            secret_state.extend_from_slice(&block_height.to_be_bytes()[..]);
+            Sha256Sum::from_data(&secret_state)
         };
         
         // Not every 256-bit number is a valid Ed25519 secret key.
@@ -75,7 +76,6 @@ impl Keychain {
 
         self.vrf_secret_keys.push(sk.clone());
         self.vrf_map.insert(pk.clone(), sk);
-
         pk
     }
 
@@ -166,5 +166,9 @@ impl Keychain {
             Some(auth) => Some(auth.origin().address_testnet()),
             None => None
         }
+    }
+
+    pub fn generate_op_signer(&mut self) -> BurnchainOpSigner {
+        BurnchainOpSigner::new(self.secret_keys[0], false)
     }
 }
