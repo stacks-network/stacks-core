@@ -70,7 +70,7 @@ lazy_static! {
         soft_max_neighbors_per_host: 10,
         soft_max_neighbors_per_org: 100,
         soft_max_clients_per_host: 1000,
-        walk_interval: 9223372036854775807,
+        walk_interval: 20,
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
         .. std::default::Default::default()
