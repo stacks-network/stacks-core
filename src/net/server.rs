@@ -914,7 +914,7 @@ mod test {
     fn test_http_noop() {
         if std::env::var("BLOCKSTACK_HTTP_TEST") != Ok("1".to_string()) {
             eprintln!("Set BLOCKSTACK_HTTP_TEST=1 to use this test.");
-            eprintln!("To test, run `curl http://localhost:51071/v2/blocks/a3b82874a8bf02b91613f61bff41580dab439ecc14f5e71c7288d89623499dfa` to download a block");
+            eprintln!("To test, run `curl http://localhost:51081/v2/blocks/a3b82874a8bf02b91613f61bff41580dab439ecc14f5e71c7288d89623499dfa` to download a block");
             return;
         }
 
