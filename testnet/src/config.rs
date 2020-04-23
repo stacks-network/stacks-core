@@ -8,7 +8,6 @@ use rand::RngCore;
 use stacks::burnchains::{
     MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
-use stacks::core::{PEER_VERSION};
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::secp256k1::Secp256k1PublicKey;
@@ -17,6 +16,7 @@ use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentif
 use stacks::vm::costs::ExecutionCost;
 
 use super::node::TESTNET_CHAIN_ID;
+use super::neon_node::TESTNET_PEER_VERSION;
 
 #[derive(Clone, Deserialize)]
 pub struct ConfigFile {
@@ -97,6 +97,7 @@ impl Config {
         let default_node_config = NodeConfig::default();
         let node = match config_file.node {
             Some(node) => {
+                let rpc_bind = node.rpc_bind.unwrap_or(default_node_config.rpc_bind);
                 let mut node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
@@ -104,9 +105,18 @@ impl Config {
                         None => default_node_config.seed
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
-                    rpc_bind: node.rpc_bind.unwrap_or(default_node_config.rpc_bind),
+                    rpc_bind: rpc_bind.clone(),
                     p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
+                    p2p_address: node.p2p_address.unwrap_or(rpc_bind.clone()),
                     bootstrap_node: None,
+                    data_url: match node.data_url {
+                        Some(data_url) => data_url,
+                        None => format!("http://{}", rpc_bind)
+                    },
+                    local_peer_seed: match node.local_peer_seed {
+                        Some(seed) => hex_bytes(&seed).expect("Seed should be a hex encoded string"),
+                        None => default_node_config.local_peer_seed
+                    },
                 };
                 node_config.set_bootstrap_node(node.bootstrap_node);
                 node_config
@@ -378,6 +388,9 @@ pub struct NodeConfig {
     pub working_dir: String,
     pub rpc_bind: String,
     pub p2p_bind: String,
+    pub data_url: String,
+    pub p2p_address: String,
+    pub local_peer_seed: Vec<u8>,
     pub bootstrap_node: Option<Neighbor>,
 }
 
@@ -395,6 +408,9 @@ impl NodeConfig {
         let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap())
             .saturating_add(1024); // use a non-privileged port
 
+        let mut local_peer_seed = [0u8; 32];
+        rng.fill_bytes(&mut local_peer_seed);
+
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
@@ -402,7 +418,10 @@ impl NodeConfig {
             working_dir: format!("/tmp/{}", testnet_id),
             rpc_bind: format!("127.0.0.1:{}", rpc_port),
             p2p_bind: format!("127.0.0.1:{}", p2p_port),
+            data_url: format!("http://127.0.0.1:{}", rpc_port),
+            p2p_address: format!("127.0.0.1:{}", rpc_port),
             bootstrap_node: None,
+            local_peer_seed: local_peer_seed.to_vec(),
         }
     }
 
@@ -422,7 +441,7 @@ impl NodeConfig {
                     let sock_addr: SocketAddr = peer_addr.parse().unwrap(); 
                     let neighbor = Neighbor {
                         addr: NeighborKey {
-                            peer_version: PEER_VERSION,
+                            peer_version: TESTNET_PEER_VERSION,
                             network_id: TESTNET_CHAIN_ID,
                             addrbytes: PeerAddress::from_socketaddr(&sock_addr),
                             port: sock_addr.port()
@@ -491,7 +510,10 @@ pub struct NodeConfigFile {
     pub working_dir: Option<String>,
     pub rpc_bind: Option<String>,
     pub p2p_bind: Option<String>,
+    pub p2p_address: Option<String>,
+    pub data_url: Option<String>,
     pub bootstrap_node: Option<String>,
+    pub local_peer_seed: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]

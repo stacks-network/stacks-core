@@ -19,6 +19,8 @@ use stacks::chainstate::stacks::{
 use crate::Keychain;
 use crate::helium::RunLoop;
 
+use crate::node::TESTNET_CHAIN_ID;
+
 use super::{SK_1, SK_2, make_contract_publish, to_addr, make_contract_call, make_stacks_transfer, make_poison, make_coinbase};
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
@@ -33,7 +35,10 @@ pub fn make_bad_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate:
     spending_condition.set_nonce(nonce);
     spending_condition.set_fee_rate(fee_rate);
     let auth = TransactionAuth::Standard(spending_condition);
-    let unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+    
+    let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+    unsigned_tx.chain_id = TESTNET_CHAIN_ID;
+
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
 
     tx_signer.sign_origin(&StacksPrivateKey::new()).unwrap();

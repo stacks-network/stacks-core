@@ -16,14 +16,15 @@ use stacks::chainstate::burn::operations::{
     BlockstackOperationType,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::PeerDB};
+use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::PeerDB, PeerAddress};
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
+use stacks::util::hash::Sha256Sum;
+use stacks::util::secp256k1::Secp256k1PrivateKey;
 
-
-pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
-pub const TESTNET_PEER_VERSION: u32 = 0xdead1010;
+pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
+pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
@@ -216,7 +217,7 @@ impl Node {
         };
 
         // create a new peerdb
-        let data_url = UrlString::try_from(format!("http://{}", self.config.node.rpc_bind)).unwrap();
+        let data_url = UrlString::try_from(format!("{}", self.config.node.data_url)).unwrap();
 
         let mut initial_neighbors = vec![];
         if let Some(ref bootstrap_node) = self.config.node.bootstrap_node {
@@ -229,13 +230,27 @@ impl Node {
             .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
         let p2p_sock: SocketAddr = self.config.node.p2p_bind.parse()
             .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_bind));
+        let p2p_addr: SocketAddr = self.config.node.p2p_address.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_address));
+        let node_privkey = {
+            let mut re_hashed_seed = self.config.node.local_peer_seed.clone();
+            let my_private_key = loop {
+                match Secp256k1PrivateKey::from_slice(&re_hashed_seed[..]) {
+                    Ok(sk) => break sk,
+                    Err(_) => re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..]).as_bytes().to_vec()
+                }
+            };
+            my_private_key
+        };
 
         let peerdb = PeerDB::connect(
             &self.config.get_peer_db_path(), 
             true, 
             TESTNET_CHAIN_ID, 
             burnchain.network_id, 
+            Some(node_privkey),
             self.config.connection_options.private_key_lifetime.clone(),
+            PeerAddress::from_socketaddr(&p2p_addr),
             p2p_sock.port(),
             data_url.clone(),
             &vec![], 
