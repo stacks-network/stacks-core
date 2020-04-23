@@ -1573,6 +1573,7 @@ impl PeerNetwork {
             if self.walk_count > NUM_INITIAL_WALKS && self.walk_deadline > get_epoch_time_secs() {
                 // we've done enough walks for an initial mixing,
                 // so throttle ourselves down until the walk deadline passes.
+                debug!("Wait until {} to walk again", self.walk_deadline);
                 return (true, None);
             }
         }
@@ -1679,7 +1680,7 @@ impl PeerNetwork {
                 };
 
                 if reset {
-                    test_debug!("{:?}: random walk restart", &self.local_peer);
+                    debug!("{:?}: random walk restart", &self.local_peer);
                     self.walk = None;
                     done = true;        // move onto the next p2p work item
                 }

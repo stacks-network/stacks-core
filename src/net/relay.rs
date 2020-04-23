@@ -454,7 +454,16 @@ impl Relayer {
             }
         };
 
-        chainstate.preprocess_anchored_block(burn_tx, burn_header_hash, sn.burn_header_timestamp, block, &sn.parent_burn_header_hash)
+        // find the snapshot of the parent of this block
+        let parent_block_snapshot = match StacksChainState::get_block_snapshot_of_parent_stacks_block(burn_tx, burn_header_hash, &block.block_hash())? {
+            Some(sn) => sn,
+            None => {
+                debug!("Received block with unknown parent snapshot: {}/{}", burn_header_hash, &block.block_hash());
+                return Ok(false);
+            }
+        };
+        
+        chainstate.preprocess_anchored_block(burn_tx, burn_header_hash, sn.burn_header_timestamp, block, &parent_block_snapshot.burn_header_hash)
     }
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by

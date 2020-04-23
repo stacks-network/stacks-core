@@ -520,16 +520,19 @@ impl Burnchain {
         let mut ret = Vec::with_capacity(checked_ops.len());
 
         let mut all_keys : HashSet<VRFPublicKey> = HashSet::new();
+        let mut all_ptrs : HashSet<(u64, u32)> = HashSet::new();
         for op in checked_ops.drain(..) {
             match op {
                 BlockstackOperationType::LeaderKeyRegister(data) => {
-                    if all_keys.contains(&data.public_key) {
+                    let key_loc = (data.block_height, data.vtxindex);
+                    if all_keys.contains(&data.public_key) || all_ptrs.contains(&key_loc) {
                         // duplicate
                         warn!("REJECTED({}) leader key register {} at {},{}: Duplicate VRF key", data.block_height, &data.txid, data.block_height, data.vtxindex);
                     }
                     else {
                         // first case
                         all_keys.insert(data.public_key.clone());
+                        all_ptrs.insert(key_loc);
                         ret.push(BlockstackOperationType::LeaderKeyRegister(data));
                     }
                 },
