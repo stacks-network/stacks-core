@@ -35,7 +35,7 @@ use stacks::net::PeerAddress;
 use std::sync::mpsc::{sync_channel, TrySendError, SyncSender, Receiver};
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::ChainTip;
-
+use std::convert::TryInto;
 use stacks::burnchains::BurnchainSigner;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
@@ -52,7 +52,7 @@ struct RegisteredKey {
 enum RelayerDirective {
     HandleNetResult(NetworkResult),
     ProcessTenure(BurnchainHeaderHash, BurnchainHeaderHash, BlockHeaderHash),
-    RunTenure(RegisteredKey, (BlockSnapshot, u32)),
+    RunTenure(RegisteredKey, BlockSnapshot),
 }
 
 
@@ -60,9 +60,8 @@ pub struct InitializedNeonNode {
     relay_channel: SyncSender<RelayerDirective>,
     active_registered_key: Option<RegisteredKey>,
     burnchain_signer: BurnchainSigner,
-    // TODO: what about handling blocks _without_ sortitions?
-    // store the last sortitioned block, and it's winner vtx
-    last_sortitioned_block: Option<(BlockSnapshot, u32)>,
+    last_burn_block: Option<BlockSnapshot>,
+    has_mined: bool
 }
 
 pub struct NeonGenesisNode {
@@ -93,7 +92,8 @@ fn inner_process_tenure(
             &mut tx,
             &burn_header_hash,
             get_epoch_time_secs(),
-            &anchored_block, 
+            &anchored_block,
+            // this actually needs to be it's _parents_ burn header hash.
             &parent_burn_header_hash)?;
 
         // Preprocess the microblocks
@@ -124,7 +124,13 @@ fn inner_process_tenure(
 
     // todo(ludo): yikes but good enough in the context of helium:
     // we only expect 1 block.
-    let processed_block = processed_blocks[0].clone().0.unwrap();
+    let processed_block = match processed_blocks.get(0) {
+        Some(x) => x.clone().0.unwrap(),
+        None => {
+            warn!("Chainstate expected to process a new block, but we didn't");
+            return Err(ChainstateError::InvalidStacksBlock("Could not process expected block".into()));
+        }
+    };
 
     // Handle events
     let receipts = processed_block.1;
@@ -170,23 +176,12 @@ fn inner_generate_block_commit_op(
     block_header_hash: BlockHeaderHash,
     burn_fee: u64, 
     key: &RegisteredKey,
-    burnchain_tip: &BlockSnapshot,
-    winning_vtx_index: Option<u32>,
-    vrf_seed: VRFSeed,
-    is_bootstrap_commit: bool) -> BlockstackOperationType {
+    parent_burnchain_height: u32,
+    parent_winning_vtx: u16,
+    vrf_seed: VRFSeed) -> BlockstackOperationType {
 
     let (parent_block_ptr, parent_vtxindex) =
-        if is_bootstrap_commit {
-            (0, 0)
-        } else {
-            let winning_tx_vtindex = match (winning_vtx_index, burnchain_tip.total_burn) {
-                (Some(winning_tx_id), _) => winning_tx_id,
-                (None, 0) => 0,
-                _ => unreachable!()
-            };
-
-            (burnchain_tip.block_height as u32, winning_tx_vtindex as u16)
-        };
+        (parent_burnchain_height, parent_winning_vtx);
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
         block_header_hash,
         burn_fee,
@@ -273,7 +268,10 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
         false, TESTNET_CHAIN_ID, &stacks_chainstate_path)
         .map_err(NetError::DBError)?;
 
-    let mut last_mined_block: Option<(BurnchainHeaderHash, StacksBlock)> = None;
+    // parent_burn_header_hash
+    // block_hash
+    // mined_on_burn_header_hash
+    let mut last_mined_block: Option<(BurnchainHeaderHash, StacksBlock, BurnchainHeaderHash)> = None;
     let burn_fee_cap = config.burnchain.burn_fee_cap;
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config);
 
@@ -293,7 +291,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                     }
                 },
                 RelayerDirective::ProcessTenure(burn_header_hash, parent_burn_header_hash, block_header_hash) => {
-                    if let Some((mined_burn_hh, mined_block)) = last_mined_block.take() {
+                    if let Some((parent_burn_hh, mined_block, mined_burn_hh)) = last_mined_block.take() {
                         if mined_block.block_hash() == block_header_hash && parent_burn_header_hash == mined_burn_hh {
                             // we won!
                             info!("Won sortition! stacks_header={}, burn_header={}",
@@ -301,7 +299,7 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                                   mined_burn_hh);
 
                             let (stacks_header, _) = 
-                                match inner_process_tenure(&mined_block, &burn_header_hash, &parent_burn_header_hash,
+                                match inner_process_tenure(&mined_block, &burn_header_hash, &parent_burn_hh,
                                                            vec![], // no microblocks for now...
                                                            &mut burndb, &mut chainstate, &mut event_dispatcher) {
                                     Ok(x) => x,
@@ -323,9 +321,9 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                         }
                     }
                 },
-                RelayerDirective::RunTenure(registered_key, (last_sortitioned_block, winning_vtx)) => {
+                RelayerDirective::RunTenure(registered_key, last_burn_block) => {
                     last_mined_block = InitializedNeonNode::relayer_run_tenure(
-                        registered_key, &mut chainstate, last_sortitioned_block, winning_vtx,
+                        registered_key, &mut chainstate, &burndb, last_burn_block,
                         &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller)
                 },
             }
@@ -356,7 +354,7 @@ fn dispatcher_announce(blocks_path: &str, event_dispatcher: &mut EventDispatcher
 
 impl InitializedNeonNode {
     fn new(config: Config, keychain: Keychain, event_dispatcher: EventDispatcher,
-           last_sortitioned_block: Option<BurnchainTip>, registered_key: Option<RegisteredKey>) -> InitializedNeonNode {
+           last_burn_block: Option<BurnchainTip>, registered_key: Option<RegisteredKey>) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let mut burndb = BurnDB::open(&config.get_burn_db_file_path(), true)
@@ -441,16 +439,15 @@ impl InitializedNeonNode {
         info!("Bound HTTP server on: {}", &config.node.rpc_bind);
         info!("Bound P2P server on: {}", &config.node.p2p_bind);
 
-        let last_sortitioned_block = last_sortitioned_block.map(
-            |block| {
-                let vtx = block.get_winning_tx_index().unwrap();
-                (block.block_snapshot, vtx)
-            });
+        let last_burn_block = last_burn_block.map(|x| x.block_snapshot);
+
+        let has_mined = registered_key.is_some();
 
         InitializedNeonNode {
             relay_channel: relay_send,
-            last_sortitioned_block,
+            last_burn_block,
             burnchain_signer,
+            has_mined,
             active_registered_key: registered_key,
         }
     }
@@ -459,16 +456,18 @@ impl InitializedNeonNode {
     /// Tell the relayer to fire off a tenure and a block commit op.
     pub fn relayer_issue_tenure(&self) -> bool {
         if let Some(key) = self.active_registered_key.clone() {
-            if let Some(burnchain_tip) = self.last_sortitioned_block.clone() {
+            if let Some(burnchain_tip) = self.last_burn_block.clone() {
             self.relay_channel
                 .send(RelayerDirective::RunTenure(key, burnchain_tip))
                 .is_ok()
             } else {
-                warn!("Skipped tenure because did not know the last sortition block. Seems bad.");
+                warn!("Do not know the last burn block. As a miner, this is bad.");
                 true
             }
         } else {
-            warn!("Skipped tenure because no active VRF key");
+            if self.has_mined {
+                warn!("Skipped tenure because no active VRF key");
+            } // otherwise, don't need to warn, this node is a follower.
             true
         }
     }
@@ -477,27 +476,28 @@ impl InitializedNeonNode {
     ///  and advertize it if it was mined by the node.
     /// returns _false_ if the relayer hung up the channel.
     pub fn relayer_sortition_notify(&self) -> bool {
-        if let Some((ref snapshot, _)) = &self.last_sortitioned_block {
-            self.relay_channel
-                .send(RelayerDirective::ProcessTenure(
-                    snapshot.burn_header_hash.clone(), 
-                    snapshot.parent_burn_header_hash.clone(),
-                    snapshot.winning_stacks_block_hash.clone()))
-                .is_ok()
-        } else {
-            true
+        if let Some(ref snapshot) = &self.last_burn_block {
+            if snapshot.sortition {
+                return self.relay_channel
+                    .send(RelayerDirective::ProcessTenure(
+                        snapshot.burn_header_hash.clone(), 
+                        snapshot.parent_burn_header_hash.clone(),
+                        snapshot.winning_stacks_block_hash.clone()))
+                    .is_ok();
+            }
         }
+        true
     }
 
 
     fn relayer_run_tenure(registered_key: RegisteredKey,
                           chain_state: &mut StacksChainState,
+                          burn_db: &BurnDB,
                           burn_block: BlockSnapshot,
-                          burn_block_winner_vtx: u32,
                           keychain: &mut Keychain,
                           mem_pool: &mut MemPoolDB,
                           burn_fee_cap: u64,
-                          bitcoin_controller: &mut BitcoinRegtestController) -> Option<(BurnchainHeaderHash, StacksBlock)> {
+                          bitcoin_controller: &mut BitcoinRegtestController) -> Option<(BurnchainHeaderHash, StacksBlock, BurnchainHeaderHash)> {
 
         let stacks_tip = match chain_state.get_stacks_chain_tip().unwrap() {
             Some(x) => x,
@@ -516,7 +516,31 @@ impl InitializedNeonNode {
             }
         };
 
-        debug!("Mining tenure on burn_block: {}, stacks tip burn_header_hash: {}",
+        // the stacks block I'm mining off of's burn header hash and vtx index:
+
+        let parent_burn_hash = stacks_tip.burn_header_hash.clone();
+        let parent_winning_vtxindex =
+            match BurnDB::get_block_winning_vtxindex(&burn_db.conn, &parent_burn_hash)
+                .expect("BurnDB failure.") {
+                    Some(x) => x,
+                    None => {
+                        warn!("Failed to find winning vtx index for the parent burn block {}",
+                              &parent_burn_hash);
+                        return None
+                    }
+                };
+        let parent_block =
+            match BurnDB::get_block_snapshot(&burn_db.conn, &parent_burn_hash)
+                .expect("BurnDB failure.") {
+                    Some(x) => x,
+                    None => {
+                        warn!("Failed to find block snapshot for the parent burn block {}",
+                              &parent_burn_hash);
+                        return None
+                    }
+                };
+
+        debug!("Mining tenure's last burn_block: {}, stacks tip burn_header_hash: {}",
               &burn_block.burn_header_hash,
               &stacks_tip.burn_header_hash);
 
@@ -547,7 +571,7 @@ impl InitializedNeonNode {
         let coinbase_tx = inner_generate_coinbase_tx(keychain, nonce);
 
         let anchored_block = match StacksBlockBuilder::build_anchored_block(
-            chain_state, mem_pool, &stacks_tip_header, burn_block.total_burn,
+            chain_state, mem_pool, &stacks_tip_header, parent_block.total_burn,
             vrf_proof.clone(), mblock_pubkey_hash, &coinbase_tx, HELIUM_BLOCK_LIMIT.clone()) {
             Ok(block) => block,
             Err(e) => {
@@ -564,10 +588,10 @@ impl InitializedNeonNode {
             anchored_block.block_hash(),
             burn_fee_cap,
             &registered_key, 
-            &burn_block,
-            Some(burn_block_winner_vtx),
-            VRFSeed::from_proof(&vrf_proof),
-            false);
+            parent_block.block_height.try_into()
+                .expect("Could not convert parent block height into u32"),
+            parent_winning_vtxindex,
+            VRFSeed::from_proof(&vrf_proof));
         let mut op_signer = keychain.generate_op_signer();
         bitcoin_controller.submit_operation(op, &mut op_signer);
 
@@ -578,7 +602,7 @@ impl InitializedNeonNode {
         let mut one_off_signer = keychain.generate_op_signer();
         bitcoin_controller.submit_operation(op, &mut one_off_signer);
 
-        Some((burn_block.burn_header_hash, anchored_block))
+        Some((parent_burn_hash, anchored_block, burn_block.burn_header_hash))
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -630,13 +654,7 @@ impl InitializedNeonNode {
             self.active_registered_key = new_key;
         }
 
-        // Keep a pointer of the burnchain's chain tip.
-        if last_sortitioned_block.is_none() {
-            info!("No sortition in the block {}", burn_hash);
-        } else {
-            info!("Found sortition in the block {}", burn_hash);
-            self.last_sortitioned_block = last_sortitioned_block.clone();
-        }
+        self.last_burn_block = Some(block_snapshot);
 
         (last_sortitioned_block.map(|x| x.0), won_sortition)
     }
@@ -764,10 +782,8 @@ impl NeonGenesisNode {
                 anchored_block_from_ongoing_tenure.header.block_hash(),
                 burn_fee,
                 &registered_key,
-                &burnchain_tip.block_snapshot,
-                None,
-                VRFSeed::from_proof(&vrf_proof),
-                true);
+                0, 0,
+                VRFSeed::from_proof(&vrf_proof));
 
             let mut op_signer = self.keychain.generate_op_signer();
             burnchain_controller.submit_operation(op, &mut op_signer);

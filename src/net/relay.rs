@@ -727,7 +727,9 @@ impl Relayer {
         let (new_microblocks, mut new_bad_neighbors) = Relayer::preprocess_pushed_microblocks(network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
 
-        info!("Processing newly received blocks: {}", new_blocks.len());        
+        if new_blocks.len() > 0 {
+            info!("Processing newly received blocks: {}", new_blocks.len());
+        }
         // process as many epochs as we can.
         // Try to process at least one epoch.
         let receipts: Vec<_> = chainstate.process_blocks(new_blocks.len() + 1)?.into_iter()

@@ -411,10 +411,13 @@ impl NodeConfig {
         let mut local_peer_seed = [0u8; 32];
         rng.fill_bytes(&mut local_peer_seed);
 
+        let mut seed = [0u8; 32];
+        rng.fill_bytes(&mut seed);
+
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
-            seed: vec![0; 32],
+            seed: seed.to_vec(),
             working_dir: format!("/tmp/{}", testnet_id),
             rpc_bind: format!("127.0.0.1:{}", rpc_port),
             p2p_bind: format!("127.0.0.1:{}", p2p_port),
