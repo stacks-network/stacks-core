@@ -60,8 +60,8 @@ pub struct InitializedNeonNode {
     relay_channel: SyncSender<RelayerDirective>,
     active_registered_key: Option<RegisteredKey>,
     burnchain_signer: BurnchainSigner,
-    // TODO: rename to last known burnchain block
-    last_sortitioned_block: Option<BlockSnapshot>,
+    last_burn_block: Option<BlockSnapshot>,
+    has_mined: bool
 }
 
 pub struct NeonGenesisNode {
@@ -321,9 +321,9 @@ fn spawn_miner_relayer(mut relayer: Relayer, local_peer: LocalPeer,
                         }
                     }
                 },
-                RelayerDirective::RunTenure(registered_key, last_sortitioned_block) => {
+                RelayerDirective::RunTenure(registered_key, last_burn_block) => {
                     last_mined_block = InitializedNeonNode::relayer_run_tenure(
-                        registered_key, &mut chainstate, &burndb, last_sortitioned_block,
+                        registered_key, &mut chainstate, &burndb, last_burn_block,
                         &mut keychain, &mut mem_pool, burn_fee_cap, &mut bitcoin_controller)
                 },
             }
@@ -354,7 +354,7 @@ fn dispatcher_announce(blocks_path: &str, event_dispatcher: &mut EventDispatcher
 
 impl InitializedNeonNode {
     fn new(config: Config, keychain: Keychain, event_dispatcher: EventDispatcher,
-           last_sortitioned_block: Option<BurnchainTip>, registered_key: Option<RegisteredKey>) -> InitializedNeonNode {
+           last_burn_block: Option<BurnchainTip>, registered_key: Option<RegisteredKey>) -> InitializedNeonNode {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let mut burndb = BurnDB::open(&config.get_burn_db_file_path(), true)
@@ -439,12 +439,15 @@ impl InitializedNeonNode {
         info!("Bound HTTP server on: {}", &config.node.rpc_bind);
         info!("Bound P2P server on: {}", &config.node.p2p_bind);
 
-        let last_sortitioned_block = last_sortitioned_block.map(|x| x.block_snapshot);
+        let last_burn_block = last_burn_block.map(|x| x.block_snapshot);
+
+        let has_mined = registered_key.is_some();
 
         InitializedNeonNode {
             relay_channel: relay_send,
-            last_sortitioned_block,
+            last_burn_block,
             burnchain_signer,
+            has_mined,
             active_registered_key: registered_key,
         }
     }
@@ -453,16 +456,18 @@ impl InitializedNeonNode {
     /// Tell the relayer to fire off a tenure and a block commit op.
     pub fn relayer_issue_tenure(&self) -> bool {
         if let Some(key) = self.active_registered_key.clone() {
-            if let Some(burnchain_tip) = self.last_sortitioned_block.clone() {
+            if let Some(burnchain_tip) = self.last_burn_block.clone() {
             self.relay_channel
                 .send(RelayerDirective::RunTenure(key, burnchain_tip))
                 .is_ok()
             } else {
-                warn!("Skipped tenure because did not know the last sortition block. Seems bad.");
+                warn!("Do not know the last burn block. As a miner, this is bad.");
                 true
             }
         } else {
-            warn!("Skipped tenure because no active VRF key");
+            if self.has_mined {
+                warn!("Skipped tenure because no active VRF key");
+            } // otherwise, don't need to warn, this node is a follower.
             true
         }
     }
@@ -471,7 +476,7 @@ impl InitializedNeonNode {
     ///  and advertize it if it was mined by the node.
     /// returns _false_ if the relayer hung up the channel.
     pub fn relayer_sortition_notify(&self) -> bool {
-        if let Some(ref snapshot) = &self.last_sortitioned_block {
+        if let Some(ref snapshot) = &self.last_burn_block {
             if snapshot.sortition {
                 return self.relay_channel
                     .send(RelayerDirective::ProcessTenure(
@@ -643,7 +648,7 @@ impl InitializedNeonNode {
             self.active_registered_key = new_key;
         }
 
-        self.last_sortitioned_block = Some(block_snapshot);
+        self.last_burn_block = Some(block_snapshot);
 
         (last_sortitioned_block.map(|x| x.0), won_sortition)
     }
