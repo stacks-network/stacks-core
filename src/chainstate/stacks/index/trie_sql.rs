@@ -161,7 +161,6 @@ pub fn write_trie_blob(conn: &Connection, block_hash: &BlockHeaderHash, data: &[
 
 pub fn write_trie_blob_to_mined(conn: &Connection, block_hash: &BlockHeaderHash, data: &[u8]) -> Result<u32, Error> {
     let args: &[&dyn ToSql] = &[block_hash, &data];
-    debug!("{}", block_hash);
     let mut s = conn.prepare("INSERT OR REPLACE INTO mined_blocks (block_hash, data) VALUES (?, ?)")?;
     let block_id = s.insert(args)?
         .try_into()

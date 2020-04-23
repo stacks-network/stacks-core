@@ -9,6 +9,7 @@ use vm::types::{
     QualifiedContractIdentifier,
     AssetIdentifier
 };
+use vm::costs::ExecutionCost;
 use vm::analysis::ContractAnalysis;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -18,6 +19,7 @@ pub struct StacksTransactionReceipt {
     pub result: Value,
     pub stx_burned: u128,
     pub contract_analysis: Option<ContractAnalysis>,
+    pub execution_cost: ExecutionCost
 }
 
 #[derive(Debug, Clone, PartialEq)]

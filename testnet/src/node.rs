@@ -16,14 +16,15 @@ use stacks::chainstate::burn::operations::{
     BlockstackOperationType,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::PeerDB};
+use stacks::net::{ p2p::PeerNetwork, Error as NetError, db::PeerDB, PeerAddress};
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::strings::UrlString;
+use stacks::util::hash::Sha256Sum;
+use stacks::util::secp256k1::Secp256k1PrivateKey;
 
-
-pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
-pub const TESTNET_PEER_VERSION: u32 = 0xdead1010;
+pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
+pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
@@ -116,12 +117,11 @@ impl Node {
 
         let initial_balances = config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
 
-        let chain_state = match StacksChainState::open_and_exec(
-            false, 
-            TESTNET_CHAIN_ID, 
-            &config.get_chainstate_path(), 
-            Some(initial_balances), 
-            boot_block_exec) {
+        let chain_state_result = StacksChainState::open_and_exec(
+            false, TESTNET_CHAIN_ID, &config.get_chainstate_path(),
+            Some(initial_balances), boot_block_exec, config.block_limit.clone());
+
+        let chain_state = match chain_state_result {
             Ok(res) => res,
             Err(err) => panic!("Error while opening chain state at path {}: {:?}", config.get_chainstate_path(), err)
         };
@@ -203,9 +203,7 @@ impl Node {
     pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        // todo(ludo): change file path once #1434 is merged in
-        // let mut burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
-        let mut burndb = BurnDB::open(&self.config.get_burn_db_path(), true)
+        let mut burndb = BurnDB::open(&self.config.get_burn_db_file_path(), true)
             .expect("Error while instantiating burnchain db");
 
         let burnchain = Burnchain::new(
@@ -219,7 +217,7 @@ impl Node {
         };
 
         // create a new peerdb
-        let data_url = UrlString::try_from(format!("http://{}", self.config.node.rpc_bind)).unwrap();
+        let data_url = UrlString::try_from(format!("{}", self.config.node.data_url)).unwrap();
 
         let mut initial_neighbors = vec![];
         if let Some(ref bootstrap_node) = self.config.node.bootstrap_node {
@@ -228,12 +226,32 @@ impl Node {
 
         println!("BOOTSTRAP WITH {:?}", initial_neighbors);
 
+        let rpc_sock: SocketAddr = self.config.node.rpc_bind.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
+        let p2p_sock: SocketAddr = self.config.node.p2p_bind.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_bind));
+        let p2p_addr: SocketAddr = self.config.node.p2p_address.parse()
+            .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_address));
+        let node_privkey = {
+            let mut re_hashed_seed = self.config.node.local_peer_seed.clone();
+            let my_private_key = loop {
+                match Secp256k1PrivateKey::from_slice(&re_hashed_seed[..]) {
+                    Ok(sk) => break sk,
+                    Err(_) => re_hashed_seed = Sha256Sum::from_data(&re_hashed_seed[..]).as_bytes().to_vec()
+                }
+            };
+            my_private_key
+        };
+
         let peerdb = PeerDB::connect(
             &self.config.get_peer_db_path(), 
             true, 
             TESTNET_CHAIN_ID, 
             burnchain.network_id, 
+            Some(node_privkey),
             self.config.connection_options.private_key_lifetime.clone(),
+            PeerAddress::from_socketaddr(&p2p_addr),
+            p2p_sock.port(),
             data_url.clone(),
             &vec![], 
             Some(&initial_neighbors)).unwrap();
@@ -244,10 +262,6 @@ impl Node {
         };
 
         let p2p_net = PeerNetwork::new(peerdb, local_peer, TESTNET_PEER_VERSION, burnchain, view, self.config.connection_options.clone());
-        let rpc_sock = self.config.node.rpc_bind.parse()
-            .expect(&format!("Failed to parse socket: {}", &self.config.node.rpc_bind));
-        let p2p_sock = self.config.node.p2p_bind.parse()
-            .expect(&format!("Failed to parse socket: {}", &self.config.node.p2p_bind));
         let _join_handle = spawn_peer(
             p2p_net, 
             &p2p_sock, 

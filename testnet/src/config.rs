@@ -8,14 +8,15 @@ use rand::RngCore;
 use stacks::burnchains::{
     MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
-use stacks::core::{PEER_VERSION};
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::hash::{to_hex, hex_bytes};
 use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier} ;
+use stacks::vm::costs::ExecutionCost;
 
 use super::node::TESTNET_CHAIN_ID;
+use super::neon_node::TESTNET_PEER_VERSION;
 
 #[derive(Clone, Deserialize)]
 pub struct ConfigFile {
@@ -24,10 +25,10 @@ pub struct ConfigFile {
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
+    pub block_limit: Option<BlockLimitFile>,
 }
 
 impl ConfigFile {
-
     pub fn from_path(path: &str) -> ConfigFile {
         let path = File::open(path).unwrap();
         let mut config_file_reader = BufReader::new(path);
@@ -41,13 +42,14 @@ impl ConfigFile {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
     pub initial_balances: Vec<InitialBalance>,
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
+    pub block_limit: ExecutionCost,
 }
 
 lazy_static! {
@@ -75,6 +77,14 @@ lazy_static! {
     };
 }
 
+pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
+    write_length: 15_0_000_000,
+    write_count: 5_0_000,
+    read_length: 1_000_000_000,
+    read_count: 5_0_000,
+    runtime: 1_00_000_000,
+};
+
 impl Config {
 
     pub fn from_config_file_path(path: &str) -> Config {
@@ -87,6 +97,7 @@ impl Config {
         let default_node_config = NodeConfig::default();
         let node = match config_file.node {
             Some(node) => {
+                let rpc_bind = node.rpc_bind.unwrap_or(default_node_config.rpc_bind);
                 let mut node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
@@ -94,9 +105,18 @@ impl Config {
                         None => default_node_config.seed
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
-                    rpc_bind: node.rpc_bind.unwrap_or(default_node_config.rpc_bind),
+                    rpc_bind: rpc_bind.clone(),
                     p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
+                    p2p_address: node.p2p_address.unwrap_or(rpc_bind.clone()),
                     bootstrap_node: None,
+                    data_url: match node.data_url {
+                        Some(data_url) => data_url,
+                        None => format!("http://{}", rpc_bind)
+                    },
+                    local_peer_seed: match node.local_peer_seed {
+                        Some(seed) => hex_bytes(&seed).expect("Seed should be a hex encoded string"),
+                        None => default_node_config.local_peer_seed
+                    },
                 };
                 node_config.set_bootstrap_node(node.bootstrap_node);
                 node_config
@@ -215,12 +235,24 @@ impl Config {
             }
         };
 
+        let block_limit = match config_file.block_limit {
+            Some(opts) => ExecutionCost {
+                write_length: opts.write_length.unwrap_or(HELIUM_BLOCK_LIMIT.write_length.clone()),
+                write_count:  opts.write_count.unwrap_or(HELIUM_BLOCK_LIMIT.write_count.clone()),
+                read_length:  opts.read_length.unwrap_or(HELIUM_BLOCK_LIMIT.read_length.clone()),
+                read_count:  opts.read_count.unwrap_or(HELIUM_BLOCK_LIMIT.read_count.clone()),
+                runtime:  opts.runtime.unwrap_or(HELIUM_BLOCK_LIMIT.runtime.clone()),
+            },
+            None => HELIUM_BLOCK_LIMIT.clone()
+        };
+
         Config {
             node,
             burnchain,
             initial_balances,
             events_observers,
-            connection_options
+            connection_options,
+            block_limit
         }
     }
 
@@ -245,7 +277,14 @@ impl Config {
         format!("{}/peer_db.sqlite", self.node.working_dir)
     }
 
-    pub fn default() -> Config {
+    pub fn add_initial_balance(&mut self, address: String, amount: u64) {
+        let new_balance = InitialBalance { address: PrincipalData::parse_standard_principal(&address).unwrap().into(), amount };
+        self.initial_balances.push(new_balance);
+    }
+}
+
+impl std::default::Default for Config {
+    fn default() -> Config {
         // Testnet's name
         let node = NodeConfig {
             ..NodeConfig::default()
@@ -258,6 +297,7 @@ impl Config {
         burnchain.spv_headers_path = node.get_default_spv_headers_path();
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
+        let block_limit = HELIUM_BLOCK_LIMIT.clone();
 
         Config {
             burnchain,
@@ -265,12 +305,8 @@ impl Config {
             initial_balances: vec![],
             events_observers: vec![],
             connection_options,
+            block_limit,
         }
-    }
-
-    pub fn add_initial_balance(&mut self, address: String, amount: u64) {
-        let new_balance = InitialBalance { address: PrincipalData::parse_standard_principal(&address).unwrap().into(), amount };
-        self.initial_balances.push(new_balance);
     }
 }
 
@@ -330,7 +366,6 @@ pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
     pub mode: Option<String>,
-    pub block_time: Option<u64>,
     pub commit_anchor_block_within: Option<u64>,
     pub peer_host: Option<String>,
     pub peer_port: Option<u16>,
@@ -353,6 +388,9 @@ pub struct NodeConfig {
     pub working_dir: String,
     pub rpc_bind: String,
     pub p2p_bind: String,
+    pub data_url: String,
+    pub p2p_address: String,
+    pub local_peer_seed: Vec<u8>,
     pub bootstrap_node: Option<Neighbor>,
 }
 
@@ -370,14 +408,23 @@ impl NodeConfig {
         let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap())
             .saturating_add(1024); // use a non-privileged port
 
+        let mut local_peer_seed = [0u8; 32];
+        rng.fill_bytes(&mut local_peer_seed);
+
+        let mut seed = [0u8; 32];
+        rng.fill_bytes(&mut seed);
+
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
-            seed: vec![0; 32],
+            seed: seed.to_vec(),
             working_dir: format!("/tmp/{}", testnet_id),
             rpc_bind: format!("127.0.0.1:{}", rpc_port),
             p2p_bind: format!("127.0.0.1:{}", p2p_port),
+            data_url: format!("http://127.0.0.1:{}", rpc_port),
+            p2p_address: format!("127.0.0.1:{}", rpc_port),
             bootstrap_node: None,
+            local_peer_seed: local_peer_seed.to_vec(),
         }
     }
 
@@ -397,7 +444,7 @@ impl NodeConfig {
                     let sock_addr: SocketAddr = peer_addr.parse().unwrap(); 
                     let neighbor = Neighbor {
                         addr: NeighborKey {
-                            peer_version: PEER_VERSION,
+                            peer_version: TESTNET_PEER_VERSION,
                             network_id: TESTNET_CHAIN_ID,
                             addrbytes: PeerAddress::from_socketaddr(&sock_addr),
                             port: sock_addr.port()
@@ -449,6 +496,15 @@ pub struct ConnectionOptionsFile {
     pub maximum_call_argument_size: Option<u32>,
 }
 
+#[derive(Clone, Default, Deserialize)]
+pub struct BlockLimitFile {
+    pub write_length: Option<u64>,
+    pub read_length: Option<u64>,
+    pub write_count: Option<u64>,
+    pub read_count: Option<u64>,
+    pub runtime: Option<u64>,
+}
+
 
 #[derive(Clone, Default, Deserialize)]
 pub struct NodeConfigFile {
@@ -457,7 +513,10 @@ pub struct NodeConfigFile {
     pub working_dir: Option<String>,
     pub rpc_bind: Option<String>,
     pub p2p_bind: Option<String>,
+    pub p2p_address: Option<String>,
+    pub data_url: Option<String>,
     pub bootstrap_node: Option<String>,
+    pub local_peer_seed: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
