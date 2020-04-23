@@ -46,14 +46,13 @@ impl ConfigFile {
             mode: Some("neon".to_string()),
             rpc_port: Some(18443),
             peer_port: Some(18444),
-            peer_host: Some("35.245.47.179".to_string()),
-            // peer_host: Some("neon.blockstack.org".to_string()),
+            peer_host: Some("neon.blockstack.org".to_string()),
             burnchain_op_tx_fee: Some(1000),
             ..BurnchainConfigFile::default()
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@35.245.47.179:20444".to_string()),
+            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@neon.blockstack.org:20444".to_string()),
             ..NodeConfigFile::default()
         };
 
@@ -80,7 +79,7 @@ impl ConfigFile {
             commit_anchor_block_within: Some(10_000),
             rpc_port: Some(18443),
             peer_port: Some(18444),
-            peer_host: Some("127.0.0.1".to_string()),
+            peer_host: Some("0.0.0.0".to_string()),
             username: Some("helium".to_string()),
             password: Some("helium".to_string()),
             burnchain_op_tx_fee: Some(1000),
@@ -198,7 +197,17 @@ impl Config {
                     mode: burnchain.mode.unwrap_or(default_burnchain_config.mode),
                     burn_fee_cap: burnchain.burn_fee_cap.unwrap_or(default_burnchain_config.burn_fee_cap),
                     commit_anchor_block_within: burnchain.commit_anchor_block_within.unwrap_or(default_burnchain_config.commit_anchor_block_within),
-                    peer_host: burnchain.peer_host.unwrap_or(default_burnchain_config.peer_host),
+                    peer_host: match burnchain.peer_host {
+                        Some(peer_host) => {
+                            // Using std::net::LookupHost would be preferable, but it's
+                            // unfortunately unstable at this point.
+                            // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
+                            let mut addrs_iter = format!("{}:1", peer_host).to_socket_addrs().unwrap();
+                            let sock_addr = addrs_iter.next().unwrap();
+                            format!("{}", sock_addr.ip())
+                        }
+                        None => default_burnchain_config.peer_host
+                    },
                     peer_port: burnchain.peer_port.unwrap_or(default_burnchain_config.peer_port),
                     rpc_port: burnchain.rpc_port.unwrap_or(default_burnchain_config.rpc_port),
                     rpc_ssl: burnchain.rpc_ssl.unwrap_or(default_burnchain_config.rpc_ssl),
@@ -403,7 +412,7 @@ impl BurnchainConfig {
             mode: "mocknet".to_string(),
             burn_fee_cap: 10000,
             commit_anchor_block_within: 5000,
-            peer_host: "127.0.0.1".to_string(),
+            peer_host: "0.0.0.0".to_string(),
             peer_port: 8333,
             rpc_port: 8332,
             rpc_ssl: false,
@@ -482,8 +491,8 @@ impl NodeConfig {
             name: name.to_string(),
             seed: seed.to_vec(),
             working_dir: format!("/tmp/{}", testnet_id),
-            rpc_bind: format!("127.0.0.1:{}", rpc_port),
-            p2p_bind: format!("127.0.0.1:{}", p2p_port),
+            rpc_bind: format!("0.0.0.0:{}", rpc_port),
+            p2p_bind: format!("0.0.0.0:{}", p2p_port),
             data_url: format!("http://127.0.0.1:{}", rpc_port),
             p2p_address: format!("127.0.0.1:{}", rpc_port),
             bootstrap_node: None,
