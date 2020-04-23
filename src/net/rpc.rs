@@ -116,6 +116,7 @@ pub struct ConversationHttp {
     // our outstanding request/response to the remote peer, if any
     pending_request: Option<ReplyHandleHttp>,
     pending_response: Option<HttpResponseType>,
+    pending_error_response: Option<HttpResponseType>,
 }
 
 impl fmt::Display for ConversationHttp {
@@ -178,6 +179,7 @@ impl ConversationHttp {
             burnchain: burnchain.clone(),
             pending_request: None,
             pending_response: None,
+            pending_error_response: None,
             keep_alive: true,
             total_request_count: 0,
             total_reply_count: 0,
@@ -225,11 +227,36 @@ impl ConversationHttp {
             test_debug!("{:?},id={}: Request in progress still", &self.peer_host, self.conn_id);
             return Err(net_error::InProgress);
         }
+        if self.pending_error_response.is_some() {
+            test_debug!("{:?},id={}: Error response is inflight", &self.peer_host, self.conn_id);
+            return Err(net_error::InProgress);
+        }
        
         let handle = self.start_request(req)?;
         
         self.pending_request = Some(handle);
         self.pending_response = None;
+        Ok(())
+    }
+
+    /// Send a HTTP error response.
+    /// Discontinues and disables sending a non-error response
+    pub fn reply_error<W: Write>(&mut self, fd: &mut W, res: HttpResponseType) -> Result<(), net_error> {
+        if self.is_request_inflight() || self.pending_response.is_some() {
+            test_debug!("{:?},id={}: Request or response is already in progress", &self.peer_host, self.conn_id);
+            return Err(net_error::InProgress);
+        }
+        if self.pending_error_response.is_some() {
+            // error already in-flight
+            return Ok(())
+        }
+
+        res.send(&mut self.connection.protocol, fd)?;
+        
+        let reply = self.connection.make_relay_handle(self.conn_id)?;
+        
+        self.pending_error_response = Some(res);
+        self.reply_streams.push_back((reply, None, false));
         Ok(())
     }
 
@@ -789,7 +816,7 @@ impl ConversationHttp {
 
         if broken || (drained_handle && drained_stream) {
             // done with this stream
-            test_debug!("{:?}: done with stream", &self);
+            test_debug!("{:?}: done with stream (broken={}, drained_handle={}, drained_stream={})", &self, broken, drained_handle, drained_stream);
             self.total_reply_count += 1;
             self.reply_streams.pop_front();
 
@@ -872,7 +899,7 @@ impl ConversationHttp {
     /// Is the conversation out of pending data?
     /// Don't consider it drained if we haven't received anything yet
     pub fn is_drained(&self) -> bool {
-        self.total_request_count > 0 && self.total_reply_count > 0 && self.is_idle()
+        ((self.total_request_count > 0 && self.total_reply_count > 0) || self.pending_error_response.is_some()) && self.is_idle()
     }
 
     /// Should the connection be kept alive even if drained?
@@ -899,6 +926,11 @@ impl ConversationHttp {
     /// Returns the list of transactions we'll need to forward to the peer network
     pub fn chat(&mut self, chain_view: &BurnchainView, burndb: &mut BurnDB, peerdb: &mut PeerDB,
                 chainstate: &mut StacksChainState, mempool: &mut MemPoolDB) -> Result<Vec<StacksMessageType>, net_error> {
+
+        // if we have an in-flight error, then don't take any more requests.
+        if self.pending_error_response.is_some() {
+            return Ok(vec![]);
+        }
 
         // handle in-bound HTTP request(s)
         let num_inbound = self.connection.inbox_len();
