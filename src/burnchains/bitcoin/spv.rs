@@ -383,7 +383,11 @@ impl SpvClient {
     /// Ask for the next batch of headers (note that this will return the maximal size of headers)
     pub fn send_next_getheaders(&mut self, indexer: &mut BitcoinIndexer, block_height: u64) -> Result<(), btc_error> {
         // ask for the next batch
-        let lone_block_header = SpvClient::read_block_header(&self.headers_path, block_height)?;
+        let lone_block_header = SpvClient::read_block_header(&self.headers_path, block_height)
+            .map_err(|e| {
+                warn!("Failed to read block header at height {} in {}: {:?}", block_height, &self.headers_path, &e);
+                e
+            })?;
 
         match lone_block_header {
             Some(hdr) => {
@@ -447,13 +451,12 @@ impl BitcoinMessageHandler for SpvClient {
                 let block_height = SpvClient::get_headers_height(&self.headers_path)?;
 
                 debug!("Request headers for blocks {} - {} in range {} - {}", block_height, block_height + 2000, self.start_block_height, end_block_height);
-                let res = self.send_next_getheaders(indexer, block_height);
-                match res {
-                    Ok(()) => {
+                match self.send_next_getheaders(indexer, block_height) {
+                    Ok(_) => {
                         return Ok(true);
                     }
-                    Err(_e) => {
-                        panic!(format!("BUG: could not read block header at {} that we just stored", block_height));
+                    Err(e) => {
+                        panic!(format!("Could not read block header at {} that we just stored: {:?}", block_height, &e));
                     }
                 }
             }

@@ -51,6 +51,9 @@ pub fn make_bad_stacks_transfer(sender: &StacksPrivateKey, nonce: u64, fee_rate:
 #[test]
 fn mempool_setup_chainstate() {
     let mut conf = super::new_test_conf();
+    
+    // force seeds to be the same
+    conf.node.seed = vec![0x00];
 
     conf.burnchain.commit_anchor_block_within = 1500;
     
@@ -60,7 +63,7 @@ fn mempool_setup_chainstate() {
 
     let num_rounds = 4;
 
-    let mut run_loop = RunLoop::new(conf);
+    let mut run_loop = RunLoop::new(conf.clone());
 
     run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
         let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
@@ -264,10 +267,10 @@ fn mempool_setup_chainstate() {
             eprintln!("Err: {:?}", e);
             assert!(if let MemPoolRejection::NoCoinbaseViaMempool = e { true } else { false });
 
-
             // find the correct priv-key
             let mut secret_key = None;
-            let conf = super::new_test_conf();
+            let mut conf = super::new_test_conf();
+            conf.node.seed = vec![0x00];
 
             let mut keychain = Keychain::default(conf.node.seed.clone());
             for _i in 0..4 {

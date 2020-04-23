@@ -1068,7 +1068,7 @@ impl StacksChainState {
     /// The caller should at least verify that the block is attached to some fork in the burn
     /// chain.
     fn store_staging_block<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, burn_header_timestamp: u64, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash, commit_burn: u64, sortition_burn: u64) -> Result<(), Error> {
-        debug!("Store anchored block {}/{}", burn_hash, block.block_hash());
+        debug!("Store anchored block {}/{}, parent in {}", burn_hash, block.block_hash(), parent_burn_header_hash);
         assert!(commit_burn < i64::max_value() as u64);
         assert!(sortition_burn < i64::max_value() as u64);
         assert!(burn_header_timestamp < i64::max_value() as u64);
@@ -2070,6 +2070,46 @@ impl StacksChainState {
         return Some((end, None));
     }
 
+    /// Get the block snapshot of the parent stacks block of the given stacks block
+    /// TODO: refactor and dedup with validate_anchored_block_burnchain below
+    pub fn get_block_snapshot_of_parent_stacks_block<'a>(tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block_hash: &BlockHeaderHash) -> Result<Option<BlockSnapshot>, Error> {
+        let block_commit = match BurnDB::get_block_commit_for_stacks_block(tx, burn_header_hash, &block_hash).map_err(Error::DBError)? {
+            Some(bc) => bc,
+            None => {
+                // unsoliciated
+                debug!("No block commit for {}/{}", burn_header_hash, block_hash);
+                return Ok(None);
+            }
+        };
+
+        // get the stacks chain tip this block commit builds off of
+        let stacks_chain_tip = 
+            if block_commit.parent_block_ptr == 0 && block_commit.parent_vtxindex == 0 {
+                // no parent -- this is the first-ever Stacks block in this fork
+                test_debug!("Block {}/{} mines off of genesis", burn_header_hash, block_hash);
+                BurnDB::get_first_block_snapshot(tx).map_err(Error::DBError)?
+            }
+            else {
+                let parent_commit = match BurnDB::get_block_commit_parent(tx, block_commit.parent_block_ptr.into(), block_commit.parent_vtxindex.into(), burn_header_hash).map_err(Error::DBError)? {
+                    Some(commit) => commit,
+                    None => {
+                        // unsolicited -- orphaned
+                        warn!("Received unsolicited block, could not find parent: {}/{}, parent={}/{}",
+                              burn_header_hash, block_hash,
+                              block_commit.parent_block_ptr, burn_header_hash);
+                        return Ok(None);
+                    }
+                };
+
+                debug!("Block {}/{} mines off of parent {},{}", burn_header_hash, block_hash, parent_commit.block_height, parent_commit.vtxindex);
+                BurnDB::get_block_snapshot(tx, &parent_commit.burn_header_hash)
+                    .map_err(Error::DBError)?
+                    .expect("FATAL: burn DB does not have snapshot for parent block commit")
+            };
+
+        Ok(Some(stacks_chain_tip))
+    }
+
     /// Validate an anchored block against the burn chain state.
     /// Returns Some(commit burn, total burn) if valid
     /// Returns None if not valid
@@ -2440,8 +2480,8 @@ impl StacksChainState {
                     let candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
                     
                     debug!("Consider block {}/{} whose parent is {}/{}", 
-                                &candidate.burn_header_hash, &candidate.anchored_block_hash,
-                                &candidate.parent_burn_header_hash, &candidate.parent_anchored_block_hash);
+                           &candidate.burn_header_hash, &candidate.anchored_block_hash,
+                           &candidate.parent_burn_header_hash, &candidate.parent_anchored_block_hash);
         
                     let can_attach = {
                         if candidate.parent_anchored_block_hash == FIRST_STACKS_BLOCK_HASH {
@@ -2460,12 +2500,12 @@ impl StacksChainState {
                             match hdr_rows.len() {
                                 0 => {
                                     // no parent processed for this block
-                                    debug!("No parent for block, cannot process");
+                                    debug!("No such parent {}/{} for block, cannot process", &candidate.parent_burn_header_hash, &candidate.parent_anchored_block_hash);
                                     false
                                 }
                                 1 => {
                                     // can process this block 
-                                    debug!("No parent for block, cannot process");
+                                    debug!("Have parent {}/{} for this block, will process", &candidate.parent_burn_header_hash, &candidate.parent_anchored_block_hash);
                                     true
                                 },
                                 _ => {

@@ -66,7 +66,8 @@ pub const FIRST_BLOCK_TESTNET: u64 = 0;
 pub const FIRST_BLOCK_REGTEST: u64 = 0;
 
 // batch size for searching for a reorg 
-const REORG_BATCH_SIZE: u64 = 200;
+// kept small since sometimes bitcoin will just send us one header at a time
+const REORG_BATCH_SIZE: u64 = 16;
 
 pub fn network_id_to_bytes(network_id: BitcoinNetworkType) -> u32 {
     match network_id {
