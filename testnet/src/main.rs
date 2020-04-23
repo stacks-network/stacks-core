@@ -17,9 +17,11 @@ pub mod config;
 pub mod event_dispatcher;
 pub mod operations;
 pub mod burnchains;
+pub mod neon_node;
 
 pub use self::keychain::{Keychain};
 pub use self::node::{Node, ChainTip};
+pub use self::neon_node::{InitializedNeonNode, NeonGenesisNode};
 pub use self::burnchains::{MocknetController, BitcoinRegtestController, BurnchainTip, BurnchainController};
 pub use self::tenure::{Tenure};
 pub use self::config::{Config, ConfigFile};

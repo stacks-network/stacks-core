@@ -39,12 +39,14 @@ use util::db::{
     FromRow,
     FromColumn,
     DBConn,
+    query_row,
     query_rows,
     query_row_columns,
     query_count
 };
 
 use core::FIRST_STACKS_BLOCK_HASH;
+use core::FIRST_BURNCHAIN_BLOCK_HASH;
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {
@@ -169,7 +171,6 @@ impl StacksChainState {
         Ok(rows.pop())
     }
 
-
     /// Get a stacks header info by index block hash (i.e. by the hash of the burn block header
     /// hash and the block hash -- the hash of the primary key)
     pub fn get_stacks_block_header_info_by_index_block_hash(conn: &Connection, index_block_hash: &BlockHeaderHash) -> Result<Option<StacksHeaderInfo>, Error> {
@@ -194,5 +195,26 @@ impl StacksChainState {
                 Ok(None)
             }
         }
+    }
+
+    /// Get an ancestor block header given an index hash
+    pub fn get_index_tip_ancestor<'a>(tx: &mut StacksDBTx<'a>, tip_index_hash: &BlockHeaderHash, height: u64) -> Result<Option<StacksHeaderInfo>, Error> {
+        match tx.get_ancestor_block_hash(height, tip_index_hash).map_err(Error::DBError)? {
+            Some(bhh) => {
+                StacksChainState::get_stacks_block_header_info_by_index_block_hash(tx, &bhh)
+            },
+            None => {
+                Ok(None)
+            }
+        }
+    }
+
+    /// Get the genesis (boot code) block header
+    pub fn get_genesis_header_info(conn: &Connection) -> Result<StacksHeaderInfo, Error> {
+        // by construction, only one block can have height 0 in this DB
+        let sql = "SELECT * FROM block_headers WHERE burn_header_hash = ?1 AND block_height = 0";
+        let args : &[&dyn ToSql] = &[&FIRST_BURNCHAIN_BLOCK_HASH];
+        let row_opt = query_row(conn, sql, args)?;
+        Ok(row_opt.expect("BUG: no genesis header info"))
     }
 }

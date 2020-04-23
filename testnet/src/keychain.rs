@@ -8,6 +8,7 @@ use stacks::burnchains::{BurnchainSigner, PrivateKey};
 use stacks::util::vrf::{VRF, VRFProof, VRFPublicKey, VRFPrivateKey};
 use stacks::util::hash::{Sha256Sum};
 
+#[derive(Clone)]
 pub struct Keychain {
     secret_keys: Vec<StacksPrivateKey>, 
     threshold: u16,
@@ -140,6 +141,14 @@ impl Keychain {
             &self.hash_mode, 
             self.threshold as usize, 
             &public_keys).unwrap()
+    }
+
+    pub fn address_from_burnchain_signer(signer: &BurnchainSigner) -> StacksAddress {
+        StacksAddress::from_public_keys(
+            signer.hash_mode.to_version_testnet(),
+            &signer.hash_mode,
+            signer.num_sigs,
+            &signer.public_keys).unwrap()
     }
 
     pub fn get_burnchain_signer(&self) -> BurnchainSigner {

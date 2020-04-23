@@ -17,7 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, NO_PARAMS, OptionalExtension};
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
@@ -474,6 +474,8 @@ impl BurnDB {
         };
 
         let (db_path, index_path) = db_mkdirs(path)?;
+        debug!("Connect/Open burndb '{}' as '{}', with index as '{}'",
+               db_path, if readwrite { "readwrite" } else { "readonly" }, index_path);
         let mut conn = Connection::open_with_flags(&db_path, open_flags).map_err(db_error::SqliteError)?;
 
         if create_flag {
@@ -550,6 +552,8 @@ impl BurnDB {
             };
 
         let (db_path, index_path) = db_mkdirs(path)?;
+        debug!("Open burndb '{}' as '{}', with index as '{}'",
+               db_path, if readwrite { "readwrite" } else { "readonly" }, index_path);
         let conn = Connection::open_with_flags(&db_path, open_flags).map_err(db_error::SqliteError)?;
         let marf = BurnDB::open_index(&index_path)?;
         let first_snapshot = BurnDB::get_first_block_snapshot(&conn)?;
@@ -792,7 +796,7 @@ impl BurnDB {
 
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
     /// block in this fork, find the snapshot of the block at that height.
-    fn get_ancestor_snapshot<'a>(tx: &mut BurnDBTx<'a>, ancestor_block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
+    pub fn get_ancestor_snapshot<'a>(tx: &mut BurnDBTx<'a>, ancestor_block_height: u64, tip_block_hash: &BurnchainHeaderHash) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(ancestor_block_height < BLOCK_HEIGHT_MAX);
         let ancestor_hash = match burndb_get_ancestor_block_hash(tx, ancestor_block_height, &tip_block_hash)? {
             Some(bhh) => {
@@ -1163,6 +1167,15 @@ impl BurnDB {
             burn_total = burn_total.checked_add(block_commits[i].burn_fee).expect("Way too many tokens burned");
         }
         Ok(burn_total)
+    }
+
+    pub fn get_block_winning_vtxindex(conn: &Connection, block_hash: &BurnchainHeaderHash) -> Result<Option<u16>, db_error> {
+        let qry = "SELECT vtxindex FROM block_commits WHERE burn_header_hash = ?1 
+                    AND txid = (
+                      SELECT winning_block_txid FROM snapshots WHERE burn_header_hash = ?2 LIMIT 1) LIMIT 1";
+        let args: &[&dyn ToSql] = &[block_hash, block_hash];
+        conn.query_row(qry, args, |row| row.get(0)).optional()
+            .map_err(db_error::from)
     }
     
     /// Get a parent block commit at a specific location in the burn chain on a particular fork.

@@ -1182,7 +1182,7 @@ impl ConversationP2P {
         // already have public key; match payload
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
-                test_debug!("{:?}: Got Handshake", &self);
+                debug!("{:?}: Got Handshake", &self);
                 let (handshake_opt, handled) = self.handle_handshake(local_peer, peerdb, burnchain_view, msg)?;
                 consume = handled;
                 Ok(handshake_opt)
@@ -1426,7 +1426,7 @@ mod test {
 
     use net::test::*;
 
-    use core::PEER_VERSION;
+    use core::{PEER_VERSION, NETWORK_P2P_PORT};
 
     fn make_test_chain_dbs(testname: &str, burnchain: &Burnchain, network_id: u32, key_expires: u64, data_url: UrlString, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> (PeerDB, BurnDB, StacksChainState) {
         let test_path = format!("/tmp/blockstack-test-databases-{}", testname);
@@ -1443,7 +1443,7 @@ mod test {
         let peerdb_path = format!("{}/peers.db", &test_path);
         let chainstate_path = format!("{}/chainstate", &test_path);
 
-        let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, key_expires, data_url.clone(), &asn4_entries, Some(&initial_neighbors)).unwrap();
+        let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, None, key_expires, PeerAddress::from_ipv4(127, 0, 0, 1), NETWORK_P2P_PORT, data_url.clone(), &asn4_entries, Some(&initial_neighbors)).unwrap();
         let burndb = BurnDB::connect(&burndb_path, burnchain.first_block_height, &burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
         let chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
 
@@ -2076,11 +2076,11 @@ mod test {
 
             // convo_2 got updated with convo_1's peer info, but no heartbeat info 
             assert_eq!(convo_2.peer_heartbeat, 0);
-            assert_eq!(convo_2.connection.get_public_key().unwrap(), Secp256k1PublicKey::from_private(&local_peer_1.private_key));
+            assert_eq!(convo_2.connection.get_public_key().unwrap().to_bytes_compressed(), Secp256k1PublicKey::from_private(&local_peer_1.private_key).to_bytes_compressed());
 
             // convo_1 got updated with convo_2's peer info, as well as heartbeat
             assert_eq!(convo_1.peer_heartbeat, conn_opts.heartbeat);
-            assert_eq!(convo_1.connection.get_public_key().unwrap(), Secp256k1PublicKey::from_private(&local_peer_2.private_key));
+            assert_eq!(convo_1.connection.get_public_key().unwrap().to_bytes_compressed(), Secp256k1PublicKey::from_private(&local_peer_2.private_key).to_bytes_compressed());
 
             // regenerate keys and expiries in peer 1
             let new_privkey = Secp256k1PrivateKey::new();
@@ -2486,7 +2486,7 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let local_peer = LocalPeer::new(123, burnchain.network_id, get_epoch_time_secs() + 123456, UrlString::try_from("http://foo.com").unwrap());
+        let local_peer = LocalPeer::new(123, burnchain.network_id, PeerAddress::from_ipv4(127, 0, 0, 1), NETWORK_P2P_PORT, None, get_epoch_time_secs() + 123456, UrlString::try_from("http://foo.com").unwrap());
         let mut convo = ConversationP2P::new(123, 456, &burnchain, &socketaddr, &conn_opts, true, 0);
 
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });

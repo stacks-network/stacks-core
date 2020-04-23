@@ -422,7 +422,7 @@ impl NeighborWalk {
             Ok(message) => {
                 // only consider this neighbor if it's _not_ bootstrapping
                 if message.preamble.burn_stable_block_height + MAX_NEIGHBOR_BLOCK_DELAY < burn_stable_block_height {
-                    test_debug!("{:?}: neighbor {:?} is still bootstrapping (on block {})", &self.local_peer, self.cur_neighbor.addr.clone(), message.preamble.burn_stable_block_height);
+                    debug!("{:?}: neighbor {:?} is still bootstrapping (on block {})", &self.local_peer, self.cur_neighbor.addr.clone(), message.preamble.burn_stable_block_height);
                     Err(net_error::StaleNeighbor)
                 }
                 else {
@@ -431,7 +431,7 @@ impl NeighborWalk {
                             // accepted! can proceed to ask for neighbors
                             // save knowledge to the peer DB (NOTE: the neighbor should already be in
                             // the DB, since it's cur_neighbor)
-                            test_debug!("{:?}: received HandshakeAccept from {:?}", &self.local_peer, &message.to_neighbor_key(&data.handshake.addrbytes, data.handshake.port));
+                            debug!("{:?}: received HandshakeAccept from {:?}: {:?}", &self.local_peer, &message.to_neighbor_key(&data.handshake.addrbytes, data.handshake.port), &data.handshake);
 
                             let mut tx = network.peerdb.tx_begin()?;
                             let neighbor_from_handshake = Neighbor::from_handshake(&mut tx, message.preamble.peer_version, message.preamble.network_id, &data.handshake)?;

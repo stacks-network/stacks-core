@@ -1,4 +1,10 @@
-version: 2
+version: 2.1
+executors:
+  docker-publisher:
+    environment:
+      IMAGE_NAME: blockstack/stacks-blockchain
+    docker:
+      - image: circleci/buildpack-deps:stretch
 jobs:
   deploy:
     working_directory: /build
@@ -32,7 +38,7 @@ jobs:
       - run:
           command: |
             echo "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)" | blockstack-core local eval S1G2081040G2081040G2081040G208105NK8PE5.tokens db
-  unit_tests:
+  unit_tests_with_cov:
     machine: true
     working_directory: ~/blockstack
     steps:
@@ -47,6 +53,16 @@ jobs:
           name: Upload to codecov.io
           command: |
             bash <(curl -s https://codecov.io/bash)
+  unit_tests:
+    docker:
+      - image: rust:1.40-stretch
+    working_directory: ~/blockstack
+    steps:
+      - checkout
+      - run:
+          no_output_timeout: 200m
+          command: |
+            cargo test --workspace
   all_tests:
     docker:
       - image: rust:1.40-stretch
@@ -56,7 +72,43 @@ jobs:
       - run:
           no_output_timeout: 200m
           command: |
-            cargo test && cargo test -- --ignored --test-threads 1
+            cargo test --workspace && cargo test -- --ignored --test-threads 1
+  build-docker:
+    executor: docker-publisher
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: build docker image
+          command: docker build . -t $IMAGE_NAME:latest
+      - run:
+          name: save image to workspace
+          command: docker save -o image.tar $IMAGE_NAME:latest
+      - persist_to_workspace:
+          root: .
+          paths:
+            - ./image.tar
+  push-docker-tags:
+    executor: docker-publisher
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - setup_remote_docker
+      - run:
+          name: load docker image
+          command: docker load -i /tmp/workspace/image.tar
+      - run:
+          name: push docker image
+          command: |
+            echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            if [ "${CIRCLE_BRANCH}" = "master" ]; then
+               docker tag $IMAGE_NAME:latest $IMAGE_NAME:master
+               docker push $IMAGE_NAME:latest
+               docker push $IMAGE_NAME:master
+            elif [ "${CIRCLE_BRANCH}" = "feature/docker-deploy" ]; then
+               docker tag $IMAGE_NAME:latest $IMAGE_NAME:test-deploy
+               docker push $IMAGE_NAME:test-deploy
+            fi
 workflows:
   version: 2
   build-deploy:
@@ -64,6 +116,9 @@ workflows:
       - unit_tests
       - test_demo
       - deploy
+      - build-docker:
+          requires:
+            - unit_tests
       - all_tests:
           filters:
             branches:
@@ -72,3 +127,12 @@ workflows:
                 - /.*net.*/
                 - /.*marf.*/
                 - feature/ignore-slow-serial-tests
+      - push-docker-tags:
+          requires:
+            - unit_tests
+            - build-docker
+          filters:
+            branches:
+              only:
+                - master
+                - feature/docker-deploy
