@@ -1,6 +1,6 @@
 [node]
-rpc_bind = "127.0.0.1:9000"
-p2p_bind = "127.0.0.1:10000"
+rpc_bind = "127.0.0.1:20443"
+p2p_bind = "127.0.0.1:20444"
 
 ## Settings for local testnet, relying on a local bitcoind server
 ## running with the following bitcoin.conf:

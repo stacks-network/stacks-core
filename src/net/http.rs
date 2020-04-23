@@ -3586,7 +3586,7 @@ mod test {
     fn test_http_live_headers() {
         // headers pulled from prod
         let live_headers = &[
-            "GET /v2/info HTTP/1.1\r\naccept-language: en-US,en;q=0.9\r\naccept-encoding: gzip, deflate, br\r\nsec-fetch-dest: document\r\nsec-fetch-user: ?1\r\nsec-fetch-mode: navigate\r\nsec-fetch-site: none\r\naccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9\r\nuser-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.113 Safari/537.36\r\nupgrade-insecure-requests: 1\r\ncache-control: max-age=0\r\nconnection: close\r\nx-forwarded-port: 443\r\nx-forwarded-host: crashy-stacky.zone117x.com\r\nx-forwarded-proto: https\r\nx-forwarded-for: 213.127.17.55\r\nx-real-ip: 213.127.17.55\r\nhost: stacks-blockchain:9000\r\n\r\n"
+            "GET /v2/info HTTP/1.1\r\naccept-language: en-US,en;q=0.9\r\naccept-encoding: gzip, deflate, br\r\nsec-fetch-dest: document\r\nsec-fetch-user: ?1\r\nsec-fetch-mode: navigate\r\nsec-fetch-site: none\r\naccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9\r\nuser-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.113 Safari/537.36\r\nupgrade-insecure-requests: 1\r\ncache-control: max-age=0\r\nconnection: close\r\nx-forwarded-port: 443\r\nx-forwarded-host: crashy-stacky.zone117x.com\r\nx-forwarded-proto: https\r\nx-forwarded-for: 213.127.17.55\r\nx-real-ip: 213.127.17.55\r\nhost: stacks-blockchain:20443\r\n\r\n"
         ];
 
         let bad_live_headers = &[
