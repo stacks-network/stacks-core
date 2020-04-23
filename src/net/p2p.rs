@@ -532,12 +532,14 @@ impl PeerNetwork {
 
     /// Broadcast a message to a list of neighbors
     pub fn broadcast_message(&mut self, mut neighbor_keys: Vec<NeighborKey>, relay_hints: Vec<RelayData>, message_payload: StacksMessageType) -> () {
+        debug!("{:?}: Will broadcast '{}' to {} neighbors", &self.local_peer, message_payload.get_message_name(), neighbor_keys.len());
         for nk in neighbor_keys.drain(..) {
             if let Some(event_id) = self.events.get(&nk) {
                 let event_id = *event_id;
                 if let Some(convo) = self.peers.get_mut(&event_id) {
                     match convo.sign_and_forward(&self.local_peer, &self.chain_view, relay_hints.clone(), message_payload.clone()) {
                         Ok(rh) => {
+                            debug!("{:?}: Broadcasted '{}' to {:?}", &self.local_peer, message_payload.get_message_name(), &nk);
                             self.add_relay_handle(event_id, rh);
                         },
                         Err(e) => {
@@ -646,9 +648,15 @@ impl PeerNetwork {
                 }
             }
         }
+        
+        debug!("Inbound recipient distribution: {:?}", &inbound_dist);
+        debug!("Outbound recipient distribution: {:?}", &outbound_dist);
 
         let mut outbound_sample = RelayerStats::sample_neighbors(outbound_dist, MAX_BROADCAST_OUTBOUND_RECEIVERS);
         let mut inbound_sample = RelayerStats::sample_neighbors(inbound_dist, MAX_BROADCAST_INBOUND_RECEIVERS);
+
+        debug!("Inbound recipients: {:?}", &inbound_sample);
+        debug!("Outbound recipients: {:?}", &outbound_sample);
 
         outbound_sample.append(&mut inbound_sample);
         Ok(outbound_sample)
@@ -1623,48 +1631,60 @@ impl PeerNetwork {
 
         // do some Actual Work(tm)
         let mut do_prune = false;
+        let mut did_cycle = false;
         debug!("{:?}: network work state is {:?}", &self.local_peer, &self.work_state);
 
-        match self.work_state {
-            PeerNetworkWorkState::NeighborWalk => {
-                // walk the peer graph and deal with new/dropped connections
-                if self.do_network_neighbor_walk()? {
-                    // proceed to synchronize block invs
-                    self.work_state = PeerNetworkWorkState::BlockInvSync;
-                }
-            },
-            PeerNetworkWorkState::BlockInvSync => {
-                // synchronize peer block inventories 
-                if self.do_network_inv_sync(burndb)? {
-                    // proceed to get blocks
-                    self.work_state = PeerNetworkWorkState::BlockDownload;
-                }
-            },
-            PeerNetworkWorkState::BlockDownload => {
-                // go fetch blocks
-                match dns_client_opt {
-                    Some(ref mut dns_client) => {
-                        if self.do_network_block_download(burndb, chainstate, *dns_client, network_result)? {
-                            // advance work state
+        while !did_cycle {
+            let cur_state = self.work_state;
+            match self.work_state {
+                PeerNetworkWorkState::NeighborWalk => {
+                    // walk the peer graph and deal with new/dropped connections
+                    if self.do_network_neighbor_walk()? {
+                        // proceed to synchronize block invs
+                        self.work_state = PeerNetworkWorkState::BlockInvSync;
+                    }
+                },
+                PeerNetworkWorkState::BlockInvSync => {
+                    // synchronize peer block inventories 
+                    if self.do_network_inv_sync(burndb)? {
+                        // proceed to get blocks
+                        self.work_state = PeerNetworkWorkState::BlockDownload;
+                    }
+                },
+                PeerNetworkWorkState::BlockDownload => {
+                    // go fetch blocks
+                    match dns_client_opt {
+                        Some(ref mut dns_client) => {
+                            if self.do_network_block_download(burndb, chainstate, *dns_client, network_result)? {
+                                // advance work state
+                                self.work_state = PeerNetworkWorkState::Prune;
+                            }
+                        },
+                        None => {
+                            // skip this step -- no DNS client available
+                            test_debug!("{:?}: no DNS client provided; skipping block download", &self.local_peer);
                             self.work_state = PeerNetworkWorkState::Prune;
                         }
-                    },
-                    None => {
-                        // skip this step -- no DNS client available
-                        test_debug!("{:?}: no DNS client provided; skipping block download", &self.local_peer);
-                        self.work_state = PeerNetworkWorkState::Prune;
                     }
-                }
-            },
-            PeerNetworkWorkState::Prune => {
-                // clear out neighbor connections after we finish sending
-                if self.do_prune {
-                    do_prune = true;
-                    self.do_prune = false;
-                }
+                },
+                PeerNetworkWorkState::Prune => {
+                    // did one pass
+                    did_cycle = true;
 
-                // restart
-                self.work_state = PeerNetworkWorkState::NeighborWalk;
+                    // clear out neighbor connections after we finish sending
+                    if self.do_prune {
+                        do_prune = true;
+                        self.do_prune = false;
+                    }
+
+                    // restart
+                    self.work_state = PeerNetworkWorkState::NeighborWalk;
+                }
+            }
+
+            if self.work_state == cur_state {
+                // only break early if we can't make progress
+                break;
             }
         }
 
@@ -1766,7 +1786,7 @@ impl PeerNetwork {
                 match res {
                     Ok(Some(block_height)) => block_height,
                     Ok(None) => {
-                        info!("Peer {:?} already known to have {} for {}", &outbound_neighbor_key, if microblocks { "streamed microblocks" } else { "blocks" }, burn_header_hash);
+                        debug!("Peer {:?} already known to have {} for {}", &outbound_neighbor_key, if microblocks { "streamed microblocks" } else { "blocks" }, burn_header_hash);
                         return None;
                     },
                     Err(net_error::InvalidMessage) => {

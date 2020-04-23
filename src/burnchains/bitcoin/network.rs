@@ -243,8 +243,10 @@ impl BitcoinIndexer {
             if backoff > 60.0 {
                 backoff = 60.0;
             }
-            
-            warn!("Connection broken; retrying in {} sec...", backoff);
+           
+            if backoff > 10.0 {
+                warn!("Connection broken; retrying in {} sec...", backoff);
+            }
 
             let sleep_sec = backoff as u64;
             let sleep_nsec = (((backoff - (sleep_sec as f64)) as u64) * 1_000_000) as u32;

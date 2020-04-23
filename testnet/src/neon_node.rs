@@ -455,7 +455,7 @@ impl InitializedNeonNode {
             .expect("Failed to initialize mine/relay thread");
 
         spawn_peer(p2p_net, &p2p_sock, &rpc_sock,
-                   config.clone(), 5000, relay_send.clone())
+                   config.clone(), 1000, relay_send.clone())
             .expect("Failed to initialize mine/relay thread");
 
 
