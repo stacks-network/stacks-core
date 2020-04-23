@@ -29,7 +29,8 @@ pub use self::event_dispatcher::{EventDispatcher};
 pub use self::run_loop::{neon, helium};
 
 use pico_args::Arguments;
-
+use std::env;
+    
 fn main() {
 
     let mut args = Arguments::from_env();
@@ -80,9 +81,11 @@ fn main() {
 }
 
 fn print_help() {
+    let argv: Vec<_> = env::args().collect();
+
     eprintln!(
         "\
-stacks-node <SUBCOMMAND>
+{} <SUBCOMMAND>
 Run a stacks-node.
 
 USAGE:
@@ -113,8 +116,7 @@ version\t\tDisplay informations about the current version and our release cycle.
 
 help\t\tDisplay this help.
 
-"
-    );
+", argv[0]);
 }
 
 fn print_version() {
