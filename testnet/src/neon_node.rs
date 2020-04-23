@@ -519,8 +519,8 @@ impl InitializedNeonNode {
         // the stacks block I'm mining off of's burn header hash and vtx index:
 
         let parent_burn_hash = stacks_tip.burn_header_hash.clone();
-        let parent_winning_vtx_index =
-            match BurnDB::get_block_winning_vtx_index(&burn_db.conn, &parent_burn_hash)
+        let parent_winning_vtxindex =
+            match BurnDB::get_block_winning_vtxindex(&burn_db.conn, &parent_burn_hash)
                 .expect("BurnDB failure.") {
                     Some(x) => x,
                     None => {
@@ -584,7 +584,7 @@ impl InitializedNeonNode {
             &registered_key, 
             parent_block.block_height.try_into()
                 .expect("Could not convert parent block height into u32"),
-            parent_winning_vtx_index,
+            parent_winning_vtxindex,
             VRFSeed::from_proof(&vrf_proof));
         let mut op_signer = keychain.generate_op_signer();
         bitcoin_controller.submit_operation(op, &mut op_signer);

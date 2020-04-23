@@ -1169,7 +1169,7 @@ impl BurnDB {
         Ok(burn_total)
     }
 
-    pub fn get_block_winning_vtx_index(conn: &Connection, block_hash: &BurnchainHeaderHash) -> Result<Option<u16>, db_error> {
+    pub fn get_block_winning_vtxindex(conn: &Connection, block_hash: &BurnchainHeaderHash) -> Result<Option<u16>, db_error> {
         let qry = "SELECT vtxindex FROM block_commits WHERE burn_header_hash = ?1 
                     AND txid = (
                       SELECT winning_block_txid FROM snapshots WHERE burn_header_hash = ?2 LIMIT 1) LIMIT 1";
