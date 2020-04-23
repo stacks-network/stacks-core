@@ -1631,9 +1631,10 @@ impl PeerNetwork {
 
         // do some Actual Work(tm)
         let mut do_prune = false;
+        let mut did_cycle = false;
         debug!("{:?}: network work state is {:?}", &self.local_peer, &self.work_state);
 
-        while !do_prune {
+        while !did_cycle {
             let cur_state = self.work_state;
             match self.work_state {
                 PeerNetworkWorkState::NeighborWalk => {
@@ -1667,6 +1668,9 @@ impl PeerNetwork {
                     }
                 },
                 PeerNetworkWorkState::Prune => {
+                    // did one pass
+                    did_cycle = true;
+
                     // clear out neighbor connections after we finish sending
                     if self.do_prune {
                         do_prune = true;
@@ -1679,7 +1683,7 @@ impl PeerNetwork {
             }
 
             if self.work_state == cur_state {
-                // only break if we can't make progress
+                // only break early if we can't make progress
                 break;
             }
         }
@@ -1782,7 +1786,7 @@ impl PeerNetwork {
                 match res {
                     Ok(Some(block_height)) => block_height,
                     Ok(None) => {
-                        info!("Peer {:?} already known to have {} for {}", &outbound_neighbor_key, if microblocks { "streamed microblocks" } else { "blocks" }, burn_header_hash);
+                        debug!("Peer {:?} already known to have {} for {}", &outbound_neighbor_key, if microblocks { "streamed microblocks" } else { "blocks" }, burn_header_hash);
                         return None;
                     },
                     Err(net_error::InvalidMessage) => {
