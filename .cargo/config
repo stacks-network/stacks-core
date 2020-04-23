@@ -1,3 +1,2 @@
 [alias]
 testnet = "run --package stacks-testnet --"
-xtask = "run --package xtask --"
