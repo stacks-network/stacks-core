@@ -1068,7 +1068,7 @@ impl StacksChainState {
     /// The caller should at least verify that the block is attached to some fork in the burn
     /// chain.
     fn store_staging_block<'a>(tx: &mut BlocksDBTx<'a>, burn_hash: &BurnchainHeaderHash, burn_header_timestamp: u64, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash, commit_burn: u64, sortition_burn: u64) -> Result<(), Error> {
-        test_debug!("Store anchored block {}/{}", burn_hash, block.block_hash());
+        debug!("Store anchored block {}/{}", burn_hash, block.block_hash());
         assert!(commit_burn < i64::max_value() as u64);
         assert!(sortition_burn < i64::max_value() as u64);
         assert!(burn_header_timestamp < i64::max_value() as u64);
@@ -1082,7 +1082,8 @@ impl StacksChainState {
             let has_parent_args: &[&dyn ToSql] = &[&block.header.parent_block, &parent_burn_header_hash];
             let rows = query_row_columns::<BlockHeaderHash, _>(&tx, &has_parent_sql, has_parent_args, "anchored_block_hash").map_err(Error::DBError)?;
             if rows.len() > 0 {
-                // still have unprocessed parent -- this block is not attacheable
+                // still have unprocessed parent -- this block is not attacheable 
+                debug!("Store non-attacheable anchored block {}/{}", burn_hash, block.block_hash());
                 0
             }
             else {
@@ -2164,20 +2165,20 @@ impl StacksChainState {
     /// TODO: consider how full the block is (i.e. how much computational budget it consumes) when
     /// deciding whether or not it can be processed.
     pub fn preprocess_anchored_block<'a>(&mut self, burn_tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, burn_header_timestamp: u64, block: &StacksBlock, parent_burn_header_hash: &BurnchainHeaderHash) -> Result<bool, Error> {
-        test_debug!("preprocess anchored block {}/{}", burn_header_hash, block.block_hash());
+        debug!("preprocess anchored block {}/{}", burn_header_hash, block.block_hash());
 
         // already in queue or already processed?
         let index_block_hash = StacksBlockHeader::make_index_block_hash(burn_header_hash, &block.block_hash());
         if StacksChainState::has_stored_block(&self.blocks_db, &self.blocks_path, burn_header_hash, &block.block_hash())? {
-            test_debug!("Block already stored and processed: {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
+            debug!("Block already stored and processed: {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
             return Ok(false);
         }
         else if StacksChainState::has_staging_block(&self.blocks_db, burn_header_hash, &block.block_hash())? {
-            test_debug!("Block already stored (but not processed): {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
+            debug!("Block already stored (but not processed): {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
             return Ok(false);
         }
         else if StacksChainState::has_block_indexed(&self.blocks_path, &index_block_hash)? {
-            test_debug!("Block already stored to chunk store: {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
+            debug!("Block already stored to chunk store: {}/{} ({})", burn_header_hash, &block.block_hash(), &index_block_hash);
             return Ok(false);
         }
          
@@ -2204,6 +2205,7 @@ impl StacksChainState {
             }
         };
      
+        debug!("Storing staging block");
         // queue block up for processing
         StacksChainState::store_staging_block(&mut block_tx, burn_header_hash, burn_header_timestamp, &block, parent_burn_header_hash, commit_burn, sortition_burn)?;
 
@@ -2437,7 +2439,7 @@ impl StacksChainState {
                 Ok(row) => {
                     let candidate = StagingBlock::from_row(&row).map_err(Error::DBError)?;
                     
-                    test_debug!("Consider block {}/{} whose parent is {}/{}", 
+                    debug!("Consider block {}/{} whose parent is {}/{}", 
                                 &candidate.burn_header_hash, &candidate.anchored_block_hash,
                                 &candidate.parent_burn_header_hash, &candidate.parent_anchored_block_hash);
         
@@ -2458,10 +2460,12 @@ impl StacksChainState {
                             match hdr_rows.len() {
                                 0 => {
                                     // no parent processed for this block
+                                    debug!("No parent for block, cannot process");
                                     false
                                 }
                                 1 => {
                                     // can process this block 
+                                    debug!("No parent for block, cannot process");
                                     true
                                 },
                                 _ => {
