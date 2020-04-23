@@ -1,13 +1,13 @@
 [node]
 rpc_bind = "0.0.0.0:30443"
 p2p_bind = "0.0.0.0:30444"
-bootstrap_node = "048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@127.0.0.1:20444"
+bootstrap_node = "04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77@127.0.0.1:20444"
 
 [burnchain]
 chain = "bitcoin"
 mode = "neon"
 peer_host = "127.0.0.1"
-rpc_port = 18443
+rpc_port = 28443
 peer_port = 18444
 
 [[mstx_balance]]
