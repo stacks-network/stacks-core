@@ -1182,7 +1182,7 @@ impl ConversationP2P {
         // already have public key; match payload
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
-                test_debug!("{:?}: Got Handshake", &self);
+                debug!("{:?}: Got Handshake", &self);
                 let (handshake_opt, handled) = self.handle_handshake(local_peer, peerdb, burnchain_view, msg)?;
                 consume = handled;
                 Ok(handshake_opt)
@@ -1443,12 +1443,7 @@ mod test {
         let peerdb_path = format!("{}/peers.db", &test_path);
         let chainstate_path = format!("{}/chainstate", &test_path);
 
-        let mut rng = rand::thread_rng();
-        let mut buf = [0u8; 8];
-        let mut local_peer_seed = [0u8; 32];
-        rng.fill_bytes(&mut local_peer_seed);
-
-        let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, key_expires, NETWORK_P2P_PORT, data_url.clone(), local_peer_seed.to_vec(), &asn4_entries, Some(&initial_neighbors)).unwrap();
+        let peerdb = PeerDB::connect(&peerdb_path, true, network_id, burnchain.network_id, None, key_expires, PeerAddress::from_ipv4(127, 0, 0, 1), NETWORK_P2P_PORT, data_url.clone(), &asn4_entries, Some(&initial_neighbors)).unwrap();
         let burndb = BurnDB::connect(&burndb_path, burnchain.first_block_height, &burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
         let chainstate = StacksChainState::open(false, network_id, &chainstate_path).unwrap();
 
@@ -2491,7 +2486,7 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let local_peer = LocalPeer::new(123, burnchain.network_id, NETWORK_P2P_PORT, get_epoch_time_secs() + 123456, UrlString::try_from("http://foo.com").unwrap(), [0u8; 32].to_vec());
+        let local_peer = LocalPeer::new(123, burnchain.network_id, PeerAddress::from_ipv4(127, 0, 0, 1), NETWORK_P2P_PORT, None, get_epoch_time_secs() + 123456, UrlString::try_from("http://foo.com").unwrap());
         let mut convo = ConversationP2P::new(123, 456, &burnchain, &socketaddr, &conn_opts, true, 0);
 
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });

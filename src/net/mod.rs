@@ -1739,7 +1739,10 @@ pub mod test {
             let peerdb_path = format!("{}/peers.db", &test_path);
             let chainstate_path = format!("{}/chainstate", &test_path);
 
-            let mut peerdb = PeerDB::connect(&peerdb_path, true, config.network_id, config.burnchain.network_id, config.private_key_expire, NETWORK_P2P_PORT, config.data_url.clone(), [0u8; 32].to_vec(), &config.asn4_entries, Some(&config.initial_neighbors)).unwrap();
+            let mut peerdb = PeerDB::connect(&peerdb_path, true, config.network_id, config.burnchain.network_id, None, config.private_key_expire, 
+                                             PeerAddress::from_ipv4(127,0,0,1), NETWORK_P2P_PORT, config.data_url.clone(), 
+                                             &config.asn4_entries, Some(&config.initial_neighbors)).unwrap();
+
             let mut burndb = BurnDB::connect(&burndb_path, config.burnchain.first_block_height, &config.burnchain.first_block_hash, get_epoch_time_secs(), true).unwrap();
             let chainstate = StacksChainState::open_and_exec(false, config.network_id, &chainstate_path, Some(config.initial_balances.clone()), |_| {}, ExecutionCost::max_value()).unwrap();
             

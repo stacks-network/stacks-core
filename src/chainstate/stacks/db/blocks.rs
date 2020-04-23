@@ -2076,10 +2076,12 @@ impl StacksChainState {
     /// (ostensibly) selected this block for inclusion.
     pub fn validate_anchored_block_burnchain<'a>(tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, block: &StacksBlock, mainnet: bool, chain_id: u32) -> Result<Option<(u64, u64)>, Error> {
         // sortition-winning block commit for this block?
-        let block_commit = match BurnDB::get_block_commit_for_stacks_block(tx, burn_header_hash, &block.block_hash()).map_err(Error::DBError)? {
+        let block_hash = block.block_hash();
+        let block_commit = match BurnDB::get_block_commit_for_stacks_block(tx, burn_header_hash, &block_hash).map_err(Error::DBError)? {
             Some(bc) => bc,
             None => {
                 // unsoliciated
+                warn!("Received unsolicited block: {}/{}", burn_header_hash, block_hash);
                 return Ok(None);
             }
         };
@@ -2104,7 +2106,7 @@ impl StacksChainState {
         let stacks_chain_tip = 
             if block_commit.parent_block_ptr == 0 && block_commit.parent_vtxindex == 0 {
                 // no parent -- this is the first-ever Stacks block in this fork
-                test_debug!("Block {}/{} mines off of genesis", burn_header_hash, block.block_hash());
+                test_debug!("Block {}/{} mines off of genesis", burn_header_hash, block_hash);
                 BurnDB::get_first_block_snapshot(tx).map_err(Error::DBError)?
             }
             else {
@@ -2112,11 +2114,14 @@ impl StacksChainState {
                     Some(commit) => commit,
                     None => {
                         // unsolicited -- orphaned
+                        warn!("Received unsolicited block, could not find parent: {}/{}, parent={}/{}",
+                              burn_header_hash, block_hash,
+                              block_commit.parent_block_ptr, burn_header_hash);
                         return Ok(None);
                     }
                 };
 
-                test_debug!("Block {}/{} mines off of parent {},{}", burn_header_hash, block.block_hash(), parent_commit.block_height, parent_commit.vtxindex);
+                debug!("Block {}/{} mines off of parent {},{}", burn_header_hash, block_hash, parent_commit.block_height, parent_commit.vtxindex);
                 BurnDB::get_block_snapshot(tx, &parent_commit.burn_header_hash)
                     .map_err(Error::DBError)?
                     .expect("FATAL: burn DB does not have snapshot for parent block commit")
@@ -2126,6 +2131,9 @@ impl StacksChainState {
         match block.header.validate_burnchain(&burn_chain_tip, &penultimate_sortition_snapshot, &leader_key, &block_commit, &stacks_chain_tip) {
             Ok(_) => {},
             Err(_) => {
+                warn!("Invalid block, could not validate on burnchain: {}/{}",
+                      burn_header_hash, block_hash);
+                      
                 return Ok(None);
             }
         };
@@ -2133,6 +2141,8 @@ impl StacksChainState {
         // static checks on transactions all pass
         let valid = block.validate_transactions_static(mainnet, chain_id);
         if !valid {
+            warn!("Invalid block, transactions failed static checks: {}/{}",
+                  burn_header_hash, block_hash);
             return Ok(None);
         }
 
