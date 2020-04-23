@@ -268,7 +268,7 @@ impl Node {
             &rpc_sock, 
             self.config.get_burn_db_file_path(),
             self.config.get_chainstate_path(), 
-            2500).unwrap();
+            1000).unwrap();
 
         info!("Bound HTTP server on: {}", &self.config.node.rpc_bind);
         info!("Bound P2P server on: {}", &self.config.node.p2p_bind);
