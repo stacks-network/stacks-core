@@ -556,15 +556,20 @@ impl Burnchain {
         let mut collisions : HashMap<(u64, u32), BlockstackOperationType> = HashMap::new();
         for op in checked_ops.into_iter() {
             match op {
-                BlockstackOperationType::LeaderBlockCommit(ref data) => {
-                    let key_loc = (data.key_block_ptr as u64, data.key_vtxindex as u32);
-                    if let Some(block_commit) = collisions.get_mut(&key_loc) {
-                        if let BlockstackOperationType::LeaderBlockCommit(block_commit) = block_commit {
-                            warn!("Block commit {} consumes the same VRF key as {}", &data.block_header_hash, &block_commit.block_header_hash);
-                            if data.burn_fee > block_commit.burn_fee {
-                                warn!("REJECTED({}) block-commit {} for {}: competing commit {} for {} has a higher burn",
-                                      block_commit.block_height, &block_commit.txid, &block_commit.block_header_hash, &data.txid, &data.block_header_hash);
+                BlockstackOperationType::LeaderBlockCommit(ref new_block_commit) => {
+                    let key_loc = (new_block_commit.key_block_ptr as u64, new_block_commit.key_vtxindex as u32);
+                    if let Some(existing_block_commit) = collisions.get_mut(&key_loc) {
+                        if let BlockstackOperationType::LeaderBlockCommit(existing_block_commit) = existing_block_commit {
+                            warn!("Block commit {} consumes the same VRF key as {}", &new_block_commit.block_header_hash, &existing_block_commit.block_header_hash);
+                            if new_block_commit.burn_fee > existing_block_commit.burn_fee {
+                                warn!("REJECTED({}) block-commit {} for {}: later competing commit {} for {} has a higher burn",
+                                      existing_block_commit.block_height, &existing_block_commit.txid, &existing_block_commit.block_header_hash, &new_block_commit.txid, &new_block_commit.block_header_hash);
                                 collisions.insert(key_loc, op);
+                            }
+                            else {
+                                warn!("REJECTED({}) block-commit {} for {}: keeping earlier commit {} for {} which has a higher burn",
+                                      new_block_commit.block_height, &new_block_commit.txid, &new_block_commit.block_header_hash,
+                                      &existing_block_commit.txid, &existing_block_commit.block_header_hash);
                             }
                         }
                         else {
