@@ -547,14 +547,14 @@ impl Burnchain {
     /// If a key is consumed more than once, then pick the block-commit with the highest burn (to
     /// stop griefing attacks).  In case of ties, pick the block-commit that occurs earlier in the
     /// block.
-    fn filter_block_commits_with_same_VRF_key(mut checked_ops: Vec<BlockstackOperationType>) -> Vec<BlockstackOperationType> {
+    fn filter_block_commits_with_same_VRF_key(checked_ops: Vec<BlockstackOperationType>) -> Vec<BlockstackOperationType> {
         debug!("Check Blockstack transactions: filter commits that consume the same VRF key");
         assert!(Burnchain::ops_are_sorted(&checked_ops));
 
         let mut ret = Vec::with_capacity(checked_ops.len());
 
         let mut collisions : HashMap<(u64, u32), BlockstackOperationType> = HashMap::new();
-        for op in checked_ops.drain(..) {
+        for op in checked_ops.into_iter() {
             match op {
                 BlockstackOperationType::LeaderBlockCommit(ref data) => {
                     let key_loc = (data.key_block_ptr as u64, data.key_vtxindex as u32);
@@ -583,7 +583,7 @@ impl Burnchain {
         }
 
         // fold back in 
-        for (_, op) in collisions.drain() {
+        for (_, op) in collisions.into_iter() {
             ret.push(op);
         }
 
