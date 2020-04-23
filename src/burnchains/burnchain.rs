@@ -520,19 +520,16 @@ impl Burnchain {
         let mut ret = Vec::with_capacity(checked_ops.len());
 
         let mut all_keys : HashSet<VRFPublicKey> = HashSet::new();
-        let mut all_ptrs : HashSet<(u64, u32)> = HashSet::new();
         for op in checked_ops.drain(..) {
             match op {
                 BlockstackOperationType::LeaderKeyRegister(data) => {
-                    let key_loc = (data.block_height, data.vtxindex);
-                    if all_keys.contains(&data.public_key) || all_ptrs.contains(&key_loc) {
+                    if all_keys.contains(&data.public_key) {
                         // duplicate
                         warn!("REJECTED({}) leader key register {} at {},{}: Duplicate VRF key", data.block_height, &data.txid, data.block_height, data.vtxindex);
                     }
                     else {
                         // first case
                         all_keys.insert(data.public_key.clone());
-                        all_ptrs.insert(key_loc);
                         ret.push(BlockstackOperationType::LeaderKeyRegister(data));
                     }
                 },
@@ -545,6 +542,56 @@ impl Burnchain {
 
         ret
     }
+
+    /// Verify that two or more block commits do not consume the same VRF key.
+    /// If a key is consumed more than once, then pick the block-commit with the highest burn (to
+    /// stop griefing attacks).  In case of ties, pick the block-commit that occurs earlier in the
+    /// block.
+    fn filter_block_commits_with_same_VRF_key(checked_ops: Vec<BlockstackOperationType>) -> Vec<BlockstackOperationType> {
+        debug!("Check Blockstack transactions: filter commits that consume the same VRF key");
+        assert!(Burnchain::ops_are_sorted(&checked_ops));
+
+        let mut ret = Vec::with_capacity(checked_ops.len());
+
+        let mut collisions : HashMap<(u64, u32), BlockstackOperationType> = HashMap::new();
+        for op in checked_ops.into_iter() {
+            match op {
+                BlockstackOperationType::LeaderBlockCommit(ref data) => {
+                    let key_loc = (data.key_block_ptr as u64, data.key_vtxindex as u32);
+                    if let Some(block_commit) = collisions.get_mut(&key_loc) {
+                        if let BlockstackOperationType::LeaderBlockCommit(block_commit) = block_commit {
+                            warn!("Block commit {} consumes the same VRF key as {}", &data.block_header_hash, &block_commit.block_header_hash);
+                            if data.burn_fee > block_commit.burn_fee {
+                                warn!("REJECTED({}) block-commit {} for {}: competing commit {} for {} has a higher burn",
+                                      block_commit.block_height, &block_commit.txid, &block_commit.block_header_hash, &data.txid, &data.block_header_hash);
+                                collisions.insert(key_loc, op);
+                            }
+                        }
+                        else {
+                            unreachable!("Inserted non-block-commit");
+                        }
+                    }
+                    else {
+                        collisions.insert(key_loc, op);
+                    }
+                },
+                _ => {
+                    // preserve
+                    ret.push(op);
+                }
+            }
+        }
+
+        // fold back in 
+        for (_, op) in collisions.into_iter() {
+            ret.push(op);
+        }
+
+        // preserve block order
+        ret.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
+        ret
+    }
+
 
     /// Generate the list of blockstack operations that will be snapshotted -- a subset of the
     /// blockstack operations extracted from get_blockstack_transactions.
@@ -568,8 +615,12 @@ impl Burnchain {
 
         // block-wide check: no duplicate keys registered
         let ret_filtered = Burnchain::filter_block_VRF_dups(ret);
-
         assert!(Burnchain::ops_are_sorted(&ret_filtered));
+    
+        // block-wide check: at most one block-commit can consume a VRF key
+        let ret_filtered = Burnchain::filter_block_commits_with_same_VRF_key(ret_filtered);
+        assert!(Burnchain::ops_are_sorted(&ret_filtered));
+
         Ok(ret_filtered)
     }
 
@@ -1434,6 +1485,119 @@ pub mod tests {
 
             assert_eq!(expected_winning_hashes, winning_header_hashes);
             */
+        }
+    }
+
+    #[test]
+    fn test_filter_block_commits_with_same_VRF_key() {
+        let mut block_commits = vec![];
+
+        for i in 0..10 {
+            let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                block_header_hash: BlockHeaderHash::from_bytes(&vec![i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
+                new_seed: VRFSeed::from_bytes(&vec![i,i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
+                parent_block_ptr: 3,
+                parent_vtxindex: 1,
+                key_block_ptr: 2,       // make them all try to use the same VRF key
+                key_vtxindex: 1,
+                memo: vec![i],
+
+                burn_fee: (i + 1) as u64,
+                input: BurnchainSigner {
+                    public_keys: vec![
+                        StacksPublicKey::from_hex("02113c274c05ed0b7f9d08f41ca674b22e42188408caaff82a350b024442de353c").unwrap(),
+                    ],
+                    num_sigs: 1,
+                    hash_mode: AddressHashMode::SerializeP2PKH
+                },
+
+                txid: Txid::from_bytes(&vec![i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i]).unwrap(),
+                vtxindex: (i + 2) as u32,
+                block_height: 5,
+                burn_header_hash: BurnchainHeaderHash([0xff; 32]),
+            });
+            block_commits.push(op);
+        }
+
+        let noncolliding_op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash([0xbb; 32]),
+            new_seed: VRFSeed([0xcc; 32]),
+            parent_block_ptr: 3,
+            parent_vtxindex: 1,
+            key_block_ptr: 2,
+            key_vtxindex: 2,
+            memo: vec![0x00],
+
+            burn_fee: 256,
+            input: BurnchainSigner {
+                public_keys: vec![
+                    StacksPublicKey::from_hex("02113c274c05ed0b7f9d08f41ca674b22e42188408caaff82a350b024442de353c").unwrap(),
+                ],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH
+            },
+
+            txid: Txid([0xdd; 32]),
+            vtxindex: 1,
+            block_height: 5,
+            burn_header_hash: BurnchainHeaderHash([0xff; 32]),
+        });
+            
+        let mut csprng: ThreadRng = thread_rng();
+        let keypair: VRFKeypair = VRFKeypair::generate(&mut csprng);
+
+        let key_op = BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
+            consensus_hash: ConsensusHash([0x11; 20]),
+            public_key: VRFPublicKey::from_bytes(&keypair.public.to_bytes()).unwrap(),
+            memo: vec![0, 0, 0, 0, 0],
+            address: StacksAddress { version: 1, bytes: Hash160([0x33; 20]) },
+
+            txid: Txid::from_bytes(&vec![4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
+            vtxindex: 100,
+            block_height: 5,
+            burn_header_hash: BurnchainHeaderHash([0xff; 32])
+        });
+
+
+        // add a non-colliding one
+        block_commits.push(noncolliding_op.clone());
+        block_commits.push(key_op.clone());
+
+        let winner = block_commits[9].clone();
+        
+        block_commits.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
+
+        let ops = Burnchain::filter_block_commits_with_same_VRF_key(block_commits);
+        assert_eq!(ops.len(), 3);
+        
+        // first op should be the non-colliding one
+        match (ops[0].clone(), noncolliding_op) {
+            (BlockstackOperationType::LeaderBlockCommit(ref op1), BlockstackOperationType::LeaderBlockCommit(ref op2)) => {
+                assert_eq!(op1, op2);
+            },
+            (_, _) => {
+                assert!(false);
+            }
+        }
+        
+        // second op should be the colliding op with the higehst fee
+        match (ops[1].clone(), winner) {
+            (BlockstackOperationType::LeaderBlockCommit(ref op1), BlockstackOperationType::LeaderBlockCommit(ref op2)) => {
+                assert_eq!(op1, op2);
+            },
+            (_, _) => {
+                assert!(false);
+            }
+        }
+        
+        // third op should be the leader key (untouched)
+        match (ops[2].clone(), key_op) {
+            (BlockstackOperationType::LeaderKeyRegister(ref op1), BlockstackOperationType::LeaderKeyRegister(ref op2)) => {
+                assert_eq!(op1, op2);
+            },
+            (_, _) => {
+                assert!(false);
+            }
         }
     }
 
