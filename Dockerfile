@@ -1,12 +1,13 @@
 FROM rust:latest as build
 
-WORKDIR /src/blockstack-core
+WORKDIR /src/stacks-blockchain
 
 COPY . .
 
-RUN cargo install --path . --root .
+RUN cd testnet && cargo install --path . --root .
 
 FROM debian:stable-slim
-COPY --from=build /src/blockstack-core/bin /bin
+RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev
+COPY --from=build /src/stacks-blockchain/testnet/bin /bin
 
-CMD ["blockstack-core"]
+CMD ["stacks-node", "neon"]
