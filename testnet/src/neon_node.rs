@@ -570,9 +570,15 @@ impl InitializedNeonNode {
         
         let coinbase_tx = inner_generate_coinbase_tx(keychain, nonce);
 
-        let anchored_block = StacksBlockBuilder::build_anchored_block(
+        let anchored_block = match StacksBlockBuilder::build_anchored_block(
             chain_state, mem_pool, &stacks_tip_header, parent_block.total_burn,
-            vrf_proof.clone(), mblock_pubkey_hash, &coinbase_tx, HELIUM_BLOCK_LIMIT.clone()).unwrap();
+            vrf_proof.clone(), mblock_pubkey_hash, &coinbase_tx, HELIUM_BLOCK_LIMIT.clone()) {
+            Ok(block) => block,
+            Err(e) => {
+                error!("Failure mining anchored block: {}", e);
+                return None
+            }
+        };
 
         info!("Finish tenure: {}", anchored_block.block_hash());
 
@@ -663,6 +669,8 @@ impl NeonGenesisNode {
 
         let keychain = Keychain::default(config.node.seed.clone());
 
+        info!("Miner burnchain address: {}", 
+              Keychain::address_from_burnchain_signer(&keychain.get_burnchain_signer()));
         info!("Begining Neon genesis node: miner address: {}", keychain.origin_address().unwrap());
         let initial_balances = config.initial_balances.iter().map(|e| (e.address.clone(), e.amount)).collect();
 
@@ -832,6 +840,9 @@ impl NeonGenesisNode {
             match op {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => {
                     if op.address == self.keychain.get_address() {
+                        debug!("Setting registered key, found LeaderKeyOp with address: {}, mine is {}",
+                               op.address, self.keychain.get_address());
+
                         // Registered key has been mined
                         new_key = Some(RegisteredKey {
                             vrf_public_key: op.public_key.clone(),
