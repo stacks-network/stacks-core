@@ -180,7 +180,7 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn get_utxos(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<Vec<UTXO>> {
+    pub fn get_utxos(&self, public_key: &Secp256k1PublicKey, amount_required: u64) -> Option<Vec<UTXO>> {
         // todo(ludo): reuse the same client.
 
         // Configure UTXO filter
