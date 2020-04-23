@@ -13,6 +13,8 @@ use stacks::vm::{ContractName, ClarityName, Value};
 use stacks::vm::types::PrincipalData;
 use stacks::address::AddressHashMode;
 
+use std::convert::TryInto;
+use rand::RngCore; 
 use super::{Config};
 use crate::helium::RunLoop;
 use super::node::{TESTNET_CHAIN_ID};
@@ -82,10 +84,21 @@ pub fn new_test_conf() -> Config {
 
     let mut conf = Config::default();
     conf.add_initial_balance("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(), 10000);
-    conf.node.rpc_bind = "127.0.0.1:30443".to_string();
-    conf.node.p2p_bind = "127.0.0.1:30444".to_string();
-    conf.node.data_url = "https://127.0.0.1:30443".to_string();
-    conf.node.p2p_address = "127.0.0.1:30443".to_string();
+
+    let mut rng = rand::thread_rng();
+    let mut buf = [0u8; 8];
+    rng.fill_bytes(&mut buf);
+
+    let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap())
+        .saturating_add(1024); // use a non-privileged port
+    let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap())
+        .saturating_add(1024); // use a non-privileged port 
+    
+    let localhost = "127.0.0.1";
+    conf.node.rpc_bind = format!("{}:{}", localhost, rpc_port);
+    conf.node.p2p_bind = format!("{}:{}", localhost, p2p_port);
+    conf.node.data_url = format!("https://{}:{}", localhost, rpc_port);
+    conf.node.p2p_address = format!("{}:{}", localhost, p2p_port);
     conf
 }
 

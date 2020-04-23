@@ -8,9 +8,7 @@ local_peer_seed = "0000000000000000000000000000000000000000000000000000000000000
 chain = "bitcoin"
 mode = "neon"
 peer_host = "127.0.0.1"
-burnchain_op_tx_fee = 1000
-commit_anchor_block_within = 10000
-rpc_port = 18443
+rpc_port = 28443
 peer_port = 18444
 
 [[mstx_balance]]
