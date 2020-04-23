@@ -330,12 +330,33 @@ impl HttpPeer {
                     net_error::PermanentlyDrained => {
                         // socket got closed, but we might still have pending unsolicited messages
                         debug!("Remote HTTP peer disconnected event {} (socket {:?})", event_id, &client_sock);
+                        convo_dead = true;
+                    },
+                    net_error::InvalidMessage => {
+                        // got sent bad data.  If this was an inbound conversation, send it a HTTP
+                        // 400 and close the socket.
+                        debug!("Got a bad HTTP message on socket {:?}", &client_sock);
+                        match convo.reply_error(client_sock, HttpResponseType::BadRequest(HttpResponseMetadata::empty_error(), "".to_string())) {
+                            Ok(_) => {
+                                match HttpPeer::saturate_http_socket(client_sock, convo, chainstate) {
+                                    Ok(_) => {},
+                                    Err(e) => {
+                                        debug!("Failed to flush HTP 400 to socket {:?}: {:?}", &client_sock, &e);
+                                        convo_dead = true;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                debug!("Failed to reply HTTP 400 to socket {:?}: {:?}", &client_sock, &e);
+                                convo_dead = true;
+                            }
+                        }
                     },
                     _ => {
                         debug!("Failed to receive HTTP data on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
+                        convo_dead = true;
                     }
                 }
-                convo_dead = true;
             },
             Ok(_) => {}
         }
@@ -870,6 +891,26 @@ mod test {
     }
     
     #[test]
+    fn test_http_400() {
+        test_http_server("test_http_getinfo", 51070, 51071, ConnectionOptions::default(), 1, 0,
+                        |client_id, _| {
+                            // live example -- should fail because we don't support `Connection:
+                            // upgrade`
+                            let request_txt = "GET /favicon.ico HTTP/1.1\r\nConnection: upgrade\r\nHost: crashy-stacky.zone117x.com\r\nX-Real-IP: 213.127.17.55\r\nX-Forwarded-For: 213.127.17.55\r\nX-Forwarded-Proto: http\r\nX-Forwarded-Host: crashy-stacky.zone117x.com\r\nX-Forwarded-Port: 9001\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.113 Safari/537.36\r\nAccept: image/webp,image/apng,image/*,*/*;q=0.8\r\nReferer: http://crashy-stacky.zone117x.com:9001/v2/info\r\nAccept-Encoding: gzip, deflate\r\nAccept-Language: en-US,en;q=0.9\r\n\r\n";
+                            request_txt.as_bytes().to_vec()
+                        },
+                        |client_id, http_response_bytes_res| {
+                            // should be a HTTP 400 error 
+                            eprintln!("{:?}", &http_response_bytes_res);
+                            let http_response_bytes = http_response_bytes_res.unwrap();
+                            let http_response_str = String::from_utf8(http_response_bytes).unwrap();
+                            eprintln!("HTTP response\n{}", http_response_str);
+                            assert!(http_response_str.find("400 Bad Request").is_some());
+                            true
+                        });
+    }
+
+    #[test]
     fn test_http_noop() {
         if std::env::var("BLOCKSTACK_HTTP_TEST") != Ok("1".to_string()) {
             eprintln!("Set BLOCKSTACK_HTTP_TEST=1 to use this test.");
@@ -879,7 +920,7 @@ mod test {
 
         // doesn't do anything; just runs a server for 10 minutes
         let conn_opts = ConnectionOptions::default();
-        test_http_server("test_http_noop", 51070, 51071, conn_opts, 1, 600,
+        test_http_server("test_http_noop", 51080, 51081, conn_opts, 1, 600,
                         |client_id, ref mut peer_server| {
                             let peer_server_block = make_codec_test_block(25);
                             let peer_server_burn_block_hash = BurnchainHeaderHash([(client_id+1) as u8; 32]);

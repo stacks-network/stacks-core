@@ -1000,6 +1000,15 @@ impl HttpResponseMetadata {
             content_length: preamble.content_length.clone(),
         }
     }
+
+    pub fn empty_error() -> HttpResponseMetadata {
+        HttpResponseMetadata {
+            client_version: HttpVersion::Http11,
+            client_keep_alive: false,
+            request_id: HttpResponseMetadata::make_request_id(),
+            content_length: Some(0)
+        }
+    }
 }
 
 impl From<&HttpRequestType> for HttpResponseMetadata {
