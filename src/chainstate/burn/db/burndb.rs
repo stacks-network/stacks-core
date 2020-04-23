@@ -1177,13 +1177,6 @@ impl BurnDB {
         conn.query_row(qry, args, |row| row.get(0)).optional()
             .map_err(db_error::from)
     }
-
-    pub fn get_block_height(conn: &Connection, block_hash: &BurnchainHeaderHash) -> Result<Option<u32>, db_error> {
-        let qry = "SELECT block_height FROM snapshots WHERE burn_header_hash = ? LIMIT 1";
-        let args: &[&dyn ToSql] = &[block_hash];
-        conn.query_row(qry, args, |row| row.get(0)).optional()
-            .map_err(db_error::from)
-    }
     
     /// Get a parent block commit at a specific location in the burn chain on a particular fork.
     /// Returns None if there is no block commit at this location.
