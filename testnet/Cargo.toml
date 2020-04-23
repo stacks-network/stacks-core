@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 lazy_static = "1.4.0"
 mio = "0.6"
+pico-args = "0.3.1"
 rand = "=0.7.2"
 reqwest = { version = "0.10", features = ["blocking", "json"] }
 secp256k1 = { version = "0.11.5" }
@@ -17,5 +18,5 @@ stacks = { package = "blockstack-core", path = "../." }
 toml = "0.5.6"
 
 [[bin]]
-name = "stacks-testnet"
+name = "stacks-node"
 path = "src/main.rs"

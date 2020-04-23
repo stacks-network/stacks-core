@@ -1,7 +1,6 @@
 [node]
 name = "helium-node"
-rpc_bind = "127.0.0.1:9000"
-# working_dir = "/tmp/stacks-helium"
+rpc_bind = "127.0.0.1:20443"
 
 ## Settings for local testnet, relying on a local bitcoind server
 ## running with the following bitcoin.conf:

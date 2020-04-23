@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::io::{BufReader, Read};
 use std::fs::File;
-use std::net::SocketAddr;
+use std::net::ToSocketAddrs;
 
 use rand::RngCore;
 
@@ -18,7 +18,7 @@ use stacks::vm::costs::ExecutionCost;
 use super::node::TESTNET_CHAIN_ID;
 use super::neon_node::TESTNET_PEER_VERSION;
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Default)]
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
@@ -39,6 +39,91 @@ impl ConfigFile {
 
     pub fn from_str(content: &str) -> ConfigFile {
         toml::from_slice(&content.as_bytes()).unwrap()
+    }
+
+    pub fn neon() -> ConfigFile {    
+        let burnchain = BurnchainConfigFile {
+            mode: Some("neon".to_string()),
+            rpc_port: Some(18443),
+            peer_port: Some(18444),
+            peer_host: Some("neon.blockstack.org".to_string()),
+            burnchain_op_tx_fee: Some(1000),
+            ..BurnchainConfigFile::default()
+        };
+
+        let node = NodeConfigFile {
+            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@neon.blockstack.org:20444".to_string()),
+            ..NodeConfigFile::default()
+        };
+
+        let balances = vec![
+            InitialBalanceFile {
+                address: "STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST11NJTTKGVT6D1HY4NJRVQWMQM7TVAR091EJ8P2Y".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "ST1HB1T8WRNBYB0Y3T7WXZS38NKKPTBR3EG9EPJKR".to_string(),
+                amount: 10000000000000000,
+            },
+            InitialBalanceFile {
+                address: "STRYYQQ9M8KAF4NS7WNZQYY59X93XEKR31JP64CP".to_string(),
+                amount: 10000000000000000,
+            },
+        ];
+
+        ConfigFile {
+            burnchain: Some(burnchain),
+            node: Some(node),
+            mstx_balance: Some(balances),
+            ..ConfigFile::default()
+        }
+    }
+
+    pub fn helium() -> ConfigFile {
+        // ## Settings for local testnet, relying on a local bitcoind server
+        // ## running with the following bitcoin.conf:
+        // ##
+        // ##    chain=regtest
+        // ##    disablewallet=0
+        // ##    txindex=1
+        // ##    server=1
+        // ##    rpcuser=helium
+        // ##    rpcpassword=helium
+        // ##
+        let burnchain = BurnchainConfigFile {
+            mode: Some("helium".to_string()),
+            commit_anchor_block_within: Some(10_000),
+            rpc_port: Some(18443),
+            peer_port: Some(18444),
+            peer_host: Some("0.0.0.0".to_string()),
+            username: Some("helium".to_string()),
+            password: Some("helium".to_string()),
+            burnchain_op_tx_fee: Some(1000),
+            local_mining_public_key: Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string()),
+            ..BurnchainConfigFile::default()
+        };
+
+        ConfigFile {
+            burnchain: Some(burnchain),
+            ..ConfigFile::default()
+        }
+    }
+
+    pub fn mocknet() -> ConfigFile {
+        let burnchain = BurnchainConfigFile {
+            mode: Some("mocknet".to_string()),
+            commit_anchor_block_within: Some(10_000),
+            ..BurnchainConfigFile::default()
+        };
+
+        ConfigFile {
+            burnchain: Some(burnchain),
+            ..ConfigFile::default()
+        }
     }
 }
 
@@ -132,7 +217,17 @@ impl Config {
                     mode: burnchain.mode.unwrap_or(default_burnchain_config.mode),
                     burn_fee_cap: burnchain.burn_fee_cap.unwrap_or(default_burnchain_config.burn_fee_cap),
                     commit_anchor_block_within: burnchain.commit_anchor_block_within.unwrap_or(default_burnchain_config.commit_anchor_block_within),
-                    peer_host: burnchain.peer_host.unwrap_or(default_burnchain_config.peer_host),
+                    peer_host: match burnchain.peer_host {
+                        Some(peer_host) => {
+                            // Using std::net::LookupHost would be preferable, but it's
+                            // unfortunately unstable at this point.
+                            // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
+                            let mut addrs_iter = format!("{}:1", peer_host).to_socket_addrs().unwrap();
+                            let sock_addr = addrs_iter.next().unwrap();
+                            format!("{}", sock_addr.ip())
+                        }
+                        None => default_burnchain_config.peer_host
+                    },
                     peer_port: burnchain.peer_port.unwrap_or(default_burnchain_config.peer_port),
                     rpc_port: burnchain.rpc_port.unwrap_or(default_burnchain_config.rpc_port),
                     rpc_ssl: burnchain.rpc_ssl.unwrap_or(default_burnchain_config.rpc_ssl),
@@ -337,7 +432,7 @@ impl BurnchainConfig {
             mode: "mocknet".to_string(),
             burn_fee_cap: 10000,
             commit_anchor_block_within: 5000,
-            peer_host: "127.0.0.1".to_string(),
+            peer_host: "0.0.0.0".to_string(),
             peer_port: 8333,
             rpc_port: 8332,
             rpc_ssl: false,
@@ -361,7 +456,7 @@ impl BurnchainConfig {
     }
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Default)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
@@ -402,11 +497,8 @@ impl NodeConfig {
         rng.fill_bytes(&mut buf);
         let testnet_id = format!("stacks-testnet-{}", to_hex(&buf));
 
-        let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap())
-            .saturating_add(1024); // use a non-privileged port
-
-        let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap())
-            .saturating_add(1024); // use a non-privileged port
+        let rpc_port = 20443;
+        let p2p_port = 20444;
 
         let mut local_peer_seed = [0u8; 32];
         rng.fill_bytes(&mut local_peer_seed);
@@ -419,8 +511,8 @@ impl NodeConfig {
             name: name.to_string(),
             seed: seed.to_vec(),
             working_dir: format!("/tmp/{}", testnet_id),
-            rpc_bind: format!("127.0.0.1:{}", rpc_port),
-            p2p_bind: format!("127.0.0.1:{}", p2p_port),
+            rpc_bind: format!("0.0.0.0:{}", rpc_port),
+            p2p_bind: format!("0.0.0.0:{}", p2p_port),
             data_url: format!("http://127.0.0.1:{}", rpc_port),
             p2p_address: format!("127.0.0.1:{}", rpc_port),
             bootstrap_node: None,
@@ -441,7 +533,8 @@ impl NodeConfig {
             let comps: Vec<&str> = bootstrap_node.split("@").collect();
             match comps[..] {
                 [public_key, peer_addr] => {
-                    let sock_addr: SocketAddr = peer_addr.parse().unwrap(); 
+                    let mut addrs_iter = peer_addr.to_socket_addrs().unwrap();
+                    let sock_addr = addrs_iter.next().unwrap();
                     let neighbor = Neighbor {
                         addr: NeighborKey {
                             peer_version: TESTNET_PEER_VERSION,
@@ -506,7 +599,7 @@ pub struct BlockLimitFile {
 }
 
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Deserialize, Default)]
 pub struct NodeConfigFile {
     pub name: Option<String>,
     pub seed: Option<String>,
@@ -519,7 +612,7 @@ pub struct NodeConfigFile {
     pub local_peer_seed: Option<String>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Default)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
@@ -582,7 +675,7 @@ pub struct InitialBalance {
     pub amount: u64,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Default)]
 pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,

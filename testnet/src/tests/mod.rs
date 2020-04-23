@@ -82,7 +82,10 @@ pub fn new_test_conf() -> Config {
 
     let mut conf = Config::default();
     conf.add_initial_balance("ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(), 10000);
-
+    conf.node.rpc_bind = "127.0.0.1:30443".to_string();
+    conf.node.p2p_bind = "127.0.0.1:30444".to_string();
+    conf.node.data_url = "https://127.0.0.1:30443".to_string();
+    conf.node.p2p_address = "127.0.0.1:30443".to_string();
     conf
 }
 
