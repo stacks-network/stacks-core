@@ -39,7 +39,7 @@ use crate::ChainTip;
 use stacks::burnchains::BurnchainSigner;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x00000000;
-pub const TESTNET_PEER_VERSION: u32 = 0xdead1010;
+pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 pub const RELAYER_MAX_BUFFER: usize = 100;
 
 #[derive(Clone)]

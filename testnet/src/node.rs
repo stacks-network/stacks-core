@@ -24,7 +24,7 @@ use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 
 pub const TESTNET_CHAIN_ID: u32 = 0x80000000;
-pub const TESTNET_PEER_VERSION: u32 = 0xdead1010;
+pub const TESTNET_PEER_VERSION: u32 = 0xfacade01;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
