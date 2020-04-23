@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::io::{BufReader, Read};
 use std::fs::File;
-use std::net::SocketAddr;
+use std::net::ToSocketAddrs;
 
 use rand::RngCore;
 
@@ -43,16 +43,22 @@ impl ConfigFile {
     pub fn neon() -> ConfigFile {    
         let burnchain = BurnchainConfigFile {
             mode: Some("neon".to_string()),
-            commit_anchor_block_within: Some(40_000),
             rpc_port: Some(18443),
             peer_port: Some(18444),
-            peer_host: Some("35.245.58.246".to_string()),
+            peer_host: Some("35.245.47.179".to_string()),
+            // peer_host: Some("neon.blockstack.org".to_string()),
             burnchain_op_tx_fee: Some(1000),
             ..BurnchainConfigFile::default()
         };
 
+        let node = NodeConfigFile {
+            bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@35.245.47.179:20444".to_string()),
+            ..NodeConfigFile::default()
+        };
+
         ConfigFile {
             burnchain: Some(burnchain),
+            node: Some(node),
             ..ConfigFile::default()
         }
     }
@@ -451,7 +457,8 @@ impl NodeConfig {
             let comps: Vec<&str> = bootstrap_node.split("@").collect();
             match comps[..] {
                 [public_key, peer_addr] => {
-                    let sock_addr: SocketAddr = peer_addr.parse().unwrap(); 
+                    let mut addrs_iter = peer_addr.to_socket_addrs().unwrap();
+                    let sock_addr = addrs_iter.next().unwrap();
                     let neighbor = Neighbor {
                         addr: NeighborKey {
                             peer_version: PEER_VERSION,
