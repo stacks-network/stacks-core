@@ -17,7 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, NO_PARAMS, OptionalExtension};
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
@@ -1167,6 +1167,22 @@ impl BurnDB {
             burn_total = burn_total.checked_add(block_commits[i].burn_fee).expect("Way too many tokens burned");
         }
         Ok(burn_total)
+    }
+
+    pub fn get_block_winning_vtx_index(conn: &Connection, block_hash: &BurnchainHeaderHash) -> Result<Option<u16>, db_error> {
+        let qry = "SELECT vtxindex FROM block_commits WHERE burn_header_hash = ?1 
+                    AND txid = (
+                      SELECT winning_block_txid FROM snapshots WHERE burn_header_hash = ?2 LIMIT 1) LIMIT 1";
+        let args: &[&dyn ToSql] = &[block_hash, block_hash];
+        conn.query_row(qry, args, |row| row.get(0)).optional()
+            .map_err(db_error::from)
+    }
+
+    pub fn get_block_height(conn: &Connection, block_hash: &BurnchainHeaderHash) -> Result<Option<u32>, db_error> {
+        let qry = "SELECT block_height FROM snapshots WHERE burn_header_hash = ? LIMIT 1";
+        let args: &[&dyn ToSql] = &[block_hash];
+        conn.query_row(qry, args, |row| row.get(0)).optional()
+            .map_err(db_error::from)
     }
     
     /// Get a parent block commit at a specific location in the burn chain on a particular fork.
