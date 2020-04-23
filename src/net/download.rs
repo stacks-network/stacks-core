@@ -851,7 +851,7 @@ impl PeerNetwork {
                 let mut next_block_sortition_height = block_sortition_height;
                 let mut next_microblock_sortition_height = microblock_sortition_height;
 
-                test_debug!("{:?}: Look for blocks at sortition {}, microblocks at sortition {}", &network.local_peer, next_block_sortition_height, next_microblock_sortition_height);
+                debug!("{:?}: Look for blocks at sortition {}, microblocks at sortition {}", &network.local_peer, next_block_sortition_height, next_microblock_sortition_height);
 
                 // fetch as many blocks and microblocks as we can -- either
                 // downloader.max_inflight_requests, or however many blocks remain between the
@@ -954,7 +954,7 @@ impl PeerNetwork {
                         mblock_height += 1;
                     }
 
-                    test_debug!("{:?}: block download scan now at ({},{}) (was ({},{}))", &network.local_peer, height, mblock_height, block_sortition_height, microblock_sortition_height);
+                    debug!("{:?}: block download scan now at ({},{}) (was ({},{}))", &network.local_peer, height, mblock_height, block_sortition_height, microblock_sortition_height);
                     
                     if max_height <= next_block_sortition_height && max_mblock_height <= next_microblock_sortition_height {
                         test_debug!("{:?}: no more requests to make", &network.local_peer);
@@ -992,8 +992,8 @@ impl PeerNetwork {
                 downloader.next_block_sortition_height = next_block_sortition_height;
                 downloader.next_microblock_sortition_height = next_microblock_sortition_height;
 
-                test_debug!("{:?}: Will try for {} blocks and {} microblocks (next sortition heights are {},{}, chain tip is {})", 
-                            &network.local_peer, downloader.blocks_to_try.len(), downloader.microblocks_to_try.len(), next_block_sortition_height, next_microblock_sortition_height, network.chain_view.burn_block_height - burndb.first_block_height);
+                debug!("{:?}: Will try for {} blocks and {} microblocks (next sortition heights are {},{}, chain tip is {})", 
+                        &network.local_peer, downloader.blocks_to_try.len(), downloader.microblocks_to_try.len(), next_block_sortition_height, next_microblock_sortition_height, network.chain_view.burn_block_height - burndb.first_block_height);
                 Ok(())
             })?;
         }
@@ -1239,17 +1239,17 @@ impl PeerNetwork {
                 downloader.microblocks_to_try.remove(&height);
             }
 
-            test_debug!("Blocks to try: {}; Microblocks to try: {}", downloader.blocks_to_try.len(), downloader.microblocks_to_try.len());
+            debug!("Blocks to try: {}; Microblocks to try: {}", downloader.blocks_to_try.len(), downloader.microblocks_to_try.len());
             if downloader.blocks_to_try.len() == 0 && downloader.microblocks_to_try.len() == 0 {
                 // advance downloader state
                 done = true;
 
-                test_debug!("{:?}: Advance downloader to start at sortition heights {},{}", &network.local_peer, downloader.next_block_sortition_height, downloader.next_microblock_sortition_height);
+                debug!("{:?}: Advance downloader to start at sortition heights {},{}", &network.local_peer, downloader.next_block_sortition_height, downloader.next_microblock_sortition_height);
                 downloader.block_sortition_height = downloader.next_block_sortition_height;
                 downloader.microblock_sortition_height = downloader.next_microblock_sortition_height;
 
                 if downloader.block_sortition_height + burndb.first_block_height >= network.chain_view.burn_block_height {
-                    test_debug!("{:?}: Downloader for blocks has reached the chain tip", &network.local_peer);
+                    debug!("{:?}: Downloader for blocks has reached the chain tip", &network.local_peer);
                     downloader.block_sortition_height = 0;
                     downloader.next_block_sortition_height = 0;
 
@@ -1263,7 +1263,7 @@ impl PeerNetwork {
                     downloader.num_blocks_downloaded = 0;
                 }
                 if downloader.microblock_sortition_height + burndb.first_block_height >= network.chain_view.burn_block_height {
-                    test_debug!("{:?}: Downloader for microblocks has reached the chain tip", &network.local_peer);
+                    debug!("{:?}: Downloader for microblocks has reached the chain tip", &network.local_peer);
                     downloader.microblock_sortition_height = 0;
                     downloader.next_microblock_sortition_height = 0;
                     
