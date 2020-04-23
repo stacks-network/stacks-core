@@ -375,8 +375,20 @@ impl RelayerStats {
         let mut norm = rankings.values().fold(0, |t, s| { t + s });
         let mut rankings_vec : Vec<(NeighborKey, usize)> = rankings.into_iter().collect();
 
+        if norm <= 1 {
+            // there is one or zero options
+            if rankings_vec.len() > 0 {
+                ret.push(rankings_vec[0].0.clone());
+                return ret;
+            }
+            else {
+                return vec![];
+            }
+        }
+
         for l in 0..count {
             if norm <= 1 {
+                // just one option
                 break;
             }
 
@@ -740,8 +752,8 @@ impl Relayer {
             info!("Processing newly received blocks: {}", new_blocks.len());
         }
         // process as many epochs as we can.
-        // Try to process at least one epoch.
-        let receipts: Vec<_> = chainstate.process_blocks(new_blocks.len() + 1)?.into_iter()
+        // Try to process at least a few epochs
+        let receipts: Vec<_> = chainstate.process_blocks(new_blocks.len() + 50)?.into_iter()
             .filter_map(|block_result| block_result.0).collect();
 
         Ok((new_blocks.into_iter().collect(), new_confirmed_microblocks.into_iter().collect(), new_microblocks, bad_neighbors, receipts))
@@ -888,8 +900,12 @@ impl Relayer {
         test_debug!("{:?}: Process {} transaction(s)", &_local_peer, network_result.pushed_transactions.len());
         let mut new_txs = Relayer::process_transactions(network_result, chainstate, mempool)?;
 
-        test_debug!("{:?}: Send {} transactions to neighbors", &_local_peer, new_txs.len());
+        if new_txs.len() > 0 {
+            debug!("{:?}: Send {} transactions to neighbors", &_local_peer, new_txs.len());
+        }
+
         for (relayers, tx) in new_txs.drain(..) {
+            debug!("{:?}: Broadcast tx {}", &_local_peer, &tx.txid());
             let msg = StacksMessageType::Transaction(tx);
             if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
                 warn!("Failed to broadcast transaction: {:?}", &e);
