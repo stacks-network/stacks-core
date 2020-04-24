@@ -305,7 +305,7 @@ fn handle_token_transfer(args: &[String], version: TransactionVersion, chain_id:
         return Err(CliError::Message(format!("USAGE:\n {}", TOKEN_TRANSFER_USAGE)))
     }
     if args.len() < 5 {
-        return Err(CliError::Message(format!("Incorrect argument count supplied \n\nUSAGE:\n {}", CALL_USAGE)))
+        return Err(CliError::Message(format!("Incorrect argument count supplied \n\nUSAGE:\n {}", TOKEN_TRANSFER_USAGE)))
     }
     let sk_origin = StacksPrivateKey::from_hex(&args[0])?;
     let fee_rate = args[1].parse()?;
