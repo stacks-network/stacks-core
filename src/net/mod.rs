@@ -1157,7 +1157,7 @@ pub const MAX_BROADCAST_OUTBOUND_RECEIVERS : usize = 8;
 pub const MAX_BROADCAST_INBOUND_RECEIVERS : usize = 16;
 
 // messages can't be bigger than 16MB plus the preamble and relayers
-pub const MAX_PAYLOAD_LEN : u32 = (1 + 16 * 1024 * 1024);
+pub const MAX_PAYLOAD_LEN : u32 = 1 + 16 * 1024 * 1024;
 pub const MAX_MESSAGE_LEN : u32 = MAX_PAYLOAD_LEN + (PREAMBLE_ENCODED_SIZE + MAX_RELAYERS_LEN * RELAY_DATA_ENCODED_SIZE);
 
 // maximum value of a blocks's inv data bitlen.
