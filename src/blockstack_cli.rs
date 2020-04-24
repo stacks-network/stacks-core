@@ -39,7 +39,6 @@ This CLI has these methods:
   contract-call    used to generate and sign a contract-call transaction
   generate-sk      used to generate a secret key for transaction signing
   token-transfer   used to generate and sign a transfer transaction
-  deserialize-tx   used to deserialize a hex-serialized stacks transaction
 
 For usage information on those methods, call `blockstack-cli [method] -h`
 
@@ -87,11 +86,6 @@ const GENERATE_USAGE: &str = "blockstack-cli (options) generate-sk
 
 This method generates a secret key, outputting the hex encoding of the
 secret key, the corresponding public key, and the corresponding P2PKH Stacks address.";
-
-const DESERIALIZE_USAGE: &str = "blockstack-cli (options) deserialize-tx
-
-This method deserializes a hex-serialized transaction (passed in via stdin), displaying
-the transaction's payload debug output, as well as the origin and nonce of the sender";
 
 
 #[derive(Debug)]
@@ -405,23 +399,6 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
             "publish" => handle_contract_publish(args, tx_version, chain_id),
             "token-transfer" => handle_token_transfer(args, tx_version, chain_id),
             "generate-sk" => generate_secret_key(args, tx_version),
-            "deserialize-tx" => {
-                if args.len() > 0 {
-                    return Err(CliError::Message(format!("USAGE:\n {}", DESERIALIZE_USAGE)));
-                }
-                let content = {
-                    let mut buffer = String::new();
-                    io::stdin().read_to_string(&mut buffer).unwrap();
-                    buffer
-                };
-                let de_hexed = hex_bytes(content.trim()).unwrap();
-                let tx: StacksTransaction = StacksTransaction::consensus_deserialize(&mut de_hexed.as_slice()).unwrap();
-                let payload = tx.payload;
-                Ok(format!("Origin Address: {} (main) / {} (test)\nNonce: {}\n{:?}", 
-                           tx.auth.origin().address_mainnet(), tx.auth.origin().address_testnet(),
-                           tx.auth.origin().nonce(),
-                           payload))
-            },
             _ => Err(CliError::Usage)
         }
     } else {
