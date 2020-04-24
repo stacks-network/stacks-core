@@ -53,6 +53,7 @@ impl ConfigFile {
 
         let node = NodeConfigFile {
             bootstrap_node: Some("048dd4f26101715853533dee005f0915375854fd5be73405f679c1917a5d4d16aaaf3c4c0d7a9c132a36b8c5fe1287f07dad8c910174d789eb24bdfb5ae26f5f27@neon.blockstack.org:20444".to_string()),
+            miner: Some(false),
             ..NodeConfigFile::default()
         };
 
@@ -107,8 +108,14 @@ impl ConfigFile {
             ..BurnchainConfigFile::default()
         };
 
+        let node = NodeConfigFile {
+            miner: Some(false),
+            ..NodeConfigFile::default()
+        };
+
         ConfigFile {
             burnchain: Some(burnchain),
+            node: Some(node),
             ..ConfigFile::default()
         }
     }
@@ -120,8 +127,14 @@ impl ConfigFile {
             ..BurnchainConfigFile::default()
         };
 
+        let node = NodeConfigFile {
+            miner: Some(false),
+            ..NodeConfigFile::default()
+        };
+
         ConfigFile {
             burnchain: Some(burnchain),
+            node: Some(node),
             ..ConfigFile::default()
         }
     }
@@ -202,6 +215,7 @@ impl Config {
                         Some(seed) => hex_bytes(&seed).expect("Seed should be a hex encoded string"),
                         None => default_node_config.local_peer_seed
                     },
+                    miner: node.miner.unwrap_or(default_node_config.miner),
                 };
                 node_config.set_bootstrap_node(node.bootstrap_node);
                 node_config
@@ -487,6 +501,7 @@ pub struct NodeConfig {
     pub p2p_address: String,
     pub local_peer_seed: Vec<u8>,
     pub bootstrap_node: Option<Neighbor>,
+    pub miner: bool,
 }
 
 impl NodeConfig {
@@ -517,6 +532,7 @@ impl NodeConfig {
             p2p_address: format!("127.0.0.1:{}", rpc_port),
             bootstrap_node: None,
             local_peer_seed: local_peer_seed.to_vec(),
+            miner: false,
         }
     }
 
@@ -610,6 +626,7 @@ pub struct NodeConfigFile {
     pub data_url: Option<String>,
     pub bootstrap_node: Option<String>,
     pub local_peer_seed: Option<String>,
+    pub miner: Option<bool>,
 }
 
 #[derive(Clone, Deserialize, Default)]
